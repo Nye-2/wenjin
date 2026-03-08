@@ -360,7 +360,7 @@ async def test_app(test_engine, test_session):
         try:
             hashed_pw = hash_password(request.password)
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
         user = TestUser(
             email=request.email.lower().strip(),

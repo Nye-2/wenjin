@@ -118,7 +118,8 @@ class TestCreateUser:
         )
 
         # Try to create second user with same email
-        with pytest.raises(Exception):  # IntegrityError from SQLAlchemy
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError):  # IntegrityError from SQLAlchemy
             await user_service.create_user(
                 email="test@example.com",
                 password="anotherpassword123",

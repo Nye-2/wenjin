@@ -65,7 +65,7 @@ class ArtifactService:
                 valid_types = [t.value for t in ArtifactType]
                 raise ValueError(
                     f"Invalid artifact type: {type}. Must be one of: {valid_types}"
-                )
+                ) from None
 
         artifact = Artifact(
             workspace_id=workspace_id,
@@ -161,7 +161,7 @@ class ArtifactService:
                     valid_types = [t.value for t in ArtifactType]
                     raise ValueError(
                         f"Invalid artifact type: {type_value}. Must be one of: {valid_types}"
-                    )
+                    ) from None
 
         # Update only provided fields that exist on the model
         valid_fields = {"title", "content", "status", "type", "version", "parent_artifact_id"}

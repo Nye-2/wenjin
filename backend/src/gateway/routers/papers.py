@@ -183,7 +183,7 @@ async def create_paper(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to create paper: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/", response_model=list[PaperResponse])
@@ -386,7 +386,7 @@ async def extract_paper(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Extraction failed: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/{paper_id}/sections", response_model=list[SectionResponse])

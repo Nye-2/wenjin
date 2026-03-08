@@ -486,8 +486,8 @@ class TestFrameworkDesignerSkillIntegration:
 
         assert output.success is True
         # The artifact content should be used as research idea
-        thread_state_with_artifact.artifacts[0].content
-        mock_model.invoke.call_args_list[0]
+        _content = thread_state_with_artifact.artifacts[0].content
+        _call_args = mock_model.invoke.call_args_list[0]
         # Research idea should be in the prompt
         assert True  # Just verify it executes successfully
 

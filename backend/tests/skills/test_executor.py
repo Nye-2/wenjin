@@ -174,12 +174,14 @@ class TestSkillInput:
 
     def test_skill_input_validation_missing_workspace(self):
         """Test that workspace_id is required."""
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
             SkillInput(user_query="query")
 
     def test_skill_input_validation_missing_query(self):
         """Test that user_query is required."""
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
             SkillInput(workspace_id="ws")
 
 

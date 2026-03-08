@@ -34,8 +34,8 @@ async def get_cached_mcp_tools(
 
         # Import MCP client
         try:
-            from langchain_mcp_adapters import MultiServerMCPClient
-            from langchain_mcp_adapters.tools import load_mcp_tools
+            from langchain_mcp_adapters import MultiServerMCPClient  # noqa: F401
+            from langchain_mcp_adapters.tools import load_mcp_tools  # noqa: F401
         except ImportError:
             return []
 

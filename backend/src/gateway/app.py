@@ -58,8 +58,8 @@ async def health_check():
     return {"status": "healthy", "version": "2.0.0"}
 
 
-# Include routers
-from .routers import academic, artifacts, auth, chat, models, papers, workspaces
+# Include routers (imported after app creation to avoid circular imports)
+from .routers import academic, artifacts, auth, chat, models, papers, workspaces  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(academic.router, prefix="/api", tags=["academic"])

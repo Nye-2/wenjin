@@ -64,7 +64,7 @@ class WorkspaceService:
                 valid_types = [t.value for t in WorkspaceType]
                 raise ValueError(
                     f"Invalid workspace type: {type}. Must be one of: {valid_types}"
-                )
+                ) from None
         else:
             workspace_type = type
 
@@ -142,7 +142,7 @@ class WorkspaceService:
                     valid_types = [t.value for t in WorkspaceType]
                     raise ValueError(
                         f"Invalid workspace type: {type_value}. Must be one of: {valid_types}"
-                    )
+                    ) from None
 
         # Update only provided fields
         for key, value in kwargs.items():

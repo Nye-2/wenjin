@@ -349,16 +349,16 @@ class ExtractionService:
             level = toc[i]["level"]
 
             # Reset counters for deeper levels when we go to a higher level
-            for l in range(level + 1, max(counters.keys(), default=0) + 1):
-                counters.pop(l, None)
+            for lvl in range(level + 1, max(counters.keys(), default=0) + 1):
+                counters.pop(lvl, None)
 
             # Increment counter for this level
             counters[level] = counters.get(level, 0) + 1
 
             # Build path for the target index
             if i == index:
-                for l in range(1, level + 1):
-                    result_parts.append(str(counters.get(l, 1)))
+                for lvl in range(1, level + 1):
+                    result_parts.append(str(counters.get(lvl, 1)))
 
         return ".".join(result_parts) if result_parts else str(index + 1)
 

@@ -59,6 +59,7 @@ select = ["E", "F", "I", "UP", "B"]
 ignore = [
     "E501",  # line too long
     "B008",  # Do not perform function calls in argument defaults (FastAPI Depends pattern)
+    "E402",  # Module level import not at top of file (FastAPI router pattern)
 ]
 
 [tool.pytest.ini_options]

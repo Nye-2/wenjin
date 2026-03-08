@@ -13,7 +13,7 @@ from ..base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from .artifact import Artifact
     from .generation import GenerationRecord
-    from .paper import PaperChunk, PaperSection, WorkspacePaper
+    from .paper import Paper, PaperChunk, PaperSection, WorkspacePaper
     from .user import User
 
 

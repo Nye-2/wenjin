@@ -142,7 +142,7 @@ async def create_workspace(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.get("/", response_model=list[WorkspaceResponse])
@@ -301,7 +301,7 @@ async def add_paper_to_workspace(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.delete("/{workspace_id}/papers/{paper_id}")
