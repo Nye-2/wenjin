@@ -1,17 +1,30 @@
-"""Paper service for managing academic literature."""
+"""Paper service for managing academic literature.
+
+This service provides paper management functionality including:
+- Paper CRUD operations
+- Search across title, authors, and abstract
+- Workspace-paper association management
+"""
 
 import hashlib
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Paper, WorkspacePaper, PaperExtraction, PaperChunk
 
 
 class PaperService:
-    """Service for managing academic papers."""
+    """Service for managing academic papers.
+
+    This class provides CRUD operations and workspace association management
+    for papers. It requires an AsyncSession for database operations.
+
+    Attributes:
+        db: AsyncSession for database operations
+    """
 
     def __init__(self, db: AsyncSession):
         """Initialize with database session.
@@ -24,34 +37,29 @@ class PaperService:
     async def create(
         self,
         title: str,
+        authors: list[dict],
         doi: Optional[str] = None,
-        authors: Optional[list[dict]] = None,
         year: Optional[int] = None,
         venue: Optional[str] = None,
         abstract: Optional[str] = None,
-        file_path: Optional[str] = None,
         source: str = "manual_upload",
-        external_ids: Optional[dict] = None,
-        citation_count: Optional[int] = None,
-        reference_count: Optional[int] = None,
     ) -> Paper:
         """Create a new paper.
 
         Args:
             title: Paper title
-            doi: Digital Object Identifier
-            authors: List of author dicts
-            year: Publication year
-            venue: Publication venue
-            abstract: Paper abstract
-            file_path: Path to PDF file
-            source: Source of paper data
-            external_ids: External identifiers
-            citation_count: Citation count
-            reference_count: Reference count
+            authors: List of author dicts with 'name' and optionally 'affiliation'
+            doi: Digital Object Identifier (optional)
+            year: Publication year (optional)
+            venue: Publication venue (optional)
+            abstract: Paper abstract (optional)
+            source: Source of paper data (default: "manual_upload")
 
         Returns:
-            Created paper
+            Created paper object
+
+        Raises:
+            IntegrityError: If DOI already exists
         """
         # Check if paper with same DOI exists
         if doi:
@@ -66,11 +74,7 @@ class PaperService:
             year=year,
             venue=venue,
             abstract=abstract,
-            file_path=file_path,
             source=source,
-            external_ids=external_ids or {},
-            citation_count=citation_count,
-            reference_count=reference_count,
         )
         self.db.add(paper)
         await self.db.commit()
@@ -105,25 +109,111 @@ class PaperService:
         )
         return result.scalar_one_or_none()
 
+    async def update(self, paper_id: str, **kwargs) -> Optional[Paper]:
+        """Update paper fields.
+
+        Args:
+            paper_id: Paper UUID string
+            **kwargs: Fields to update (title, authors, year, venue, abstract, etc.)
+
+        Returns:
+            Updated paper if found, None otherwise
+        """
+        paper = await self.get(paper_id)
+        if not paper:
+            return None
+
+        # Update only provided fields
+        for key, value in kwargs.items():
+            if hasattr(paper, key) and value is not None:
+                setattr(paper, key, value)
+
+        await self.db.commit()
+        await self.db.refresh(paper)
+        return paper
+
+    async def delete(self, paper_id: str) -> bool:
+        """Delete a paper.
+
+        This will cascade delete all associated records (workspace associations,
+        extractions, chunks, sections).
+
+        Args:
+            paper_id: Paper UUID string
+
+        Returns:
+            True if deleted, False if not found
+        """
+        paper = await self.get(paper_id)
+        if not paper:
+            return False
+
+        await self.db.delete(paper)
+        await self.db.commit()
+        return True
+
+    async def search(
+        self,
+        query: str,
+        workspace_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[Paper]:
+        """Search papers by title, authors, or abstract.
+
+        Performs a case-insensitive search across paper title, abstract,
+        and author names. Optionally filters by workspace.
+
+        Args:
+            query: Search query string
+            workspace_id: Optional workspace UUID to filter results
+            limit: Maximum number of results to return (default: 20)
+
+        Returns:
+            List of matching papers
+        """
+        # Build base query
+        if workspace_id:
+            base_query = (
+                select(Paper)
+                .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
+                .where(WorkspacePaper.workspace_id == workspace_id)
+            )
+        else:
+            base_query = select(Paper)
+
+        # Add search conditions - search in title, abstract
+        search_condition = or_(
+            Paper.title.ilike(f"%{query}%"),
+            Paper.abstract.ilike(f"%{query}%"),
+        )
+
+        query_stmt = base_query.where(search_condition).limit(limit)
+
+        result = await self.db.execute(query_stmt)
+        return list(result.scalars().all())
+
     async def add_to_workspace(
         self,
-        workspace_id: str,
         paper_id: str,
+        workspace_id: str,
         notes: Optional[str] = None,
         tags: Optional[list[str]] = None,
         is_primary: bool = False,
     ) -> WorkspacePaper:
-        """Add paper to workspace.
+        """Add paper to workspace with metadata.
+
+        Creates a WorkspacePaper association record linking the paper
+        to the workspace with optional metadata.
 
         Args:
-            workspace_id: Workspace ID
-            paper_id: Paper ID
-            notes: User notes
-            tags: User-defined tags
-            is_primary: Whether this is a primary reference
+            paper_id: Paper UUID string
+            workspace_id: Workspace UUID string
+            notes: Optional user notes for this paper
+            tags: Optional list of tags for categorization
+            is_primary: Whether this is a primary reference paper
 
         Returns:
-            WorkspacePaper association
+            Created or existing WorkspacePaper association object
         """
         # Check if already added
         result = await self.db.execute(
@@ -264,14 +354,17 @@ class PaperService:
 
     async def remove_from_workspace(
         self,
-        workspace_id: str,
         paper_id: str,
+        workspace_id: str,
     ) -> bool:
         """Remove paper from workspace.
 
+        Removes the WorkspacePaper association record. The paper itself
+        is not deleted from the database.
+
         Args:
-            workspace_id: Workspace ID
-            paper_id: Paper ID
+            paper_id: Paper UUID string
+            workspace_id: Workspace UUID string
 
         Returns:
             True if removed, False if not found
