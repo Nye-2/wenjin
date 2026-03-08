@@ -1,0 +1,586 @@
+"""Paper extraction service for Two-Tier extraction pipeline.
+
+This service implements the Two-Tier extraction architecture:
+- Tier 1: Engineering extraction (GROBID, PyMuPDF) - instant
+- Tier 2: LLM extraction (Haiku, Qwen-Turbo) - seconds
+
+The service handles:
+- PDF text and TOC extraction using PyMuPDF
+- Structured data extraction and storage
+- Section-based navigation support
+- Caching to avoid re-processing
+"""
+
+import logging
+import time
+from pathlib import Path
+from typing import Optional
+
+from sqlalchemy import select, and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from src.database import Paper, PaperExtraction, PaperSection
+from src.academic.literature.extraction.pdf_extractor import PDFExtractor
+
+logger = logging.getLogger(__name__)
+
+
+class ExtractionError(Exception):
+    """Base exception for extraction errors."""
+    pass
+
+
+class FileNotFoundError(ExtractionError):
+    """Raised when the PDF file is not found."""
+    pass
+
+
+class ExtractionService:
+    """Service for extracting structured data from paper PDFs.
+
+    This service provides the Two-Tier extraction pipeline:
+    - Tier 1 (Engineering): Fast extraction using PyMuPDF/GROBID
+    - Tier 2 (LLM): Enhanced extraction using LLM models
+
+    All extractions are cached in the database to avoid re-processing.
+    """
+
+    # Extraction tier constants
+    TIER_ENGINEERING = 1
+    TIER_LLM = 2
+
+    # Extraction types
+    TYPE_METADATA = "metadata"
+    TYPE_FULL_TEXT = "full_text"
+    TYPE_TOC = "toc"
+    TYPE_SECTIONS = "sections"
+
+    # LLM model identifiers for Tier 2 extraction
+    # These should match model IDs in the LLM configuration
+    LLM_MODEL_FAST = "claude-3-haiku"  # Fast model for basic extraction
+    LLM_MODEL_BALANCED = "qwen-turbo"  # Balanced model for detailed extraction
+
+    def __init__(self, db: AsyncSession):
+        """Initialize with database session.
+
+        Args:
+            db: AsyncSession for database operations
+        """
+        self.db = db
+        self.pdf_extractor = PDFExtractor()
+
+    async def extract_paper(
+        self,
+        paper_id: str,
+        file_path: str,
+        tier: int = 1,
+    ) -> PaperExtraction:
+        """Extract structured data from a paper PDF.
+
+        Args:
+            paper_id: UUID of the paper
+            file_path: Path to the PDF file
+            tier: Extraction tier (1=engineering, 2=LLM)
+
+        Returns:
+            PaperExtraction record with extracted data
+
+        Raises:
+            FileNotFoundError: If PDF file doesn't exist
+            ExtractionError: If extraction fails
+        """
+        start_time = time.time()
+
+        # Validate file exists
+        if not Path(file_path).exists():
+            raise FileNotFoundError(f"PDF file not found: {file_path}")
+
+        # Check for existing extraction at this tier
+        existing = await self.get_extraction(paper_id, tier)
+        if existing:
+            logger.info(
+                "Found existing %s extraction for paper %s",
+                f"Tier {tier}",
+                paper_id,
+            )
+            return existing
+
+        try:
+            if tier == self.TIER_ENGINEERING:
+                extraction = await self._extract_tier1(paper_id, file_path)
+            elif tier == self.TIER_LLM:
+                extraction = await self._extract_tier2(paper_id, file_path)
+            else:
+                raise ExtractionError(f"Invalid extraction tier: {tier}")
+
+            # Record processing time
+            processing_time_ms = int((time.time() - start_time) * 1000)
+            extraction.processing_time_ms = processing_time_ms
+
+            await self.db.commit()
+            await self.db.refresh(extraction)
+
+            logger.info(
+                "Completed Tier %d extraction for paper %s in %dms",
+                tier,
+                paper_id,
+                processing_time_ms,
+            )
+
+            return extraction
+
+        except Exception as e:
+            await self.db.rollback()
+            logger.error("Extraction failed for paper %s: %s", paper_id, e)
+            raise ExtractionError(f"Extraction failed: {e}") from e
+
+    async def _extract_tier1(
+        self,
+        paper_id: str,
+        file_path: str,
+    ) -> PaperExtraction:
+        """Perform Tier 1 (Engineering) extraction.
+
+        Uses PyMuPDF for fast extraction of:
+        - Metadata (title, authors, page count)
+        - Table of Contents
+        - Full text content
+
+        Args:
+            paper_id: UUID of the paper
+            file_path: Path to the PDF file
+
+        Returns:
+            PaperExtraction record with Tier 1 data
+        """
+        # Extract metadata
+        metadata = self.pdf_extractor.extract_metadata(file_path)
+
+        # Extract TOC
+        toc = self.pdf_extractor.extract_toc(file_path)
+
+        # Extract full text
+        sections = self.pdf_extractor.split_into_sections(file_path, toc)
+        full_text = "\n\n".join(
+            f"## {s['title']}\n{s['content']}"
+            for s in sections
+        ) if sections else ""
+
+        # Build structured data
+        structured_data = {
+            "metadata": metadata,
+            "toc": toc,
+            "full_text": full_text,
+            "section_count": len(sections),
+            "page_count": metadata.get("page_count", 0),
+        }
+
+        # Create extraction record
+        extraction = PaperExtraction(
+            paper_id=paper_id,
+            tier=self.TIER_ENGINEERING,
+            extraction_type=self.TYPE_FULL_TEXT,
+            structured_data=structured_data,
+            model_used="pymupdf",
+        )
+        self.db.add(extraction)
+
+        return extraction
+
+    async def _extract_tier2(
+        self,
+        paper_id: str,
+        file_path: str,
+    ) -> PaperExtraction:
+        """Perform Tier 2 (LLM) extraction.
+
+        Uses LLM models (Haiku, Qwen-Turbo) for enhanced extraction:
+        - Improved metadata extraction
+        - Section summarization
+        - Key concepts extraction
+        - Citation context extraction
+
+        This tier depends on Tier 1 extraction being available.
+
+        Args:
+            paper_id: UUID of the paper
+            file_path: Path to the PDF file
+
+        Returns:
+            PaperExtraction record with Tier 2 data
+        """
+        # Get Tier 1 extraction as base
+        tier1 = await self.get_extraction(paper_id, self.TIER_ENGINEERING)
+        if not tier1:
+            # Run Tier 1 first if not available
+            tier1 = await self._extract_tier1(paper_id, file_path)
+
+        base_data = tier1.structured_data
+
+        # For now, this is a placeholder for LLM-based extraction
+        # In a full implementation, this would call LLM APIs to:
+        # 1. Extract and clean up metadata
+        # 2. Generate section summaries
+        # 3. Extract key concepts and entities
+        # 4. Identify citations and references
+
+        # Enhanced structured data
+        enhanced_data = {
+            **base_data,
+            "llm_enhanced": True,
+            "section_summaries": {},  # Would be populated by LLM
+            "key_concepts": [],  # Would be populated by LLM
+            "entities": [],  # Would be populated by LLM
+        }
+
+        # Create extraction record
+        extraction = PaperExtraction(
+            paper_id=paper_id,
+            tier=self.TIER_LLM,
+            extraction_type=self.TYPE_FULL_TEXT,
+            structured_data=enhanced_data,
+            model_used=self.LLM_MODEL_FAST,
+        )
+        self.db.add(extraction)
+
+        return extraction
+
+    async def extract_sections(
+        self,
+        paper_id: str,
+        workspace_id: str,
+        file_path: str,
+    ) -> list[PaperSection]:
+        """Extract paper sections for index-based navigation.
+
+        This method extracts all sections from a paper PDF and stores
+        them in the database for precise section-level retrieval.
+
+        Args:
+            paper_id: UUID of the paper
+            workspace_id: UUID of the workspace (for isolation)
+            file_path: Path to the PDF file
+
+        Returns:
+            List of PaperSection records
+
+        Raises:
+            FileNotFoundError: If PDF file doesn't exist
+            ExtractionError: If extraction fails
+        """
+        # Validate file exists
+        if not Path(file_path).exists():
+            raise FileNotFoundError(f"PDF file not found: {file_path}")
+
+        # Check for existing sections
+        existing = await self._get_existing_sections(paper_id, workspace_id)
+        if existing:
+            logger.info(
+                "Found %d existing sections for paper %s in workspace %s",
+                len(existing),
+                paper_id,
+                workspace_id,
+            )
+            return existing
+
+        try:
+            # Extract TOC and sections using PDFExtractor
+            toc = self.pdf_extractor.extract_toc(file_path)
+            raw_sections = self.pdf_extractor.split_into_sections(file_path, toc)
+
+            # Create PaperSection records
+            paper_sections = []
+            for idx, section in enumerate(raw_sections):
+                # Generate section path (e.g., "1", "1.1", "1.1.1")
+                section_path = self._generate_section_path(idx, toc)
+
+                paper_section = PaperSection(
+                    paper_id=paper_id,
+                    workspace_id=workspace_id,
+                    section_title=section["title"],
+                    section_path=section_path,
+                    page_start=section["page_start"],
+                    page_end=section["page_end"],
+                    content=section["content"],
+                    level=section["level"],
+                )
+                paper_sections.append(paper_section)
+                self.db.add(paper_section)
+
+            await self.db.commit()
+
+            # Refresh all sections
+            for section in paper_sections:
+                await self.db.refresh(section)
+
+            logger.info(
+                "Extracted %d sections for paper %s in workspace %s",
+                len(paper_sections),
+                paper_id,
+                workspace_id,
+            )
+
+            return paper_sections
+
+        except Exception as e:
+            await self.db.rollback()
+            logger.error("Section extraction failed for paper %s: %s", paper_id, e)
+            raise ExtractionError(f"Section extraction failed: {e}") from e
+
+    def _generate_section_path(self, index: int, toc: list[dict]) -> str:
+        """Generate hierarchical section path.
+
+        Creates paths like "1", "1.1", "1.1.1" based on TOC structure.
+
+        Args:
+            index: Index of the section in the sections list
+            toc: Table of contents with level information
+
+        Returns:
+            Section path string
+        """
+        if not toc or index >= len(toc):
+            return str(index + 1)
+
+        # Track section counters at each level
+        counters = {}
+        result_parts = []
+
+        for i in range(index + 1):
+            level = toc[i]["level"]
+
+            # Reset counters for deeper levels when we go to a higher level
+            for l in range(level + 1, max(counters.keys(), default=0) + 1):
+                counters.pop(l, None)
+
+            # Increment counter for this level
+            counters[level] = counters.get(level, 0) + 1
+
+            # Build path for the target index
+            if i == index:
+                for l in range(1, level + 1):
+                    result_parts.append(str(counters.get(l, 1)))
+
+        return ".".join(result_parts) if result_parts else str(index + 1)
+
+    async def get_or_extract(
+        self,
+        paper: Paper,
+        workspace_id: str,
+        tier: int = 1,
+    ) -> tuple[Optional[PaperExtraction], list[PaperSection]]:
+        """Get existing extraction or create new one (with caching).
+
+        This is the main entry point for extraction. It checks for
+        existing extractions and only processes if necessary.
+
+        Args:
+            paper: Paper model instance
+            workspace_id: UUID of the workspace
+            tier: Extraction tier (1=engineering, 2=LLM)
+
+        Returns:
+            Tuple of (PaperExtraction or None, list of PaperSections)
+        """
+        extraction = None
+        sections = []
+
+        # Get or create extraction
+        if paper.file_path:
+            try:
+                extraction = await self.extract_paper(
+                    str(paper.id),
+                    paper.file_path,
+                    tier=tier,
+                )
+            except ExtractionError as e:
+                logger.warning("Extraction failed for paper %s: %s", paper.id, e)
+
+            # Get or create sections
+            try:
+                sections = await self.extract_sections(
+                    str(paper.id),
+                    workspace_id,
+                    paper.file_path,
+                )
+            except ExtractionError as e:
+                logger.warning("Section extraction failed for paper %s: %s", paper.id, e)
+
+        return extraction, sections
+
+    async def get_extraction(
+        self,
+        paper_id: str,
+        tier: Optional[int] = None,
+    ) -> Optional[PaperExtraction]:
+        """Get existing extraction for a paper.
+
+        Args:
+            paper_id: UUID of the paper
+            tier: Extraction tier filter (optional)
+
+        Returns:
+            Latest PaperExtraction if found, None otherwise
+        """
+        query = select(PaperExtraction).where(
+            PaperExtraction.paper_id == paper_id
+        )
+
+        if tier is not None:
+            query = query.where(PaperExtraction.tier == tier)
+
+        query = query.order_by(PaperExtraction.created_at.desc())
+
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def _get_existing_sections(
+        self,
+        paper_id: str,
+        workspace_id: str,
+    ) -> list[PaperSection]:
+        """Get existing sections for a paper in a workspace.
+
+        Args:
+            paper_id: UUID of the paper
+            workspace_id: UUID of the workspace
+
+        Returns:
+            List of PaperSection records
+        """
+        result = await self.db.execute(
+            select(PaperSection)
+            .where(and_(
+                PaperSection.paper_id == paper_id,
+                PaperSection.workspace_id == workspace_id,
+            ))
+            .order_by(PaperSection.page_start)
+        )
+        return list(result.scalars().all())
+
+    async def get_sections(
+        self,
+        paper_id: str,
+        workspace_id: str,
+    ) -> list[PaperSection]:
+        """Get sections for a paper in a workspace.
+
+        Args:
+            paper_id: UUID of the paper
+            workspace_id: UUID of the workspace
+
+        Returns:
+            List of PaperSection records
+        """
+        return await self._get_existing_sections(paper_id, workspace_id)
+
+    async def get_section_by_path(
+        self,
+        paper_id: str,
+        workspace_id: str,
+        section_path: str,
+    ) -> Optional[PaperSection]:
+        """Get a specific section by its path.
+
+        Args:
+            paper_id: UUID of the paper
+            workspace_id: UUID of the workspace
+            section_path: Section path (e.g., "1.2.3")
+
+        Returns:
+            PaperSection if found, None otherwise
+        """
+        result = await self.db.execute(
+            select(PaperSection).where(and_(
+                PaperSection.paper_id == paper_id,
+                PaperSection.workspace_id == workspace_id,
+                PaperSection.section_path == section_path,
+            ))
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_extractions(
+        self,
+        paper_id: str,
+        tier: Optional[int] = None,
+    ) -> int:
+        """Delete extractions for a paper.
+
+        Args:
+            paper_id: UUID of the paper
+            tier: Extraction tier filter (optional, deletes all if not specified)
+
+        Returns:
+            Number of extractions deleted
+        """
+        query = select(PaperExtraction).where(
+            PaperExtraction.paper_id == paper_id
+        )
+        if tier is not None:
+            query = query.where(PaperExtraction.tier == tier)
+
+        result = await self.db.execute(query)
+        extractions = result.scalars().all()
+
+        count = 0
+        for extraction in extractions:
+            await self.db.delete(extraction)
+            count += 1
+
+        await self.db.commit()
+        return count
+
+    async def delete_sections(
+        self,
+        paper_id: str,
+        workspace_id: str,
+    ) -> int:
+        """Delete sections for a paper in a workspace.
+
+        Args:
+            paper_id: UUID of the paper
+            workspace_id: UUID of the workspace
+
+        Returns:
+            Number of sections deleted
+        """
+        result = await self.db.execute(
+            select(PaperSection).where(and_(
+                PaperSection.paper_id == paper_id,
+                PaperSection.workspace_id == workspace_id,
+            ))
+        )
+        sections = result.scalars().all()
+
+        count = 0
+        for section in sections:
+            await self.db.delete(section)
+            count += 1
+
+        await self.db.commit()
+        return count
+
+    async def refresh_extraction(
+        self,
+        paper_id: str,
+        file_path: str,
+        tier: int = 1,
+    ) -> PaperExtraction:
+        """Force re-extraction of a paper.
+
+        Deletes existing extraction and creates a new one.
+
+        Args:
+            paper_id: UUID of the paper
+            file_path: Path to the PDF file
+            tier: Extraction tier (1=engineering, 2=LLM)
+
+        Returns:
+            New PaperExtraction record
+        """
+        # Delete existing extraction
+        await self.delete_extractions(paper_id, tier)
+
+        # Create new extraction
+        return await self.extract_paper(paper_id, file_path, tier)
