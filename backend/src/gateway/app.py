@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
+from src.gateway.middleware.error_handler import register_error_handlers
 
 
 @asynccontextmanager
@@ -38,6 +39,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Register centralized error handlers
+register_error_handlers(app)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -56,7 +60,7 @@ async def health_check():
 
 
 # Include routers
-from .routers import models, academic, chat, auth, workspaces, artifacts
+from .routers import models, academic, chat, auth, workspaces, artifacts, papers
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(academic.router, prefix="/api", tags=["academic"])
@@ -64,3 +68,4 @@ app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(workspaces.router, prefix="/api", tags=["workspaces"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
+app.include_router(papers.router, prefix="/api", tags=["papers"])
