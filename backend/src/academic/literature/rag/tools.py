@@ -26,7 +26,6 @@ async def rag_retrieve_tool(query: str, top_k: int = 10) -> str:
     """
     # This is a placeholder - actual implementation needs workspace context
     # In production, this would be injected via dependency injection
-    from src.academic.literature.rag.rag_service import RAGService
 
     # Mock implementation for now
     results = await _mock_rag_search(query, top_k)

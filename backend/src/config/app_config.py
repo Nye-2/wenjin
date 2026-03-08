@@ -1,11 +1,9 @@
 """Application configuration using Pydantic Settings."""
 
 from functools import lru_cache
-from typing import Optional, List
-from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
 
 
 class JWTSettings(BaseSettings):
@@ -66,10 +64,10 @@ class AppConfig(BaseSettings):
     )
 
     # API Keys
-    openai_api_key: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
-    deepseek_api_key: Optional[str] = None
-    semantic_scholar_api_key: Optional[str] = None
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    deepseek_api_key: str | None = None
+    semantic_scholar_api_key: str | None = None
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:password@localhost:5432/academiagpt"
@@ -82,7 +80,7 @@ class AppConfig(BaseSettings):
     log_level: str = "INFO"
 
     # Paths
-    config_path: Optional[str] = None
+    config_path: str | None = None
     skills_path: str = "./skills/public"
 
 

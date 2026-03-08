@@ -9,18 +9,17 @@ This module tests:
 - Artifact creation
 """
 
-import pytest
-from datetime import datetime
 
-from src.agents.thread_state import AcademicArtifact, ThreadState
-from src.skills.base import SkillInput, SkillOutput
+import pytest
+
+from src.agents.thread_state import ThreadState
+from src.skills.base import SkillInput
 from src.skills.implementations.literature_review import (
     LiteratureReviewSkill,
     PaperData,
-    Theme,
     SynthesisMatrix,
+    Theme,
 )
-
 
 # ============================================================================
 # Fixtures

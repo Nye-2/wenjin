@@ -12,12 +12,11 @@ import pytest
 from src.agents.thread_state import AcademicArtifact, ThreadState
 from src.skills.base import BaseSkill, SkillInput, SkillOutput
 from src.skills.executor import (
-    SkillExecutor,
     SkillExecutionError,
+    SkillExecutor,
     SkillNotFoundError,
     SkillValidationError,
 )
-
 
 # ============================================================================
 # Concrete skill implementations for testing

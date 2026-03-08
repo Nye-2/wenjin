@@ -1,12 +1,11 @@
 """FastAPI Gateway Application."""
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.config import settings
 from src.gateway.middleware.error_handler import register_error_handlers
 
 
@@ -60,7 +59,7 @@ async def health_check():
 
 
 # Include routers
-from .routers import models, academic, chat, auth, workspaces, artifacts, papers
+from .routers import academic, artifacts, auth, chat, models, papers, workspaces
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(academic.router, prefix="/api", tags=["academic"])

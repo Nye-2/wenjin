@@ -7,22 +7,20 @@ This module provides REST endpoints for:
 - Current user info retrieval
 """
 
-from typing import Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException, Depends, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import get_db_session, User
-from src.services.user_service import UserService
+from src.database import User, get_db_session
 from src.services.auth import (
     create_tokens,
     verify_access_token,
     verify_refresh_token,
-    TokenData,
 )
-
+from src.services.user_service import UserService
 
 router = APIRouter()
 
@@ -36,7 +34,7 @@ class RegisterRequest(BaseModel):
     """User registration request."""
     email: EmailStr
     password: str
-    name: Optional[str] = None
+    name: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -57,7 +55,7 @@ class UserResponse(BaseModel):
     """User information response."""
     id: str
     email: str
-    name: Optional[str]
+    name: str | None
     role: str
 
 
@@ -75,7 +73,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Get current authenticated user from JWT token.
@@ -128,9 +126,9 @@ async def get_current_user(
 
 
 async def get_current_user_optional(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
-) -> Optional[User]:
+) -> User | None:
     """Get current user if authenticated, otherwise return None.
 
     Args:

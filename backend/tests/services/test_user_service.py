@@ -7,15 +7,15 @@ This module tests the UserService class including:
 - Last login timestamp updates
 """
 
+from datetime import datetime
+
 import pytest
 import pytest_asyncio
-from datetime import datetime, timezone
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.database.models.user import User
+from src.services.auth import verify_password
 from src.services.user_service import UserService
-from src.services.auth import hash_password, verify_password
-
 
 # Use in-memory SQLite for testing
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"

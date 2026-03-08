@@ -6,9 +6,10 @@ based on dynamic configuration from the llm_config module.
 
 import json
 import os
+from collections.abc import Generator
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from typing import Generator
 
 
 class TestCreateChatModel:
@@ -60,8 +61,8 @@ class TestCreateChatModel:
     def test_create_openai_compatible_model(self, openai_compatible_config: str) -> None:
         """Test creating an OpenAI-compatible model (DeepSeek, GLM, Qwen, etc.)."""
         with patch.dict(os.environ, {"LLM_GEN_MODELS": openai_compatible_config}, clear=False):
-            from src.models.factory import create_chat_model
             from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
             reload_models()
 
             model = create_chat_model(model_id="deepseek-v3", temperature=0.5)
@@ -74,8 +75,8 @@ class TestCreateChatModel:
     def test_create_anthropic_model(self, anthropic_config: str) -> None:
         """Test creating an Anthropic/Claude model."""
         with patch.dict(os.environ, {"LLM_GEN_MODELS": anthropic_config}, clear=False):
-            from src.models.factory import create_chat_model
             from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
             reload_models()
 
             model = create_chat_model(model_id="claude-sonnet-4", temperature=0.7)
@@ -88,8 +89,8 @@ class TestCreateChatModel:
     def test_create_anthropic_model_with_thinking(self, anthropic_config: str) -> None:
         """Test creating an Anthropic model with thinking enabled."""
         with patch.dict(os.environ, {"LLM_GEN_MODELS": anthropic_config}, clear=False):
-            from src.models.factory import create_chat_model
             from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
             reload_models()
 
             model = create_chat_model(
@@ -106,8 +107,8 @@ class TestCreateChatModel:
     def test_error_when_model_not_found(self) -> None:
         """Test that ValueError is raised when model is not found."""
         with patch.dict(os.environ, {"LLM_GEN_MODELS": "[]"}, clear=False):
-            from src.models.factory import create_chat_model
             from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
             reload_models()
 
             with pytest.raises(ValueError, match="Model not found"):
@@ -116,8 +117,8 @@ class TestCreateChatModel:
     def test_temperature_override(self, openai_compatible_config: str) -> None:
         """Test that temperature parameter overrides config default."""
         with patch.dict(os.environ, {"LLM_GEN_MODELS": openai_compatible_config}, clear=False):
-            from src.models.factory import create_chat_model
             from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
             reload_models()
 
             model = create_chat_model(model_id="deepseek-v3", temperature=0.3)
@@ -130,8 +131,8 @@ class TestCreateChatModel:
     def test_openai_compatible_with_base_url(self, openai_compatible_config: str) -> None:
         """Test that OpenAI-compatible models use the base_url from config."""
         with patch.dict(os.environ, {"LLM_GEN_MODELS": openai_compatible_config}, clear=False):
-            from src.models.factory import create_chat_model
             from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
             reload_models()
 
             model = create_chat_model(model_id="deepseek-v3", temperature=0.7)
@@ -186,8 +187,8 @@ class TestModelProviderDetection:
     def test_detects_anthropic_by_base_url(self, mixed_provider_config: str) -> None:
         """Test that Anthropic is detected by base_url containing 'anthropic'."""
         with patch.dict(os.environ, {"LLM_GEN_MODELS": mixed_provider_config}, clear=False):
-            from src.models.factory import create_chat_model, _is_anthropic_provider
             from src.config.llm_config import reload_models
+            from src.models.factory import _is_anthropic_provider
             reload_models()
 
             # Test the helper function
@@ -197,8 +198,8 @@ class TestModelProviderDetection:
     def test_detects_openai_compatible_by_base_url(self, mixed_provider_config: str) -> None:
         """Test that non-Anthropic providers use ChatOpenAI."""
         with patch.dict(os.environ, {"LLM_GEN_MODELS": mixed_provider_config}, clear=False):
-            from src.models.factory import create_chat_model, _is_anthropic_provider
             from src.config.llm_config import reload_models
+            from src.models.factory import _is_anthropic_provider
             reload_models()
 
             # Test the helper function
@@ -238,8 +239,8 @@ class TestDynamicConfigIntegration:
         ])
 
         with patch.dict(os.environ, {"LLM_GEN_MODELS": sample_config}, clear=False):
-            from src.models.factory import create_chat_model
             from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
             reload_models()
 
             model = create_chat_model(model_id="integration-test-model", temperature=0.8)

@@ -14,14 +14,12 @@ The service handles:
 import logging
 import time
 from pathlib import Path
-from typing import Optional
 
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from src.database import Paper, PaperExtraction, PaperSection
 from src.academic.literature.extraction.pdf_extractor import PDFExtractor
+from src.database import Paper, PaperExtraction, PaperSection
 
 logger = logging.getLogger(__name__)
 
@@ -369,7 +367,7 @@ class ExtractionService:
         paper: Paper,
         workspace_id: str,
         tier: int = 1,
-    ) -> tuple[Optional[PaperExtraction], list[PaperSection]]:
+    ) -> tuple[PaperExtraction | None, list[PaperSection]]:
         """Get existing extraction or create new one (with caching).
 
         This is the main entry point for extraction. It checks for
@@ -412,8 +410,8 @@ class ExtractionService:
     async def get_extraction(
         self,
         paper_id: str,
-        tier: Optional[int] = None,
-    ) -> Optional[PaperExtraction]:
+        tier: int | None = None,
+    ) -> PaperExtraction | None:
         """Get existing extraction for a paper.
 
         Args:
@@ -480,7 +478,7 @@ class ExtractionService:
         paper_id: str,
         workspace_id: str,
         section_path: str,
-    ) -> Optional[PaperSection]:
+    ) -> PaperSection | None:
         """Get a specific section by its path.
 
         Args:
@@ -503,7 +501,7 @@ class ExtractionService:
     async def delete_extractions(
         self,
         paper_id: str,
-        tier: Optional[int] = None,
+        tier: int | None = None,
     ) -> int:
         """Delete extractions for a paper.
 

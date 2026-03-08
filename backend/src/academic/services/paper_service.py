@@ -6,14 +6,11 @@ This service provides paper management functionality including:
 - Workspace-paper association management
 """
 
-import hashlib
-from pathlib import Path
-from typing import Optional, List
 
-from sqlalchemy import select, or_
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Paper, WorkspacePaper, PaperExtraction, PaperChunk
+from src.database import Paper, PaperExtraction, WorkspacePaper
 
 
 class PaperService:
@@ -38,10 +35,10 @@ class PaperService:
         self,
         title: str,
         authors: list[dict],
-        doi: Optional[str] = None,
-        year: Optional[int] = None,
-        venue: Optional[str] = None,
-        abstract: Optional[str] = None,
+        doi: str | None = None,
+        year: int | None = None,
+        venue: str | None = None,
+        abstract: str | None = None,
         source: str = "manual_upload",
     ) -> Paper:
         """Create a new paper.
@@ -81,7 +78,7 @@ class PaperService:
         await self.db.refresh(paper)
         return paper
 
-    async def get(self, paper_id: str) -> Optional[Paper]:
+    async def get(self, paper_id: str) -> Paper | None:
         """Get paper by ID.
 
         Args:
@@ -95,7 +92,7 @@ class PaperService:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_doi(self, doi: str) -> Optional[Paper]:
+    async def get_by_doi(self, doi: str) -> Paper | None:
         """Get paper by DOI.
 
         Args:
@@ -109,7 +106,7 @@ class PaperService:
         )
         return result.scalar_one_or_none()
 
-    async def update(self, paper_id: str, **kwargs) -> Optional[Paper]:
+    async def update(self, paper_id: str, **kwargs) -> Paper | None:
         """Update paper fields.
 
         Args:
@@ -155,9 +152,9 @@ class PaperService:
     async def search(
         self,
         query: str,
-        workspace_id: Optional[str] = None,
+        workspace_id: str | None = None,
         limit: int = 20,
-    ) -> List[Paper]:
+    ) -> list[Paper]:
         """Search papers by title, authors, or abstract.
 
         Performs a case-insensitive search across paper title, abstract,
@@ -196,8 +193,8 @@ class PaperService:
         self,
         paper_id: str,
         workspace_id: str,
-        notes: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        notes: str | None = None,
+        tags: list[str] | None = None,
         is_primary: bool = False,
     ) -> WorkspacePaper:
         """Add paper to workspace with metadata.
@@ -241,7 +238,7 @@ class PaperService:
     async def list_workspace_papers(
         self,
         workspace_id: str,
-        read_status: Optional[str] = None,
+        read_status: str | None = None,
     ) -> list[Paper]:
         """List papers in a workspace.
 
@@ -299,8 +296,8 @@ class PaperService:
         tier: int,
         extraction_type: str,
         structured_data: dict,
-        processing_time_ms: Optional[int] = None,
-        model_used: Optional[str] = None,
+        processing_time_ms: int | None = None,
+        model_used: str | None = None,
     ) -> PaperExtraction:
         """Store paper extraction result.
 
@@ -331,8 +328,8 @@ class PaperService:
     async def get_extraction(
         self,
         paper_id: str,
-        tier: Optional[int] = None,
-    ) -> Optional[PaperExtraction]:
+        tier: int | None = None,
+    ) -> PaperExtraction | None:
         """Get paper extraction result.
 
         Args:

@@ -1,7 +1,8 @@
 """Tests for PDF extraction service with TOC support."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.academic.literature.extraction.pdf_extractor import PDFExtractor
 

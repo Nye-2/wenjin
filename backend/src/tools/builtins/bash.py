@@ -1,8 +1,6 @@
 """Bash command execution tool."""
 
 import asyncio
-import subprocess
-from typing import Optional
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -40,7 +38,7 @@ async def bash_tool(command: str, timeout: int = 120) -> str:
                 process.communicate(),
                 timeout=timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             return f"Command timed out after {timeout} seconds"
 

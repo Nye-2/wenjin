@@ -1,13 +1,14 @@
 """Tests for academic middlewares."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.agents.middlewares.workspace_context import WorkspaceContextMiddleware
+import pytest
+
 from src.agents.middlewares.discipline_context import (
     DisciplineContextMiddleware,
     DisciplineRegistry,
 )
+from src.agents.middlewares.workspace_context import WorkspaceContextMiddleware
 from src.agents.thread_state import ThreadState
 
 

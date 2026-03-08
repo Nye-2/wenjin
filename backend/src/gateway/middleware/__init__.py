@@ -2,10 +2,10 @@
 
 from .error_handler import (
     academia_exception_handler,
-    validation_exception_handler,
-    http_exception_handler,
     generic_exception_handler,
+    http_exception_handler,
     register_error_handlers,
+    validation_exception_handler,
 )
 
 __all__ = [

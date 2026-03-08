@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import threading
-from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -42,7 +41,7 @@ class ModelConfig(BaseModel):
     supports_json_schema: bool = Field(default=False, description="Supports JSON schema response format")
 
 
-def _parse_model_from_json(data: dict) -> Optional[ModelConfig]:
+def _parse_model_from_json(data: dict) -> ModelConfig | None:
     """
     Parse a ModelConfig from JSON data.
 
@@ -77,15 +76,15 @@ def _parse_model_from_json(data: dict) -> Optional[ModelConfig]:
         return None
 
 
-def _load_models_from_env() -> tuple[Dict[str, ModelConfig], Dict[str, ModelConfig]]:
+def _load_models_from_env() -> tuple[dict[str, ModelConfig], dict[str, ModelConfig]]:
     """
     Load models from environment variables.
 
     Returns:
         Tuple of (gen_models dict, tool_models dict)
     """
-    gen_models: Dict[str, ModelConfig] = {}
-    tool_models: Dict[str, ModelConfig] = {}
+    gen_models: dict[str, ModelConfig] = {}
+    tool_models: dict[str, ModelConfig] = {}
 
     # Parse generation models from LLM_GEN_MODELS
     gen_models_json = os.environ.get("LLM_GEN_MODELS", "")
@@ -121,12 +120,12 @@ def _load_models_from_env() -> tuple[Dict[str, ModelConfig], Dict[str, ModelConf
 
 
 # Global cache with thread-safe access
-_CACHED_GEN_MODELS: Optional[Dict[str, ModelConfig]] = None
-_CACHED_TOOL_MODELS: Optional[Dict[str, ModelConfig]] = None
+_CACHED_GEN_MODELS: dict[str, ModelConfig] | None = None
+_CACHED_TOOL_MODELS: dict[str, ModelConfig] | None = None
 _cache_lock = threading.Lock()
 
 
-def _get_cached_models() -> tuple[Dict[str, ModelConfig], Dict[str, ModelConfig]]:
+def _get_cached_models() -> tuple[dict[str, ModelConfig], dict[str, ModelConfig]]:
     """
     Get cached model configurations (lazy loading, thread-safe).
 
@@ -144,7 +143,7 @@ def _get_cached_models() -> tuple[Dict[str, ModelConfig], Dict[str, ModelConfig]
     return _CACHED_GEN_MODELS, _CACHED_TOOL_MODELS
 
 
-def reload_models() -> tuple[Dict[str, ModelConfig], Dict[str, ModelConfig]]:
+def reload_models() -> tuple[dict[str, ModelConfig], dict[str, ModelConfig]]:
     """
     Reload model configurations from environment variables.
 
@@ -166,7 +165,7 @@ def reload_models() -> tuple[Dict[str, ModelConfig], Dict[str, ModelConfig]]:
 # ==================== Public API ====================
 
 
-def get_gen_models() -> List[ModelConfig]:
+def get_gen_models() -> list[ModelConfig]:
     """
     Get list of generation models.
 
@@ -177,7 +176,7 @@ def get_gen_models() -> List[ModelConfig]:
     return list(gen_models.values())
 
 
-def get_tool_models() -> List[ModelConfig]:
+def get_tool_models() -> list[ModelConfig]:
     """
     Get list of tool models.
 
@@ -188,7 +187,7 @@ def get_tool_models() -> List[ModelConfig]:
     return list(tool_models.values())
 
 
-def get_model_config(model_id: str) -> Optional[ModelConfig]:
+def get_model_config(model_id: str) -> ModelConfig | None:
     """
     Get a specific model configuration by ID.
 
@@ -211,7 +210,7 @@ def get_model_config(model_id: str) -> Optional[ModelConfig]:
     return None
 
 
-def get_model_full_config(model_id: str) -> Dict[str, any]:
+def get_model_full_config(model_id: str) -> dict[str, any]:
     """
     Get the full configuration for a model, suitable for API calls.
 

@@ -1,14 +1,14 @@
 """Database package initialization."""
 
 from .models import (
-    Workspace,
-    Paper,
-    WorkspacePaper,
-    PaperExtraction,
-    PaperChunk,
     Artifact,
-    UserKnowledge,
     GenerationRecord,
+    Paper,
+    PaperChunk,
+    PaperExtraction,
+    UserKnowledge,
+    Workspace,
+    WorkspacePaper,
 )
 
 __all__ = [

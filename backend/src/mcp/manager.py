@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-from typing import Optional
 
 
 async def get_cached_mcp_tools(

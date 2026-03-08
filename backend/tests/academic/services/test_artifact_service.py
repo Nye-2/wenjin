@@ -7,18 +7,16 @@ This module tests the ArtifactService class including:
 - Artifact lineage tracking
 """
 
+from datetime import datetime
+
 import pytest
 import pytest_asyncio
-from datetime import datetime
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy import JSON, Column, DateTime, Integer, String
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy import JSON
 
 from src.academic.services.artifact_service import ArtifactService
 from src.database.models.artifact import ArtifactType
-
 
 # Create a simplified Artifact model for SQLite testing
 Base = declarative_base()
@@ -113,8 +111,9 @@ class TestCreateArtifact:
     async def test_create_artifact_success(self, artifact_service, test_workspace):
         """Test successful artifact creation."""
         import uuid
+
         # Mock the Artifact model's behavior for testing
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock
 
         # Create a mock artifact
         mock_artifact = MagicMock()

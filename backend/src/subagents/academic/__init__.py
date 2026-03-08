@@ -8,16 +8,16 @@ This module provides specialized academic subagents:
 """
 
 from .prompts import (
-    SCOUT_PROMPT,
-    WRITER_PROMPT,
-    SYNTHESIZER_PROMPT,
     ANALYST_PROMPT,
+    SCOUT_PROMPT,
+    SYNTHESIZER_PROMPT,
+    WRITER_PROMPT,
 )
 from .registry import (
-    SubagentConfig,
     SUBAGENT_REGISTRY,
-    get_subagent_config,
+    SubagentConfig,
     get_all_subagent_types,
+    get_subagent_config,
 )
 
 __all__ = [

@@ -7,40 +7,38 @@ and utility functions.
 import pytest
 from pydantic import ValidationError
 
-from src.gateway.validators.common import (
-    validate_uuid,
-    validate_email,
-    sanitize_html,
-    validate_page_number,
-    validate_limit,
-    sanitize_string,
-    validate_password_strength,
+from src.gateway.validators.artifact import (
+    ArtifactIdValidator,
+    ArtifactStatus,
+    ArtifactType,
+    CreateArtifactValidator,
+    ListArtifactsQueryValidator,
+    UpdateArtifactValidator,
 )
-from src.gateway.validators.workspace import (
-    WorkspaceType,
-    WorkspaceStatus,
-    CreateWorkspaceValidator,
-    UpdateWorkspaceValidator,
-    AddPaperToWorkspaceValidator,
-    WorkspaceIdValidator,
+from src.gateway.validators.common import (
+    sanitize_html,
+    validate_email,
+    validate_limit,
+    validate_page_number,
+    validate_password_strength,
+    validate_uuid,
 )
 from src.gateway.validators.paper import (
-    PaperSource,
-    CreatePaperValidator,
-    UpdatePaperValidator,
     AuthorValidator,
-    SearchPapersValidator,
+    CreatePaperValidator,
     PaperIdValidator,
+    PaperSource,
+    SearchPapersValidator,
+    UpdatePaperValidator,
 )
-from src.gateway.validators.artifact import (
-    ArtifactType,
-    ArtifactStatus,
-    CreateArtifactValidator,
-    UpdateArtifactValidator,
-    ArtifactIdValidator,
-    ListArtifactsQueryValidator,
+from src.gateway.validators.workspace import (
+    AddPaperToWorkspaceValidator,
+    CreateWorkspaceValidator,
+    UpdateWorkspaceValidator,
+    WorkspaceIdValidator,
+    WorkspaceStatus,
+    WorkspaceType,
 )
-
 
 # ============ Common Validators Tests ============
 

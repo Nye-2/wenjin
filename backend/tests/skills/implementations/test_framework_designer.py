@@ -10,18 +10,16 @@ This module tests:
 """
 
 from unittest.mock import MagicMock, patch
-import uuid
 
 import pytest
 
 from src.agents.thread_state import AcademicArtifact, ThreadState
-from src.skills.base import SkillInput, SkillOutput
+from src.skills.base import SkillInput
 from src.skills.implementations.framework_designer import (
-    FrameworkDesignerSkill,
     ABSTRACT_GENERATION_PROMPT,
     OUTLINE_GENERATION_PROMPT,
+    FrameworkDesignerSkill,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -488,8 +486,8 @@ class TestFrameworkDesignerSkillIntegration:
 
         assert output.success is True
         # The artifact content should be used as research idea
-        artifact_content = thread_state_with_artifact.artifacts[0].content
-        call_args = mock_model.invoke.call_args_list[0]
+        thread_state_with_artifact.artifacts[0].content
+        mock_model.invoke.call_args_list[0]
         # Research idea should be in the prompt
         assert True  # Just verify it executes successfully
 

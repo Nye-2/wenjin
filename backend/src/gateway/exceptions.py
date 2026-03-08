@@ -1,6 +1,6 @@
 """Centralized exception classes for AcademiaGPT."""
 
-from fastapi import HTTPException, status
+from fastapi import status
 
 
 class AcademiaGPTException(Exception):

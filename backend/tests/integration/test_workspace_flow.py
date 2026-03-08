@@ -12,8 +12,8 @@ import pytest
 from httpx import AsyncClient
 
 from tests.integration.conftest import (
-    TestWorkspace,
     TestUser,
+    TestWorkspace,
     make_authenticated_client,
 )
 
@@ -178,8 +178,8 @@ class TestWorkspaceFlow:
         test_session,
     ):
         """Test that listing workspaces only shows user's own workspaces."""
-        from tests.integration.conftest import TestUser as TestUserModel
         from src.services.auth import hash_password
+        from tests.integration.conftest import TestUser as TestUserModel
 
         # Create another user
         other_user = TestUserModel(

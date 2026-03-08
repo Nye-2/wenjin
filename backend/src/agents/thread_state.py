@@ -1,10 +1,11 @@
 """ThreadState with academic extensions."""
 
-from datetime import datetime, timezone
-from typing import Annotated, Optional, Any, Sequence
-from pydantic import BaseModel, Field, PrivateAttr
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 from langchain_core.messages import BaseMessage
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 class AcademicArtifact(BaseModel):
@@ -13,8 +14,8 @@ class AcademicArtifact(BaseModel):
     workspace_id: str
     type: str  # research_idea, methodology, framework_outline, abstract, paper_draft
     content: dict
-    created_by_skill: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_by_skill: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 def merge_artifacts(
@@ -58,8 +59,8 @@ class ThreadState(BaseModel):
     messages: Annotated[Sequence[BaseMessage], add_messages] = Field(default_factory=list)
 
     # Academic context
-    workspace_id: Optional[str] = None
-    workspace_type: Optional[str] = None  # sci, thesis, proposal, grant
+    workspace_id: str | None = None
+    workspace_type: str | None = None  # sci, thesis, proposal, grant
 
     # Academic artifacts (with deduplication)
     artifacts: Annotated[list[AcademicArtifact], merge_artifacts] = Field(default_factory=list)
@@ -68,11 +69,11 @@ class ThreadState(BaseModel):
     cited_papers: list[str] = Field(default_factory=list)
 
     # Discipline information
-    discipline: Optional[str] = None
+    discipline: str | None = None
 
     # Thread metadata
     thread_data: dict = Field(default_factory=dict)
-    title: Optional[str] = None
+    title: str | None = None
 
     # File tracking
     uploaded_files: list[dict] = Field(default_factory=list)

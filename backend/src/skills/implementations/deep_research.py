@@ -7,13 +7,11 @@ This skill performs deep research on a topic by:
 4. Generating novel research ideas
 """
 
-import asyncio
 import re
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
 
 from src.agents.thread_state import AcademicArtifact, ThreadState
 from src.config import settings
@@ -25,13 +23,13 @@ class Paper:
     """Represents a paper from Semantic Scholar search."""
     title: str
     authors: list[str]
-    year: Optional[int]
-    venue: Optional[str]
-    abstract: Optional[str]
-    citations: Optional[int]
-    url: Optional[str]
-    doi: Optional[str]
-    paper_id: Optional[str] = None
+    year: int | None
+    venue: str | None
+    abstract: str | None
+    citations: int | None
+    url: str | None
+    doi: str | None
+    paper_id: str | None = None
 
 
 @dataclass
@@ -167,7 +165,7 @@ class DeepResearchSkill(BaseSkill):
         self,
         query: str,
         limit: int,
-        year_range: Optional[str] = None,
+        year_range: str | None = None,
     ) -> list[Paper]:
         """Search for papers using Semantic Scholar.
 
@@ -461,7 +459,7 @@ class DeepResearchSkill(BaseSkill):
             ),
         ]
 
-        for keyword, gap_title, evidence_template in gap_indicators:
+        for keyword, gap_title, _evidence_template in gap_indicators:
             if keyword not in all_abstracts:
                 # Find supporting papers that partially relate
                 supporting = []
@@ -613,7 +611,7 @@ class DeepResearchSkill(BaseSkill):
             List of AcademicArtifact objects.
         """
         artifacts = []
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
 
         # Create literature review artifact
         artifacts.append(AcademicArtifact(

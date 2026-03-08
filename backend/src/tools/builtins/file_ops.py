@@ -1,7 +1,6 @@
 """File operation tools."""
 
 from pathlib import Path
-from typing import Optional
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -10,8 +9,8 @@ from pydantic import BaseModel, Field
 class ReadFileInput(BaseModel):
     """Input for read_file tool."""
     file_path: str = Field(description="Path to the file to read")
-    start_line: Optional[int] = Field(default=None, description="Start line number (1-indexed)")
-    end_line: Optional[int] = Field(default=None, description="End line number (1-indexed)")
+    start_line: int | None = Field(default=None, description="Start line number (1-indexed)")
+    end_line: int | None = Field(default=None, description="End line number (1-indexed)")
 
 
 class WriteFileInput(BaseModel):
@@ -37,8 +36,8 @@ class LsInput(BaseModel):
 @tool(args_schema=ReadFileInput)
 async def read_file_tool(
     file_path: str,
-    start_line: Optional[int] = None,
-    end_line: Optional[int] = None,
+    start_line: int | None = None,
+    end_line: int | None = None,
 ) -> str:
     """Read the contents of a file.
 
@@ -55,7 +54,7 @@ async def read_file_tool(
         if not path.exists():
             return f"Error: File not found: {file_path}"
 
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
 
         if start_line is not None or end_line is not None:
@@ -129,7 +128,7 @@ async def str_replace_tool(
         if not path.exists():
             return f"Error: File not found: {file_path}"
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
 
         if old_str not in content:

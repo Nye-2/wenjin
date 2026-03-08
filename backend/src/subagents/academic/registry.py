@@ -6,13 +6,12 @@ and Analyst.
 """
 
 from dataclasses import dataclass, field
-from typing import List
 
 from .prompts import (
-    SCOUT_PROMPT,
-    WRITER_PROMPT,
-    SYNTHESIZER_PROMPT,
     ANALYST_PROMPT,
+    SCOUT_PROMPT,
+    SYNTHESIZER_PROMPT,
+    WRITER_PROMPT,
 )
 
 
@@ -30,7 +29,7 @@ class SubagentConfig:
     name: str
     description: str
     system_prompt: str
-    tools: List[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)
     max_turns: int = 10
 
 
@@ -94,7 +93,7 @@ def get_subagent_config(subagent_type: str) -> SubagentConfig:
     return SUBAGENT_REGISTRY[subagent_type]
 
 
-def get_all_subagent_types() -> List[str]:
+def get_all_subagent_types() -> list[str]:
     """Get all available subagent types.
 
     Returns:

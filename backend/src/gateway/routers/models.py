@@ -1,11 +1,8 @@
 """Models router for LLM model management."""
 
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-
-from src.models.factory import create_chat_model
 
 router = APIRouter()
 

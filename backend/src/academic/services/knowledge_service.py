@@ -1,11 +1,10 @@
 """User knowledge service for managing personalized knowledge."""
 
-from typing import Optional
 
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import UserKnowledge, KnowledgeCategory
+from src.database import UserKnowledge
 
 
 class KnowledgeService:
@@ -25,8 +24,8 @@ class KnowledgeService:
         category: str,
         content: str,
         confidence: float = 0.7,
-        source: Optional[str] = None,
-        workspace_context: Optional[str] = None,
+        source: str | None = None,
+        workspace_context: str | None = None,
     ) -> UserKnowledge:
         """Create a new knowledge entry.
 
@@ -54,7 +53,7 @@ class KnowledgeService:
         await self.db.refresh(knowledge)
         return knowledge
 
-    async def get(self, knowledge_id: str) -> Optional[UserKnowledge]:
+    async def get(self, knowledge_id: str) -> UserKnowledge | None:
         """Get knowledge by ID.
 
         Args:
@@ -71,8 +70,8 @@ class KnowledgeService:
     async def list_by_user(
         self,
         user_id: str,
-        category: Optional[str] = None,
-        min_confidence: Optional[float] = None,
+        category: str | None = None,
+        min_confidence: float | None = None,
         active_only: bool = True,
     ) -> list[UserKnowledge]:
         """List knowledge entries for a user.
@@ -93,7 +92,7 @@ class KnowledgeService:
         if min_confidence is not None:
             conditions.append(UserKnowledge.confidence >= min_confidence)
         if active_only:
-            conditions.append(UserKnowledge.is_active == True)
+            conditions.append(UserKnowledge.is_active)
 
         result = await self.db.execute(
             select(UserKnowledge)
@@ -105,10 +104,10 @@ class KnowledgeService:
     async def update(
         self,
         knowledge_id: str,
-        content: Optional[str] = None,
-        confidence: Optional[float] = None,
-        is_active: Optional[bool] = None,
-    ) -> Optional[UserKnowledge]:
+        content: str | None = None,
+        confidence: float | None = None,
+        is_active: bool | None = None,
+    ) -> UserKnowledge | None:
         """Update knowledge entry.
 
         Args:

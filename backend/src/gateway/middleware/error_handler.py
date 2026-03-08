@@ -1,17 +1,15 @@
 """Centralized error handling middleware for AcademiaGPT."""
 
 import logging
-from typing import Callable
 
-from fastapi import Request, status, FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError, HTTPException
 
 from src.gateway.exceptions import (
     AcademiaGPTException,
     map_exception_to_status,
 )
-
 
 logger = logging.getLogger(__name__)
 

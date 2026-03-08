@@ -2,15 +2,14 @@
 
 import json
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Optional, AsyncGenerator
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -21,14 +20,14 @@ class ChatMessage(BaseModel):
     """A single chat message."""
     role: str  # user, assistant, system
     content: str
-    timestamp: Optional[datetime] = None
+    timestamp: datetime | None = None
 
 
 class ChatRequest(BaseModel):
     """Chat request."""
     message: str
-    workspace_id: Optional[str] = None
-    thread_id: Optional[str] = None
+    workspace_id: str | None = None
+    thread_id: str | None = None
     model: str = "gpt-4o"
     thinking_enabled: bool = False
     stream: bool = True
@@ -38,21 +37,21 @@ class ChatResponse(BaseModel):
     """Chat response."""
     thread_id: str
     message: ChatMessage
-    workspace_id: Optional[str] = None
+    workspace_id: str | None = None
 
 
 class ThreadCreate(BaseModel):
     """Thread creation request."""
-    workspace_id: Optional[str] = None
-    title: Optional[str] = None
+    workspace_id: str | None = None
+    title: str | None = None
     model: str = "gpt-4o"
 
 
 class ThreadResponse(BaseModel):
     """Thread response."""
     id: str
-    workspace_id: Optional[str]
-    title: Optional[str]
+    workspace_id: str | None
+    title: str | None
     model: str
     messages: list[ChatMessage]
     created_at: datetime
@@ -66,7 +65,7 @@ class ThreadResponse(BaseModel):
 _threads_store: dict[str, dict] = {}
 
 
-def get_thread(thread_id: str) -> Optional[dict]:
+def get_thread(thread_id: str) -> dict | None:
     """Get thread by ID."""
     return _threads_store.get(thread_id)
 
@@ -84,8 +83,8 @@ def create_thread_id() -> str:
 # ============ Dependencies ============
 
 async def get_or_create_thread(
-    thread_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
+    thread_id: str | None = None,
+    workspace_id: str | None = None,
     model: str = "gpt-4o",
 ) -> dict:
     """Get existing thread or create new one."""
@@ -218,7 +217,7 @@ async def chat(request: ChatRequest):
         # Extract response
         response_content = result["messages"][-1].content if result.get("messages") else ""
 
-    except Exception as e:
+    except Exception:
         # Fallback to simple model call if agent fails
         from src.models.factory import create_chat_model
         model = create_chat_model(request.model, request.thinking_enabled)
@@ -317,7 +316,7 @@ async def chat_stream(request: ChatRequest):
 
 @router.get("/threads")
 async def list_threads(
-    workspace_id: Optional[str] = None,
+    workspace_id: str | None = None,
     limit: int = 20,
 ):
     """List all threads, optionally filtered by workspace."""

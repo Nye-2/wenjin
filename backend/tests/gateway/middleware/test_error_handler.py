@@ -1,31 +1,30 @@
 """Tests for centralized error handling middleware."""
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-from fastapi import FastAPI, status, HTTPException
+from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
-from pydantic import ValidationError as PydanticValidationError
 
 from src.gateway.exceptions import (
     AcademiaGPTException,
-    NotFoundError,
-    ValidationError,
-    DuplicateError,
     AuthenticationError,
     AuthorizationError,
+    DuplicateError,
+    NotFoundError,
     RateLimitError,
     ServiceUnavailableError,
+    ValidationError,
     map_exception_to_status,
 )
 from src.gateway.middleware.error_handler import (
     academia_exception_handler,
-    validation_exception_handler,
-    http_exception_handler,
     generic_exception_handler,
+    http_exception_handler,
     register_error_handlers,
+    validation_exception_handler,
 )
-
 
 # ============================================================================ #
 # Exception Classes Tests

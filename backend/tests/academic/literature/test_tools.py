@@ -1,18 +1,14 @@
 """Tests for literature navigation tools."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from src.academic.literature.tools import (
-    GetPaperTocInput,
     GetPaperSectionInput,
+    GetPaperTocInput,
     SearchPapersInput,
-    _get_paper_by_id,
-    _get_section_by_path,
-    _search_papers_in_db,
-    format_toc_output,
-    format_section_output,
     format_search_results,
+    format_section_output,
+    format_toc_output,
 )
 from src.database import Paper, PaperSection
 

@@ -3,15 +3,14 @@
 Migrated from AcademiaGPT v1 backend/services/auth.py
 """
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+import hashlib
+from datetime import UTC, datetime, timedelta
+
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
-import hashlib
 
 from src.config.app_config import jwt_settings
-
 
 # 密码哈希上下文
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -22,7 +21,7 @@ class TokenData(BaseModel):
     user_id: str
     email: str
     role: str = "user"
-    exp: Optional[datetime] = None
+    exp: datetime | None = None
 
 
 class Token(BaseModel):
@@ -75,13 +74,13 @@ def create_access_token(
     user_id: str,
     email: str,
     role: str = "user",
-    expires_delta: Optional[timedelta] = None
+    expires_delta: timedelta | None = None
 ) -> str:
     """创建访问令牌"""
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(
+        expire = datetime.now(UTC) + timedelta(
             minutes=jwt_settings.access_token_expire_minutes
         )
 
@@ -102,13 +101,13 @@ def create_access_token(
 
 def create_refresh_token(
     user_id: str,
-    expires_delta: Optional[timedelta] = None
+    expires_delta: timedelta | None = None
 ) -> str:
     """创建刷新令牌"""
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(
+        expire = datetime.now(UTC) + timedelta(
             days=jwt_settings.refresh_token_expire_days
         )
 
@@ -137,7 +136,7 @@ def create_tokens(user_id: str, email: str, role: str = "user") -> Token:
     )
 
 
-def decode_token(token: str) -> Optional[dict]:
+def decode_token(token: str) -> dict | None:
     """解码令牌"""
     try:
         payload = jwt.decode(
@@ -150,7 +149,7 @@ def decode_token(token: str) -> Optional[dict]:
         return None
 
 
-def verify_access_token(token: str) -> Optional[TokenData]:
+def verify_access_token(token: str) -> TokenData | None:
     """验证访问令牌"""
     payload = decode_token(token)
     if not payload:
@@ -174,7 +173,7 @@ def verify_access_token(token: str) -> Optional[TokenData]:
     )
 
 
-def verify_refresh_token(token: str) -> Optional[str]:
+def verify_refresh_token(token: str) -> str | None:
     """验证刷新令牌，返回 user_id"""
     payload = decode_token(token)
     if not payload:

@@ -1,7 +1,6 @@
 """Subagent registry for managing subagent configurations."""
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -131,7 +130,7 @@ class SubagentRegistry:
         """Initialize registry with default subagents."""
         self._subagents = dict(DEFAULT_SUBAGENTS)
 
-    def get(self, subagent_type: str) -> Optional[SubagentConfig]:
+    def get(self, subagent_type: str) -> SubagentConfig | None:
         """Get subagent configuration by type.
 
         Args:

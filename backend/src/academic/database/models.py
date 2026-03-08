@@ -1,7 +1,6 @@
 """Database models for academic entities."""
 
 from datetime import datetime
-from typing import Optional, Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -13,7 +12,7 @@ class Workspace(BaseModel):
     user_id: str
     name: str
     type: str  # sci, thesis, proposal, grant
-    discipline: Optional[str] = None
+    discipline: str | None = None
     config: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -22,13 +21,13 @@ class Workspace(BaseModel):
 class Paper(BaseModel):
     """Paper model for academic literature."""
     id: str = Field(default_factory=lambda: str(uuid4()))
-    doi: Optional[str] = None
+    doi: str | None = None
     title: str
     authors: list[dict] = Field(default_factory=list)
-    year: Optional[int] = None
-    venue: Optional[str] = None
-    abstract: Optional[str] = None
-    file_path: Optional[str] = None
+    year: int | None = None
+    venue: str | None = None
+    abstract: str | None = None
+    file_path: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -55,7 +54,7 @@ class PaperChunk(BaseModel):
     workspace_id: str
     chunk_index: int
     content: str
-    embedding: Optional[list[float]] = None
+    embedding: list[float] | None = None
     metadata: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -66,8 +65,8 @@ class Artifact(BaseModel):
     workspace_id: str
     type: str  # research_idea, methodology, framework_outline, abstract, paper_draft
     content: dict
-    created_by_skill: Optional[str] = None
-    parent_artifact_id: Optional[str] = None
+    created_by_skill: str | None = None
+    parent_artifact_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -78,7 +77,7 @@ class UserKnowledge(BaseModel):
     category: str  # preference, knowledge, context, behavior, goal
     content: str
     confidence: float = 0.7
-    source: Optional[str] = None
+    source: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -88,8 +87,8 @@ class GenerationRecord(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     workspace_id: str
     skill_name: str
-    input_summary: Optional[str] = None
-    output_summary: Optional[str] = None
-    duration_ms: Optional[int] = None
-    token_usage: Optional[dict] = None
+    input_summary: str | None = None
+    output_summary: str | None = None
+    duration_ms: int | None = None
+    token_usage: dict | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

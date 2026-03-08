@@ -1,10 +1,9 @@
 """Academic router for workspace, paper, and artifact management."""
 
-from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -15,17 +14,17 @@ class WorkspaceCreate(BaseModel):
     """Workspace creation request."""
     name: str
     type: str  # sci, thesis, proposal, grant
-    discipline: Optional[str] = None
-    description: Optional[str] = None
-    config: Optional[dict] = None
+    discipline: str | None = None
+    description: str | None = None
+    config: dict | None = None
 
 
 class WorkspaceUpdate(BaseModel):
     """Workspace update request."""
-    name: Optional[str] = None
-    discipline: Optional[str] = None
-    description: Optional[str] = None
-    config: Optional[dict] = None
+    name: str | None = None
+    discipline: str | None = None
+    description: str | None = None
+    config: dict | None = None
 
 
 class WorkspaceResponse(BaseModel):
@@ -34,8 +33,8 @@ class WorkspaceResponse(BaseModel):
     user_id: str
     name: str
     type: str
-    discipline: Optional[str]
-    description: Optional[str]
+    discipline: str | None
+    description: str | None
     config: dict
     created_at: datetime
     updated_at: datetime
@@ -51,26 +50,26 @@ class WorkspacesListResponse(BaseModel):
 
 class PaperCreate(BaseModel):
     """Paper creation request."""
-    doi: Optional[str] = None
+    doi: str | None = None
     title: str
-    authors: Optional[list[dict]] = None
-    year: Optional[int] = None
-    venue: Optional[str] = None
-    abstract: Optional[str] = None
+    authors: list[dict] | None = None
+    year: int | None = None
+    venue: str | None = None
+    abstract: str | None = None
 
 
 class PaperResponse(BaseModel):
     """Paper response."""
     id: str
-    doi: Optional[str]
+    doi: str | None
     title: str
     authors: list[dict]
-    year: Optional[int]
-    venue: Optional[str]
-    abstract: Optional[str]
+    year: int | None
+    venue: str | None
+    abstract: str | None
     source: str
-    citation_count: Optional[int]
-    reference_count: Optional[int]
+    citation_count: int | None
+    reference_count: int | None
 
     class Config:
         from_attributes = True
@@ -85,18 +84,18 @@ class PapersListResponse(BaseModel):
 class WorkspacePaperAdd(BaseModel):
     """Add paper to workspace request."""
     paper_id: str
-    notes: Optional[str] = None
-    tags: Optional[list[str]] = None
+    notes: str | None = None
+    tags: list[str] | None = None
     is_primary: bool = False
 
 
 class ArtifactCreate(BaseModel):
     """Artifact creation request."""
     type: str
-    title: Optional[str] = None
+    title: str | None = None
     content: dict
-    created_by_skill: Optional[str] = None
-    parent_artifact_id: Optional[str] = None
+    created_by_skill: str | None = None
+    parent_artifact_id: str | None = None
 
 
 class ArtifactResponse(BaseModel):
@@ -104,10 +103,10 @@ class ArtifactResponse(BaseModel):
     id: str
     workspace_id: str
     type: str
-    title: Optional[str]
+    title: str | None
     content: dict
-    created_by_skill: Optional[str]
-    parent_artifact_id: Optional[str]
+    created_by_skill: str | None
+    parent_artifact_id: str | None
     version: int
     status: str
     created_at: datetime
@@ -250,7 +249,7 @@ async def delete_workspace(
 @router.get("/workspaces/{workspace_id}/papers", response_model=PapersListResponse)
 async def list_workspace_papers(
     workspace_id: str,
-    read_status: Optional[str] = None,
+    read_status: str | None = None,
     paper_service = Depends(get_paper_service),
 ):
     """List papers in a workspace."""
@@ -271,7 +270,7 @@ async def add_paper_to_workspace(
     paper_service = Depends(get_paper_service),
 ):
     """Add a paper to a workspace."""
-    workspace_paper = await paper_service.add_to_workspace(
+    await paper_service.add_to_workspace(
         workspace_id=workspace_id,
         paper_id=request.paper_id,
         notes=request.notes,
@@ -301,7 +300,7 @@ async def create_paper(
 @router.post("/papers/upload")
 async def upload_paper(
     file: UploadFile = File(...),
-    workspace_id: Optional[str] = None,
+    workspace_id: str | None = None,
 ):
     """Upload a new paper (PDF)."""
     # TODO: Implement PDF processing and extraction
@@ -332,7 +331,7 @@ async def search_papers(
 @router.get("/workspaces/{workspace_id}/artifacts", response_model=ArtifactsListResponse)
 async def list_artifacts(
     workspace_id: str,
-    artifact_type: Optional[str] = None,
+    artifact_type: str | None = None,
     artifact_service = Depends(get_artifact_service),
 ):
     """List artifacts in a workspace."""

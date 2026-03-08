@@ -6,12 +6,11 @@ This service provides workspace management functionality including:
 - Workspace configuration handling
 """
 
-from typing import Optional, List
 
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Workspace, WorkspaceType, WorkspacePaper, Paper
+from src.database import Workspace, WorkspacePaper, WorkspaceType
 
 
 class WorkspaceService:
@@ -37,9 +36,9 @@ class WorkspaceService:
         user_id: str,
         name: str,
         type: str,
-        discipline: Optional[str] = None,
-        description: Optional[str] = None,
-        config: Optional[dict] = None,
+        discipline: str | None = None,
+        description: str | None = None,
+        config: dict | None = None,
     ) -> Workspace:
         """Create a new workspace.
 
@@ -82,7 +81,7 @@ class WorkspaceService:
         await self.db.refresh(workspace)
         return workspace
 
-    async def get(self, workspace_id: str) -> Optional[Workspace]:
+    async def get(self, workspace_id: str) -> Workspace | None:
         """Get workspace by ID.
 
         Args:
@@ -96,7 +95,7 @@ class WorkspaceService:
         )
         return result.scalar_one_or_none()
 
-    async def list_by_user(self, user_id: str) -> List[Workspace]:
+    async def list_by_user(self, user_id: str) -> list[Workspace]:
         """List all workspaces for a user.
 
         Args:
@@ -116,7 +115,7 @@ class WorkspaceService:
         self,
         workspace_id: str,
         **kwargs,
-    ) -> Optional[Workspace]:
+    ) -> Workspace | None:
         """Update workspace fields.
 
         Args:
@@ -177,8 +176,8 @@ class WorkspaceService:
         self,
         workspace_id: str,
         paper_id: str,
-        notes: Optional[str] = None,
-        tags: Optional[List[str]] = None,
+        notes: str | None = None,
+        tags: list[str] | None = None,
         is_primary: bool = False,
         read_status: str = "unread",
     ) -> WorkspacePaper:
@@ -244,7 +243,7 @@ class WorkspaceService:
 
     async def _get_workspace_paper(
         self, workspace_id: str, paper_id: str
-    ) -> Optional[WorkspacePaper]:
+    ) -> WorkspacePaper | None:
         """Get WorkspacePaper association by workspace and paper IDs.
 
         Args:

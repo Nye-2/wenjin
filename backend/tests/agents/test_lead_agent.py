@@ -1,19 +1,18 @@
 """Tests for Lead Agent middleware chain integration."""
 
-import pytest
 from unittest.mock import MagicMock
 
 from src.agents.lead_agent.agent import (
-    build_middlewares,
     apply_prompt_template,
+    build_middlewares,
     make_lead_agent,
 )
 from src.agents.middlewares import (
-    WorkspaceContextMiddleware,
-    LiteratureContextMiddleware,
-    KnowledgeContextMiddleware,
-    DisciplineContextMiddleware,
     CitationContextMiddleware,
+    DisciplineContextMiddleware,
+    KnowledgeContextMiddleware,
+    LiteratureContextMiddleware,
+    WorkspaceContextMiddleware,
 )
 from src.agents.thread_state import ThreadState
 
@@ -168,7 +167,7 @@ class TestMakeLeadAgent:
 
     def test_make_lead_agent_accepts_middlewares(self):
         """Test that make_lead_agent accepts middleware chain."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         workspace_service = MagicMock()
         index_service = MagicMock()
@@ -200,7 +199,7 @@ class TestMakeLeadAgent:
 
     def test_make_lead_agent_without_middlewares(self):
         """Test that make_lead_agent works without middlewares."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         config = {"configurable": {"model_name": "gpt-4o"}}
 

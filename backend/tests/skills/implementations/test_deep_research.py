@@ -9,20 +9,19 @@ This module tests:
 - Full skill execution workflow
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timezone
 
 from src.agents.thread_state import AcademicArtifact, ThreadState
-from src.skills.base import SkillInput, SkillOutput
+from src.skills.base import SkillInput
 from src.skills.implementations.deep_research import (
     DeepResearchSkill,
     Paper,
-    ResearchPattern,
     ResearchGap,
     ResearchIdea,
+    ResearchPattern,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -289,7 +288,7 @@ class TestPatternAnalysis:
         """Test that common terms are identified as patterns."""
         patterns = skill._analyze_patterns(sample_papers)
         # The sample papers have "learning", "language", "attention" in common
-        pattern_descriptions = " ".join([p.description.lower() for p in patterns])
+        " ".join([p.description.lower() for p in patterns])
         # Should identify at least some patterns
         assert len(patterns) > 0
 

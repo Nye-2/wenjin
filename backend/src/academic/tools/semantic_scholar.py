@@ -1,6 +1,5 @@
 """Semantic Scholar search tool for academic paper discovery."""
 
-from typing import Optional
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -12,14 +11,14 @@ class SemanticScholarInput(BaseModel):
     """Input for Semantic Scholar search."""
     query: str = Field(description="Search query for academic papers")
     limit: int = Field(default=10, description="Maximum number of results")
-    year_range: Optional[str] = Field(default=None, description="Year range, e.g., '2020-2024'")
+    year_range: str | None = Field(default=None, description="Year range, e.g., '2020-2024'")
 
 
 @tool(args_schema=SemanticScholarInput)
 async def semantic_scholar_search_tool(
     query: str,
     limit: int = 10,
-    year_range: Optional[str] = None,
+    year_range: str | None = None,
 ) -> str:
     """Search for academic papers using Semantic Scholar.
 

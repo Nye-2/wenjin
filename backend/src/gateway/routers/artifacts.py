@@ -9,9 +9,9 @@ This module provides REST endpoints for:
 - Getting artifact lineage (parent chain)
 """
 
-from typing import Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,11 +19,7 @@ from src.database import get_db_session
 from src.gateway.validators.artifact import (
     CreateArtifactValidator,
     UpdateArtifactValidator,
-    ArtifactIdValidator,
-    ListArtifactsQueryValidator,
 )
-from src.gateway.validators.common import validate_uuid
-
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
@@ -37,10 +33,10 @@ class ArtifactResponse(BaseModel):
     id: str
     workspace_id: str
     type: str
-    title: Optional[str]
+    title: str | None
     content: dict
-    created_by_skill: Optional[str]
-    parent_artifact_id: Optional[str] = None
+    created_by_skill: str | None
+    parent_artifact_id: str | None = None
     version: int
     status: str
     created_at: str
@@ -120,7 +116,7 @@ async def create_artifact(
 @router.get("/", response_model=list[ArtifactResponse])
 async def list_artifacts(
     workspace_id: str,
-    type: Optional[str] = None,
+    type: str | None = None,
     artifact_service = Depends(get_artifact_service),
 ):
     """List artifacts, filtered by workspace and optionally by type.

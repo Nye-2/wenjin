@@ -1,7 +1,8 @@
 """Tests for WorkspaceContextMiddleware."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from src.agents.middlewares.workspace_context import WorkspaceContextMiddleware
 from src.agents.thread_state import ThreadState

@@ -1,6 +1,5 @@
 """Clarification tool for asking user questions."""
 
-from typing import Optional
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -9,13 +8,13 @@ from pydantic import BaseModel, Field
 class ClarificationInput(BaseModel):
     """Input for ask_clarification tool."""
     question: str = Field(description="The question to ask the user")
-    options: Optional[list[str]] = Field(default=None, description="Optional list of choices")
+    options: list[str] | None = Field(default=None, description="Optional list of choices")
 
 
 @tool(args_schema=ClarificationInput)
 async def ask_clarification_tool(
     question: str,
-    options: Optional[list[str]] = None,
+    options: list[str] | None = None,
 ) -> str:
     """Ask the user for clarification.
 

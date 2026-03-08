@@ -1,9 +1,8 @@
 """Skill loader for discovering and loading academic skills."""
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -69,11 +68,11 @@ def _load_enabled_skills(config_path: str) -> dict[str, bool]:
         with open(config_file) as f:
             config = json.load(f)
         return config.get("skills", {})
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return {}
 
 
-def _parse_skill(skill_file: Path, enabled_skills: dict[str, bool]) -> Optional[Skill]:
+def _parse_skill(skill_file: Path, enabled_skills: dict[str, bool]) -> Skill | None:
     """Parse a SKILL.md file into a Skill object.
 
     Args:

@@ -4,11 +4,11 @@ This module provides reusable validation functions and custom types
 for input validation across the gateway.
 """
 
-import re
 import html
-from typing import Annotated, Any
+import re
+from typing import Annotated
 
-from pydantic import BeforeValidator, Field, ValidationError
+from pydantic import BeforeValidator, Field
 
 
 def validate_uuid(value: str) -> str:

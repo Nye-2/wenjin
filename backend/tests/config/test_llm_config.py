@@ -6,10 +6,10 @@ from environment variables (LLM_GEN_MODELS, LLM_TOOL_MODELS).
 
 import json
 import os
-import pytest
+from collections.abc import Generator
 from unittest.mock import patch
-from typing import Generator
 
+import pytest
 
 # We'll import from the module we're about to create
 # This will fail initially (TDD red phase)

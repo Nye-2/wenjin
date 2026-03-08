@@ -11,26 +11,26 @@ This module tests the papers endpoints including:
 - Paper search
 """
 
-import pytest
+from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
+import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.academic.services.extraction_service import ExtractionService
+from src.academic.services.paper_service import PaperService
 from src.gateway.routers.papers import (
-    router,
-    get_session,
-    get_paper_service,
     get_extraction_service,
+    get_paper_service,
+    get_session,
     paper_to_response,
+    router,
     section_to_response,
 )
-from src.academic.services.paper_service import PaperService
-from src.academic.services.extraction_service import ExtractionService
 
 
 def create_mock_paper(

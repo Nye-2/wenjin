@@ -1,16 +1,16 @@
 """User model for authentication and ownership."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Boolean, DateTime, func
+from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ..base import Base, UUIDMixin, TimestampMixin
+from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from .workspace import Workspace
     from .knowledge import UserKnowledge
+    from .workspace import Workspace
 
 
 class User(Base, UUIDMixin, TimestampMixin):
@@ -37,18 +37,18 @@ class User(Base, UUIDMixin, TimestampMixin):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    last_login: Mapped[Optional[datetime]] = mapped_column(
+    last_login: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
     # Relationships
-    workspaces: Mapped[List["Workspace"]] = relationship(
+    workspaces: Mapped[list["Workspace"]] = relationship(
         "Workspace",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    knowledge: Mapped[List["UserKnowledge"]] = relationship(
+    knowledge: Mapped[list["UserKnowledge"]] = relationship(
         "UserKnowledge",
         back_populates="user",
         cascade="all, delete-orphan",

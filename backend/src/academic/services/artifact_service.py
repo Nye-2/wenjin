@@ -6,9 +6,8 @@ This service provides artifact management functionality including:
 - Artifact lineage tracking
 """
 
-from typing import Optional, List
 
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Artifact, ArtifactType
@@ -38,9 +37,9 @@ class ArtifactService:
         workspace_id: str,
         type: str,
         content: dict,
-        title: Optional[str] = None,
-        created_by_skill: Optional[str] = None,
-        parent_artifact_id: Optional[str] = None,
+        title: str | None = None,
+        created_by_skill: str | None = None,
+        parent_artifact_id: str | None = None,
     ) -> Artifact:
         """Create a new artifact.
 
@@ -83,7 +82,7 @@ class ArtifactService:
         await self.db.refresh(artifact)
         return artifact
 
-    async def get(self, artifact_id: str) -> Optional[Artifact]:
+    async def get(self, artifact_id: str) -> Artifact | None:
         """Get artifact by ID.
 
         Args:
@@ -100,11 +99,11 @@ class ArtifactService:
     async def list_by_workspace(
         self,
         workspace_id: str,
-        type: Optional[str] = None,
-        status: Optional[str] = None,
+        type: str | None = None,
+        status: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[Artifact]:
+    ) -> list[Artifact]:
         """List artifacts in workspace with optional filtering.
 
         Args:
@@ -135,7 +134,7 @@ class ArtifactService:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def update(self, artifact_id: str, **kwargs) -> Optional[Artifact]:
+    async def update(self, artifact_id: str, **kwargs) -> Artifact | None:
         """Update artifact fields.
 
         Args:
@@ -195,7 +194,7 @@ class ArtifactService:
         self,
         workspace_id: str,
         artifact_type: str,
-    ) -> List[Artifact]:
+    ) -> list[Artifact]:
         """List artifacts by type in workspace.
 
         Args:
@@ -217,7 +216,7 @@ class ArtifactService:
         )
         return list(result.scalars().all())
 
-    async def get_lineage(self, artifact_id: str) -> List[Artifact]:
+    async def get_lineage(self, artifact_id: str) -> list[Artifact]:
         """Get artifact lineage (parent chain).
 
         Traces the ancestry of an artifact from the root (oldest ancestor)

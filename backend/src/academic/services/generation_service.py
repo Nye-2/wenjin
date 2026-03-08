@@ -1,9 +1,8 @@
 """Generation record service for tracking skill executions."""
 
-from typing import Optional
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import GenerationRecord
@@ -24,15 +23,15 @@ class GenerationService:
         self,
         workspace_id: str,
         skill_name: str,
-        thread_id: Optional[str] = None,
-        model_name: Optional[str] = None,
-        input_summary: Optional[str] = None,
-        output_summary: Optional[str] = None,
-        duration_ms: Optional[int] = None,
-        token_usage: Optional[dict] = None,
+        thread_id: str | None = None,
+        model_name: str | None = None,
+        input_summary: str | None = None,
+        output_summary: str | None = None,
+        duration_ms: int | None = None,
+        token_usage: dict | None = None,
         status: str = "success",
-        error_message: Optional[str] = None,
-        metadata: Optional[dict] = None,
+        error_message: str | None = None,
+        metadata: dict | None = None,
     ) -> GenerationRecord:
         """Create a generation record.
 
@@ -70,7 +69,7 @@ class GenerationService:
         await self.db.refresh(record)
         return record
 
-    async def get(self, record_id: str) -> Optional[GenerationRecord]:
+    async def get(self, record_id: str) -> GenerationRecord | None:
         """Get generation record by ID.
 
         Args:
@@ -87,9 +86,9 @@ class GenerationService:
     async def list_by_workspace(
         self,
         workspace_id: str,
-        skill_name: Optional[str] = None,
-        status: Optional[str] = None,
-        since: Optional[datetime] = None,
+        skill_name: str | None = None,
+        status: str | None = None,
+        since: datetime | None = None,
         limit: int = 100,
     ) -> list[GenerationRecord]:
         """List generation records for a workspace.
@@ -143,7 +142,7 @@ class GenerationService:
     async def get_usage_stats(
         self,
         workspace_id: str,
-        since: Optional[datetime] = None,
+        since: datetime | None = None,
     ) -> dict:
         """Get usage statistics for a workspace.
 
@@ -191,7 +190,7 @@ class GenerationService:
     async def cleanup_old_records(
         self,
         days_old: int = 90,
-        workspace_id: Optional[str] = None,
+        workspace_id: str | None = None,
     ) -> int:
         """Clean up old generation records.
 

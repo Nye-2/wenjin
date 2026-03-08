@@ -1,13 +1,13 @@
 """Artifact model for academic outputs."""
 
 from enum import StrEnum
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import String, Text, ForeignKey, Index
+from sqlalchemy import ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ..base import Base, UUIDMixin, TimestampMixin
+from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from .workspace import Workspace
@@ -61,13 +61,13 @@ class Artifact(Base, UUIDMixin, TimestampMixin):
         nullable=False,
     )
     type: Mapped[str] = mapped_column(String(100), nullable=False)
-    title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     content: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
     )
-    created_by_skill: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    parent_artifact_id: Mapped[Optional[str]] = mapped_column(
+    created_by_skill: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    parent_artifact_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("artifacts.id", ondelete="SET NULL"),
         nullable=True,
@@ -90,7 +90,7 @@ class Artifact(Base, UUIDMixin, TimestampMixin):
     def __repr__(self) -> str:
         return f"<Artifact(id={self.id}, type={self.type}, workspace={self.workspace_id})>"
 
-    def get_lineage(self) -> List["Artifact"]:
+    def get_lineage(self) -> list["Artifact"]:
         """Get artifact lineage from root to this artifact."""
         lineage = []
         current = self

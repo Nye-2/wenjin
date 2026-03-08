@@ -7,34 +7,33 @@ This package provides:
 """
 
 from .base import Base, TimestampMixin, UUIDMixin, generate_uuid
-from .session import (
-    get_db_session,
-    async_session_factory,
-    engine,
-    init_db,
-    close_db,
-)
-
 from .models import (
-    # User
-    User,
-    # Workspace
-    Workspace,
-    WorkspaceType,
-    # Paper
-    Paper,
-    WorkspacePaper,
-    PaperExtraction,
-    PaperChunk,
-    PaperSection,
     # Artifact
     Artifact,
     ArtifactType,
-    # Knowledge
-    UserKnowledge,
-    KnowledgeCategory,
     # Generation
     GenerationRecord,
+    KnowledgeCategory,
+    # Paper
+    Paper,
+    PaperChunk,
+    PaperExtraction,
+    PaperSection,
+    # User
+    User,
+    # Knowledge
+    UserKnowledge,
+    # Workspace
+    Workspace,
+    WorkspacePaper,
+    WorkspaceType,
+)
+from .session import (
+    async_session_factory,
+    close_db,
+    engine,
+    get_db_session,
+    init_db,
 )
 
 __all__ = [

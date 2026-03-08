@@ -10,7 +10,6 @@ supporting:
 """
 
 import logging
-from typing import Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
@@ -48,7 +47,7 @@ def _is_anthropic_provider(base_url: str, model: str) -> bool:
 
 def create_chat_model(
     model_id: str,
-    temperature: Optional[float] = None,
+    temperature: float | None = None,
     thinking_enabled: bool = False,
 ) -> BaseChatModel:
     """Create a chat model instance based on dynamic configuration.

@@ -1,11 +1,11 @@
 """Services package initialization."""
 
-from .workspace_service import WorkspaceService
 from .artifact_service import ArtifactService
-from .paper_service import PaperService
-from .knowledge_service import KnowledgeService
+from .extraction_service import ExtractionError, ExtractionService
 from .generation_service import GenerationService
-from .extraction_service import ExtractionService, ExtractionError
+from .knowledge_service import KnowledgeService
+from .paper_service import PaperService
+from .workspace_service import WorkspaceService
 
 __all__ = [
     "WorkspaceService",

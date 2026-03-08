@@ -1,7 +1,7 @@
 """Tests for authentication service."""
 
+
 import pytest
-from datetime import datetime, timedelta, timezone
 
 from src.services.auth import (
     Token,
@@ -10,11 +10,11 @@ from src.services.auth import (
     create_refresh_token,
     create_tokens,
     decode_token,
-    verify_access_token,
-    verify_refresh_token,
-    verify_password,
     hash_password,
     hash_token,
+    verify_access_token,
+    verify_password,
+    verify_refresh_token,
 )
 
 

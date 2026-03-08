@@ -4,12 +4,13 @@ This module contains comprehensive tests for the PaperService class,
 covering all CRUD operations, search functionality, and workspace association management.
 """
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.academic.services.paper_service import PaperService
-from src.database import Paper, WorkspacePaper, PaperExtraction
+from src.database import Paper, PaperExtraction, WorkspacePaper
 
 
 class TestPaperServiceInit:
@@ -44,7 +45,7 @@ class TestCreatePaper:
         """Test creating a paper with only required fields."""
         authors = [{"name": "John Doe"}, {"name": "Jane Smith"}]
 
-        result = await service.create(
+        await service.create(
             title="Test Paper",
             authors=authors,
         )
@@ -65,7 +66,7 @@ class TestCreatePaper:
 
         # Mock get_by_doi to return None (DOI doesn't exist yet)
         with patch.object(service, "get_by_doi", return_value=None):
-            result = await service.create(
+            await service.create(
                 title="Full Paper",
                 authors=authors,
                 doi="10.1234/test.5678",
@@ -105,7 +106,7 @@ class TestCreatePaper:
     @pytest.mark.asyncio
     async def test_create_paper_default_source(self, service, mock_db_session):
         """Test that source defaults to manual_upload."""
-        result = await service.create(
+        await service.create(
             title="Test Paper",
             authors=[],
         )
@@ -231,7 +232,7 @@ class TestUpdatePaper:
         mock_paper.title = "Old Title"
 
         with patch.object(service, "get", return_value=mock_paper):
-            result = await service.update(sample_paper_id, title="New Title")
+            await service.update(sample_paper_id, title="New Title")
 
         assert mock_paper.title == "New Title"
         mock_db_session.commit.assert_called_once()
@@ -247,7 +248,7 @@ class TestUpdatePaper:
         mock_paper.venue = "Old Venue"
 
         with patch.object(service, "get", return_value=mock_paper):
-            result = await service.update(
+            await service.update(
                 sample_paper_id,
                 title="New Title",
                 year=2024,
@@ -277,7 +278,7 @@ class TestUpdatePaper:
         mock_paper.year = 2020
 
         with patch.object(service, "get", return_value=mock_paper):
-            result = await service.update(
+            await service.update(
                 sample_paper_id,
                 title=None,
                 year=2024,
@@ -447,7 +448,7 @@ class TestAddToWorkspace:
         mock_result.scalar_one_or_none.return_value = None
         mock_db_session.execute = AsyncMock(return_value=mock_result)
 
-        result = await service.add_to_workspace(sample_paper_id, sample_workspace_id)
+        await service.add_to_workspace(sample_paper_id, sample_workspace_id)
 
         mock_db_session.add.assert_called_once()
         added_wp = mock_db_session.add.call_args[0][0]
@@ -465,7 +466,7 @@ class TestAddToWorkspace:
         mock_result.scalar_one_or_none.return_value = None
         mock_db_session.execute = AsyncMock(return_value=mock_result)
 
-        result = await service.add_to_workspace(
+        await service.add_to_workspace(
             sample_paper_id,
             sample_workspace_id,
             notes="Important reference",
@@ -661,7 +662,7 @@ class TestStoreExtraction:
         """Test storing tier 1 extraction result."""
         structured_data = {"title": "Extracted Title", "sections": 5}
 
-        result = await service.store_extraction(
+        await service.store_extraction(
             paper_id=sample_paper_id,
             tier=1,
             extraction_type="metadata",
@@ -684,7 +685,7 @@ class TestStoreExtraction:
         """Test storing tier 2 extraction result with model info."""
         structured_data = {"summary": "This paper presents..."}
 
-        result = await service.store_extraction(
+        await service.store_extraction(
             paper_id=sample_paper_id,
             tier=2,
             extraction_type="summary",

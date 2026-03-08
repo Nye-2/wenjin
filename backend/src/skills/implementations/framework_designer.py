@@ -8,7 +8,6 @@ This skill analyzes research ideas and literature context to generate:
 
 import logging
 import uuid
-from typing import Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -117,7 +116,7 @@ class FrameworkDesignerSkill(BaseSkill):
     description = "Generate paper abstracts and detailed outlines based on research ideas"
     version = "1.0.0"
 
-    def __init__(self, model_id: Optional[str] = None):
+    def __init__(self, model_id: str | None = None):
         """Initialize the Framework Designer Skill.
 
         Args:
@@ -125,7 +124,7 @@ class FrameworkDesignerSkill(BaseSkill):
                      will use the default model from configuration.
         """
         self.model_id = model_id
-        self._model: Optional[BaseChatModel] = None
+        self._model: BaseChatModel | None = None
 
     def _get_model(self) -> BaseChatModel:
         """Get or create the LLM model instance.
@@ -370,7 +369,7 @@ class FrameworkDesignerSkill(BaseSkill):
                 error_message=f"Execution failed: {str(e)}",
             )
 
-    def validate_input(self, input: SkillInput) -> Optional[str]:
+    def validate_input(self, input: SkillInput) -> str | None:
         """Validate the input before execution.
 
         Checks for:

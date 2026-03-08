@@ -4,15 +4,15 @@ This module provides Pydantic models for validating workspace
 creation, update, and query parameters.
 """
 
-from enum import Enum
-from typing import Optional, Annotated
+from enum import StrEnum
+from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .common import sanitize_string, sanitize_html, validate_uuid
+from .common import sanitize_html, sanitize_string, validate_uuid
 
 
-class WorkspaceType(str, Enum):
+class WorkspaceType(StrEnum):
     """Valid workspace types."""
 
     SCI = "sci"
@@ -22,7 +22,7 @@ class WorkspaceType(str, Enum):
     LITERATURE_REVIEW = "literature_review"
 
 
-class WorkspaceStatus(str, Enum):
+class WorkspaceStatus(StrEnum):
     """Valid workspace status values."""
 
     ACTIVE = "active"
@@ -37,9 +37,9 @@ class CreateWorkspaceValidator(BaseModel):
 
     name: Annotated[str, Field(min_length=1, max_length=255)]
     type: WorkspaceType
-    discipline: Optional[Annotated[str, Field(max_length=100)]] = None
-    description: Optional[Annotated[str, Field(max_length=2000)]] = None
-    config: Optional[dict] = None
+    discipline: Annotated[str, Field(max_length=100)] | None = None
+    description: Annotated[str, Field(max_length=2000)] | None = None
+    config: dict | None = None
 
     @field_validator("name")
     @classmethod
@@ -52,7 +52,7 @@ class CreateWorkspaceValidator(BaseModel):
 
     @field_validator("discipline")
     @classmethod
-    def sanitize_discipline(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_discipline(cls, v: str | None) -> str | None:
         """Sanitize discipline field."""
         if v is None:
             return None
@@ -60,7 +60,7 @@ class CreateWorkspaceValidator(BaseModel):
 
     @field_validator("description")
     @classmethod
-    def sanitize_description(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_description(cls, v: str | None) -> str | None:
         """Sanitize description field."""
         if v is None:
             return None
@@ -68,7 +68,7 @@ class CreateWorkspaceValidator(BaseModel):
 
     @field_validator("config")
     @classmethod
-    def validate_config(cls, v: Optional[dict]) -> Optional[dict]:
+    def validate_config(cls, v: dict | None) -> dict | None:
         """Validate config dictionary."""
         if v is None:
             return None
@@ -83,15 +83,15 @@ class UpdateWorkspaceValidator(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    name: Optional[Annotated[str, Field(min_length=1, max_length=255)]] = None
-    discipline: Optional[Annotated[str, Field(max_length=100)]] = None
-    description: Optional[Annotated[str, Field(max_length=2000)]] = None
-    config: Optional[dict] = None
-    status: Optional[WorkspaceStatus] = None
+    name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
+    discipline: Annotated[str, Field(max_length=100)] | None = None
+    description: Annotated[str, Field(max_length=2000)] | None = None
+    config: dict | None = None
+    status: WorkspaceStatus | None = None
 
     @field_validator("name")
     @classmethod
-    def sanitize_name(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_name(cls, v: str | None) -> str | None:
         """Sanitize workspace name."""
         if v is None:
             return None
@@ -102,7 +102,7 @@ class UpdateWorkspaceValidator(BaseModel):
 
     @field_validator("discipline")
     @classmethod
-    def sanitize_discipline(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_discipline(cls, v: str | None) -> str | None:
         """Sanitize discipline field."""
         if v is None:
             return None
@@ -110,7 +110,7 @@ class UpdateWorkspaceValidator(BaseModel):
 
     @field_validator("description")
     @classmethod
-    def sanitize_description(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_description(cls, v: str | None) -> str | None:
         """Sanitize description field."""
         if v is None:
             return None
@@ -118,7 +118,7 @@ class UpdateWorkspaceValidator(BaseModel):
 
     @field_validator("config")
     @classmethod
-    def validate_config(cls, v: Optional[dict]) -> Optional[dict]:
+    def validate_config(cls, v: dict | None) -> dict | None:
         """Validate config dictionary."""
         if v is None:
             return None
@@ -144,13 +144,13 @@ class AddPaperToWorkspaceValidator(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    notes: Optional[Annotated[str, Field(max_length=5000)]] = None
-    tags: Optional[list[str]] = None
+    notes: Annotated[str, Field(max_length=5000)] | None = None
+    tags: list[str] | None = None
     is_primary: bool = False
 
     @field_validator("notes")
     @classmethod
-    def sanitize_notes(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_notes(cls, v: str | None) -> str | None:
         """Sanitize notes field."""
         if v is None:
             return None
@@ -158,7 +158,7 @@ class AddPaperToWorkspaceValidator(BaseModel):
 
     @field_validator("tags")
     @classmethod
-    def validate_tags(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+    def validate_tags(cls, v: list[str] | None) -> list[str] | None:
         """Validate and sanitize tags."""
         if v is None:
             return None

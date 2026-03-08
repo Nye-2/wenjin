@@ -4,15 +4,15 @@ This module provides Pydantic models for validating paper
 creation, update, and query parameters.
 """
 
-from enum import Enum
-from typing import Optional, Annotated, Any
+from enum import StrEnum
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .common import sanitize_string, sanitize_html, validate_uuid
+from .common import sanitize_html, sanitize_string, validate_uuid
 
 
-class PaperSource(str, Enum):
+class PaperSource(StrEnum):
     """Valid paper source types."""
 
     MANUAL_UPLOAD = "manual_upload"
@@ -28,8 +28,8 @@ class AuthorValidator(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: Annotated[str, Field(min_length=1, max_length=500)]
-    affiliation: Optional[Annotated[str, Field(max_length=200)]] = None
-    email: Optional[str] = None
+    affiliation: Annotated[str, Field(max_length=200)] | None = None
+    email: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -42,7 +42,7 @@ class AuthorValidator(BaseModel):
 
     @field_validator("affiliation")
     @classmethod
-    def sanitize_affiliation(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_affiliation(cls, v: str | None) -> str | None:
         """Sanitize affiliation field."""
         if v is None:
             return None
@@ -50,7 +50,7 @@ class AuthorValidator(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email_format(cls, v: Optional[str]) -> Optional[str]:
+    def validate_email_format(cls, v: str | None) -> str | None:
         """Validate email format if provided."""
         if v is None:
             return None
@@ -68,15 +68,15 @@ class CreatePaperValidator(BaseModel):
 
     title: Annotated[str, Field(min_length=1, max_length=1000)]
     authors: list[dict[str, Any]] = Field(default_factory=list)
-    doi: Optional[Annotated[str, Field(max_length=100)]] = None
-    year: Optional[int] = Field(None, ge=1800, le=2100)
-    venue: Optional[Annotated[str, Field(max_length=500)]] = None
-    abstract: Optional[Annotated[str, Field(max_length=50000)]] = None
-    file_path: Optional[Annotated[str, Field(max_length=1000)]] = None
+    doi: Annotated[str, Field(max_length=100)] | None = None
+    year: int | None = Field(None, ge=1800, le=2100)
+    venue: Annotated[str, Field(max_length=500)] | None = None
+    abstract: Annotated[str, Field(max_length=50000)] | None = None
+    file_path: Annotated[str, Field(max_length=1000)] | None = None
     source: PaperSource = PaperSource.MANUAL_UPLOAD
-    external_ids: Optional[dict[str, str]] = None
-    citation_count: Optional[int] = Field(None, ge=0)
-    reference_count: Optional[int] = Field(None, ge=0)
+    external_ids: dict[str, str] | None = None
+    citation_count: int | None = Field(None, ge=0)
+    reference_count: int | None = Field(None, ge=0)
 
     @field_validator("title")
     @classmethod
@@ -106,7 +106,7 @@ class CreatePaperValidator(BaseModel):
 
     @field_validator("doi")
     @classmethod
-    def validate_doi(cls, v: Optional[str]) -> Optional[str]:
+    def validate_doi(cls, v: str | None) -> str | None:
         """Validate DOI format if provided."""
         if v is None:
             return None
@@ -120,7 +120,7 @@ class CreatePaperValidator(BaseModel):
 
     @field_validator("venue")
     @classmethod
-    def sanitize_venue(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_venue(cls, v: str | None) -> str | None:
         """Sanitize venue field."""
         if v is None:
             return None
@@ -128,7 +128,7 @@ class CreatePaperValidator(BaseModel):
 
     @field_validator("abstract")
     @classmethod
-    def sanitize_abstract(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_abstract(cls, v: str | None) -> str | None:
         """Sanitize abstract field."""
         if v is None:
             return None
@@ -136,7 +136,7 @@ class CreatePaperValidator(BaseModel):
 
     @field_validator("file_path")
     @classmethod
-    def validate_file_path(cls, v: Optional[str]) -> Optional[str]:
+    def validate_file_path(cls, v: str | None) -> str | None:
         """Validate file path."""
         if v is None:
             return None
@@ -147,7 +147,7 @@ class CreatePaperValidator(BaseModel):
 
     @field_validator("external_ids")
     @classmethod
-    def validate_external_ids(cls, v: Optional[dict[str, str]]) -> Optional[dict[str, str]]:
+    def validate_external_ids(cls, v: dict[str, str] | None) -> dict[str, str] | None:
         """Validate external IDs dictionary."""
         if v is None:
             return None
@@ -162,17 +162,17 @@ class UpdatePaperValidator(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    title: Optional[Annotated[str, Field(min_length=1, max_length=1000)]] = None
-    authors: Optional[list[dict[str, Any]]] = None
-    year: Optional[int] = Field(None, ge=1800, le=2100)
-    venue: Optional[Annotated[str, Field(max_length=500)]] = None
-    abstract: Optional[Annotated[str, Field(max_length=50000)]] = None
-    citation_count: Optional[int] = Field(None, ge=0)
-    reference_count: Optional[int] = Field(None, ge=0)
+    title: Annotated[str, Field(min_length=1, max_length=1000)] | None = None
+    authors: list[dict[str, Any]] | None = None
+    year: int | None = Field(None, ge=1800, le=2100)
+    venue: Annotated[str, Field(max_length=500)] | None = None
+    abstract: Annotated[str, Field(max_length=50000)] | None = None
+    citation_count: int | None = Field(None, ge=0)
+    reference_count: int | None = Field(None, ge=0)
 
     @field_validator("title")
     @classmethod
-    def sanitize_title(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_title(cls, v: str | None) -> str | None:
         """Sanitize paper title."""
         if v is None:
             return None
@@ -183,7 +183,7 @@ class UpdatePaperValidator(BaseModel):
 
     @field_validator("authors")
     @classmethod
-    def validate_authors(cls, v: Optional[list[dict[str, Any]]]) -> Optional[list[dict[str, Any]]]:
+    def validate_authors(cls, v: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
         """Validate authors list."""
         if v is None:
             return None
@@ -199,7 +199,7 @@ class UpdatePaperValidator(BaseModel):
 
     @field_validator("venue")
     @classmethod
-    def sanitize_venue(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_venue(cls, v: str | None) -> str | None:
         """Sanitize venue field."""
         if v is None:
             return None
@@ -207,7 +207,7 @@ class UpdatePaperValidator(BaseModel):
 
     @field_validator("abstract")
     @classmethod
-    def sanitize_abstract(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_abstract(cls, v: str | None) -> str | None:
         """Sanitize abstract field."""
         if v is None:
             return None
@@ -220,7 +220,7 @@ class SearchPapersValidator(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     query: Annotated[str, Field(min_length=1, max_length=500)]
-    workspace_id: Optional[str] = None
+    workspace_id: str | None = None
     limit: int = Field(default=10, ge=1, le=100)
 
     @field_validator("query")
@@ -234,7 +234,7 @@ class SearchPapersValidator(BaseModel):
 
     @field_validator("workspace_id")
     @classmethod
-    def validate_workspace_id(cls, v: Optional[str]) -> Optional[str]:
+    def validate_workspace_id(cls, v: str | None) -> str | None:
         """Validate workspace ID if provided."""
         if v is None:
             return None

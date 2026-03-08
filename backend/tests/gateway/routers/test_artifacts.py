@@ -10,19 +10,15 @@ This module tests the artifact endpoints including:
 """
 
 import uuid
-import pytest
-import pytest_asyncio
 from datetime import datetime
-from typing import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
-from fastapi.testclient import TestClient
+import pytest
 from fastapi import FastAPI
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.testclient import TestClient
 
-from src.gateway.routers.artifacts import router, get_artifact_service
 from src.database import Artifact
-
+from src.gateway.routers.artifacts import get_artifact_service, router
 
 # Valid test UUIDs
 WORKSPACE_ID = "550e8400-e29b-41d4-a716-446655440001"

@@ -4,12 +4,13 @@ This module contains comprehensive tests for the WorkspaceService class,
 covering all CRUD operations and paper association management.
 """
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import Workspace, WorkspaceType, WorkspacePaper, Paper
+from src.database import Workspace, WorkspacePaper, WorkspaceType
 
 
 class TestWorkspaceServiceInit:
@@ -49,7 +50,7 @@ class TestCreateWorkspace:
         self, service, mock_db_session, sample_user_id
     ):
         """Test creating a workspace with only required fields."""
-        result = await service.create(
+        await service.create(
             user_id=sample_user_id,
             name="Test Workspace",
             type="sci",
@@ -70,7 +71,7 @@ class TestCreateWorkspace:
     ):
         """Test creating a workspace with all fields."""
         config = {"setting1": "value1"}
-        result = await service.create(
+        await service.create(
             user_id=sample_user_id,
             name="Full Workspace",
             type="thesis",
@@ -92,7 +93,7 @@ class TestCreateWorkspace:
         self, service, mock_db_session, sample_user_id
     ):
         """Test creating a workspace with WorkspaceType enum."""
-        result = await service.create(
+        await service.create(
             user_id=sample_user_id,
             name="Enum Workspace",
             type=WorkspaceType.GRANT,
@@ -120,7 +121,7 @@ class TestCreateWorkspace:
         self, service, mock_db_session, sample_user_id
     ):
         """Test that config defaults to empty dict."""
-        result = await service.create(
+        await service.create(
             user_id=sample_user_id,
             name="Default Config Workspace",
             type="proposal",
@@ -260,7 +261,7 @@ class TestUpdateWorkspace:
         mock_workspace.name = "Old Name"
 
         with patch.object(service, "get", return_value=mock_workspace):
-            result = await service.update(sample_workspace_id, name="New Name")
+            await service.update(sample_workspace_id, name="New Name")
 
         assert mock_workspace.name == "New Name"
         mock_db_session.commit.assert_called_once()
@@ -276,7 +277,7 @@ class TestUpdateWorkspace:
         mock_workspace.description = "Old description"
 
         with patch.object(service, "get", return_value=mock_workspace):
-            result = await service.update(
+            await service.update(
                 sample_workspace_id,
                 name="New Name",
                 discipline="new_discipline",
@@ -296,7 +297,7 @@ class TestUpdateWorkspace:
         mock_workspace.type = WorkspaceType.SCI
 
         with patch.object(service, "get", return_value=mock_workspace):
-            result = await service.update(sample_workspace_id, type="thesis")
+            await service.update(sample_workspace_id, type="thesis")
 
         assert mock_workspace.type == WorkspaceType.THESIS
 
@@ -333,7 +334,7 @@ class TestUpdateWorkspace:
         new_config = {"setting1": "value1", "setting2": "value2"}
 
         with patch.object(service, "get", return_value=mock_workspace):
-            result = await service.update(sample_workspace_id, config=new_config)
+            await service.update(sample_workspace_id, config=new_config)
 
         assert mock_workspace.config == new_config
 
@@ -419,7 +420,7 @@ class TestAddPaper:
         with patch.object(
             service, "_get_workspace_paper", return_value=None
         ):
-            result = await service.add_paper(sample_workspace_id, sample_paper_id)
+            await service.add_paper(sample_workspace_id, sample_paper_id)
 
         mock_db_session.add.assert_called_once()
         added_wp = mock_db_session.add.call_args[0][0]
@@ -437,7 +438,7 @@ class TestAddPaper:
         with patch.object(
             service, "_get_workspace_paper", return_value=None
         ):
-            result = await service.add_paper(
+            await service.add_paper(
                 sample_workspace_id,
                 sample_paper_id,
                 notes="Important reference",
@@ -614,7 +615,7 @@ class TestWorkspaceTypeValidation:
         for type_value in valid_types:
             mock_db_session.add.reset_mock()
 
-            result = await service.create(
+            await service.create(
                 user_id=sample_user_id,
                 name=f"Workspace {type_value}",
                 type=type_value,

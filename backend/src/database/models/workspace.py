@@ -1,22 +1,23 @@
 """Workspace model for academic project organization."""
 
-from typing import TYPE_CHECKING, List, Optional
+import enum
+from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-import enum
 
-from ..base import Base, UUIDMixin, TimestampMixin
+from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from .user import User
-    from .paper import WorkspacePaper, PaperChunk, PaperSection
     from .artifact import Artifact
     from .generation import GenerationRecord
+    from .paper import PaperChunk, PaperSection, WorkspacePaper
+    from .user import User
 
 
-class WorkspaceType(str, enum.Enum):
+class WorkspaceType(enum.StrEnum):
     """Types of academic workspaces."""
     SCI = "sci"                    # SCI Paper
     THESIS = "thesis"              # Graduate Thesis
@@ -54,8 +55,8 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         SQLEnum(WorkspaceType),
         nullable=False,
     )
-    discipline: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    discipline: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     config: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
@@ -65,27 +66,27 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="workspaces")
-    workspace_papers: Mapped[List["WorkspacePaper"]] = relationship(
+    workspace_papers: Mapped[list["WorkspacePaper"]] = relationship(
         "WorkspacePaper",
         back_populates="workspace",
         cascade="all, delete-orphan",
     )
-    paper_chunks: Mapped[List["PaperChunk"]] = relationship(
+    paper_chunks: Mapped[list["PaperChunk"]] = relationship(
         "PaperChunk",
         back_populates="workspace",
         cascade="all, delete-orphan",
     )
-    paper_sections: Mapped[List["PaperSection"]] = relationship(
+    paper_sections: Mapped[list["PaperSection"]] = relationship(
         "PaperSection",
         back_populates="workspace",
         cascade="all, delete-orphan",
     )
-    artifacts: Mapped[List["Artifact"]] = relationship(
+    artifacts: Mapped[list["Artifact"]] = relationship(
         "Artifact",
         back_populates="workspace",
         cascade="all, delete-orphan",
     )
-    generation_records: Mapped[List["GenerationRecord"]] = relationship(
+    generation_records: Mapped[list["GenerationRecord"]] = relationship(
         "GenerationRecord",
         back_populates="workspace",
         cascade="all, delete-orphan",
@@ -95,6 +96,6 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         return f"<Workspace(id={self.id}, name={self.name}, type={self.type})>"
 
     @property
-    def papers(self) -> List["Paper"]:
+    def papers(self) -> list["Paper"]:
         """Get list of papers in this workspace."""
         return [wp.paper for wp in self.workspace_papers if wp.paper is not None]

@@ -1,12 +1,11 @@
 """Discipline context middleware for injecting academic norms."""
 
-from typing import Any, Optional
+from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
-
 
 # Discipline-specific norms database
 DISCIPLINE_NORMS = {
@@ -99,7 +98,7 @@ WORKSPACE_TYPE_CONFIGS = {
 class DisciplineRegistry:
     """Registry for discipline-specific norms and configurations."""
 
-    def get_norms(self, discipline: str, workspace_type: Optional[str] = None) -> dict:
+    def get_norms(self, discipline: str, workspace_type: str | None = None) -> dict:
         """Get norms for a discipline and workspace type.
 
         Args:
@@ -129,7 +128,7 @@ class DisciplineContextMiddleware(Middleware):
     3. Injects into state for writing guidance
     """
 
-    def __init__(self, discipline_registry: Optional[DisciplineRegistry] = None):
+    def __init__(self, discipline_registry: DisciplineRegistry | None = None):
         """Initialize with discipline registry.
 
         Args:

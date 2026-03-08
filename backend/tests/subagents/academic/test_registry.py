@@ -3,16 +3,15 @@
 import pytest
 
 from src.subagents.academic.prompts import (
-    SCOUT_PROMPT,
-    WRITER_PROMPT,
-    SYNTHESIZER_PROMPT,
     ANALYST_PROMPT,
+    SCOUT_PROMPT,
+    SYNTHESIZER_PROMPT,
+    WRITER_PROMPT,
 )
 from src.subagents.academic.registry import (
     SubagentConfig,
-    get_subagent_config,
     get_all_subagent_types,
-    SUBAGENT_REGISTRY,
+    get_subagent_config,
 )
 
 

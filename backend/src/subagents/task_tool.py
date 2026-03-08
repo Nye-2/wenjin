@@ -1,6 +1,5 @@
 """Task tool for subagent delegation."""
 
-from typing import Optional
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -13,7 +12,7 @@ class TaskInput(BaseModel):
     description: str = Field(description="Brief description of the task")
     prompt: str = Field(description="Detailed instructions for the subagent")
     subagent_type: str = Field(description="Type of subagent to use (scout, writer, synthesizer, analyst)")
-    max_turns: Optional[int] = Field(default=None, description="Maximum turns for the subagent")
+    max_turns: int | None = Field(default=None, description="Maximum turns for the subagent")
 
 
 @tool(args_schema=TaskInput)
@@ -21,7 +20,7 @@ async def task_tool(
     description: str,
     prompt: str,
     subagent_type: str,
-    max_turns: Optional[int] = None,
+    max_turns: int | None = None,
 ) -> str:
     """Delegate a task to a specialized subagent.
 

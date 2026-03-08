@@ -9,12 +9,10 @@ This skill generates complete academic papers by:
 """
 
 import asyncio
-from typing import Optional
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from src.skills.base import BaseSkill, SkillInput, SkillOutput
 from src.agents.thread_state import AcademicArtifact, ThreadState
-
+from src.skills.base import BaseSkill, SkillInput, SkillOutput
 
 # Standard academic paper sections in order
 PAPER_SECTIONS = [
@@ -347,7 +345,7 @@ class FullpaperWriterSkill(BaseSkill):
     description = "Write complete academic papers section by section"
     version = "1.0.0"
 
-    def __init__(self, llm_service: Optional[MockLLMService] = None):
+    def __init__(self, llm_service: MockLLMService | None = None):
         """Initialize the FullpaperWriterSkill.
 
         Args:
@@ -356,7 +354,7 @@ class FullpaperWriterSkill(BaseSkill):
         """
         self.llm_service = llm_service or MockLLMService()
 
-    def validate_input(self, input: SkillInput) -> Optional[str]:
+    def validate_input(self, input: SkillInput) -> str | None:
         """Validate the input before execution.
 
         Checks for required context fields.
@@ -430,7 +428,7 @@ class FullpaperWriterSkill(BaseSkill):
 
         # Create paper_draft artifact
         artifact = AcademicArtifact(
-            id=f"paper-draft-{input.workspace_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+            id=f"paper-draft-{input.workspace_id}-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}",
             workspace_id=input.workspace_id,
             type="paper_draft",
             content={
@@ -440,7 +438,7 @@ class FullpaperWriterSkill(BaseSkill):
                 "full_paper": full_paper,
                 "citations": unique_citations,
                 "framework_outline_id": framework_outline.get("id"),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
                 "word_count": len(full_paper.split()),
             },
             created_by_skill=self.name,
@@ -668,7 +666,7 @@ class FullpaperWriterSkill(BaseSkill):
 
         # Create paper_draft artifact
         artifact = AcademicArtifact(
-            id=f"paper-draft-{input.workspace_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+            id=f"paper-draft-{input.workspace_id}-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}",
             workspace_id=input.workspace_id,
             type="paper_draft",
             content={
@@ -678,7 +676,7 @@ class FullpaperWriterSkill(BaseSkill):
                 "full_paper": full_paper,
                 "citations": unique_citations,
                 "framework_outline_id": framework_outline.get("id"),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
                 "word_count": len(full_paper.split()),
             },
             created_by_skill=self.name,

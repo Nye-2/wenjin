@@ -1,8 +1,8 @@
 """Redis client for AcademiaGPT caching and queue operations."""
 
 import json
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Optional, Any, AsyncGenerator
 
 import redis.asyncio as redis
 
@@ -14,7 +14,7 @@ class RedisClient:
 
     def __init__(self, url: str = None):
         self.url = url or settings.redis_url
-        self._client: Optional[redis.Redis] = None
+        self._client: redis.Redis | None = None
 
     async def connect(self) -> None:
         """Establish Redis connection."""
@@ -56,7 +56,7 @@ class RedisClient:
         return "tier2:extraction:queue"
 
     # RAG Cache operations
-    async def get_rag_cache(self, workspace_id: str, query_hash: str) -> Optional[dict]:
+    async def get_rag_cache(self, workspace_id: str, query_hash: str) -> dict | None:
         """Get cached RAG results."""
         key = self._rag_cache_key(workspace_id, query_hash)
         data = await self.client.get(key)
@@ -81,7 +81,7 @@ class RedisClient:
             "subagent_count": subagent_count,
         })
 
-    async def get_agent_status(self, thread_id: str) -> Optional[dict]:
+    async def get_agent_status(self, thread_id: str) -> dict | None:
         """Get agent status for a thread."""
         key = self._agent_status_key(thread_id)
         data = await self.client.hgetall(key)
@@ -118,7 +118,7 @@ class RedisClient:
         """Add paper to Tier2 extraction queue."""
         await self.client.rpush(self._tier2_queue_key(), paper_id)
 
-    async def dequeue_extraction(self, timeout: int = 5) -> Optional[str]:
+    async def dequeue_extraction(self, timeout: int = 5) -> str | None:
         """Get next paper from Tier2 extraction queue (blocking)."""
         result = await self.client.blpop(self._tier2_queue_key(), timeout=timeout)
         return result[1] if result else None

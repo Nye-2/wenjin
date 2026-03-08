@@ -1,17 +1,17 @@
 """Database session and connection management."""
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
-    create_async_engine,
     async_sessionmaker,
+    create_async_engine,
 )
 
 from src.config import settings
-from .base import Base
 
+from .base import Base
 
 # Create async engine
 engine = create_async_engine(

@@ -1,16 +1,15 @@
 """Paper models for academic literature management."""
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text, Integer, Float, ForeignKey, Index, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ..base import Base, UUIDMixin, TimestampMixin, generate_uuid
+from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from .workspace import Workspace
-    from .user import User
 
 
 class Paper(Base, UUIDMixin, TimestampMixin):
@@ -37,7 +36,7 @@ class Paper(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "papers"
 
-    doi: Mapped[Optional[str]] = mapped_column(
+    doi: Mapped[str | None] = mapped_column(
         String(255),
         unique=True,
         nullable=True,
@@ -50,10 +49,10 @@ class Paper(Base, UUIDMixin, TimestampMixin):
         default=list,
         server_default="[]",
     )
-    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
-    venue: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    abstract: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    venue: Mapped[str | None] = mapped_column(Text, nullable=True)
+    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     source: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
@@ -65,27 +64,27 @@ class Paper(Base, UUIDMixin, TimestampMixin):
         default=dict,
         server_default="{}",
     )
-    toc: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
-    citation_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    reference_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    toc: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    citation_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reference_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
-    workspace_papers: Mapped[List["WorkspacePaper"]] = relationship(
+    workspace_papers: Mapped[list["WorkspacePaper"]] = relationship(
         "WorkspacePaper",
         back_populates="paper",
         cascade="all, delete-orphan",
     )
-    extractions: Mapped[List["PaperExtraction"]] = relationship(
+    extractions: Mapped[list["PaperExtraction"]] = relationship(
         "PaperExtraction",
         back_populates="paper",
         cascade="all, delete-orphan",
     )
-    chunks: Mapped[List["PaperChunk"]] = relationship(
+    chunks: Mapped[list["PaperChunk"]] = relationship(
         "PaperChunk",
         back_populates="paper",
         cascade="all, delete-orphan",
     )
-    sections: Mapped[List["PaperSection"]] = relationship(
+    sections: Mapped[list["PaperSection"]] = relationship(
         "PaperSection",
         back_populates="paper",
         cascade="all, delete-orphan",
@@ -95,14 +94,14 @@ class Paper(Base, UUIDMixin, TimestampMixin):
         return f"<Paper(id={self.id}, title={self.title[:50]}...)>"
 
     @property
-    def first_author(self) -> Optional[str]:
+    def first_author(self) -> str | None:
         """Get first author name."""
         if self.authors and len(self.authors) > 0:
             return self.authors[0].get("name")
         return None
 
     @property
-    def author_names(self) -> List[str]:
+    def author_names(self) -> list[str]:
         """Get list of author names."""
         return [a.get("name", "") for a in self.authors if a.get("name")]
 
@@ -138,7 +137,7 @@ class WorkspacePaper(Base, TimestampMixin):
         ForeignKey("papers.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list] = mapped_column(
         ARRAY(String),
         nullable=False,
@@ -191,8 +190,8 @@ class PaperExtraction(Base, UUIDMixin, TimestampMixin):
         default=dict,
         server_default="{}",
     )
-    processing_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    model_used: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    processing_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Relationships
     paper: Mapped["Paper"] = relationship("Paper", back_populates="extractions")
@@ -235,7 +234,7 @@ class PaperChunk(Base, UUIDMixin, TimestampMixin):
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[Optional[list]] = mapped_column(
+    embedding: Mapped[list | None] = mapped_column(
         ARRAY(Float),
         nullable=True,
     )

@@ -1,21 +1,19 @@
 """Tests for academic database models."""
 
-import pytest
-from datetime import datetime
 
 from src.database import (
-    Workspace,
-    WorkspaceType,
-    Paper,
-    WorkspacePaper,
-    PaperExtraction,
-    PaperChunk,
-    PaperSection,
     Artifact,
     ArtifactType,
-    UserKnowledge,
-    KnowledgeCategory,
     GenerationRecord,
+    KnowledgeCategory,
+    Paper,
+    PaperChunk,
+    PaperExtraction,
+    PaperSection,
+    UserKnowledge,
+    Workspace,
+    WorkspacePaper,
+    WorkspaceType,
 )
 from src.database.base import generate_uuid
 
@@ -86,7 +84,7 @@ def test_workspace_paper_creation():
         read_status="unread",  # Explicitly set
     )
     assert workspace_paper.notes == "Important paper"
-    assert workspace_paper.is_primary == True
+    assert workspace_paper.is_primary
     assert workspace_paper.read_status == "unread"
 
 
@@ -226,7 +224,7 @@ def test_user_knowledge_creation():
     )
     assert knowledge.category == "preference"
     assert knowledge.confidence == 0.85
-    assert knowledge.is_active == True
+    assert knowledge.is_active
     assert knowledge.id == knowledge_id
 
 

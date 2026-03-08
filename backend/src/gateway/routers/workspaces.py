@@ -5,23 +5,20 @@ This module provides REST endpoints for:
 - Paper association management
 """
 
-from typing import Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel, Field, ConfigDict
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import get_db_session, Workspace, WorkspaceType, Paper
-from src.academic.services.workspace_service import WorkspaceService
 from src.academic.services.paper_service import PaperService
+from src.academic.services.workspace_service import WorkspaceService
+from src.database import Paper, Workspace, get_db_session
 from src.gateway.validators.workspace import (
+    AddPaperToWorkspaceValidator,
     CreateWorkspaceValidator,
     UpdateWorkspaceValidator,
-    AddPaperToWorkspaceValidator,
-    WorkspaceIdValidator,
 )
-from src.gateway.validators.common import validate_uuid
-
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -36,8 +33,8 @@ class WorkspaceResponse(BaseModel):
     user_id: str
     name: str
     type: str
-    discipline: Optional[str]
-    description: Optional[str]
+    discipline: str | None
+    description: str | None
     config: dict
 
 
@@ -46,15 +43,15 @@ class PaperResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    doi: Optional[str]
+    doi: str | None
     title: str
     authors: list[dict]
-    year: Optional[int]
-    venue: Optional[str]
-    abstract: Optional[str]
+    year: int | None
+    venue: str | None
+    abstract: str | None
     source: str
-    citation_count: Optional[int]
-    reference_count: Optional[int]
+    citation_count: int | None
+    reference_count: int | None
 
 
 # Re-export validators as request models for backward compatibility
@@ -250,7 +247,7 @@ async def delete_workspace(
 @router.get("/{workspace_id}/papers", response_model=list[PaperResponse])
 async def list_workspace_papers(
     workspace_id: str,
-    read_status: Optional[str] = None,
+    read_status: str | None = None,
     paper_service: PaperService = Depends(get_paper_service),
 ):
     """List papers in workspace.

@@ -5,7 +5,6 @@ lookup, and execution. It serves as the central registry for all skills
 in the AcademiaGPT system.
 """
 
-from typing import Optional
 
 from src.agents.thread_state import ThreadState
 from src.skills.base import BaseSkill, SkillInput, SkillOutput
@@ -126,7 +125,7 @@ class SkillExecutor:
         """
         return sorted(self._skills.keys())
 
-    def get_skill(self, name: str) -> Optional[BaseSkill]:
+    def get_skill(self, name: str) -> BaseSkill | None:
         """Get a skill instance by name.
 
         Args:
@@ -148,7 +147,7 @@ class SkillExecutor:
         """
         return name in self._skills
 
-    def get_skill_info(self, name: str) -> Optional[dict]:
+    def get_skill_info(self, name: str) -> dict | None:
         """Get information about a skill.
 
         Args:

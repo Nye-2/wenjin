@@ -7,19 +7,19 @@ This module tests the auth endpoints including:
 - Current user retrieval
 """
 
+from collections.abc import AsyncGenerator
+from datetime import datetime
+
 import pytest
 import pytest_asyncio
-from datetime import datetime
-from typing import AsyncGenerator
-from fastapi.testclient import TestClient
 from fastapi import FastAPI
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.gateway.routers.auth import router, get_db, get_current_user
 from src.database.models.user import User
+from src.gateway.routers.auth import get_db, router
+from src.services.auth import create_tokens
 from src.services.user_service import UserService
-from src.services.auth import create_tokens, create_access_token, create_refresh_token
-
 
 # Use in-memory SQLite for testing
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"

@@ -14,9 +14,8 @@ from httpx import AsyncClient
 
 from tests.integration.conftest import (
     TestPaper,
-    TestWorkspace,
     TestUser,
-    make_authenticated_client,
+    TestWorkspace,
 )
 
 

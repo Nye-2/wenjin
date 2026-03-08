@@ -6,8 +6,8 @@ creates a synthesis matrix, and generates a structured literature review.
 
 import re
 from collections import defaultdict
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from src.agents.thread_state import AcademicArtifact, ThreadState
@@ -22,10 +22,10 @@ class PaperData:
         paper_id: str,
         title: str,
         authors: list[str],
-        year: Optional[int],
-        abstract: Optional[str],
+        year: int | None,
+        abstract: str | None,
         keywords: list[str] = None,
-        methodology: Optional[str] = None,
+        methodology: str | None = None,
         findings: list[str] = None,
         contributions: list[str] = None,
     ):
@@ -106,7 +106,7 @@ class SynthesisMatrix:
         self.add_theme(theme_name)
         self.matrix[paper_id][theme_name] = contribution
 
-    def get_contribution(self, paper_id: str, theme_name: str) -> Optional[str]:
+    def get_contribution(self, paper_id: str, theme_name: str) -> str | None:
         """Get the contribution of a paper to a theme."""
         return self.matrix.get(paper_id, {}).get(theme_name)
 
@@ -196,7 +196,7 @@ class LiteratureReviewSkill(BaseSkill):
             metadata={
                 "paper_count": len(papers),
                 "theme_count": len(themes),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -229,7 +229,7 @@ class LiteratureReviewSkill(BaseSkill):
 
         return papers
 
-    def _convert_to_paper_data(self, paper_dict: dict) -> Optional[PaperData]:
+    def _convert_to_paper_data(self, paper_dict: dict) -> PaperData | None:
         """Convert a dictionary to PaperData object.
 
         Args:
@@ -529,7 +529,7 @@ class LiteratureReviewSkill(BaseSkill):
         intro_lines = [
             "# Literature Review",
             "",
-            f"## Introduction",
+            "## Introduction",
             "",
             f"This literature review analyzes {len(papers)} papers {year_range}, "
             f"addressing the research question: *{user_query}*",
@@ -683,7 +683,7 @@ class LiteratureReviewSkill(BaseSkill):
                 "review": review_content,
                 "themes": [t.to_dict() for t in themes],
                 "synthesis_matrix": synthesis_matrix.to_dict(),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
             },
             created_by_skill=self.name,
         )

@@ -1,12 +1,12 @@
 """GenerationRecord model for skill execution tracking."""
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text, Integer, ForeignKey, Index
+from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ..base import Base, UUIDMixin, TimestampMixin
+from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from .workspace import Workspace
@@ -48,19 +48,19 @@ class GenerationRecord(Base, UUIDMixin, TimestampMixin):
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
-    thread_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    thread_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     skill_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    input_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    output_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    token_usage: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    input_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(
         String(20),
         default="success",
         nullable=False,
     )
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_data: Mapped[dict] = mapped_column(
         "metadata",
         JSONB,

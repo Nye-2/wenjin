@@ -6,7 +6,7 @@ specialized academic research capabilities.
 
 from .deep_research import DeepResearchSkill
 from .framework_designer import FrameworkDesignerSkill
-from .fullpaper_writer import FullpaperWriterSkill, MockLLMService, PAPER_SECTIONS, SECTION_PROMPTS
+from .fullpaper_writer import PAPER_SECTIONS, SECTION_PROMPTS, FullpaperWriterSkill, MockLLMService
 from .literature_review import LiteratureReviewSkill
 
 __all__ = [

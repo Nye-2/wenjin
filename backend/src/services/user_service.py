@@ -7,8 +7,7 @@ This service provides user management functionality including:
 - Last login timestamp updates
 """
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +38,7 @@ class UserService:
         self,
         email: str,
         password: str,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> User:
         """Create a new user with hashed password.
 
@@ -76,7 +75,7 @@ class UserService:
 
         return user
 
-    async def get_by_email(self, email: str) -> Optional[User]:
+    async def get_by_email(self, email: str) -> User | None:
         """Get user by email address.
 
         Args:
@@ -90,7 +89,7 @@ class UserService:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_id(self, user_id: str) -> Optional[User]:
+    async def get_by_id(self, user_id: str) -> User | None:
         """Get user by UUID.
 
         Args:
@@ -104,7 +103,7 @@ class UserService:
         )
         return result.scalar_one_or_none()
 
-    async def authenticate(self, email: str, password: str) -> Optional[User]:
+    async def authenticate(self, email: str, password: str) -> User | None:
         """Authenticate user with email and password.
 
         This method verifies the user's credentials and returns the user
@@ -131,7 +130,7 @@ class UserService:
 
         return user
 
-    async def update_last_login(self, user_id: str) -> Optional[User]:
+    async def update_last_login(self, user_id: str) -> User | None:
         """Update user's last login timestamp.
 
         Sets the last_login field to the current UTC time.
@@ -147,7 +146,7 @@ class UserService:
         if user is None:
             return None
 
-        user.last_login = datetime.now(timezone.utc)
+        user.last_login = datetime.now(UTC)
         await self.db.commit()
         await self.db.refresh(user)
 

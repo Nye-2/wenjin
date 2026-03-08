@@ -1,10 +1,11 @@
 """Tests for literature context middleware."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.agents.middlewares.literature_context import LiteratureContextMiddleware
+import pytest
+
 from src.academic.literature.index_service import IndexService
+from src.agents.middlewares.literature_context import LiteratureContextMiddleware
 from src.agents.thread_state import ThreadState
 
 

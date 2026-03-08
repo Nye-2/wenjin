@@ -1,8 +1,7 @@
 """Tests for ThreadState and academic extensions."""
 
-import pytest
 
-from src.agents.thread_state import ThreadState, AcademicArtifact, merge_artifacts
+from src.agents.thread_state import AcademicArtifact, ThreadState, merge_artifacts
 
 
 def test_academic_artifact_creation():

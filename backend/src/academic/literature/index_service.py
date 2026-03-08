@@ -5,12 +5,11 @@ as an alternative to vector-based RAG retrieval. It allows agents to browse
 papers by their table of contents and retrieve specific sections.
 """
 
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Paper, WorkspacePaper, PaperExtraction
+from src.database import Paper, PaperExtraction, WorkspacePaper
 
 
 class IndexService:
@@ -72,7 +71,7 @@ class IndexService:
 
         for idx, paper in enumerate(papers, 1):
             year_str = f" ({paper.year})" if paper.year else ""
-            lines.append(f"")
+            lines.append("")
             lines.append(f"### [{idx}] {paper.title}{year_str}")
 
             # Get TOC for this paper
@@ -85,7 +84,7 @@ class IndexService:
                 )
                 lines.append(f"- 目录: {toc_str}")
             else:
-                lines.append(f"- 目录: (暂无目录信息)")
+                lines.append("- 目录: (暂无目录信息)")
 
         return "\n".join(lines)
 
@@ -129,7 +128,7 @@ class IndexService:
         self,
         paper_id: str,
         section_path: str,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Get content of a specific section from a paper.
 
         Retrieves section content from the paper's extraction data.

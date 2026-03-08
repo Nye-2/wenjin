@@ -11,25 +11,24 @@ to enable in-memory database testing without requiring PostgreSQL.
 """
 
 import asyncio
+from collections.abc import AsyncGenerator, Generator
 from datetime import datetime
-from typing import AsyncGenerator, Generator, Optional, List
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy import String, Text, Boolean, DateTime, Integer, ForeignKey, func
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
-    create_async_engine,
     async_sessionmaker,
+    create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.pool import StaticPool
-from sqlalchemy.dialects.sqlite import JSON
 
-from src.services.auth import hash_password, create_tokens
-
+from src.services.auth import create_tokens, hash_password
 
 # ============ Test Database Models (SQLite-compatible) ============
 
@@ -68,9 +67,9 @@ class TestUser(TestBase, TimestampMixin):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    workspaces: Mapped[List["TestWorkspace"]] = relationship(
+    workspaces: Mapped[list["TestWorkspace"]] = relationship(
         "TestWorkspace", back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -83,12 +82,12 @@ class TestWorkspace(TestBase, TimestampMixin):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[str] = mapped_column(String(50), nullable=False)
-    discipline: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    discipline: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
     user: Mapped["TestUser"] = relationship("TestUser", back_populates="workspaces")
-    workspace_papers: Mapped[List["TestWorkspacePaper"]] = relationship(
+    workspace_papers: Mapped[list["TestWorkspacePaper"]] = relationship(
         "TestWorkspacePaper", back_populates="workspace", cascade="all, delete-orphan"
     )
 
@@ -98,20 +97,20 @@ class TestPaper(TestBase, TimestampMixin):
     __tablename__ = "papers"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    doi: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    doi: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     authors: Mapped[dict] = mapped_column(JSON, nullable=False, default=list)
-    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
-    venue: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    abstract: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    venue: Mapped[str | None] = mapped_column(Text, nullable=True)
+    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False, default="manual_upload")
     external_ids: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    toc: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
-    citation_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    reference_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    toc: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    citation_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reference_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    workspace_papers: Mapped[List["TestWorkspacePaper"]] = relationship(
+    workspace_papers: Mapped[list["TestWorkspacePaper"]] = relationship(
         "TestWorkspacePaper", back_populates="paper", cascade="all, delete-orphan"
     )
 
@@ -128,7 +127,7 @@ class TestWorkspacePaper(TestBase, TimestampMixin):
     paper_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     read_status: Mapped[str] = mapped_column(String(20), default="unread", nullable=False)
@@ -190,13 +189,13 @@ async def test_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
 @pytest_asyncio.fixture(scope="function")
 async def test_app(test_engine, test_session):
     """Create a test FastAPI application with overridden dependencies."""
-    from fastapi import FastAPI, Depends, HTTPException, status
-    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-    from fastapi.middleware.cors import CORSMiddleware
-    from pydantic import BaseModel, EmailStr, Field
-    from typing import Optional as Opt
+    from collections.abc import AsyncGenerator as AG
     from contextlib import asynccontextmanager
-    from typing import AsyncGenerator as AG
+
+    from fastapi import Depends, FastAPI, HTTPException, status
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+    from pydantic import BaseModel, EmailStr, Field
     from sqlalchemy import select
 
     # ============ Request/Response Models ============
@@ -204,7 +203,7 @@ async def test_app(test_engine, test_session):
     class RegisterRequest(BaseModel):
         email: EmailStr
         password: str
-        name: Opt[str] = None
+        name: str | None = None
 
     class LoginRequest(BaseModel):
         email: EmailStr
@@ -219,7 +218,7 @@ async def test_app(test_engine, test_session):
     class UserResponse(BaseModel):
         id: str
         email: str
-        name: Opt[str]
+        name: str | None
         role: str
 
     class RefreshRequest(BaseModel):
@@ -228,76 +227,76 @@ async def test_app(test_engine, test_session):
     class CreateWorkspaceRequest(BaseModel):
         name: str = Field(..., min_length=1, max_length=255)
         type: str
-        discipline: Opt[str] = Field(None, max_length=100)
-        description: Opt[str] = None
-        config: Opt[dict] = None
+        discipline: str | None = Field(None, max_length=100)
+        description: str | None = None
+        config: dict | None = None
 
     class UpdateWorkspaceRequest(BaseModel):
-        name: Opt[str] = Field(None, min_length=1, max_length=255)
-        discipline: Opt[str] = Field(None, max_length=100)
-        description: Opt[str] = None
-        config: Opt[dict] = None
+        name: str | None = Field(None, min_length=1, max_length=255)
+        discipline: str | None = Field(None, max_length=100)
+        description: str | None = None
+        config: dict | None = None
 
     class WorkspaceResponse(BaseModel):
         id: str
         user_id: str
         name: str
         type: str
-        discipline: Opt[str]
-        description: Opt[str]
+        discipline: str | None
+        description: str | None
         config: dict
 
         class Config:
             from_attributes = True
 
     class CreatePaperRequest(BaseModel):
-        doi: Opt[str] = None
+        doi: str | None = None
         title: str
-        authors: Opt[list] = None
-        year: Opt[int] = None
-        venue: Opt[str] = None
-        abstract: Opt[str] = None
-        file_path: Opt[str] = None
+        authors: list | None = None
+        year: int | None = None
+        venue: str | None = None
+        abstract: str | None = None
+        file_path: str | None = None
         source: str = "manual_upload"
-        external_ids: Opt[dict] = None
-        citation_count: Opt[int] = None
-        reference_count: Opt[int] = None
+        external_ids: dict | None = None
+        citation_count: int | None = None
+        reference_count: int | None = None
 
     class UpdatePaperRequest(BaseModel):
-        title: Opt[str] = None
-        authors: Opt[list] = None
-        year: Opt[int] = None
-        venue: Opt[str] = None
-        abstract: Opt[str] = None
-        citation_count: Opt[int] = None
-        reference_count: Opt[int] = None
+        title: str | None = None
+        authors: list | None = None
+        year: int | None = None
+        venue: str | None = None
+        abstract: str | None = None
+        citation_count: int | None = None
+        reference_count: int | None = None
 
     class PaperResponse(BaseModel):
         id: str
-        doi: Opt[str]
+        doi: str | None
         title: str
         authors: list
-        year: Opt[int]
-        venue: Opt[str]
-        abstract: Opt[str]
-        file_path: Opt[str]
+        year: int | None
+        venue: str | None
+        abstract: str | None
+        file_path: str | None
         source: str
         external_ids: dict
-        toc: Opt[list]
-        citation_count: Opt[int]
-        reference_count: Opt[int]
+        toc: list | None
+        citation_count: int | None
+        reference_count: int | None
 
         class Config:
             from_attributes = True
 
     class AddPaperRequest(BaseModel):
-        notes: Opt[str] = None
-        tags: Opt[list] = None
+        notes: str | None = None
+        tags: list | None = None
         is_primary: bool = False
 
     class SearchPapersRequest(BaseModel):
         query: str = Field(..., min_length=1)
-        workspace_id: Opt[str] = None
+        workspace_id: str | None = None
         limit: int = Field(default=10, ge=1, le=100)
 
     # ============ Auth Helpers ============
@@ -305,7 +304,7 @@ async def test_app(test_engine, test_session):
     security = HTTPBearer(auto_error=False)
 
     async def get_current_user(
-        credentials: Opt[HTTPAuthorizationCredentials] = Depends(security),
+        credentials: HTTPAuthorizationCredentials | None = Depends(security),
     ) -> TestUser:
         if credentials is None:
             raise HTTPException(
@@ -531,7 +530,7 @@ async def test_app(test_engine, test_session):
         return {"success": True}
 
     @app.get("/api/workspaces/{workspace_id}/papers", response_model=list[PaperResponse])
-    async def list_workspace_papers(workspace_id: str, read_status: Opt[str] = None):
+    async def list_workspace_papers(workspace_id: str, read_status: str | None = None):
         query = (
             select(TestPaper)
             .join(TestWorkspacePaper, TestPaper.id == TestWorkspacePaper.paper_id)
@@ -635,7 +634,7 @@ async def test_app(test_engine, test_session):
         )
 
     @app.get("/api/papers/", response_model=list[PaperResponse])
-    async def list_papers(workspace_id: Opt[str] = None, limit: int = 20):
+    async def list_papers(workspace_id: str | None = None, limit: int = 20):
         if workspace_id:
             query = (
                 select(TestPaper)

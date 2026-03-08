@@ -10,20 +10,17 @@ This module tests:
 - Async execution
 """
 
-import pytest
-import asyncio
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from src.agents.thread_state import ThreadState
 from src.skills.base import BaseSkill, SkillInput, SkillOutput
 from src.skills.implementations.fullpaper_writer import (
-    FullpaperWriterSkill,
-    MockLLMService,
     PAPER_SECTIONS,
     SECTION_PROMPTS,
+    FullpaperWriterSkill,
+    MockLLMService,
 )
-from src.agents.thread_state import AcademicArtifact, ThreadState
-
 
 # ============================================================================
 # Fixtures

@@ -10,11 +10,10 @@ Tools:
     - search_papers_by_metadata: Search papers by title/author
 """
 
-from typing import Optional, List
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-from sqlalchemy import select, or_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Paper, PaperSection, WorkspacePaper
@@ -40,7 +39,7 @@ class SearchPapersInput(BaseModel):
     """Input schema for search_papers_by_metadata tool."""
 
     query: str = Field(description="Search query for title or author")
-    workspace_id: Optional[str] = Field(
+    workspace_id: str | None = Field(
         default=None, description="Optional workspace ID to limit search scope"
     )
 
@@ -96,9 +95,9 @@ def format_section_output(section: PaperSection) -> str:
 
 
 def format_search_results(
-    papers: List[Paper],
+    papers: list[Paper],
     query: str,
-    workspace_id: Optional[str],
+    workspace_id: str | None,
 ) -> str:
     """Format search results for display.
 
@@ -134,7 +133,7 @@ def format_search_results(
 
 
 # Helper functions for database access
-async def _get_paper_by_id(db: AsyncSession, paper_id: str) -> Optional[Paper]:
+async def _get_paper_by_id(db: AsyncSession, paper_id: str) -> Paper | None:
     """Retrieve a paper by ID.
 
     Args:
@@ -153,8 +152,8 @@ async def _get_section_by_path(
     db: AsyncSession,
     paper_id: str,
     section_path: str,
-    workspace_id: Optional[str] = None,
-) -> Optional[PaperSection]:
+    workspace_id: str | None = None,
+) -> PaperSection | None:
     """Retrieve a paper section by path.
 
     Args:
@@ -180,7 +179,7 @@ async def _get_section_by_path(
 async def _search_papers_in_db(
     db: AsyncSession,
     query: str,
-    workspace_id: Optional[str] = None,
+    workspace_id: str | None = None,
 ) -> list[Paper]:
     """Search papers by title or author.
 
@@ -283,7 +282,7 @@ async def get_paper_section(paper_id: str, section_path: str) -> str:
 @tool(args_schema=SearchPapersInput)
 async def search_papers_by_metadata(
     query: str,
-    workspace_id: Optional[str] = None,
+    workspace_id: str | None = None,
 ) -> str:
     """Search for papers by title.
 

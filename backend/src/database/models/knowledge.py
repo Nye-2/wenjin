@@ -1,18 +1,19 @@
 """UserKnowledge model for cross-workspace personalization."""
 
-from typing import TYPE_CHECKING, List, Optional
-
-from sqlalchemy import String, Text, Float, ForeignKey, Index, Enum as SQLEnum
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
+from typing import TYPE_CHECKING
 
-from ..base import Base, UUIDMixin, TimestampMixin
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import Float, ForeignKey, Index, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from .user import User
 
 
-class KnowledgeCategory(str, enum.Enum):
+class KnowledgeCategory(enum.StrEnum):
     """Categories of user knowledge."""
     PREFERENCE = "preference"      # User preferences (citation style, writing tone)
     KNOWLEDGE = "knowledge"        # Domain knowledge
@@ -59,8 +60,8 @@ class UserKnowledge(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default=0.7,
     )
-    source: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    workspace_context: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    workspace_context: Mapped[str | None] = mapped_column(String(36), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
 
     # Relationships

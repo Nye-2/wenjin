@@ -1,21 +1,20 @@
 """Lead Agent factory for AcademiaGPT."""
 
-from typing import Any, Callable
+from collections.abc import Callable
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import create_react_agent
 
-from src.agents.thread_state import ThreadState
 from src.agents.middlewares import (
-    WorkspaceContextMiddleware,
-    LiteratureContextMiddleware,
-    KnowledgeContextMiddleware,
-    DisciplineContextMiddleware,
     CitationContextMiddleware,
+    DisciplineContextMiddleware,
+    KnowledgeContextMiddleware,
+    LiteratureContextMiddleware,
+    WorkspaceContextMiddleware,
 )
-from src.config import settings
+from src.agents.thread_state import ThreadState
 
 
 def apply_prompt_template(
@@ -119,13 +118,13 @@ def get_available_tools(
 
     # Import built-in tools
     from src.tools.builtins import (
-        bash_tool,
-        read_file_tool,
-        write_file_tool,
-        str_replace_tool,
-        ls_tool,
         ask_clarification_tool,
+        bash_tool,
+        ls_tool,
         present_files_tool,
+        read_file_tool,
+        str_replace_tool,
+        write_file_tool,
     )
 
     # File system tools

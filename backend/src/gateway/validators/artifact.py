@@ -4,15 +4,15 @@ This module provides Pydantic models for validating artifact
 creation, update, and query parameters.
 """
 
-from enum import Enum
-from typing import Optional, Annotated, Any
+from enum import StrEnum
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .common import sanitize_string, sanitize_html, validate_uuid
+from .common import sanitize_html, sanitize_string, validate_uuid
 
 
-class ArtifactType(str, Enum):
+class ArtifactType(StrEnum):
     """Valid artifact types."""
 
     RESEARCH_IDEA = "research_idea"
@@ -33,7 +33,7 @@ class ArtifactType(str, Enum):
     OTHER = "other"
 
 
-class ArtifactStatus(str, Enum):
+class ArtifactStatus(StrEnum):
     """Valid artifact status values."""
 
     DRAFT = "draft"
@@ -49,10 +49,10 @@ class CreateArtifactValidator(BaseModel):
 
     workspace_id: str
     type: ArtifactType
-    title: Optional[Annotated[str, Field(max_length=500)]] = None
+    title: Annotated[str, Field(max_length=500)] | None = None
     content: dict[str, Any]
-    created_by_skill: Optional[Annotated[str, Field(max_length=100)]] = None
-    parent_artifact_id: Optional[str] = None
+    created_by_skill: Annotated[str, Field(max_length=100)] | None = None
+    parent_artifact_id: str | None = None
 
     @field_validator("workspace_id")
     @classmethod
@@ -62,7 +62,7 @@ class CreateArtifactValidator(BaseModel):
 
     @field_validator("title")
     @classmethod
-    def sanitize_title(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_title(cls, v: str | None) -> str | None:
         """Sanitize artifact title."""
         if v is None:
             return None
@@ -83,7 +83,7 @@ class CreateArtifactValidator(BaseModel):
 
     @field_validator("created_by_skill")
     @classmethod
-    def sanitize_skill_name(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_skill_name(cls, v: str | None) -> str | None:
         """Sanitize skill name."""
         if v is None:
             return None
@@ -96,7 +96,7 @@ class CreateArtifactValidator(BaseModel):
 
     @field_validator("parent_artifact_id")
     @classmethod
-    def validate_parent_id(cls, v: Optional[str]) -> Optional[str]:
+    def validate_parent_id(cls, v: str | None) -> str | None:
         """Validate parent artifact ID if provided."""
         if v is None:
             return None
@@ -108,13 +108,13 @@ class UpdateArtifactValidator(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    title: Optional[Annotated[str, Field(max_length=500)]] = None
-    content: Optional[dict[str, Any]] = None
-    status: Optional[ArtifactStatus] = None
+    title: Annotated[str, Field(max_length=500)] | None = None
+    content: dict[str, Any] | None = None
+    status: ArtifactStatus | None = None
 
     @field_validator("title")
     @classmethod
-    def sanitize_title(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_title(cls, v: str | None) -> str | None:
         """Sanitize artifact title."""
         if v is None:
             return None
@@ -125,7 +125,7 @@ class UpdateArtifactValidator(BaseModel):
 
     @field_validator("content")
     @classmethod
-    def validate_content(cls, v: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    def validate_content(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
         """Validate content dictionary."""
         if v is None:
             return None
@@ -152,8 +152,8 @@ class ListArtifactsQueryValidator(BaseModel):
     """Validator for artifact list query parameters."""
 
     workspace_id: str
-    type: Optional[ArtifactType] = None
-    status: Optional[ArtifactStatus] = None
+    type: ArtifactType | None = None
+    status: ArtifactStatus | None = None
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
 

@@ -1,18 +1,16 @@
 """Tests for paper extraction service."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.academic.services.extraction_service import (
-    ExtractionService,
     ExtractionError,
+    ExtractionService,
     FileNotFoundError,
 )
 from src.database import Paper, PaperExtraction, PaperSection
-
-
-from src.academic.literature.extraction.pdf_extractor import PDFExtractor
 
 
 class TestExtractionService:
@@ -163,7 +161,7 @@ class TestExtractPaper(TestExtractionService):
                         return_value=mock_sections,
                     ):
                         with patch("pathlib.Path.exists", return_value=True):
-                            result = await service.extract_paper(
+                            await service.extract_paper(
                                 sample_paper_id,
                                 "/path/to/paper.pdf",
                                 tier=1,
@@ -212,7 +210,7 @@ class TestExtractPaper(TestExtractionService):
             side_effect=mock_get_extraction,
         ):
             with patch("pathlib.Path.exists", return_value=True):
-                result = await service.extract_paper(
+                await service.extract_paper(
                     sample_paper_id,
                     "/path/to/paper.pdf",
                     tier=2,
@@ -253,7 +251,7 @@ class TestExtractPaper(TestExtractionService):
         """Test that extraction records processing time."""
         with patch.object(service, "get_extraction", return_value=None):
             with patch("pathlib.Path.exists", return_value=True):
-                with patch.object(service, "_extract_tier1") as mock_extract_tier1:
+                with patch.object(service, "_extract_tier1"):
                     result = await service.extract_paper(
                         sample_paper_id,
                         "/path/to/paper.pdf",
@@ -336,7 +334,7 @@ class TestExtractSections(TestExtractionService):
                     mock_doc = mock_pdf_document
                     mock_doc.load_page = lambda idx: mock_pages[idx]
 
-                    result = await service.extract_sections(
+                    await service.extract_sections(
                         sample_paper_id,
                         sample_workspace_id,
                         "/path/to/paper.pdf",

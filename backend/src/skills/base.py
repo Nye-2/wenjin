@@ -6,7 +6,7 @@ can be dynamically executed by the lead agent.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -51,7 +51,7 @@ class SkillOutput(BaseModel):
         default_factory=dict,
         description="Additional metadata about the execution",
     )
-    error_message: Optional[str] = Field(
+    error_message: str | None = Field(
         default=None,
         description="Error message if success is False",
     )
@@ -86,7 +86,7 @@ class BaseSkill(ABC):
         """
         pass
 
-    def validate_input(self, input: SkillInput) -> Optional[str]:
+    def validate_input(self, input: SkillInput) -> str | None:
         """Validate the input before execution.
 
         Override this method to add custom validation logic.

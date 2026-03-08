@@ -8,29 +8,26 @@ This module provides REST endpoints for:
 - Paper search functionality
 """
 
-from typing import Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import select, or_
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import (
-    get_db_session,
-    Paper,
-    WorkspacePaper,
-    PaperSection,
-)
-from src.academic.services.paper_service import PaperService
 from src.academic.services.extraction_service import ExtractionService
+from src.academic.services.paper_service import PaperService
+from src.database import (
+    Paper,
+    PaperSection,
+    WorkspacePaper,
+    get_db_session,
+)
 from src.gateway.validators.paper import (
     CreatePaperValidator,
-    UpdatePaperValidator,
     SearchPapersValidator,
-    PaperIdValidator,
+    UpdatePaperValidator,
 )
-from src.gateway.validators.common import validate_uuid
-
 
 router = APIRouter(prefix="/papers", tags=["papers"])
 
@@ -42,18 +39,18 @@ class PaperResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    doi: Optional[str]
+    doi: str | None
     title: str
     authors: list[dict]
-    year: Optional[int]
-    venue: Optional[str]
-    abstract: Optional[str]
-    file_path: Optional[str]
+    year: int | None
+    venue: str | None
+    abstract: str | None
+    file_path: str | None
     source: str
     external_ids: dict
-    toc: Optional[list]
-    citation_count: Optional[int]
-    reference_count: Optional[int]
+    toc: list | None
+    citation_count: int | None
+    reference_count: int | None
 
 
 class SectionResponse(BaseModel):
@@ -80,8 +77,8 @@ class ExtractionResponse(BaseModel):
     tier: int
     extraction_type: str
     structured_data: dict
-    processing_time_ms: Optional[int]
-    model_used: Optional[str]
+    processing_time_ms: int | None
+    model_used: str | None
 
 
 # Re-export validators as request models for backward compatibility
@@ -191,7 +188,7 @@ async def create_paper(
 
 @router.get("/", response_model=list[PaperResponse])
 async def list_papers(
-    workspace_id: Optional[str] = None,
+    workspace_id: str | None = None,
     limit: int = 20,
     session: AsyncSession = Depends(get_session),
 ):
@@ -395,7 +392,7 @@ async def extract_paper(
 @router.get("/{paper_id}/sections", response_model=list[SectionResponse])
 async def get_paper_sections(
     paper_id: str,
-    workspace_id: Optional[str] = None,
+    workspace_id: str | None = None,
     session: AsyncSession = Depends(get_session),
 ):
     """Get paper sections.

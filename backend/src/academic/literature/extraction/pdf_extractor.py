@@ -4,7 +4,6 @@ This module provides functionality to extract table of contents, metadata,
 and section content from PDF documents using PyMuPDF (fitz).
 """
 
-from typing import Optional
 
 import fitz  # PyMuPDF
 
@@ -78,7 +77,7 @@ class PDFExtractor:
         self,
         pdf_path: str,
         page_start: int,
-        page_end: Optional[int] = None,
+        page_end: int | None = None,
     ) -> str:
         """Extract text content from a page range.
 

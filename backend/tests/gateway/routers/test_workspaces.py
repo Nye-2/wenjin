@@ -5,15 +5,15 @@ This module tests the workspaces endpoints including:
 - Paper association management
 """
 
-import uuid
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-from fastapi.testclient import TestClient
-from fastapi import FastAPI
 
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from src.database import Paper, Workspace
 from src.gateway.routers import workspaces
-from src.database import Workspace, WorkspaceType, Paper
 
 
 def create_mock_workspace(
@@ -37,8 +37,8 @@ def create_mock_workspace(
     workspace.discipline = discipline
     workspace.description = description
     workspace.config = config or {}
-    workspace.created_at = datetime.now(timezone.utc)
-    workspace.updated_at = datetime.now(timezone.utc)
+    workspace.created_at = datetime.now(UTC)
+    workspace.updated_at = datetime.now(UTC)
     return workspace
 
 

@@ -1,11 +1,10 @@
 """RAG service for literature retrieval."""
 
 import hashlib
-from typing import Optional
 
 from langchain_core.embeddings import Embeddings
 from langchain_openai import OpenAIEmbeddings
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.cache.redis_client import redis_client
@@ -24,7 +23,7 @@ class RAGService:
     def __init__(
         self,
         db: AsyncSession,
-        embedding_model: Optional[Embeddings] = None,
+        embedding_model: Embeddings | None = None,
     ):
         """Initialize RAG service.
 
@@ -145,7 +144,7 @@ class RAGService:
         paper_id: str,
         workspace_id: str,
         chunks: list[str],
-        metadata: Optional[dict] = None,
+        metadata: dict | None = None,
     ) -> list[PaperChunk]:
         """Index paper chunks with embeddings.
 
@@ -162,7 +161,7 @@ class RAGService:
         embeddings = await self.embedding_model.aembed_documents(chunks)
 
         created_chunks = []
-        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
             paper_chunk = PaperChunk(
                 paper_id=paper_id,
                 workspace_id=workspace_id,

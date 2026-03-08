@@ -1,13 +1,13 @@
 """Skills module initialization."""
 
-from .loader import load_skills, Skill
 from .base import BaseSkill, SkillInput, SkillOutput
 from .executor import (
-    SkillExecutor,
     SkillExecutionError,
+    SkillExecutor,
     SkillNotFoundError,
     SkillValidationError,
 )
+from .loader import Skill, load_skills
 
 __all__ = [
     # Legacy loader
