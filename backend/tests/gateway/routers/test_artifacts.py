@@ -1,0 +1,601 @@
+"""Tests for artifacts router.
+
+This module tests the artifact endpoints including:
+- Creating artifacts
+- Listing artifacts (filtered by workspace and type)
+- Getting artifact details
+- Updating artifacts
+- Deleting artifacts
+- Getting artifact lineage
+"""
+
+import pytest
+import pytest_asyncio
+from datetime import datetime
+from typing import AsyncGenerator
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from fastapi.testclient import TestClient
+from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.gateway.routers.artifacts import router, get_artifact_service
+from src.database import Artifact
+
+
+# ============ Mock Fixtures ============
+
+class MockArtifactService:
+    """Mock artifact service for testing."""
+
+    def __init__(self):
+        self.artifacts = {}
+        self._id_counter = 0
+
+    def _generate_id(self):
+        self._id_counter += 1
+        return f"artifact-{self._id_counter}"
+
+    def _create_artifact_obj(self, **kwargs):
+        """Create a mock artifact object."""
+        artifact = MagicMock(spec=Artifact)
+        artifact.id = kwargs.get("id", self._generate_id())
+        artifact.workspace_id = kwargs.get("workspace_id", "ws-1")
+        artifact.type = kwargs.get("type", "research_idea")
+        artifact.title = kwargs.get("title")
+        artifact.content = kwargs.get("content", {})
+        artifact.created_by_skill = kwargs.get("created_by_skill")
+        artifact.parent_artifact_id = kwargs.get("parent_artifact_id")
+        artifact.version = kwargs.get("version", 1)
+        artifact.status = kwargs.get("status", "draft")
+        artifact.created_at = kwargs.get("created_at", datetime.utcnow())
+        artifact.updated_at = kwargs.get("updated_at", datetime.utcnow())
+
+        # Add table mock for orm_to_dict
+        artifact.__table__ = MagicMock()
+        artifact.__table__.columns = [
+            self._create_column_mock("id", artifact.id),
+            self._create_column_mock("workspace_id", artifact.workspace_id),
+            self._create_column_mock("type", artifact.type),
+            self._create_column_mock("title", artifact.title),
+            self._create_column_mock("content", artifact.content),
+            self._create_column_mock("created_by_skill", artifact.created_by_skill),
+            self._create_column_mock("parent_artifact_id", artifact.parent_artifact_id),
+            self._create_column_mock("version", artifact.version),
+            self._create_column_mock("status", artifact.status),
+            self._create_column_mock("created_at", artifact.created_at),
+            self._create_column_mock("updated_at", artifact.updated_at),
+        ]
+        return artifact
+
+    def _create_column_mock(self, name, value):
+        """Create a mock column object."""
+        column = MagicMock()
+        column.name = name
+        return column
+
+    async def create(self, workspace_id, type, content, title=None,
+                     created_by_skill=None, parent_artifact_id=None, status="draft"):
+        artifact = self._create_artifact_obj(
+            workspace_id=workspace_id,
+            type=type,
+            content=content,
+            title=title,
+            created_by_skill=created_by_skill,
+            parent_artifact_id=parent_artifact_id,
+            status=status,
+        )
+        self.artifacts[artifact.id] = artifact
+        return artifact
+
+    async def get(self, artifact_id):
+        return self.artifacts.get(artifact_id)
+
+    async def list_by_workspace(self, workspace_id, type=None):
+        result = [a for a in self.artifacts.values() if a.workspace_id == workspace_id]
+        if type:
+            result = [a for a in result if a.type == type]
+        return result
+
+    async def update(self, artifact_id, content=None, title=None, status=None, increment_version=False):
+        artifact = self.artifacts.get(artifact_id)
+        if not artifact:
+            return None
+
+        if content is not None:
+            artifact.content = content
+        if title is not None:
+            artifact.title = title
+        if status is not None:
+            artifact.status = status
+        if increment_version:
+            artifact.version += 1
+        artifact.updated_at = datetime.utcnow()
+        return artifact
+
+    async def delete(self, artifact_id):
+        if artifact_id in self.artifacts:
+            del self.artifacts[artifact_id]
+            return True
+        return False
+
+    async def get_lineage(self, artifact_id):
+        """Get artifact lineage (parent chain)."""
+        lineage = []
+        current_id = artifact_id
+
+        while current_id:
+            artifact = self.artifacts.get(current_id)
+            if not artifact:
+                break
+            lineage.append(artifact)
+            current_id = artifact.parent_artifact_id
+
+        return list(reversed(lineage))
+
+
+@pytest.fixture
+def mock_service():
+    """Create a mock artifact service."""
+    return MockArtifactService()
+
+
+@pytest.fixture
+def app(mock_service):
+    """Create FastAPI app with artifacts router."""
+    app = FastAPI()
+
+    # Override the artifact service dependency
+    async def get_artifact_service_override():
+        return mock_service
+
+    app.dependency_overrides[get_artifact_service] = get_artifact_service_override
+    app.include_router(router)
+
+    return app
+
+
+@pytest.fixture
+def client(app):
+    """Create test client."""
+    return TestClient(app)
+
+
+# ============ Test Classes ============
+
+class TestCreateArtifact:
+    """Test create artifact endpoint."""
+
+    def test_create_artifact_success(self, client):
+        """Test successful artifact creation."""
+        response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "title": "My Research Idea",
+                "content": {"idea": "Test idea"},
+                "created_by_skill": "brainstorm",
+            },
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["workspace_id"] == "ws-1"
+        assert data["type"] == "research_idea"
+        assert data["title"] == "My Research Idea"
+        assert data["content"] == {"idea": "Test idea"}
+        assert data["created_by_skill"] == "brainstorm"
+        assert data["status"] == "draft"
+        assert data["version"] == 1
+
+    def test_create_artifact_minimal(self, client):
+        """Test artifact creation with minimal fields."""
+        response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-2",
+                "type": "methodology",
+                "content": {"method": "quantitative"},
+            },
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["workspace_id"] == "ws-2"
+        assert data["type"] == "methodology"
+        assert data["title"] is None
+        assert data["created_by_skill"] is None
+
+    def test_create_artifact_with_parent(self, client):
+        """Test artifact creation with parent artifact."""
+        # First create a parent artifact
+        parent_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "Parent idea"},
+            },
+        )
+        parent_id = parent_response.json()["id"]
+
+        # Create child artifact
+        response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "abstract",
+                "content": {"text": "Child abstract"},
+                "parent_artifact_id": parent_id,
+            },
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["parent_artifact_id"] == parent_id
+
+    def test_create_artifact_missing_required_fields(self, client):
+        """Test artifact creation with missing required fields."""
+        response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                # Missing type and content
+            },
+        )
+
+        assert response.status_code == 422  # Validation error
+
+
+class TestListArtifacts:
+    """Test list artifacts endpoint."""
+
+    def test_list_artifacts_success(self, client):
+        """Test successful artifact listing."""
+        # Create some artifacts
+        client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "Idea 1"},
+            },
+        )
+        client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "methodology",
+                "content": {"method": "Method 1"},
+            },
+        )
+
+        response = client.get("/artifacts/?workspace_id=ws-1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+
+    def test_list_artifacts_by_type(self, client):
+        """Test artifact listing filtered by type."""
+        # Create artifacts of different types
+        client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "Idea 1"},
+            },
+        )
+        client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "methodology",
+                "content": {"method": "Method 1"},
+            },
+        )
+
+        response = client.get("/artifacts/?workspace_id=ws-1&type=research_idea")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "research_idea"
+
+    def test_list_artifacts_empty(self, client):
+        """Test artifact listing with no artifacts."""
+        response = client.get("/artifacts/?workspace_id=ws-empty")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 0
+
+    def test_list_artifacts_different_workspaces(self, client):
+        """Test artifact listing isolates workspaces."""
+        # Create artifacts in different workspaces
+        client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "WS1 Idea"},
+            },
+        )
+        client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-2",
+                "type": "research_idea",
+                "content": {"idea": "WS2 Idea"},
+            },
+        )
+
+        response = client.get("/artifacts/?workspace_id=ws-1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["workspace_id"] == "ws-1"
+
+
+class TestGetArtifact:
+    """Test get artifact endpoint."""
+
+    def test_get_artifact_success(self, client):
+        """Test successful artifact retrieval."""
+        # Create an artifact
+        create_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "title": "Test Idea",
+                "content": {"idea": "Test idea"},
+            },
+        )
+        artifact_id = create_response.json()["id"]
+
+        response = client.get(f"/artifacts/{artifact_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == artifact_id
+        assert data["title"] == "Test Idea"
+        assert data["content"] == {"idea": "Test idea"}
+
+    def test_get_artifact_not_found(self, client):
+        """Test get artifact with non-existent ID."""
+        response = client.get("/artifacts/non-existent-id")
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+
+class TestUpdateArtifact:
+    """Test update artifact endpoint."""
+
+    def test_update_artifact_content(self, client):
+        """Test updating artifact content."""
+        # Create an artifact
+        create_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "Original idea"},
+            },
+        )
+        artifact_id = create_response.json()["id"]
+
+        response = client.put(
+            f"/artifacts/{artifact_id}",
+            json={
+                "content": {"idea": "Updated idea"},
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["content"] == {"idea": "Updated idea"}
+        assert data["version"] == 2  # Version should increment
+
+    def test_update_artifact_title(self, client):
+        """Test updating artifact title."""
+        # Create an artifact
+        create_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "Test"},
+            },
+        )
+        artifact_id = create_response.json()["id"]
+
+        response = client.put(
+            f"/artifacts/{artifact_id}",
+            json={
+                "title": "New Title",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "New Title"
+
+    def test_update_artifact_status(self, client):
+        """Test updating artifact status."""
+        # Create an artifact
+        create_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "Test"},
+            },
+        )
+        artifact_id = create_response.json()["id"]
+
+        response = client.put(
+            f"/artifacts/{artifact_id}",
+            json={
+                "status": "review",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "review"
+
+    def test_update_artifact_multiple_fields(self, client):
+        """Test updating multiple artifact fields."""
+        # Create an artifact
+        create_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "Test"},
+            },
+        )
+        artifact_id = create_response.json()["id"]
+
+        response = client.put(
+            f"/artifacts/{artifact_id}",
+            json={
+                "title": "Updated Title",
+                "content": {"idea": "Updated idea"},
+                "status": "final",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "Updated Title"
+        assert data["content"] == {"idea": "Updated idea"}
+        assert data["status"] == "final"
+
+    def test_update_artifact_not_found(self, client):
+        """Test updating non-existent artifact."""
+        response = client.put(
+            "/artifacts/non-existent-id",
+            json={
+                "title": "New Title",
+            },
+        )
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+
+class TestDeleteArtifact:
+    """Test delete artifact endpoint."""
+
+    def test_delete_artifact_success(self, client):
+        """Test successful artifact deletion."""
+        # Create an artifact
+        create_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "Test"},
+            },
+        )
+        artifact_id = create_response.json()["id"]
+
+        response = client.delete(f"/artifacts/{artifact_id}")
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+        # Verify artifact is deleted
+        get_response = client.get(f"/artifacts/{artifact_id}")
+        assert get_response.status_code == 404
+
+    def test_delete_artifact_not_found(self, client):
+        """Test deleting non-existent artifact."""
+        response = client.delete("/artifacts/non-existent-id")
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+
+class TestGetArtifactLineage:
+    """Test get artifact lineage endpoint."""
+
+    def test_get_lineage_single_artifact(self, client):
+        """Test lineage for artifact without parent."""
+        # Create a root artifact
+        create_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "Root idea"},
+            },
+        )
+        artifact_id = create_response.json()["id"]
+
+        response = client.get(f"/artifacts/{artifact_id}/lineage")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["id"] == artifact_id
+
+    def test_get_lineage_with_parent(self, client):
+        """Test lineage for artifact with parent chain."""
+        # Create grandparent
+        gp_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "research_idea",
+                "content": {"idea": "Grandparent"},
+            },
+        )
+        gp_id = gp_response.json()["id"]
+
+        # Create parent
+        p_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "methodology",
+                "content": {"method": "Parent"},
+                "parent_artifact_id": gp_id,
+            },
+        )
+        p_id = p_response.json()["id"]
+
+        # Create child
+        c_response = client.post(
+            "/artifacts/",
+            json={
+                "workspace_id": "ws-1",
+                "type": "abstract",
+                "content": {"text": "Child"},
+                "parent_artifact_id": p_id,
+            },
+        )
+        c_id = c_response.json()["id"]
+
+        response = client.get(f"/artifacts/{c_id}/lineage")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 3
+        # Order should be: grandparent -> parent -> child
+        assert data[0]["id"] == gp_id
+        assert data[1]["id"] == p_id
+        assert data[2]["id"] == c_id
+
+    def test_get_lineage_not_found(self, client):
+        """Test lineage for non-existent artifact."""
+        response = client.get("/artifacts/non-existent-id/lineage")
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()

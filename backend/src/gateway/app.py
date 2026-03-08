@@ -56,9 +56,11 @@ async def health_check():
 
 
 # Include routers
-from .routers import models, academic, chat, auth
+from .routers import models, academic, chat, auth, workspaces, artifacts
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(academic.router, prefix="/api", tags=["academic"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])
+app.include_router(workspaces.router, prefix="/api", tags=["workspaces"])
+app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
