@@ -12,10 +12,17 @@ This module provides REST endpoints for:
 from typing import Optional, AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db_session
+from src.gateway.validators.artifact import (
+    CreateArtifactValidator,
+    UpdateArtifactValidator,
+    ArtifactIdValidator,
+    ListArtifactsQueryValidator,
+)
+from src.gateway.validators.common import validate_uuid
 
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
@@ -23,25 +30,10 @@ router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
 # ============ Request/Response Models ============
 
-class CreateArtifactRequest(BaseModel):
-    """Artifact creation request."""
-    workspace_id: str
-    type: str  # research_idea, methodology, framework_outline, abstract, etc.
-    title: Optional[str] = None
-    content: dict
-    created_by_skill: Optional[str] = None
-    parent_artifact_id: Optional[str] = None
-
-
-class UpdateArtifactRequest(BaseModel):
-    """Artifact update request."""
-    title: Optional[str] = None
-    content: Optional[dict] = None
-    status: Optional[str] = None
-
-
 class ArtifactResponse(BaseModel):
     """Artifact response."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     workspace_id: str
     type: str
@@ -54,8 +46,10 @@ class ArtifactResponse(BaseModel):
     created_at: str
     updated_at: str
 
-    class Config:
-        from_attributes = True
+
+# Re-export validators as request models for backward compatibility
+CreateArtifactRequest = CreateArtifactValidator
+UpdateArtifactRequest = UpdateArtifactValidator
 
 
 # ============ Dependencies ============

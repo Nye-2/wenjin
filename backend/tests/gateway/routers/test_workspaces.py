@@ -5,6 +5,7 @@ This module tests the workspaces endpoints including:
 - Paper association management
 """
 
+import uuid
 import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
@@ -19,7 +20,7 @@ def create_mock_workspace(
     id: str = "test-workspace-id",
     user_id: str = "test-user-id",
     name: str = "Test Workspace",
-    type: WorkspaceType = WorkspaceType.SCI,
+    type: str = "sci",
     discipline: str = "computer_science",
     description: str = "Test description",
     config: dict = None,
@@ -29,7 +30,10 @@ def create_mock_workspace(
     workspace.id = id
     workspace.user_id = user_id
     workspace.name = name
-    workspace.type = type
+    # Create a mock type enum that has .value attribute
+    mock_type = MagicMock()
+    mock_type.value = type
+    workspace.type = mock_type
     workspace.discipline = discipline
     workspace.description = description
     workspace.config = config or {}
@@ -608,7 +612,7 @@ class TestWorkspaceTypes:
     @pytest.mark.parametrize("workspace_type", ["sci", "thesis", "proposal", "grant", "literature_review"])
     def test_create_workspace_all_types(self, client, mock_workspace_service, workspace_type):
         """Test creating workspaces of all valid types."""
-        mock_workspace = create_mock_workspace(type=WorkspaceType(workspace_type))
+        mock_workspace = create_mock_workspace(type=workspace_type)
         mock_workspace_service.create.return_value = mock_workspace
 
         response = client.post(

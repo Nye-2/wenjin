@@ -1,0 +1,917 @@
+"""Test fixtures for integration tests.
+
+This module provides:
+- In-memory SQLite database for testing
+- Async test client fixtures
+- Authentication fixtures with test tokens
+- Test data factories
+
+Note: We use SQLite-compatible test models instead of the production PostgreSQL models
+to enable in-memory database testing without requiring PostgreSQL.
+"""
+
+import asyncio
+from datetime import datetime
+from typing import AsyncGenerator, Generator, Optional, List
+from uuid import uuid4
+
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy import String, Text, Boolean, DateTime, Integer, ForeignKey, func
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    create_async_engine,
+    async_sessionmaker,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.pool import StaticPool
+from sqlalchemy.dialects.sqlite import JSON
+
+from src.services.auth import hash_password, create_tokens
+
+
+# ============ Test Database Models (SQLite-compatible) ============
+
+class TestBase(DeclarativeBase):
+    """Base class for test models."""
+    pass
+
+
+def generate_uuid() -> str:
+    """Generate a UUID string."""
+    return str(uuid4())
+
+
+class TimestampMixin:
+    """Mixin for created_at and updated_at timestamps."""
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class TestUser(TestBase, TimestampMixin):
+    """Test User model compatible with SQLite."""
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    workspaces: Mapped[List["TestWorkspace"]] = relationship(
+        "TestWorkspace", back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class TestWorkspace(TestBase, TimestampMixin):
+    """Test Workspace model compatible with SQLite."""
+    __tablename__ = "workspaces"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    discipline: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+    user: Mapped["TestUser"] = relationship("TestUser", back_populates="workspaces")
+    workspace_papers: Mapped[List["TestWorkspacePaper"]] = relationship(
+        "TestWorkspacePaper", back_populates="workspace", cascade="all, delete-orphan"
+    )
+
+
+class TestPaper(TestBase, TimestampMixin):
+    """Test Paper model compatible with SQLite."""
+    __tablename__ = "papers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    doi: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    authors: Mapped[dict] = mapped_column(JSON, nullable=False, default=list)
+    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    venue: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    abstract: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="manual_upload")
+    external_ids: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    toc: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    citation_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    reference_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    workspace_papers: Mapped[List["TestWorkspacePaper"]] = relationship(
+        "TestWorkspacePaper", back_populates="paper", cascade="all, delete-orphan"
+    )
+
+
+class TestWorkspacePaper(TestBase, TimestampMixin):
+    """Test WorkspacePaper association model compatible with SQLite."""
+    __tablename__ = "workspace_papers"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    paper_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    read_status: Mapped[str] = mapped_column(String(20), default="unread", nullable=False)
+
+    workspace: Mapped["TestWorkspace"] = relationship("TestWorkspace", back_populates="workspace_papers")
+    paper: Mapped["TestPaper"] = relationship("TestPaper", back_populates="workspace_papers")
+
+
+# ============ Fixtures ============
+
+# Test database URL (in-memory SQLite)
+TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+
+@pytest.fixture(scope="session")
+def event_loop() -> Generator:
+    """Create an event loop for async tests."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_engine():
+    """Create a test database engine with in-memory SQLite."""
+    engine = create_async_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        echo=False,
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(TestBase.metadata.create_all)
+
+    yield engine
+
+    async with engine.begin() as conn:
+        await conn.run_sync(TestBase.metadata.drop_all)
+
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
+    """Create a test database session."""
+    session_factory = async_sessionmaker(
+        test_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+
+    async with session_factory() as session:
+        yield session
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_app(test_engine, test_session):
+    """Create a test FastAPI application with overridden dependencies."""
+    from fastapi import FastAPI, Depends, HTTPException, status
+    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel, EmailStr, Field
+    from typing import Optional as Opt
+    from contextlib import asynccontextmanager
+    from typing import AsyncGenerator as AG
+    from sqlalchemy import select
+
+    # ============ Request/Response Models ============
+
+    class RegisterRequest(BaseModel):
+        email: EmailStr
+        password: str
+        name: Opt[str] = None
+
+    class LoginRequest(BaseModel):
+        email: EmailStr
+        password: str
+
+    class TokenResponse(BaseModel):
+        access_token: str
+        refresh_token: str
+        token_type: str = "bearer"
+        expires_in: int
+
+    class UserResponse(BaseModel):
+        id: str
+        email: str
+        name: Opt[str]
+        role: str
+
+    class RefreshRequest(BaseModel):
+        refresh_token: str
+
+    class CreateWorkspaceRequest(BaseModel):
+        name: str = Field(..., min_length=1, max_length=255)
+        type: str
+        discipline: Opt[str] = Field(None, max_length=100)
+        description: Opt[str] = None
+        config: Opt[dict] = None
+
+    class UpdateWorkspaceRequest(BaseModel):
+        name: Opt[str] = Field(None, min_length=1, max_length=255)
+        discipline: Opt[str] = Field(None, max_length=100)
+        description: Opt[str] = None
+        config: Opt[dict] = None
+
+    class WorkspaceResponse(BaseModel):
+        id: str
+        user_id: str
+        name: str
+        type: str
+        discipline: Opt[str]
+        description: Opt[str]
+        config: dict
+
+        class Config:
+            from_attributes = True
+
+    class CreatePaperRequest(BaseModel):
+        doi: Opt[str] = None
+        title: str
+        authors: Opt[list] = None
+        year: Opt[int] = None
+        venue: Opt[str] = None
+        abstract: Opt[str] = None
+        file_path: Opt[str] = None
+        source: str = "manual_upload"
+        external_ids: Opt[dict] = None
+        citation_count: Opt[int] = None
+        reference_count: Opt[int] = None
+
+    class UpdatePaperRequest(BaseModel):
+        title: Opt[str] = None
+        authors: Opt[list] = None
+        year: Opt[int] = None
+        venue: Opt[str] = None
+        abstract: Opt[str] = None
+        citation_count: Opt[int] = None
+        reference_count: Opt[int] = None
+
+    class PaperResponse(BaseModel):
+        id: str
+        doi: Opt[str]
+        title: str
+        authors: list
+        year: Opt[int]
+        venue: Opt[str]
+        abstract: Opt[str]
+        file_path: Opt[str]
+        source: str
+        external_ids: dict
+        toc: Opt[list]
+        citation_count: Opt[int]
+        reference_count: Opt[int]
+
+        class Config:
+            from_attributes = True
+
+    class AddPaperRequest(BaseModel):
+        notes: Opt[str] = None
+        tags: Opt[list] = None
+        is_primary: bool = False
+
+    class SearchPapersRequest(BaseModel):
+        query: str = Field(..., min_length=1)
+        workspace_id: Opt[str] = None
+        limit: int = Field(default=10, ge=1, le=100)
+
+    # ============ Auth Helpers ============
+
+    security = HTTPBearer(auto_error=False)
+
+    async def get_current_user(
+        credentials: Opt[HTTPAuthorizationCredentials] = Depends(security),
+    ) -> TestUser:
+        if credentials is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+            )
+        from src.services.auth import verify_access_token
+        token_data = verify_access_token(credentials.credentials)
+        if token_data is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            )
+        result = await test_session.execute(
+            select(TestUser).where(TestUser.id == token_data.user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+            )
+        return user
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AG[None, None]:
+        yield
+
+    app = FastAPI(
+        title="Test AcademiaGPT API",
+        version="2.0.0",
+        lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # ============ Auth Routes ============
+
+    @app.post("/api/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+    async def register(request: RegisterRequest):
+        result = await test_session.execute(
+            select(TestUser).where(TestUser.email == request.email.lower())
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Email already registered")
+
+        try:
+            hashed_pw = hash_password(request.password)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        user = TestUser(
+            email=request.email.lower().strip(),
+            name=request.name or request.email.split("@")[0],
+            hashed_password=hashed_pw,
+            is_active=True,
+            is_superuser=False,
+        )
+        test_session.add(user)
+        await test_session.commit()
+        await test_session.refresh(user)
+
+        tokens = create_tokens(str(user.id), user.email, "user")
+        return TokenResponse(
+            access_token=tokens.access_token,
+            refresh_token=tokens.refresh_token,
+            token_type=tokens.token_type,
+            expires_in=tokens.expires_in,
+        )
+
+    @app.post("/api/auth/login", response_model=TokenResponse)
+    async def login(request: LoginRequest):
+        result = await test_session.execute(
+            select(TestUser).where(TestUser.email == request.email.lower())
+        )
+        user = result.scalar_one_or_none()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+
+        from src.services.auth import verify_password
+        if not verify_password(request.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+
+        tokens = create_tokens(str(user.id), user.email, "admin" if user.is_superuser else "user")
+        return TokenResponse(
+            access_token=tokens.access_token,
+            refresh_token=tokens.refresh_token,
+            token_type=tokens.token_type,
+            expires_in=tokens.expires_in,
+        )
+
+    @app.post("/api/auth/refresh", response_model=TokenResponse)
+    async def refresh_token(request: RefreshRequest):
+        from src.services.auth import verify_refresh_token
+        user_id = verify_refresh_token(request.refresh_token)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+        result = await test_session.execute(select(TestUser).where(TestUser.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="User not found")
+
+        tokens = create_tokens(str(user.id), user.email, "admin" if user.is_superuser else "user")
+        return TokenResponse(
+            access_token=tokens.access_token,
+            refresh_token=tokens.refresh_token,
+            token_type=tokens.token_type,
+            expires_in=tokens.expires_in,
+        )
+
+    @app.get("/api/auth/me", response_model=UserResponse)
+    async def get_me(current_user: TestUser = Depends(get_current_user)):
+        return UserResponse(
+            id=str(current_user.id),
+            email=current_user.email,
+            name=current_user.name,
+            role="admin" if current_user.is_superuser else "user",
+        )
+
+    # ============ Workspace Routes ============
+
+    @app.post("/api/workspaces/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
+    async def create_workspace(request: CreateWorkspaceRequest, user_id: str):
+        valid_types = ["sci", "thesis", "proposal", "grant", "literature_review"]
+        if request.type not in valid_types:
+            raise HTTPException(status_code=400, detail=f"Invalid workspace type: {request.type}")
+
+        workspace = TestWorkspace(
+            user_id=user_id,
+            name=request.name,
+            type=request.type,
+            discipline=request.discipline,
+            description=request.description,
+            config=request.config or {},
+        )
+        test_session.add(workspace)
+        await test_session.commit()
+        await test_session.refresh(workspace)
+        return WorkspaceResponse(
+            id=str(workspace.id),
+            user_id=str(workspace.user_id),
+            name=workspace.name,
+            type=workspace.type,
+            discipline=workspace.discipline,
+            description=workspace.description,
+            config=workspace.config or {},
+        )
+
+    @app.get("/api/workspaces/", response_model=list[WorkspaceResponse])
+    async def list_workspaces(user_id: str):
+        result = await test_session.execute(
+            select(TestWorkspace).where(TestWorkspace.user_id == user_id).order_by(TestWorkspace.updated_at.desc())
+        )
+        workspaces = result.scalars().all()
+        return [
+            WorkspaceResponse(
+                id=str(w.id),
+                user_id=str(w.user_id),
+                name=w.name,
+                type=w.type,
+                discipline=w.discipline,
+                description=w.description,
+                config=w.config or {},
+            )
+            for w in workspaces
+        ]
+
+    @app.get("/api/workspaces/{workspace_id}", response_model=WorkspaceResponse)
+    async def get_workspace(workspace_id: str):
+        result = await test_session.execute(select(TestWorkspace).where(TestWorkspace.id == workspace_id))
+        workspace = result.scalar_one_or_none()
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        return WorkspaceResponse(
+            id=str(workspace.id),
+            user_id=str(workspace.user_id),
+            name=workspace.name,
+            type=workspace.type,
+            discipline=workspace.discipline,
+            description=workspace.description,
+            config=workspace.config or {},
+        )
+
+    @app.put("/api/workspaces/{workspace_id}", response_model=WorkspaceResponse)
+    async def update_workspace(workspace_id: str, request: UpdateWorkspaceRequest):
+        result = await test_session.execute(select(TestWorkspace).where(TestWorkspace.id == workspace_id))
+        workspace = result.scalar_one_or_none()
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        update_data = request.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            if hasattr(workspace, key) and value is not None:
+                setattr(workspace, key, value)
+
+        await test_session.commit()
+        await test_session.refresh(workspace)
+        return WorkspaceResponse(
+            id=str(workspace.id),
+            user_id=str(workspace.user_id),
+            name=workspace.name,
+            type=workspace.type,
+            discipline=workspace.discipline,
+            description=workspace.description,
+            config=workspace.config or {},
+        )
+
+    @app.delete("/api/workspaces/{workspace_id}")
+    async def delete_workspace(workspace_id: str):
+        result = await test_session.execute(select(TestWorkspace).where(TestWorkspace.id == workspace_id))
+        workspace = result.scalar_one_or_none()
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        await test_session.delete(workspace)
+        await test_session.commit()
+        return {"success": True}
+
+    @app.get("/api/workspaces/{workspace_id}/papers", response_model=list[PaperResponse])
+    async def list_workspace_papers(workspace_id: str, read_status: Opt[str] = None):
+        query = (
+            select(TestPaper)
+            .join(TestWorkspacePaper, TestPaper.id == TestWorkspacePaper.paper_id)
+            .where(TestWorkspacePaper.workspace_id == workspace_id)
+        )
+        if read_status:
+            query = query.where(TestWorkspacePaper.read_status == read_status)
+        query = query.order_by(TestWorkspacePaper.created_at.desc())
+        result = await test_session.execute(query)
+        papers = result.scalars().all()
+        return [
+            PaperResponse(
+                id=str(p.id),
+                doi=p.doi,
+                title=p.title,
+                authors=p.authors or [],
+                year=p.year,
+                venue=p.venue,
+                abstract=p.abstract,
+                file_path=p.file_path,
+                source=p.source,
+                external_ids=p.external_ids or {},
+                toc=p.toc,
+                citation_count=p.citation_count,
+                reference_count=p.reference_count,
+            )
+            for p in papers
+        ]
+
+    @app.post("/api/workspaces/{workspace_id}/papers/{paper_id}")
+    async def add_paper_to_workspace(workspace_id: str, paper_id: str, request: AddPaperRequest):
+        result = await test_session.execute(
+            select(TestWorkspacePaper).where(
+                TestWorkspacePaper.workspace_id == workspace_id,
+                TestWorkspacePaper.paper_id == paper_id,
+            )
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail=f"Paper {paper_id} is already in workspace {workspace_id}")
+
+        wp = TestWorkspacePaper(
+            workspace_id=workspace_id,
+            paper_id=paper_id,
+            notes=request.notes,
+            tags=request.tags or [],
+            is_primary=request.is_primary,
+        )
+        test_session.add(wp)
+        await test_session.commit()
+        return {"success": True, "paper_id": paper_id}
+
+    @app.delete("/api/workspaces/{workspace_id}/papers/{paper_id}")
+    async def remove_paper_from_workspace(workspace_id: str, paper_id: str):
+        result = await test_session.execute(
+            select(TestWorkspacePaper).where(
+                TestWorkspacePaper.workspace_id == workspace_id,
+                TestWorkspacePaper.paper_id == paper_id,
+            )
+        )
+        wp = result.scalar_one_or_none()
+        if not wp:
+            raise HTTPException(status_code=404, detail="Paper not found in workspace")
+        await test_session.delete(wp)
+        await test_session.commit()
+        return {"success": True}
+
+    # ============ Paper Routes ============
+
+    @app.post("/api/papers/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
+    async def create_paper(request: CreatePaperRequest):
+        paper = TestPaper(
+            doi=request.doi,
+            title=request.title,
+            authors=request.authors or [],
+            year=request.year,
+            venue=request.venue,
+            abstract=request.abstract,
+            file_path=request.file_path,
+            source=request.source,
+            external_ids=request.external_ids or {},
+            citation_count=request.citation_count,
+            reference_count=request.reference_count,
+        )
+        test_session.add(paper)
+        await test_session.commit()
+        await test_session.refresh(paper)
+        return PaperResponse(
+            id=str(paper.id),
+            doi=paper.doi,
+            title=paper.title,
+            authors=paper.authors or [],
+            year=paper.year,
+            venue=paper.venue,
+            abstract=paper.abstract,
+            file_path=paper.file_path,
+            source=paper.source,
+            external_ids=paper.external_ids or {},
+            toc=paper.toc,
+            citation_count=paper.citation_count,
+            reference_count=paper.reference_count,
+        )
+
+    @app.get("/api/papers/", response_model=list[PaperResponse])
+    async def list_papers(workspace_id: Opt[str] = None, limit: int = 20):
+        if workspace_id:
+            query = (
+                select(TestPaper)
+                .join(TestWorkspacePaper, TestPaper.id == TestWorkspacePaper.paper_id)
+                .where(TestWorkspacePaper.workspace_id == workspace_id)
+                .order_by(TestWorkspacePaper.created_at.desc())
+                .limit(limit)
+            )
+        else:
+            query = select(TestPaper).order_by(TestPaper.created_at.desc()).limit(limit)
+        result = await test_session.execute(query)
+        papers = result.scalars().all()
+        return [
+            PaperResponse(
+                id=str(p.id),
+                doi=p.doi,
+                title=p.title,
+                authors=p.authors or [],
+                year=p.year,
+                venue=p.venue,
+                abstract=p.abstract,
+                file_path=p.file_path,
+                source=p.source,
+                external_ids=p.external_ids or {},
+                toc=p.toc,
+                citation_count=p.citation_count,
+                reference_count=p.reference_count,
+            )
+            for p in papers
+        ]
+
+    @app.get("/api/papers/{paper_id}", response_model=PaperResponse)
+    async def get_paper(paper_id: str):
+        result = await test_session.execute(select(TestPaper).where(TestPaper.id == paper_id))
+        paper = result.scalar_one_or_none()
+        if not paper:
+            raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id}")
+        return PaperResponse(
+            id=str(paper.id),
+            doi=paper.doi,
+            title=paper.title,
+            authors=paper.authors or [],
+            year=paper.year,
+            venue=paper.venue,
+            abstract=paper.abstract,
+            file_path=paper.file_path,
+            source=paper.source,
+            external_ids=paper.external_ids or {},
+            toc=paper.toc,
+            citation_count=paper.citation_count,
+            reference_count=paper.reference_count,
+        )
+
+    @app.put("/api/papers/{paper_id}", response_model=PaperResponse)
+    async def update_paper(paper_id: str, request: UpdatePaperRequest):
+        result = await test_session.execute(select(TestPaper).where(TestPaper.id == paper_id))
+        paper = result.scalar_one_or_none()
+        if not paper:
+            raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id}")
+
+        update_data = request.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            if hasattr(paper, key) and value is not None:
+                setattr(paper, key, value)
+
+        await test_session.commit()
+        await test_session.refresh(paper)
+        return PaperResponse(
+            id=str(paper.id),
+            doi=paper.doi,
+            title=paper.title,
+            authors=paper.authors or [],
+            year=paper.year,
+            venue=paper.venue,
+            abstract=paper.abstract,
+            file_path=paper.file_path,
+            source=paper.source,
+            external_ids=paper.external_ids or {},
+            toc=paper.toc,
+            citation_count=paper.citation_count,
+            reference_count=paper.reference_count,
+        )
+
+    @app.delete("/api/papers/{paper_id}")
+    async def delete_paper(paper_id: str):
+        result = await test_session.execute(select(TestPaper).where(TestPaper.id == paper_id))
+        paper = result.scalar_one_or_none()
+        if not paper:
+            raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id}")
+        await test_session.delete(paper)
+        await test_session.commit()
+        return {"success": True, "message": f"Paper {paper_id} deleted"}
+
+    @app.post("/api/papers/search")
+    async def search_papers(request: SearchPapersRequest):
+        from sqlalchemy import or_
+        if request.workspace_id:
+            query = (
+                select(TestPaper)
+                .join(TestWorkspacePaper, TestPaper.id == TestWorkspacePaper.paper_id)
+                .where(TestWorkspacePaper.workspace_id == request.workspace_id)
+                .where(
+                    or_(
+                        TestPaper.title.ilike(f"%{request.query}%"),
+                        TestPaper.abstract.ilike(f"%{request.query}%"),
+                    )
+                )
+                .limit(request.limit)
+            )
+        else:
+            query = (
+                select(TestPaper)
+                .where(
+                    or_(
+                        TestPaper.title.ilike(f"%{request.query}%"),
+                        TestPaper.abstract.ilike(f"%{request.query}%"),
+                    )
+                )
+                .limit(request.limit)
+            )
+        result = await test_session.execute(query)
+        papers = result.scalars().all()
+        return {
+            "query": request.query,
+            "count": len(papers),
+            "papers": [
+                PaperResponse(
+                    id=str(p.id),
+                    doi=p.doi,
+                    title=p.title,
+                    authors=p.authors or [],
+                    year=p.year,
+                    venue=p.venue,
+                    abstract=p.abstract,
+                    file_path=p.file_path,
+                    source=p.source,
+                    external_ids=p.external_ids or {},
+                    toc=p.toc,
+                    citation_count=p.citation_count,
+                    reference_count=p.reference_count,
+                )
+                for p in papers
+            ],
+        }
+
+    yield app
+
+
+@pytest_asyncio.fixture(scope="function")
+async def client(test_app) -> AsyncGenerator[AsyncClient, None]:
+    """Create an async test client."""
+    async with AsyncClient(
+        transport=ASGITransport(app=test_app),
+        base_url="http://test",
+    ) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_user(test_session: AsyncSession) -> TestUser:
+    """Create a test user."""
+    user = TestUser(
+        email="testuser@example.com",
+        name="Test User",
+        hashed_password=hash_password("testpassword123"),
+        is_active=True,
+        is_superuser=False,
+    )
+    test_session.add(user)
+    await test_session.commit()
+    await test_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_admin(test_session: AsyncSession) -> TestUser:
+    """Create a test admin user."""
+    user = TestUser(
+        email="admin@example.com",
+        name="Admin User",
+        hashed_password=hash_password("adminpassword123"),
+        is_active=True,
+        is_superuser=True,
+    )
+    test_session.add(user)
+    await test_session.commit()
+    await test_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_user_tokens(test_user: TestUser) -> dict:
+    """Create tokens for test user."""
+    tokens = create_tokens(
+        user_id=str(test_user.id),
+        email=test_user.email,
+        role="user",
+    )
+    return {
+        "access_token": tokens.access_token,
+        "refresh_token": tokens.refresh_token,
+        "token_type": tokens.token_type,
+        "expires_in": tokens.expires_in,
+    }
+
+
+@pytest_asyncio.fixture(scope="function")
+async def authenticated_client(
+    client: AsyncClient,
+    test_user_tokens: dict,
+) -> AsyncClient:
+    """Create an authenticated test client."""
+    client.headers["Authorization"] = f"Bearer {test_user_tokens['access_token']}"
+    return client
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_workspace(test_session: AsyncSession, test_user: TestUser) -> TestWorkspace:
+    """Create a test workspace."""
+    workspace = TestWorkspace(
+        user_id=str(test_user.id),
+        name="Test Workspace",
+        type="sci",
+        discipline="computer_science",
+        description="A test workspace for integration tests",
+        config={},
+    )
+    test_session.add(workspace)
+    await test_session.commit()
+    await test_session.refresh(workspace)
+    return workspace
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_paper(test_session: AsyncSession) -> TestPaper:
+    """Create a test paper."""
+    paper = TestPaper(
+        doi="10.1234/test.2024.001",
+        title="A Test Paper for Integration Testing",
+        authors=[
+            {"name": "John Doe", "affiliation": "Test University"},
+            {"name": "Jane Smith", "affiliation": "Test Institute"},
+        ],
+        year=2024,
+        venue="International Conference on Testing",
+        abstract="This is a test abstract for integration testing purposes.",
+        source="manual_upload",
+    )
+    test_session.add(paper)
+    await test_session.commit()
+    await test_session.refresh(paper)
+    return paper
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_workspace_paper(
+    test_session: AsyncSession,
+    test_workspace: TestWorkspace,
+    test_paper: TestPaper,
+) -> TestWorkspacePaper:
+    """Create a test workspace-paper association."""
+    workspace_paper = TestWorkspacePaper(
+        workspace_id=str(test_workspace.id),
+        paper_id=str(test_paper.id),
+        notes="Test notes for this paper",
+        tags=["test", "integration"],
+        is_primary=False,
+        read_status="unread",
+    )
+    test_session.add(workspace_paper)
+    await test_session.commit()
+    await test_session.refresh(workspace_paper)
+    return workspace_paper
+
+
+def make_authenticated_client(client: AsyncClient, access_token: str) -> AsyncClient:
+    """Helper to add auth header to client."""
+    client.headers["Authorization"] = f"Bearer {access_token}"
+    return client
