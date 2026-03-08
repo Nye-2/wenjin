@@ -10,11 +10,8 @@ This module tests the UserService class including:
 import pytest
 import pytest_asyncio
 from datetime import datetime, timezone
-from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import sessionmaker
 
-from src.database.base import Base
 from src.database.models.user import User
 from src.services.user_service import UserService
 from src.services.auth import hash_password, verify_password
@@ -31,11 +28,12 @@ async def async_engine():
         TEST_DATABASE_URL,
         echo=False,
     )
+    # Only create the User table (not all models - some use JSONB which SQLite doesn't support)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(User.__table__.create)
     yield engine
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(User.__table__.drop)
     await engine.dispose()
 
 

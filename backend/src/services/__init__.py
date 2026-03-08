@@ -13,6 +13,7 @@ from .auth import (
     hash_password,
     hash_token,
 )
+from .user_service import UserService
 
 __all__ = [
     "Token",
@@ -26,4 +27,5 @@ __all__ = [
     "verify_password",
     "hash_password",
     "hash_token",
+    "UserService",
 ]
