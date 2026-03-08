@@ -1,0 +1,65 @@
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+.eggs
+*.egg
+
+# Virtual environments
+.venv
+venv
+ENV
+env
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+.tox
+.nox
+
+# MyPy
+.mypy_cache
+
+# Ruff
+.ruff_cache
+
+# Build
+build
+dist
+
+# Local environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# Uploads
+uploads/
+*.pdf
+
+# Skills (mounted as volume)
+skills/
+
+# Alembic (keep for migrations)
+# alembic/
+
+# Misc
+.DS_Store
+*.bak
+*.tmp

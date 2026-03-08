@@ -1,0 +1,13 @@
+{
+  "mcpServers": {},
+  "skills": {
+    "deep-research": { "enabled": true },
+    "fullpaper-writer": { "enabled": true },
+    "framework-designer": { "enabled": true },
+    "literature-review": { "enabled": true },
+    "proposal-writer": { "enabled": true },
+    "experiment-designer": { "enabled": true },
+    "peer-reviewer": { "enabled": true },
+    "journal-recommender": { "enabled": true }
+  }
+}

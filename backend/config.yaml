@@ -1,0 +1,104 @@
+# AcademiaGPT v2 Configuration
+
+models:
+  - name: gpt-4o
+    display_name: GPT-4o
+    use: langchain_openai:ChatOpenAI
+    model: gpt-4o
+    api_key: $OPENAI_API_KEY
+    max_tokens: 4096
+    supports_thinking: false
+    supports_vision: true
+
+  - name: claude-sonnet-4
+    display_name: Claude Sonnet 4
+    use: langchain_anthropic:ChatAnthropic
+    model: claude-sonnet-4-20250514
+    api_key: $ANTHROPIC_API_KEY
+    max_tokens: 4096
+    supports_thinking: true
+    supports_vision: true
+    when_thinking_enabled:
+      thinking_budget: 10000
+      betas: ["interleaved-thinking-2025-05-14"]
+
+  - name: deepseek-v3
+    display_name: DeepSeek V3
+    use: langchain_deepseek:ChatDeepSeek
+    model: deepseek-chat
+    api_key: $DEEPSEEK_API_KEY
+    max_tokens: 4096
+    supports_thinking: false
+    supports_vision: false
+
+default_model: gpt-4o
+
+tools:
+  - use: src.tools.builtins.bash:bash_tool
+    group: filesystem
+  - use: src.tools.builtins.file_ops:read_file_tool
+    group: filesystem
+  - use: src.tools.builtins.file_ops:write_file_tool
+    group: filesystem
+  - use: src.tools.builtins.file_ops:str_replace_tool
+    group: filesystem
+  - use: src.tools.builtins.file_ops:ls_tool
+    group: filesystem
+  - use: src.tools.builtins.clarification:ask_clarification_tool
+    group: interaction
+  - use: src.tools.builtins.artifacts:present_files_tool
+    group: output
+  - use: src.academic.literature.rag.tools:rag_retrieve_tool
+    group: academic
+  - use: src.academic.tools.semantic_scholar:semantic_scholar_search_tool
+    group: academic
+
+tool_groups:
+  filesystem:
+    description: File system operations
+  interaction:
+    description: User interaction tools
+  output:
+    description: Output presentation tools
+  academic:
+    description: Academic research tools
+
+sandbox:
+  use: src.sandbox.local:LocalSandboxProvider
+
+skills:
+  path: ./skills/public
+  container_path: /mnt/skills
+
+title:
+  enabled: true
+  max_words: 6
+  max_chars: 40
+
+summarization:
+  enabled: true
+  trigger:
+    type: tokens
+    threshold: 0.8
+  keep_first: 3
+  keep_last: 2
+
+subagents:
+  enabled: true
+  max_concurrent: 3
+
+memory:
+  enabled: true
+  storage_path: .academiagpt/memory.json
+  debounce_seconds: 30
+  max_facts: 100
+  fact_confidence_threshold: 0.7
+  injection_enabled: true
+  max_injection_tokens: 2000
+
+database:
+  url: $DATABASE_URL
+  echo: false
+
+redis:
+  url: $REDIS_URL
