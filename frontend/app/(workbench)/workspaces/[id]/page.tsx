@@ -9,6 +9,7 @@ import { KnowledgePanel } from "./components/KnowledgePanel";
 import { ChatPanel } from "./components/ChatPanel";
 import { LiteraturePanel } from "./components/LiteraturePanel";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 const workspaceTypeLabels: Record<string, string> = {
   sci: "Scientific Paper",
@@ -132,11 +133,13 @@ export default function WorkbenchPage() {
       </header>
 
       {/* Main Content - Three Columns */}
-      <main className="flex-1 flex overflow-hidden">
-        <KnowledgePanel workspaceId={workspaceId} />
-        <ChatPanel workspaceId={workspaceId} />
-        <LiteraturePanel workspaceId={workspaceId} />
-      </main>
+      <ErrorBoundary>
+        <main className="flex-1 flex overflow-hidden">
+          <KnowledgePanel workspaceId={workspaceId} />
+          <ChatPanel workspaceId={workspaceId} />
+          <LiteraturePanel workspaceId={workspaceId} />
+        </main>
+      </ErrorBoundary>
     </div>
   );
 }
