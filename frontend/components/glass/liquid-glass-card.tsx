@@ -3,6 +3,7 @@
 import { forwardRef } from "react";
 import { motion, HTMLMotionProps } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { scaleIn, defaultTransition } from "@/lib/animations";
 
 interface LiquidGlassCardProps extends HTMLMotionProps<"div"> {
   variant?: "default" | "elevated" | "floating";
@@ -25,9 +26,10 @@ export const LiquidGlassCard = forwardRef<HTMLDivElement, LiquidGlassCardProps>(
           glow && "before:absolute before:inset-0 before:rounded-2xl before:p-[1px] before:bg-gradient-to-br before:from-white/40 before:to-transparent",
           className
         )}
-        initial={{ opacity: 0, y: 20, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+        variants={scaleIn}
+        initial="initial"
+        animate="animate"
+        transition={{ ...defaultTransition, duration: 0.4 }}
         {...props}
       >
         {children}

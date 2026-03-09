@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { LiquidGlassCard } from "@/components/glass/liquid-glass-card";
 import { GradientText } from "@/components/glass/gradient-text";
 import { FileText, BookOpen, Lightbulb, PenTool, FlaskConical, Send } from "lucide-react";
+import { fadeInUp, staggerContainer, defaultTransition, buttonTap } from "@/lib/animations";
 
 export default function HomePage() {
   const features = [
@@ -35,9 +36,10 @@ export default function HomePage() {
       <section className="relative overflow-hidden px-6 py-24 lg:py-32">
         <div className="mx-auto max-w-6xl text-center">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+            variants={fadeInUp}
+            initial="initial"
+            animate="animate"
+            transition={{ ...defaultTransition, duration: 0.6 }}
           >
             <h1 className="text-5xl font-bold tracking-tight sm:text-6xl lg:text-7xl">
               <GradientText variant="shimmer">AcademiaGPT</GradientText>
@@ -51,7 +53,7 @@ export default function HomePage() {
                 href="/workspaces"
                 className="glass-card px-6 py-3 text-base font-semibold text-white bg-academic-primary hover:bg-academic-secondary transition-colors cursor-pointer"
                 whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                whileTap={buttonTap}
               >
                 Get Started
               </motion.a>
@@ -59,7 +61,7 @@ export default function HomePage() {
                 href="#features"
                 className="glass-card px-6 py-3 text-base font-semibold text-[var(--text-primary)] hover:bg-white/50 cursor-pointer"
                 whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                whileTap={buttonTap}
               >
                 Learn More
               </motion.a>
@@ -86,13 +88,17 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {features.map((feature, index) => (
+          <motion.div
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+            variants={staggerContainer}
+            initial="initial"
+            animate="animate"
+          >
+            {features.map((feature) => (
               <motion.div
                 key={feature.title}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
+                variants={fadeInUp}
+                transition={defaultTransition}
               >
                 <LiquidGlassCard className="p-6 h-full">
                   <feature.icon className="w-8 h-8 text-academic-primary mb-4" />
@@ -101,7 +107,7 @@ export default function HomePage() {
                 </LiquidGlassCard>
               </motion.div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </section>
 
