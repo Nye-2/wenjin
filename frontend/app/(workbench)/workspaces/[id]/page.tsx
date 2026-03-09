@@ -5,9 +5,11 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { KnowledgePanel } from "./components/KnowledgePanel";
-import { ChatPanel } from "./components/ChatPanel";
-import { LiteraturePanel } from "./components/LiteraturePanel";
+import {
+  LazyKnowledgePanel,
+  LazyChatPanel,
+  LazyLiteraturePanel,
+} from "@/components/workspace/lazy-panels";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 
@@ -135,9 +137,9 @@ export default function WorkbenchPage() {
       {/* Main Content - Three Columns */}
       <ErrorBoundary>
         <main className="flex-1 flex overflow-hidden">
-          <KnowledgePanel workspaceId={workspaceId} />
-          <ChatPanel workspaceId={workspaceId} />
-          <LiteraturePanel workspaceId={workspaceId} />
+          <LazyKnowledgePanel workspaceId={workspaceId} />
+          <LazyChatPanel workspaceId={workspaceId} />
+          <LazyLiteraturePanel workspaceId={workspaceId} />
         </main>
       </ErrorBoundary>
     </div>
