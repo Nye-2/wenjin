@@ -1,11 +1,14 @@
 """LLM configuration loader for AcademiaGPT v2.
 
 This module parses model configurations from environment variables
-(LLM_GEN_MODELS, LLM_TOOL_MODELS) and provides access functions.
+(LLM_GEN_MODELS, LLM_TOOL_MODELS, LLM_UTILITY_MODELS, LLM_IMAGE_MODELS)
+and provides access functions.
 
 Configuration format (.env file):
     LLM_GEN_MODELS=[{"id":"deepseek-v3","model":"deepseek/deepseek-v3","api_key":"sk-xxx","base_url":"https://api.deepseek.com"}]
     LLM_TOOL_MODELS=[{"id":"kimi-k2.5","model":"openai/moonshotai/kimi-k2.5","api_key":"sk-xxx","base_url":"https://api.moonshot.cn/v1"}]
+    LLM_UTILITY_MODELS=[{"id":"qwen-flash","model":"qwen-flash","api_key":"sk-xxx","base_url":"https://dashscope.aliyuncs.com/compatible-mode/v1"}]
+    LLM_IMAGE_MODELS=[{"id":"kling-v2-1","model":"kling-v2-1","api_key":"sk-xxx","base_url":"https://api.klingai.com/v1"}]
 
 Required fields: id, model, api_key, base_url
 """
@@ -18,6 +21,33 @@ import threading
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+class LLMSettings:
+    """LLM global settings from environment."""
+
+    TEMPERATURE: float = 0.7
+    TIMEOUT: float = 120.0
+    MAX_RETRIES: int = 3
+
+    @classmethod
+    def load(cls) -> None:
+        """Load LLM settings from environment."""
+        if temp := os.environ.get("LLM_TEMPERATURE"):
+            try:
+                cls.TEMPERATURE = float(temp)
+            except ValueError:
+                pass
+        if timeout := os.environ.get("LLM_TIMEOUT"):
+            try:
+                cls.TIMEOUT = float(timeout)
+            except ValueError:
+                pass
+        if retries := os.environ.get("LLM_MAX_RETRIES"):
+            try:
+                cls.MAX_RETRIES = int(retries)
+            except ValueError:
+                pass
 
 
 class ModelConfig(BaseModel):
@@ -33,12 +63,17 @@ class ModelConfig(BaseModel):
     base_url: str = Field(..., description="Model-specific base URL")
 
     # Optional fields with defaults
-    temperature: float = Field(default=0.7, description="Default temperature")
+    name: str = Field(default="", description="Display name")
+    description: str = Field(default="", description="Model description", alias="desc")
+    temperature: float = Field(default=0.7, description="Default temperature", alias="temp")
     max_tokens: int = Field(default=32768, description="Maximum output tokens")
     supports_streaming: bool = Field(default=True, description="Supports streaming output")
     supports_tools: bool = Field(default=False, description="Supports tool/function calling")
     supports_json_mode: bool = Field(default=True, description="Supports JSON response format")
     supports_json_schema: bool = Field(default=False, description="Supports JSON schema response format")
+
+    class Config:
+        populate_by_name = True
 
 
 def _parse_model_from_json(data: dict) -> ModelConfig | None:
@@ -64,7 +99,9 @@ def _parse_model_from_json(data: dict) -> ModelConfig | None:
             model=data["model"],
             api_key=data["api_key"],
             base_url=data["base_url"],
-            temperature=data.get("temperature", 0.7),
+            name=data.get("name", data.get("id", "")),
+            description=data.get("desc", data.get("description", "")),
+            temperature=data.get("temp", data.get("temperature", 0.7)),
             max_tokens=data.get("max_tokens", 32768),
             supports_streaming=data.get("supports_streaming", True),
             supports_tools=data.get("supports_tools", False),
@@ -76,15 +113,25 @@ def _parse_model_from_json(data: dict) -> ModelConfig | None:
         return None
 
 
-def _load_models_from_env() -> tuple[dict[str, ModelConfig], dict[str, ModelConfig]]:
+def _load_models_from_env() -> tuple[
+    dict[str, ModelConfig],
+    dict[str, ModelConfig],
+    dict[str, ModelConfig],
+    dict[str, ModelConfig],
+]:
     """
     Load models from environment variables.
 
     Returns:
-        Tuple of (gen_models dict, tool_models dict)
+        Tuple of (gen_models, tool_models, utility_models, image_models)
     """
     gen_models: dict[str, ModelConfig] = {}
     tool_models: dict[str, ModelConfig] = {}
+    utility_models: dict[str, ModelConfig] = {}
+    image_models: dict[str, ModelConfig] = {}
+
+    # Load LLM global settings
+    LLMSettings.load()
 
     # Parse generation models from LLM_GEN_MODELS
     gen_models_json = os.environ.get("LLM_GEN_MODELS", "")
@@ -116,34 +163,76 @@ def _load_models_from_env() -> tuple[dict[str, ModelConfig], dict[str, ModelConf
     else:
         logger.debug("LLM_TOOL_MODELS environment variable not set")
 
-    return gen_models, tool_models
+    # Parse utility models from LLM_UTILITY_MODELS
+    utility_models_json = os.environ.get("LLM_UTILITY_MODELS", "")
+    if utility_models_json:
+        try:
+            models_data = json.loads(utility_models_json)
+            for m in models_data:
+                model_config = _parse_model_from_json(m)
+                if model_config:
+                    utility_models[model_config.id] = model_config
+            logger.info("Loaded %d utility models from LLM_UTILITY_MODELS", len(utility_models))
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to parse LLM_UTILITY_MODELS JSON: %s", e)
+    else:
+        logger.debug("LLM_UTILITY_MODELS environment variable not set")
+
+    # Parse image models from LLM_IMAGE_MODELS
+    image_models_json = os.environ.get("LLM_IMAGE_MODELS", "")
+    if image_models_json:
+        try:
+            models_data = json.loads(image_models_json)
+            for m in models_data:
+                model_config = _parse_model_from_json(m)
+                if model_config:
+                    image_models[model_config.id] = model_config
+            logger.info("Loaded %d image models from LLM_IMAGE_MODELS", len(image_models))
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to parse LLM_IMAGE_MODELS JSON: %s", e)
+    else:
+        logger.debug("LLM_IMAGE_MODELS environment variable not set")
+
+    return gen_models, tool_models, utility_models, image_models
 
 
 # Global cache with thread-safe access
 _CACHED_GEN_MODELS: dict[str, ModelConfig] | None = None
 _CACHED_TOOL_MODELS: dict[str, ModelConfig] | None = None
+_CACHED_UTILITY_MODELS: dict[str, ModelConfig] | None = None
+_CACHED_IMAGE_MODELS: dict[str, ModelConfig] | None = None
 _cache_lock = threading.Lock()
 
 
-def _get_cached_models() -> tuple[dict[str, ModelConfig], dict[str, ModelConfig]]:
+def _get_cached_models() -> tuple[
+    dict[str, ModelConfig],
+    dict[str, ModelConfig],
+    dict[str, ModelConfig],
+    dict[str, ModelConfig],
+]:
     """
     Get cached model configurations (lazy loading, thread-safe).
 
     Returns:
-        Tuple of (gen_models dict, tool_models dict)
+        Tuple of (gen_models, tool_models, utility_models, image_models)
     """
-    global _CACHED_GEN_MODELS, _CACHED_TOOL_MODELS
+    global _CACHED_GEN_MODELS, _CACHED_TOOL_MODELS, _CACHED_UTILITY_MODELS, _CACHED_IMAGE_MODELS
 
     if _CACHED_GEN_MODELS is None:
         with _cache_lock:
             # Double-check after acquiring lock
             if _CACHED_GEN_MODELS is None:
-                _CACHED_GEN_MODELS, _CACHED_TOOL_MODELS = _load_models_from_env()
+                _CACHED_GEN_MODELS, _CACHED_TOOL_MODELS, _CACHED_UTILITY_MODELS, _CACHED_IMAGE_MODELS = _load_models_from_env()
 
-    return _CACHED_GEN_MODELS, _CACHED_TOOL_MODELS
+    return _CACHED_GEN_MODELS, _CACHED_TOOL_MODELS, _CACHED_UTILITY_MODELS, _CACHED_IMAGE_MODELS
 
 
-def reload_models() -> tuple[dict[str, ModelConfig], dict[str, ModelConfig]]:
+def reload_models() -> tuple[
+    dict[str, ModelConfig],
+    dict[str, ModelConfig],
+    dict[str, ModelConfig],
+    dict[str, ModelConfig],
+]:
     """
     Reload model configurations from environment variables.
 
@@ -151,13 +240,15 @@ def reload_models() -> tuple[dict[str, ModelConfig], dict[str, ModelConfig]]:
     configuration changes without restarting the application.
 
     Returns:
-        Tuple of (gen_models dict, tool_models dict)
+        Tuple of (gen_models, tool_models, utility_models, image_models)
     """
-    global _CACHED_GEN_MODELS, _CACHED_TOOL_MODELS
+    global _CACHED_GEN_MODELS, _CACHED_TOOL_MODELS, _CACHED_UTILITY_MODELS, _CACHED_IMAGE_MODELS
 
     with _cache_lock:
         _CACHED_GEN_MODELS = None
         _CACHED_TOOL_MODELS = None
+        _CACHED_UTILITY_MODELS = None
+        _CACHED_IMAGE_MODELS = None
 
     return _get_cached_models()
 
@@ -172,7 +263,7 @@ def get_gen_models() -> list[ModelConfig]:
     Returns:
         List of ModelConfig objects for generation models.
     """
-    gen_models, _ = _get_cached_models()
+    gen_models, _, _, _ = _get_cached_models()
     return list(gen_models.values())
 
 
@@ -183,15 +274,37 @@ def get_tool_models() -> list[ModelConfig]:
     Returns:
         List of ModelConfig objects for tool-calling models.
     """
-    _, tool_models = _get_cached_models()
+    _, tool_models, _, _ = _get_cached_models()
     return list(tool_models.values())
+
+
+def get_utility_models() -> list[ModelConfig]:
+    """
+    Get list of utility models (lightweight, fast models).
+
+    Returns:
+        List of ModelConfig objects for utility models.
+    """
+    _, _, utility_models, _ = _get_cached_models()
+    return list(utility_models.values())
+
+
+def get_image_models() -> list[ModelConfig]:
+    """
+    Get list of image generation models.
+
+    Returns:
+        List of ModelConfig objects for image generation models.
+    """
+    _, _, _, image_models = _get_cached_models()
+    return list(image_models.values())
 
 
 def get_model_config(model_id: str) -> ModelConfig | None:
     """
     Get a specific model configuration by ID.
 
-    Searches in both generation and tool models.
+    Searches in all model categories (gen, tool, utility, image).
 
     Args:
         model_id: The unique identifier of the model.
@@ -199,13 +312,12 @@ def get_model_config(model_id: str) -> ModelConfig | None:
     Returns:
         ModelConfig if found, None otherwise.
     """
-    gen_models, tool_models = _get_cached_models()
+    gen_models, tool_models, utility_models, image_models = _get_cached_models()
 
-    # Search in gen models first, then tool models
-    if model_id in gen_models:
-        return gen_models[model_id]
-    if model_id in tool_models:
-        return tool_models[model_id]
+    # Search in all model categories
+    for models in [gen_models, tool_models, utility_models, image_models]:
+        if model_id in models:
+            return models[model_id]
 
     return None
 
@@ -247,4 +359,21 @@ def get_model_full_config(model_id: str) -> dict[str, any]:
         "supports_tools": model_config.supports_tools,
         "supports_json_mode": model_config.supports_json_mode,
         "supports_json_schema": model_config.supports_json_schema,
+    }
+
+
+def get_all_models() -> dict[str, list[ModelConfig]]:
+    """
+    Get all models organized by category.
+
+    Returns:
+        Dictionary with keys: 'gen', 'tool', 'utility', 'image'
+    """
+    gen_models, tool_models, utility_models, image_models = _get_cached_models()
+
+    return {
+        "gen": list(gen_models.values()),
+        "tool": list(tool_models.values()),
+        "utility": list(utility_models.values()),
+        "image": list(image_models.values()),
     }

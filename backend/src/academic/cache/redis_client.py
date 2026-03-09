@@ -6,14 +6,15 @@ from contextlib import asynccontextmanager
 
 import redis.asyncio as redis
 
-from src.config import settings
+from src.config import redis_settings, settings
 
 
 class RedisClient:
     """Redis client for academic caching operations."""
 
     def __init__(self, url: str = None):
-        self.url = url or settings.redis_url
+        self.url = url or redis_settings.url
+        self._settings = redis_settings
         self._client: redis.Redis | None = None
 
     async def connect(self) -> None:
@@ -63,10 +64,11 @@ class RedisClient:
         return json.loads(data) if data else None
 
     async def set_rag_cache(
-        self, workspace_id: str, query_hash: str, results: dict, ttl: int = 3600
+        self, workspace_id: str, query_hash: str, results: dict, ttl: int = None
     ) -> None:
-        """Cache RAG results with TTL (default 1 hour)."""
+        """Cache RAG results with TTL."""
         key = self._rag_cache_key(workspace_id, query_hash)
+        ttl = ttl or self._settings.llm_cache_ttl
         await self.client.setex(key, ttl, json.dumps(results))
 
     # Agent status operations
@@ -102,9 +104,10 @@ class RedisClient:
 
     # Workspace lock operations
     @asynccontextmanager
-    async def workspace_lock(self, workspace_id: str, timeout: int = 30) -> AsyncGenerator[None, None]:
+    async def workspace_lock(self, workspace_id: str, timeout: int = None) -> AsyncGenerator[None, None]:
         """Acquire workspace write lock as context manager."""
         key = self._workspace_lock_key(workspace_id)
+        timeout = timeout or self._settings.generation_lock_ttl
         acquired = await self.client.set(key, "locked", nx=True, ex=timeout)
         try:
             if not acquired:
