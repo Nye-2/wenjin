@@ -33,6 +33,7 @@ function CopyButton({ text }: { text: string }) {
       onClick={handleCopy}
       className="p-1.5 rounded-md hover:bg-slate-700/50 transition-colors"
       title="Copy message"
+      aria-label="Copy message"
     >
       {copied ? (
         <Check className="h-3.5 w-3.5 text-green-400" />
@@ -154,7 +155,13 @@ export function MessageList({ messages, isStreaming, streamingContent }: Message
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+    <div
+      className="flex-1 overflow-y-auto p-6 space-y-4"
+      role="log"
+      aria-live="polite"
+      aria-label="Chat messages"
+      tabIndex={0}
+    >
       <AnimatePresence mode="popLayout">
         {messages.map((message, index) => (
           <MessageBubble
