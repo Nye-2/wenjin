@@ -30,6 +30,29 @@ class PhaseResult:
     success: bool = True
     error: str | None = None
 
+    def __post_init__(self):
+        """Calculate success based on task results."""
+        if not self.task_results:
+            self.success = True
+            return
+
+        # Check each result for success, handling cases where 'success' key might be missing
+        self.success = True
+        for result in self.task_results:
+            if isinstance(result, dict):
+                # If success key is False, phase fails
+                if result.get("success") is False:
+                    self.success = False
+                    break
+                # If success key is missing or None, treat as failure
+                elif result.get("success") is None:
+                    self.success = False
+                    break
+            else:
+                # If result is not a dict, treat as failure
+                self.success = False
+                break
+
 
 @dataclass
 class PhasedPlan:
@@ -50,6 +73,7 @@ class ParallelExecutor:
         """
         self.max_concurrent = max_concurrent
         self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._phase_events: dict[str, asyncio.Event] = {}
 
     async def execute_plan(
         self,
@@ -72,13 +96,24 @@ class ParallelExecutor:
         for phase in plan.phases:
             # Wait for dependencies
             for dep in phase.depends_on:
-                while dep not in completed_phases:
-                    await asyncio.sleep(0.1)
+                # Wait for the dependency phase to complete
+                event = self._phase_events.get(dep)
+                if event:
+                    await event.wait()
+                else:
+                    # If event doesn't exist, check if it's in completed_phases
+                    while dep not in completed_phases:
+                        await asyncio.sleep(0.01)
 
             # Execute phase
             phase_result = await self._execute_phase(phase, context)
             results[phase.name] = phase_result
             completed_phases.add(phase.name)
+
+            # Create and set event for this phase
+            if phase.name not in self._phase_events:
+                self._phase_events[phase.name] = asyncio.Event()
+            self._phase_events[phase.name].set()
 
         return list(results.values())
 
@@ -103,10 +138,25 @@ class ParallelExecutor:
                 result = await self._execute_task(task, context)
                 task_results.append(result)
 
+        # Check each result for success, handling cases where 'success' key might be missing
+        phase_success = True
+        for result in task_results:
+            if isinstance(result, dict):
+                if result.get("success") is False:
+                    phase_success = False
+                    break
+                # If success key is missing or None, assume failure
+                elif result.get("success") is None:
+                    phase_success = False
+                    break
+            else:
+                # If result is not a dict, treat as failure
+                phase_success = False
+                break
+
         return PhaseResult(
             phase_name=phase.name,
             task_results=list(task_results),
-            success=all(r.get("success", False) for r in task_results),
         )
 
     async def _execute_task(
