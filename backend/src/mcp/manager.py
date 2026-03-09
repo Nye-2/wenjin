@@ -2,6 +2,61 @@
 
 import json
 from pathlib import Path
+from typing import Any
+
+from src.mcp.client import MCPClient, MCPServerConfig
+
+
+class MCPManager:
+    """Manager for multiple MCP server connections."""
+
+    def __init__(self) -> None:
+        """Initialize the MCP manager."""
+        self._servers: dict[str, MCPServerConfig] = {}
+        self._clients: dict[str, MCPClient] = {}
+
+    def register(self, config: MCPServerConfig) -> None:
+        """Register an MCP server configuration.
+
+        Args:
+            config: Server configuration to register.
+        """
+        self._servers[config.name] = config
+
+    def list_servers(self) -> list[str]:
+        """List all registered server names.
+
+        Returns:
+            List of server names.
+        """
+        return list(self._servers.keys())
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        """List all tools from all connected servers.
+
+        Returns:
+            List of tool definitions from all servers.
+        """
+        # Stub implementation - returns empty list for framework
+        return []
+
+    def get_client(self, name: str) -> MCPClient | None:
+        """Get the client for a registered server.
+
+        Args:
+            name: Name of the server.
+
+        Returns:
+            MCPClient instance or None if not found.
+        """
+        if name not in self._servers:
+            return None
+
+        if name not in self._clients:
+            config = self._servers[name]
+            self._clients[name] = MCPClient(config)
+
+        return self._clients[name]
 
 
 async def get_cached_mcp_tools(
