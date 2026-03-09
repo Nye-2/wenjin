@@ -201,8 +201,7 @@ class TestLiteratureContext:
         skill_input: SkillInput,
     ):
         """Test getting literature context from state."""
-        state = ThreadState(messages=[], workspace_id="ws")
-        state.set_context("literature_context", "Test literature context")
+        state = ThreadState(messages=[], workspace_id="ws", literature_context="Test literature context")
 
         context = skill._get_literature_context(skill_input, state)
         assert "Test literature context" in context
@@ -450,7 +449,7 @@ class TestSkillExecution:
         # The artifact should have citations in its content
         artifact_citations = output.artifacts[0].content.get("citations", [])
         # Verify citations were extracted (mock content has comma-style citations)
-        assert len(artifact_citations) > 0 or len(thread_state.cited_papers) > 0
+        assert len(artifact_citations) > 0 or len(thread_state.get("cited_papers", [])) > 0
 
 
 # ============================================================================
@@ -739,12 +738,12 @@ class TestEdgeCases:
         thread_state_with_cited_papers: ThreadState,
     ):
         """Test execute preserves existing cited papers."""
-        existing_cited = list(thread_state_with_cited_papers.cited_papers)
+        existing_cited = list(thread_state_with_cited_papers["cited_papers"])
         skill.execute(skill_input, thread_state_with_cited_papers)
 
         # Existing citations should still be there
         for citation in existing_cited:
-            assert citation in thread_state_with_cited_papers.cited_papers
+            assert citation in thread_state_with_cited_papers["cited_papers"]
 
 
 # ============================================================================

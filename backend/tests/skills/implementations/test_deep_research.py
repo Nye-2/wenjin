@@ -737,7 +737,7 @@ class TestSkillExecution:
         skill.execute(skill_input, thread_state)
 
         # Check that DOIs were added to cited_papers
-        assert len(thread_state.cited_papers) > 0
+        assert len(thread_state.get("cited_papers", [])) > 0
 
     @patch.object(DeepResearchSkill, "_search_papers")
     def test_execute_handles_exception(

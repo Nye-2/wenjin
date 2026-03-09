@@ -88,7 +88,7 @@ def thread_state_with_artifact():
     return ThreadState(
         messages=[],
         workspace_id="test-workspace",
-        artifacts=[artifact],
+        academic_artifacts=[artifact],
     )
 
 
@@ -98,8 +98,8 @@ def thread_state_with_literature():
     state = ThreadState(
         messages=[],
         workspace_id="test-workspace",
+        literature_context="Previous work on attention mechanisms includes...",
     )
-    state.set_context("literature_context", "Previous work on attention mechanisms includes...")
     return state
 
 
@@ -236,7 +236,7 @@ class TestLiteratureContext:
 
     def test_get_literature_context_from_cited_papers(self, skill, thread_state):
         """Test getting literature context from cited papers."""
-        thread_state.cited_papers = ["paper1", "paper2", "paper3"]
+        thread_state["cited_papers"] = ["paper1", "paper2", "paper3"]
         result = skill._get_literature_context(thread_state)
         assert "paper1" in result
         assert "paper2" in result
@@ -486,7 +486,7 @@ class TestFrameworkDesignerSkillIntegration:
 
         assert output.success is True
         # The artifact content should be used as research idea
-        _content = thread_state_with_artifact.artifacts[0].content
+        _content = thread_state_with_artifact["academic_artifacts"][0].content
         _call_args = mock_model.invoke.call_args_list[0]
         # Research idea should be in the prompt
         assert True  # Just verify it executes successfully

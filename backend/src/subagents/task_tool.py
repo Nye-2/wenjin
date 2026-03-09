@@ -1,10 +1,10 @@
-"""Task tool for subagent delegation."""
-
+"""Task delegation tool using SubagentExecutor."""
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from .registry import registry
+from src.subagents.executor import SubagentExecutor, SubagentStatus
+from src.subagents.registry import registry
 
 
 class TaskInput(BaseModel):
@@ -22,7 +22,7 @@ async def task_tool(
     subagent_type: str,
     max_turns: int | None = None,
 ) -> str:
-    """Delegate a task to a specialized subagent.
+    """Delegate a task to a specialized subagent for parallel execution.
 
     Use this tool to delegate complex tasks to specialized agents:
     - scout: For literature search and paper discovery
@@ -41,16 +41,29 @@ async def task_tool(
     Returns:
         Results from the subagent
     """
-    # Get subagent configuration
     config = registry.get(subagent_type)
     if not config:
         available = list(registry._subagents.keys())
-        return f"Error: Unknown subagent type '{subagent_type}'. Available types: {available}"
+        return f"Error: Unknown subagent type '{subagent_type}'. Available: {available}"
 
-    # Use configured max_turns if not specified
-    if max_turns is None:
-        max_turns = config.max_turns
+    if max_turns is not None:
+        config = type(config)(
+            name=config.name,
+            description=config.description,
+            system_prompt=config.system_prompt,
+            allowed_tools=config.allowed_tools,
+            max_turns=max_turns,
+        )
 
-    # Note: Actual subagent execution is handled by SubagentExecutor
-    # This returns a task request that gets processed asynchronously
-    return f"[Task delegated to {config.name}]\nDescription: {description}\nPrompt: {prompt[:200]}..."
+    from src.agents.lead_agent.agent import get_available_tools
+    tools = get_available_tools(subagent_enabled=False)
+
+    executor = SubagentExecutor(config=config, tools=tools)
+    result = executor.execute(prompt)
+
+    if result.status == SubagentStatus.COMPLETED:
+        return f"[{config.name} completed]\n{result.result}"
+    elif result.status == SubagentStatus.TIMED_OUT:
+        return f"[{config.name} timed out]\n{result.error or 'Exceeded time limit'}"
+    else:
+        return f"[{config.name} failed]\n{result.error or 'Unknown error'}"

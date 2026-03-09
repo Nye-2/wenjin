@@ -634,8 +634,8 @@ class TestEdgeCases:
         state = ThreadState(
             messages=[],
             workspace_id="test-ws",
+            thread_data={"papers": sample_papers},
         )
-        state.thread_data["papers"] = sample_papers
 
         input_data = SkillInput(
             workspace_id="test-ws",

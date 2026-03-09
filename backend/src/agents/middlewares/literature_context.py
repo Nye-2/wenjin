@@ -14,7 +14,7 @@ class LiteratureContextMiddleware(Middleware):
     This middleware provides TOC-based navigation context for agents:
     1. Extracts workspace_id from state
     2. Gets formatted TOC summary from IndexService
-    3. Injects _literature_context into state for agent use
+    3. Injects literature_context into state for agent use
 
     Unlike RAG-based retrieval, this approach gives agents a high-level
     overview of available literature structure, allowing them to make
@@ -42,27 +42,27 @@ class LiteratureContextMiddleware(Middleware):
         This method:
         1. Checks if workspace_id exists in state
         2. Gets formatted TOC summary for the workspace
-        3. Injects context into state as _literature_context
+        3. Injects context into state as literature_context
 
         Args:
             state: Current thread state
             config: Runtime configuration
 
         Returns:
-            Updated state dict with _literature_context if workspace_id exists
+            Updated state dict with literature_context if workspace_id exists
         """
-        workspace_id = state.workspace_id
+        workspace_id = state.get("workspace_id")
         if not workspace_id:
-            return state.model_dump()
+            return dict(state)
 
         # Get TOC summary for workspace
         toc_summary = await self.index_service.get_workspace_toc_summary(workspace_id)
 
         # Only inject if we have content
         if not toc_summary:
-            return state.model_dump()
+            return dict(state)
 
         return {
-            **state.model_dump(),
-            "_literature_context": toc_summary,
+            **state,
+            "literature_context": toc_summary,
         }

@@ -52,7 +52,7 @@ class TestWorkspaceContextMiddleware:
         assert result["workspace_type"] is not None
         assert result["workspace_type"].value == "sci"
         assert result["discipline"] == "computer_science"
-        assert result["_workspace_config"] == {"citation_style": "APA", "language": "en"}
+        assert result["workspace_config"] == {"citation_style": "APA", "language": "en"}
 
     @pytest.mark.asyncio
     async def test_skips_loading_when_no_workspace_id(self, middleware, workspace_service):
@@ -68,7 +68,7 @@ class TestWorkspaceContextMiddleware:
         # State should be returned unchanged (no workspace fields)
         assert result.get("workspace_type") is None
         assert result.get("discipline") is None
-        assert result.get("_workspace_config") is None
+        assert result.get("workspace_config") is None
 
     @pytest.mark.asyncio
     async def test_handles_workspace_not_found_gracefully(self, workspace_service):
@@ -88,7 +88,7 @@ class TestWorkspaceContextMiddleware:
         # State should be returned unchanged when workspace not found
         assert result.get("workspace_type") is None
         assert result.get("discipline") is None
-        assert result.get("_workspace_config") is None
+        assert result.get("workspace_config") is None
 
     @pytest.mark.asyncio
     async def test_preserves_existing_state_fields(self, middleware, workspace_service):
@@ -110,7 +110,7 @@ class TestWorkspaceContextMiddleware:
         # And workspace fields should be added
         assert result["workspace_type"] is not None
         assert result["discipline"] == "computer_science"
-        assert result["_workspace_config"] is not None
+        assert result["workspace_config"] is not None
 
     @pytest.mark.asyncio
     async def test_handles_none_workspace_id(self, middleware, workspace_service):

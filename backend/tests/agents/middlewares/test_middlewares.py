@@ -83,5 +83,5 @@ async def test_discipline_middleware_injects_norms():
 
     result = await middleware.before_model(state, config)
 
-    assert "_discipline_norms" in result
-    assert result["_discipline_norms"]["citation_style"] == "IEEE"
+    assert "discipline_norms" in result
+    assert result["discipline_norms"]["citation_style"] == "IEEE"

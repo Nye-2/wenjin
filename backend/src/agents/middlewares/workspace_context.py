@@ -31,17 +31,17 @@ class WorkspaceContextMiddleware(Middleware):
         config: RunnableConfig,
     ) -> dict[str, Any]:
         """Load workspace context and inject into state."""
-        workspace_id = state.workspace_id
+        workspace_id = state.get("workspace_id")
         if not workspace_id:
-            return state.model_dump()
+            return dict(state)
 
         workspace = await self.workspace_service.get(workspace_id)
         if not workspace:
-            return state.model_dump()
+            return dict(state)
 
         return {
-            **state.model_dump(),
+            **state,
             "workspace_type": workspace.type,
             "discipline": workspace.discipline,
-            "_workspace_config": workspace.config,
+            "workspace_config": workspace.config,
         }

@@ -70,9 +70,9 @@ class KnowledgeContextMiddleware(Middleware):
         config: RunnableConfig,
     ) -> dict[str, Any]:
         """Load and inject knowledge context."""
-        workspace_id = state.workspace_id
+        workspace_id = state.get("workspace_id")
         if not workspace_id:
-            return state.model_dump()
+            return dict(state)
 
         # Load artifacts
         artifacts = await self.artifact_service.list_by_workspace(workspace_id)
@@ -80,6 +80,6 @@ class KnowledgeContextMiddleware(Middleware):
         # Build context
         knowledge_context = self._build_knowledge_graph(artifacts)
         return {
-            **state.model_dump(),
-            "_knowledge_context": knowledge_context,
+            **state,
+            "knowledge_context": knowledge_context,
         }

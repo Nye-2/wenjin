@@ -10,6 +10,7 @@ class SubagentConfig:
     description: str
     system_prompt: str
     allowed_tools: tuple = field(default_factory=tuple)
+    disallowed_tools: tuple = field(default_factory=tuple)
     max_turns: int = 10
 
 

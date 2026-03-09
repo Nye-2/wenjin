@@ -221,7 +221,8 @@ class LiteratureReviewSkill(BaseSkill):
 
         # Also check state thread_data for papers
         if not papers:
-            state_papers = state.thread_data.get("papers", [])
+            thread_data = state.get("thread_data") or {}
+            state_papers = thread_data.get("papers", []) if isinstance(thread_data, dict) else []
             for p in state_papers:
                 paper = self._convert_to_paper_data(p)
                 if paper:

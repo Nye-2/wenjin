@@ -139,7 +139,7 @@ class DeepResearchSkill(BaseSkill):
             # Update cited papers in state
             cited_papers = [p.doi for p in papers if p.doi]
             if cited_papers:
-                state.cited_papers = list(set(state.cited_papers + cited_papers))
+                state["cited_papers"] = list(set(state.get("cited_papers", []) + cited_papers))
 
             return SkillOutput(
                 success=True,

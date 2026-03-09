@@ -48,7 +48,7 @@ class CitationContextMiddleware(Middleware):
         Returns:
             Unchanged state dict
         """
-        return state.model_dump()
+        return dict(state)
 
     def _extract_citations(self, content: str) -> list[str]:
         """Extract citation identifiers from content."""
@@ -88,18 +88,18 @@ class CitationContextMiddleware(Middleware):
         config: RunnableConfig,
     ) -> dict[str, Any]:
         """Extract and validate citations from AI response."""
-        workspace_id = state.workspace_id
+        workspace_id = state.get("workspace_id")
         if not workspace_id:
-            return state.model_dump()
+            return dict(state)
 
-        messages = list(state.messages)
+        messages = list(state.get("messages", []))
         if not messages:
-            return state.model_dump()
+            return dict(state)
 
         # Get last AI message
         last_message = messages[-1]
         if not hasattr(last_message, "type") or last_message.type != "ai":
-            return state.model_dump()
+            return dict(state)
 
         content = last_message.content
         if not isinstance(content, str):
@@ -108,16 +108,16 @@ class CitationContextMiddleware(Middleware):
         # Extract citations
         citations = self._extract_citations(content)
         if not citations:
-            return state.model_dump()
+            return dict(state)
 
         # Validate citations
         valid_paper_ids = await self._validate_citations(citations, workspace_id)
 
         # Update state
-        existing_cited = list(state.cited_papers)
+        existing_cited = list(state.get("cited_papers", []))
         new_cited = list(set(existing_cited + valid_paper_ids))
 
         return {
-            **state.model_dump(),
+            **state,
             "cited_papers": new_cited,
         }

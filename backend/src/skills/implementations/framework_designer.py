@@ -164,8 +164,8 @@ class FrameworkDesignerSkill(BaseSkill):
                 return idea.get("content", idea.get("description", str(idea)))
             return str(idea)
 
-        # Check state artifacts for research_idea type
-        for artifact in state.artifacts:
+        # Check state academic_artifacts for research_idea type
+        for artifact in state.get("academic_artifacts", []):
             if artifact.type == "research_idea":
                 content = artifact.content
                 if isinstance(content, dict):
@@ -184,13 +184,14 @@ class FrameworkDesignerSkill(BaseSkill):
         Returns:
             Formatted literature context string.
         """
-        context = state.get_context("literature_context", "")
+        context = state.get("literature_context", "")
         if context:
             return f"Relevant Literature Context:\n{context}"
 
         # Check for cited papers
-        if state.cited_papers:
-            return f"Related Papers: {', '.join(state.cited_papers[:10])}"
+        cited = state.get("cited_papers", [])
+        if cited:
+            return f"Related Papers: {', '.join(cited[:10])}"
 
         return ""
 

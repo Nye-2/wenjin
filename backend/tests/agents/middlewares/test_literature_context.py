@@ -241,8 +241,8 @@ class TestLiteratureContextMiddleware:
     """Tests for LiteratureContextMiddleware."""
 
     @pytest.mark.asyncio
-    async def test_injects_literature_context(self, literature_middleware, index_service):
-        """Test that middleware injects _literature_context with TOC summary."""
+    async def test_injectsliterature_context(self, literature_middleware, index_service):
+        """Test that middleware injects literature_context with TOC summary."""
         state = ThreadState(
             messages=[],
             workspace_id="workspace-1",
@@ -256,8 +256,8 @@ class TestLiteratureContextMiddleware:
         ):
             result = await literature_middleware.before_model(state, config)
 
-        assert "_literature_context" in result
-        assert "## 文献库概览" in result["_literature_context"]
+        assert "literature_context" in result
+        assert "## 文献库概览" in result["literature_context"]
 
     @pytest.mark.asyncio
     async def test_skips_without_workspace_id(self, literature_middleware):
@@ -268,7 +268,7 @@ class TestLiteratureContextMiddleware:
         result = await literature_middleware.before_model(state, config)
 
         # Should return state without adding literature context
-        assert "_literature_context" not in result or result.get("_literature_context") == ""
+        assert "literature_context" not in result or result.get("literature_context") == ""
 
     @pytest.mark.asyncio
     async def test_handles_empty_workspace(self, literature_middleware, index_service):
@@ -287,7 +287,7 @@ class TestLiteratureContextMiddleware:
             result = await literature_middleware.before_model(state, config)
 
         # When there are no papers, the context should be empty or not set
-        assert result.get("_literature_context") in ["", None] or "_literature_context" not in result
+        assert result.get("literature_context") in ["", None] or "literature_context" not in result
 
     @pytest.mark.asyncio
     async def test_context_format_matches_spec(self, literature_middleware, index_service):
@@ -313,7 +313,7 @@ class TestLiteratureContextMiddleware:
         ):
             result = await literature_middleware.before_model(state, config)
 
-        assert result["_literature_context"] == expected_context
+        assert result["literature_context"] == expected_context
 
 
 class TestLiteratureContextMiddlewareIntegration:
@@ -354,6 +354,6 @@ class TestLiteratureContextMiddlewareIntegration:
 
             result = await middleware.before_model(state, config)
 
-        assert "_literature_context" in result
-        assert "Transformer Paper" in result["_literature_context"]
-        assert "2017" in result["_literature_context"]
+        assert "literature_context" in result
+        assert "Transformer Paper" in result["literature_context"]
+        assert "2017" in result["literature_context"]

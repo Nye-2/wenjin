@@ -421,8 +421,8 @@ class FullpaperWriterSkill(BaseSkill):
 
         # Update state with cited papers
         if unique_citations:
-            existing_cited = list(state.cited_papers)
-            state.cited_papers = existing_cited + [
+            existing_cited = list(state.get("cited_papers", []))
+            state["cited_papers"] = existing_cited + [
                 c for c in unique_citations if c not in existing_cited
             ]
 
@@ -466,15 +466,15 @@ class FullpaperWriterSkill(BaseSkill):
             Literature context string.
         """
         # Try to get from state first
-        lit_context = state.get_context("literature_context", "")
+        lit_context = state.get("literature_context", "")
 
         # Fall back to input context
         if not lit_context and "literature_context" in input.context:
             lit_context = input.context["literature_context"]
 
         # Also include any cited papers
-        if state.cited_papers:
-            cited_context = f"Previously cited papers: {', '.join(state.cited_papers)}"
+        if state.get("cited_papers"):
+            cited_context = f"Previously cited papers: {', '.join(state.get('cited_papers', []))}"
             if lit_context:
                 lit_context = f"{lit_context}\n\n{cited_context}"
             else:
@@ -659,8 +659,8 @@ class FullpaperWriterSkill(BaseSkill):
 
         # Update state with cited papers
         if unique_citations:
-            existing_cited = list(state.cited_papers)
-            state.cited_papers = existing_cited + [
+            existing_cited = list(state.get("cited_papers", []))
+            state["cited_papers"] = existing_cited + [
                 c for c in unique_citations if c not in existing_cited
             ]
 

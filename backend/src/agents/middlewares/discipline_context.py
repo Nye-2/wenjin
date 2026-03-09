@@ -142,15 +142,15 @@ class DisciplineContextMiddleware(Middleware):
         config: RunnableConfig,
     ) -> dict[str, Any]:
         """Load and inject discipline norms."""
-        discipline = state.discipline
-        workspace_type = state.workspace_type
+        discipline = state.get("discipline")
+        workspace_type = state.get("workspace_type")
 
         if not discipline:
-            return state.model_dump()
+            return dict(state)
 
         # Load norms
         norms = self.registry.get_norms(discipline, workspace_type)
         return {
-            **state.model_dump(),
-            "_discipline_norms": norms,
+            **state,
+            "discipline_norms": norms,
         }
