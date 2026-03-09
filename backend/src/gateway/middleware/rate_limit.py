@@ -1,0 +1,229 @@
+"""Rate limiting middleware for API protection.
+
+This module provides rate limiting functionality using a sliding window
+algorithm with Redis as the backend storage.
+"""
+
+import time
+from typing import Callable, Optional
+from fastapi import Request, Response, HTTPException, status
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from src.config import settings
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Rate limiting middleware using sliding window algorithm.
+
+    Limits requests per IP address within a time window.
+    Uses in-memory storage as fallback when Redis is not available.
+
+    Attributes:
+        requests_per_minute: Maximum requests allowed per minute
+        window_seconds: Time window in seconds
+        _storage: In-memory storage for rate limit counters
+    """
+
+    def __init__(
+        self,
+        app,
+        requests_per_minute: int = 60,
+        window_seconds: int = 60,
+        redis_client=None,
+    ):
+        """Initialize rate limiting middleware.
+
+        Args:
+            app: FastAPI application
+            requests_per_minute: Maximum requests per minute (default: 60)
+            window_seconds: Time window in seconds (default: 60)
+            redis_client: Optional Redis client for distributed rate limiting
+        """
+        super().__init__(app)
+        self.requests_per_minute = requests_per_minute
+        self.window_seconds = window_seconds
+        self._redis = redis_client
+        self._storage: dict[str, list[float]] = {}
+        self._excluded_paths = {
+            "/health",
+            "/health/",
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+        }
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        """Process request through rate limiter.
+
+        Args:
+            request: Incoming request
+            call_next: Next middleware/handler
+
+        Returns:
+            Response from handler or rate limit error
+        """
+        # Skip rate limiting for excluded paths
+        if request.url.path in self._excluded_paths:
+            return await call_next(request)
+
+        # Skip for OPTIONS requests (CORS preflight)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        # Get client IP
+        client_ip = self._get_client_ip(request)
+        if not client_ip:
+            return await call_next(request)
+
+        # Check rate limit
+        key = f"rate_limit:{client_ip}"
+
+        if self._redis:
+            allowed = await self._check_redis(key)
+        else:
+            allowed = self._check_memory(key)
+
+        if not allowed:
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={
+                    "error": {
+                        "code": "RATE_LIMIT_EXCEEDED",
+                        "message": f"Rate limit exceeded. Maximum {self.requests_per_minute} requests per {self.window_seconds} seconds.",
+                    }
+                },
+                headers={
+                    "X-RateLimit-Limit": str(self.requests_per_minute),
+                    "X-RateLimit-Window": str(self.window_seconds),
+                    "Retry-After": str(self.window_seconds),
+                },
+            )
+
+        # Process request
+        response = await call_next(request)
+
+        # Add rate limit headers
+        response.headers["X-RateLimit-Limit"] = str(self.requests_per_minute)
+        response.headers["X-RateLimit-Window"] = str(self.window_seconds)
+
+        return response
+
+    def _get_client_ip(self, request: Request) -> Optional[str]:
+        """Extract client IP from request.
+
+        Checks X-Forwarded-For header first, then falls back to client.host.
+
+        Args:
+            request: Incoming request
+
+        Returns:
+            Client IP address or None
+        """
+        # Check X-Forwarded-For header (for reverse proxy setups)
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            # Take the first IP (original client)
+            return forwarded_for.split(",")[0].strip()
+
+        # Fall back to direct client IP
+        if request.client:
+            return request.client.host
+
+        return None
+
+    async def _check_redis(self, key: str) -> bool:
+        """Check rate limit using Redis.
+
+        Uses sliding window algorithm with sorted sets.
+
+        Args:
+            key: Redis key for the rate limit counter
+
+        Returns:
+            True if request is allowed, False if rate limit exceeded
+        """
+        try:
+            now = time.time()
+            window_start = now - self.window_seconds
+
+            # Use Redis pipeline for atomic operations
+            pipe = self._redis.pipeline()
+
+            # Remove old entries
+            pipe.zremrangebyscore(key, 0, window_start)
+
+            # Count current entries
+            pipe.zcard(key)
+
+            # Add current request
+            pipe.zadd(key, {str(now): now})
+
+            # Set expiry
+            pipe.expire(key, self.window_seconds + 1)
+
+            results = await pipe.execute()
+            current_count = results[1]
+
+            return current_count < self.requests_per_minute
+
+        except Exception:
+            # Fall back to allowing request if Redis fails
+            return True
+
+    def _check_memory(self, key: str) -> bool:
+        """Check rate limit using in-memory storage.
+
+        Uses sliding window algorithm with list of timestamps.
+
+        Args:
+            key: Storage key for the rate limit counter
+
+        Returns:
+            True if request is allowed, False if rate limit exceeded
+        """
+        now = time.time()
+        window_start = now - self.window_seconds
+
+        # Get or create entry
+        if key not in self._storage:
+            self._storage[key] = []
+
+        # Remove old entries
+        self._storage[key] = [
+            ts for ts in self._storage[key] if ts > window_start
+        ]
+
+        # Check limit
+        if len(self._storage[key]) >= self.requests_per_minute:
+            return False
+
+        # Add current request
+        self._storage[key].append(now)
+
+        return True
+
+
+def setup_rate_limiting(app, redis_client=None):
+    """Setup rate limiting middleware for a FastAPI app.
+
+    Args:
+        app: FastAPI application
+        redis_client: Optional Redis client for distributed rate limiting
+
+    Usage:
+        from src.gateway.middleware.rate_limit import setup_rate_limiting
+
+        app = FastAPI()
+        setup_rate_limiting(app, redis_client=my_redis_client)
+    """
+    # Get settings from config
+    requests_per_minute = getattr(settings, 'RATE_LIMIT_REQUESTS', 60)
+    window_seconds = getattr(settings, 'RATE_LIMIT_WINDOW', 60)
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=requests_per_minute,
+        window_seconds=window_seconds,
+        redis_client=redis_client,
+    )
