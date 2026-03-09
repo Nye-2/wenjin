@@ -1,4 +1,9 @@
-"""Integration tests for subagent chain execution."""
+"""Integration tests for subagent chain execution.
+
+Note: Full chain execution tests (testing multiple subagents working together
+in sequence) will be added in Phase 3 as part of the Deep Research Skill rewrite.
+The current tests validate individual subagent components that will form chains.
+"""
 
 import pytest
 
@@ -46,12 +51,14 @@ class TestSubagentChainIntegration:
             assert result.status == SubagentStatus.COMPLETED
             # Events should include STARTED, RUNNING, COMPLETED
             assert len(events) >= 1
-            # Verify event types
+            # Verify all expected event types are present
             event_types = [e.type for e in events]
+            assert SubagentEventType.STARTED in event_types
+            assert SubagentEventType.RUNNING in event_types
             assert SubagentEventType.COMPLETED in event_types
 
-    def test_subagent_config_from_yaml(self):
-        """Subagent configs should match config.yaml."""
+    def test_subagent_config_model_instantiation(self):
+        """Subagent config models should instantiate with expected values."""
         from src.config.config_loader import SubagentsConfig, SubagentTypeConfig
 
         # Test the config models directly (avoids full config loading issues)
