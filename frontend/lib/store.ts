@@ -35,7 +35,7 @@ interface WorkspaceState {
   // Actions
   fetchWorkspaces: () => Promise<void>;
   setCurrentWorkspace: (workspace: Workspace | null) => void;
-  addWorkspace: (data: { name: string; type: string; discipline?: string }) => Promise<Workspace>;
+  addWorkspace: (data: { name: string; type: string; discipline?: string; description?: string }) => Promise<Workspace>;
   removeWorkspace: (id: string) => Promise<void>;
   clearError: () => void;
 }
