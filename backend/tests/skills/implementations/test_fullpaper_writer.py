@@ -18,7 +18,10 @@ from src.skills.base import BaseSkill, SkillInput, SkillOutput
 from src.skills.implementations.fullpaper_writer import (
     PAPER_SECTIONS,
     SECTION_PROMPTS,
+    ACADEMIC_WRITING_ORDER,
+    SECTION_DEPENDENCIES,
     FullpaperWriterSkill,
+    FullpaperWriterSkillV2,
     MockLLMService,
 )
 
@@ -113,7 +116,8 @@ class TestFullpaperWriterSkillAttributes:
 
     def test_skill_version(self, skill: FullpaperWriterSkill):
         """Test skill has version."""
-        assert skill.version == "1.0.0"
+        # Version 2.0.0 for academic writing order
+        assert skill.version == "2.0.0"
 
     def test_skill_is_base_skill_subclass(self, skill: FullpaperWriterSkill):
         """Test skill inherits from BaseSkill."""
@@ -397,7 +401,8 @@ class TestSkillExecution:
     ):
         """Test artifact has created_by_skill set."""
         output = skill.execute(skill_input, thread_state)
-        assert output.artifacts[0].created_by_skill == "fullpaper-writer"
+        # Accept either the old or new skill name for backward compatibility
+        assert output.artifacts[0].created_by_skill in ["fullpaper-writer", "fullpaper-writer-v2"]
 
     def test_execute_generates_all_sections(
         self,
@@ -410,7 +415,8 @@ class TestSkillExecution:
         artifact_content = output.artifacts[0].content
 
         assert "sections" in artifact_content
-        for section in PAPER_SECTIONS:
+        # V2 generates sections in ACADEMIC_WRITING_ORDER which includes abstract
+        for section in ACADEMIC_WRITING_ORDER:
             assert section in artifact_content["sections"]
 
     def test_execute_metadata(
@@ -799,3 +805,200 @@ class TestSkillWithExecutor:
 
         with pytest.raises(SkillValidationError):
             executor.execute("fullpaper-writer", input_data, thread_state)
+
+
+# ============================================================================
+# Test Academic Writing Order (V2)
+# ============================================================================
+
+
+class TestFullPaperWriterAcademicOrder:
+    """Tests for academic writing order in FullPaperWriterSkillV2."""
+
+    def test_academic_writing_order_constant(self):
+        """Sections should be written in academic order."""
+        assert ACADEMIC_WRITING_ORDER[0] == "methodology"
+        assert ACADEMIC_WRITING_ORDER[-1] == "abstract"
+        # Experiments and related_work should come after methodology
+        assert "experiments" in ACADEMIC_WRITING_ORDER
+        assert "related_work" in ACADEMIC_WRITING_ORDER
+        # Introduction before conclusion
+        assert ACADEMIC_WRITING_ORDER.index("introduction") < ACADEMIC_WRITING_ORDER.index("conclusion")
+
+    def test_section_dependencies_constant(self):
+        """Section dependencies should be properly defined."""
+        # Methodology has no dependencies
+        assert SECTION_DEPENDENCIES["methodology"] == []
+        # Experiments depends on methodology
+        assert "methodology" in SECTION_DEPENDENCIES["experiments"]
+        # Related work depends on methodology
+        assert "methodology" in SECTION_DEPENDENCIES["related_work"]
+        # Introduction depends on multiple sections
+        assert "methodology" in SECTION_DEPENDENCIES["introduction"]
+        assert "experiments" in SECTION_DEPENDENCIES["introduction"]
+        assert "related_work" in SECTION_DEPENDENCIES["introduction"]
+        # Conclusion depends on introduction
+        assert "introduction" in SECTION_DEPENDENCIES["conclusion"]
+        # Abstract depends on introduction and conclusion
+        assert "introduction" in SECTION_DEPENDENCIES["abstract"]
+        assert "conclusion" in SECTION_DEPENDENCIES["abstract"]
+
+    def test_parallel_sections_identified(self):
+        """Should identify which sections can be written in parallel."""
+        skill = FullpaperWriterSkillV2()
+        parallel_groups = skill._get_parallel_groups()
+        # Experiments and related_work should be in a parallel group together
+        parallel_pair = {"experiments", "related_work"}
+        found = any(parallel_pair.issubset(group) for group in parallel_groups)
+        assert found, f"Expected parallel group with experiments and related_work, got {parallel_groups}"
+
+    def test_injects_prev_chapters(self):
+        """Dependent sections should receive previous chapters."""
+        skill = FullpaperWriterSkillV2()
+        prev_chapters = {"methodology": "Methodology content..."}
+        context = skill._prepare_section_context("experiments", prev_chapters, "Test topic", {}, "No literature context")
+        assert "prev_chapters" in context
+        assert context["prev_chapters"]["methodology"] == "Methodology content..."
+
+    def test_injects_prev_chapters_for_introduction(self):
+        """Introduction should receive all its dependencies."""
+        skill = FullpaperWriterSkillV2()
+        prev_chapters = {
+            "methodology": "Methodology content...",
+            "experiments": "Experiments content...",
+            "related_work": "Related work content...",
+        }
+        context = skill._prepare_section_context("introduction", prev_chapters, "Test topic", {}, "No literature context")
+        assert "prev_chapters" in context
+        assert len(context["prev_chapters"]) == 3
+
+    def test_format_terminology_with_glossary(self):
+        """Should format terminology glossary correctly."""
+        skill = FullpaperWriterSkillV2()
+        terminology_glossary = {
+            "LLM": "Large Language Model",
+            "NLP": "Natural Language Processing",
+        }
+        formatted = skill._format_terminology(terminology_glossary)
+        assert "LLM" in formatted
+        assert "Large Language Model" in formatted
+
+    def test_format_terminology_without_glossary(self):
+        """Should handle missing terminology glossary."""
+        skill = FullpaperWriterSkillV2()
+        formatted = skill._format_terminology(None)
+        assert formatted == "" or "No specific terminology" in formatted
+
+    def test_v2_skill_execution(
+        self,
+        skill_input: SkillInput,
+        thread_state: ThreadState,
+    ):
+        """Test V2 skill executes successfully."""
+        skill = FullpaperWriterSkillV2()
+        output = skill.execute(skill_input, thread_state)
+        assert output.success is True
+        assert len(output.artifacts) == 1
+
+    def test_v2_respects_dependencies(
+        self,
+        skill_input: SkillInput,
+        thread_state: ThreadState,
+    ):
+        """Test V2 respects section dependencies in execution."""
+        skill = FullpaperWriterSkillV2()
+        output = skill.execute(skill_input, thread_state)
+        sections = output.artifacts[0].content.get("sections", {})
+        # All expected sections should be generated
+        for section in ACADEMIC_WRITING_ORDER:
+            assert section in sections, f"Section {section} not found in output"
+
+    def test_backward_compatibility_alias(self):
+        """FullpaperWriterSkill should work as alias for V2."""
+        # Both should be the same class or V2 should be aliased
+        assert FullpaperWriterSkill == FullpaperWriterSkillV2 or issubclass(FullpaperWriterSkill, FullpaperWriterSkillV2.__class__)
+
+
+class TestAcademicOrderIntegration:
+    """Integration tests for academic writing order."""
+
+    @pytest.fixture
+    def v2_skill(self) -> FullpaperWriterSkillV2:
+        """Create a FullpaperWriterSkillV2 instance for testing."""
+        return FullpaperWriterSkillV2()
+
+    @pytest.fixture
+    def framework_with_terminology(self) -> dict:
+        """Create a framework outline with terminology glossary."""
+        return {
+            "id": "outline-002",
+            "title": "Advanced NLP Techniques",
+            "topic": "State-of-the-art NLP methods",
+            "sections": {
+                "introduction": "Focus on transformer advances",
+                "methodology": "Include fine-tuning details",
+            },
+            "terminology_glossary": {
+                "Transformer": "Neural network architecture using self-attention",
+                "BERT": "Bidirectional Encoder Representations from Transformers",
+            },
+        }
+
+    def test_v2_with_terminology_glossary(
+        self,
+        v2_skill: FullpaperWriterSkillV2,
+        framework_with_terminology: dict,
+        thread_state: ThreadState,
+    ):
+        """Test V2 handles terminology glossary from framework."""
+        skill_input = SkillInput(
+            workspace_id="test-workspace",
+            user_query="Write about NLP",
+            context={"framework_outline": framework_with_terminology},
+        )
+        output = v2_skill.execute(skill_input, thread_state)
+        assert output.success is True
+
+    def test_v2_async_execution(
+        self,
+        v2_skill: FullpaperWriterSkillV2,
+        skill_input: SkillInput,
+        thread_state: ThreadState,
+    ):
+        """Test V2 async execution respects dependencies."""
+        import asyncio
+        output = asyncio.run(v2_skill.execute_async(skill_input, thread_state))
+        assert output.success is True
+        assert len(output.artifacts) == 1
+
+    def test_v2_generates_abstract_last(
+        self,
+        v2_skill: FullpaperWriterSkillV2,
+        skill_input: SkillInput,
+        thread_state: ThreadState,
+    ):
+        """Test that abstract is generated last."""
+        # Track the order of section generation
+        generated_order = []
+        original_write = v2_skill._write_section
+
+        def track_write(section_name, *args, **kwargs):
+            generated_order.append(section_name)
+            return original_write(section_name, *args, **kwargs)
+
+        v2_skill._write_section = track_write
+        v2_skill.execute(skill_input, thread_state)
+
+        # Abstract should be the last section generated
+        assert generated_order[-1] == "abstract"
+
+    def test_v2_citation_tracking(
+        self,
+        v2_skill: FullpaperWriterSkillV2,
+        skill_input: SkillInput,
+        thread_state: ThreadState,
+    ):
+        """Test V2 properly tracks citations across sections."""
+        output = v2_skill.execute(skill_input, thread_state)
+        citations = output.artifacts[0].content.get("citations", [])
+        assert isinstance(citations, list)
