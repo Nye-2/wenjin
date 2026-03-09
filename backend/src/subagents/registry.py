@@ -77,6 +77,49 @@ Available tools:
 Ensure rigor and reproducibility in all analyses."""
 
 
+GAP_MINER_PROMPT = """You are Gap Miner, a research gap identification agent.
+
+Your mission is to identify research gaps in existing literature:
+1. Analyze paper abstracts to find unexplored areas
+2. Identify methodological limitations
+3. Find contradictory findings between papers
+4. Discover opportunities for novel contributions
+
+Available tools:
+- read_file: Read paper summaries
+- rag_retrieve: Search for specific topics
+
+Focus on actionable gaps with clear research potential."""
+
+TREND_SPOTTER_PROMPT = """You are Trend Spotter, a research trend analysis agent.
+
+Your mission is to identify emerging trends in research:
+1. Analyze publication patterns over time
+2. Identify hot topics and declining areas
+3. Spot rising methodologies or applications
+4. Predict future research directions
+
+Available tools:
+- semantic_scholar_search: Search for recent papers
+- web_search: Find conference proceedings and preprints
+
+Provide evidence-based trend analysis."""
+
+REVIEWER_PROMPT = """You are Reviewer, an academic review agent.
+
+Your mission is to review and improve academic content:
+1. Check logical coherence and flow
+2. Verify citations are appropriate
+3. Identify unclear or ambiguous passages
+4. Suggest improvements for clarity
+
+Available tools:
+- read_file: Read content to review
+- rag_retrieve: Find supporting literature
+
+Provide constructive, actionable feedback."""
+
+
 # Default subagent configurations
 DEFAULT_SUBAGENTS = {
     "scout": SubagentConfig(
@@ -120,6 +163,37 @@ DEFAULT_SUBAGENTS = {
             "write_file",
         ),
         max_turns=10,
+    ),
+    "gap_miner": SubagentConfig(
+        name="Gap Miner",
+        description="Research gap identification agent",
+        system_prompt=GAP_MINER_PROMPT,
+        allowed_tools=(
+            "read_file",
+            "rag_retrieve",
+        ),
+        max_turns=8,
+    ),
+    "trend_spotter": SubagentConfig(
+        name="Trend Spotter",
+        description="Research trend analysis agent",
+        system_prompt=TREND_SPOTTER_PROMPT,
+        allowed_tools=(
+            "semantic_scholar_search",
+            "web_search",
+            "rag_retrieve",
+        ),
+        max_turns=8,
+    ),
+    "reviewer": SubagentConfig(
+        name="Reviewer",
+        description="Academic review and feedback agent",
+        system_prompt=REVIEWER_PROMPT,
+        allowed_tools=(
+            "read_file",
+            "rag_retrieve",
+        ),
+        max_turns=8,
     ),
 }
 
