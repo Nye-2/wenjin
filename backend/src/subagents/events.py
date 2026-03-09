@@ -1,6 +1,7 @@
 """SSE event streaming for subagent execution."""
 
 import queue
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -34,21 +35,25 @@ class EventStream:
     def __init__(self):
         self._queue: queue.Queue[SubagentEvent | None] = queue.Queue()
         self._closed = False
+        self._lock = threading.Lock()
 
     def push(self, event: SubagentEvent) -> None:
         """Push an event to the stream."""
-        if not self._closed:
-            self._queue.put(event)
+        with self._lock:
+            if not self._closed:
+                self._queue.put(event)
 
     def close(self) -> None:
         """Close the stream, signaling no more events."""
-        self._closed = True
-        self._queue.put(None)
+        with self._lock:
+            self._closed = True
+            self._queue.put(None)
 
     @property
     def is_closed(self) -> bool:
         """Check if the stream is closed."""
-        return self._closed
+        with self._lock:
+            return self._closed
 
     def iterate(self, timeout: float = 30.0) -> Iterator[SubagentEvent]:
         """Iterate over events until stream is closed or timeout.
@@ -66,8 +71,9 @@ class EventStream:
                     break
                 yield event
             except queue.Empty:
-                if self._closed:
-                    break
+                with self._lock:
+                    if self._closed:
+                        break
                 raise TimeoutError("Event stream timeout")
 
 

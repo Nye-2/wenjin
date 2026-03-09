@@ -104,7 +104,7 @@ class SubagentExecutor:
         self.config = config
         self.parent_model = parent_model
         self.thread_id = thread_id
-        self.trace_id = trace_id or str(uuid.uuid4())[:8]
+        self.trace_id = trace_id or str(uuid.uuid4())[:12]
         self.tools = _filter_tools(
             tools,
             list(config.allowed_tools) if config.allowed_tools else None,
@@ -132,7 +132,7 @@ class SubagentExecutor:
     ) -> SubagentResult:
         """Synchronous execution with optional event streaming."""
         if result_holder is None:
-            result_holder = SubagentResult(task_id=str(uuid.uuid4())[:8])
+            result_holder = SubagentResult(task_id=str(uuid.uuid4())[:12])
 
         # Emit STARTED event
         if stream:
@@ -192,14 +192,24 @@ class SubagentExecutor:
 
     def execute_async(self, task: str, task_id: str | None = None) -> str:
         """Background execution (returns task_id immediately)."""
-        task_id = task_id or str(uuid.uuid4())[:8]
+        task_id = task_id or str(uuid.uuid4())[:12]
         result = SubagentResult(task_id=task_id)
+        stream = EventStream()
 
         with _background_tasks_lock:
             _background_tasks[task_id] = result
+        with _event_streams_lock:
+            _event_streams[task_id] = stream
 
         def _run():
-            self.execute(task, result_holder=result)
+            try:
+                self.execute(task, result_holder=result, stream=stream)
+            finally:
+                # Cleanup: close stream and remove from global dictionaries
+                stream.close()
+                unregister_event_stream(task_id)
+                with _background_tasks_lock:
+                    _background_tasks.pop(task_id, None)
 
         _execution_pool.submit(_run)
         return task_id
