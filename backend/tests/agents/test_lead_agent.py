@@ -86,10 +86,11 @@ class TestApplyPromptTemplate:
     """Tests for apply_prompt_template function."""
 
     def test_prompt_includes_literature_context(self):
-        """Test that prompt template includes _literature_context if present."""
-        state = ThreadState(messages=[])
-        # Use set_context for private fields
-        state.set_context("literature_context", "<literature_context>Test literature context</literature_context>")
+        """Test that prompt template includes literature_context if present."""
+        state = ThreadState(
+            messages=[],
+            literature_context="<literature_context>Test literature context</literature_context>",
+        )
         config = {"configurable": {}}
 
         prompt = apply_prompt_template(state, config)
@@ -98,10 +99,11 @@ class TestApplyPromptTemplate:
         assert "<literature_context>" in prompt
 
     def test_prompt_includes_knowledge_context(self):
-        """Test that prompt template includes _knowledge_context if present."""
-        state = ThreadState(messages=[])
-        # Use set_context for private fields
-        state.set_context("knowledge_context", "<knowledge_context>Test knowledge context</knowledge_context>")
+        """Test that prompt template includes knowledge_context if present."""
+        state = ThreadState(
+            messages=[],
+            knowledge_context="<knowledge_context>Test knowledge context</knowledge_context>",
+        )
         config = {"configurable": {}}
 
         prompt = apply_prompt_template(state, config)
@@ -110,14 +112,15 @@ class TestApplyPromptTemplate:
         assert "<knowledge_context>" in prompt
 
     def test_prompt_includes_discipline_norms(self):
-        """Test that prompt template includes _discipline_norms if present."""
-        state = ThreadState(messages=[])
-        # Use set_context for private fields
-        state.set_context("discipline_norms", {
-            "citation_style": "IEEE",
-            "writing_style": "technical",
-            "structure": ["Introduction", "Methods", "Results"],
-        })
+        """Test that prompt template includes discipline_norms if present."""
+        state = ThreadState(
+            messages=[],
+            discipline_norms={
+                "citation_style": "IEEE",
+                "writing_style": "technical",
+                "structure": ["Introduction", "Methods", "Results"],
+            },
+        )
         config = {"configurable": {}}
 
         prompt = apply_prompt_template(state, config)
@@ -143,14 +146,13 @@ class TestApplyPromptTemplate:
             messages=[],
             workspace_type="sci",
             discipline="computer_science",
+            literature_context="<literature_context>Lit context</literature_context>",
+            knowledge_context="<knowledge_context>Knowledge context</knowledge_context>",
+            discipline_norms={
+                "citation_style": "APA",
+                "writing_style": "empirical",
+            },
         )
-        # Use set_context for private fields
-        state.set_context("literature_context", "<literature_context>Lit context</literature_context>")
-        state.set_context("knowledge_context", "<knowledge_context>Knowledge context</knowledge_context>")
-        state.set_context("discipline_norms", {
-            "citation_style": "APA",
-            "writing_style": "empirical",
-        })
         config = {"configurable": {}}
 
         prompt = apply_prompt_template(state, config)
@@ -201,11 +203,20 @@ class TestMakeLeadAgent:
         """Test that make_lead_agent works without middlewares."""
         from unittest.mock import MagicMock, patch
 
+        from src.config.config_loader import MiddlewaresConfig, SummarizationConfig
+
         config = {"configurable": {"model_name": "gpt-4o"}}
+
+        # Create mock app config with summarization disabled
+        mock_app_config = MagicMock()
+        mock_app_config.middlewares = MiddlewaresConfig(
+            summarization=SummarizationConfig(enabled=False)
+        )
 
         with patch("src.models.factory.create_chat_model") as mock_model, \
              patch("src.agents.lead_agent.agent.get_available_tools") as mock_tools, \
-             patch("src.agents.lead_agent.agent.create_react_agent") as mock_create_agent:
+             patch("src.agents.lead_agent.agent.create_react_agent") as mock_create_agent, \
+             patch("src.config.config_loader.get_app_config", return_value=mock_app_config):
 
             mock_model.return_value = MagicMock()
             mock_tools.return_value = []

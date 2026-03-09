@@ -9,9 +9,16 @@ from langgraph.prebuilt import create_react_agent
 
 from src.agents.middlewares import (
     CitationContextMiddleware,
+    ClarificationMiddleware,
+    DanglingToolCallMiddleware,
     DisciplineContextMiddleware,
     KnowledgeContextMiddleware,
     LiteratureContextMiddleware,
+    SubagentLimitMiddleware,
+    SummarizationMiddleware,
+    ThreadDataMiddleware,
+    TitleMiddleware,
+    UploadsMiddleware,
     WorkspaceContextMiddleware,
 )
 from src.agents.thread_state import ThreadState
@@ -55,8 +62,8 @@ You have access to specialized tools and subagents for:
 - Ask for clarification when needed"""
 
     # Add workspace context
-    workspace_type = state.workspace_type
-    discipline = state.discipline
+    workspace_type = state.get("workspace_type")
+    discipline = state.get("discipline")
 
     if workspace_type:
         type_labels = {
@@ -70,18 +77,18 @@ You have access to specialized tools and subagents for:
     if discipline:
         base_prompt += f"\nDiscipline: {discipline.replace('_', ' ').title()}"
 
-    # Add literature context (private field)
-    literature_context = state.get_context("literature_context", "")
+    # Add literature context
+    literature_context = state.get("literature_context", "")
     if literature_context:
         base_prompt += f"\n\n{literature_context}"
 
-    # Add knowledge context (private field)
-    knowledge_context = state.get_context("knowledge_context", "")
+    # Add knowledge context
+    knowledge_context = state.get("knowledge_context", "")
     if knowledge_context:
         base_prompt += f"\n\n{knowledge_context}"
 
-    # Add discipline norms (private field)
-    discipline_norms = state.get_context("discipline_norms", {})
+    # Add discipline norms
+    discipline_norms = state.get("discipline_norms", {})
     if discipline_norms:
         base_prompt += "\n\n## Writing Guidelines"
         if "citation_style" in discipline_norms:
@@ -204,6 +211,78 @@ def build_middlewares(
     return middlewares
 
 
+def build_pipeline(
+    config: dict,
+    workspace_service=None,
+    index_service=None,
+    artifact_service=None,
+    paper_service=None,
+) -> list:
+    """Build the 16-layer middleware pipeline.
+
+    Order:
+    1.  ThreadDataMiddleware       - Infrastructure
+    2.  UploadsMiddleware          - Infrastructure
+    3.  DanglingToolCallMiddleware - Fix
+    4.  SummarizationMiddleware    - Context management (conditional)
+    5.  WorkspaceContextMiddleware - Academic (conditional)
+    6.  LiteratureContextMiddleware - Academic (conditional)
+    7.  KnowledgeContextMiddleware - Academic (conditional)
+    8.  DisciplineContextMiddleware - Academic
+    9.  TitleMiddleware            - Post-processing
+    10. SubagentLimitMiddleware    - Control (conditional)
+    11. CitationContextMiddleware  - Post-processing (conditional)
+    12. ClarificationMiddleware    - Control (MUST BE LAST)
+    """
+    configurable = config.get("configurable", {})
+    subagent_enabled = configurable.get("subagent_enabled", False)
+
+    # Get middleware config
+    from src.config.config_loader import get_app_config
+    app_config = get_app_config()
+    mw_config = app_config.middlewares
+
+    pipeline = []
+
+    # --- Infrastructure layer ---
+    pipeline.append(ThreadDataMiddleware())
+    pipeline.append(UploadsMiddleware())
+
+    # --- Fix layer ---
+    pipeline.append(DanglingToolCallMiddleware())
+
+    # --- Context management layer ---
+    if mw_config.summarization.enabled:
+        trigger = int(mw_config.summarization.trigger.split(":")[1]) if ":" in mw_config.summarization.trigger else 80000
+        keep = int(mw_config.summarization.keep.split(":")[1]) if ":" in mw_config.summarization.keep else 10
+        pipeline.append(SummarizationMiddleware(trigger_tokens=trigger, keep_messages=keep))
+
+    # --- Academic context layer (conditional on services) ---
+    if workspace_service:
+        pipeline.append(WorkspaceContextMiddleware(workspace_service))
+    if index_service:
+        pipeline.append(LiteratureContextMiddleware(index_service))
+    if artifact_service:
+        pipeline.append(KnowledgeContextMiddleware(artifact_service))
+    pipeline.append(DisciplineContextMiddleware())
+
+    # --- Post-processing layer ---
+    pipeline.append(TitleMiddleware())
+
+    # --- Control layer ---
+    if subagent_enabled:
+        max_concurrent = configurable.get("max_concurrent_subagents", 3)
+        pipeline.append(SubagentLimitMiddleware(max_concurrent=max_concurrent))
+
+    if paper_service:
+        pipeline.append(CitationContextMiddleware(paper_service))
+
+    # --- MUST BE LAST ---
+    pipeline.append(ClarificationMiddleware())
+
+    return pipeline
+
+
 async def middleware_before_model(
     state: ThreadState,
     config: RunnableConfig,
@@ -223,8 +302,8 @@ async def middleware_before_model(
     for middleware in middlewares:
         updates = await middleware.before_model(current_state, config)
         if isinstance(updates, dict):
-            # Merge updates into state using model_dump
-            current_state = ThreadState(**{**current_state.model_dump(), **updates})
+            # Merge updates into state (ThreadState is dict-like)
+            current_state = ThreadState(**{**current_state, **updates})
     return current_state
 
 
@@ -247,7 +326,7 @@ async def middleware_after_model(
     for middleware in middlewares:
         updates = await middleware.after_model(current_state, config)
         if isinstance(updates, dict):
-            current_state = ThreadState(**{**current_state.model_dump(), **updates})
+            current_state = ThreadState(**{**current_state, **updates})
     return current_state
 
 
@@ -259,7 +338,7 @@ def make_lead_agent(config: RunnableConfig, middlewares: list | None = None) -> 
     Args:
         config: Runtime configuration
         middlewares: Optional list of middleware instances. If not provided,
-                    default middlewares will be built without services.
+                    default pipeline will be built using build_pipeline().
 
     Returns:
         Compiled agent graph
@@ -280,9 +359,9 @@ def make_lead_agent(config: RunnableConfig, middlewares: list | None = None) -> 
         model_name=model_name,
     )
 
-    # Use provided middlewares or build default ones
+    # Use provided middlewares or build pipeline
     if middlewares is None:
-        middlewares = build_middlewares()
+        middlewares = build_pipeline(config)
 
     # Create agent with custom state modifier
     def state_modifier(state):
