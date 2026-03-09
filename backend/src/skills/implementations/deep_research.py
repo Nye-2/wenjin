@@ -5,17 +5,25 @@ This skill performs deep research on a topic by:
 2. Analyzing paper abstracts and identifying patterns
 3. Identifying research gaps
 4. Generating novel research ideas
+
+The V2 implementation uses ParallelExecutor for phased subagent execution:
+- Phase 1 (parallel): Scout x2 + Trend Spotter -> papers[], trends[]
+- Phase 2 (depends on 1): Gap Miner -> gaps[]
+- Phase 3 (depends on 2): Synthesizer -> ideas[]
 """
 
+import asyncio
 import re
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from src.agents.thread_state import AcademicArtifact, ThreadState
 from src.config import settings
 from src.skills.base import BaseSkill, SkillInput, SkillOutput
+from src.subagents.parallel import ExecutionPhase, ParallelExecutor, PhasedPlan, PhaseResult
 
 
 @dataclass
@@ -58,14 +66,22 @@ class ResearchIdea:
     novelty_score: float
 
 
-class DeepResearchSkill(BaseSkill):
-    """Comprehensive literature analysis and research idea generation.
+@dataclass
+class ResearchTrend:
+    """Represents an identified research trend."""
+    topic: str
+    description: str
+    growth_rate: float = 0.0
+    paper_count: int = 0
 
-    This skill performs a deep research analysis on a given topic by:
-    1. Searching for relevant academic papers using Semantic Scholar
-    2. Analyzing paper abstracts to identify patterns and trends
-    3. Identifying research gaps in the current literature
-    4. Generating novel research ideas based on the analysis
+
+class DeepResearchSkillV2(BaseSkill):
+    """Comprehensive literature analysis with parallel subagent execution.
+
+    This skill performs deep research analysis using a phased parallel execution model:
+    - Phase 1 (parallel): Scout x2 + Trend Spotter for paper discovery and trend analysis
+    - Phase 2 (depends on 1): Gap Miner for identifying research gaps
+    - Phase 3 (depends on 2): Synthesizer for generating research ideas
 
     Attributes:
         name: Unique identifier for the skill.
@@ -75,15 +91,54 @@ class DeepResearchSkill(BaseSkill):
 
     name = "deep-research"
     description = "Comprehensive literature analysis and research idea generation"
-    version = "1.0.0"
+    version = "2.0.0"
 
     # Configuration
     DEFAULT_SEARCH_LIMIT = 20
     MIN_PAPERS_FOR_ANALYSIS = 5
     KEYWORD_EXTRACTION_MIN_FREQ = 2
 
+    def __init__(self):
+        """Initialize the skill with a ParallelExecutor."""
+        super().__init__()
+        self._executor = ParallelExecutor(max_concurrent=4)
+
     def execute(self, input: SkillInput, state: ThreadState) -> SkillOutput:
-        """Execute the deep research skill.
+        """Execute the deep research skill synchronously.
+
+        This method wraps the async execution for backward compatibility.
+
+        Args:
+            input: The skill input containing workspace_id, user_query, and context.
+            state: The current thread state for context and artifact storage.
+
+        Returns:
+            SkillOutput containing the research analysis results.
+        """
+        try:
+            # Try to get existing event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # If we have a running loop, run in a new thread
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run,
+                        self.execute_async(input, state)
+                    )
+                    return future.result()
+            except RuntimeError:
+                # No running loop, create one
+                return asyncio.run(self.execute_async(input, state))
+        except Exception as e:
+            return SkillOutput(
+                success=False,
+                content="",
+                error_message=f"Deep research failed: {str(e)}",
+            )
+
+    async def execute_async(self, input: SkillInput, state: ThreadState) -> SkillOutput:
+        """Execute the deep research skill asynchronously with parallel subagents.
 
         Args:
             input: The skill input containing workspace_id, user_query, and context.
@@ -97,8 +152,32 @@ class DeepResearchSkill(BaseSkill):
             search_limit = input.context.get("search_limit", self.DEFAULT_SEARCH_LIMIT)
             year_range = input.context.get("year_range", None)
 
-            # Step 1: Search papers from Semantic Scholar
-            papers = self._search_papers(input.user_query, search_limit, year_range)
+            # Create the execution plan
+            plan = self._create_execution_plan(
+                input.user_query,
+                search_limit=search_limit,
+                year_range=year_range,
+            )
+
+            # Execute the plan with context
+            context = {
+                "workspace_id": input.workspace_id,
+                "user_query": input.user_query,
+                "search_limit": search_limit,
+                "year_range": year_range,
+            }
+
+            phase_results = await self._executor.execute_plan(plan, context)
+
+            # Extract results from phases
+            papers = self._extract_papers(phase_results)
+            trends = self._extract_trends(phase_results)
+            gaps = self._extract_gaps(phase_results)
+            ideas = self._extract_ideas(phase_results)
+
+            # If no papers were found via subagents, fall back to direct search
+            if not papers:
+                papers = self._search_papers(input.user_query, search_limit, year_range)
 
             if not papers:
                 return SkillOutput(
@@ -107,15 +186,15 @@ class DeepResearchSkill(BaseSkill):
                     metadata={"papers_found": 0},
                 )
 
-            # Step 2: Analyze and synthesize findings
+            # Analyze patterns from papers
             patterns = self._analyze_patterns(papers)
             synthesis = self._synthesize_findings(papers, patterns)
 
-            # Step 3: Identify research gaps
-            gaps = self._identify_research_gaps(papers, patterns)
-
-            # Step 4: Generate research ideas
-            ideas = self._generate_research_ideas(papers, patterns, gaps)
+            # If no gaps/ideas from subagents, generate them locally
+            if not gaps:
+                gaps = self._identify_research_gaps(papers, patterns)
+            if not ideas:
+                ideas = self._generate_research_ideas(papers, patterns, gaps)
 
             # Create artifacts
             artifacts = self._create_artifacts(
@@ -150,7 +229,9 @@ class DeepResearchSkill(BaseSkill):
                     "patterns_identified": len(patterns),
                     "gaps_identified": len(gaps),
                     "ideas_generated": len(ideas),
+                    "trends_identified": len(trends),
                     "search_query": input.user_query,
+                    "parallel_execution": True,
                 },
             )
 
@@ -161,6 +242,218 @@ class DeepResearchSkill(BaseSkill):
                 error_message=f"Deep research failed: {str(e)}",
             )
 
+    def _create_execution_plan(
+        self,
+        query: str,
+        search_limit: int = 20,
+        year_range: str | None = None,
+    ) -> PhasedPlan:
+        """Create a phased execution plan for parallel subagent execution.
+
+        The plan follows a three-phase structure:
+        - Phase 1 (parallel): Discovery - 2 Scouts + Trend Spotter
+        - Phase 2 (depends on 1): Gap Mining
+        - Phase 3 (depends on 2): Synthesis
+
+        Args:
+            query: The research query.
+            search_limit: Maximum number of papers to search.
+            year_range: Optional year range filter.
+
+        Returns:
+            A PhasedPlan with execution phases.
+        """
+        year_filter = f" between {year_range}" if year_range else ""
+
+        # Phase 1: Parallel discovery
+        discovery_phase = ExecutionPhase(
+            name="discovery",
+            tasks=[
+                {
+                    "subagent_type": "scout",
+                    "prompt": f"Search for highly-cited papers about '{query}'{year_filter}. "
+                    f"Find {search_limit} relevant papers. Focus on seminal works and foundational research. "
+                    "Return a structured list with title, authors, year, venue, abstract, citations, url, and doi.",
+                },
+                {
+                    "subagent_type": "scout",
+                    "prompt": f"Search for recent papers about '{query}' from the last 2-3 years. "
+                    "Focus on cutting-edge research and emerging directions. "
+                    "Return a structured list with title, authors, year, venue, abstract, citations, url, and doi.",
+                },
+                {
+                    "subagent_type": "trend_spotter",
+                    "prompt": f"Analyze research trends for '{query}'. "
+                    "Identify: 1) Hot topics gaining traction, 2) Declining areas, "
+                    "3) Emerging methodologies, 4) Future directions. "
+                    "Provide specific paper counts and growth rates where possible.",
+                },
+            ],
+            depends_on=[],
+        )
+
+        # Phase 2: Gap mining (depends on discovery)
+        gap_mining_phase = ExecutionPhase(
+            name="gap_mining",
+            tasks=[
+                {
+                    "subagent_type": "gap_miner",
+                    "prompt": f"Based on the literature about '{query}', identify 3-5 significant research gaps. "
+                    "For each gap provide: 1) Clear description, 2) Supporting evidence from existing work, "
+                    "3) Potential impact of addressing this gap. "
+                    "Focus on actionable gaps with clear research potential.",
+                },
+            ],
+            depends_on=["discovery"],
+        )
+
+        # Phase 3: Synthesis (depends on gap mining)
+        synthesis_phase = ExecutionPhase(
+            name="synthesis",
+            tasks=[
+                {
+                    "subagent_type": "synthesizer",
+                    "prompt": f"Synthesize research ideas for '{query}' based on the identified gaps. "
+                    "Generate 2-3 novel research ideas that address the gaps. "
+                    "For each idea include: 1) Title, 2) Description, 3) Methodology hints, "
+                    "4) Related papers, 5) Novelty score (0-1). "
+                    "Focus on ideas with high potential impact and feasibility.",
+                },
+            ],
+            depends_on=["gap_mining"],
+        )
+
+        return PhasedPlan(
+            phases=[discovery_phase, gap_mining_phase, synthesis_phase],
+            context={
+                "query": query,
+                "search_limit": search_limit,
+                "year_range": year_range,
+            },
+        )
+
+    def _extract_papers(self, phase_results: list[PhaseResult]) -> list[Paper]:
+        """Extract papers from phase results.
+
+        Args:
+            phase_results: Results from executing phases.
+
+        Returns:
+            List of Paper objects extracted from results.
+        """
+        papers = []
+        seen_titles = set()
+
+        for phase in phase_results:
+            if phase.phase_name == "discovery":
+                for task_result in phase.task_results:
+                    if isinstance(task_result, dict) and task_result.get("success"):
+                        result = task_result.get("result", {})
+                        if isinstance(result, dict):
+                            # Handle papers from scout subagents
+                            for paper_data in result.get("papers", []):
+                                if isinstance(paper_data, dict):
+                                    title = paper_data.get("title", "")
+                                    if title and title not in seen_titles:
+                                        seen_titles.add(title)
+                                        papers.append(Paper(
+                                            title=title,
+                                            authors=paper_data.get("authors", []),
+                                            year=paper_data.get("year"),
+                                            venue=paper_data.get("venue"),
+                                            abstract=paper_data.get("abstract"),
+                                            citations=paper_data.get("citations"),
+                                            url=paper_data.get("url"),
+                                            doi=paper_data.get("doi"),
+                                            paper_id=paper_data.get("paper_id"),
+                                        ))
+
+        return papers
+
+    def _extract_trends(self, phase_results: list[PhaseResult]) -> list[ResearchTrend]:
+        """Extract research trends from phase results.
+
+        Args:
+            phase_results: Results from executing phases.
+
+        Returns:
+            List of ResearchTrend objects extracted from results.
+        """
+        trends = []
+
+        for phase in phase_results:
+            if phase.phase_name == "discovery":
+                for task_result in phase.task_results:
+                    if isinstance(task_result, dict) and task_result.get("success"):
+                        result = task_result.get("result", {})
+                        if isinstance(result, dict):
+                            for trend_data in result.get("trends", []):
+                                if isinstance(trend_data, dict):
+                                    trends.append(ResearchTrend(
+                                        topic=trend_data.get("topic", ""),
+                                        description=trend_data.get("description", ""),
+                                        growth_rate=trend_data.get("growth_rate", 0.0),
+                                        paper_count=trend_data.get("paper_count", 0),
+                                    ))
+
+        return trends
+
+    def _extract_gaps(self, phase_results: list[PhaseResult]) -> list[ResearchGap]:
+        """Extract research gaps from phase results.
+
+        Args:
+            phase_results: Results from executing phases.
+
+        Returns:
+            List of ResearchGap objects extracted from results.
+        """
+        gaps = []
+
+        for phase in phase_results:
+            if phase.phase_name == "gap_mining":
+                for task_result in phase.task_results:
+                    if isinstance(task_result, dict) and task_result.get("success"):
+                        result = task_result.get("result", {})
+                        if isinstance(result, dict):
+                            for gap_data in result.get("gaps", []):
+                                if isinstance(gap_data, dict):
+                                    gaps.append(ResearchGap(
+                                        description=gap_data.get("description", ""),
+                                        supporting_evidence=gap_data.get("supporting_evidence", []),
+                                        potential_impact=gap_data.get("potential_impact", ""),
+                                    ))
+
+        return gaps
+
+    def _extract_ideas(self, phase_results: list[PhaseResult]) -> list[ResearchIdea]:
+        """Extract research ideas from phase results.
+
+        Args:
+            phase_results: Results from executing phases.
+
+        Returns:
+            List of ResearchIdea objects extracted from results.
+        """
+        ideas = []
+
+        for phase in phase_results:
+            if phase.phase_name == "synthesis":
+                for task_result in phase.task_results:
+                    if isinstance(task_result, dict) and task_result.get("success"):
+                        result = task_result.get("result", {})
+                        if isinstance(result, dict):
+                            for idea_data in result.get("ideas", []):
+                                if isinstance(idea_data, dict):
+                                    ideas.append(ResearchIdea(
+                                        title=idea_data.get("title", ""),
+                                        description=idea_data.get("description", ""),
+                                        methodology_hints=idea_data.get("methodology_hints", []),
+                                        related_papers=idea_data.get("related_papers", []),
+                                        novelty_score=idea_data.get("novelty_score", 0.5),
+                                    ))
+
+        return ideas
+
     def _search_papers(
         self,
         query: str,
@@ -168,6 +461,8 @@ class DeepResearchSkill(BaseSkill):
         year_range: str | None = None,
     ) -> list[Paper]:
         """Search for papers using Semantic Scholar.
+
+        This is a fallback method used when subagents don't return papers.
 
         Args:
             query: The search query.
@@ -778,3 +1073,7 @@ class DeepResearchSkill(BaseSkill):
                 sections.append("")
 
         return "\n".join(sections)
+
+
+# Backward compatibility alias
+DeepResearchSkill = DeepResearchSkillV2
