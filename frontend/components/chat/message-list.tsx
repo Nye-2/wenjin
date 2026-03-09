@@ -1,9 +1,8 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { User, Bot, Sparkles, Copy, Check } from 'lucide-react';
-import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
 interface Message {
@@ -44,7 +43,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
   message,
   isLast,
   isStreaming,
@@ -125,7 +124,7 @@ function MessageBubble({
       </div>
     </motion.div>
   );
-}
+});
 
 export function MessageList({ messages, isStreaming, streamingContent }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
