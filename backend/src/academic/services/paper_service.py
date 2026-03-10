@@ -179,9 +179,11 @@ class PaperService:
             base_query = select(Paper)
 
         # Add search conditions - search in title, abstract
+        # Escape LIKE special characters to prevent SQL injection
+        escaped_query = query.replace("%", "\\%").replace("_", "\\_")
         search_condition = or_(
-            Paper.title.ilike(f"%{query}%"),
-            Paper.abstract.ilike(f"%{query}%"),
+            Paper.title.ilike(f"%{escaped_query}%", escape="\\"),
+            Paper.abstract.ilike(f"%{escaped_query}%", escape="\\"),
         )
 
         query_stmt = base_query.where(search_condition).limit(limit)

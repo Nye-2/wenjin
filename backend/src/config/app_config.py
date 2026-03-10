@@ -1,9 +1,13 @@
 """Application configuration using Pydantic Settings."""
 
+import logging
+import warnings
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class JWTSettings(BaseSettings):
@@ -25,6 +29,21 @@ class JWTSettings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_secret_key(self) -> "JWTSettings":
+        """Validate that the JWT secret key is not the default value in production."""
+        if self.secret_key == "change-me-in-production":
+            warnings.warn(
+                "JWT_SECRET_KEY is using the default value 'change-me-in-production'. "
+                "This is insecure for production environments. "
+                "Set a secure secret using: python -c \"import secrets; print(secrets.token_urlsafe(64))\"",
+                stacklevel=2,
+            )
+            logger.warning(
+                "JWT secret key is using default value. Set JWT_SECRET_KEY environment variable for production."
+            )
+        return self
 
 
 class RedisSettings(BaseSettings):
@@ -140,8 +159,20 @@ class AppConfig(BaseSettings):
         extra="ignore",
     )
 
+    # CORS configuration - expects comma-separated string like "http://localhost:3000,https://example.com"
+    cors_origins_str: str = Field(
+        default="http://localhost:3000",
+        description="Allowed CORS origins (comma-separated)",
+        alias="CORS_ORIGINS",
+    )
+
     # API Keys (fallback for simple setups)
     openai_api_key: str | None = None
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parse CORS origins from comma-separated string."""
+        return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
     anthropic_api_key: str | None = None
     deepseek_api_key: str | None = None
     semantic_scholar_api_key: str | None = None

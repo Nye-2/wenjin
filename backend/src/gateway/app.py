@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.config.app_config import get_settings
 from src.gateway.middleware.error_handler import register_error_handlers
 
 
@@ -41,10 +42,13 @@ app = FastAPI(
 # Register centralized error handlers
 register_error_handlers(app)
 
-# CORS middleware
+# Load settings for CORS configuration
+settings = get_settings()
+
+# CORS middleware - configured from settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

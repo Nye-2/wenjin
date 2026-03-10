@@ -109,9 +109,9 @@ class RedisClient:
         key = self._workspace_lock_key(workspace_id)
         timeout = timeout or self._settings.generation_lock_ttl
         acquired = await self.client.set(key, "locked", nx=True, ex=timeout)
+        if not acquired:
+            raise RuntimeError(f"Could not acquire lock for workspace {workspace_id}")
         try:
-            if not acquired:
-                raise RuntimeError(f"Could not acquire lock for workspace {workspace_id}")
             yield
         finally:
             await self.client.delete(key)

@@ -1,9 +1,12 @@
 """Chat router for AI conversations."""
 
 import json
+import logging
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -217,8 +220,9 @@ async def chat(request: ChatRequest):
         # Extract response
         response_content = result["messages"][-1].content if result.get("messages") else ""
 
-    except Exception:
+    except Exception as e:
         # Fallback to simple model call if agent fails
+        logger.exception("Agent failed, falling back to simple model")
         from src.models.factory import create_chat_model
         model = create_chat_model(request.model, request.thinking_enabled)
         response = await model.ainvoke([HumanMessage(content=request.message)])
