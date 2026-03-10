@@ -3,18 +3,69 @@
 import asyncio
 import threading
 import time
+from datetime import datetime
 
 import pytest
 from src.subagents.events import (
-    SubagentEvent,
     SubagentEventType,
     EventStream,
     SubagentEventStream,
     create_event_stream,
 )
+from src.subagents.models import SubagentEvent
 
 
-class TestSubagentEvent:
+class TestSubagentEventFromModels:
+    """Tests for SubagentEvent from models.py."""
+
+    def test_event_creation(self):
+        event = SubagentEvent(
+            event_type="started",
+            task_id="test-123",
+            thread_id="thread-456",
+            data={"message": "Task started"},
+            timestamp=datetime.now(),
+        )
+        assert event.event_type == "started"
+        assert event.task_id == "test-123"
+        assert event.thread_id == "thread-456"
+        assert event.data == {"message": "Task started"}
+
+    def test_to_sse_format(self):
+        event = SubagentEvent(
+            event_type="completed",
+            task_id="task-123",
+            thread_id="thread-456",
+            data={"result": "success", "output": "Done"},
+            timestamp=datetime(2026, 3, 10, 12, 0, 0),
+        )
+        sse = event.to_sse()
+        assert sse.startswith("event: completed\n")
+        assert "data:" in sse
+        assert '"event_type": "completed"' in sse
+        assert '"task_id": "task-123"' in sse
+        assert '"thread_id": "thread-456"' in sse
+        assert sse.endswith("\n\n")
+
+    def test_to_dict(self):
+        event = SubagentEvent(
+            event_type="progress",
+            task_id="task-789",
+            thread_id="thread-abc",
+            data={"percent": 50},
+            timestamp=datetime(2026, 3, 10, 12, 30, 0),
+        )
+        d = event.to_dict()
+        assert d["event_type"] == "progress"
+        assert d["task_id"] == "task-789"
+        assert d["thread_id"] == "thread-abc"
+        assert d["data"] == {"percent": 50}
+        assert "2026-03-10" in d["timestamp"]
+
+
+class TestSubagentEventType:
+    """Tests for the legacy SubagentEventType enum."""
+
     def test_event_types(self):
         assert SubagentEventType.STARTED.value == "started"
         assert SubagentEventType.RUNNING.value == "running"
@@ -22,69 +73,21 @@ class TestSubagentEvent:
         assert SubagentEventType.FAILED.value == "failed"
         assert SubagentEventType.TIMED_OUT.value == "timed_out"
 
-    def test_event_creation(self):
-        event = SubagentEvent(
-            type=SubagentEventType.STARTED,
-            task_id="test-123",
-            subagent_type="scout",
-            message="Task started",
-        )
-        assert event.type == SubagentEventType.STARTED
-        assert event.task_id == "test-123"
-        assert event.data is None
-        assert event.thread_id is None
-
-    def test_event_with_thread_id(self):
-        event = SubagentEvent(
-            type=SubagentEventType.STARTED,
-            task_id="test-123",
-            subagent_type="scout",
-            message="Task started",
-            thread_id="thread-456",
-        )
-        assert event.thread_id == "thread-456"
-
-    def test_to_sse_format(self):
-        event = SubagentEvent(
-            type=SubagentEventType.COMPLETED,
-            task_id="task-123",
-            subagent_type="researcher",
-            message="Task completed",
-            thread_id="thread-456",
-            data={"result": "success"},
-        )
-        sse = event.to_sse()
-        assert sse.startswith("event: completed\n")
-        assert "data:" in sse
-        assert '"task_id": "task-123"' in sse
-        assert '"subagent_type": "researcher"' in sse
-        assert '"message": "Task completed"' in sse
-        assert '"thread_id": "thread-456"' in sse
-        assert '"result": "success"' in sse
-        assert sse.endswith("\n\n")
-
-    def test_to_sse_with_null_data(self):
-        event = SubagentEvent(
-            type=SubagentEventType.STARTED,
-            task_id="test",
-            subagent_type="scout",
-            message="Started",
-        )
-        sse = event.to_sse()
-        assert "event: started\n" in sse
-        assert '"data": null' in sse
-
 
 class TestEventStream:
+    """Tests for the legacy sync EventStream."""
+
     def test_push_and_iterate(self):
         stream = EventStream()
-        stream.push(SubagentEvent(
-            type=SubagentEventType.STARTED,
+        event = SubagentEvent(
+            event_type="started",
             task_id="t1",
-            subagent_type="scout",
-            message="Started",
-        ))
-        stream.close()  # Close stream to signal end of events
+            thread_id="thread-1",
+            data={"msg": "Started"},
+            timestamp=datetime.now(),
+        )
+        stream.push(event)
+        stream.close()
         events = list(stream.iterate())
         assert len(events) == 1
         assert events[0].task_id == "t1"
@@ -118,12 +121,14 @@ class TestEventStream:
         stream.close()
         assert stream.is_closed
         # Push should be ignored
-        stream.push(SubagentEvent(
-            type=SubagentEventType.STARTED,
+        event = SubagentEvent(
+            event_type="started",
             task_id="t1",
-            subagent_type="scout",
-            message="Should be ignored",
-        ))
+            thread_id="thread-1",
+            data={},
+            timestamp=datetime.now(),
+        )
+        stream.push(event)
         # Iterate should return empty (only the None sentinel was consumed)
         events = list(stream.iterate(timeout=0.1))
         assert events == []
@@ -137,10 +142,11 @@ class TestEventStream:
         def push_event(thread_id):
             barrier.wait()
             stream.push(SubagentEvent(
-                type=SubagentEventType.PROGRESS,
+                event_type="progress",
                 task_id=f"t{thread_id}",
-                subagent_type="test",
-                message=f"Event {thread_id}",
+                thread_id=f"thread-{thread_id}",
+                data={"msg": f"Event {thread_id}"},
+                timestamp=datetime.now(),
             ))
 
         threads = [
@@ -158,6 +164,8 @@ class TestEventStream:
 
 
 class TestCreateEventStream:
+    """Tests for the factory function."""
+
     def test_factory(self):
         stream = create_event_stream()
         assert stream is not None
@@ -201,11 +209,11 @@ class TestSubagentEventStream:
 
         # Publish and close
         await stream.publish(SubagentEvent(
-            type=SubagentEventType.STARTED,
+            event_type="started",
             task_id="t1",
-            subagent_type="scout",
-            message="Started",
             thread_id="test-thread",
+            data={"msg": "Started"},
+            timestamp=datetime.now(),
         ))
         await stream.close()
 
@@ -243,18 +251,18 @@ class TestSubagentEventStream:
 
         # Publish events for different threads
         await stream.publish(SubagentEvent(
-            type=SubagentEventType.STARTED,
+            event_type="started",
             task_id="t1",
-            subagent_type="scout",
-            message="Thread 1 event",
             thread_id="thread-1",
+            data={"msg": "Thread 1 event"},
+            timestamp=datetime.now(),
         ))
         await stream.publish(SubagentEvent(
-            type=SubagentEventType.STARTED,
+            event_type="started",
             task_id="t2",
-            subagent_type="scout",
-            message="Thread 2 event",
             thread_id="thread-2",
+            data={"msg": "Thread 2 event"},
+            timestamp=datetime.now(),
         ))
 
         await stream.close()
@@ -288,27 +296,27 @@ class TestSubagentEventStream:
         task = asyncio.create_task(global_subscribe())
         await asyncio.sleep(0.01)
 
-        # Publish events with and without thread_id
+        # Publish events with different thread_ids
         await stream.publish(SubagentEvent(
-            type=SubagentEventType.STARTED,
+            event_type="started",
             task_id="t1",
-            subagent_type="scout",
-            message="No thread",
-            thread_id=None,
+            thread_id="thread-a",
+            data={"msg": "With thread A"},
+            timestamp=datetime.now(),
         ))
         await stream.publish(SubagentEvent(
-            type=SubagentEventType.PROGRESS,
+            event_type="progress",
             task_id="t2",
-            subagent_type="scout",
-            message="With thread",
-            thread_id="some-thread",
+            thread_id="thread-b",
+            data={"msg": "With thread B"},
+            timestamp=datetime.now(),
         ))
         await stream.publish(SubagentEvent(
-            type=SubagentEventType.COMPLETED,
+            event_type="completed",
             task_id="t3",
-            subagent_type="scout",
-            message="Another thread",
-            thread_id="other-thread",
+            thread_id="thread-c",
+            data={"msg": "With thread C"},
+            timestamp=datetime.now(),
         ))
 
         await stream.close()
@@ -318,7 +326,7 @@ class TestSubagentEventStream:
 
     @pytest.mark.asyncio
     async def test_publish_to_thread_and_global(self):
-        """Test that events with thread_id go to both thread and global subscribers."""
+        """Test that events go to both thread-specific and global subscribers."""
         stream = SubagentEventStream()
 
         thread_events: list[str] = []
@@ -339,11 +347,11 @@ class TestSubagentEventStream:
         await asyncio.sleep(0.01)
 
         await stream.publish(SubagentEvent(
-            type=SubagentEventType.STARTED,
+            event_type="started",
             task_id="t1",
-            subagent_type="scout",
-            message="Test",
             thread_id="my-thread",
+            data={"msg": "Test"},
+            timestamp=datetime.now(),
         ))
 
         await asyncio.gather(task_t, task_g)
@@ -393,11 +401,11 @@ class TestSubagentEventStream:
         # Fill the queue
         for i in range(2):
             await stream.publish(SubagentEvent(
-                type=SubagentEventType.PROGRESS,
+                event_type="progress",
                 task_id=f"t{i}",
-                subagent_type="scout",
-                message=f"Event {i}",
                 thread_id="test",
+                data={"msg": f"Event {i}"},
+                timestamp=datetime.now(),
             ))
 
         # Verify queue is full
@@ -405,11 +413,11 @@ class TestSubagentEventStream:
 
         # This should NOT block - it should drop the event
         await stream.publish(SubagentEvent(
-            type=SubagentEventType.PROGRESS,
+            event_type="progress",
             task_id="overflow",
-            subagent_type="scout",
-            message="Should be dropped",
             thread_id="test",
+            data={"msg": "Should be dropped"},
+            timestamp=datetime.now(),
         ))
 
         # Queue should still have only 2 items (overflow was dropped)
@@ -432,11 +440,11 @@ class TestSubagentEventStream:
         assert stream.subscriber_count == 1
 
         await stream.publish(SubagentEvent(
-            type=SubagentEventType.STARTED,
+            event_type="started",
             task_id="t1",
-            subagent_type="scout",
-            message="Test",
             thread_id="test",
+            data={"msg": "Test"},
+            timestamp=datetime.now(),
         ))
 
         await task
@@ -461,12 +469,11 @@ class TestSubagentEventStream:
         await asyncio.sleep(0.01)
 
         event = SubagentEvent(
-            type=SubagentEventType.COMPLETED,
+            event_type="completed",
             task_id="task-123",
-            subagent_type="researcher",
-            message="Done",
             thread_id="test",
             data={"key": "value"},
+            timestamp=datetime.now(),
         )
         await stream.publish(event)
 
@@ -476,3 +483,19 @@ class TestSubagentEventStream:
         sse = sse_strings[0]
         assert sse.startswith("event: completed\ndata:")
         assert sse.endswith("\n\n")
+
+    @pytest.mark.asyncio
+    async def test_event_without_matching_subscriber(self):
+        """Test that publishing to non-existent thread doesn't fail."""
+        stream = SubagentEventStream()
+
+        # This should not raise an error
+        await stream.publish(SubagentEvent(
+            event_type="started",
+            task_id="t1",
+            thread_id="non-existent-thread",
+            data={},
+            timestamp=datetime.now(),
+        ))
+
+        assert stream.subscriber_count == 0

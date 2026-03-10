@@ -7,11 +7,18 @@ import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, AsyncIterator, Iterator, Optional
+from typing import TYPE_CHECKING, Any, AsyncIterator, Iterator, Optional
+
+if TYPE_CHECKING:
+    from .models import SubagentEvent as SubagentEventFromModels
 
 
 class SubagentEventType(Enum):
-    """Event types for subagent execution."""
+    """Event types for subagent execution.
+
+    Note: This enum is kept for backward compatibility with the sync EventStream.
+    For the async SubagentEventStream, use string event types.
+    """
     STARTED = "started"
     RUNNING = "running"
     PROGRESS = "progress"
@@ -22,7 +29,10 @@ class SubagentEventType(Enum):
 
 @dataclass
 class SubagentEvent:
-    """A single event from subagent execution."""
+    """Legacy SubagentEvent for backward compatibility with executor.py.
+
+    Note: For new code, use SubagentEvent from models.py instead.
+    """
     type: SubagentEventType
     task_id: str
     subagent_type: str
@@ -51,7 +61,11 @@ class SubagentEvent:
 
 
 class EventStream:
-    """Thread-safe event stream for SSE."""
+    """Thread-safe event stream for SSE (legacy sync version).
+
+    Note: This class is kept for backward compatibility.
+    For new async code, use SubagentEventStream instead.
+    """
 
     def __init__(self):
         self._queue: queue.Queue[SubagentEvent | None] = queue.Queue()
@@ -110,7 +124,20 @@ class SubagentEventStream:
     - Publishers call publish() to send events
     - Subscribers call subscribe() to receive events filtered by thread_id
     - Global subscribers (thread_id=None) receive all events
+
+    Uses SubagentEvent from models.py which has:
+    - event_type: str
+    - task_id: str
+    - thread_id: str
+    - data: dict[str, Any]
+    - timestamp: datetime
+    - to_sse() method for SSE formatting
     """
+
+    if TYPE_CHECKING:
+        from .models import SubagentEvent as SubagentEventFromModels
+    else:
+        SubagentEvent = SubagentEvent  # Legacy class
 
     def __init__(self, max_queue_size: int = 100):
         """Initialize the event stream.
@@ -119,7 +146,7 @@ class SubagentEventStream:
             max_queue_size: Maximum events per subscriber queue (backpressure)
         """
         self._max_queue_size = max_queue_size
-        self._subscribers: dict[str, asyncio.Queue[SubagentEvent | None]] = {}
+        self._subscribers: dict[str, asyncio.Queue[SubagentEventFromModels | None]] = {}
         self._lock = asyncio.Lock()
 
     @property
@@ -145,7 +172,7 @@ class SubagentEventStream:
             SSE-formatted event strings
         """
         key = f"thread:{thread_id}" if thread_id else "global"
-        queue: asyncio.Queue[SubagentEvent | None] = asyncio.Queue(
+        queue: asyncio.Queue[SubagentEventFromModels | None] = asyncio.Queue(
             maxsize=self._max_queue_size
         )
 
@@ -163,7 +190,7 @@ class SubagentEventStream:
             async with self._lock:
                 self._subscribers.pop(key, None)
 
-    async def publish(self, event: SubagentEvent) -> None:
+    async def publish(self, event: "SubagentEvent") -> None:
         """Publish an event to relevant subscribers.
 
         Sends to:
@@ -173,15 +200,16 @@ class SubagentEventStream:
         Uses put_nowait for non-blocking behavior. Drops events if queue is full.
 
         Args:
-            event: The event to publish
+            event: The event to publish (SubagentEventFromModels or SubagentEvent)
         """
         async with self._lock:
             subscribers_copy = dict(self._subscribers)
 
         # Collect target queues
         target_keys = ["global"]
-        if event.thread_id:
-            target_keys.append(f"thread:{event.thread_id}")
+        thread_id = getattr(event, "thread_id", None)
+        if thread_id:
+            target_keys.append(f"thread:{thread_id}")
 
         for key in target_keys:
             if key in subscribers_copy:
