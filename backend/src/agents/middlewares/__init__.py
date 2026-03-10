@@ -7,6 +7,7 @@ from .dangling_tool_call import DanglingToolCallMiddleware
 from .discipline_context import DisciplineContextMiddleware
 from .knowledge_context import KnowledgeContextMiddleware
 from .literature_context import LiteratureContextMiddleware
+from .sandbox import SandboxMiddleware
 from .subagent_limit import SubagentLimitMiddleware
 from .summarization import SummarizationMiddleware
 from .thread_data import ThreadDataMiddleware
@@ -22,6 +23,7 @@ __all__ = [
     "KnowledgeContextMiddleware",
     "LiteratureContextMiddleware",
     "Middleware",
+    "SandboxMiddleware",
     "SubagentLimitMiddleware",
     "SummarizationMiddleware",
     "ThreadDataMiddleware",
