@@ -1,12 +1,15 @@
 """Redis client for AcademiaGPT caching and queue operations."""
 
 import json
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import redis.asyncio as redis
 
 from src.config import redis_settings, settings
+
+logger = logging.getLogger(__name__)
 
 
 class RedisClient:
@@ -114,7 +117,10 @@ class RedisClient:
         try:
             yield
         finally:
-            await self.client.delete(key)
+            try:
+                await self.client.delete(key)
+            except Exception:
+                logger.exception(f"Failed to release workspace lock for {workspace_id}")
 
     # Tier2 extraction queue operations
     async def enqueue_extraction(self, paper_id: str) -> None:

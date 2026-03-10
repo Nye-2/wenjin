@@ -279,14 +279,17 @@ class PaperService:
         Returns:
             List of matching papers
         """
+        # Escape LIKE special characters to prevent SQL injection
+        escaped_query = query.replace("%", "\\%").replace("_", "\\_")
+
         # Simple text search in title and abstract
         result = await self.db.execute(
             select(Paper)
             .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
             .where(WorkspacePaper.workspace_id == workspace_id)
             .where(
-                Paper.title.ilike(f"%{query}%") |
-                Paper.abstract.ilike(f"%{query}%")
+                Paper.title.ilike(f"%{escaped_query}%", escape="\\") |
+                Paper.abstract.ilike(f"%{escaped_query}%", escape="\\")
             )
             .limit(limit)
         )
