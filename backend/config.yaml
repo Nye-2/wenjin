@@ -48,8 +48,6 @@ tools:
     group: interaction
   - use: src.tools.builtins.artifacts:present_files_tool
     group: output
-  - use: src.academic.literature.rag.tools:rag_retrieve_tool
-    group: academic
   - use: src.academic.tools.semantic_scholar:semantic_scholar_search_tool
     group: academic
 
