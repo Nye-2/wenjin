@@ -7,10 +7,10 @@ This service provides workspace management functionality including:
 """
 
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Workspace, WorkspacePaper, WorkspaceType
+from src.database import Workspace, WorkspaceType
 
 
 class WorkspaceService:
@@ -171,94 +171,3 @@ class WorkspaceService:
         await self.db.delete(workspace)
         await self.db.commit()
         return True
-
-    async def add_paper(
-        self,
-        workspace_id: str,
-        paper_id: str,
-        notes: str | None = None,
-        tags: list[str] | None = None,
-        is_primary: bool = False,
-        read_status: str = "unread",
-    ) -> WorkspacePaper:
-        """Add a paper to a workspace.
-
-        Creates a WorkspacePaper association record linking the paper
-        to the workspace with optional metadata.
-
-        Args:
-            workspace_id: Workspace UUID string
-            paper_id: Paper UUID string
-            notes: Optional user notes for this paper
-            tags: Optional list of tags for categorization
-            is_primary: Whether this is a primary reference paper
-            read_status: Reading status (unread, reading, read)
-
-        Returns:
-            Created WorkspacePaper association object
-
-        Raises:
-            ValueError: If paper is already in workspace
-        """
-        # Check if paper already exists in workspace
-        existing = await self._get_workspace_paper(workspace_id, paper_id)
-        if existing:
-            raise ValueError(
-                f"Paper {paper_id} is already in workspace {workspace_id}"
-            )
-
-        workspace_paper = WorkspacePaper(
-            workspace_id=workspace_id,
-            paper_id=paper_id,
-            notes=notes,
-            tags=tags or [],
-            is_primary=is_primary,
-            read_status=read_status,
-        )
-        self.db.add(workspace_paper)
-        await self.db.commit()
-        await self.db.refresh(workspace_paper)
-        return workspace_paper
-
-    async def remove_paper(self, workspace_id: str, paper_id: str) -> bool:
-        """Remove a paper from a workspace.
-
-        Removes the WorkspacePaper association record. The paper itself
-        is not deleted from the database.
-
-        Args:
-            workspace_id: Workspace UUID string
-            paper_id: Paper UUID string
-
-        Returns:
-            True if removed, False if not found
-        """
-        workspace_paper = await self._get_workspace_paper(workspace_id, paper_id)
-        if not workspace_paper:
-            return False
-
-        await self.db.delete(workspace_paper)
-        await self.db.commit()
-        return True
-
-    async def _get_workspace_paper(
-        self, workspace_id: str, paper_id: str
-    ) -> WorkspacePaper | None:
-        """Get WorkspacePaper association by workspace and paper IDs.
-
-        Args:
-            workspace_id: Workspace UUID string
-            paper_id: Paper UUID string
-
-        Returns:
-            WorkspacePaper if found, None otherwise
-        """
-        result = await self.db.execute(
-            select(WorkspacePaper).where(
-                and_(
-                    WorkspacePaper.workspace_id == workspace_id,
-                    WorkspacePaper.paper_id == paper_id,
-                )
-            )
-        )
-        return result.scalar_one_or_none()
