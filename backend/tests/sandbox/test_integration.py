@@ -9,12 +9,11 @@ from src.sandbox import (
     LocalSandboxProvider,
     SandboxSettings,
     VirtualPathMapper,
-    SandboxError,
 )
 
 
 class TestSandboxIntegration:
-    """Integration tests for the complete sandbox workflow."""
+    """End-to-end integration tests."""
 
     @pytest.fixture
     def temp_dir(self):
