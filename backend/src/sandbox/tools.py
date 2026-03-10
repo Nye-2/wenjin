@@ -17,24 +17,25 @@ def _get_sandbox_from_config(config: dict) -> Sandbox:
 
 
 @tool
-async def bash(description: str, command: str) -> str:
+async def bash(command: str, description: str = "") -> str:
     """Execute a bash command in the sandbox.
 
     Use this for shell operations like file manipulation,
     running scripts, or system commands.
 
     Args:
-        description: Brief description of what this command does.
         command: The bash command to execute.
+        description: Brief description of what this command does.
 
     Returns:
         Command output or error message.
     """
-    pass  # Implementation via config injection
+    # Actual execution handled by middleware via sandbox injection
+    return ""
 
 
 @tool
-async def ls(description: str, path: str) -> str:
+async def list_dir(description: str, path: str) -> str:
     """List directory contents in tree format.
 
     Args:
@@ -112,12 +113,12 @@ async def str_replace(
     pass
 
 
-# Tool instances for direct use
+# Tool instances for direct access
 bash_tool = bash
-ls_tool = ls
 read_file_tool = read_file
 write_file_tool = write_file
 str_replace_tool = str_replace
+list_dir_tool = list_dir
 
 
 def create_sandbox_tools() -> list:
@@ -128,8 +129,8 @@ def create_sandbox_tools() -> list:
     """
     return [
         bash,
-        ls,
         read_file,
         write_file,
         str_replace,
+        list_dir,
     ]
