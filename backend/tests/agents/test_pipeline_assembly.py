@@ -26,7 +26,7 @@ class TestPipelineAssembly:
             }
         }
 
-        with patch("src.config.config_loader.get_app_config", return_value=_mock_app_config()):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()):
             pipeline = build_pipeline(
                 config=config,
                 workspace_service=None,  # Will skip WS middleware
@@ -45,7 +45,7 @@ class TestPipelineAssembly:
 
         config = {"configurable": {"subagent_enabled": False}}
 
-        with patch("src.config.config_loader.get_app_config", return_value=_mock_app_config()):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
@@ -62,7 +62,7 @@ class TestPipelineAssembly:
 
         config = {"configurable": {"subagent_enabled": True}}
 
-        with patch("src.config.config_loader.get_app_config", return_value=_mock_app_config()):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
@@ -73,7 +73,7 @@ class TestPipelineAssembly:
 
         config = {"configurable": {"subagent_enabled": False}}
 
-        with patch("src.config.config_loader.get_app_config", return_value=_mock_app_config()):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
@@ -85,7 +85,7 @@ class TestPipelineAssembly:
 
         config = {"configurable": {"subagent_enabled": False}}
 
-        with patch("src.config.config_loader.get_app_config", return_value=_mock_app_config(summarization_enabled=True)):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=True)):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
@@ -97,7 +97,7 @@ class TestPipelineAssembly:
 
         config = {"configurable": {"subagent_enabled": False}}
 
-        with patch("src.config.config_loader.get_app_config", return_value=_mock_app_config(summarization_enabled=False)):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=False)):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
