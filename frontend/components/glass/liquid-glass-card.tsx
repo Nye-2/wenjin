@@ -21,15 +21,15 @@ export const LiquidGlassCard = forwardRef<HTMLDivElement, LiquidGlassCardProps>(
           "backdrop-blur-[var(--glass-blur)]",
           "border border-[var(--glass-border)]",
           "shadow-[var(--glass-shadow)]",
-          variant === "elevated" && "shadow-xl",
-          variant === "floating" && "hover:shadow-2xl hover:-translate-y-1 transition-transform",
-          glow && "before:absolute before:inset-0 before:rounded-2xl before:p-[1px] before:bg-gradient-to-br before:from-white/40 before:to-transparent",
+          variant === "elevated" && "bg-[var(--glass-bg-elevated)] shadow-[var(--glass-shadow-elevated)]",
+          variant === "floating" && "hover:shadow-[var(--glass-shadow-elevated)] hover:-translate-y-0.5 transition-transform duration-200",
+          glow && "before:absolute before:inset-0 before:rounded-2xl before:p-[1px] before:bg-gradient-to-br before:from-[var(--accent-secondary)]/20 before:to-transparent",
           className
         )}
         variants={scaleIn}
         initial="initial"
         animate="animate"
-        transition={{ ...defaultTransition, duration: 0.4 }}
+        transition={{ ...defaultTransition, duration: 0.3 }}
         {...props}
       >
         {children}
