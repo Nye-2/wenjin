@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 from src.sandbox.base import FileInfo
-from src.sandbox.providers.local import LocalSandbox, LocalSandboxProvider
+from src.sandbox.providers.local import (
+    LocalSandbox,
+    LocalSandboxProvider,
+    SandboxSecurityError,
+)
 
 
 class TestLocalSandbox:
@@ -168,3 +172,134 @@ class TestLocalSandboxProvider:
         assert (thread_path / "workspace").exists()
         assert (thread_path / "uploads").exists()
         assert (thread_path / "outputs").exists()
+
+
+class TestLocalSandboxSecurity:
+    """Security tests for LocalSandbox."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        """Create temporary directory for testing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield tmpdir
+
+    @pytest.fixture
+    def sandbox(self, temp_dir):
+        """Create LocalSandbox instance."""
+        thread_dir = Path(temp_dir) / "thread-sec"
+        thread_dir.mkdir(parents=True)
+        path_mappings = {
+            "/mnt/user-data/workspace": str(thread_dir / "workspace"),
+            "/mnt/user-data/uploads": str(thread_dir / "uploads"),
+            "/mnt/user-data/outputs": str(thread_dir / "outputs"),
+        }
+        return LocalSandbox(id="thread-sec", path_mappings=path_mappings)
+
+    @pytest.mark.asyncio
+    async def test_reject_path_outside_sandbox(self, sandbox):
+        """Should reject absolute paths outside sandbox."""
+        with pytest.raises(SandboxSecurityError):
+            await sandbox.read_file("/etc/passwd")
+
+    @pytest.mark.asyncio
+    async def test_reject_path_traversal(self, sandbox):
+        """Should reject path traversal attempts."""
+        with pytest.raises(SandboxSecurityError):
+            await sandbox.read_file("/mnt/user-data/workspace/../../../etc/passwd")
+
+    @pytest.mark.asyncio
+    async def test_reject_null_byte_in_path(self, sandbox):
+        """Should reject paths with null bytes."""
+        with pytest.raises(SandboxSecurityError):
+            await sandbox.read_file("/mnt/user-data/workspace/test\x00.txt")
+
+    @pytest.mark.asyncio
+    async def test_reject_non_virtual_absolute_path(self, sandbox):
+        """Should reject non-virtual absolute paths."""
+        with pytest.raises(SandboxSecurityError):
+            await sandbox.write_file("/tmp/malicious.txt", "content")
+
+    @pytest.mark.asyncio
+    async def test_allow_virtual_path(self, sandbox):
+        """Should allow valid virtual paths."""
+        # This should NOT raise an error
+        await sandbox.write_file("/mnt/user-data/workspace/safe.txt", "content")
+        content = await sandbox.read_file("/mnt/user-data/workspace/safe.txt")
+        assert content == "content"
+
+    @pytest.mark.asyncio
+    async def test_list_dir_max_depth(self, sandbox):
+        """Should respect max_depth parameter."""
+        # Create nested directories
+        await sandbox.write_file(
+            "/mnt/user-data/workspace/level1/level2/level3/file.txt",
+            "deep content",
+        )
+
+        # max_depth=0 should only list current directory
+        entries = await sandbox.list_dir("/mnt/user-data/workspace", max_depth=0)
+        names = [e.name for e in entries]
+        assert "level1" in names
+        assert "level2" not in names
+
+        # max_depth=1 should include one level of subdirectories
+        entries = await sandbox.list_dir("/mnt/user-data/workspace", max_depth=1)
+        names = [e.name for e in entries]
+        assert "level1" in names
+        assert "level2" in names
+        assert "level3" not in names
+
+
+class TestLocalSandboxProviderCleanup:
+    """Tests for LocalSandboxProvider cleanup functionality."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        """Create temporary directory for testing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield tmpdir
+
+    @pytest.mark.asyncio
+    async def test_no_cleanup_by_default(self, temp_dir):
+        """Should not cleanup by default on release."""
+        provider = LocalSandboxProvider(base_dir=temp_dir, cleanup_on_release=False)
+        sandbox = await provider.acquire("thread-cleanup-1")
+
+        # Write a file
+        await sandbox.write_file("/mnt/user-data/workspace/test.txt", "content")
+
+        # Release sandbox
+        await provider.release(sandbox)
+
+        # Directory should still exist
+        assert (Path(temp_dir) / "thread-cleanup-1").exists()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_on_release_when_enabled(self, temp_dir):
+        """Should cleanup when enabled on release."""
+        provider = LocalSandboxProvider(base_dir=temp_dir, cleanup_on_release=True)
+        sandbox = await provider.acquire("thread-cleanup-2")
+
+        # Write a file
+        await sandbox.write_file("/mnt/user-data/workspace/test.txt", "content")
+
+        # Release sandbox
+        await provider.release(sandbox)
+
+        # Directory should be removed
+        assert not (Path(temp_dir) / "thread-cleanup-2").exists()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_override_on_release(self, temp_dir):
+        """Should allow cleanup override on release."""
+        provider = LocalSandboxProvider(base_dir=temp_dir, cleanup_on_release=False)
+        sandbox = await provider.acquire("thread-cleanup-3")
+
+        # Write a file
+        await sandbox.write_file("/mnt/user-data/workspace/test.txt", "content")
+
+        # Release with cleanup=True override
+        await provider.release(sandbox, cleanup=True)
+
+        # Directory should be removed despite default
+        assert not (Path(temp_dir) / "thread-cleanup-3").exists()
