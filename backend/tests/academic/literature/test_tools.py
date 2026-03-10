@@ -532,3 +532,113 @@ class TestGetWorkspaceTool:
             )
 
         assert result is None
+
+
+class TestListWorkspacesTool:
+    """Tests for list_workspaces tool."""
+
+    @pytest.mark.asyncio
+    async def test_list_workspaces_with_workspaces(self):
+        """Test listing workspaces."""
+        mock_db = AsyncMock()
+
+        mock_workspace1 = MagicMock()
+        mock_workspace1.id = "ws-1"
+        mock_workspace1.name = "Workspace 1"
+        mock_workspace1.type = MagicMock()
+        mock_workspace1.type.value = "sci"
+        mock_workspace1.discipline = "cs"
+
+        mock_workspace2 = MagicMock()
+        mock_workspace2.id = "ws-2"
+        mock_workspace2.name = "Workspace 2"
+        mock_workspace2.type = MagicMock()
+        mock_workspace2.type.value = "thesis"
+        mock_workspace2.discipline = "physics"
+
+        # Mock count query
+        mock_count_result = MagicMock()
+        mock_count_result.scalar.return_value = 3
+        mock_db.execute.return_value = mock_count_result
+
+        with patch(
+            "src.academic.literature.tools.WorkspaceService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.list_by_user.return_value = [mock_workspace1, mock_workspace2]
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.list_workspaces.coroutine(db=mock_db)
+
+        assert len(result) == 2
+        assert result[0]["name"] == "Workspace 1"
+        assert result[1]["name"] == "Workspace 2"
+
+    @pytest.mark.asyncio
+    async def test_list_workspaces_empty(self):
+        """Test listing workspaces when user has none."""
+        mock_db = AsyncMock()
+
+        with patch(
+            "src.academic.literature.tools.WorkspaceService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.list_by_user.return_value = []
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.list_workspaces.coroutine(db=mock_db)
+
+        assert result == []
+
+
+class TestAddPaperToWorkspaceTool:
+    """Tests for add_paper_to_workspace tool."""
+
+    @pytest.mark.asyncio
+    async def test_add_paper_success(self):
+        """Test adding paper to workspace."""
+        mock_db = AsyncMock()
+
+        mock_paper = MagicMock()
+        mock_paper.id = "paper-123"
+        mock_paper.title = "Test Paper"
+
+        with patch(
+            "src.academic.literature.tools.PaperService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.get.return_value = mock_paper
+            mock_service.add_to_workspace.return_value = MagicMock()
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.add_paper_to_workspace.coroutine(
+                paper_id="paper-123",
+                workspace_id="ws-456",
+                notes="Important paper",
+                tags=["primary"],
+                db=mock_db,
+            )
+
+        assert "Successfully added" in result
+        assert "Test Paper" in result
+
+    @pytest.mark.asyncio
+    async def test_add_paper_not_found(self):
+        """Test adding non-existent paper."""
+        mock_db = AsyncMock()
+
+        with patch(
+            "src.academic.literature.tools.PaperService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.get.return_value = None
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.add_paper_to_workspace.coroutine(
+                paper_id="nonexistent",
+                workspace_id="ws-456",
+                db=mock_db,
+            )
+
+        assert "Error" in result
+        assert "not found" in result

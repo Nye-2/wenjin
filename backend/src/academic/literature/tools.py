@@ -248,6 +248,46 @@ async def get_workspace(
 
 
 @tool
+async def list_workspaces(
+    db: AsyncSession = InjectedToolArg,
+    user_id: str | None = None,
+) -> list[dict]:
+    """List all workspaces for current user.
+
+    Args:
+        user_id: User ID (optional, uses default if not provided)
+
+    Returns:
+        List of workspaces with id, name, type, paper_count
+    """
+    from sqlalchemy import func, select
+
+    # Default user_id for now
+    target_user_id = user_id or "default-user"
+
+    service = WorkspaceService(db)
+    workspaces = await service.list_by_user(target_user_id)
+
+    result = []
+    for ws in workspaces:
+        # Count papers for each workspace
+        count_result = await db.execute(
+            select(func.count()).where(WorkspacePaper.workspace_id == str(ws.id))
+        )
+        paper_count = count_result.scalar() or 0
+
+        result.append({
+            "id": str(ws.id),
+            "name": ws.name,
+            "type": ws.type.value,
+            "discipline": ws.discipline,
+            "paper_count": paper_count,
+        })
+
+    return result
+
+
+@tool
 async def add_paper_to_workspace(
     paper_id: str,
     workspace_id: str,
@@ -284,3 +324,32 @@ async def add_paper_to_workspace(
         return f"Successfully added '{paper.title}' to workspace"
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+@tool
+async def remove_paper_from_workspace(
+    paper_id: str,
+    workspace_id: str,
+    db: AsyncSession = InjectedToolArg,
+) -> str:
+    """Remove paper from workspace.
+
+    Args:
+        paper_id: Paper ID
+        workspace_id: Workspace ID
+
+    Returns:
+        Status message
+    """
+    service = PaperService(db)
+
+    # Remove from workspace
+    removed = await service.remove_from_workspace(
+        paper_id=paper_id,
+        workspace_id=workspace_id,
+    )
+
+    if removed:
+        return f"Successfully removed paper {paper_id} from workspace"
+    else:
+        return f"Error: Paper {paper_id} not found in workspace"
