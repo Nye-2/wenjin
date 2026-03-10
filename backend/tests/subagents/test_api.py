@@ -104,7 +104,9 @@ class TestCancelEndpoint:
 
 
 class TestEventsEndpoint:
-    def test_events_endpoint_exists(self, client, app):
+    def test_events_endpoint_exists(self, client, app, mock_manager):
         """Test that events endpoint exists."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager
         response = client.get("/subagents/events")
         assert response.status_code in [200, 500]
+        app.dependency_overrides = {}
