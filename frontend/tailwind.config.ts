@@ -10,11 +10,24 @@ const config: Config = {
     extend: {
       colors: {
         academic: {
-          primary: "#4F46E5",
-          secondary: "#06B6D4",
+          primary: "#2563EB",
+          secondary: "#38BDF8",
+          tertiary: "#0EA5E9",
           success: "#10B981",
           warning: "#F59E0B",
           error: "#EF4444",
+          gold: "#CA8A04",
+        },
+        background: {
+          base: "#0C1222",
+          elevated: "#151D30",
+          surface: "#1E293B",
+          muted: "#243044",
+        },
+        border: {
+          DEFAULT: "#2D3A4F",
+          subtle: "#1E293B",
+          focus: "#3B82F6",
         },
       },
       animation: {
