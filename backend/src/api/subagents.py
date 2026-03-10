@@ -21,6 +21,8 @@ router = APIRouter(prefix="/subagents", tags=["subagents"])
 class SpawnRequest(BaseModel):
     """Request to spawn a new subagent."""
     prompt: str
+    subagent_type: Optional[str] = None  # NEW: scout, writer, synthesizer, analyst
+    tools: Optional[list[str]] = None    # NEW: optional tool override
     max_turns: int = 10
     timeout: int = 900
     graph_template: str = "default"
@@ -65,8 +67,45 @@ async def spawn_subagent(
 
     Returns:
         SpawnResponse with task ID and initial status.
+
+    Raises:
+        HTTPException: If subagent_type is unknown or tools are invalid.
     """
     from datetime import datetime
+
+    # Import academic resolver components
+    from src.subagents.academic import (
+        AcademicAgentResolver,
+        UnknownSubagentTypeError,
+        InvalidToolError,
+        get_all_subagent_types,
+    )
+
+    # Resolve agent config if subagent_type specified
+    system_prompt = None
+    if request.subagent_type:
+        resolver = AcademicAgentResolver(manager._tools)
+        try:
+            config = resolver.resolve_config(request.subagent_type, request.tools)
+            system_prompt = config.system_prompt
+        except UnknownSubagentTypeError as e:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "UnknownSubagentType",
+                    "message": str(e),
+                    "valid_types": get_all_subagent_types(),
+                }
+            )
+        except InvalidToolError as e:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "InvalidTool",
+                    "message": str(e),
+                    "available_tools": e.available_tools,
+                }
+            )
 
     task = SubagentTask(
         task_id=str(uuid4()),
@@ -76,6 +115,11 @@ async def spawn_subagent(
         max_turns=min(request.max_turns, manager._config.max_turns_limit),
         timeout=min(request.timeout, manager._config.max_timeout),
         graph_template=request.graph_template,
+        tools=request.tools or [],
+        metadata={
+            "subagent_type": request.subagent_type,
+            "system_prompt": system_prompt,
+        }
     )
     await manager.spawn(task)
     return SpawnResponse(task_id=task.task_id, status="pending")

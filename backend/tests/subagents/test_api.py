@@ -110,3 +110,90 @@ class TestEventsEndpoint:
         response = client.get("/subagents/events")
         assert response.status_code in [200, 500]
         app.dependency_overrides = {}
+
+
+class TestSpawnWithSubagentType:
+    """Tests for spawn endpoint with subagent_type parameter."""
+
+    @pytest.fixture
+    def mock_manager_with_tools(self, mock_manager):
+        """Create mock manager with tools."""
+        mock_manager._tools = {
+            "semantic_scholar_search": lambda q: f"search: {q}",
+            "read_file": lambda p: f"read: {p}",
+            "get_paper_section": lambda s: f"section: {s}",
+            "get_paper_toc": lambda: "toc",
+        }
+        return mock_manager
+
+    def test_spawn_with_valid_subagent_type(self, client, mock_manager_with_tools, app):
+        """Test spawning with valid subagent_type."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager_with_tools
+        response = client.post(
+            "/subagents/threads/thread-123/spawn",
+            json={
+                "prompt": "Search for papers",
+                "subagent_type": "scout"
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "task_id" in data
+        assert data["status"] == "pending"
+        app.dependency_overrides = {}
+
+    def test_spawn_with_invalid_subagent_type_returns_400(self, client, mock_manager_with_tools, app):
+        """Test spawning with invalid subagent_type returns 400."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager_with_tools
+        response = client.post(
+            "/subagents/threads/thread-123/spawn",
+            json={
+                "prompt": "Search for papers",
+                "subagent_type": "researcher"  # Invalid type
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert "UnknownSubagentType" in data["detail"]["error"]
+        assert "scout" in str(data["detail"]["valid_types"])
+        app.dependency_overrides = {}
+
+    def test_spawn_with_tool_override(self, client, mock_manager_with_tools, app):
+        """Test spawning with custom tools override."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager_with_tools
+        response = client.post(
+            "/subagents/threads/thread-123/spawn",
+            json={
+                "prompt": "Search for papers",
+                "subagent_type": "scout",
+                "tools": ["read_file"]
+            }
+        )
+        assert response.status_code == 200
+        app.dependency_overrides = {}
+
+    def test_spawn_with_invalid_tools_returns_400(self, client, mock_manager_with_tools, app):
+        """Test spawning with all invalid tools returns 400."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager_with_tools
+        response = client.post(
+            "/subagents/threads/thread-123/spawn",
+            json={
+                "prompt": "Search for papers",
+                "subagent_type": "scout",
+                "tools": ["nonexistent_tool"]
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert "InvalidTool" in data["detail"]["error"]
+        app.dependency_overrides = {}
+
+    def test_spawn_without_subagent_type_backward_compat(self, client, mock_manager_with_tools, app):
+        """Test backward compatibility - spawn without subagent_type."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager_with_tools
+        response = client.post(
+            "/subagents/threads/thread-123/spawn",
+            json={"prompt": "Test prompt"}
+        )
+        assert response.status_code == 200
+        app.dependency_overrides = {}
