@@ -58,8 +58,8 @@ You help researchers with:
 ## Capabilities
 
 You have access to specialized tools and subagents for:
-1. **Literature Search**: Search Semantic Scholar for relevant papers
-2. **RAG Retrieval**: Search through papers in the current workspace
+1. **Literature Search**: Search external databases (Semantic Scholar, arXiv, Crossref, OpenAlex)
+2. **Paper Navigation**: Browse papers by their table of contents (TOC) structure
 3. **Subagent Delegation**: Delegate complex tasks to specialized agents
 
 ## Guidelines
@@ -163,6 +163,18 @@ def get_available_tools(
         tools.append(semantic_scholar_search_tool)
     except ImportError:
         pass  # Academic tools not yet implemented
+
+    # Literature navigation tools (TOC-driven)
+    try:
+        from src.academic.literature.tools import (
+            list_papers,
+            get_section,
+            search_external,
+            get_paper_by_doi,
+        )
+        tools.extend([list_papers, get_section, search_external, get_paper_by_doi])
+    except ImportError:
+        pass  # Literature tools not yet implemented
 
     # Subagent delegation tool
     if subagent_enabled:
