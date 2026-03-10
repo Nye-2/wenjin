@@ -14,11 +14,15 @@ from src.agents.middlewares import (
     DisciplineContextMiddleware,
     KnowledgeContextMiddleware,
     LiteratureContextMiddleware,
+    MemoryMiddleware,
+    SandboxMiddleware,
     SubagentLimitMiddleware,
     SummarizationMiddleware,
     ThreadDataMiddleware,
     TitleMiddleware,
+    TodoListMiddleware,
     UploadsMiddleware,
+    ViewImageMiddleware,
     WorkspaceContextMiddleware,
 )
 from src.agents.thread_state import ThreadState
@@ -217,24 +221,31 @@ def build_pipeline(
     index_service=None,
     artifact_service=None,
     paper_service=None,
+    sandbox_provider=None,
+    memory_queue=None,
 ) -> list:
     """Build the 16-layer middleware pipeline.
 
     Order:
     1.  ThreadDataMiddleware       - Infrastructure
     2.  UploadsMiddleware          - Infrastructure
-    3.  DanglingToolCallMiddleware - Fix
-    4.  SummarizationMiddleware    - Context management (conditional)
-    5.  WorkspaceContextMiddleware - Academic (conditional)
-    6.  LiteratureContextMiddleware - Academic (conditional)
-    7.  KnowledgeContextMiddleware - Academic (conditional)
-    8.  DisciplineContextMiddleware - Academic
-    9.  TitleMiddleware            - Post-processing
-    10. SubagentLimitMiddleware    - Control (conditional)
-    11. CitationContextMiddleware  - Post-processing (conditional)
-    12. ClarificationMiddleware    - Control (MUST BE LAST)
+    3.  SandboxMiddleware          - Infrastructure (new)
+    4.  DanglingToolCallMiddleware - Fix
+    5.  SummarizationMiddleware    - Context management (conditional)
+    6.  MemoryMiddleware           - Context management (new, conditional)
+    7.  WorkspaceContextMiddleware - Academic (conditional)
+    8.  LiteratureContextMiddleware - Academic (conditional)
+    9.  KnowledgeContextMiddleware - Academic (conditional)
+    10. DisciplineContextMiddleware - Academic
+    11. TodoListMiddleware         - Interaction (new, conditional)
+    12. ViewImageMiddleware        - Interaction (new)
+    13. SubagentLimitMiddleware    - Control (conditional)
+    14. TitleMiddleware            - Post-processing
+    15. CitationContextMiddleware  - Post-processing (conditional)
+    16. ClarificationMiddleware    - Control (MUST BE LAST)
     """
     configurable = config.get("configurable", {})
+    is_plan_mode = configurable.get("is_plan_mode", False)
     subagent_enabled = configurable.get("subagent_enabled", False)
 
     # Get middleware config
@@ -244,20 +255,29 @@ def build_pipeline(
 
     pipeline = []
 
-    # --- Infrastructure layer ---
+    # --- Infrastructure layer (1-3) ---
     pipeline.append(ThreadDataMiddleware())
     pipeline.append(UploadsMiddleware())
 
-    # --- Fix layer ---
+    # Sandbox (3) - requires provider
+    if sandbox_provider:
+        pipeline.append(SandboxMiddleware(sandbox_provider))
+
+    # --- Fix layer (4) ---
     pipeline.append(DanglingToolCallMiddleware())
 
-    # --- Context management layer ---
+    # --- Context management layer (5-6) ---
     if mw_config.summarization.enabled:
         trigger = int(mw_config.summarization.trigger.split(":")[1]) if ":" in mw_config.summarization.trigger else 80000
         keep = int(mw_config.summarization.keep.split(":")[1]) if ":" in mw_config.summarization.keep else 10
         pipeline.append(SummarizationMiddleware(trigger_tokens=trigger, keep_messages=keep))
 
-    # --- Academic context layer (conditional on services) ---
+    # Memory (6) - requires queue
+    memory_enabled = getattr(app_config, "memory", None)
+    if memory_enabled and memory_enabled.enabled and memory_queue:
+        pipeline.append(MemoryMiddleware(queue=memory_queue, enabled=True))
+
+    # --- Academic context layer (7-10) ---
     if workspace_service:
         pipeline.append(WorkspaceContextMiddleware(workspace_service))
     if index_service:
@@ -266,18 +286,26 @@ def build_pipeline(
         pipeline.append(KnowledgeContextMiddleware(artifact_service))
     pipeline.append(DisciplineContextMiddleware())
 
-    # --- Post-processing layer ---
-    pipeline.append(TitleMiddleware())
+    # --- Interaction layer (11-13) ---
+    # TodoList (11) - plan mode only
+    if is_plan_mode:
+        pipeline.append(TodoListMiddleware())
 
-    # --- Control layer ---
+    # ViewImage (12) - always present, handles vision internally
+    pipeline.append(ViewImageMiddleware())
+
+    # SubagentLimit (13) - subagents enabled
     if subagent_enabled:
         max_concurrent = configurable.get("max_concurrent_subagents", 3)
         pipeline.append(SubagentLimitMiddleware(max_concurrent=max_concurrent))
 
+    # --- Post-processing layer (14-16) ---
+    pipeline.append(TitleMiddleware())
+
     if paper_service:
         pipeline.append(CitationContextMiddleware(paper_service))
 
-    # --- MUST BE LAST ---
+    # --- MUST BE LAST (16) ---
     pipeline.append(ClarificationMiddleware())
 
     return pipeline
