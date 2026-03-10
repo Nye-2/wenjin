@@ -171,8 +171,24 @@ def get_available_tools(
             get_section,
             search_external,
             get_paper_by_doi,
+            # New workspace/paper management tools
+            create_workspace,
+            get_workspace,
+            list_workspaces,
+            add_paper_to_workspace,
+            remove_paper_from_workspace,
         )
-        tools.extend([list_papers, get_section, search_external, get_paper_by_doi])
+        tools.extend([
+            list_papers,
+            get_section,
+            search_external,
+            get_paper_by_doi,
+            create_workspace,
+            get_workspace,
+            list_workspaces,
+            add_paper_to_workspace,
+            remove_paper_from_workspace,
+        ])
     except ImportError:
         pass  # Literature tools not yet implemented
 
