@@ -124,6 +124,7 @@ read_file_tool = read_file
 write_file_tool = write_file
 str_replace_tool = str_replace
 list_dir_tool = list_dir
+ls = list_dir  # alias for list_dir
 
 
 def create_sandbox_tools() -> list:

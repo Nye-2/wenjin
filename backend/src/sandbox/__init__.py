@@ -1,33 +1,34 @@
-"""Sandbox module for isolated code and command execution.
+"""Sandbox module for safe code execution and file operations."""
 
-This module provides:
-- Sandbox ABC and data classes (base.py)
-- Local and Docker sandbox providers (providers/)
-- Virtual path mapping (paths.py)
-- LangChain tool wrappers (tools.py)
-- Configuration (config.py)
-
-Legacy:
-- SandboxExecutor (executor.py) - Use LocalSandbox instead
-"""
-
+# Core
 from .base import CommandResult, FileInfo, Sandbox
-from .config import SandboxSettings, get_sandbox_settings
+
+# Exceptions
 from .exceptions import (
     SandboxError,
     SandboxNotFoundError,
     SandboxRuntimeError,
     SandboxTimeoutError,
 )
+
+# Path management
 from .paths import VirtualPathMapper
-from .providers import LocalSandbox, LocalSandboxProvider, SandboxProvider
+
+# Configuration
+from .config import SandboxSettings, get_sandbox_settings
+
+# Providers
+from .providers.local import LocalSandbox, LocalSandboxProvider
+from .providers.base import SandboxProvider
+
+# Tools
 from .tools import (
-    bash_tool,
+    bash,
+    ls,
+    read_file,
+    write_file,
+    str_replace,
     create_sandbox_tools,
-    list_dir_tool,
-    read_file_tool,
-    str_replace_tool,
-    write_file_tool,
 )
 
 # Legacy imports (backward compatibility)
@@ -46,21 +47,21 @@ __all__ = [
     "SandboxNotFoundError",
     "SandboxRuntimeError",
     "SandboxTimeoutError",
-    # Paths
+    # Path management
     "VirtualPathMapper",
+    # Configuration
+    "SandboxSettings",
+    "get_sandbox_settings",
     # Providers
     "SandboxProvider",
     "LocalSandbox",
     "LocalSandboxProvider",
-    # Configuration
-    "SandboxSettings",
-    "get_sandbox_settings",
     # Tools
-    "bash_tool",
-    "read_file_tool",
-    "write_file_tool",
-    "str_replace_tool",
-    "list_dir_tool",
+    "bash",
+    "ls",
+    "read_file",
+    "write_file",
+    "str_replace",
     "create_sandbox_tools",
     # Legacy
     "SandboxExecutor",
