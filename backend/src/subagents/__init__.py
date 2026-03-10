@@ -5,6 +5,7 @@ from .task_tool import task_tool
 from .parallel import ParallelExecutor, ExecutionPhase, PhasedPlan, PhaseResult
 from .models import SubagentStatus, SubagentTask, SubagentEvent, SubagentResult
 from .config import SubagentConfig
+from .manager import ThreadContext, GlobalSubagentManager
 
 __all__ = [
     "SubagentRegistry",
@@ -19,4 +20,6 @@ __all__ = [
     "ExecutionPhase",
     "PhasedPlan",
     "PhaseResult",
+    "ThreadContext",
+    "GlobalSubagentManager",
 ]
