@@ -1,11 +1,13 @@
 """SSE event streaming for subagent execution."""
 
+import asyncio
+import json
 import queue
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Iterator
+from typing import Any, AsyncIterator, Iterator, Optional
 
 
 class SubagentEventType(Enum):
@@ -25,8 +27,27 @@ class SubagentEvent:
     task_id: str
     subagent_type: str
     message: str
+    thread_id: Optional[str] = None
     data: dict[str, Any] | None = None
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def to_sse(self) -> str:
+        """Convert event to SSE-formatted string.
+
+        Returns:
+            SSE-formatted string with event type and JSON data
+        """
+        event_data = {
+            "type": self.type.value,
+            "task_id": self.task_id,
+            "subagent_type": self.subagent_type,
+            "message": self.message,
+            "thread_id": self.thread_id,
+            "data": self.data,
+            "timestamp": self.timestamp,
+        }
+        json_data = json.dumps(event_data)
+        return f"event: {self.type.value}\ndata: {json_data}\n\n"
 
 
 class EventStream:
@@ -80,3 +101,116 @@ class EventStream:
 def create_event_stream() -> EventStream:
     """Factory function to create an event stream."""
     return EventStream()
+
+
+class SubagentEventStream:
+    """Async event stream supporting thread-based subscriptions for SSE.
+
+    This class provides a pub/sub pattern where:
+    - Publishers call publish() to send events
+    - Subscribers call subscribe() to receive events filtered by thread_id
+    - Global subscribers (thread_id=None) receive all events
+    """
+
+    def __init__(self, max_queue_size: int = 100):
+        """Initialize the event stream.
+
+        Args:
+            max_queue_size: Maximum events per subscriber queue (backpressure)
+        """
+        self._max_queue_size = max_queue_size
+        self._subscribers: dict[str, asyncio.Queue[SubagentEvent | None]] = {}
+        self._lock = asyncio.Lock()
+
+    @property
+    def max_queue_size(self) -> int:
+        """Maximum queue size per subscriber."""
+        return self._max_queue_size
+
+    @property
+    def subscriber_count(self) -> int:
+        """Number of active subscribers."""
+        return len(self._subscribers)
+
+    async def subscribe(
+        self, thread_id: Optional[str] = None
+    ) -> AsyncIterator[str]:
+        """Subscribe to events, optionally filtered by thread_id.
+
+        Args:
+            thread_id: If specified, only receive events for this thread.
+                       If None, receive all events (global subscriber).
+
+        Yields:
+            SSE-formatted event strings
+        """
+        key = f"thread:{thread_id}" if thread_id else "global"
+        queue: asyncio.Queue[SubagentEvent | None] = asyncio.Queue(
+            maxsize=self._max_queue_size
+        )
+
+        async with self._lock:
+            self._subscribers[key] = queue
+
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    # Shutdown signal
+                    break
+                yield event.to_sse()
+        finally:
+            async with self._lock:
+                self._subscribers.pop(key, None)
+
+    async def publish(self, event: SubagentEvent) -> None:
+        """Publish an event to relevant subscribers.
+
+        Sends to:
+        - Thread-specific subscribers (if event has thread_id)
+        - Global subscribers (always)
+
+        Uses put_nowait for non-blocking behavior. Drops events if queue is full.
+
+        Args:
+            event: The event to publish
+        """
+        async with self._lock:
+            subscribers_copy = dict(self._subscribers)
+
+        # Collect target queues
+        target_keys = ["global"]
+        if event.thread_id:
+            target_keys.append(f"thread:{event.thread_id}")
+
+        for key in target_keys:
+            if key in subscribers_copy:
+                queue = subscribers_copy[key]
+                try:
+                    queue.put_nowait(event)
+                except asyncio.QueueFull:
+                    # Drop event on backpressure (queue full)
+                    pass
+
+    async def close(self) -> None:
+        """Close the stream, signaling shutdown to all subscribers.
+
+        Sends None to all subscriber queues to signal end of stream.
+        """
+        async with self._lock:
+            subscribers_copy = dict(self._subscribers)
+
+        for queue in subscribers_copy.values():
+            try:
+                queue.put_nowait(None)
+            except asyncio.QueueFull:
+                # Clear queue and try again if full
+                while not queue.empty():
+                    try:
+                        queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                try:
+                    queue.put_nowait(None)
+                except asyncio.QueueFull:
+                    pass
