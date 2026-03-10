@@ -6,6 +6,19 @@ from .parallel import ParallelExecutor, ExecutionPhase, PhasedPlan, PhaseResult
 from .models import SubagentStatus, SubagentTask, SubagentEvent, SubagentResult
 from .config import SubagentConfig
 from .manager import ThreadContext, GlobalSubagentManager
+from .graph import GraphTemplateRegistry, create_academic_agent_graph, register_academic_templates
+
+# Academic subagents
+from .academic import (
+    AcademicAgentResolver,
+    AcademicAgentError,
+    UnknownSubagentTypeError,
+    InvalidToolError,
+    SCOUT_PROMPT,
+    WRITER_PROMPT,
+    SYNTHESIZER_PROMPT,
+    ANALYST_PROMPT,
+)
 
 __all__ = [
     "SubagentRegistry",
@@ -22,4 +35,17 @@ __all__ = [
     "PhaseResult",
     "ThreadContext",
     "GlobalSubagentManager",
+    # Graph templates
+    "GraphTemplateRegistry",
+    "create_academic_agent_graph",
+    "register_academic_templates",
+    # Academic subagents
+    "AcademicAgentResolver",
+    "AcademicAgentError",
+    "UnknownSubagentTypeError",
+    "InvalidToolError",
+    "SCOUT_PROMPT",
+    "WRITER_PROMPT",
+    "SYNTHESIZER_PROMPT",
+    "ANALYST_PROMPT",
 ]
