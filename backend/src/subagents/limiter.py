@@ -127,14 +127,15 @@ class DualLayerLimiter:
         limiter = self._thread_limiters.get(thread_id)
         return limiter.active_count if limiter else 0
 
-    def cleanup_thread(self, thread_id: str) -> None:
+    async def cleanup_thread(self, thread_id: str) -> None:
         """Remove the thread limiter when thread is cleaned up.
 
         Args:
             thread_id: The thread identifier to clean up.
         """
-        if thread_id in self._thread_limiters:
-            del self._thread_limiters[thread_id]
+        async with self._lock:
+            if thread_id in self._thread_limiters:
+                del self._thread_limiters[thread_id]
 
     @asynccontextmanager
     async def acquire(self, thread_id: str):

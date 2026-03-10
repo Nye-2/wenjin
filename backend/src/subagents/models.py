@@ -14,7 +14,7 @@ class SubagentStatus(str, Enum):
     COMPLETED = "completed"   # Successfully finished
     FAILED = "failed"         # Execution failed
     CANCELLED = "cancelled"   # Cancelled by user
-    TIMEOUT = "timeout"       # Exceeded time limit
+    TIMED_OUT = "timed_out"   # Exceeded time limit
 
 
 @dataclass

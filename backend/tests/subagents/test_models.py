@@ -18,7 +18,7 @@ class TestSubagentStatus:
         assert SubagentStatus.COMPLETED.value == "completed"
         assert SubagentStatus.FAILED.value == "failed"
         assert SubagentStatus.CANCELLED.value == "cancelled"
-        assert SubagentStatus.TIMEOUT.value == "timeout"
+        assert SubagentStatus.TIMED_OUT.value == "timed_out"
 
     def test_status_is_string_enum(self):
         """Test that SubagentStatus is a string enum."""

@@ -1,5 +1,6 @@
 """Graph template registry for subagent graphs."""
 
+import threading
 from typing import Any, Optional
 
 
@@ -9,42 +10,47 @@ class GraphTemplateRegistry:
     def __init__(self):
         """Initialize an empty registry."""
         self._templates: dict[str, Any] = {}
+        self._lock = threading.Lock()
 
     @property
     def count(self) -> int:
         """Return the number of registered templates."""
-        return len(self._templates)
+        with self._lock:
+            return len(self._templates)
 
     def register(self, name: str, graph: Any) -> None:
         """Register a graph template.
 
         Args:
-            name: Template name
-            graph: Graph object to register
+            name: Template name.
+            graph: Graph object to register.
         """
-        self._templates[name] = graph
+        with self._lock:
+            self._templates[name] = graph
 
     def get(self, name: str) -> Optional[Any]:
         """Get a registered graph template.
 
         Args:
-            name: Template name
+            name: Template name.
 
         Returns:
-            Graph object if found, None otherwise
+            Graph object if found, None otherwise.
         """
-        return self._templates.get(name)
+        with self._lock:
+            return self._templates.get(name)
 
     def has(self, name: str) -> bool:
         """Check if a template is registered.
 
         Args:
-            name: Template name
+            name: Template name.
 
         Returns:
-            True if registered, False otherwise
+            True if registered, False otherwise.
         """
-        return name in self._templates
+        with self._lock:
+            return name in self._templates
 
 
 def create_default_subagent_graph(llm: Any, tools: list, max_turns: int = 10) -> Any:

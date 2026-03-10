@@ -1,6 +1,8 @@
 """Global subagent manager and thread context."""
 
 import asyncio
+import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
@@ -10,6 +12,9 @@ from .events import SubagentEventStream
 from .graph import GraphTemplateRegistry, create_default_subagent_graph
 from .limiter import DualLayerLimiter
 from .models import SubagentResult, SubagentStatus, SubagentTask
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -54,6 +59,7 @@ class GlobalSubagentManager:
     """Singleton manager for all subagent operations."""
 
     _instance: Optional["GlobalSubagentManager"] = None
+    _init_lock = threading.Lock()  # Class-level lock for singleton initialization
 
     def __init__(self, config: SubagentConfig):
         """Initialize the manager.
@@ -100,10 +106,11 @@ class GlobalSubagentManager:
         Raises:
             RuntimeError: If already initialized.
         """
-        if cls._instance is not None:
-            raise RuntimeError("GlobalSubagentManager already initialized")
-        cls._instance = cls(config)
-        return cls._instance
+        with cls._init_lock:
+            if cls._instance is not None:
+                raise RuntimeError("GlobalSubagentManager already initialized")
+            cls._instance = cls(config)
+            return cls._instance
 
     @classmethod
     def reset(cls) -> None:
@@ -119,13 +126,18 @@ class GlobalSubagentManager:
         Returns:
             The task ID.
         """
+        logger.info(f"Spawning subagent task {task.task_id} for thread {task.thread_id}")
         async with self._lock:
             ctx = self._get_or_create_context(task.thread_id)
 
         async def run_with_limiter():
             async with self._limiter.acquire(task.thread_id):
+                logger.debug(f"Executing task {task.task_id}")
                 result = await self._execute_task(task)
                 ctx.store_result(task.task_id, result)
+                logger.info(
+                    f"Task {task.task_id} completed with status {result.status}"
+                )
                 return result
 
         async_task = asyncio.create_task(run_with_limiter())
@@ -201,7 +213,7 @@ class GlobalSubagentManager:
             ))
             return SubagentResult(
                 task_id=task.task_id,
-                status=SubagentStatus.TIMEOUT,
+                status=SubagentStatus.TIMED_OUT,
                 output=None,
                 error=f"Timed out after {task.timeout}s",
                 duration_seconds=task.timeout,
@@ -251,14 +263,18 @@ class GlobalSubagentManager:
         Returns:
             True if cancelled, False if not found or already done.
         """
+        logger.info(f"Attempting to cancel task {task_id} in thread {thread_id}")
         async with self._lock:
             ctx = self._threads.get(thread_id)
             if not ctx or task_id not in ctx._tasks:
+                logger.warning(f"Task {task_id} not found for cancellation")
                 return False
             async_task = ctx._tasks[task_id]
             if not async_task.done():
                 async_task.cancel()
+                logger.info(f"Successfully cancelled task {task_id}")
                 return True
+            logger.debug(f"Task {task_id} already done, cannot cancel")
             return False
 
     async def get_status(self, thread_id: str, task_id: str) -> Optional[SubagentStatus]:
@@ -311,15 +327,22 @@ class GlobalSubagentManager:
         Args:
             thread_id: Thread ID to clean up.
         """
+        logger.info(f"Cleaning up thread {thread_id}")
         async with self._lock:
             if thread_id not in self._threads:
+                logger.debug(f"Thread {thread_id} not found for cleanup")
                 return
             ctx = self._threads[thread_id]
+            cancelled_count = 0
             for task in ctx._tasks.values():
                 if not task.done():
                     task.cancel()
+                    cancelled_count += 1
             del self._threads[thread_id]
             self._limiter.cleanup_thread(thread_id)
+            logger.info(
+                f"Cleaned up thread {thread_id}, cancelled {cancelled_count} tasks"
+            )
 
     def _get_or_create_context(self, thread_id: str) -> ThreadContext:
         """Get or create a thread context.

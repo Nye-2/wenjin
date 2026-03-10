@@ -11,19 +11,15 @@ from typing import Any
 from langchain_core.tools import BaseTool
 
 from src.subagents.events import EventStream, SubagentEvent, SubagentEventType
+from src.subagents.models import SubagentStatus
 from src.subagents.registry import SubagentConfig
 
 
-class SubagentStatus(Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    TIMED_OUT = "timed_out"
-
-
+# Note: ExecutorSubagentResult is different from SubagentResult in models.py
+# This class tracks internal execution state with timing and message history
 @dataclass
-class SubagentResult:
+class ExecutorSubagentResult:
+    """Internal execution state tracking (different from final SubagentResult)."""
     task_id: str
     status: SubagentStatus = SubagentStatus.PENDING
     result: str | None = None
@@ -31,6 +27,10 @@ class SubagentResult:
     started_at: datetime | None = None
     completed_at: datetime | None = None
     ai_messages: list[dict[str, Any]] = field(default_factory=list)
+
+
+# Alias for backward compatibility
+SubagentResult = ExecutorSubagentResult
 
 
 # Global thread pools
