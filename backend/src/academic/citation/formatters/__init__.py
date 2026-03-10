@@ -2,5 +2,14 @@
 
 from .base import CitationFormatter
 from .apa import APAFormatter
+from .mla import MLAFormatter
+from .chicago import ChicagoFormatter
+from .ieee import IEEEFormatter
 
-__all__ = ["CitationFormatter", "APAFormatter"]
+__all__ = [
+    "CitationFormatter",
+    "APAFormatter",
+    "MLAFormatter",
+    "ChicagoFormatter",
+    "IEEEFormatter",
+]
