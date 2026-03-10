@@ -8,7 +8,8 @@ from langchain_core.tools import tool, InjectedToolArg
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Paper, WorkspacePaper
+from src.database import Paper, WorkspacePaper, Workspace, WorkspaceType
+from src.academic.services.workspace_service import WorkspaceService
 from .navigation.models import PaperTOC
 from .navigation.toc_service import TocService
 from .navigation.section_loader import SectionLoader
@@ -163,3 +164,45 @@ async def get_paper_by_doi(doi: str) -> dict | None:
             logger.debug(f"{client.__class__.__name__} DOI lookup failed: {e}")
 
     return None
+
+
+@tool
+async def create_workspace(
+    name: str,
+    type: str,
+    db: AsyncSession = InjectedToolArg,
+    discipline: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Create a new workspace.
+
+    Args:
+        name: Workspace name
+        type: Workspace type (sci, thesis, proposal, grant, literature_review)
+        discipline: Academic discipline (optional, e.g., computer_science)
+        description: Workspace description (optional)
+
+    Returns:
+        Created workspace info with id, name, type
+    """
+    # Default user_id for now (should be injected from context in production)
+    user_id = "default-user"
+
+    service = WorkspaceService(db)
+    try:
+        workspace = await service.create(
+            user_id=user_id,
+            name=name,
+            type=type,
+            discipline=discipline,
+            description=description,
+        )
+        return {
+            "id": str(workspace.id),
+            "name": workspace.name,
+            "type": workspace.type.value,
+            "discipline": workspace.discipline,
+            "description": workspace.description,
+        }
+    except ValueError as e:
+        return {"error": str(e)}

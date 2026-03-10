@@ -395,3 +395,84 @@ class TestToolDefinitions:
         """Test get_paper_by_doi tool has correct definition."""
         assert literature_tools.get_paper_by_doi.name == "get_paper_by_doi"
         assert "doi" in literature_tools.get_paper_by_doi.description.lower()
+
+
+class TestCreateWorkspaceTool:
+    """Tests for create_workspace tool."""
+
+    @pytest.mark.asyncio
+    async def test_create_workspace_basic(self):
+        """Test creating a workspace with minimal args."""
+        mock_db = AsyncMock()
+
+        mock_workspace = MagicMock()
+        mock_workspace.id = "ws-123"
+        mock_workspace.name = "Test Workspace"
+        mock_workspace.type = MagicMock()
+        mock_workspace.type.value = "sci"
+        mock_workspace.discipline = None
+        mock_workspace.description = None
+
+        with patch(
+            "src.academic.literature.tools.WorkspaceService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.create.return_value = mock_workspace
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.create_workspace.coroutine(
+                name="Test Workspace", type="sci", db=mock_db
+            )
+
+        assert result["id"] == "ws-123"
+        assert result["name"] == "Test Workspace"
+        assert result["type"] == "sci"
+
+    @pytest.mark.asyncio
+    async def test_create_workspace_with_all_fields(self):
+        """Test creating a workspace with all fields."""
+        mock_db = AsyncMock()
+
+        mock_workspace = MagicMock()
+        mock_workspace.id = "ws-456"
+        mock_workspace.name = "Thesis Workspace"
+        mock_workspace.type = MagicMock()
+        mock_workspace.type.value = "thesis"
+        mock_workspace.discipline = "computer_science"
+        mock_workspace.description = "My thesis work"
+
+        with patch(
+            "src.academic.literature.tools.WorkspaceService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.create.return_value = mock_workspace
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.create_workspace.coroutine(
+                name="Thesis Workspace",
+                type="thesis",
+                discipline="computer_science",
+                description="My thesis work",
+                db=mock_db,
+            )
+
+        assert result["discipline"] == "computer_science"
+        assert result["description"] == "My thesis work"
+
+    @pytest.mark.asyncio
+    async def test_create_workspace_invalid_type(self):
+        """Test creating workspace with invalid type returns error."""
+        mock_db = AsyncMock()
+
+        with patch(
+            "src.academic.literature.tools.WorkspaceService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.create.side_effect = ValueError("Invalid workspace type")
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.create_workspace.coroutine(
+                name="Bad Workspace", type="invalid_type", db=mock_db
+            )
+
+        assert "error" in result
