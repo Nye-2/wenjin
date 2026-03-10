@@ -1,6 +1,7 @@
 """Database models package - exports all ORM models."""
 
 from .artifact import Artifact, ArtifactType
+from .citation import Citation, CitationType
 from .generation import GenerationRecord
 from .knowledge import KnowledgeCategory, UserKnowledge
 from .paper import Paper, PaperChunk, PaperExtraction, PaperSection, WorkspacePaper
@@ -22,6 +23,9 @@ __all__ = [
     # Artifact
     "Artifact",
     "ArtifactType",
+    # Citation
+    "Citation",
+    "CitationType",
     # Knowledge
     "UserKnowledge",
     "KnowledgeCategory",

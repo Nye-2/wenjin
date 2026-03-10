@@ -53,3 +53,13 @@ class TestCitationModel:
             workspace_id="workspace-789",
         )
         assert citation.citation_type == CitationType.EXPLICIT
+
+
+class TestCitationModelExport:
+    """Tests for Citation model export."""
+
+    def test_citation_exported_from_database_models(self):
+        """Test that Citation is exported from database models."""
+        from src.database import Citation, CitationType
+        assert Citation is not None
+        assert CitationType is not None

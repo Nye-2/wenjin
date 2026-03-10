@@ -11,6 +11,9 @@ from .models import (
     # Artifact
     Artifact,
     ArtifactType,
+    # Citation
+    Citation,
+    CitationType,
     # Generation
     GenerationRecord,
     KnowledgeCategory,
@@ -62,6 +65,9 @@ __all__ = [
     # Models - Artifact
     "Artifact",
     "ArtifactType",
+    # Models - Citation
+    "Citation",
+    "CitationType",
     # Models - Knowledge
     "UserKnowledge",
     "KnowledgeCategory",
