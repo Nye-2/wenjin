@@ -159,9 +159,8 @@ def get_available_tools(
 
     # Academic tools
     try:
-        from src.academic.literature.rag.tools import rag_retrieve_tool
         from src.academic.tools.semantic_scholar import semantic_scholar_search_tool
-        tools.extend([rag_retrieve_tool, semantic_scholar_search_tool])
+        tools.append(semantic_scholar_search_tool)
     except ImportError:
         pass  # Academic tools not yet implemented
 
