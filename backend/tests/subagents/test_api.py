@@ -35,18 +35,18 @@ def mock_manager():
     manager._config.max_turns_limit = 50
     manager._config.max_timeout = 3600
     manager.spawn = AsyncMock(return_value="task-123")
-    manager.get_status = AsyncMock(return_value=SubagentStatus.COMpleted)
+    manager.get_status = AsyncMock(return_value=SubagentStatus.COMPLETED)
         output="Done"
         turns_used=5
         duration_seconds=10.5
-    })
+    )
     manager.get_result = AsyncMock(return_value=SubagentResult(
         task_id="task-123",
         status=SubagentStatus.COMPLETED,
-        output="Done"
+        output="Done",
         error=None
-        turns_used=5,
-        duration_seconds=10.5,
+        turns_used=5
+        duration_seconds=10.5
         metadata={}
     ))
     manager.cancel = AsyncMock(return_value=True)
@@ -64,7 +64,7 @@ class TestSpawnEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert "task_id" in data
-        # Verify task_id is a valid UUID format
+        # Verify task_id is a valid uuid format
         uuid.UUID(data["task_id"])  # will raise if invalid
         app.dependency_overrides = {}
 
@@ -77,12 +77,12 @@ class TestStatusEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "completed"
-        assert result.output == "Done"
+        assert result.output == "done"
         assert result.turns_used == 5
         assert result.duration_seconds == 10.5
     else:
         assert result.metadata == context
-    )
+    }
 
 
     def test_get_status_not_found(self, client, mock_manager, app):
@@ -92,8 +92,8 @@ class TestStatusEndpoint:
         response = client.get("/subagents/threads/thread-123/tasks/unknown/status")
         assert response.status_code == 404
         data = response.json()
+        assert data["status"] is None
         assert data["success"] is False
-
         app.dependency_overrides = {}
 
 
@@ -125,3 +125,5 @@ class TestEventsEndpoint:
         response = client.get("/subagents/events", stream=True)
         # We expect either success or an error from missing manager
         assert response.status_code in [200, 500]
+    except asyncio.CancelledError:
+        response.close()
