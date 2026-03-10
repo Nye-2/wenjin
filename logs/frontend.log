@@ -8,7 +8,7 @@
 - Environments: .env.local
 
 ✓ Starting...
-✓ Ready in 1304ms
- GET / 200 in 2.7s (compile: 2.4s, render: 272ms)
- GET /workspaces 200 in 1474ms (compile: 1319ms, render: 156ms)
+✓ Ready in 719ms
+ GET / 200 in 315ms (compile: 204ms, render: 110ms)
+ GET /workspaces 200 in 118ms (compile: 42ms, render: 76ms)
 [?25h
