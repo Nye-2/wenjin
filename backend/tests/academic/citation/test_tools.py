@@ -345,3 +345,20 @@ class TestToolDefinitions:
         """Test add_citation tool has correct definition."""
         assert citation_tools.add_citation.name == "add_citation"
         assert "citation" in citation_tools.add_citation.description.lower()
+
+
+class TestCitationToolsRegistration:
+    """Tests for citation tools registration in lead agent."""
+
+    def test_citation_tools_in_available_tools(self):
+        """Test that citation tools are registered in get_available_tools."""
+        from src.agents.lead_agent.agent import get_available_tools
+
+        tools = get_available_tools()
+        tool_names = [t.name for t in tools]
+
+        assert "format_citation" in tool_names
+        assert "format_bibliography" in tool_names
+        assert "export_bibtex" in tool_names
+        assert "import_bibtex" in tool_names
+        assert "add_citation" in tool_names

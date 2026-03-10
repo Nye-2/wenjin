@@ -195,6 +195,27 @@ def get_available_tools(
     except ImportError:
         pass  # Literature tools not yet implemented
 
+    # Citation management tools
+    try:
+        from src.academic.citation.tools import (
+            format_citation,
+            format_bibliography,
+            export_bibtex,
+            import_bibtex,
+            get_citation_graph,
+            add_citation,
+        )
+        tools.extend([
+            format_citation,
+            format_bibliography,
+            export_bibtex,
+            import_bibtex,
+            get_citation_graph,
+            add_citation,
+        ])
+    except ImportError:
+        pass  # Citation tools not yet implemented
+
     # Subagent delegation tool
     if subagent_enabled:
         try:
