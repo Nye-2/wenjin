@@ -687,3 +687,122 @@ class TestRemovePaperFromWorkspaceTool:
 
         assert "Error" in result
         assert "not found" in result
+
+
+class TestImportPaperTool:
+    """Tests for import_paper tool."""
+
+    @pytest.mark.asyncio
+    async def test_import_paper_success(self):
+        """Test importing paper from external database."""
+        mock_db = AsyncMock()
+
+        # Mock search result
+        mock_author = MagicMock()
+        mock_author.name = "John Doe"
+        mock_author.affiliation = "MIT"
+
+        mock_result = MagicMock()
+        mock_result.title = "Test Paper"
+        mock_result.authors = [mock_author]
+        mock_result.doi = "10.1234/test"
+        mock_result.year = 2024
+        mock_result.venue = "NeurIPS"
+        mock_result.abstract = "Test abstract"
+        mock_result.url = "https://example.com/paper"
+
+        # Mock paper
+        mock_paper = MagicMock()
+        mock_paper.id = "paper-new"
+        mock_paper.title = "Test Paper"
+
+        with patch(
+            "src.academic.literature.tools.SemanticScholarClient"
+        ) as mock_client_class, patch(
+            "src.academic.literature.tools.PaperService"
+        ) as mock_service_class:
+            mock_client = AsyncMock()
+            mock_client.search.return_value = [mock_result]
+            mock_client_class.return_value = mock_client
+
+            mock_service = AsyncMock()
+            mock_service.create.return_value = mock_paper
+            mock_service.add_to_workspace.return_value = MagicMock()
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.import_paper.coroutine(
+                query="machine learning",
+                workspace_id="ws-123",
+                source="semantic_scholar",
+                db=mock_db,
+            )
+
+        assert "Successfully imported" in result
+        assert "Test Paper" in result
+
+    @pytest.mark.asyncio
+    async def test_import_paper_no_results(self):
+        """Test importing when no papers found."""
+        mock_db = AsyncMock()
+
+        with patch(
+            "src.academic.literature.tools.SemanticScholarClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.search.return_value = []
+            mock_client_class.return_value = mock_client
+
+            result = await literature_tools.import_paper.coroutine(
+                query="nonexistent paper xyz123",
+                workspace_id="ws-123",
+                source="semantic_scholar",
+                db=mock_db,
+            )
+
+        assert "No papers found" in result
+
+    @pytest.mark.asyncio
+    async def test_import_paper_arxiv_source(self):
+        """Test importing from arXiv."""
+        mock_db = AsyncMock()
+
+        mock_author = MagicMock()
+        mock_author.name = "Jane Smith"
+        mock_author.affiliation = None
+
+        mock_result = MagicMock()
+        mock_result.title = "arXiv Paper"
+        mock_result.authors = [mock_author]
+        mock_result.doi = None
+        mock_result.year = 2024
+        mock_result.venue = None
+        mock_result.abstract = "Abstract"
+        mock_result.url = "https://arxiv.org/abs/1234.5678"
+
+        mock_paper = MagicMock()
+        mock_paper.id = "paper-arxiv"
+        mock_paper.title = "arXiv Paper"
+
+        with patch(
+            "src.academic.literature.tools.ArxivClient"
+        ) as mock_client_class, patch(
+            "src.academic.literature.tools.PaperService"
+        ) as mock_service_class:
+            mock_client = AsyncMock()
+            mock_client.search.return_value = [mock_result]
+            mock_client_class.return_value = mock_client
+
+            mock_service = AsyncMock()
+            mock_service.create.return_value = mock_paper
+            mock_service.add_to_workspace.return_value = MagicMock()
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.import_paper.coroutine(
+                query="deep learning",
+                workspace_id="ws-456",
+                source="arxiv",
+                db=mock_db,
+            )
+
+        assert "Successfully imported" in result
+        assert "arXiv Paper" in result

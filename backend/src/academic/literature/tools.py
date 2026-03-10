@@ -353,3 +353,73 @@ async def remove_paper_from_workspace(
         return f"Successfully removed paper {paper_id} from workspace"
     else:
         return f"Error: Paper {paper_id} not found in workspace"
+
+
+@tool
+async def import_paper(
+    query: str,
+    workspace_id: str,
+    db: AsyncSession = InjectedToolArg,
+    source: Literal["semantic_scholar", "arxiv", "crossref", "openalex"] = "semantic_scholar",
+) -> str:
+    """Search external database and import paper to workspace.
+
+    Args:
+        query: Search query (title, DOI, or keywords)
+        workspace_id: Target workspace ID
+        source: External database to search (default: semantic_scholar)
+
+    Returns:
+        Import status with paper info
+    """
+    # Map source to client
+    clients = {
+        "semantic_scholar": SemanticScholarClient,
+        "arxiv": ArxivClient,
+        "crossref": CrossrefClient,
+        "openalex": OpenAlexClient,
+    }
+
+    client_class = clients.get(source)
+    if not client_class:
+        return f"Error: Unknown source '{source}'"
+
+    client = client_class()
+
+    # Search for paper
+    try:
+        results = await client.search(query, limit=1)
+        if not results:
+            return f"No papers found for query: {query}"
+
+        paper_data = results[0]
+    except Exception as e:
+        return f"Error searching {source}: {str(e)}"
+
+    # Create paper record
+    paper_service = PaperService(db)
+
+    try:
+        paper = await paper_service.create(
+            title=paper_data.title,
+            authors=[
+                {"name": a.name, "affiliation": a.affiliation}
+                for a in paper_data.authors
+            ],
+            doi=paper_data.doi,
+            year=paper_data.year,
+            venue=paper_data.venue,
+            abstract=paper_data.abstract,
+            source=source,
+            source_url=paper_data.url,
+        )
+
+        # Add to workspace
+        await paper_service.add_to_workspace(
+            paper_id=str(paper.id),
+            workspace_id=workspace_id,
+        )
+
+        return f"Successfully imported: {paper.title} (from {source})"
+    except Exception as e:
+        return f"Error importing paper: {str(e)}"
