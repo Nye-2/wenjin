@@ -1,5 +1,6 @@
 """Lead Agent factory for AcademiaGPT."""
 
+import logging
 from collections.abc import Callable
 
 from langchain_core.runnables import RunnableConfig
@@ -26,6 +27,9 @@ from src.agents.middlewares import (
     WorkspaceContextMiddleware,
 )
 from src.agents.thread_state import ThreadState
+from src.config.config_loader import get_app_config
+
+logger = logging.getLogger(__name__)
 
 
 def apply_prompt_template(
@@ -248,10 +252,18 @@ def build_pipeline(
     is_plan_mode = configurable.get("is_plan_mode", False)
     subagent_enabled = configurable.get("subagent_enabled", False)
 
-    # Get middleware config
-    from src.config.config_loader import get_app_config
-    app_config = get_app_config()
-    mw_config = app_config.middlewares
+    # Get middleware config with error handling
+    try:
+        app_config = get_app_config()
+        mw_config = app_config.middlewares
+    except Exception as e:
+        logger.warning(f"Failed to load app config, using defaults: {e}")
+        # Create a minimal default config
+        from types import SimpleNamespace
+        mw_config = SimpleNamespace(
+            summarization=SimpleNamespace(enabled=False, trigger="tokens:80000", keep="messages:10")
+        )
+        app_config = SimpleNamespace(middlewares=mw_config, memory=None)
 
     pipeline = []
 
@@ -268,13 +280,20 @@ def build_pipeline(
 
     # --- Context management layer (5-6) ---
     if mw_config.summarization.enabled:
-        trigger = int(mw_config.summarization.trigger.split(":")[1]) if ":" in mw_config.summarization.trigger else 80000
-        keep = int(mw_config.summarization.keep.split(":")[1]) if ":" in mw_config.summarization.keep else 10
+        # Safely parse trigger and keep values
+        try:
+            trigger_str = getattr(mw_config.summarization, "trigger", "tokens:80000")
+            keep_str = getattr(mw_config.summarization, "keep", "messages:10")
+            trigger = int(trigger_str.split(":")[1]) if ":" in trigger_str else 80000
+            keep = int(keep_str.split(":")[1]) if ":" in keep_str else 10
+        except (ValueError, IndexError, AttributeError) as e:
+            logger.warning(f"Invalid summarization config, using defaults: {e}")
+            trigger, keep = 80000, 10
         pipeline.append(SummarizationMiddleware(trigger_tokens=trigger, keep_messages=keep))
 
     # Memory (6) - requires queue
-    memory_enabled = getattr(app_config, "memory", None)
-    if memory_enabled and memory_enabled.enabled and memory_queue:
+    memory_config = getattr(app_config, "memory", None)
+    if memory_config and getattr(memory_config, "enabled", False) and memory_queue:
         pipeline.append(MemoryMiddleware(queue=memory_queue, enabled=True))
 
     # --- Academic context layer (7-10) ---

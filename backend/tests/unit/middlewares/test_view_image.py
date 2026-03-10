@@ -147,3 +147,77 @@ class TestViewImageMiddleware:
         # Assert - should return empty viewed_images dict to clear them
         assert "viewed_images" in result
         assert result["viewed_images"] == {}
+
+    @pytest.mark.asyncio
+    async def test_before_model_handles_invalid_image_data(
+        self,
+        middleware: ViewImageMiddleware,
+        vision_config: dict,
+    ):
+        """Verify that before_model handles invalid image data gracefully."""
+        # State with invalid image data (not a dict)
+        state = {
+            "messages": [],
+            "viewed_images": {
+                "invalid.png": "not a dict",  # Invalid: should be a dict
+            },
+        }
+
+        # Act - should not crash
+        result = await middleware.before_model(state, vision_config)
+
+        # Assert - should return empty dict since no valid images
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_before_model_handles_missing_keys(
+        self,
+        middleware: ViewImageMiddleware,
+        vision_config: dict,
+    ):
+        """Verify that before_model handles missing mime_type or base64."""
+        # State with missing required keys
+        state = {
+            "messages": [],
+            "viewed_images": {
+                "missing_mime.png": {"base64": "abc123"},  # Missing mime_type
+                "missing_base64.png": {"mime_type": "image/png"},  # Missing base64
+                "empty.png": {},  # Both missing
+            },
+        }
+
+        # Act - should not crash
+        result = await middleware.before_model(state, vision_config)
+
+        # Assert - should return empty dict since no valid images
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_before_model_processes_partial_valid_images(
+        self,
+        middleware: ViewImageMiddleware,
+        vision_config: dict,
+    ):
+        """Verify that before_model processes valid images and skips invalid ones."""
+        # State with mix of valid and invalid images
+        state = {
+            "messages": [],
+            "viewed_images": {
+                "valid.png": {
+                    "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                    "mime_type": "image/png",
+                },
+                "invalid.png": "not a dict",
+                "missing_keys.png": {"base64": "only_base64"},
+            },
+        }
+
+        # Act
+        result = await middleware.before_model(state, vision_config)
+
+        # Assert - should process only the valid image
+        assert "messages" in result
+        assert len(result["messages"]) == 1
+        content = result["messages"][0].content
+        assert len(content) == 1  # Only one valid image
+
