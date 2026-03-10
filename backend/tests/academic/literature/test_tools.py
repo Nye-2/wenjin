@@ -476,3 +476,59 @@ class TestCreateWorkspaceTool:
             )
 
         assert "error" in result
+
+
+class TestGetWorkspaceTool:
+    """Tests for get_workspace tool."""
+
+    @pytest.mark.asyncio
+    async def test_get_workspace_found(self):
+        """Test getting an existing workspace."""
+        mock_db = AsyncMock()
+
+        mock_workspace = MagicMock()
+        mock_workspace.id = "ws-123"
+        mock_workspace.name = "Test Workspace"
+        mock_workspace.type = MagicMock()
+        mock_workspace.type.value = "sci"
+        mock_workspace.discipline = "computer_science"
+        mock_workspace.description = "A test workspace"
+        mock_workspace.created_at = None
+
+        # Mock count query
+        mock_count_result = MagicMock()
+        mock_count_result.scalar.return_value = 5
+        mock_db.execute.return_value = mock_count_result
+
+        with patch(
+            "src.academic.literature.tools.WorkspaceService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.get.return_value = mock_workspace
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.get_workspace.coroutine(
+                workspace_id="ws-123", db=mock_db
+            )
+
+        assert result["id"] == "ws-123"
+        assert result["name"] == "Test Workspace"
+        assert result["paper_count"] == 5
+
+    @pytest.mark.asyncio
+    async def test_get_workspace_not_found(self):
+        """Test getting a non-existent workspace."""
+        mock_db = AsyncMock()
+
+        with patch(
+            "src.academic.literature.tools.WorkspaceService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.get.return_value = None
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.get_workspace.coroutine(
+                workspace_id="nonexistent", db=mock_db
+            )
+
+        assert result is None

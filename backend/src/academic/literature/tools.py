@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Paper, WorkspacePaper, Workspace, WorkspaceType
 from src.academic.services.workspace_service import WorkspaceService
+from src.academic.services.paper_service import PaperService
 from .navigation.models import PaperTOC
 from .navigation.toc_service import TocService
 from .navigation.section_loader import SectionLoader
@@ -206,3 +207,80 @@ async def create_workspace(
         }
     except ValueError as e:
         return {"error": str(e)}
+
+
+@tool
+async def get_workspace(
+    workspace_id: str,
+    db: AsyncSession = InjectedToolArg,
+) -> dict | None:
+    """Get workspace details.
+
+    Args:
+        workspace_id: Workspace ID
+
+    Returns:
+        Workspace info including paper count, or None if not found
+    """
+    from sqlalchemy import func, select
+
+    service = WorkspaceService(db)
+    workspace = await service.get(workspace_id)
+
+    if not workspace:
+        return None
+
+    # Count papers in workspace
+    result = await db.execute(
+        select(func.count()).where(WorkspacePaper.workspace_id == workspace_id)
+    )
+    paper_count = result.scalar() or 0
+
+    return {
+        "id": str(workspace.id),
+        "name": workspace.name,
+        "type": workspace.type.value,
+        "discipline": workspace.discipline,
+        "description": workspace.description,
+        "paper_count": paper_count,
+        "created_at": workspace.created_at.isoformat() if workspace.created_at else None,
+    }
+
+
+@tool
+async def add_paper_to_workspace(
+    paper_id: str,
+    workspace_id: str,
+    db: AsyncSession = InjectedToolArg,
+    notes: str | None = None,
+    tags: list[str] | None = None,
+) -> str:
+    """Add an existing paper to workspace.
+
+    Args:
+        paper_id: Paper ID
+        workspace_id: Target workspace ID
+        notes: User notes (optional)
+        tags: Tags for categorization (optional)
+
+    Returns:
+        Status message
+    """
+    service = PaperService(db)
+
+    # Check if paper exists
+    paper = await service.get(paper_id)
+    if not paper:
+        return f"Error: Paper {paper_id} not found"
+
+    # Add to workspace
+    try:
+        await service.add_to_workspace(
+            paper_id=paper_id,
+            workspace_id=workspace_id,
+            notes=notes,
+            tags=tags,
+        )
+        return f"Successfully added '{paper.title}' to workspace"
+    except Exception as e:
+        return f"Error: {str(e)}"
