@@ -2,8 +2,9 @@
 
 This service provides workspace management functionality including:
 - Workspace CRUD operations
-- Paper association management
 - Workspace configuration handling
+
+Note: Paper association management is handled by PaperService.
 """
 
 
@@ -16,8 +17,8 @@ from src.database import Workspace, WorkspaceType
 class WorkspaceService:
     """Service for managing workspaces.
 
-    This class provides CRUD operations and paper association management
-    for workspaces. It requires an AsyncSession for database operations.
+    This class provides CRUD operations for workspaces.
+    Paper association management is handled by PaperService.
 
     Attributes:
         db: AsyncSession for database operations
