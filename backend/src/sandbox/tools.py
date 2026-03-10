@@ -35,82 +35,87 @@ async def bash(command: str, description: str = "") -> str:
 
 
 @tool
-async def list_dir(description: str, path: str) -> str:
+async def list_dir(
+    path: str,
+    max_depth: int = 2,
+    description: str = "",
+) -> str:
     """List directory contents in tree format.
 
     Args:
-        description: Brief description of why you're listing this directory.
         path: Absolute path to the directory.
+        max_depth: Maximum depth to traverse.
+        description: Brief description of why you're listing this directory.
 
     Returns:
         Directory contents in tree format.
     """
-    pass
+    return ""
 
 
 @tool
 async def read_file(
-    description: str,
     path: str,
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
+    description: str = "",
 ) -> str:
     """Read the contents of a text file.
 
     Args:
-        description: Brief description of why you're reading this file.
         path: Absolute path to the file.
         start_line: Optional starting line number (1-indexed).
         end_line: Optional ending line number (1-indexed).
+        description: Brief description of why you're reading this file.
 
     Returns:
         File contents.
     """
-    pass
+    return ""
 
 
 @tool
 async def write_file(
-    description: str,
     path: str,
     content: str,
     append: bool = False,
+    description: str = "",
 ) -> str:
     """Write content to a file.
 
     Args:
-        description: Brief description of why you're writing this file.
         path: Absolute path to the file.
         content: Content to write.
         append: Whether to append to existing file.
+        description: Brief description of why you're writing this file.
 
     Returns:
         "OK" on success or error message.
     """
-    pass
+    return "OK"
 
 
 @tool
 async def str_replace(
-    description: str,
     path: str,
     old_str: str,
     new_str: str,
     replace_all: bool = False,
+    description: str = "",
 ) -> str:
     """Replace a substring in a file.
 
     Args:
-        description: Brief description of why you're replacing.
         path: Absolute path to the file.
         old_str: String to replace.
         new_str: Replacement string.
         replace_all: Replace all occurrences if True.
+        description: Brief description of why you're replacing.
 
     Returns:
         "OK" on success or error message.
     """
-    pass
+    return "OK"
 
 
 # Tool instances for direct access

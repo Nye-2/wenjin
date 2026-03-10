@@ -1,5 +1,109 @@
-INFO:     Will watch for changes in these directories: ['/home/cjz/academiagpt-v2/backend']
+INFO:     Will watch for changes in these directories: ['/home/cjz/AcademiaGPT-V2/backend']
 INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
-INFO:     Started reloader process [757413] using WatchFiles
-ERROR:    Error loading ASGI app. Could not import module "src.gateway.main".
-INFO:     Stopping reloader process [757413]
+INFO:     Started reloader process [130013] using WatchFiles
+Process SpawnProcess-1:
+Traceback (most recent call last):
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/networks.py", line 965, in import_email_validator
+    import email_validator
+ModuleNotFoundError: No module named 'email_validator'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/cjz/.pyenv/versions/3.13.1/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "/home/cjz/.pyenv/versions/3.13.1/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+    ~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/uvicorn/server.py", line 75, in run
+    return asyncio_run(self.serve(sockets=sockets), loop_factory=self.config.get_loop_factory())
+  File "/home/cjz/.pyenv/versions/3.13.1/lib/python3.13/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/cjz/.pyenv/versions/3.13.1/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/uvicorn/server.py", line 79, in serve
+    await self._serve(sockets)
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/uvicorn/server.py", line 86, in _serve
+    config.load()
+    ~~~~~~~~~~~^^
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/uvicorn/config.py", line 441, in load
+    self.loaded_app = import_from_string(self.app)
+                      ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/home/cjz/.pyenv/versions/3.13.1/lib/python3.13/importlib/__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1310, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 1026, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/home/cjz/AcademiaGPT-V2/backend/src/gateway/__init__.py", line 3, in <module>
+    from .app import app
+  File "/home/cjz/AcademiaGPT-V2/backend/src/gateway/app.py", line 62, in <module>
+    from .routers import academic, artifacts, auth, chat, models, papers, workspaces  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/cjz/AcademiaGPT-V2/backend/src/gateway/routers/__init__.py", line 5, in <module>
+    from .auth import router as auth_router
+  File "/home/cjz/AcademiaGPT-V2/backend/src/gateway/routers/auth.py", line 33, in <module>
+    class RegisterRequest(BaseModel):
+    ...<3 lines>...
+        name: str | None = None
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_model_construction.py", line 255, in __new__
+    complete_model_class(
+    ~~~~~~~~~~~~~~~~~~~~^
+        cls,
+        ^^^^
+    ...<3 lines>...
+        create_model_module=_create_model_module,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_model_construction.py", line 648, in complete_model_class
+    schema = gen_schema.generate_schema(cls)
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_generate_schema.py", line 729, in generate_schema
+    schema = self._generate_schema_inner(obj)
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_generate_schema.py", line 1023, in _generate_schema_inner
+    return self._model_schema(obj)
+           ~~~~~~~~~~~~~~~~~~^^^^^
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_generate_schema.py", line 856, in _model_schema
+    {k: self._generate_md_field_schema(k, v, decorators) for k, v in fields.items()},
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_generate_schema.py", line 1228, in _generate_md_field_schema
+    schema, metadata = self._common_field_schema(name, field_info, decorators)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_generate_schema.py", line 1282, in _common_field_schema
+    schema = self._apply_annotations(
+        source_type,
+        annotations + validators_from_decorators,
+    )
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_generate_schema.py", line 2227, in _apply_annotations
+    schema = get_inner_schema(source_type)
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_schema_generation_shared.py", line 83, in __call__
+    schema = self._handler(source_type)
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_generate_schema.py", line 2203, in inner_handler
+    schema = self._generate_schema_from_get_schema_method(obj, source_type)
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/_internal/_generate_schema.py", line 919, in _generate_schema_from_get_schema_method
+    schema = get_schema(
+        source, CallbackGetCoreSchemaHandler(self._generate_schema_inner, self, ref_mode=ref_mode)
+    )
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/networks.py", line 1005, in __get_pydantic_core_schema__
+    import_email_validator()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/cjz/AcademiaGPT-V2/backend/.venv/lib/python3.13/site-packages/pydantic/networks.py", line 967, in import_email_validator
+    raise ImportError("email-validator is not installed, run `pip install 'pydantic[email]'`") from e
+ImportError: email-validator is not installed, run `pip install 'pydantic[email]'`
+INFO:     Stopping reloader process [130013]
