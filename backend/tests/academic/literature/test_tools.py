@@ -642,3 +642,48 @@ class TestAddPaperToWorkspaceTool:
 
         assert "Error" in result
         assert "not found" in result
+
+
+class TestRemovePaperFromWorkspaceTool:
+    """Tests for remove_paper_from_workspace tool."""
+
+    @pytest.mark.asyncio
+    async def test_remove_paper_success(self):
+        """Test removing paper from workspace."""
+        mock_db = AsyncMock()
+
+        with patch(
+            "src.academic.literature.tools.PaperService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.remove_from_workspace.return_value = True
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.remove_paper_from_workspace.coroutine(
+                paper_id="paper-123",
+                workspace_id="ws-456",
+                db=mock_db,
+            )
+
+        assert "Successfully removed" in result
+
+    @pytest.mark.asyncio
+    async def test_remove_paper_not_in_workspace(self):
+        """Test removing paper that's not in workspace."""
+        mock_db = AsyncMock()
+
+        with patch(
+            "src.academic.literature.tools.PaperService"
+        ) as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service.remove_from_workspace.return_value = False
+            mock_service_class.return_value = mock_service
+
+            result = await literature_tools.remove_paper_from_workspace.coroutine(
+                paper_id="paper-123",
+                workspace_id="ws-456",
+                db=mock_db,
+            )
+
+        assert "Error" in result
+        assert "not found" in result
