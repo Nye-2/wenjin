@@ -88,9 +88,9 @@ export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
   };
 
   return (
-    <div className="w-[320px] h-full flex flex-col bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border-l border-white/10">
+    <div className="w-[320px] h-full flex flex-col bg-[var(--glass-bg)] backdrop-blur-xl border-l border-[var(--glass-border)]">
       {/* Header */}
-      <div className="p-4 border-b border-white/10">
+      <div className="p-4 border-b border-[var(--glass-border)]">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <FileText className="w-5 h-5 text-academic-primary" />

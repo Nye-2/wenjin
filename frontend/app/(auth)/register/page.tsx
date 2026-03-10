@@ -43,13 +43,13 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4 py-8">
-      <Card className="w-full max-w-md bg-slate-800/50 border-slate-700 backdrop-blur-sm">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--bg-base)] px-4 py-8">
+      <Card className="w-full max-w-md bg-[var(--bg-elevated)]/50 border-[var(--border-default)] backdrop-blur-sm">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold text-white">
+          <CardTitle className="text-2xl font-bold text-[var(--text-primary)]">
             Create Account
           </CardTitle>
-          <CardDescription className="text-slate-400">
+          <CardDescription className="text-[var(--text-secondary)]">
             Start your academic research journey
           </CardDescription>
         </CardHeader>

@@ -111,7 +111,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   return (
     <div className="flex-1 h-full flex flex-col">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-white/10 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl">
+      <div className="px-6 py-4 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
@@ -163,7 +163,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
       </div>
 
       {/* Input Area */}
-      <div className="p-4 border-t border-white/10 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl">
+      <div className="p-4 border-t border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl">
         {/* Skill Selector */}
         <div className="mb-3 overflow-x-auto pb-2">
           <SkillSelector
@@ -185,10 +185,10 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
               rows={1}
               className={cn(
                 "w-full px-4 py-3 rounded-xl resize-none",
-                "bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm",
-                "border border-white/20 focus:border-academic-primary/50",
-                "text-slate-900 dark:text-slate-100 placeholder:text-slate-400",
-                "focus:outline-none focus:ring-2 focus:ring-academic-primary/20",
+                "bg-[var(--bg-muted)]/70 backdrop-blur-sm",
+                "border border-[var(--border-default)] focus:border-[var(--border-focus)]",
+                "text-[var(--text-primary)] placeholder:text-[var(--text-muted)]",
+                "focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/20",
                 "transition-all duration-200"
               )}
             />
@@ -200,8 +200,8 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
             whileTap={{ scale: 0.98 }}
             className={cn(
               "px-4 py-3 rounded-xl flex items-center justify-center",
-              "bg-academic-primary text-white",
-              "hover:bg-academic-primary/90 transition-colors",
+              "bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] text-white",
+              "hover:shadow-lg transition-shadow",
               "disabled:opacity-50 disabled:cursor-not-allowed"
             )}
           >

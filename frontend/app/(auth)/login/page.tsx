@@ -28,26 +28,26 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4">
-      <Card className="w-full max-w-md bg-slate-800/50 border-slate-700 backdrop-blur-sm">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--bg-base)] px-4">
+      <Card className="w-full max-w-md bg-[var(--bg-elevated)]/50 border-[var(--border-default)] backdrop-blur-sm">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold text-white">
+          <CardTitle className="text-2xl font-bold text-[var(--text-primary)]">
             AcademiaGPT
           </CardTitle>
-          <CardDescription className="text-slate-400">
+          <CardDescription className="text-[var(--text-secondary)]">
             Sign in to your account to continue
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             {error && (
-              <Alert variant="destructive" className="bg-red-900/50 border-red-800">
+              <Alert variant="destructive" className="bg-red-500/10 border-red-500/30 text-red-400">
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-slate-200">
+              <Label htmlFor="email" className="text-[var(--text-primary)]">
                 Email
               </Label>
               <Input
@@ -57,12 +57,11 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-slate-200">
+              <Label htmlFor="password" className="text-[var(--text-primary)]">
                 Password
               </Label>
               <Input
@@ -72,7 +71,6 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
               />
             </div>
           </CardContent>
@@ -80,7 +78,7 @@ export default function LoginPage() {
           <CardFooter className="flex flex-col space-y-4">
             <Button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+              className="w-full"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -96,11 +94,11 @@ export default function LoginPage() {
               )}
             </Button>
 
-            <p className="text-sm text-slate-400 text-center">
+            <p className="text-sm text-[var(--text-secondary)] text-center">
               Don't have an account?{' '}
               <Link
                 href="/register"
-                className="text-blue-400 hover:text-blue-300 underline underline-offset-4"
+                className="text-[var(--accent-secondary)] hover:text-[var(--accent-primary)] underline underline-offset-4"
               >
                 Create one
               </Link>

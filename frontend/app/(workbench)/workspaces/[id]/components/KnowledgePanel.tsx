@@ -93,9 +93,9 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
   }, [workspaceId, fetchArtifacts]);
 
   return (
-    <div className="w-[280px] h-full flex flex-col bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border-r border-white/10">
+    <div className="w-[280px] h-full flex flex-col bg-[var(--glass-bg)] backdrop-blur-xl border-r border-[var(--glass-border)]">
       {/* Header */}
-      <div className="p-4 border-b border-white/10">
+      <div className="p-4 border-b border-[var(--glass-border)]">
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <BookOpen className="w-5 h-5 text-academic-primary" />
           Knowledge

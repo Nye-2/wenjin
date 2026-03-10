@@ -47,7 +47,7 @@ export default function WorkbenchPage() {
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gradient-to-b from-slate-50 to-indigo-50/30 dark:from-slate-950 dark:to-indigo-950/30">
+      <div className="h-screen flex items-center justify-center bg-[var(--bg-base)]">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -62,7 +62,7 @@ export default function WorkbenchPage() {
 
   if (error || !workspace) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gradient-to-b from-slate-50 to-indigo-50/30 dark:from-slate-950 dark:to-indigo-950/30">
+      <div className="h-screen flex items-center justify-center bg-[var(--bg-base)]">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -83,9 +83,9 @@ export default function WorkbenchPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-b from-slate-50 to-indigo-50/30 dark:from-slate-950 dark:to-indigo-950/30">
+    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
       {/* Header */}
-      <header className="h-16 flex items-center justify-between px-4 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border-b border-white/10">
+      <header className="h-16 flex items-center justify-between px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
         <div className="flex items-center gap-4">
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -93,9 +93,9 @@ export default function WorkbenchPage() {
             onClick={() => router.push("/workspaces")}
             className={cn(
               "p-2 rounded-lg",
-              "bg-white/50 dark:bg-white/5",
-              "hover:bg-white/80 dark:hover:bg-white/10",
-              "text-slate-600 dark:text-slate-400",
+              "bg-[var(--bg-surface)]",
+              "hover:bg-[var(--bg-muted)]",
+              "text-[var(--text-secondary)]",
               "transition-colors"
             )}
           >
@@ -127,7 +127,7 @@ export default function WorkbenchPage() {
 
           {/* Discipline Badge */}
           {workspace.discipline && (
-            <span className="px-3 py-1 rounded-full text-xs font-medium bg-white/50 dark:bg-white/5 text-slate-600 dark:text-slate-400 border border-white/20">
+            <span className="px-3 py-1 rounded-full text-xs font-medium bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-default)]">
               {workspace.discipline}
             </span>
           )}

@@ -80,7 +80,7 @@ export default function WorkspacesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg-gradient)]">
+    <div className="min-h-screen bg-[var(--bg-base)]">
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
@@ -115,7 +115,7 @@ export default function WorkspacesPage() {
               placeholder="Search workspaces..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/50 border border-border/50 focus:border-academic-primary focus:ring-2 focus:ring-academic-primary/20 outline-none transition-all"
+              className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--bg-muted)]/50 border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
             />
           </div>
 
@@ -128,7 +128,7 @@ export default function WorkspacesPage() {
 
             <motion.button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl text-white bg-gradient-to-r from-academic-primary to-academic-secondary font-medium"
+              className="flex items-center gap-2 px-6 py-3 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] font-medium hover:shadow-lg transition-shadow"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
@@ -228,7 +228,7 @@ export default function WorkspacesPage() {
                           setNewWorkspace({ ...newWorkspace, name: e.target.value })
                         }
                         placeholder="e.g., Deep Learning for NLP"
-                        className="w-full px-4 py-2 rounded-lg bg-white/50 border border-border/50 focus:border-academic-primary outline-none"
+                        className="w-full px-4 py-2 rounded-lg bg-[var(--bg-muted)]/50 border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none"
                       />
                     </div>
 
@@ -241,7 +241,7 @@ export default function WorkspacesPage() {
                         onChange={(e) =>
                           setNewWorkspace({ ...newWorkspace, type: e.target.value })
                         }
-                        className="w-full px-4 py-2 rounded-lg bg-white/50 border border-border/50 focus:border-academic-primary outline-none"
+                        className="w-full px-4 py-2 rounded-lg bg-[var(--bg-muted)]/50 border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none"
                       >
                         {WORKSPACE_TYPES.map((type) => (
                           <option key={type.value} value={type.value}>
@@ -263,7 +263,7 @@ export default function WorkspacesPage() {
                             discipline: e.target.value,
                           })
                         }
-                        className="w-full px-4 py-2 rounded-lg bg-white/50 border border-border/50 focus:border-academic-primary outline-none"
+                        className="w-full px-4 py-2 rounded-lg bg-[var(--bg-muted)]/50 border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none"
                       >
                         <option value="">Select discipline...</option>
                         {DISCIPLINES.map((disc) => (

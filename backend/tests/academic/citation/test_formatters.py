@@ -96,3 +96,77 @@ class TestAPAFormatter:
         paper = {"title": "Untitled", "authors": [{"name": "John Smith"}]}
         result = formatter.format_citation(paper, in_text=True)
         assert "n.d." in result
+
+
+from src.academic.citation.formatters.mla import MLAFormatter
+from src.academic.citation.formatters.chicago import ChicagoFormatter
+from src.academic.citation.formatters.ieee import IEEEFormatter
+
+
+class TestMLAFormatter:
+    """Tests for MLA formatter."""
+
+    @pytest.fixture
+    def formatter(self):
+        return MLAFormatter()
+
+    def test_mla_style_name(self, formatter):
+        assert formatter.style_name == "MLA"
+
+    def test_mla_format_authors(self, formatter):
+        authors = [{"name": "John Smith"}, {"name": "Jane Doe"}]
+        result = formatter.format_authors(authors)
+        assert "Smith, John" in result
+        assert "Jane Doe" in result
+
+    def test_mla_format_bibliography(self, formatter):
+        paper = {
+            "title": "Test Paper",
+            "authors": [{"name": "John Smith"}],
+            "year": 2024,
+            "venue": "Test Journal",
+            "doi": "10.1234/test",
+        }
+        result = formatter.format_bibliography_entry(paper)
+        assert "Smith, John" in result
+        assert "Test Paper" in result
+        assert "2024" in result
+        assert "Test Journal" in result
+
+
+class TestChicagoFormatter:
+    """Tests for Chicago formatter."""
+
+    @pytest.fixture
+    def formatter(self):
+        return ChicagoFormatter()
+
+    def test_chicago_style_name(self, formatter):
+        assert formatter.style_name == "Chicago"
+
+    def test_chicago_format_bibliography(self, formatter):
+        paper = {
+            "title": "Test Paper",
+            "authors": [{"name": "John Smith"}],
+            "year": 2024,
+            "venue": "Test Journal",
+        }
+        result = formatter.format_bibliography_entry(paper)
+        assert "Smith, John" in result
+        assert "2024" in result
+
+
+class TestIEEEFormatter:
+    """Tests for IEEE formatter."""
+
+    @pytest.fixture
+    def formatter(self):
+        return IEEEFormatter()
+
+    def test_ieee_style_name(self, formatter):
+        assert formatter.style_name == "IEEE"
+
+    def test_ieee_format_authors(self, formatter):
+        authors = [{"name": "John Smith"}, {"name": "Jane Doe"}]
+        result = formatter.format_authors(authors)
+        assert "J. Smith" in result
