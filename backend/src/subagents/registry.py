@@ -25,7 +25,6 @@ Your mission is to discover and gather relevant academic papers:
 
 Available tools:
 - semantic_scholar_search: Search academic papers
-- rag_retrieve: Search papers in current workspace
 
 Always cite your sources and provide paper identifiers for tracking."""
 
@@ -39,7 +38,6 @@ Your mission is to produce high-quality academic writing:
 4. Ensure all claims are properly cited
 
 Available tools:
-- rag_retrieve: Search for relevant literature to cite
 - read_file: Read existing drafts or outlines
 - write_file: Write content to files
 
@@ -55,7 +53,6 @@ Your mission is to synthesize information from multiple sources:
 4. Create coherent summaries and syntheses
 
 Available tools:
-- rag_retrieve: Search literature for information
 - read_file: Read existing artifacts
 
 Focus on generating actionable insights and identifying connections."""
@@ -87,7 +84,6 @@ Your mission is to identify research gaps in existing literature:
 
 Available tools:
 - read_file: Read paper summaries
-- rag_retrieve: Search for specific topics
 
 Focus on actionable gaps with clear research potential."""
 
@@ -115,7 +111,6 @@ Your mission is to review and improve academic content:
 
 Available tools:
 - read_file: Read content to review
-- rag_retrieve: Find supporting literature
 
 Provide constructive, actionable feedback."""
 
@@ -128,7 +123,6 @@ DEFAULT_SUBAGENTS = {
         system_prompt=SCOUT_PROMPT,
         allowed_tools=(
             "semantic_scholar_search",
-            "rag_retrieve",
         ),
         max_turns=10,
     ),
@@ -137,7 +131,6 @@ DEFAULT_SUBAGENTS = {
         description="Academic writing agent for producing high-quality content",
         system_prompt=WRITER_PROMPT,
         allowed_tools=(
-            "rag_retrieve",
             "read_file",
             "write_file",
         ),
@@ -148,7 +141,6 @@ DEFAULT_SUBAGENTS = {
         description="Knowledge synthesis agent for generating insights",
         system_prompt=SYNTHESIZER_PROMPT,
         allowed_tools=(
-            "rag_retrieve",
             "read_file",
         ),
         max_turns=10,
@@ -170,7 +162,6 @@ DEFAULT_SUBAGENTS = {
         system_prompt=GAP_MINER_PROMPT,
         allowed_tools=(
             "read_file",
-            "rag_retrieve",
         ),
         max_turns=8,
     ),
@@ -181,7 +172,6 @@ DEFAULT_SUBAGENTS = {
         allowed_tools=(
             "semantic_scholar_search",
             "web_search",
-            "rag_retrieve",
         ),
         max_turns=8,
     ),
@@ -191,7 +181,6 @@ DEFAULT_SUBAGENTS = {
         system_prompt=REVIEWER_PROMPT,
         allowed_tools=(
             "read_file",
-            "rag_retrieve",
         ),
         max_turns=8,
     ),

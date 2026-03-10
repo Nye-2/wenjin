@@ -3,7 +3,6 @@ name: peer-reviewer
 description: 同行评审助手，对论文进行专业的评审和反馈
 license: MIT
 allowed-tools:
-  - rag_retrieve
   - read_file
   - write_file
 ---

@@ -5,7 +5,6 @@ license: MIT
 allowed-tools:
   - task
   - semantic_scholar_search
-  - rag_retrieve
   - read_file
   - write_file
 ---
@@ -17,7 +16,7 @@ allowed-tools:
 ## 执行流程
 
 1. **理解综述范围** — 确定综述的主题、时间范围、文献数量
-2. **文献收集** — 使用semantic_scholar_search和rag_retrieve收集文献
+2. **文献收集** — 使用semantic_scholar_search收集文献
 3. **分类整理** — 按主题、方法、时间等维度分类
 4. **分析比较** — 调用Synthesizer分析各方法的优缺点
 5. **撰写综述** — 组织成连贯的文献综述

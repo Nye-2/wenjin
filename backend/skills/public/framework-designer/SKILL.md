@@ -4,7 +4,6 @@ description: 论文框架设计助手，生成研究摘要和大纲
 license: MIT
 allowed-tools:
   - task
-  - rag_retrieve
   - read_file
   - write_file
   - ask_clarification
@@ -17,7 +16,7 @@ allowed-tools:
 ## 执行流程
 
 1. **理解研究想法** — 读取用户的研究想法，必要时澄清
-2. **文献调研** — 使用rag_retrieve检索相关文献
+2. **文献调研** — 检索相关文献
 3. **设计摘要** — 撰写研究摘要（背景、问题、方法、贡献、结论）
 4. **规划大纲** — 制定详细的章节大纲
 5. **保存输出** — 将框架保存为文件

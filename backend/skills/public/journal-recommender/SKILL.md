@@ -4,7 +4,6 @@ description: 期刊推荐助手，根据论文内容推荐合适的发表期刊
 license: MIT
 allowed-tools:
   - task
-  - rag_retrieve
   - read_file
 ---
 

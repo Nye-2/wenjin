@@ -5,7 +5,6 @@ license: MIT
 allowed-tools:
   - task
   - semantic_scholar_search
-  - rag_retrieve
   - ask_clarification
 ---
 

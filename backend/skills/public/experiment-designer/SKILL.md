@@ -4,7 +4,6 @@ description: 实验设计助手，帮助设计科学严谨的实验方案
 license: MIT
 allowed-tools:
   - task
-  - rag_retrieve
   - read_file
   - write_file
   - bash
