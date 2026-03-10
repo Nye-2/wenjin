@@ -58,6 +58,11 @@ class Paper(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default="manual_upload",
     )
+    # External source URL (for imported papers)
+    source_url: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
     external_ids: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,

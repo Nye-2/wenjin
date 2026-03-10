@@ -40,6 +40,7 @@ class PaperService:
         venue: str | None = None,
         abstract: str | None = None,
         source: str = "manual_upload",
+        source_url: str | None = None,
     ) -> Paper:
         """Create a new paper.
 
@@ -51,6 +52,7 @@ class PaperService:
             venue: Publication venue (optional)
             abstract: Paper abstract (optional)
             source: Source of paper data (default: "manual_upload")
+            source_url: External source URL (optional)
 
         Returns:
             Created paper object
@@ -72,6 +74,7 @@ class PaperService:
             venue=venue,
             abstract=abstract,
             source=source,
+            source_url=source_url,
         )
         self.db.add(paper)
         await self.db.commit()
