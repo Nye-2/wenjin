@@ -272,7 +272,7 @@ async def add_paper_to_workspace(
     workspace_id: str,
     paper_id: str,
     request: AddPaperRequest,
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    paper_service: PaperService = Depends(get_paper_service),
 ):
     """Add paper to workspace.
 
@@ -280,50 +280,41 @@ async def add_paper_to_workspace(
         workspace_id: Workspace ID
         paper_id: Paper ID to add
         request: Add paper request with optional notes and tags
-        workspace_service: Workspace service instance
+        paper_service: Paper service instance
 
     Returns:
         Success message
-
-    Raises:
-        HTTPException: If paper already in workspace
     """
-    try:
-        await workspace_service.add_paper(
-            workspace_id=workspace_id,
-            paper_id=paper_id,
-            notes=request.notes,
-            tags=request.tags,
-            is_primary=request.is_primary,
-        )
-        return {"success": True, "paper_id": paper_id}
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
+    await paper_service.add_to_workspace(
+        paper_id=paper_id,
+        workspace_id=workspace_id,
+        notes=request.notes,
+        tags=request.tags,
+        is_primary=request.is_primary,
+    )
+    return {"success": True, "paper_id": paper_id}
 
 
 @router.delete("/{workspace_id}/papers/{paper_id}")
 async def remove_paper_from_workspace(
     workspace_id: str,
     paper_id: str,
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    paper_service: PaperService = Depends(get_paper_service),
 ):
     """Remove paper from workspace.
 
     Args:
         workspace_id: Workspace ID
         paper_id: Paper ID to remove
-        workspace_service: Workspace service instance
+        paper_service: Paper service instance
 
     Returns:
         Success message
-
-    Raises:
-        HTTPException: If paper not in workspace
     """
-    success = await workspace_service.remove_paper(workspace_id, paper_id)
+    success = await paper_service.remove_from_workspace(
+        paper_id=paper_id,
+        workspace_id=workspace_id,
+    )
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -435,27 +435,27 @@ class TestAddPaperToWorkspace:
     """Test add paper to workspace endpoint."""
 
     @pytest.fixture
-    def mock_workspace_service(self):
-        """Create mock workspace service."""
+    def mock_paper_service(self):
+        """Create mock paper service."""
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_workspace_service):
+    def client(self, mock_paper_service):
         """Create test client with mocked dependencies."""
         app = FastAPI()
 
-        async def override_get_workspace_service():
-            return mock_workspace_service
+        async def override_get_paper_service():
+            return mock_paper_service
 
-        app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
+        app.dependency_overrides[workspaces.get_paper_service] = override_get_paper_service
         app.include_router(workspaces.router)
 
         return TestClient(app)
 
-    def test_add_paper_success(self, client, mock_workspace_service):
+    def test_add_paper_success(self, client, mock_paper_service):
         """Test successfully adding paper to workspace."""
         mock_workspace_paper = MagicMock()
-        mock_workspace_service.add_paper.return_value = mock_workspace_paper
+        mock_paper_service.add_to_workspace.return_value = mock_workspace_paper
 
         response = client.post(
             "/workspaces/test-workspace-id/papers/test-paper-id",
@@ -466,18 +466,18 @@ class TestAddPaperToWorkspace:
         data = response.json()
         assert data["success"] is True
         assert data["paper_id"] == "test-paper-id"
-        mock_workspace_service.add_paper.assert_called_once_with(
-            workspace_id="test-workspace-id",
+        mock_paper_service.add_to_workspace.assert_called_once_with(
             paper_id="test-paper-id",
+            workspace_id="test-workspace-id",
             notes="Important paper",
             tags=["ml", "ai"],
             is_primary=False,
         )
 
-    def test_add_paper_with_is_primary(self, client, mock_workspace_service):
+    def test_add_paper_with_is_primary(self, client, mock_paper_service):
         """Test adding paper as primary reference."""
         mock_workspace_paper = MagicMock()
-        mock_workspace_service.add_paper.return_value = mock_workspace_paper
+        mock_paper_service.add_to_workspace.return_value = mock_workspace_paper
 
         response = client.post(
             "/workspaces/test-workspace-id/papers/test-paper-id",
@@ -485,27 +485,27 @@ class TestAddPaperToWorkspace:
         )
 
         assert response.status_code == 200
-        mock_workspace_service.add_paper.assert_called_once_with(
-            workspace_id="test-workspace-id",
+        mock_paper_service.add_to_workspace.assert_called_once_with(
             paper_id="test-paper-id",
+            workspace_id="test-workspace-id",
             notes=None,
             tags=None,
             is_primary=True,
         )
 
-    def test_add_paper_already_exists(self, client, mock_workspace_service):
-        """Test adding paper that's already in workspace."""
-        mock_workspace_service.add_paper.side_effect = ValueError(
-            "Paper test-paper-id is already in workspace test-workspace-id"
-        )
+    def test_add_paper_already_exists(self, client, mock_paper_service):
+        """Test adding paper returns existing if already in workspace."""
+        # PaperService.add_to_workspace returns existing association instead of raising error
+        mock_existing = MagicMock()
+        mock_paper_service.add_to_workspace.return_value = mock_existing
 
         response = client.post(
             "/workspaces/test-workspace-id/papers/test-paper-id",
             json={},
         )
 
-        assert response.status_code == 400
-        assert "already in workspace" in response.json()["detail"]
+        assert response.status_code == 200
+        assert response.json()["success"] is True
 
 
 # ============ Remove Paper from Workspace Tests ============
@@ -514,39 +514,40 @@ class TestRemovePaperFromWorkspace:
     """Test remove paper from workspace endpoint."""
 
     @pytest.fixture
-    def mock_workspace_service(self):
-        """Create mock workspace service."""
+    def mock_paper_service(self):
+        """Create mock paper service."""
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_workspace_service):
+    def client(self, mock_paper_service):
         """Create test client with mocked dependencies."""
         app = FastAPI()
 
-        async def override_get_workspace_service():
-            return mock_workspace_service
+        async def override_get_paper_service():
+            return mock_paper_service
 
-        app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
+        app.dependency_overrides[workspaces.get_paper_service] = override_get_paper_service
         app.include_router(workspaces.router)
 
         return TestClient(app)
 
-    def test_remove_paper_success(self, client, mock_workspace_service):
+    def test_remove_paper_success(self, client, mock_paper_service):
         """Test successfully removing paper from workspace."""
-        mock_workspace_service.remove_paper.return_value = True
+        mock_paper_service.remove_from_workspace.return_value = True
 
         response = client.delete("/workspaces/test-workspace-id/papers/test-paper-id")
 
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        mock_workspace_service.remove_paper.assert_called_once_with(
-            "test-workspace-id", "test-paper-id"
+        mock_paper_service.remove_from_workspace.assert_called_once_with(
+            paper_id="test-paper-id",
+            workspace_id="test-workspace-id",
         )
 
-    def test_remove_paper_not_found(self, client, mock_workspace_service):
+    def test_remove_paper_not_found(self, client, mock_paper_service):
         """Test removing paper that's not in workspace."""
-        mock_workspace_service.remove_paper.return_value = False
+        mock_paper_service.remove_from_workspace.return_value = False
 
         response = client.delete("/workspaces/test-workspace-id/papers/non-existent-paper")
 
