@@ -1,311 +1,165 @@
-"""Literature navigation tools for index-based paper exploration.
+# src/academic/literature/tools.py
+"""LLM tools for literature management."""
 
-This module provides LangChain tools for navigating academic literature
-using table of contents (TOC) and section-level retrieval. This is an
-index-based approach that does not rely on vector embeddings.
+import logging
+from typing import Literal
 
-Tools:
-    - get_paper_toc: Get table of contents for a paper
-    - get_paper_section: Get content of a specific section
-    - search_papers_by_metadata: Search papers by title/author
-"""
-
-
-from langchain_core.tools import tool
-from pydantic import BaseModel, Field
+from langchain_core.tools import tool, InjectedToolArg
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Paper, PaperSection, WorkspacePaper
+from src.database import Paper, WorkspacePaper
+from .navigation.models import PaperTOC
+from .navigation.toc_service import TocService
+from .navigation.section_loader import SectionLoader
+from .external import (
+    SemanticScholarClient,
+    ArxivClient,
+    CrossrefClient,
+    OpenAlexClient,
+    PaperSearchResult,
+)
+
+logger = logging.getLogger(__name__)
 
 
-# Input Schemas
-class GetPaperTocInput(BaseModel):
-    """Input schema for get_paper_toc tool."""
-
-    paper_id: str = Field(description="UUID of the paper to get TOC for")
-
-
-class GetPaperSectionInput(BaseModel):
-    """Input schema for get_paper_section tool."""
-
-    paper_id: str = Field(description="UUID of the paper")
-    section_path: str = Field(
-        description="Section path identifier (e.g., '1', '2.1', '3.2.1')"
-    )
-
-
-class SearchPapersInput(BaseModel):
-    """Input schema for search_papers_by_metadata tool."""
-
-    query: str = Field(description="Search query for title or author")
-    workspace_id: str | None = Field(
-        default=None, description="Optional workspace ID to limit search scope"
-    )
-
-
-# Formatting helper functions (exposed for testing)
-def format_toc_output(paper: Paper) -> str:
-    """Format a paper's TOC for display.
+@tool
+async def list_papers(
+    workspace_id: str,
+    db: AsyncSession = InjectedToolArg,
+) -> list[dict]:
+    """List all papers in a workspace with their TOC.
 
     Args:
-        paper: Paper object with toc field
+        workspace_id: Workspace ID
 
     Returns:
-        Formatted TOC string
+        List of papers with their table of contents
     """
-    if not paper.toc or len(paper.toc) == 0:
-        return f"No table of contents available for '{paper.title}'."
+    result = await db.execute(
+        select(Paper)
+        .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
+        .where(WorkspacePaper.workspace_id == workspace_id)
+    )
+    papers = result.scalars().all()
 
-    lines = [f"## Table of Contents: {paper.title}"]
-    if paper.year:
-        lines[0] += f" ({paper.year})"
-    lines.append("")
+    toc_service = TocService(db)
+    paper_list = []
 
-    for item in paper.toc:
-        number = item.get("number", "")
-        title = item.get("title", "")
-        level = item.get("level", 1)
+    for paper in papers:
+        toc = await toc_service.get_paper_toc(paper.id)
+        paper_list.append({
+            "paper_id": str(paper.id),
+            "title": paper.title,
+            "toc": [
+                {"title": e.title, "level": e.level}
+                for e in (toc.entries if toc else [])
+            ],
+        })
 
-        # Indent based on level
-        indent = "  " * (level - 1)
-        lines.append(f"{indent}{number}. {title}")
-
-    return "\n".join(lines)
+    return paper_list
 
 
-def format_section_output(section: PaperSection) -> str:
-    """Format a paper section for display.
+@tool
+async def get_section(
+    paper_id: str,
+    section_title: str,
+    db: AsyncSession = InjectedToolArg,
+) -> str:
+    """Get content of a specific paper section.
 
     Args:
-        section: PaperSection object
+        paper_id: Paper ID
+        section_title: Section title (e.g., "3. Methodology")
 
     Returns:
-        Formatted section string
+        Section content in markdown format
     """
-    lines = [
-        f"## {section.section_title}",
-        f"**Section:** {section.section_path}",
-        f"**Pages:** {section.page_start}-{section.page_end}",
-        "",
-        section.content,
+    toc_service = TocService(db)
+    section_loader = SectionLoader(db)
+
+    toc = await toc_service.get_paper_toc(paper_id)
+    if not toc:
+        return f"Paper {paper_id} not found"
+
+    if section_title.lower() == "abstract":
+        content = await section_loader.get_abstract(toc)
+        return content.content if content else "Abstract not available"
+
+    content = await section_loader.load_section(toc, section_title)
+    if not content:
+        return f"Section '{section_title}' not found. Available sections: {[e.title for e in toc.entries]}"
+
+    return content.content
+
+
+@tool
+async def search_external(
+    query: str,
+    source: Literal["semantic_scholar", "arxiv", "crossref", "openalex", "all"] = "all",
+    limit: int = 10,
+) -> list[dict]:
+    """Search external academic databases.
+
+    Args:
+        query: Search keywords
+        source: Database to search (default: all)
+        limit: Maximum results per source
+
+    Returns:
+        List of matching papers
+    """
+    clients = {
+        "semantic_scholar": SemanticScholarClient(),
+        "arxiv": ArxivClient(),
+        "crossref": CrossrefClient(),
+        "openalex": OpenAlexClient(),
+    }
+
+    results = []
+
+    if source == "all":
+        # Search all sources
+        for name, client in clients.items():
+            try:
+                found = await client.search(query, limit=min(5, limit))
+                results.extend([r.model_dump() for r in found])
+            except Exception as e:
+                logger.warning(f"{name} search failed: {e}")
+    else:
+        client = clients.get(source)
+        if client:
+            try:
+                found = await client.search(query, limit=limit)
+                results = [r.model_dump() for r in found]
+            except Exception as e:
+                logger.error(f"{source} search failed: {e}")
+
+    return results
+
+
+@tool
+async def get_paper_by_doi(doi: str) -> dict | None:
+    """Get paper metadata by DOI.
+
+    Args:
+        doi: Paper DOI
+
+    Returns:
+        Paper metadata or None if not found
+    """
+    clients = [
+        SemanticScholarClient(),
+        CrossrefClient(),
+        OpenAlexClient(),
     ]
 
-    return "\n".join(lines)
+    for client in clients:
+        try:
+            result = await client.get_by_doi(doi)
+            if result:
+                return result.model_dump()
+        except Exception as e:
+            logger.debug(f"{client.__class__.__name__} DOI lookup failed: {e}")
 
-
-def format_search_results(
-    papers: list[Paper],
-    query: str,
-    workspace_id: str | None,
-) -> str:
-    """Format search results for display.
-
-    Args:
-        papers: List of Paper objects
-        query: Original search query
-        workspace_id: Optional workspace ID that was searched
-
-    Returns:
-        Formatted search results string
-    """
-    if not papers:
-        scope = f" in workspace '{workspace_id}'" if workspace_id else ""
-        return f"No papers found matching '{query}'{scope}."
-
-    lines = [f"## Search Results: {len(papers)} paper(s) found", ""]
-
-    for idx, paper in enumerate(papers, 1):
-        year_str = f" ({paper.year})" if paper.year else ""
-        authors_str = ", ".join(paper.author_names[:3])
-        if len(paper.author_names) > 3:
-            authors_str += " et al."
-
-        lines.append(f"### [{idx}] {paper.title}{year_str}")
-        if authors_str:
-            lines.append(f"**Authors:** {authors_str}")
-        if paper.venue:
-            lines.append(f"**Venue:** {paper.venue}")
-        lines.append(f"**ID:** {paper.id}")
-        lines.append("")
-
-    return "\n".join(lines)
-
-
-# Helper functions for database access
-async def _get_paper_by_id(db: AsyncSession, paper_id: str) -> Paper | None:
-    """Retrieve a paper by ID.
-
-    Args:
-        db: Database session
-        paper_id: Paper UUID
-
-    Returns:
-        Paper object or None if not found
-    """
-    query = select(Paper).where(Paper.id == paper_id)
-    result = await db.execute(query)
-    return result.scalar_one_or_none()
-
-
-async def _get_section_by_path(
-    db: AsyncSession,
-    paper_id: str,
-    section_path: str,
-    workspace_id: str | None = None,
-) -> PaperSection | None:
-    """Retrieve a paper section by path.
-
-    Args:
-        db: Database session
-        paper_id: Paper UUID
-        section_path: Section path (e.g., "3.2.1")
-        workspace_id: Optional workspace ID for filtering
-
-    Returns:
-        PaperSection object or None if not found
-    """
-    query = select(PaperSection).where(
-        PaperSection.paper_id == paper_id,
-        PaperSection.section_path == section_path,
-    )
-    if workspace_id:
-        query = query.where(PaperSection.workspace_id == workspace_id)
-
-    result = await db.execute(query)
-    return result.scalar_one_or_none()
-
-
-async def _search_papers_in_db(
-    db: AsyncSession,
-    query: str,
-    workspace_id: str | None = None,
-) -> list[Paper]:
-    """Search papers by title or author.
-
-    Args:
-        db: Database session
-        query: Search query string
-        workspace_id: Optional workspace ID to limit search
-
-    Returns:
-        List of matching Paper objects
-    """
-    # Build search condition for title (case-insensitive)
-    search_pattern = f"%{query}%"
-
-    if workspace_id:
-        # Search within workspace
-        db_query = (
-            select(Paper)
-            .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
-            .where(WorkspacePaper.workspace_id == workspace_id)
-            .where(Paper.title.ilike(search_pattern))
-            .order_by(Paper.year.desc().nulls_last())
-            .limit(20)
-        )
-    else:
-        # Global search
-        db_query = (
-            select(Paper)
-            .where(Paper.title.ilike(search_pattern))
-            .order_by(Paper.year.desc().nulls_last())
-            .limit(20)
-        )
-
-    result = await db.execute(db_query)
-    return list(result.scalars().all())
-
-
-# Tool implementations
-# Note: These tools require database session injection.
-# In production, use dependency injection or context variables.
-
-
-@tool(args_schema=GetPaperTocInput)
-async def get_paper_toc(paper_id: str) -> str:
-    """Get the table of contents for a specific paper.
-
-    Use this tool to understand the structure of a paper and identify
-    relevant sections to read. Returns a formatted list of all sections
-    with their section numbers and titles.
-
-    Args:
-        paper_id: UUID of the paper
-
-    Returns:
-        Formatted table of contents string, or error message if not found
-    """
-    # Import here to avoid circular imports and allow for session injection
-    from src.academic.database.session import get_db_session
-
-    async with get_db_session() as db:
-        paper = await _get_paper_by_id(db, paper_id)
-
-        if not paper:
-            return f"Paper with ID '{paper_id}' not found."
-
-        return format_toc_output(paper)
-
-
-@tool(args_schema=GetPaperSectionInput)
-async def get_paper_section(paper_id: str, section_path: str) -> str:
-    """Get the full content of a specific section from a paper.
-
-    Use this tool after identifying relevant sections via get_paper_toc.
-    Returns the complete text content of the specified section.
-
-    Args:
-        paper_id: UUID of the paper
-        section_path: Section identifier (e.g., '1', '2.1', '3.2.1')
-
-    Returns:
-        Section content with title, or error message if not found
-    """
-    from src.academic.database.session import get_db_session
-
-    async with get_db_session() as db:
-        # First verify paper exists
-        paper = await _get_paper_by_id(db, paper_id)
-        if not paper:
-            return f"Paper with ID '{paper_id}' not found."
-
-        # Get the section
-        section = await _get_section_by_path(db, paper_id, section_path)
-
-        if not section:
-            return f"Section '{section_path}' not found in '{paper.title}'."
-
-        return format_section_output(section)
-
-
-@tool(args_schema=SearchPapersInput)
-async def search_papers_by_metadata(
-    query: str,
-    workspace_id: str | None = None,
-) -> str:
-    """Search for papers by title.
-
-    Use this tool to find papers in the database by searching their titles.
-    Optionally limit the search to a specific workspace.
-
-    Args:
-        query: Search query (searches paper titles)
-        workspace_id: Optional workspace UUID to limit search scope
-
-    Returns:
-        Formatted list of matching papers with metadata
-    """
-    from src.academic.database.session import get_db_session
-
-    async with get_db_session() as db:
-        papers = await _search_papers_in_db(db, query, workspace_id)
-        return format_search_results(papers, query, workspace_id)
-
-
-# Export tools for agent registration
-LITERATURE_TOOLS = [
-    get_paper_toc,
-    get_paper_section,
-    search_papers_by_metadata,
-]
+    return None

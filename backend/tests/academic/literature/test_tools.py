@@ -1,224 +1,397 @@
 """Tests for literature navigation tools."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock, patch
 
-from src.academic.literature.tools import (
-    GetPaperSectionInput,
-    GetPaperTocInput,
-    SearchPapersInput,
-    format_search_results,
-    format_section_output,
-    format_toc_output,
-)
-from src.database import Paper, PaperSection
+import pytest
+
+from src.academic.literature import tools as literature_tools
+from src.academic.literature.navigation.models import PaperTOC, TOCEntry, SectionContent
 
 
-class TestHelperFunctions:
-    """Tests for helper functions that don't require database session."""
+class TestListPapersFunction:
+    """Tests for list_papers underlying function."""
 
-    def test_format_toc_output_with_toc(self):
-        """Test formatting TOC output with valid TOC."""
-        mock_paper = MagicMock(spec=Paper)
+    @pytest.mark.asyncio
+    async def test_list_papers_with_papers(self):
+        """Test listing papers with TOC."""
+        # Mock database session
+        mock_db = AsyncMock()
+
+        # Mock paper objects
+        mock_paper = MagicMock()
+        mock_paper.id = "paper-123"
         mock_paper.title = "Attention Is All You Need"
-        mock_paper.year = 2017
-        mock_paper.toc = [
-            {"number": "1", "title": "Introduction", "level": 1},
-            {"number": "2", "title": "Background", "level": 1},
-            {"number": "3", "title": "Model Architecture", "level": 1},
-            {"number": "3.1", "title": "Encoder", "level": 2},
-            {"number": "3.2", "title": "Decoder", "level": 2},
-        ]
 
-        result = format_toc_output(mock_paper)
+        # Mock scalars result
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [mock_paper]
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        mock_db.execute.return_value = mock_result
 
-        assert "Attention Is All You Need" in result
-        assert "(2017)" in result
-        assert "1. Introduction" in result
-        assert "2. Background" in result
-        assert "3. Model Architecture" in result
-        assert "  3.1. Encoder" in result  # Indented for level 2
-        assert "  3.2. Decoder" in result
-
-    def test_format_toc_output_without_toc(self):
-        """Test formatting TOC output when paper has no TOC."""
-        mock_paper = MagicMock(spec=Paper)
-        mock_paper.title = "Test Paper"
-        mock_paper.year = 2024
-        mock_paper.toc = None
-
-        result = format_toc_output(mock_paper)
-
-        assert "No table of contents available" in result
-        assert "Test Paper" in result
-
-    def test_format_toc_output_empty_toc(self):
-        """Test formatting TOC output when TOC is empty list."""
-        mock_paper = MagicMock(spec=Paper)
-        mock_paper.title = "Test Paper"
-        mock_paper.year = 2024
-        mock_paper.toc = []
-
-        result = format_toc_output(mock_paper)
-
-        assert "No table of contents available" in result
-
-    def test_format_section_output(self):
-        """Test formatting section output."""
-        mock_section = MagicMock(spec=PaperSection)
-        mock_section.section_title = "Model Architecture"
-        mock_section.section_path = "3"
-        mock_section.page_start = 5
-        mock_section.page_end = 8
-        mock_section.content = "The Transformer uses multi-head attention..."
-
-        result = format_section_output(mock_section)
-
-        assert "## Model Architecture" in result
-        assert "**Section:** 3" in result
-        assert "**Pages:** 5-8" in result
-        assert "multi-head attention" in result
-
-    def test_format_search_results_with_papers(self):
-        """Test formatting search results with papers."""
-        mock_paper1 = MagicMock(spec=Paper)
-        mock_paper1.id = "paper-1"
-        mock_paper1.title = "Attention Is All You Need"
-        mock_paper1.year = 2017
-        mock_paper1.venue = "NeurIPS"
-        mock_paper1.author_names = ["Vaswani", "Shazeer", "Parmar", "Uszkoreit"]
-
-        mock_paper2 = MagicMock(spec=Paper)
-        mock_paper2.id = "paper-2"
-        mock_paper2.title = "BERT"
-        mock_paper2.year = 2019
-        mock_paper2.venue = "NAACL"
-        mock_paper2.author_names = ["Devlin", "Chang"]
-
-        papers = [mock_paper1, mock_paper2]
-        result = format_search_results(papers, "transformer", None)
-
-        assert "2 paper" in result.lower()
-        assert "Attention Is All You Need" in result
-        assert "BERT" in result
-        assert "NeurIPS" in result
-        assert "NAACL" in result
-        assert "Vaswani" in result
-        assert "et al." in result  # More than 3 authors
-
-    def test_format_search_results_no_papers(self):
-        """Test formatting search results with no papers."""
-        result = format_search_results([], "nonexistent", None)
-
-        assert "No papers found" in result
-        assert "nonexistent" in result
-
-    def test_format_search_results_with_workspace(self):
-        """Test formatting search results with workspace scope."""
-        mock_paper = MagicMock(spec=Paper)
-        mock_paper.id = "paper-1"
-        mock_paper.title = "Test Paper"
-        mock_paper.year = 2024
-        mock_paper.venue = "Test Venue"
-        mock_paper.author_names = ["Author One"]
-
-        papers = [mock_paper]
-        result = format_search_results(papers, "test", "ws-123")
-
-        assert "Test Paper" in result
-
-
-class TestInputSchemas:
-    """Tests for tool input schemas."""
-
-    def test_get_paper_toc_input_schema(self):
-        """Test GetPaperTocInput schema validation."""
-        input_data = GetPaperTocInput(paper_id="paper-123")
-        assert input_data.paper_id == "paper-123"
-
-    def test_get_paper_section_input_schema(self):
-        """Test GetPaperSectionInput schema validation."""
-        input_data = GetPaperSectionInput(
+        # Mock TocService
+        mock_toc = PaperTOC(
             paper_id="paper-123",
-            section_path="3.2.1",
-        )
-        assert input_data.paper_id == "paper-123"
-        assert input_data.section_path == "3.2.1"
-
-    def test_search_papers_input_schema(self):
-        """Test SearchPapersInput schema validation."""
-        input_data = SearchPapersInput(query="transformer", workspace_id="ws-123")
-        assert input_data.query == "transformer"
-        assert input_data.workspace_id == "ws-123"
-
-    def test_search_papers_input_optional_workspace(self):
-        """Test SearchPapersInput with optional workspace_id."""
-        input_data = SearchPapersInput(query="transformer")
-        assert input_data.query == "transformer"
-        assert input_data.workspace_id is None
-
-
-class TestPaperModelWithToc:
-    """Tests for Paper model with TOC field."""
-
-    def test_paper_with_toc(self):
-        """Test Paper model with TOC field."""
-        paper = Paper(
-            title="Test Paper",
-            authors=[{"name": "Author One"}],
-            year=2024,
-            toc=[
-                {"number": "1", "title": "Introduction", "level": 1},
-                {"number": "2", "title": "Methods", "level": 1},
+            title="Attention Is All You Need",
+            abstract="Abstract text",
+            entries=[
+                TOCEntry(title="1. Introduction", level=1, char_start=0, char_end=1000),
+                TOCEntry(title="2. Methods", level=1, char_start=1000, char_end=2000),
             ],
         )
-        assert paper.toc is not None
-        assert len(paper.toc) == 2
-        assert paper.toc[0]["title"] == "Introduction"
 
-    def test_paper_without_toc(self):
-        """Test Paper model without TOC field (nullable)."""
-        paper = Paper(
+        with patch(
+            "src.academic.literature.tools.TocService"
+        ) as mock_toc_service_class:
+            mock_toc_service = AsyncMock()
+            mock_toc_service.get_paper_toc.return_value = mock_toc
+            mock_toc_service_class.return_value = mock_toc_service
+
+            # Call the underlying function directly, bypassing the tool wrapper
+            result = await literature_tools.list_papers.coroutine(
+                workspace_id="ws-123", db=mock_db
+            )
+
+        assert len(result) == 1
+        assert result[0]["paper_id"] == "paper-123"
+        assert result[0]["title"] == "Attention Is All You Need"
+        assert len(result[0]["toc"]) == 2
+        assert result[0]["toc"][0]["title"] == "1. Introduction"
+
+    @pytest.mark.asyncio
+    async def test_list_papers_empty_workspace(self):
+        """Test listing papers in empty workspace."""
+        mock_db = AsyncMock()
+
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        mock_db.execute.return_value = mock_result
+
+        result = await literature_tools.list_papers.coroutine(
+            workspace_id="ws-empty", db=mock_db
+        )
+
+        assert result == []
+
+
+class TestGetSectionFunction:
+    """Tests for get_section underlying function."""
+
+    @pytest.mark.asyncio
+    async def test_get_section_abstract(self):
+        """Test getting abstract section."""
+        mock_db = AsyncMock()
+
+        mock_toc = PaperTOC(
+            paper_id="paper-123",
             title="Test Paper",
-            authors=[{"name": "Author One"}],
-            year=2024,
+            abstract="This is the abstract text.",
+            entries=[],
         )
-        assert paper.toc is None
 
-
-class TestPaperSectionModel:
-    """Tests for PaperSection model."""
-
-    def test_paper_section_instantiation(self):
-        """Test PaperSection model can be instantiated."""
-        section = PaperSection(
+        mock_section_content = SectionContent(
             paper_id="paper-123",
-            workspace_id="ws-456",
-            section_title="Model Architecture",
-            section_path="3",
-            page_start=5,
-            page_end=8,
-            content="The Transformer model architecture...",
-            level=1,
+            section_title="Abstract",
+            content="This is the abstract text.",
+            word_count=5,
         )
-        assert section.paper_id == "paper-123"
-        assert section.workspace_id == "ws-456"
-        assert section.section_title == "Model Architecture"
-        assert section.section_path == "3"
-        assert section.page_start == 5
-        assert section.page_end == 8
-        assert section.level == 1
 
-    def test_paper_section_nested_path(self):
-        """Test PaperSection with nested section path."""
-        section = PaperSection(
+        with patch(
+            "src.academic.literature.tools.TocService"
+        ) as mock_toc_service_class, patch(
+            "src.academic.literature.tools.SectionLoader"
+        ) as mock_loader_class:
+            mock_toc_service = AsyncMock()
+            mock_toc_service.get_paper_toc.return_value = mock_toc
+            mock_toc_service_class.return_value = mock_toc_service
+
+            mock_loader = AsyncMock()
+            mock_loader.get_abstract.return_value = mock_section_content
+            mock_loader_class.return_value = mock_loader
+
+            result = await literature_tools.get_section.coroutine(
+                paper_id="paper-123", section_title="Abstract", db=mock_db
+            )
+
+        assert result == "This is the abstract text."
+
+    @pytest.mark.asyncio
+    async def test_get_section_specific_section(self):
+        """Test getting a specific section."""
+        mock_db = AsyncMock()
+
+        mock_toc = PaperTOC(
             paper_id="paper-123",
-            workspace_id="ws-456",
-            section_title="Encoder Stack",
-            section_path="3.1.2",
-            page_start=6,
-            page_end=7,
-            content="Nested section content...",
-            level=3,
+            title="Test Paper",
+            abstract="Abstract",
+            entries=[
+                TOCEntry(title="1. Introduction", level=1, char_start=0, char_end=500),
+                TOCEntry(title="2. Methods", level=1, char_start=500, char_end=1500),
+            ],
         )
-        assert section.section_path == "3.1.2"
-        assert section.level == 3
+
+        mock_section_content = SectionContent(
+            paper_id="paper-123",
+            section_title="2. Methods",
+            content="## 2. Methods\n\nThis is the methods section.",
+            word_count=10,
+        )
+
+        with patch(
+            "src.academic.literature.tools.TocService"
+        ) as mock_toc_service_class, patch(
+            "src.academic.literature.tools.SectionLoader"
+        ) as mock_loader_class:
+            mock_toc_service = AsyncMock()
+            mock_toc_service.get_paper_toc.return_value = mock_toc
+            mock_toc_service_class.return_value = mock_toc_service
+
+            mock_loader = AsyncMock()
+            mock_loader.load_section.return_value = mock_section_content
+            mock_loader_class.return_value = mock_loader
+
+            result = await literature_tools.get_section.coroutine(
+                paper_id="paper-123", section_title="2. Methods", db=mock_db
+            )
+
+        assert "2. Methods" in result
+        assert "methods section" in result
+
+    @pytest.mark.asyncio
+    async def test_get_section_paper_not_found(self):
+        """Test getting section when paper not found."""
+        mock_db = AsyncMock()
+
+        with patch(
+            "src.academic.literature.tools.TocService"
+        ) as mock_toc_service_class:
+            mock_toc_service = AsyncMock()
+            mock_toc_service.get_paper_toc.return_value = None
+            mock_toc_service_class.return_value = mock_toc_service
+
+            result = await literature_tools.get_section.coroutine(
+                paper_id="nonexistent", section_title="Abstract", db=mock_db
+            )
+
+        assert "not found" in result
+
+    @pytest.mark.asyncio
+    async def test_get_section_not_found(self):
+        """Test getting section that doesn't exist."""
+        mock_db = AsyncMock()
+
+        mock_toc = PaperTOC(
+            paper_id="paper-123",
+            title="Test Paper",
+            abstract="Abstract",
+            entries=[
+                TOCEntry(title="1. Introduction", level=1, char_start=0, char_end=500),
+            ],
+        )
+
+        with patch(
+            "src.academic.literature.tools.TocService"
+        ) as mock_toc_service_class, patch(
+            "src.academic.literature.tools.SectionLoader"
+        ) as mock_loader_class:
+            mock_toc_service = AsyncMock()
+            mock_toc_service.get_paper_toc.return_value = mock_toc
+            mock_toc_service_class.return_value = mock_toc_service
+
+            mock_loader = AsyncMock()
+            mock_loader.load_section.return_value = None
+            mock_loader_class.return_value = mock_loader
+
+            result = await literature_tools.get_section.coroutine(
+                paper_id="paper-123",
+                section_title="Nonexistent Section",
+                db=mock_db,
+            )
+
+        assert "not found" in result
+        assert "Available sections" in result
+
+
+class TestSearchExternalTool:
+    """Tests for search_external tool."""
+
+    @pytest.mark.asyncio
+    async def test_search_external_semantic_scholar(self):
+        """Test searching Semantic Scholar."""
+        mock_client = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.model_dump.return_value = {
+            "title": "Test Paper",
+            "doi": "10.1234/test",
+        }
+        mock_client.search.return_value = [mock_result]
+
+        with patch(
+            "src.academic.literature.tools.SemanticScholarClient",
+            return_value=mock_client,
+        ):
+            result = await literature_tools.search_external.ainvoke(
+                {"query": "machine learning", "source": "semantic_scholar", "limit": 5}
+            )
+
+        assert len(result) == 1
+        assert result[0]["title"] == "Test Paper"
+
+    @pytest.mark.asyncio
+    async def test_search_external_all_sources(self):
+        """Test searching all sources."""
+        mock_results = [
+            MagicMock(model_dump=lambda: {"title": f"Paper {i}", "source": "test"})
+            for i in range(3)
+        ]
+
+        with patch(
+            "src.academic.literature.tools.SemanticScholarClient"
+        ) as mock_ss, patch(
+            "src.academic.literature.tools.ArxivClient"
+        ) as mock_arxiv, patch(
+            "src.academic.literature.tools.CrossrefClient"
+        ) as mock_cr, patch(
+            "src.academic.literature.tools.OpenAlexClient"
+        ) as mock_oa:
+            # Setup mocks
+            for mock_cls in [mock_ss, mock_arxiv, mock_cr, mock_oa]:
+                mock_instance = AsyncMock()
+                mock_instance.search.return_value = mock_results
+                mock_cls.return_value = mock_instance
+
+            result = await literature_tools.search_external.ainvoke(
+                {"query": "test", "source": "all", "limit": 10}
+            )
+
+        # Should have results from all 4 sources
+        assert len(result) == 12  # 3 results * 4 sources
+
+    @pytest.mark.asyncio
+    async def test_search_external_with_error(self):
+        """Test search handles errors gracefully."""
+        mock_client = AsyncMock()
+        mock_client.search.side_effect = Exception("API Error")
+
+        with patch(
+            "src.academic.literature.tools.SemanticScholarClient",
+            return_value=mock_client,
+        ):
+            result = await literature_tools.search_external.ainvoke(
+                {"query": "test", "source": "semantic_scholar", "limit": 5}
+            )
+
+        # Should return empty list on error
+        assert result == []
+
+
+class TestGetPaperByDoiTool:
+    """Tests for get_paper_by_doi tool."""
+
+    @pytest.mark.asyncio
+    async def test_get_paper_by_doi_found(self):
+        """Test getting paper by DOI."""
+        mock_client = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.model_dump.return_value = {
+            "title": "Test Paper",
+            "doi": "10.1234/test",
+        }
+        mock_client.get_by_doi.return_value = mock_result
+
+        with patch(
+            "src.academic.literature.tools.SemanticScholarClient",
+            return_value=mock_client,
+        ), patch(
+            "src.academic.literature.tools.CrossrefClient",
+            return_value=AsyncMock(get_by_doi=AsyncMock(return_value=None)),
+        ), patch(
+            "src.academic.literature.tools.OpenAlexClient",
+            return_value=AsyncMock(get_by_doi=AsyncMock(return_value=None)),
+        ):
+            result = await literature_tools.get_paper_by_doi.ainvoke(
+                {"doi": "10.1234/test"}
+            )
+
+        assert result is not None
+        assert result["title"] == "Test Paper"
+
+    @pytest.mark.asyncio
+    async def test_get_paper_by_doi_not_found(self):
+        """Test getting paper by DOI when not found."""
+        mock_client = AsyncMock()
+        mock_client.get_by_doi.return_value = None
+
+        with patch(
+            "src.academic.literature.tools.SemanticScholarClient",
+            return_value=mock_client,
+        ), patch(
+            "src.academic.literature.tools.CrossrefClient",
+            return_value=AsyncMock(get_by_doi=AsyncMock(return_value=None)),
+        ), patch(
+            "src.academic.literature.tools.OpenAlexClient",
+            return_value=AsyncMock(get_by_doi=AsyncMock(return_value=None)),
+        ):
+            result = await literature_tools.get_paper_by_doi.ainvoke(
+                {"doi": "10.1234/nonexistent"}
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_paper_by_doi_fallback(self):
+        """Test DOI lookup falls back to other sources."""
+        # First client returns None, second returns result
+        mock_client1 = AsyncMock()
+        mock_client1.get_by_doi.return_value = None
+
+        mock_result = MagicMock()
+        mock_result.model_dump.return_value = {
+            "title": "Found in Crossref",
+            "doi": "10.1234/test",
+        }
+        mock_client2 = AsyncMock()
+        mock_client2.get_by_doi.return_value = mock_result
+
+        with patch(
+            "src.academic.literature.tools.SemanticScholarClient",
+            return_value=mock_client1,
+        ), patch(
+            "src.academic.literature.tools.CrossrefClient",
+            return_value=mock_client2,
+        ), patch(
+            "src.academic.literature.tools.OpenAlexClient",
+            return_value=AsyncMock(get_by_doi=AsyncMock(return_value=None)),
+        ):
+            result = await literature_tools.get_paper_by_doi.ainvoke(
+                {"doi": "10.1234/test"}
+            )
+
+        assert result is not None
+        assert result["title"] == "Found in Crossref"
+
+
+class TestToolDefinitions:
+    """Tests for tool definitions and metadata."""
+
+    def test_list_papers_tool_definition(self):
+        """Test list_papers tool has correct definition."""
+        assert literature_tools.list_papers.name == "list_papers"
+        assert "workspace" in literature_tools.list_papers.description.lower()
+
+    def test_get_section_tool_definition(self):
+        """Test get_section tool has correct definition."""
+        assert literature_tools.get_section.name == "get_section"
+        assert "section" in literature_tools.get_section.description.lower()
+
+    def test_search_external_tool_definition(self):
+        """Test search_external tool has correct definition."""
+        assert literature_tools.search_external.name == "search_external"
+        assert "external" in literature_tools.search_external.description.lower()
+
+    def test_get_paper_by_doi_tool_definition(self):
+        """Test get_paper_by_doi tool has correct definition."""
+        assert literature_tools.get_paper_by_doi.name == "get_paper_by_doi"
+        assert "doi" in literature_tools.get_paper_by_doi.description.lower()
