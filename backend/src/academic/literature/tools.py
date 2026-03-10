@@ -8,7 +8,7 @@ from langchain_core.tools import tool, InjectedToolArg
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Paper, WorkspacePaper, Workspace, WorkspaceType
+from src.database import Paper, WorkspacePaper, Workspace
 from src.academic.services.workspace_service import WorkspaceService
 from src.academic.services.paper_service import PaperService
 from .navigation.models import PaperTOC
@@ -19,7 +19,6 @@ from .external import (
     ArxivClient,
     CrossrefClient,
     OpenAlexClient,
-    PaperSearchResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -222,7 +221,7 @@ async def get_workspace(
     Returns:
         Workspace info including paper count, or None if not found
     """
-    from sqlalchemy import func, select
+    from sqlalchemy import func
 
     service = WorkspaceService(db)
     workspace = await service.get(workspace_id)
@@ -260,7 +259,7 @@ async def list_workspaces(
     Returns:
         List of workspaces with id, name, type, paper_count
     """
-    from sqlalchemy import func, select
+    from sqlalchemy import func
 
     # Default user_id for now
     target_user_id = user_id or "default-user"
