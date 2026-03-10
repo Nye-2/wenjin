@@ -83,14 +83,15 @@ class Citation(Base, UUIDMixin, TimestampMixin):
     )
 
     # Relationships
-    # Note: back_populates will be added in Task 3 when Paper model is updated
     paper: Mapped["Paper"] = relationship(
         "Paper",
         foreign_keys=[paper_id],
+        back_populates="outgoing_citations",
     )
     cited_paper: Mapped["Paper"] = relationship(
         "Paper",
         foreign_keys=[cited_paper_id],
+        back_populates="incoming_citations",
     )
     workspace: Mapped["Workspace"] = relationship("Workspace")
 

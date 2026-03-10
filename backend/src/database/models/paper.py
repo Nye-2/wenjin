@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from .citation import Citation
     from .workspace import Workspace
 
 
@@ -92,6 +93,19 @@ class Paper(Base, UUIDMixin, TimestampMixin):
     sections: Mapped[list["PaperSection"]] = relationship(
         "PaperSection",
         back_populates="paper",
+        cascade="all, delete-orphan",
+    )
+    # Citation relationships
+    outgoing_citations: Mapped[list["Citation"]] = relationship(
+        "Citation",
+        foreign_keys="Citation.paper_id",
+        back_populates="paper",
+        cascade="all, delete-orphan",
+    )
+    incoming_citations: Mapped[list["Citation"]] = relationship(
+        "Citation",
+        foreign_keys="Citation.cited_paper_id",
+        back_populates="cited_paper",
         cascade="all, delete-orphan",
     )
 
