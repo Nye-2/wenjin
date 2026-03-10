@@ -110,10 +110,9 @@ def test_paper_chunk_creation():
         workspace_id="ws-1",
         chunk_index=0,
         content="This is a test chunk of paper content.",
-        embedding=[0.1] * 1536,
     )
     assert chunk.chunk_index == 0
-    assert len(chunk.embedding) == 1536
+    assert chunk.content == "This is a test chunk of paper content."
     assert chunk.id == chunk_id
 
 

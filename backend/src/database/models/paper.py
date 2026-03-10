@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -201,25 +201,23 @@ class PaperExtraction(Base, UUIDMixin, TimestampMixin):
 
 
 class PaperChunk(Base, UUIDMixin, TimestampMixin):
-    """Paper chunk for vector storage (RAG).
+    """Paper chunk for index-based navigation.
 
     Each chunk is associated with both a paper and a workspace.
-    This enables per-workspace vector search isolation while
-    allowing chunks from the same paper to exist in multiple workspaces.
+    This enables per-workspace isolation while allowing chunks
+    from the same paper to exist in multiple workspaces.
 
     Attributes:
         paper_id: Foreign key to paper
         workspace_id: Foreign key to workspace
         chunk_index: Index of this chunk within the paper
         content: Text content of the chunk
-        embedding: Vector embedding (1536 dimensions for OpenAI ada-002)
-        metadata: Additional metadata (page number, section, etc.)
+        chunk_metadata: Additional metadata (page number, section, etc.)
     """
 
     __tablename__ = "paper_chunks"
     __table_args__ = (
         Index("ix_paper_chunks_paper_workspace", "paper_id", "workspace_id"),
-        # Note: Vector index created separately via migration
     )
 
     paper_id: Mapped[str] = mapped_column(
@@ -234,10 +232,6 @@ class PaperChunk(Base, UUIDMixin, TimestampMixin):
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[list | None] = mapped_column(
-        ARRAY(Float),
-        nullable=True,
-    )
     chunk_metadata: Mapped[dict] = mapped_column(
         "metadata",
         JSONB,
