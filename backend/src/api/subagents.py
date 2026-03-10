@@ -83,11 +83,13 @@ async def spawn_subagent(
 
     # Resolve agent config if subagent_type specified
     system_prompt = None
+    resolved_tools = None
     if request.subagent_type:
         resolver = AcademicAgentResolver(manager._tools)
         try:
             config = resolver.resolve_config(request.subagent_type, request.tools)
             system_prompt = config.system_prompt
+            resolved_tools = config.tools
         except UnknownSubagentTypeError as e:
             raise HTTPException(
                 status_code=400,
@@ -115,7 +117,7 @@ async def spawn_subagent(
         max_turns=min(request.max_turns, manager._config.max_turns_limit),
         timeout=min(request.timeout, manager._config.max_timeout),
         graph_template=request.graph_template,
-        tools=request.tools or [],
+        tools=resolved_tools if resolved_tools is not None else (request.tools or []),
         metadata={
             "subagent_type": request.subagent_type,
             "system_prompt": system_prompt,

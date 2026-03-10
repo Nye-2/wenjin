@@ -61,11 +61,3 @@ class TestInvalidToolError:
     def test_is_subclass_of_academic_agent_error(self):
         """Test that it's a subclass of AcademicAgentError."""
         assert issubclass(InvalidToolError, AcademicAgentError)
-
-
-class TestInvalidToolErrorIsSubclass:
-    """Additional tests for InvalidToolError."""
-
-    def test_is_subclass_of_academic_agent_error(self):
-        """Test that InvalidToolError is a subclass of AcademicAgentError."""
-        assert issubclass(InvalidToolError, AcademicAgentError)
