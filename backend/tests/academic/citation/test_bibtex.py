@@ -151,11 +151,13 @@ class TestBibTeXExporter:
         assert "doi = {10.48550/arXiv.1706.03762}" in result
 
     def test_generate_key(self, exporter, sample_papers):
-        """Test BibTeX key generation."""
+        """Test BibTeX key generation uses simple AuthorYear format."""
         key = exporter._generate_key(sample_papers[0])
+        # New format: FirstAuthorYear (e.g., Vaswani2017)
         assert "vaswani" in key.lower()
         assert "2017" in key
-        assert "attention" in key.lower()
+        # Title word is no longer included in the key
+        assert key == "Vaswani2017"
 
     def test_determine_type_article(self, exporter):
         """Test entry type detection for journal."""
