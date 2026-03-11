@@ -5,6 +5,7 @@ from .citation import Citation, CitationType
 from .generation import GenerationRecord
 from .knowledge import KnowledgeCategory, UserKnowledge
 from .paper import Paper, PaperChunk, PaperExtraction, PaperSection, WorkspacePaper
+from .task import TaskRecord
 from .user import User
 from .workspace import Workspace, WorkspaceType
 
@@ -31,4 +32,6 @@ __all__ = [
     "KnowledgeCategory",
     # Generation
     "GenerationRecord",
+    # Task
+    "TaskRecord",
 ]
