@@ -1,15 +1,16 @@
 """Execution service for LaTeX, Python, diagram, and AI image generation."""
 
-from .base import ExecutionProvider, ExecutionService
 from .types import (
-    CompilerType,
+    ExecutionType,
+    ExecutionStatus,
     ExecutionRequest,
     ExecutionResult,
-    ExecutionStatus,
-    ExecutionType,
-    ImageProvider,
     ProviderResult,
+    CompilerType,
+    ImageProvider,
 )
+from .base import ExecutionService, ExecutionProvider
+from .service import DockerExecutionService
 
 __all__ = [
     "ExecutionType",
@@ -21,4 +22,5 @@ __all__ = [
     "ImageProvider",
     "ExecutionService",
     "ExecutionProvider",
+    "DockerExecutionService",
 ]
