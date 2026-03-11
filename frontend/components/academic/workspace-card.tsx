@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { FileText, Book, FileEdit, DollarSign } from "lucide-react";
+import { FileText, Book, FileEdit, DollarSign, Lightbulb } from "lucide-react";
 import { LiquidGlassCard } from "@/components/glass";
 
 interface WorkspaceCardProps {

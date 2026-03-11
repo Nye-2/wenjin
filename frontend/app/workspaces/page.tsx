@@ -26,7 +26,8 @@ export default function WorkspacesPage() {
     { value: "sci", label: t("workspace.types.sci") },
     { value: "thesis", label: t("workspace.types.thesis") },
     { value: "proposal", label: t("workspace.types.proposal") },
-    { value: "grant", label: t("workspace.types.grant") },
+    { value: "software_copyright", label: t("workspace.types.software_copyright") },
+    { value: "patent", label: t("workspace.types.patent") },
   ];
 
   // Discipline options (translated)
@@ -166,7 +167,7 @@ export default function WorkspacesPage() {
                 <WorkspaceCard
                   id={workspace.id}
                   name={workspace.name}
-                  type={workspace.type as "sci" | "thesis" | "proposal" | "grant"}
+                  type={workspace.type as "sci" | "thesis" | "proposal" | "software_copyright" | "patent"}
                   discipline={workspace.discipline}
                   paperCount={0}
                   artifactCount={0}
