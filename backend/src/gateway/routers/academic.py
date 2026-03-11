@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 router = APIRouter()
 
@@ -39,8 +39,7 @@ class WorkspaceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkspacesListResponse(BaseModel):
@@ -71,8 +70,7 @@ class PaperResponse(BaseModel):
     citation_count: int | None
     reference_count: int | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PapersListResponse(BaseModel):
@@ -112,8 +110,7 @@ class ArtifactResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ArtifactsListResponse(BaseModel):
