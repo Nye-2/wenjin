@@ -29,6 +29,9 @@ class TaskSettings(BaseSettings):
         default=900, ge=60, description="Hard time limit in seconds (15 minutes)"
     )
     task_acks_late: bool = Field(default=True, description="Acknowledge tasks after completion")
+    task_default_retry_delay: int = Field(
+        default=60, ge=1, description="Default retry delay in seconds"
+    )
 
     # Progress
     progress_update_interval: int = Field(

@@ -35,6 +35,7 @@ from .llm_config import (
     get_utility_models,
     reload_models,
 )
+from .task_config import TaskSettings, task_settings
 
 __all__ = [
     # App config
@@ -76,4 +77,7 @@ __all__ = [
     "get_model_config",
     "get_model_full_config",
     "reload_models",
+    # Task
+    "TaskSettings",
+    "task_settings",
 ]
