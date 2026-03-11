@@ -1,38 +1,56 @@
-"""HTTP API endpoints for thesis generation."""
+"""HTTP API endpoints for thesis generation.
+
+This module provides REST API endpoints for managing thesis generation tasks.
+Uses thread-safe task storage that can be replaced with Redis/database in production.
+"""
 
 import logging
-import uuid
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .task_storage import create_thesis_task, get_storage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["thesis"])
 
 
-# In-memory task storage (would be replaced with proper task queue in production)
-_thesis_tasks: dict[str, dict[str, Any]] = {}
-
-
 class ThesisGenerateRequest(BaseModel):
     """Request to generate thesis."""
 
-    workspace_id: str = Field(description="Workspace ID")
-    paper_title: str = Field(description="Thesis title")
+    workspace_id: str = Field(min_length=1, description="Workspace ID")
+    paper_title: str = Field(min_length=1, description="Thesis title")
     discipline: str = Field(default="计算机科学", description="Academic discipline")
     abstract_content: str = Field(description="Thesis abstract")
-    framework_json: dict = Field(description="Framework from framework-designer skill")
+    framework_json: dict[str, Any] = Field(description="Framework from framework-designer skill")
     enable_search: bool = Field(default=True, description="Enable literature search")
     enable_images: bool = Field(default=True, description="Enable figure generation")
+
+    @field_validator("paper_title")
+    @classmethod
+    def validate_title(cls, v: str) -> str:
+        """Validate paper title is not empty."""
+        if not v or not v.strip():
+            raise ValueError("Paper title cannot be empty")
+        return v.strip()
+
+    @field_validator("framework_json")
+    @classmethod
+    def validate_framework(cls, v: dict) -> dict:
+        """Validate framework has required structure."""
+        if not isinstance(v, dict):
+            raise ValueError("Framework must be a JSON object")
+        # Basic validation - framework should have some content
+        return v
 
 
 class ThesisStatusResponse(BaseModel):
     """Response for thesis generation status."""
 
     task_id: str
-    status: str  # pending, running, completed, failed
+    status: str  # pending, running, completed, failed, cancelled
     progress: float
     current_phase: str | None = None
     message: str | None = None
@@ -40,44 +58,58 @@ class ThesisStatusResponse(BaseModel):
     error: str | None = None
 
 
-def get_thesis_task_status(task_id: str) -> dict[str, Any] | None:
-    """Get thesis task status from storage."""
-    return _thesis_tasks.get(task_id)
+class ThesisPreviewResponse(BaseModel):
+    """Response for thesis preview."""
+
+    task_id: str
+    latex_content: str
+    sections_completed: int
+    sections_total: int
 
 
-@router.post("/generate", response_model=dict)
+@router.post("/generate", response_model=ThesisStatusResponse)
 async def generate_thesis(
     request: ThesisGenerateRequest,
     background_tasks: BackgroundTasks,
-) -> dict:
+) -> ThesisStatusResponse:
     """Start thesis generation task.
 
     This endpoint:
     1. Creates a new thesis generation task
     2. Returns task_id for status polling
     3. Actual generation runs in background
+
+    Args:
+        request: Thesis generation request parameters
+        background_tasks: FastAPI background tasks
+
+    Returns:
+        Initial task status
     """
-    task_id = str(uuid.uuid4())[:12]
+    # Create task using thread-safe storage
+    task = create_thesis_task(
+        workspace_id=request.workspace_id,
+        paper_title=request.paper_title,
+        message="Task created, waiting to start",
+    )
 
-    # Initialize task status
-    _thesis_tasks[task_id] = {
-        "task_id": task_id,
-        "status": "pending",
-        "progress": 0.0,
-        "current_phase": "init",
-        "message": "Task created, waiting to start",
-    }
+    # TODO: Implement background task execution when workflow is ready
+    # from .workflow.runner import run_thesis_workflow
+    # background_tasks.add_task(
+    #     run_thesis_workflow,
+    #     task.task_id,
+    #     request.model_dump(),
+    # )
 
-    # TODO: Add background task execution
-    # background_tasks.add_task(run_thesis_workflow, task_id, request)
+    logger.info(f"[Thesis] Created task {task.task_id} for workspace {request.workspace_id}")
 
-    logger.info(f"[Thesis] Created task {task_id} for workspace {request.workspace_id}")
-
-    return {
-        "task_id": task_id,
-        "status": "pending",
-        "message": "Thesis generation task created",
-    }
+    return ThesisStatusResponse(
+        task_id=task.task_id,
+        status=task.status,
+        progress=task.progress,
+        current_phase=task.current_phase,
+        message=task.message,
+    )
 
 
 @router.get("/status/{task_id}", response_model=ThesisStatusResponse)
@@ -89,24 +121,27 @@ async def get_status(task_id: str) -> ThesisStatusResponse:
 
     Returns:
         Current task status and progress
+
+    Raises:
+        HTTPException: 404 if task not found
     """
-    task = get_thesis_task_status(task_id)
+    task = get_storage().get_task(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     return ThesisStatusResponse(
-        task_id=task["task_id"],
-        status=task["status"],
-        progress=task["progress"],
-        current_phase=task.get("current_phase"),
-        message=task.get("message"),
-        pdf_path=task.get("pdf_path"),
-        error=task.get("error"),
+        task_id=task.task_id,
+        status=task.status,
+        progress=task.progress,
+        current_phase=task.current_phase,
+        message=task.message,
+        pdf_path=task.pdf_path,
+        error=task.error,
     )
 
 
 @router.delete("/cancel/{task_id}")
-async def cancel_task(task_id: str) -> dict:
+async def cancel_task(task_id: str) -> dict[str, str]:
     """Cancel a running thesis generation task.
 
     Args:
@@ -114,38 +149,75 @@ async def cancel_task(task_id: str) -> dict:
 
     Returns:
         Cancellation status
-    """
-    task = get_thesis_task_status(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
 
-    if task["status"] in ("completed", "failed"):
+    Raises:
+        HTTPException: 404 if task not found, 400 if task cannot be cancelled
+    """
+    storage = get_storage()
+    task = storage.get_task(task_id)
+
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    if task.status in ("completed", "failed", "cancelled"):
         raise HTTPException(
-            status_code=400, detail=f"Cannot cancel task with status: {task['status']}"
+            status_code=400, detail=f"Cannot cancel task with status: {task.status}"
         )
 
-    # Update task status
-    _thesis_tasks[task_id]["status"] = "cancelled"
-    _thesis_tasks[task_id]["message"] = "Task cancelled by user"
+    # Atomic update using storage
+    updated = storage.update_task(task_id, {
+        "status": "cancelled",
+        "message": "Task cancelled by user",
+    })
+
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to cancel task")
 
     logger.info(f"[Thesis] Cancelled task {task_id}")
 
-    return {"task_id": task_id, "status": "cancelled", "message": "Task cancelled"}
+    return {
+        "task_id": task_id,
+        "status": "cancelled",
+        "message": "Task cancelled",
+    }
 
 
-@router.get("/preview/{task_id}")
-async def get_preview(task_id: str) -> dict:
+@router.get("/preview/{task_id}", response_model=ThesisPreviewResponse)
+async def get_preview(task_id: str) -> ThesisPreviewResponse:
     """Get thesis preview content.
 
     Returns the current LaTeX content for preview.
-    """
-    task = get_thesis_task_status(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
 
-    return {
-        "task_id": task_id,
-        "latex_content": task.get("latex_content", ""),
-        "sections_completed": task.get("sections_completed", 0),
-        "sections_total": task.get("sections_total", 0),
-    }
+    Args:
+        task_id: Task ID
+
+    Returns:
+        Preview content with LaTeX and section progress
+
+    Raises:
+        HTTPException: 404 if task not found
+    """
+    task = get_storage().get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    return ThesisPreviewResponse(
+        task_id=task.task_id,
+        latex_content=task.latex_content,
+        sections_completed=task.sections_completed,
+        sections_total=task.sections_total,
+    )
+
+
+@router.get("/list")
+async def list_tasks(workspace_id: str | None = None) -> list[dict[str, Any]]:
+    """List all thesis generation tasks.
+
+    Args:
+        workspace_id: Optional workspace ID filter
+
+    Returns:
+        List of tasks
+    """
+    tasks = get_storage().list_tasks(workspace_id=workspace_id)
+    return [t.to_dict() for t in tasks]

@@ -38,13 +38,13 @@ TASK_REGISTRY: dict[str, TaskTypeConfig] = {
     "literature_search": TaskTypeConfig(
         queue=TaskQueue.DEFAULT,
         timeout=300,
-        retry=3,
+        retry=2,
         description="Literature search: Semantic Scholar, arXiv search",
     ),
     "paper_processing": TaskTypeConfig(
         queue=TaskQueue.DEFAULT,
         timeout=120,
-        retry=2,
+        retry=1,
         description="Paper processing: PDF parsing, metadata extraction",
     ),
 }
