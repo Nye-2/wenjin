@@ -5,12 +5,18 @@ Provides async interface to ExecutionService for figure generation.
 Supports three strategies: mermaid, python, kling.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING
 
-from src.execution.types import ExecutionType, ExecutionRequest, ExecutionStatus
+from src.execution.types import ExecutionRequest, ExecutionStatus, ExecutionType
+
+if TYPE_CHECKING:
+    from src.thesis.execution import ExecutionServiceProtocol
+
 from src.thesis.execution import get_execution_service
 
 logger = logging.getLogger(__name__)
@@ -18,20 +24,34 @@ logger = logging.getLogger(__name__)
 
 class FigureStrategy(str, Enum):
     """Figure generation strategy."""
+
     MERMAID = "mermaid"
     PYTHON = "python"
     KLING = "kling"
 
 
-# Map strategy to ExecutionType
-STRATEGY_TO_EXECUTION_TYPE = {
+# Map strategy enum to ExecutionType
+STRATEGY_TO_EXECUTION_TYPE: dict[FigureStrategy, ExecutionType] = {
     FigureStrategy.MERMAID: ExecutionType.MERMAID_DIAGRAM,
     FigureStrategy.PYTHON: ExecutionType.PYTHON_PLOT,
     FigureStrategy.KLING: ExecutionType.AI_IMAGE,
-    "mermaid": ExecutionType.MERMAID_DIAGRAM,
-    "python": ExecutionType.PYTHON_PLOT,
-    "kling": ExecutionType.AI_IMAGE,
 }
+
+
+def _get_execution_type(strategy: str) -> ExecutionType:
+    """Convert strategy string to ExecutionType.
+
+    Args:
+        strategy: Strategy name ("mermaid", "python", "kling")
+
+    Returns:
+        Corresponding ExecutionType, defaults to MERMAID_DIAGRAM
+    """
+    try:
+        strategy_enum = FigureStrategy(strategy.lower())
+        return STRATEGY_TO_EXECUTION_TYPE.get(strategy_enum, ExecutionType.MERMAID_DIAGRAM)
+    except ValueError:
+        return ExecutionType.MERMAID_DIAGRAM
 
 
 @dataclass
@@ -45,6 +65,7 @@ class GenerateFigureResult:
         format: Figure format (pdf, png, svg)
         error: Error message if generation failed
     """
+
     success: bool
     figure_path: str | None = None
     strategy: str = ""
@@ -55,7 +76,7 @@ class GenerateFigureResult:
 async def generate_figure(
     strategy: str,
     content: str,
-    execution_service: Any = None,
+    execution_service: ExecutionServiceProtocol | None = None,
     workspace_id: str | None = None,
     thread_id: str | None = None,
     figure_id: str | None = None,
@@ -79,7 +100,7 @@ async def generate_figure(
         execution_service = get_execution_service()
 
     # Map strategy to execution type (default to mermaid)
-    exec_type = STRATEGY_TO_EXECUTION_TYPE.get(strategy, ExecutionType.MERMAID_DIAGRAM)
+    exec_type = _get_execution_type(strategy)
 
     # Build execution request
     request = ExecutionRequest(
@@ -91,7 +112,8 @@ async def generate_figure(
         timeout=timeout,
         workspace_id=workspace_id,
         thread_id=thread_id,
-        output_filename=f"{figure_id}.pdf" if figure_id else None,
+        # Let provider decide the output filename and extension
+        output_filename=figure_id,
     )
 
     logger.info(f"Generating figure with strategy={strategy}, workspace={workspace_id}")
@@ -105,7 +127,7 @@ async def generate_figure(
                 success=True,
                 figure_path=result.sandbox_path,
                 strategy=strategy,
-                format=result.metadata.get("format", "pdf"),
+                format=(result.metadata or {}).get("format", "pdf"),
             )
         else:
             error_msg = result.error_message or f"Generation failed with status: {result.status}"

@@ -4,12 +4,18 @@
 Provides async interface to ExecutionService for LaTeX compilation.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
 
-from src.execution.types import ExecutionType, ExecutionRequest, ExecutionStatus
+from src.execution.types import ExecutionRequest, ExecutionStatus, ExecutionType
 from src.thesis.config import thesis_settings
+
+if TYPE_CHECKING:
+    from src.thesis.execution import ExecutionServiceProtocol
+
 from src.thesis.execution import get_execution_service
 
 logger = logging.getLogger(__name__)
@@ -26,6 +32,7 @@ class CompileLatexResult:
         error: Error message if compilation failed
         logs: Compilation logs
     """
+
     success: bool
     pdf_path: str | None = None
     page_count: int | None = None
@@ -35,7 +42,7 @@ class CompileLatexResult:
 
 async def compile_latex(
     latex_source: str,
-    execution_service: Any = None,
+    execution_service: ExecutionServiceProtocol | None = None,
     workspace_id: str | None = None,
     thread_id: str | None = None,
     bibliography: str | None = None,
@@ -91,7 +98,7 @@ async def compile_latex(
             return CompileLatexResult(
                 success=True,
                 pdf_path=result.sandbox_path,
-                page_count=result.metadata.get("page_count"),
+                page_count=(result.metadata or {}).get("page_count"),
                 logs=result.logs,
             )
         else:

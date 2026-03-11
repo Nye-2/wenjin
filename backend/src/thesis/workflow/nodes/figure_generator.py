@@ -59,6 +59,7 @@ async def figure_generator_node(state: ThesisWorkflowState) -> dict[str, Any]:
                 "id": figure_id,
                 "request_id": figure_id,
                 "file_path": result.figure_path,
+                "caption": caption,
                 "latex_ref": f"\\includegraphics[width=0.8\\textwidth]{{{figure_id}.{result.format or 'pdf'}}}",
                 "strategy": strategy,
                 "format": result.format,
@@ -70,6 +71,7 @@ async def figure_generator_node(state: ThesisWorkflowState) -> dict[str, Any]:
                 "id": figure_id,
                 "request_id": figure_id,
                 "file_path": None,
+                "caption": caption,
                 "error": result.error,
                 "strategy": strategy,
             })
