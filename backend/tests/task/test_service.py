@@ -1,0 +1,96 @@
+"""Tests for TaskService."""
+
+import pytest
+import pytest_asyncio
+from unittest.mock import patch, MagicMock
+
+from src.task.service import TaskService
+from src.task.store import TaskStore
+
+
+@pytest_asyncio.fixture
+async def task_service(test_session, mock_redis):
+    """Create TaskService instance with test fixtures."""
+    from tests.task.conftest import FixtureTaskRecord
+
+    store = TaskStore(mock_redis, test_session)
+    store._test_model = FixtureTaskRecord
+    yield TaskService(store)
+
+
+class TestTaskService:
+    """Tests for TaskService."""
+
+    @pytest.mark.asyncio
+    async def test_submit_task(self, task_service):
+        """Test submitting a task."""
+        with patch("src.task.service.celery_app") as mock_celery:
+            mock_celery.send_task = MagicMock()
+
+            task_id = await task_service.submit_task(
+                user_id="user-1",
+                task_type="deep_research",
+                payload={"query": "machine learning"},
+                priority=5,
+            )
+
+            assert task_id is not None
+            assert len(task_id) == 36  # UUID format
+
+    @pytest.mark.asyncio
+    async def test_submit_invalid_task_type(self, task_service):
+        """Test submitting invalid task type."""
+        with pytest.raises(ValueError, match="Unknown task type"):
+            await task_service.submit_task(
+                user_id="user-1",
+                task_type="invalid_type",
+                payload={},
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_task_status(self, task_service):
+        """Test getting task status."""
+        with patch("src.task.service.celery_app") as mock_celery:
+            mock_celery.send_task = MagicMock()
+
+            task_id = await task_service.submit_task(
+                user_id="user-1",
+                task_type="literature_search",
+                payload={"query": "test"},
+            )
+
+            status = await task_service.get_task_status(task_id, "user-1")
+            assert status is not None
+            assert status["task_type"] == "literature_search"
+            assert status["status"] in ("pending", "running")
+
+    @pytest.mark.asyncio
+    async def test_get_task_status_wrong_user(self, task_service):
+        """Test getting task status with wrong user."""
+        with patch("src.task.service.celery_app") as mock_celery:
+            mock_celery.send_task = MagicMock()
+
+            task_id = await task_service.submit_task(
+                user_id="user-1",
+                task_type="deep_research",
+                payload={},
+            )
+
+            status = await task_service.get_task_status(task_id, "user-2")
+            assert status is None
+
+    @pytest.mark.asyncio
+    async def test_list_tasks(self, task_service):
+        """Test listing tasks."""
+        with patch("src.task.service.celery_app") as mock_celery:
+            mock_celery.send_task = MagicMock()
+
+            for i in range(3):
+                await task_service.submit_task(
+                    user_id="user-list",
+                    task_type="deep_research",
+                    payload={"index": i},
+                )
+
+            tasks = await task_service.list_tasks("user-list")
+            assert len(tasks) >= 3
