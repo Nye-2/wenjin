@@ -1,5 +1,6 @@
 """Execution service for LaTeX, Python, diagram, and AI image generation."""
 
+from .base import ExecutionProvider, ExecutionService
 from .types import (
     CompilerType,
     ExecutionRequest,
@@ -9,14 +10,6 @@ from .types import (
     ImageProvider,
     ProviderResult,
 )
-
-# Note: base.py will be created in Task 1.2
-# For now, these imports will fail, so we handle them gracefully
-try:
-    from .base import ExecutionProvider, ExecutionService
-except ImportError:
-    ExecutionService = None  # type: ignore
-    ExecutionProvider = None  # type: ignore
 
 __all__ = [
     "ExecutionType",
