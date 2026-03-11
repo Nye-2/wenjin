@@ -62,7 +62,7 @@ class Citation(Base, UUIDMixin, TimestampMixin):
     # Citation details
     citation_type: Mapped[str] = mapped_column(
         String(20),
-        default="explicit",
+        default=CitationType.EXPLICIT.value,
         nullable=False,
     )
 

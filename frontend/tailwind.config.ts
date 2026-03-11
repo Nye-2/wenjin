@@ -19,10 +19,10 @@ const config: Config = {
           gold: "#CA8A04",
         },
         background: {
-          base: "#0C1222",
-          elevated: "#151D30",
-          surface: "#1E293B",
-          muted: "#243044",
+          base: "#1A2332",
+          elevated: "#212D3F",
+          surface: "#2D3A4F",
+          muted: "#374151",
         },
         border: {
           DEFAULT: "#2D3A4F",

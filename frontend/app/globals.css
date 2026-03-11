@@ -3,11 +3,11 @@
 @tailwind utilities;
 
 :root {
-  /* Background Levels */
-  --bg-base: #0C1222;
-  --bg-elevated: #151D30;
-  --bg-surface: #1E293B;
-  --bg-muted: #243044;
+  /* Background Levels - Lightened */
+  --bg-base: #1A2332;
+  --bg-elevated: #212D3F;
+  --bg-surface: #2D3A4F;
+  --bg-muted: #374151;
 
   /* Accent Colors */
   --accent-primary: #2563EB;
@@ -28,20 +28,20 @@
   --text-inverse: #0F172A;
 
   /* Border Colors */
-  --border-default: #2D3A4F;
-  --border-subtle: #1E293B;
+  --border-default: #3D4A5F;
+  --border-subtle: #2D3A4F;
   --border-focus: #3B82F6;
 
-  /* Glass Effect - Academic Deep Sky */
-  --glass-bg: rgba(21, 29, 48, 0.85);
-  --glass-bg-elevated: rgba(30, 41, 59, 0.9);
+  /* Glass Effect - Academic Deep Sky (Lightened) */
+  --glass-bg: rgba(33, 45, 63, 0.82);
+  --glass-bg-elevated: rgba(45, 58, 79, 0.88);
   --glass-blur: blur(24px) saturate(120%);
-  --glass-border: rgba(56, 189, 248, 0.12);
+  --glass-border: rgba(56, 189, 248, 0.18);
   --glass-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 4px 24px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
   --glass-shadow-elevated:
-    0 8px 32px rgba(0, 0, 0, 0.35),
+    0 8px 32px rgba(0, 0, 0, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 
   /* Legacy aliases for backwards compatibility */
