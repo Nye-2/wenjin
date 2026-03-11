@@ -284,24 +284,30 @@ class EmailService:
         code_key = f"verify:code:{purpose_key}:{email}"
         fail_key = f"verify:fail:{purpose_key}:{email}"
 
-        # 使用 Lua 脚本进行原子性验证
-        result = await redis.eval(
-            VERIFY_CODE_LUA_SCRIPT,
-            2,  # KEYS 数量
-            code_key,
-            fail_key,
-            code.strip(),
-            5  # 最大失败次数
-        )
+        # 获取存储的验证码并转换为大写进行比较（不区分大小写）
+        stored_code = await redis.get(code_key)
+        if not stored_code:
+            return False, "验证码已过期或不存在，请重新获取"
 
-        # 解析结果（Redis Lua 脚本返回 bytes，需要解码）
-        code_result, message = result
-        if isinstance(message, bytes):
-            message = message.decode("utf-8")
-        if code_result == 1:
-            return True, message
-        else:
-            return False, message
+        # 处理bytes类型
+        if isinstance(stored_code, bytes):
+            stored_code = stored_code.decode("utf-8")
+
+        # 不区分大小写比较
+        if stored_code.upper() != code.strip().upper():
+            # 增加失败计数
+            fail_count = await redis.incr(fail_key)
+            await redis.expire(fail_key, 3600)
+            if fail_count >= 5:
+                await redis.delete(code_key)
+                await redis.delete(fail_key)
+                return False, "验证失败次数过多，验证码已失效，请重新获取"
+            return False, "验证码错误"
+
+        # 验证成功，删除验证码和失败计数
+        await redis.delete(code_key)
+        await redis.delete(fail_key)
+        return True, "验证成功"
 
 
 # 全局邮件服务实例
