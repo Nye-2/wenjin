@@ -24,6 +24,7 @@ class WorkspaceType(enum.StrEnum):
     PROPOSAL = "proposal"          # Research Proposal
     GRANT = "grant"                # Grant Application
     LITERATURE_REVIEW = "literature_review"  # Systematic Review
+    UNDERGRADUATE_THESIS = "undergraduate_thesis"  # 本科毕业设计
 
 
 class Workspace(Base, UUIDMixin, TimestampMixin):
