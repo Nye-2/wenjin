@@ -1,0 +1,193 @@
+{
+  "common": {
+    "loading": "加载中...",
+    "error": "错误",
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "confirm": "确认",
+    "dismiss": "关闭",
+    "create": "创建",
+    "search": "搜索",
+    "filter": "筛选"
+  },
+  "nav": {
+    "workspaces": "工作空间",
+    "settings": "设置",
+    "logout": "退出登录"
+  },
+  "home": {
+    "title": "AcademiaGPT",
+    "subtitle": "您的AI学术研究与写作助手。从文献综述到论文投稿，我们全程为您提供支持。",
+    "getStarted": "开始使用",
+    "learnMore": "了解更多",
+    "features": {
+      "title": "强大功能",
+      "subtitle": "学术研究与写作所需的一切"
+    },
+    "cta": {
+      "title": "准备好撰写下一篇论文了吗？",
+      "subtitle": "创建工作空间，在AI辅助下开启您的研究之旅。",
+      "button": "创建工作空间"
+    }
+  },
+  "features": {
+    "deepResearch": {
+      "title": "深度研究",
+      "description": "全面的文献分析和研究空白识别"
+    },
+    "paperWriting": {
+      "title": "论文写作",
+      "description": "端到端的学术论文生成，包含正确的引用格式"
+    },
+    "ideaGeneration": {
+      "title": "创意生成",
+      "description": "基于现有文献生成新颖的研究想法"
+    },
+    "experimentDesign": {
+      "title": "实验设计",
+      "description": "设计严谨的实验，采用正确的方法论"
+    }
+  },
+  "workspace": {
+    "title": "我的工作空间",
+    "subtitle": "管理您的学术研究项目",
+    "newWorkspace": "新建工作空间",
+    "searchPlaceholder": "搜索工作空间...",
+    "empty": {
+      "title": "未找到工作空间",
+      "description": "创建您的第一个工作空间开始使用",
+      "searchHint": "尝试其他搜索词"
+    },
+    "deleteConfirm": "确定要删除此工作空间吗？",
+    "card": {
+      "papers": "篇论文",
+      "artifacts": "个成果",
+      "created": "创建于"
+    },
+    "createModal": {
+      "title": "创建新工作空间",
+      "name": "工作空间名称",
+      "namePlaceholder": "例如：深度学习在NLP中的应用",
+      "type": "项目类型",
+      "discipline": "学科领域",
+      "disciplinePlaceholder": "选择学科...",
+      "description": "描述（可选）",
+      "descriptionPlaceholder": "简要描述您的研究...",
+      "createButton": "创建工作空间"
+    },
+    "types": {
+      "sci": "SCI论文",
+      "thesis": "研究生论文",
+      "proposal": "研究计划书",
+      "grant": "基金申请书"
+    },
+    "disciplines": {
+      "computer_science": "计算机科学",
+      "physics": "物理学",
+      "biology": "生物学",
+      "chemistry": "化学",
+      "medicine": "医学",
+      "engineering": "工程学",
+      "social_science": "社会科学",
+      "humanities": "人文学科"
+    }
+  },
+  "chat": {
+    "placeholder": "询问您的研究问题...",
+    "thinking": "思考中...",
+    "send": "发送",
+    "stop": "停止",
+    "startTitle": "开启您的研究之旅",
+    "startDesc": "选择下方技能，向我咨询任何研究问题。我可以帮助您进行文献综述、论文写作、实验设计等。",
+    "helperText": {
+      "send": "发送",
+      "newline": "换行",
+      "characters": "字符"
+    },
+    "title": "智能助手",
+    "subtitle": "AI驱动的学术助手"
+  },
+  "skills": {
+    "deep-research": {
+      "name": "深度研究",
+      "description": "全面的文献分析和创意生成"
+    },
+    "framework-designer": {
+      "name": "框架设计",
+      "description": "生成论文摘要和提纲"
+    },
+    "fullpaper-writer": {
+      "name": "全文写作",
+      "description": "端到端的学术论文写作"
+    },
+    "literature-review": {
+      "name": "文献综述",
+      "description": "系统性文献综述生成"
+    },
+    "proposal-writer": {
+      "name": "计划书",
+      "description": "撰写研究计划书"
+    }
+  },
+  "panels": {
+    "knowledge": {
+      "title": "知识库",
+      "subtitle": "研究成果时间线",
+      "empty": "暂无成果",
+      "emptyHint": "开始对话以生成研究成果"
+    },
+    "literature": {
+      "title": "文献",
+      "subtitle": "篇论文在工作空间",
+      "upload": "上传论文",
+      "empty": "暂无论文",
+      "emptyHint": "上传论文以建立您的参考库",
+      "view": "查看"
+    }
+  },
+  "artifacts": {
+    "types": {
+      "research_idea": "研究想法",
+      "methodology": "方法论",
+      "framework_outline": "框架",
+      "abstract": "摘要",
+      "introduction": "引言",
+      "literature_review": "文献综述",
+      "hypothesis": "假设",
+      "results_analysis": "结果分析",
+      "conclusion": "结论",
+      "note": "笔记"
+    },
+    "status": {
+      "draft": "草稿",
+      "in_review": "审核中",
+      "approved": "已批准",
+      "archived": "已归档"
+    },
+    "untitled": "未命名"
+  },
+  "auth": {
+    "login": {
+      "title": "AcademiaGPT",
+      "subtitle": "登录您的账户以继续",
+      "email": "邮箱",
+      "emailPlaceholder": "your@email.com",
+      "password": "密码",
+      "passwordPlaceholder": "••••••••",
+      "button": "登录",
+      "signingIn": "登录中...",
+      "noAccount": "还没有账户？",
+      "createOne": "创建一个"
+    },
+    "register": {
+      "title": "创建账户",
+      "subtitle": "注册以开始使用 AcademiaGPT",
+      "confirmPassword": "确认密码",
+      "button": "创建账户",
+      "creating": "创建中...",
+      "hasAccount": "已有账户？",
+      "signIn": "登录"
+    }
+  }
+}

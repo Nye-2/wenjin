@@ -16,3 +16,9 @@ export {
   useChatStore,
   type Message,
 } from './chat';
+
+// Locale Store (for i18n)
+export {
+  useLocaleStore,
+  type Locale,
+} from './locale';

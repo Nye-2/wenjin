@@ -5,30 +5,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Search, Filter, Loader2, Trash2 } from "lucide-react";
 import { LiquidGlassCard, GradientText } from "@/components/glass";
 import { WorkspaceCard } from "@/components/academic";
+import { LanguageSwitcher } from "@/components/ui/language-switcher";
+import { useI18n } from "@/components/i18n-provider";
 import { useWorkspaceStore } from "@/lib/store";
 import { Workspace } from "@/lib/api";
 
-// Workspace type labels
-const WORKSPACE_TYPES = [
-  { value: "sci", label: "SCI Paper" },
-  { value: "thesis", label: "Graduate Thesis" },
-  { value: "proposal", label: "Research Proposal" },
-  { value: "grant", label: "Grant Application" },
-];
-
-// Discipline options
-const DISCIPLINES = [
-  { value: "computer_science", label: "Computer Science" },
-  { value: "physics", label: "Physics" },
-  { value: "biology", label: "Biology" },
-  { value: "chemistry", label: "Chemistry" },
-  { value: "medicine", label: "Medicine" },
-  { value: "engineering", label: "Engineering" },
-  { value: "social_science", label: "Social Science" },
-  { value: "humanities", label: "Humanities" },
-];
-
 export default function WorkspacesPage() {
+  const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newWorkspace, setNewWorkspace] = useState({
@@ -37,6 +20,26 @@ export default function WorkspacesPage() {
     discipline: "",
     description: "",
   });
+
+  // Workspace type labels (translated)
+  const WORKSPACE_TYPES = [
+    { value: "sci", label: t("workspace.types.sci") },
+    { value: "thesis", label: t("workspace.types.thesis") },
+    { value: "proposal", label: t("workspace.types.proposal") },
+    { value: "grant", label: t("workspace.types.grant") },
+  ];
+
+  // Discipline options (translated)
+  const DISCIPLINES = [
+    { value: "computer_science", label: t("workspace.disciplines.computer_science") },
+    { value: "physics", label: t("workspace.disciplines.physics") },
+    { value: "biology", label: t("workspace.disciplines.biology") },
+    { value: "chemistry", label: t("workspace.disciplines.chemistry") },
+    { value: "medicine", label: t("workspace.disciplines.medicine") },
+    { value: "engineering", label: t("workspace.disciplines.engineering") },
+    { value: "social_science", label: t("workspace.disciplines.social_science") },
+    { value: "humanities", label: t("workspace.disciplines.humanities") },
+  ];
 
   const {
     workspaces,
@@ -74,21 +77,26 @@ export default function WorkspacesPage() {
   };
 
   const handleDeleteWorkspace = async (id: string) => {
-    if (confirm("Are you sure you want to delete this workspace?")) {
+    if (confirm(t("workspace.deleteConfirm"))) {
       await removeWorkspace(id);
     }
   };
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
+      {/* Language Switcher */}
+      <div className="fixed top-4 right-4 z-50">
+        <LanguageSwitcher />
+      </div>
+
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2 text-[var(--text-primary)]">
-            My Workspaces
+            {t("workspace.title")}
           </h1>
           <p className="text-[var(--text-secondary)]">
-            Manage your academic research projects
+            {t("workspace.subtitle")}
           </p>
         </div>
 
@@ -101,7 +109,7 @@ export default function WorkspacesPage() {
           >
             <span>{error}</span>
             <button onClick={clearError} className="text-sm hover:underline">
-              Dismiss
+              {t("common.dismiss")}
             </button>
           </motion.div>
         )}
@@ -112,7 +120,7 @@ export default function WorkspacesPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-muted)]" />
             <input
               type="text"
-              placeholder="Search workspaces..."
+              placeholder={t("workspace.searchPlaceholder")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-12 pr-4 py-3.5 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
@@ -131,7 +139,7 @@ export default function WorkspacesPage() {
               whileTap={{ scale: 0.98 }}
             >
               <Plus className="w-5 h-5" />
-              New Workspace
+              {t("workspace.newWorkspace")}
             </motion.button>
           </div>
         </div>
@@ -183,11 +191,13 @@ export default function WorkspacesPage() {
           <div className="text-center py-16">
             <div className="p-12 max-w-md mx-auto bg-[var(--bg-elevated)] rounded-2xl border border-[var(--border-default)]">
               <div className="text-6xl mb-4">📚</div>
-              <h3 className="text-xl font-semibold mb-2 text-[var(--text-primary)]">No workspaces found</h3>
+              <h3 className="text-xl font-semibold mb-2 text-[var(--text-primary)]">
+                {t("workspace.empty.title")}
+              </h3>
               <p className="text-[var(--text-secondary)]">
                 {searchQuery
-                  ? "Try a different search term"
-                  : "Create your first workspace to get started"}
+                  ? t("workspace.empty.searchHint")
+                  : t("workspace.empty.description")}
               </p>
             </div>
           </div>
@@ -212,14 +222,14 @@ export default function WorkspacesPage() {
               >
                 <div className="bg-[var(--bg-elevated)] rounded-2xl border border-[var(--border-default)] shadow-2xl p-8">
                   <h2 className="text-2xl font-bold mb-8 text-[var(--text-primary)]">
-                    Create New Workspace
+                    {t("workspace.createModal.title")}
                   </h2>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Workspace Name - Full width */}
                     <div className="md:col-span-2">
                       <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
-                        Workspace Name
+                        {t("workspace.createModal.name")}
                       </label>
                       <input
                         type="text"
@@ -227,7 +237,7 @@ export default function WorkspacesPage() {
                         onChange={(e) =>
                           setNewWorkspace({ ...newWorkspace, name: e.target.value })
                         }
-                        placeholder="e.g., Deep Learning for NLP"
+                        placeholder={t("workspace.createModal.namePlaceholder")}
                         className="w-full px-4 py-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
                       />
                     </div>
@@ -235,7 +245,7 @@ export default function WorkspacesPage() {
                     {/* Project Type */}
                     <div>
                       <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
-                        Project Type
+                        {t("workspace.createModal.type")}
                       </label>
                       <select
                         value={newWorkspace.type}
@@ -255,7 +265,7 @@ export default function WorkspacesPage() {
                     {/* Discipline */}
                     <div>
                       <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
-                        Discipline
+                        {t("workspace.createModal.discipline")}
                       </label>
                       <select
                         value={newWorkspace.discipline}
@@ -268,7 +278,7 @@ export default function WorkspacesPage() {
                         className="w-full px-4 py-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all cursor-pointer"
                       >
                         <option value="">
-                          Select discipline...
+                          {t("workspace.createModal.disciplinePlaceholder")}
                         </option>
                         {DISCIPLINES.map((disc) => (
                           <option key={disc.value} value={disc.value}>
@@ -281,7 +291,7 @@ export default function WorkspacesPage() {
                     {/* Description - Full width */}
                     <div className="md:col-span-2">
                       <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
-                        Description (optional)
+                        {t("workspace.createModal.description")}
                       </label>
                       <textarea
                         value={newWorkspace.description}
@@ -291,7 +301,7 @@ export default function WorkspacesPage() {
                             description: e.target.value,
                           })
                         }
-                        placeholder="Brief description of your research..."
+                        placeholder={t("workspace.createModal.descriptionPlaceholder")}
                         rows={3}
                         className="w-full px-4 py-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none resize-none transition-all"
                       />
@@ -303,7 +313,7 @@ export default function WorkspacesPage() {
                       onClick={() => setShowCreateModal(false)}
                       className="flex-1 px-6 py-3.5 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-all font-medium"
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </button>
                     <motion.button
                       onClick={handleCreateWorkspace}
@@ -315,7 +325,7 @@ export default function WorkspacesPage() {
                       {isLoading ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
                       ) : (
-                        "Create Workspace"
+                        t("workspace.createModal.createButton")
                       )}
                     </motion.button>
                   </div>

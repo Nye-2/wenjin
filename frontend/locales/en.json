@@ -1,0 +1,193 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "confirm": "Confirm",
+    "dismiss": "Dismiss",
+    "create": "Create",
+    "search": "Search",
+    "filter": "Filter"
+  },
+  "nav": {
+    "workspaces": "Workspaces",
+    "settings": "Settings",
+    "logout": "Logout"
+  },
+  "home": {
+    "title": "AcademiaGPT",
+    "subtitle": "Your AI-powered academic research and writing assistant. From literature review to paper submission, we help you every step of the way.",
+    "getStarted": "Get Started",
+    "learnMore": "Learn More",
+    "features": {
+      "title": "Powerful Features",
+      "subtitle": "Everything you need for academic research and writing"
+    },
+    "cta": {
+      "title": "Ready to write your next paper?",
+      "subtitle": "Create a workspace and start your research journey with AI assistance.",
+      "button": "Create Workspace"
+    }
+  },
+  "features": {
+    "deepResearch": {
+      "title": "Deep Research",
+      "description": "Comprehensive literature analysis and research gap identification"
+    },
+    "paperWriting": {
+      "title": "Paper Writing",
+      "description": "End-to-end academic paper generation with proper citations"
+    },
+    "ideaGeneration": {
+      "title": "Idea Generation",
+      "description": "Generate novel research ideas based on existing literature"
+    },
+    "experimentDesign": {
+      "title": "Experiment Design",
+      "description": "Design rigorous experiments with proper methodology"
+    }
+  },
+  "workspace": {
+    "title": "My Workspaces",
+    "subtitle": "Manage your academic research projects",
+    "newWorkspace": "New Workspace",
+    "searchPlaceholder": "Search workspaces...",
+    "empty": {
+      "title": "No workspaces found",
+      "description": "Create your first workspace to get started",
+      "searchHint": "Try a different search term"
+    },
+    "deleteConfirm": "Are you sure you want to delete this workspace?",
+    "card": {
+      "papers": "papers",
+      "artifacts": "artifacts",
+      "created": "Created"
+    },
+    "createModal": {
+      "title": "Create New Workspace",
+      "name": "Workspace Name",
+      "namePlaceholder": "e.g., Deep Learning for NLP",
+      "type": "Project Type",
+      "discipline": "Discipline",
+      "disciplinePlaceholder": "Select discipline...",
+      "description": "Description (optional)",
+      "descriptionPlaceholder": "Brief description of your research...",
+      "createButton": "Create Workspace"
+    },
+    "types": {
+      "sci": "SCI Paper",
+      "thesis": "Graduate Thesis",
+      "proposal": "Research Proposal",
+      "grant": "Grant Application"
+    },
+    "disciplines": {
+      "computer_science": "Computer Science",
+      "physics": "Physics",
+      "biology": "Biology",
+      "chemistry": "Chemistry",
+      "medicine": "Medicine",
+      "engineering": "Engineering",
+      "social_science": "Social Science",
+      "humanities": "Humanities"
+    }
+  },
+  "chat": {
+    "placeholder": "Ask about your research...",
+    "thinking": "Thinking...",
+    "send": "Send",
+    "stop": "Stop",
+    "startTitle": "Start Your Research Journey",
+    "startDesc": "Select a skill below and ask me anything about your research. I can help with literature reviews, paper writing, experiment design, and more.",
+    "helperText": {
+      "send": "to send",
+      "newline": "for new line",
+      "characters": "characters"
+    },
+    "title": "Agent Chat",
+    "subtitle": "AI-powered academic assistant"
+  },
+  "skills": {
+    "deep-research": {
+      "name": "Deep Research",
+      "description": "Comprehensive literature analysis and idea generation"
+    },
+    "framework-designer": {
+      "name": "Framework",
+      "description": "Generate paper abstract and outline"
+    },
+    "fullpaper-writer": {
+      "name": "Full Paper",
+      "description": "End-to-end academic paper writing"
+    },
+    "literature-review": {
+      "name": "Lit Review",
+      "description": "Systematic literature review generation"
+    },
+    "proposal-writer": {
+      "name": "Proposal",
+      "description": "Write research proposals"
+    }
+  },
+  "panels": {
+    "knowledge": {
+      "title": "Knowledge",
+      "subtitle": "Research artifacts timeline",
+      "empty": "No artifacts yet",
+      "emptyHint": "Start a conversation to generate research artifacts"
+    },
+    "literature": {
+      "title": "Literature",
+      "subtitle": "papers in workspace",
+      "upload": "Upload Paper",
+      "empty": "No papers yet",
+      "emptyHint": "Upload papers to build your reference library",
+      "view": "View"
+    }
+  },
+  "artifacts": {
+    "types": {
+      "research_idea": "Research Idea",
+      "methodology": "Methodology",
+      "framework_outline": "Framework",
+      "abstract": "Abstract",
+      "introduction": "Introduction",
+      "literature_review": "Lit Review",
+      "hypothesis": "Hypothesis",
+      "results_analysis": "Results",
+      "conclusion": "Conclusion",
+      "note": "Note"
+    },
+    "status": {
+      "draft": "Draft",
+      "in_review": "Review",
+      "approved": "Approved",
+      "archived": "Archived"
+    },
+    "untitled": "Untitled"
+  },
+  "auth": {
+    "login": {
+      "title": "AcademiaGPT",
+      "subtitle": "Sign in to your account to continue",
+      "email": "Email",
+      "emailPlaceholder": "your@email.com",
+      "password": "Password",
+      "passwordPlaceholder": "••••••••",
+      "button": "Sign In",
+      "signingIn": "Signing in...",
+      "noAccount": "Don't have an account?",
+      "createOne": "Create one"
+    },
+    "register": {
+      "title": "Create Account",
+      "subtitle": "Sign up to get started with AcademiaGPT",
+      "confirmPassword": "Confirm Password",
+      "button": "Create Account",
+      "creating": "Creating account...",
+      "hasAccount": "Already have an account?",
+      "signIn": "Sign in"
+    }
+  }
+}

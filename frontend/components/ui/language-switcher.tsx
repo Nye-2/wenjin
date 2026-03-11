@@ -1,0 +1,40 @@
+"use client";
+
+import { motion } from "framer-motion";
+import { useLocaleStore, Locale } from "@/stores/locale";
+import { cn } from "@/lib/utils";
+
+const languages: { code: Locale; label: string }[] = [
+  { code: "cn", label: "中文" },
+  { code: "en", label: "EN" },
+];
+
+export function LanguageSwitcher({ className }: { className?: string }) {
+  const { locale, setLocale } = useLocaleStore();
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)]",
+        className
+      )}
+    >
+      {languages.map((lang) => (
+        <motion.button
+          key={lang.code}
+          onClick={() => setLocale(lang.code)}
+          className={cn(
+            "px-3 py-1.5 rounded-md text-sm font-medium transition-all",
+            locale === lang.code
+              ? "bg-[var(--accent-primary)] text-white shadow-sm"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-muted)]"
+          )}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          {lang.label}
+        </motion.button>
+      ))}
+    </div>
+  );
+}
