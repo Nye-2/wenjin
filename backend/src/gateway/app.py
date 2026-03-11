@@ -7,13 +7,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config.app_config import get_settings
+from src.gateway.middleware.correlation import correlation_middleware
 from src.gateway.middleware.error_handler import register_error_handlers
+from src.logging_config import setup_logging
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
     # Startup
+    # Initialize structured logging
+    setup_logging(level="INFO")
     print("AcademiaGPT Gateway starting up...")
 
     # Initialize database
@@ -44,6 +48,9 @@ register_error_handlers(app)
 
 # Load settings for CORS configuration
 settings = get_settings()
+
+# Add correlation ID middleware for request tracing
+app.middleware("http")(correlation_middleware)
 
 # CORS middleware - configured from settings
 app.add_middleware(

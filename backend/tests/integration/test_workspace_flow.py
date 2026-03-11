@@ -179,10 +179,10 @@ class TestWorkspaceFlow:
     ):
         """Test that listing workspaces only shows user's own workspaces."""
         from src.services.auth import hash_password
-        from tests.integration.conftest import TestUser as TestUserModel
+        from tests.integration.conftest import FixtureUser
 
         # Create another user
-        other_user = TestUserModel(
+        other_user = FixtureUser(
             email="otheruser@example.com",
             name="Other User",
             hashed_password=hash_password("otherpassword123"),

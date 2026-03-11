@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/stores/auth';
@@ -13,12 +13,54 @@ import { Loader2, UserPlus } from 'lucide-react';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { register, isLoading, error, clearError } = useAuthStore();
+  const { register, sendVerificationCode, isLoading, error, clearError, isAuthenticated } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
   const [validationError, setValidationError] = useState('');
+  const [codeError, setCodeError] = useState('');
+  const [countdown, setCountdown] = useState(0);
+  const [isSendingCode, setIsSendingCode] = useState(false);
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push('/workspaces');
+    }
+  }, [isAuthenticated, router]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [countdown]);
+
+  const handleSendCode = useCallback(async () => {
+    if (!email || countdown > 0) return;
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setCodeError('Please enter a valid email address');
+      return;
+    }
+
+    setIsSendingCode(true);
+    setCodeError('');
+
+    const result = await sendVerificationCode(email, 'register');
+
+    if (result.success) {
+      setCountdown(60);
+    } else {
+      setCodeError(result.message);
+    }
+
+    setIsSendingCode(false);
+  }, [email, countdown, sendVerificationCode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,7 +78,12 @@ export default function RegisterPage() {
       return;
     }
 
-    const success = await register(email, password, name || undefined);
+    if (!verificationCode || verificationCode.length < 4) {
+      setValidationError('Please enter the verification code');
+      return;
+    }
+
+    const success = await register(email, password, name || email.split('@')[0], verificationCode);
     if (success) {
       router.push('/workspaces');
     }
@@ -88,6 +135,43 @@ export default function RegisterPage() {
                 required
                 className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
               />
+            </div>
+
+            {/* Verification Code */}
+            <div className="space-y-2">
+              <Label htmlFor="verificationCode" className="text-slate-200">
+                Verification Code
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="verificationCode"
+                  type="text"
+                  placeholder="Enter code"
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value.toUpperCase())}
+                  required
+                  maxLength={10}
+                  className="flex-1 bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500 font-mono tracking-wider"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={countdown > 0 || isSendingCode || !email}
+                  onClick={handleSendCode}
+                  className="shrink-0 border-slate-600 text-slate-200 hover:bg-slate-700"
+                >
+                  {isSendingCode ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : countdown > 0 ? (
+                    `${countdown}s`
+                  ) : (
+                    'Send Code'
+                  )}
+                </Button>
+              </div>
+              {codeError && (
+                <p className="text-xs text-red-400">{codeError}</p>
+              )}
             </div>
 
             <div className="space-y-2">

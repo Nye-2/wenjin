@@ -195,7 +195,7 @@ async def test_app(test_engine, test_session):
     from fastapi import Depends, FastAPI, HTTPException, status
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-    from pydantic import BaseModel, EmailStr, Field
+    from pydantic import BaseModel, ConfigDict, EmailStr, Field
     from sqlalchemy import select
 
     # ============ Request/Response Models ============
@@ -246,8 +246,7 @@ async def test_app(test_engine, test_session):
         description: str | None
         config: dict
 
-        class Config:
-            from_attributes = True
+        model_config = ConfigDict(from_attributes=True)
 
     class CreatePaperRequest(BaseModel):
         doi: str | None = None
@@ -286,8 +285,7 @@ async def test_app(test_engine, test_session):
         citation_count: int | None
         reference_count: int | None
 
-        class Config:
-            from_attributes = True
+        model_config = ConfigDict(from_attributes=True)
 
     class AddPaperRequest(BaseModel):
         notes: str | None = None

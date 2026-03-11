@@ -63,8 +63,8 @@ async def async_engine():
         await conn.run_sync(FixtureWorkspace.__table__.create)
     yield engine
     async with engine.begin() as conn:
-        await conn.run_sync(TestArtifact.__table__.drop)
-        await conn.run_sync(TestWorkspace.__table__.drop)
+        await conn.run_sync(FixtureArtifact.__table__.drop)
+        await conn.run_sync(FixtureWorkspace.__table__.drop)
     await engine.dispose()
 
 
@@ -86,7 +86,7 @@ async def db_session(async_engine):
 async def test_workspace(db_session):
     """Create test workspace."""
     import uuid
-    workspace = TestWorkspace(
+    workspace = FixtureWorkspace(
         id=str(uuid.uuid4()),
         user_id="test-user-1",
         name="Test Workspace",

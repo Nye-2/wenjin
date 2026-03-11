@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { LiquidGlassCard } from "@/components/glass/liquid-glass-card";
 import { GradientText } from "@/components/glass/gradient-text";
-import { LanguageSwitcher } from "@/components/ui/language-switcher";
+import { Header } from "@/components/layout/header";
 import { FileText, BookOpen, Lightbulb, PenTool, FlaskConical, Send } from "lucide-react";
 import { fadeInUp, staggerContainer, defaultTransition, buttonTap } from "@/lib/animations";
 import { useI18n } from "@/components/i18n-provider";
@@ -36,10 +36,8 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-[var(--bg-base)]">
-      {/* Language Switcher */}
-      <div className="fixed top-4 right-4 z-50">
-        <LanguageSwitcher />
-      </div>
+      {/* Header with Auth */}
+      <Header />
 
       {/* Hero Section */}
       <section className="relative overflow-hidden px-6 py-24 lg:py-32">

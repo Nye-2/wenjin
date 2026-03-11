@@ -184,11 +184,20 @@
     "register": {
       "title": "创建账户",
       "subtitle": "注册以开始使用 AcademiaGPT",
+      "name": "姓名",
+      "namePlaceholder": "输入您的姓名",
+      "verificationCode": "验证码",
+      "verificationCodePlaceholder": "请输入验证码",
+      "verificationCodeRequired": "请输入验证码",
+      "sendCode": "发送验证码",
+      "invalidEmail": "请输入有效的邮箱地址",
       "confirmPassword": "确认密码",
       "button": "创建账户",
       "creating": "创建中...",
       "hasAccount": "已有账户？",
-      "signIn": "登录"
+      "signIn": "登录",
+      "passwordMismatch": "两次输入的密码不一致",
+      "passwordTooShort": "密码长度至少为8位"
     }
   }
 }

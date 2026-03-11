@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Search, Filter, Loader2, Trash2 } from "lucide-react";
 import { LiquidGlassCard, GradientText } from "@/components/glass";
 import { WorkspaceCard } from "@/components/academic";
-import { LanguageSwitcher } from "@/components/ui/language-switcher";
+import { Header } from "@/components/layout/header";
 import { useI18n } from "@/components/i18n-provider";
 import { useWorkspaceStore } from "@/lib/store";
 import { Workspace } from "@/lib/api";
@@ -85,12 +85,10 @@ export default function WorkspacesPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
-      {/* Language Switcher */}
-      <div className="fixed top-4 right-4 z-50">
-        <LanguageSwitcher />
-      </div>
+      {/* Header with Auth */}
+      <Header />
 
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-8 pt-24">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2 text-[var(--text-primary)]">

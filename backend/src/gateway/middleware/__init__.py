@@ -1,17 +1,13 @@
 """Gateway middleware package."""
 
-from .error_handler import (
-    academia_exception_handler,
-    generic_exception_handler,
-    http_exception_handler,
-    register_error_handlers,
-    validation_exception_handler,
+from src.gateway.middleware.correlation import (
+    correlation_middleware,
+    get_correlation_id,
 )
+from src.gateway.middleware.error_handler import register_error_handlers
 
 __all__ = [
-    "academia_exception_handler",
-    "validation_exception_handler",
-    "http_exception_handler",
-    "generic_exception_handler",
+    "correlation_middleware",
+    "get_correlation_id",
     "register_error_handlers",
 ]

@@ -18,7 +18,8 @@ interface AuthState {
 
   // Actions
   login: (email: string, password: string) => Promise<boolean>;
-  register: (email: string, password: string, name?: string) => Promise<boolean>;
+  register: (email: string, password: string, name: string, verificationCode: string) => Promise<boolean>;
+  sendVerificationCode: (email: string, purpose: 'register' | 'reset_password') => Promise<{ success: boolean; message: string; expireSeconds?: number }>;
   logout: () => void;
   refreshTokens: () => Promise<boolean>;
   setUser: (user: User) => void;
@@ -26,7 +27,7 @@ interface AuthState {
   clearError: () => void;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -41,7 +42,7 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await fetch(`${API_BASE}/auth/login`, {
+          const response = await fetch(`${API_BASE}/api/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password }),
@@ -54,14 +55,18 @@ export const useAuthStore = create<AuthState>()(
 
           const data = await response.json();
           set({
-            accessToken: data.access_token,
-            refreshToken: data.refresh_token,
+            accessToken: data.token.access_token,
+            refreshToken: data.token.refresh_token,
+            user: {
+              id: data.user.id,
+              email: data.user.email,
+              name: data.user.display_name || data.user.username || data.user.email.split('@')[0],
+              role: data.user.role,
+            },
             isAuthenticated: true,
             isLoading: false,
           });
 
-          // Fetch user info
-          await get().refreshTokens();
           return true;
         } catch (error) {
           set({
@@ -72,13 +77,18 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      register: async (email: string, password: string, name?: string) => {
+      register: async (email: string, password: string, name: string, verificationCode: string) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await fetch(`${API_BASE}/auth/register`, {
+          const response = await fetch(`${API_BASE}/api/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, name }),
+            body: JSON.stringify({
+              email,
+              password,
+              display_name: name || undefined,
+              verification_code: verificationCode,
+            }),
           });
 
           if (!response.ok) {
@@ -88,14 +98,18 @@ export const useAuthStore = create<AuthState>()(
 
           const data = await response.json();
           set({
-            accessToken: data.access_token,
-            refreshToken: data.refresh_token,
+            accessToken: data.token.access_token,
+            refreshToken: data.token.refresh_token,
+            user: {
+              id: data.user.id,
+              email: data.user.email,
+              name: data.user.display_name || data.user.username || data.user.email.split('@')[0],
+              role: data.user.role,
+            },
             isAuthenticated: true,
             isLoading: false,
           });
 
-          // Fetch user info
-          await get().refreshTokens();
           return true;
         } catch (error) {
           set({
@@ -103,6 +117,33 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
           });
           return false;
+        }
+      },
+
+      sendVerificationCode: async (email: string, purpose: 'register' | 'reset_password') => {
+        try {
+          const response = await fetch(`${API_BASE}/api/auth/send-verification-code`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, purpose }),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            return { success: false, message: data.detail || 'Failed to send code' };
+          }
+
+          return {
+            success: true,
+            message: data.message,
+            expireSeconds: data.expire_seconds,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            message: error instanceof Error ? error.message : 'Failed to send code',
+          };
         }
       },
 
@@ -121,7 +162,7 @@ export const useAuthStore = create<AuthState>()(
         if (!refreshToken) return false;
 
         try {
-          const response = await fetch(`${API_BASE}/auth/refresh`, {
+          const response = await fetch(`${API_BASE}/api/auth/refresh`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refresh_token: refreshToken }),
@@ -139,7 +180,7 @@ export const useAuthStore = create<AuthState>()(
           });
 
           // Fetch user info
-          const meResponse = await fetch(`${API_BASE}/auth/me`, {
+          const meResponse = await fetch(`${API_BASE}/api/auth/me`, {
             headers: {
               Authorization: `Bearer ${data.access_token}`,
             },

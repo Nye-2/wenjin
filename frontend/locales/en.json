@@ -184,11 +184,20 @@
     "register": {
       "title": "Create Account",
       "subtitle": "Sign up to get started with AcademiaGPT",
+      "name": "Name",
+      "namePlaceholder": "Enter your name",
+      "verificationCode": "Verification Code",
+      "verificationCodePlaceholder": "Enter verification code",
+      "verificationCodeRequired": "Please enter verification code",
+      "sendCode": "Send Code",
+      "invalidEmail": "Please enter a valid email address",
       "confirmPassword": "Confirm Password",
       "button": "Create Account",
       "creating": "Creating account...",
       "hasAccount": "Already have an account?",
-      "signIn": "Sign in"
+      "signIn": "Sign in",
+      "passwordMismatch": "Passwords do not match",
+      "passwordTooShort": "Password must be at least 8 characters"
     }
   }
 }
