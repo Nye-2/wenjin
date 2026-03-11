@@ -20,6 +20,14 @@ class CompileLatexInput(BaseModel):
         default=None,
         description="Optional BibTeX bibliography content for references"
     )
+    citation_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of paper IDs to cite. Used to fetch citation data from the citation service."
+    )
+    bibliography_style: str = Field(
+        default="plain",
+        description="Bibliography style for formatting references (e.g., plain, alpha, abbrv, ieee)"
+    )
     timeout: int = Field(
         default=120,
         ge=30,
@@ -33,6 +41,8 @@ async def compile_latex_tool(
     latex_source: str,
     compiler: str = "xelatex",
     bibliography: str | None = None,
+    citation_ids: list[str] | None = None,
+    bibliography_style: str = "plain",
     timeout: int = 120,
 ) -> str:
     """Compile LaTeX source code to PDF.
@@ -50,6 +60,10 @@ async def compile_latex_tool(
                       all content.
         compiler: LaTeX compiler (pdflatex or xelatex). Default: xelatex.
         bibliography: Optional BibTeX content for references.
+        citation_ids: Optional list of paper IDs to cite. Used to fetch
+                      citation data from the citation service.
+        bibliography_style: Bibliography style for formatting references.
+                           Default: plain.
         timeout: Compilation timeout in seconds. Default: 120.
 
     Returns:

@@ -40,3 +40,35 @@ class TestCompileLatexTool:
         schema = compile_latex_tool.args_schema.model_json_schema()
         compiler = schema["properties"]["compiler"]
         assert compiler.get("default") == "xelatex"
+
+    def test_compile_latex_has_citation_ids_parameter(self):
+        """Test that compile_latex tool accepts citation_ids parameter."""
+        from src.tools.execution.compile_latex import CompileLatexInput
+
+        # Should accept citation_ids
+        input_data = CompileLatexInput(
+            latex_source=r"\documentclass{article}\begin{document}Test\end{document}",
+            citation_ids=["paper-uuid-1", "paper-uuid-2"],
+        )
+
+        assert input_data.citation_ids == ["paper-uuid-1", "paper-uuid-2"]
+
+    def test_compile_latex_citation_ids_optional(self):
+        """Test that citation_ids is optional."""
+        from src.tools.execution.compile_latex import CompileLatexInput
+
+        input_data = CompileLatexInput(
+            latex_source=r"\documentclass{article}\begin{document}Test\end{document}",
+        )
+
+        assert input_data.citation_ids is None
+
+    def test_compile_latex_bibliography_style_default(self):
+        """Test that bibliography_style has default value."""
+        from src.tools.execution.compile_latex import CompileLatexInput
+
+        input_data = CompileLatexInput(
+            latex_source=r"\documentclass{article}\begin{document}Test\end{document}",
+        )
+
+        assert input_data.bibliography_style == "plain"
