@@ -74,4 +74,9 @@ class ExecutionResult:
             if self.metadata.get("page_count"):
                 msg += f" ({self.metadata['page_count']} pages)"
             return msg
-        return f"Failed: {self.error_message}"
+        elif self.status == ExecutionStatus.TIMEOUT:
+            return f"Execution timed out: {self.error_message}"
+        elif self.status == ExecutionStatus.SECURITY_VIOLATION:
+            return f"Security violation: {self.error_message}"
+        else:  # FAILED
+            return f"Failed: {self.error_message}"
