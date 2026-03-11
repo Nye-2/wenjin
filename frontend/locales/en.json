@@ -79,8 +79,9 @@
     "types": {
       "sci": "SCI Paper",
       "thesis": "Undergraduate Thesis",
-      "proposal": "Research Proposal",
-      "grant": "Grant Application"
+      "proposal": "Project Application",
+      "software_copyright": "Software Copyright Application",
+      "patent": "Patent Application"
     },
     "disciplines": {
       "computer_science": "Computer Science",
