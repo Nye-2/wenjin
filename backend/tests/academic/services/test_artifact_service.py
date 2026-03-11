@@ -22,9 +22,9 @@ from src.database.models.artifact import ArtifactType
 Base = declarative_base()
 
 
-class TestArtifact(Base):
-    """Test artifact model for SQLite compatible."""
-    __tablename__ = "test_artifacts"
+class FixtureArtifact(Base):
+    """Fixture artifact model for SQLite compatible."""
+    __tablename__ = "fixture_artifacts"
 
     id = Column(String(36), primary_key=True)
     workspace_id = Column(String(36), nullable=False)
@@ -39,9 +39,9 @@ class TestArtifact(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 
-class TestWorkspace(Base):
-    """Test workspace model for SQLite compatible."""
-    __tablename__ = "test_workspaces"
+class FixtureWorkspace(Base):
+    """Fixture workspace model for SQLite compatible."""
+    __tablename__ = "fixture_workspaces"
 
     id = Column(String(36), primary_key=True)
     user_id = Column(String(36), nullable=False)
@@ -59,8 +59,8 @@ async def async_engine():
     """Create async engine for tests."""
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     async with engine.begin() as conn:
-        await conn.run_sync(TestArtifact.__table__.create)
-        await conn.run_sync(TestWorkspace.__table__.create)
+        await conn.run_sync(FixtureArtifact.__table__.create)
+        await conn.run_sync(FixtureWorkspace.__table__.create)
     yield engine
     async with engine.begin() as conn:
         await conn.run_sync(TestArtifact.__table__.drop)

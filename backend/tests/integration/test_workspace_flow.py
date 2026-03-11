@@ -12,8 +12,8 @@ import pytest
 from httpx import AsyncClient
 
 from tests.integration.conftest import (
-    TestUser,
-    TestWorkspace,
+    FixtureUser,
+    FixtureWorkspace,
     make_authenticated_client,
 )
 
