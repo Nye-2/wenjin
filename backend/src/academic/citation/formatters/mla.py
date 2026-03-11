@@ -95,7 +95,14 @@ class MLAFormatter(CitationFormatter):
         return result
 
     def _get_first_author_lastname(self, authors: list[dict]) -> str:
-        """Get last name of first author."""
+        """Get last name of first author.
+
+        Args:
+            authors: List of author dicts with 'name' key
+
+        Returns:
+            Last name of first author or "Unknown"
+        """
         if not authors:
             return "Unknown"
         name = authors[0].get("name", "")

@@ -185,7 +185,7 @@ async def get_citation_graph(
 
     Args:
         paper_id: Paper ID to analyze
-        depth: How many levels of citations to include
+        depth: How many levels of citations to include (currently only depth=1 supported)
 
     Returns:
         Citation graph with nodes and edges
@@ -204,15 +204,17 @@ async def get_citation_graph(
     workspace_id = row[0]
 
     service = CitationService(db)
-    # For now, return basic graph (full implementation would need recursive query)
+    # Note: Currently only depth=1 is supported. Full recursive implementation
+    # would require CTE or multiple queries.
     outgoing = await service.get_outgoing_citations(paper_id, workspace_id)
     incoming = await service.get_incoming_citations(paper_id, workspace_id)
 
-    nodes = [{"id": paper_id}]
+    # Use set to deduplicate node IDs
+    node_ids = {paper_id}
     edges = []
 
     for citation in outgoing:
-        nodes.append({"id": str(citation.cited_paper_id)})
+        node_ids.add(str(citation.cited_paper_id))
         edges.append({
             "source": paper_id,
             "target": str(citation.cited_paper_id),
@@ -220,12 +222,15 @@ async def get_citation_graph(
         })
 
     for citation in incoming:
-        nodes.append({"id": str(citation.paper_id)})
+        node_ids.add(str(citation.paper_id))
         edges.append({
             "source": str(citation.paper_id),
             "target": paper_id,
             "type": citation.citation_type,
         })
+
+    # Convert set to list of node dicts
+    nodes = [{"id": nid} for nid in node_ids]
 
     return {"nodes": nodes, "edges": edges}
 

@@ -40,15 +40,27 @@ class IEEEFormatter(CitationFormatter):
     def format_citation(self, paper: dict, in_text: bool = False) -> str:
         """Format IEEE citation.
 
-        In-text: [1] - numeric reference
+        In-text: [Author, Year] - author-year format for inline use
         Reference: J. Smith, "Title," *Journal*, 2024, doi: 10.xxx.
         """
         if in_text:
-            # IEEE uses numeric references in brackets
-            # For now, return a placeholder (actual numbering would be done at document level)
-            return "[1]"
+            # IEEE uses numeric references [1], but we return author-year
+            # for standalone inline use (actual numbering at document level)
+            authors = paper.get("authors", [])
+            year = paper.get("year", "n.d.")
+            first_author = self._get_first_author_lastname(authors)
+            if len(authors) > 1:
+                return f"[{first_author} et al., {year}]"
+            return f"[{first_author}, {year}]"
 
         return self.format_bibliography_entry(paper)
+
+    def _get_first_author_lastname(self, authors: list[dict]) -> str:
+        """Get last name of first author."""
+        if not authors:
+            return "Unknown"
+        name = authors[0].get("name", "")
+        return name.split()[-1] if name else "Unknown"
 
     def format_bibliography_entry(self, paper: dict) -> str:
         """Format IEEE bibliography entry."""
