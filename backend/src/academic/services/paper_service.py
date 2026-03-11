@@ -7,6 +7,8 @@ This service provides paper management functionality including:
 """
 
 
+from typing import Any
+
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,18 +25,18 @@ class PaperService:
         db: AsyncSession for database operations
     """
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession) -> None:
         """Initialize with database session.
 
         Args:
             db: AsyncSession for database operations
         """
-        self.db = db
+        self.db: AsyncSession = db
 
     async def create(
         self,
         title: str,
-        authors: list[dict],
+        authors: list[dict[str, Any]],
         doi: str | None = None,
         year: int | None = None,
         venue: str | None = None,
@@ -109,7 +111,7 @@ class PaperService:
         )
         return result.scalar_one_or_none()
 
-    async def update(self, paper_id: str, **kwargs) -> Paper | None:
+    async def update(self, paper_id: str, **kwargs: Any) -> Paper | None:
         """Update paper fields.
 
         Args:
@@ -303,7 +305,7 @@ class PaperService:
         paper_id: str,
         tier: int,
         extraction_type: str,
-        structured_data: dict,
+        structured_data: dict[str, Any],
         processing_time_ms: int | None = None,
         model_used: str | None = None,
     ) -> PaperExtraction:

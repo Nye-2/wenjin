@@ -8,6 +8,8 @@ Note: Paper association management is handled by PaperService.
 """
 
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,13 +26,13 @@ class WorkspaceService:
         db: AsyncSession for database operations
     """
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession) -> None:
         """Initialize WorkspaceService with database session.
 
         Args:
             db: AsyncSession for database operations
         """
-        self.db = db
+        self.db: AsyncSession = db
 
     async def create(
         self,
@@ -39,7 +41,7 @@ class WorkspaceService:
         type: str,
         discipline: str | None = None,
         description: str | None = None,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
     ) -> Workspace:
         """Create a new workspace.
 
@@ -115,7 +117,7 @@ class WorkspaceService:
     async def update(
         self,
         workspace_id: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> Workspace | None:
         """Update workspace fields.
 
