@@ -1,31 +1,7 @@
 # src/thesis/workflow/nodes/compiler.py
 """LaTeX compiler node for thesis workflow.
 
-This node compiles the final LaTeX document to PDF.
-Currently a STUB implementation that returns placeholder PDF path.
-
-TODO: Integrate with ExecutionService
-Future implementation will:
-1. Call ExecutionService with ExecutionType.LATEX_COMPILE
-2. Pass compiler options from thesis_settings
-3. Handle compilation errors and retry logic
-4. Return actual PDF path from sandbox
-
-Example integration:
-    from src.execution import ExecutionService, ExecutionRequest, ExecutionType
-    from src.thesis.config import thesis_settings
-
-    request = ExecutionRequest(
-        execution_type=ExecutionType.LATEX_COMPILE,
-        content=final_latex,
-        options={
-            "compiler": thesis_settings.latex_compiler,
-            "bibliography": state.get("bib_content"),
-            "bibliography_style": thesis_settings.bibliography_style,
-        },
-        workspace_id=workspace_id,
-    )
-    result = await execution_service.execute(request)
+This node compiles the final LaTeX document to PDF using ExecutionService.
 """
 
 import logging
@@ -33,17 +9,17 @@ from typing import Any
 
 from src.thesis.config import thesis_settings
 from src.thesis.workflow.state import ThesisWorkflowState
+from src.thesis.execution.latex_tool import compile_latex
 from .base import log_node_start, log_node_end
 
 logger = logging.getLogger(__name__)
 
 
-def compile_latex_node(state: ThesisWorkflowState) -> dict[str, Any]:
-    """Compile LaTeX document to PDF.
+async def compile_latex_node(state: ThesisWorkflowState) -> dict[str, Any]:
+    """Compile LaTeX document to PDF using ExecutionService.
 
-    This is a STUB implementation that returns a placeholder PDF path.
-    Future implementation will integrate with ExecutionService for actual
-    LaTeX compilation.
+    This node integrates with ExecutionService for actual LaTeX compilation.
+    It handles compilation errors gracefully and returns the PDF path.
 
     Args:
         state: Current workflow state containing final_latex
@@ -54,7 +30,9 @@ def compile_latex_node(state: ThesisWorkflowState) -> dict[str, Any]:
     log_node_start("compiler", state)
 
     workspace_id = state.get("workspace_id", "unknown")
+    thread_id = state.get("thread_id")
     final_latex = state.get("final_latex")
+    bib_content = state.get("bib_content")
 
     # Check if final_latex exists
     if not final_latex:
@@ -64,38 +42,44 @@ def compile_latex_node(state: ThesisWorkflowState) -> dict[str, Any]:
         return {
             "errors": [error_msg],
             "current_phase": "compile",
-            "progress": 0.95,  # Stay at assembly progress
+            "progress": 0.95,
         }
 
-    # Log compiler configuration (for future use with ExecutionService)
     logger.info(
         f"[Thesis:{workspace_id}] Compiling LaTeX with "
         f"compiler={thesis_settings.latex_compiler}, "
         f"bibliography_style={thesis_settings.bibliography_style}"
     )
 
-    # TODO: Integrate with ExecutionService
-    # request = ExecutionRequest(
-    #     execution_type=ExecutionType.LATEX_COMPILE,
-    #     content=final_latex,
-    #     options={
-    #         "compiler": thesis_settings.latex_compiler,
-    #         "bibliography": state.get("bib_content"),
-    #         "bibliography_style": thesis_settings.bibliography_style,
-    #     },
-    #     workspace_id=workspace_id,
-    # )
-    # result = await execution_service.execute(request)
+    # Call ExecutionService via tool
+    result = await compile_latex(
+        latex_source=final_latex,
+        bibliography=bib_content,
+        compiler=thesis_settings.latex_compiler,
+        bibliography_style=thesis_settings.bibliography_style,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        timeout=180,  # 3 minutes for large documents
+    )
 
-    # Stub: return placeholder PDF path
-    pdf_path = f"/sandbox/{workspace_id}/thesis.pdf"
+    if result.success:
+        logger.info(f"[Thesis:{workspace_id}] Compilation succeeded: {result.pdf_path}")
+        log_node_end("compiler", state, {"pdf_path": result.pdf_path})
 
-    logger.info(f"[Thesis:{workspace_id}] Generated stub PDF path: {pdf_path}")
+        return {
+            "pdf_path": result.pdf_path,
+            "current_phase": "compile",
+            "progress": 1.0,
+        }
+    else:
+        error_msg = f"LaTeX compilation failed: {result.error}"
+        logger.error(f"[Thesis:{workspace_id}] {error_msg}")
 
-    log_node_end("compiler", state, {"pdf_path": pdf_path})
+        return {
+            "errors": [error_msg],
+            "current_phase": "compile",
+            "progress": 0.95,
+        }
 
-    return {
-        "pdf_path": pdf_path,
-        "current_phase": "compile",
-        "progress": 1.0,
-    }
+
+__all__ = ["compile_latex_node"]
