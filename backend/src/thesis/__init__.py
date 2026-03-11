@@ -6,6 +6,7 @@ from .workflow.state import (
     ThesisWorkflowState,
     merge_sections,
     merge_references,
+    merge_errors,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "ThesisWorkflowState",
     "merge_sections",
     "merge_references",
+    "merge_errors",
 ]

@@ -82,6 +82,14 @@ def merge_references(
     return list(result.values())
 
 
+def merge_errors(
+    left: list[str] | None,
+    right: list[str] | None,
+) -> list[str]:
+    """合并错误列表，追加新错误"""
+    return (left or []) + (right or [])
+
+
 class ThesisWorkflowState(TypedDict):
     """论文生成工作流状态
 
@@ -120,4 +128,4 @@ class ThesisWorkflowState(TypedDict):
     # === 进度 ===
     current_phase: str
     progress: float  # 0.0 - 1.0
-    errors: Annotated[list[str], lambda l, r: (l or []) + (r or [])]
+    errors: Annotated[list[str], merge_errors]
