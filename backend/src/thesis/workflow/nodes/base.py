@@ -9,7 +9,7 @@ from src.thesis.workflow.state import ThesisWorkflowState
 logger = logging.getLogger(__name__)
 
 
-def calculate_progress(state: ThesisWorkflowState, phase: str = None) -> float:
+def calculate_progress(state: ThesisWorkflowState, phase: str | None) -> float:
     """Calculate current progress based on state.
 
     Progress allocation:
@@ -37,7 +37,13 @@ def calculate_progress(state: ThesisWorkflowState, phase: str = None) -> float:
     if not plans:
         return 0.0
 
-    completed = sum(1 for s in sections if s.status == "completed")
+    # Handle both Pydantic models and dict objects
+    def get_status(s):
+        if isinstance(s, dict):
+            return s.get("status", "pending")
+        return getattr(s, "status", "pending")
+
+    completed = sum(1 for s in sections if get_status(s) == "completed")
     writing_range = 0.65  # 0.80 - 0.15
     return 0.15 + (completed / len(plans)) * writing_range
 

@@ -33,8 +33,10 @@ celery_app.conf.update(
     # Result settings
     result_expires=task_settings.task_redis_ttl,
 
-    # Task routing (will be populated by task registry)
-    task_routes={},
+    # Task routing
+    task_routes={
+        "src.task.tasks.*": {"queue": "default"},
+    },
 
     # Default queue
     task_default_queue="default",

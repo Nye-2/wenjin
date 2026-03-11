@@ -1,5 +1,6 @@
 """Thesis workflow state definitions."""
 
+import enum
 from typing import Annotated, Any, NotRequired, TypedDict
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,13 @@ class SectionPlan(BaseModel):
     literature_needs: list[str] = Field(default_factory=list, description="文献需求")
 
 
+class SectionStatus(enum.StrEnum):
+    """章节状态枚举"""
+    PENDING = "pending"
+    WRITING = "writing"
+    COMPLETED = "completed"
+
+
 class SectionContent(BaseModel):
     """章节内容"""
     index: int = Field(description="章节序号")
@@ -23,6 +31,14 @@ class SectionContent(BaseModel):
     word_count: int = Field(default=0, description="实际字数")
     references_used: list[str] = Field(default_factory=list, description="使用的引用 ID")
     status: str = Field(default="pending", description="状态: pending/writing/completed")
+
+    def is_completed(self) -> bool:
+        """Check if section is completed."""
+        return self.status == SectionStatus.COMPLETED
+
+    def is_writing(self) -> bool:
+        """Check if section is currently being written."""
+        return self.status == SectionStatus.WRITING
 
 
 class PaperReference(BaseModel):

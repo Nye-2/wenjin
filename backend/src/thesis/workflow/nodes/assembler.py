@@ -45,14 +45,24 @@ def assemble_latex_node(state: ThesisWorkflowState) -> dict[str, Any]:
     """
     log_node_start("assembler", state)
 
+    def get_section_attr(s, attr):
+        """Handle both Pydantic models and dict objects."""
+        if isinstance(s, dict):
+            return s.get(attr)
+        return getattr(s, attr, None)
+
     # Sort sections by index
-    sections = sorted(state.get("sections", []), key=lambda s: s.index)
+    sections = sorted(
+        state.get("sections", []),
+        key=lambda s: get_section_attr(s, "index") or 0
+    )
 
     # Combine section content
     content_parts = []
     for section in sections:
-        if section.content:
-            content_parts.append(section.content)
+        content = get_section_attr(section, "content")
+        if content:
+            content_parts.append(content)
 
     main_content = "\n\n".join(content_parts)
 

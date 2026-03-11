@@ -22,8 +22,20 @@ def get_next_section_index(state: ThesisWorkflowState) -> int | None:
     writing_order = state.get("writing_order", [])
     sections = state.get("sections", [])
 
+    def get_section_index(s):
+        """Handle both Pydantic models and dict objects."""
+        if isinstance(s, dict):
+            return s.get("index")
+        return getattr(s, "index", None)
+
+    def get_section_status(s):
+        """Handle both Pydantic models and dict objects."""
+        if isinstance(s, dict):
+            return s.get("status", "pending")
+        return getattr(s, "status", "pending")
+
     # Get completed section indices
-    completed_indices = {s.index for s in sections if s.status == "completed"}
+    completed_indices = {get_section_index(s) for s in sections if get_section_status(s) == "completed"}
 
     # Find first uncompleted section in writing_order
     for idx in writing_order:
