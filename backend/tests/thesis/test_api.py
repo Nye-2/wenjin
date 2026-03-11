@@ -165,7 +165,7 @@ class TestTaskStorage:
 
     def test_cleanup_old_tasks(self, isolated_storage):
         """Test cleaning up old tasks."""
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, UTC
 
         # Create old completed task
         old_task = ThesisTask(
@@ -174,7 +174,7 @@ class TestTaskStorage:
             paper_title="Old Thesis",
             status="completed",
         )
-        old_task.created_at = datetime.utcnow() - timedelta(hours=48)
+        old_task.created_at = datetime.now(UTC) - timedelta(hours=48)
         isolated_storage.create_task(old_task)
 
         # Create new task

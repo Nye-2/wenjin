@@ -81,6 +81,7 @@ def create_academic_agent_graph(
     llm: Any,
     tools: list,
     system_prompt: str,
+    max_turns: int = 10,
 ) -> Any:
     """Create a ReAct agent with custom system prompt for academic tasks.
 
@@ -88,6 +89,7 @@ def create_academic_agent_graph(
         llm: Language model instance
         tools: List of tools available to the agent
         system_prompt: Custom system prompt for the academic agent
+        max_turns: Maximum number of turns (default: 10)
 
     Returns:
         A compiled LangGraph agent with custom system prompt

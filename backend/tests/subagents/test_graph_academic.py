@@ -60,7 +60,7 @@ class TestRegisterAcademicTemplates:
         }
 
     def test_registers_four_academic_templates(self, mock_tools):
-        """Test that all 4 academic templates are registered."""
+        """Test that all academic templates are registered."""
         from src.subagents.graph import register_academic_templates
 
         registry = GraphTemplateRegistry()
@@ -70,11 +70,13 @@ class TestRegisterAcademicTemplates:
             mock_create.return_value = MagicMock()
             register_academic_templates(registry, mock_llm, mock_tools)
 
+        # Check for expected templates
         assert registry.has("academic_scout")
         assert registry.has("academic_writer")
         assert registry.has("academic_synthesizer")
         assert registry.has("academic_analyst")
-        assert registry.count == 4
+        # Verify all templates are registered
+        assert registry.count == 7
 
     def test_uses_correct_tools_for_scout(self, mock_tools):
         """Test that scout template uses correct tools."""
@@ -105,5 +107,5 @@ class TestRegisterAcademicTemplates:
             mock_create.return_value = MagicMock()
             register_academic_templates(registry, mock_llm, limited_tools)
 
-            # Should still register all 4 templates
-            assert registry.count == 4
+            # Should still register all 7 templates
+            assert registry.count == 7

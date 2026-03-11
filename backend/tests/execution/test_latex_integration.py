@@ -1,6 +1,7 @@
 """Integration tests for LaTeX execution."""
 
 import pytest
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -10,6 +11,23 @@ from src.execution import (
     ExecutionType,
     ExecutionStatus,
 )
+
+
+def check_docker_available():
+    """Check if Docker is available and running."""
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            timeout=5
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+# Pre-compute docker availability for skipif decorator
+_DOCKER_AVAILABLE = check_docker_available()
 
 
 class TestLaTeXIntegration:
@@ -47,9 +65,9 @@ Hello, World!
 """
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif("not docker_available", reason="Docker not available")
+    @pytest.mark.skipif("not _DOCKER_AVAILABLE", reason="Docker not available")
     @pytest.mark.integration
-    async def test_compile_simple_latex(self, service, simple_latex, docker_available):
+    async def test_compile_simple_latex(self, service, simple_latex):
         """Should compile simple LaTeX document."""
         request = ExecutionRequest(
             execution_type=ExecutionType.LATEX_COMPILE,
@@ -67,9 +85,9 @@ Hello, World!
         assert result.metadata.get("file_size", 0) > 0
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif("not docker_available", reason="Docker not available")
+    @pytest.mark.skipif("not _DOCKER_AVAILABLE", reason="Docker not available")
     @pytest.mark.integration
-    async def test_compile_chinese_latex(self, service, chinese_latex, docker_available):
+    async def test_compile_chinese_latex(self, service, chinese_latex):
         """Should compile Chinese LaTeX document with xelatex."""
         request = ExecutionRequest(
             execution_type=ExecutionType.LATEX_COMPILE,
@@ -85,9 +103,9 @@ Hello, World!
         assert result.sandbox_path is not None
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif("not docker_available", reason="Docker not available")
+    @pytest.mark.skipif("not _DOCKER_AVAILABLE", reason="Docker not available")
     @pytest.mark.integration
-    async def test_compile_invalid_latex(self, service, docker_available):
+    async def test_compile_invalid_latex(self, service):
         """Should fail for invalid LaTeX."""
         request = ExecutionRequest(
             execution_type=ExecutionType.LATEX_COMPILE,
