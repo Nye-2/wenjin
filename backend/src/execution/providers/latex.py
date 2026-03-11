@@ -51,22 +51,28 @@ class LaTeXProvider(ExecutionProvider):
                 - compiler: "xelatex" (default) or "pdflatex"
                 - bibliography: BibTeX content string
                 - bibliography_file: BibTeX filename (default: "refs.bib")
+                - bibliography_style: Bibliography style (default: "plain")
 
         Returns:
             Command list for Docker execution.
         """
         compiler = options.get("compiler", "xelatex")
-        has_bib = bool(options.get("bibliography") or options.get("bibliography_file"))
+        bibliography = options.get("bibliography", "")
+        has_bib = bool(bibliography or options.get("bibliography_file"))
 
-        # Build commands: write source file, then compile
         commands = []
 
-        # Write main.tex file (escape single quotes in content)
+        # Inject bibliography commands if needed
+        if has_bib:
+            bib_filename = options.get("bibliography_file", "refs.bib").replace(".bib", "")
+            style = options.get("bibliography_style", "plain")
+            content = self._inject_bibliography(content, bib_filename, style)
+
+        # Write main.tex file
         escaped_content = content.replace("'", "'\\''")
         commands.append(f"cat > main.tex << 'LATEX_EOF'\n{escaped_content}\nLATEX_EOF")
 
         # Write bibliography if provided
-        bibliography = options.get("bibliography", "")
         if bibliography:
             bib_filename = options.get("bibliography_file", "refs.bib")
             escaped_bib = bibliography.replace("'", "'\\''")
@@ -75,7 +81,6 @@ class LaTeXProvider(ExecutionProvider):
         # Build compilation chain
         commands.extend(self._build_compile_chain(compiler, has_bib))
 
-        # Wrap in shell for command chaining
         return ["/bin/bash", "-c", " && ".join(commands)]
 
     def _build_compile_chain(self, compiler: str, has_bib: bool) -> list[str]:
@@ -103,6 +108,39 @@ class LaTeXProvider(ExecutionProvider):
         commands.append(f"{compiler} -interaction=nonstopmode main.tex")
 
         return commands
+
+    def _inject_bibliography(
+        self,
+        content: str,
+        bib_filename: str = "refs",
+        style: str = "plain",
+    ) -> str:
+        """Inject bibliography commands into LaTeX if needed.
+
+        Args:
+            content: LaTeX source code.
+            bib_filename: BibTeX filename (without .bib extension).
+            style: Bibliography style name.
+
+        Returns:
+            LaTeX content with bibliography commands if needed.
+        """
+        # Check if bibliography commands already exist
+        if r"\bibliography{" in content:
+            return content
+
+        # Check if there are any \cite{} commands
+        if r"\cite{" not in content:
+            return content
+
+        # Inject before \end{document}
+        injection = f"\\bibliographystyle{{{style}}}\n\\bibliography{{{bib_filename}}}\n"
+
+        if r"\end{document}" in content:
+            return content.replace(r"\end{document}", injection + r"\end{document}")
+        else:
+            # No \end{document}, append at end
+            return content + "\n" + injection
 
     async def execute(
         self,
