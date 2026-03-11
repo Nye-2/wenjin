@@ -1,10 +1,8 @@
 """Data types for execution service."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class ExecutionType(Enum):
@@ -42,9 +40,9 @@ class ExecutionRequest:
     content: str  # Source code or prompt
     options: dict[str, Any] = field(default_factory=dict)
     timeout: int = 120
-    workspace_id: Optional[str] = None
-    thread_id: Optional[str] = None
-    output_filename: Optional[str] = None
+    workspace_id: str | None = None
+    thread_id: str | None = None
+    output_filename: str | None = None
 
 
 @dataclass
@@ -52,22 +50,22 @@ class ProviderResult:
     """Provider execution result (internal)."""
     success: bool
     output_files: list[str] = field(default_factory=list)  # Relative to work_dir
-    error_message: Optional[str] = None
+    error_message: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    logs: Optional[str] = None
+    logs: str | None = None
 
 
 @dataclass
 class ExecutionResult:
     """Execution result (returned to Tool)."""
     status: ExecutionStatus
-    sandbox_path: Optional[str] = None  # Virtual path like /mnt/user-data/...
-    artifact_id: Optional[str] = None
-    error_message: Optional[str] = None
+    sandbox_path: str | None = None  # Virtual path like /mnt/user-data/...
+    artifact_id: str | None = None
+    error_message: str | None = None
     execution_time_ms: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
-    logs: Optional[str] = None
-    source_code: Optional[str] = None
+    logs: str | None = None
+    source_code: str | None = None
 
     def to_tool_output(self) -> str:
         """Convert to tool return string."""
