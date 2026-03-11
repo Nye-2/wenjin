@@ -4,14 +4,11 @@
 import logging
 from typing import Any
 
+from src.thesis.config import thesis_settings
 from src.thesis.workflow.state import ThesisWorkflowState
 from .base import log_node_start, log_node_end
 
 logger = logging.getLogger(__name__)
-
-# Minimum references required for undergraduate thesis
-MIN_REFERENCES = 10
-RECOMMENDED_REFERENCES = 20
 
 
 def check_literature_sufficiency(state: ThesisWorkflowState) -> tuple[bool, int]:
@@ -25,7 +22,7 @@ def check_literature_sufficiency(state: ThesisWorkflowState) -> tuple[bool, int]
     """
     references = state.get("references", [])
     count = len(references)
-    return count >= MIN_REFERENCES, count
+    return count >= thesis_settings.min_references, count
 
 
 def literature_search_node(state: ThesisWorkflowState) -> dict[str, Any]:
@@ -55,7 +52,7 @@ def literature_search_node(state: ThesisWorkflowState) -> dict[str, Any]:
             "progress": 0.15,
         }
 
-    logger.info(f"[Thesis] Literature insufficient: {count}/{MIN_REFERENCES} references")
+    logger.info(f"[Thesis] Literature insufficient: {count}/{thesis_settings.min_references} references")
 
     # Prepare search context (will be used by librarian subagent)
     paper_title = state.get("paper_title", "")
@@ -69,7 +66,7 @@ def literature_search_node(state: ThesisWorkflowState) -> dict[str, Any]:
         "discipline": discipline,
         "abstract_summary": abstract[:500] if abstract else "",
         "current_ref_count": count,
-        "target_ref_count": RECOMMENDED_REFERENCES,
+        "target_ref_count": thesis_settings.recommended_references,
     }
 
     log_node_end("literature_search", state, {"progress": 0.10})
