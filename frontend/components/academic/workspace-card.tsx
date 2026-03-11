@@ -7,7 +7,7 @@ import { LiquidGlassCard } from "@/components/glass";
 interface WorkspaceCardProps {
   id: string;
   name: string;
-  type: "sci" | "thesis" | "proposal" | "grant";
+  type: "sci" | "thesis" | "proposal" | "software_copyright" | "patent";
   discipline?: string;
   paperCount: number;
   artifactCount: number;
@@ -19,27 +19,32 @@ const typeIcons = {
   thesis: Book,
   proposal: FileEdit,
   grant: DollarSign,
+  software_copyright: FileText,
+  patent: Lightbulb,
 };
 
 const typeLabels = {
   sci: "SCI Paper",
   thesis: "Undergraduate Thesis",
-  proposal: "Research Proposal",
-  grant: "Grant Application",
+  proposal: "Project Application",
+  software_copyright: "Software Copyright",
+  patent: "Patent Application",
 };
 
 const typeColors = {
   sci: { bg: "bg-[#1E3A8A]", text: "text-white" },
   thesis: { bg: "bg-[#7C3AED]", text: "text-white" },
   proposal: { bg: "bg-[#059669]", text: "text-white" },
-  grant: { bg: "bg-[#B8860B]", text: "text-white" },
+  software_copyright: { bg: "bg-[#8B5CF6]", text: "text-white" },
+  patent: { bg: "bg-[#EC4899]", text: "text-white" },
 };
 
 const typeBadgeColors = {
   sci: "bg-[#1E3A8A]/10 text-[#1E3A8A]",
   thesis: "bg-[#7C3AED]/10 text-[#7C3AED]",
   proposal: "bg-[#059669]/10 text-[#059669]",
-  grant: "bg-[#B8860B]/10 text-[#B8860B]",
+  software_copyright: "bg-[#8B5CF6]/10 text-[#8B5CF6]",
+  patent: "bg-[#EC4899]/10 text-[#EC4899]",
 };
 
 export function WorkspaceCard({

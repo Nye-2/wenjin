@@ -79,8 +79,9 @@
     "types": {
       "sci": "SCI论文",
       "thesis": "本科毕业论文",
-      "proposal": "研究计划书",
-      "grant": "基金申请书"
+      "proposal": "项目申报书",
+      "software_copyright": "软件著作权申报",
+      "patent": "专利申请"
     },
     "disciplines": {
       "computer_science": "计算机科学",
