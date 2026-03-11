@@ -1,8 +1,8 @@
 """Academic subagent registry for managing subagent configurations.
 
 This module provides the SubagentConfig dataclass and registry functions
-for the four specialized academic subagents: Scout, Writer, Synthesizer,
-and Analyst.
+for specialized academic subagents including Scout, Writer, Synthesizer,
+Analyst, and thesis-specific agents: ThesisWriter, Librarian, FigurePlanner.
 """
 
 from dataclasses import dataclass, field
