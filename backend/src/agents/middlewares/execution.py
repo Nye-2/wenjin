@@ -104,6 +104,18 @@ class ExecutionMiddleware(Middleware):
         thread_id = configurable.get("thread_id")
         workspace_id = configurable.get("workspace_id")
 
+        # Handle citation_ids: generate bibliography if needed
+        citation_ids = tool_args.get("citation_ids")
+        explicit_bib = tool_args.get("bibliography")
+
+        if citation_ids and not explicit_bib:
+            db: AsyncSession | None = configurable.get("db")
+            if db:
+                bibliography = await self._generate_bibliography(db, citation_ids)
+                if bibliography:
+                    tool_args = {**tool_args, "bibliography": bibliography}
+                    logger.info(f"Generated bibliography for {len(citation_ids)} citations")
+
         # Build execution request
         request = self._build_request(
             exec_type=exec_type,
