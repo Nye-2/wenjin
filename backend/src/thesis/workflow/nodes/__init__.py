@@ -11,6 +11,7 @@ from .figure_planner import (
     PLACEHOLDER_PATTERN,
 )
 from .figure_generator import figure_generator_node
+from .compiler import compile_latex_node
 
 __all__ = [
     "section_writer_node",
@@ -24,4 +25,5 @@ __all__ = [
     "determine_strategy",
     "PLACEHOLDER_PATTERN",
     "figure_generator_node",
+    "compile_latex_node",
 ]
