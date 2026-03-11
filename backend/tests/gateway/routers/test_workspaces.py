@@ -12,8 +12,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.database import Paper, Workspace
+from src.database import Paper, User, Workspace
 from src.gateway.routers import workspaces
+from src.gateway.routers.auth import get_current_user
 
 
 def create_mock_workspace(
@@ -69,6 +70,23 @@ def create_mock_paper(
     return paper
 
 
+def create_mock_user(
+    id: str = "test-user-id",
+    email: str = "test@example.com",
+    name: str = "Test User",
+    role: str = "user",
+    is_active: bool = True,
+):
+    """Create a mock User object."""
+    user = MagicMock(spec=User)
+    user.id = id
+    user.email = email
+    user.name = name
+    user.role = role
+    user.is_active = is_active
+    return user
+
+
 # ============ Create Workspace Tests ============
 
 class TestCreateWorkspace:
@@ -80,14 +98,28 @@ class TestCreateWorkspace:
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_workspace_service):
+    def mock_user(self):
+        """Create mock user for authentication."""
+        return create_mock_user()
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create mock user for authentication."""
+        return create_mock_user()
+
+    @pytest.fixture
+    def client(self, mock_workspace_service, mock_user):
         """Create test client with mocked dependencies."""
         app = FastAPI()
 
         async def override_get_workspace_service():
             return mock_workspace_service
 
+        async def override_get_current_user():
+            return mock_user
+
         app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
+        app.dependency_overrides[get_current_user] = override_get_current_user
         app.include_router(workspaces.router)
 
         return TestClient(app)
@@ -98,7 +130,7 @@ class TestCreateWorkspace:
         mock_workspace_service.create.return_value = mock_workspace
 
         response = client.post(
-            "/workspaces/?user_id=test-user-id",
+            "/workspaces/",
             json={
                 "name": "Test Workspace",
                 "type": "sci",
@@ -120,7 +152,7 @@ class TestCreateWorkspace:
         mock_workspace_service.create.return_value = mock_workspace
 
         response = client.post(
-            "/workspaces/?user_id=test-user-id",
+            "/workspaces/",
             json={
                 "name": "Test Workspace",
                 "type": "thesis",
@@ -139,7 +171,7 @@ class TestCreateWorkspace:
         are accepted. Pydantic returns a 422 validation error for invalid types.
         """
         response = client.post(
-            "/workspaces/?user_id=test-user-id",
+            "/workspaces/",
             json={
                 "name": "Test Workspace",
                 "type": "invalid_type",
@@ -152,7 +184,7 @@ class TestCreateWorkspace:
     def test_create_workspace_missing_name(self, client, mock_workspace_service):
         """Test workspace creation without name fails."""
         response = client.post(
-            "/workspaces/?user_id=test-user-id",
+            "/workspaces/",
             json={
                 "type": "sci",
             },
@@ -172,14 +204,23 @@ class TestListWorkspaces:
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_workspace_service):
+    def mock_user(self):
+        """Create mock user for authentication."""
+        return create_mock_user()
+
+    @pytest.fixture
+    def client(self, mock_workspace_service, mock_user):
         """Create test client with mocked dependencies."""
         app = FastAPI()
 
         async def override_get_workspace_service():
             return mock_workspace_service
 
+        async def override_get_current_user():
+            return mock_user
+
         app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
+        app.dependency_overrides[get_current_user] = override_get_current_user
         app.include_router(workspaces.router)
 
         return TestClient(app)
@@ -192,7 +233,7 @@ class TestListWorkspaces:
         ]
         mock_workspace_service.list_by_user.return_value = mock_workspaces
 
-        response = client.get("/workspaces/?user_id=test-user-id")
+        response = client.get("/workspaces/")
 
         assert response.status_code == 200
         data = response.json()
@@ -205,7 +246,7 @@ class TestListWorkspaces:
         """Test listing workspaces when user has none."""
         mock_workspace_service.list_by_user.return_value = []
 
-        response = client.get("/workspaces/?user_id=test-user-id")
+        response = client.get("/workspaces/")
 
         assert response.status_code == 200
         data = response.json()
@@ -223,14 +264,23 @@ class TestGetWorkspace:
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_workspace_service):
+    def mock_user(self):
+        """Create mock user for authentication."""
+        return create_mock_user()
+
+    @pytest.fixture
+    def client(self, mock_workspace_service, mock_user):
         """Create test client with mocked dependencies."""
         app = FastAPI()
 
         async def override_get_workspace_service():
             return mock_workspace_service
 
+        async def override_get_current_user():
+            return mock_user
+
         app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
+        app.dependency_overrides[get_current_user] = override_get_current_user
         app.include_router(workspaces.router)
 
         return TestClient(app)
@@ -269,14 +319,23 @@ class TestUpdateWorkspace:
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_workspace_service):
+    def mock_user(self):
+        """Create mock user for authentication."""
+        return create_mock_user()
+
+    @pytest.fixture
+    def client(self, mock_workspace_service, mock_user):
         """Create test client with mocked dependencies."""
         app = FastAPI()
 
         async def override_get_workspace_service():
             return mock_workspace_service
 
+        async def override_get_current_user():
+            return mock_user
+
         app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
+        app.dependency_overrides[get_current_user] = override_get_current_user
         app.include_router(workspaces.router)
 
         return TestClient(app)
@@ -333,14 +392,23 @@ class TestDeleteWorkspace:
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_workspace_service):
+    def mock_user(self):
+        """Create mock user for authentication."""
+        return create_mock_user()
+
+    @pytest.fixture
+    def client(self, mock_workspace_service, mock_user):
         """Create test client with mocked dependencies."""
         app = FastAPI()
 
         async def override_get_workspace_service():
             return mock_workspace_service
 
+        async def override_get_current_user():
+            return mock_user
+
         app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
+        app.dependency_overrides[get_current_user] = override_get_current_user
         app.include_router(workspaces.router)
 
         return TestClient(app)
@@ -598,14 +666,23 @@ class TestWorkspaceTypes:
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_workspace_service):
+    def mock_user(self):
+        """Create mock user for authentication."""
+        return create_mock_user()
+
+    @pytest.fixture
+    def client(self, mock_workspace_service, mock_user):
         """Create test client with mocked dependencies."""
         app = FastAPI()
 
         async def override_get_workspace_service():
             return mock_workspace_service
 
+        async def override_get_current_user():
+            return mock_user
+
         app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
+        app.dependency_overrides[get_current_user] = override_get_current_user
         app.include_router(workspaces.router)
 
         return TestClient(app)
@@ -617,7 +694,7 @@ class TestWorkspaceTypes:
         mock_workspace_service.create.return_value = mock_workspace
 
         response = client.post(
-            "/workspaces/?user_id=test-user-id",
+            "/workspaces/",
             json={
                 "name": f"Test {workspace_type} Workspace",
                 "type": workspace_type,

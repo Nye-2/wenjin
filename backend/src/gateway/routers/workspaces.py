@@ -7,13 +7,14 @@ This module provides REST endpoints for:
 
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.paper_service import PaperService
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import Paper, Workspace, get_db_session
+from src.database import Paper, User, Workspace, get_db_session
+from src.gateway.routers.auth import get_current_user
 from src.gateway.validators.workspace import (
     AddPaperToWorkspaceValidator,
     CreateWorkspaceValidator,
@@ -64,7 +65,7 @@ AddPaperRequest = AddPaperToWorkspaceValidator
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get database session."""
-    async for session in get_db_session():
+    async with get_db_session() as session:
         yield session
 
 
@@ -112,14 +113,14 @@ def paper_to_response(paper: Paper) -> PaperResponse:
 @router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     request: CreateWorkspaceRequest,
-    user_id: str,
+    current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ):
     """Create a new workspace.
 
     Args:
         request: Workspace creation request
-        user_id: User ID who owns the workspace
+        current_user: Current authenticated user
         workspace_service: Workspace service instance
 
     Returns:
@@ -130,7 +131,7 @@ async def create_workspace(
     """
     try:
         workspace = await workspace_service.create(
-            user_id=user_id,
+            user_id=str(current_user.id),
             name=request.name,
             type=request.type,
             discipline=request.discipline,
@@ -147,19 +148,19 @@ async def create_workspace(
 
 @router.get("/", response_model=list[WorkspaceResponse])
 async def list_workspaces(
-    user_id: str,
+    current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ):
-    """List workspaces for user.
+    """List workspaces for current user.
 
     Args:
-        user_id: User ID to list workspaces for
+        current_user: Current authenticated user
         workspace_service: Workspace service instance
 
     Returns:
         List of workspaces for the user
     """
-    workspaces = await workspace_service.list_by_user(user_id)
+    workspaces = await workspace_service.list_by_user(str(current_user.id))
     return [workspace_to_response(w) for w in workspaces]
 
 
