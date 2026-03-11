@@ -39,6 +39,11 @@ class WorkspaceResponse(BaseModel):
     config: dict
 
 
+class WorkspacesListResponse(BaseModel):
+    """Workspaces list response."""
+    workspaces: list[WorkspaceResponse]
+
+
 class PaperResponse(BaseModel):
     """Paper response."""
     model_config = ConfigDict(from_attributes=True)
@@ -146,7 +151,7 @@ async def create_workspace(
         ) from e
 
 
-@router.get("/", response_model=list[WorkspaceResponse])
+@router.get("/", response_model=WorkspacesListResponse)
 async def list_workspaces(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
@@ -161,7 +166,7 @@ async def list_workspaces(
         List of workspaces for the user
     """
     workspaces = await workspace_service.list_by_user(str(current_user.id))
-    return [workspace_to_response(w) for w in workspaces]
+    return {"workspaces": [workspace_to_response(w) for w in workspaces]}
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
