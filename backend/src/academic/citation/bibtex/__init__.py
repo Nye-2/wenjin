@@ -1,6 +1,10 @@
-"""BibTeX import/export module."""
+"""BibTeX support package."""
 
 from .parser import BibTeXParser
-from .exporter import BibTeXExporter
+from .exporter import BibTeXExporter, generate_citation_key
 
-__all__ = ["BibTeXParser", "BibTeXExporter"]
+__all__ = [
+    "BibTeXParser",
+    "BibTeXExporter",
+    "generate_citation_key",
+]
