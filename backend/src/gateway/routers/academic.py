@@ -1,51 +1,18 @@
-"""Academic router for workspace, paper, and artifact management."""
+"""Academic router for paper and artifact management.
+
+Note: Workspace CRUD operations are handled in workspaces.py.
+This router handles paper and artifact operations within workspaces.
+"""
 
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
 
-router = APIRouter()
+router = APIRouter(tags=["academic"])
 
 
 # ============ Request/Response Models ============
-
-class WorkspaceCreate(BaseModel):
-    """Workspace creation request."""
-    name: str
-    type: str  # sci, thesis, proposal, grant
-    discipline: str | None = None
-    description: str | None = None
-    config: dict | None = None
-
-
-class WorkspaceUpdate(BaseModel):
-    """Workspace update request."""
-    name: str | None = None
-    discipline: str | None = None
-    description: str | None = None
-    config: dict | None = None
-
-
-class WorkspaceResponse(BaseModel):
-    """Workspace response."""
-    id: str
-    user_id: str
-    name: str
-    type: str
-    discipline: str | None
-    description: str | None
-    config: dict
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class WorkspacesListResponse(BaseModel):
-    """List of workspaces."""
-    workspaces: list[WorkspaceResponse]
-
 
 class PaperCreate(BaseModel):
     """Paper creation request."""
@@ -131,27 +98,12 @@ def orm_to_dict(obj) -> dict:
 
 # ============ Dependency Injection ============
 
-async def get_current_user_id() -> str:
-    """Get current user ID from request context.
-
-    In production, this would extract from JWT token.
-    For now, returns a default user ID.
-    """
-    return "default-user"
-
-
 async def get_db():
     """Get database session."""
     from src.database import get_db_session
 
     async with get_db_session() as db:
         yield db
-
-
-async def get_workspace_service(db = Depends(get_db)):
-    """Get workspace service instance."""
-    from src.academic.services import WorkspaceService
-    return WorkspaceService(db)
 
 
 async def get_paper_service(db = Depends(get_db)):
@@ -166,82 +118,8 @@ async def get_artifact_service(db = Depends(get_db)):
     return ArtifactService(db)
 
 
-# ============ Workspace Endpoints ============
-
-@router.get("/workspaces", response_model=WorkspacesListResponse)
-async def list_workspaces(
-    user_id: str = Depends(get_current_user_id),
-    workspace_service = Depends(get_workspace_service),
-):
-    """List all workspaces for the current user."""
-    workspaces = await workspace_service.list_by_user(user_id)
-    return WorkspacesListResponse(
-        workspaces=[WorkspaceResponse(**orm_to_dict(w)) for w in workspaces]
-    )
-
-
-@router.post("/workspaces", response_model=WorkspaceResponse, status_code=201)
-async def create_workspace(
-    request: WorkspaceCreate,
-    user_id: str = Depends(get_current_user_id),
-    workspace_service = Depends(get_workspace_service),
-):
-    """Create a new workspace."""
-    workspace = await workspace_service.create(
-        user_id=user_id,
-        name=request.name,
-        type=request.type,
-        discipline=request.discipline,
-        description=request.description,
-        config=request.config,
-    )
-    return WorkspaceResponse(**orm_to_dict(workspace))
-
-
-@router.get("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
-async def get_workspace(
-    workspace_id: str,
-    workspace_service = Depends(get_workspace_service),
-):
-    """Get workspace details."""
-    workspace = await workspace_service.get(workspace_id)
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    return WorkspaceResponse(**orm_to_dict(workspace))
-
-
-@router.put("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
-async def update_workspace(
-    workspace_id: str,
-    request: WorkspaceUpdate,
-    workspace_service = Depends(get_workspace_service),
-):
-    """Update workspace."""
-    workspace = await workspace_service.update(
-        workspace_id=workspace_id,
-        name=request.name,
-        discipline=request.discipline,
-        description=request.description,
-        config=request.config,
-    )
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    return WorkspaceResponse(**orm_to_dict(workspace))
-
-
-@router.delete("/workspaces/{workspace_id}")
-async def delete_workspace(
-    workspace_id: str,
-    workspace_service = Depends(get_workspace_service),
-):
-    """Delete workspace."""
-    success = await workspace_service.delete(workspace_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    return {"success": True}
-
-
-# ============ Paper Endpoints ============
+# ============ Workspace Paper Endpoints ============
+# Note: Basic workspace CRUD operations are in workspaces.py
 
 @router.get("/workspaces/{workspace_id}/papers", response_model=PapersListResponse)
 async def list_workspace_papers(
@@ -276,6 +154,8 @@ async def add_paper_to_workspace(
     )
     return {"success": True, "paper_id": request.paper_id}
 
+
+# ============ Paper Endpoints ============
 
 @router.post("/papers", response_model=PaperResponse, status_code=201)
 async def create_paper(
