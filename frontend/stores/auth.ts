@@ -54,15 +54,35 @@ export const useAuthStore = create<AuthState>()(
           }
 
           const data = await response.json();
-          set({
-            accessToken: data.token.access_token,
-            refreshToken: data.token.refresh_token,
-            user: {
-              id: data.user.id,
-              email: data.user.email,
-              name: data.user.display_name || data.user.username || data.user.email.split('@')[0],
-              role: data.user.role,
+
+          // Fetch user info with the new token
+          const meResponse = await fetch(`${API_BASE}/api/auth/me`, {
+            headers: {
+              Authorization: `Bearer ${data.access_token}`,
             },
+          });
+
+          let user = {
+            id: 'unknown',
+            email: email,
+            name: email.split('@')[0],
+            role: 'user',
+          };
+
+          if (meResponse.ok) {
+            const userData = await meResponse.json();
+            user = {
+              id: userData.id,
+              email: userData.email,
+              name: userData.name || email.split('@')[0],
+              role: userData.role,
+            };
+          }
+
+          set({
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token,
+            user: user,
             isAuthenticated: true,
             isLoading: false,
           });
@@ -86,7 +106,7 @@ export const useAuthStore = create<AuthState>()(
             body: JSON.stringify({
               email,
               password,
-              display_name: name || undefined,
+              name: name || undefined,
               verification_code: verificationCode,
             }),
           });
@@ -97,15 +117,35 @@ export const useAuthStore = create<AuthState>()(
           }
 
           const data = await response.json();
-          set({
-            accessToken: data.token.access_token,
-            refreshToken: data.token.refresh_token,
-            user: {
-              id: data.user.id,
-              email: data.user.email,
-              name: data.user.display_name || data.user.username || data.user.email.split('@')[0],
-              role: data.user.role,
+
+          // Fetch user info with the new token
+          const meResponse = await fetch(`${API_BASE}/api/auth/me`, {
+            headers: {
+              Authorization: `Bearer ${data.access_token}`,
             },
+          });
+
+          let user = {
+            id: 'unknown',
+            email: email,
+            name: name || email.split('@')[0],
+            role: 'user',
+          };
+
+          if (meResponse.ok) {
+            const userData = await meResponse.json();
+            user = {
+              id: userData.id,
+              email: userData.email,
+              name: userData.name || name || email.split('@')[0],
+              role: userData.role,
+            };
+          }
+
+          set({
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token,
+            user: user,
             isAuthenticated: true,
             isLoading: false,
           });
@@ -209,6 +249,7 @@ export const useAuthStore = create<AuthState>()(
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         user: state.user,
+        isAuthenticated: state.isAuthenticated,
       }),
     }
   )

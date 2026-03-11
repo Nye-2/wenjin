@@ -1,12 +1,42 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import { LiquidGlassCard } from "@/components/glass/liquid-glass-card";
 import { GradientText } from "@/components/glass/gradient-text";
 import { Header } from "@/components/layout/header";
 import { FileText, BookOpen, Lightbulb, PenTool, FlaskConical, Send } from "lucide-react";
 import { fadeInUp, staggerContainer, defaultTransition, buttonTap } from "@/lib/animations";
 import { useI18n } from "@/components/i18n-provider";
+import { useAuthStore } from "@/stores/auth";
+
+function GetStartedButton({ showIcon = false }: { showIcon?: boolean }) {
+  const router = useRouter();
+  const { isAuthenticated } = useAuthStore();
+  const { t } = useI18n();
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (isAuthenticated) {
+      router.push("/workspaces");
+    } else {
+      router.push("/login");
+    }
+  };
+
+  return (
+    <motion.a
+      href="/workspaces"
+      onClick={handleClick}
+      className={`inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-white rounded-xl bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] hover:shadow-xl transition-shadow cursor-pointer ${showIcon ? '' : ''}`}
+      whileHover={{ scale: 1.02 }}
+      whileTap={showIcon ? { scale: 0.98 } : buttonTap}
+    >
+      {t("home.getStarted")}
+      {showIcon && <Send className="w-4 h-4" />}
+    </motion.a>
+  );
+}
 
 export default function HomePage() {
   const { t } = useI18n();
@@ -55,14 +85,7 @@ export default function HomePage() {
               {t("home.subtitle")}
             </p>
             <div className="mt-10 flex items-center justify-center gap-4">
-              <motion.a
-                href="/workspaces"
-                className="px-8 py-4 text-base font-semibold text-white rounded-xl bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] hover:shadow-xl transition-shadow cursor-pointer"
-                whileHover={{ scale: 1.02 }}
-                whileTap={buttonTap}
-              >
-                {t("home.getStarted")}
-              </motion.a>
+              <GetStartedButton />
               <motion.a
                 href="#features"
                 className="px-8 py-4 text-base font-semibold text-[var(--accent-primary)] border-2 border-[var(--accent-primary)] rounded-xl hover:bg-[var(--accent-primary)] hover:text-white transition-all cursor-pointer"
@@ -126,15 +149,7 @@ export default function HomePage() {
             <p className="text-[var(--text-secondary)] mb-8 max-w-md mx-auto">
               {t("home.cta.subtitle")}
             </p>
-            <motion.a
-              href="/workspaces"
-              className="inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] rounded-xl cursor-pointer hover:shadow-lg transition-shadow"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              {t("home.cta.button")}
-              <Send className="w-4 h-4" />
-            </motion.a>
+            <GetStartedButton showIcon />
           </LiquidGlassCard>
         </div>
       </section>

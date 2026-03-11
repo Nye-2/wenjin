@@ -5,13 +5,14 @@ This module provides REST endpoints for:
 - User login
 - Token refresh
 - Current user info retrieval
+- Email verification code
 """
 
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User, get_db_session
@@ -35,6 +36,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     name: str | None = None
+    verification_code: str | None = Field(default=None, description="Email verification code")
 
 
 class LoginRequest(BaseModel):
@@ -64,11 +66,24 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class SendVerificationCodeRequest(BaseModel):
+    """Request to send verification code."""
+    email: EmailStr
+    purpose: str = Field(default="register", pattern="^(register|reset_password)$")
+
+
+class SendVerificationCodeResponse(BaseModel):
+    """Response for verification code sending."""
+    success: bool
+    message: str
+    expire_seconds: int
+
+
 # ============ Dependencies ============
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get database session."""
-    async for session in get_db_session():
+    async with get_db_session() as session:
         yield session
 
 
@@ -158,6 +173,53 @@ async def get_current_user_optional(
 
 # ============ Endpoints ============
 
+@router.post("/auth/send-verification-code", response_model=SendVerificationCodeResponse)
+async def send_verification_code(
+    request: SendVerificationCodeRequest,
+    req: Request,
+):
+    """Send verification code to email.
+
+    - Rate limit: One request per 60 seconds
+    - Daily limit: 10 emails per day per address
+    - Code validity: 10 minutes
+
+    Args:
+        request: Request with email and purpose
+        req: FastAPI request object
+
+    Returns:
+        SendVerificationCodeResponse with success status
+
+    Raises:
+        HTTPException: 429 if rate limited
+    """
+    from src.services.email_service import email_service
+
+    purpose_map = {
+        "register": "注册",
+        "reset_password": "重置密码"
+    }
+
+    success, result = await email_service.send_verification_code(
+        email=request.email,
+        purpose=purpose_map.get(request.purpose, "验证"),
+        ip_address=req.client.host if req.client else None
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=result
+        )
+
+    return SendVerificationCodeResponse(
+        success=True,
+        message="验证码已发送，请查收邮件",
+        expire_seconds=email_service.settings.code_ttl
+    )
+
+
 @router.post("/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     request: RegisterRequest,
@@ -166,17 +228,21 @@ async def register(
     """Register a new user.
 
     Creates a new user account and returns authentication tokens.
+    If SMTP is enabled, requires verification code.
 
     Args:
-        request: Registration request with email, password, and optional name
+        request: Registration request with email, password, optional name, and verification code
         db: Database session
 
     Returns:
         TokenResponse with access and refresh tokens
 
     Raises:
-        HTTPException: If registration fails (e.g., email already exists)
+        HTTPException: If registration fails (e.g., email already exists, invalid verification code)
     """
+    from src.config.app_config import smtp_settings
+    from src.services.email_service import email_service
+
     user_service = UserService(db)
 
     # Check if user already exists
@@ -186,6 +252,24 @@ async def register(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered",
         )
+
+    # Verify verification code if SMTP is enabled
+    if smtp_settings.enabled:
+        if not request.verification_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Verification code is required",
+            )
+        is_valid, message = await email_service.verify_code(
+            email=request.email,
+            code=request.verification_code,
+            purpose="注册"
+        )
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=message,
+            )
 
     try:
         # Create user

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Search, Filter, Loader2, Trash2 } from "lucide-react";
 import { LiquidGlassCard, GradientText } from "@/components/glass";
@@ -8,10 +9,15 @@ import { WorkspaceCard } from "@/components/academic";
 import { Header } from "@/components/layout/header";
 import { useI18n } from "@/components/i18n-provider";
 import { useWorkspaceStore } from "@/lib/store";
+import { useAuthStore } from "@/stores/auth";
 import { Workspace } from "@/lib/api";
 
+import { createWorkspace } from "@/lib/api";
+
 export default function WorkspacesPage() {
+  const router = useRouter();
   const { t } = useI18n();
+  const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newWorkspace, setNewWorkspace] = useState({
@@ -20,6 +26,22 @@ export default function WorkspacesPage() {
     discipline: "",
     description: "",
   });
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push("/login");
+    }
+  }, [isAuthenticated, authLoading, router]);
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-[var(--bg-base)]">
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--accent-primary)]" />
+      </main>
+    );
+  }
 
   // Workspace type labels (translated)
   const WORKSPACE_TYPES = [
