@@ -6,11 +6,10 @@ code execution.
 """
 
 import ast
-from typing import Tuple, Set
 
 
 # Allowed modules for safe execution
-ALLOWED_MODULES: Set[str] = {
+ALLOWED_MODULES: set[str] = {
     # Scientific computing
     'numpy', 'np',
     'scipy',
@@ -57,7 +56,7 @@ ALLOWED_MODULES: Set[str] = {
 }
 
 # Explicitly forbidden modules
-FORBIDDEN_MODULES: Set[str] = {
+FORBIDDEN_MODULES: set[str] = {
     'os',
     'sys',
     'subprocess',
@@ -136,7 +135,7 @@ FORBIDDEN_MODULES: Set[str] = {
 }
 
 # Forbidden function names (builtins or commonly used dangerous functions)
-FORBIDDEN_FUNCTIONS: Set[str] = {
+FORBIDDEN_FUNCTIONS: set[str] = {
     'eval',
     'exec',
     'compile',
@@ -234,7 +233,7 @@ class SecurityVisitor(ast.NodeVisitor):
         return False
 
 
-def sanitize_python(python_code: str) -> Tuple[bool, str]:
+def sanitize_python(python_code: str) -> tuple[bool, str]:
     """Validate Python code for security issues using AST analysis.
 
     Args:

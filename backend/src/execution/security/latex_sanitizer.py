@@ -5,10 +5,9 @@ arbitrary code execution and system access.
 """
 
 import re
-from typing import Tuple
 
 
-def sanitize_latex(latex_code: str) -> Tuple[bool, str]:
+def sanitize_latex(latex_code: str) -> tuple[bool, str]:
     """Validate LaTeX code for security issues.
 
     Args:

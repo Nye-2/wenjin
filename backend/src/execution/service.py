@@ -4,7 +4,7 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .base import ExecutionService
 from .types import (
@@ -39,13 +39,11 @@ class DockerExecutionService(ExecutionService):
     def __init__(
         self,
         sandbox_base_dir: str,
-        docker_config: Optional[dict] = None,
     ):
         """Initialize execution service.
 
         Args:
             sandbox_base_dir: Base directory for sandbox files.
-            docker_config: Optional Docker configuration.
         """
         self.sandbox_base_dir = Path(sandbox_base_dir)
         self.docker_client = DockerClient()
@@ -80,12 +78,16 @@ class DockerExecutionService(ExecutionService):
             Execution result.
         """
         start_time = time.time()
+        exec_type = request.execution_type.value
+
+        logger.info(f"Starting execution: {exec_type} for thread {request.thread_id}")
 
         try:
             provider = self._get_provider(request.execution_type)
 
             # Prepare work directory
             work_dir = self._prepare_work_dir(request)
+            logger.debug(f"Work directory: {work_dir}")
 
             # Execute based on provider type
             if provider.docker_image:
@@ -112,6 +114,11 @@ class DockerExecutionService(ExecutionService):
                     request.thread_id,
                 )
 
+                logger.info(
+                    f"Execution succeeded: {exec_type} "
+                    f"-> {sandbox_path} ({execution_time_ms}ms)"
+                )
+
                 return ExecutionResult(
                     status=ExecutionStatus.SUCCESS,
                     sandbox_path=sandbox_path,
@@ -120,6 +127,9 @@ class DockerExecutionService(ExecutionService):
                     logs=result.logs,
                 )
             else:
+                logger.warning(
+                    f"Execution failed: {exec_type} - {result.error_message}"
+                )
                 return ExecutionResult(
                     status=ExecutionStatus.FAILED,
                     error_message=result.error_message or "Execution failed",
@@ -129,6 +139,7 @@ class DockerExecutionService(ExecutionService):
 
         except DockerExecutionError as e:
             execution_time_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"Docker execution error: {e}")
             return ExecutionResult(
                 status=ExecutionStatus.FAILED,
                 error_message=str(e),
@@ -137,9 +148,19 @@ class DockerExecutionService(ExecutionService):
 
         except ValueError as e:
             execution_time_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"Validation error: {e}")
             return ExecutionResult(
                 status=ExecutionStatus.FAILED,
                 error_message=str(e),
+                execution_time_ms=execution_time_ms,
+            )
+
+        except Exception as e:
+            execution_time_ms = int((time.time() - start_time) * 1000)
+            logger.exception(f"Unexpected error during execution: {e}")
+            return ExecutionResult(
+                status=ExecutionStatus.FAILED,
+                error_message=f"Internal error: {e}",
                 execution_time_ms=execution_time_ms,
             )
 

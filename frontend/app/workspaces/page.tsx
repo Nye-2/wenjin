@@ -84,8 +84,8 @@ export default function WorkspacesPage() {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">
-            <GradientText>My Workspaces</GradientText>
+          <h1 className="text-3xl font-bold mb-2 text-[var(--text-primary)]">
+            My Workspaces
           </h1>
           <p className="text-[var(--text-secondary)]">
             Manage your academic research projects
@@ -97,7 +97,7 @@ export default function WorkspacesPage() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-600 flex justify-between items-center"
+            className="mb-4 p-4 bg-[var(--semantic-error)]/10 border border-[var(--semantic-error)]/20 rounded-xl text-[var(--semantic-error)] flex justify-between items-center"
           >
             <span>{error}</span>
             <button onClick={clearError} className="text-sm hover:underline">
@@ -109,26 +109,26 @@ export default function WorkspacesPage() {
         {/* Actions Bar */}
         <div className="flex flex-col md:flex-row gap-4 mb-8">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-muted)]" />
             <input
               type="text"
               placeholder="Search workspaces..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--bg-muted)]/50 border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
+              className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--input-bg)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
             />
           </div>
 
           <div className="flex gap-2">
             <LiquidGlassCard className="p-2">
-              <button className="p-2 rounded-lg hover:bg-white/50 transition-colors">
+              <button className="p-2 rounded-lg hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
                 <Filter className="w-5 h-5" />
               </button>
             </LiquidGlassCard>
 
             <motion.button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] font-medium hover:shadow-lg transition-shadow"
+              className="flex items-center gap-2 px-6 py-3 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#2563EB] font-medium hover:shadow-lg transition-shadow"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
@@ -141,7 +141,7 @@ export default function WorkspacesPage() {
         {/* Loading State */}
         {isLoading && workspaces.length === 0 && (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-academic-primary" />
+            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent-primary)]" />
           </div>
         )}
 
@@ -171,7 +171,7 @@ export default function WorkspacesPage() {
                     e.stopPropagation();
                     handleDeleteWorkspace(workspace.id);
                   }}
-                  className="absolute top-2 right-2 p-2 rounded-lg bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/20"
+                  className="absolute top-2 right-2 p-2 rounded-lg bg-[var(--semantic-error)]/10 text-[var(--semantic-error)] opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--semantic-error)]/20"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -185,7 +185,7 @@ export default function WorkspacesPage() {
           <div className="text-center py-12">
             <LiquidGlassCard className="p-12 max-w-md mx-auto">
               <div className="text-6xl mb-4">📚</div>
-              <h3 className="text-xl font-semibold mb-2">No workspaces found</h3>
+              <h3 className="text-xl font-semibold mb-2 text-[var(--text-primary)]">No workspaces found</h3>
               <p className="text-[var(--text-secondary)]">
                 {searchQuery
                   ? "Try a different search term"
@@ -202,7 +202,7 @@ export default function WorkspacesPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
               onClick={() => setShowCreateModal(false)}
             >
               <motion.div
@@ -212,13 +212,13 @@ export default function WorkspacesPage() {
                 onClick={(e) => e.stopPropagation()}
               >
                 <LiquidGlassCard className="p-6 w-full max-w-md">
-                  <h2 className="text-xl font-bold mb-4">
-                    <GradientText>Create New Workspace</GradientText>
+                  <h2 className="text-xl font-bold mb-6 text-[var(--text-primary)]">
+                    Create New Workspace
                   </h2>
 
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <div>
-                      <label className="block text-sm font-medium mb-1">
+                      <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
                         Workspace Name
                       </label>
                       <input
@@ -228,12 +228,12 @@ export default function WorkspacesPage() {
                           setNewWorkspace({ ...newWorkspace, name: e.target.value })
                         }
                         placeholder="e.g., Deep Learning for NLP"
-                        className="w-full px-4 py-2 rounded-lg bg-[var(--bg-muted)]/50 border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none"
+                        className="w-full px-4 py-3 rounded-xl bg-[var(--input-bg)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium mb-1">
+                      <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
                         Project Type
                       </label>
                       <select
@@ -241,10 +241,10 @@ export default function WorkspacesPage() {
                         onChange={(e) =>
                           setNewWorkspace({ ...newWorkspace, type: e.target.value })
                         }
-                        className="w-full px-4 py-2 rounded-lg bg-[var(--bg-muted)]/50 border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none"
+                        className="w-full px-4 py-3 rounded-xl bg-[var(--input-bg)] border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all cursor-pointer"
                       >
                         {WORKSPACE_TYPES.map((type) => (
-                          <option key={type.value} value={type.value}>
+                          <option key={type.value} value={type.value} className="bg-[var(--select-option-bg)] text-[var(--text-primary)] py-2">
                             {type.label}
                           </option>
                         ))}
@@ -252,7 +252,7 @@ export default function WorkspacesPage() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium mb-1">
+                      <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
                         Discipline
                       </label>
                       <select
@@ -263,11 +263,13 @@ export default function WorkspacesPage() {
                             discipline: e.target.value,
                           })
                         }
-                        className="w-full px-4 py-2 rounded-lg bg-[var(--bg-muted)]/50 border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none"
+                        className="w-full px-4 py-3 rounded-xl bg-[var(--input-bg)] border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all cursor-pointer"
                       >
-                        <option value="">Select discipline...</option>
+                        <option value="" className="bg-[var(--select-option-bg)] text-[var(--text-muted)]">
+                          Select discipline...
+                        </option>
                         {DISCIPLINES.map((disc) => (
-                          <option key={disc.value} value={disc.value}>
+                          <option key={disc.value} value={disc.value} className="bg-[var(--select-option-bg)] text-[var(--text-primary)]">
                             {disc.label}
                           </option>
                         ))}
@@ -275,7 +277,7 @@ export default function WorkspacesPage() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium mb-1">
+                      <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
                         Description (optional)
                       </label>
                       <textarea
@@ -288,7 +290,7 @@ export default function WorkspacesPage() {
                         }
                         placeholder="Brief description of your research..."
                         rows={3}
-                        className="w-full px-4 py-2 rounded-lg bg-white/50 border border-border/50 focus:border-academic-primary outline-none resize-none"
+                        className="w-full px-4 py-3 rounded-xl bg-[var(--input-bg)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none resize-none transition-all"
                       />
                     </div>
                   </div>
@@ -296,14 +298,14 @@ export default function WorkspacesPage() {
                   <div className="flex gap-3 mt-6">
                     <button
                       onClick={() => setShowCreateModal(false)}
-                      className="flex-1 px-4 py-2 rounded-lg border border-border/50 hover:bg-white/50 transition-colors"
+                      className="flex-1 px-4 py-3 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-all"
                     >
                       Cancel
                     </button>
                     <motion.button
                       onClick={handleCreateWorkspace}
                       disabled={!newWorkspace.name.trim() || isLoading}
-                      className="flex-1 px-4 py-2 rounded-lg text-white bg-gradient-to-r from-academic-primary to-academic-secondary disabled:opacity-50 flex items-center justify-center gap-2"
+                      className="flex-1 px-4 py-3 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#2563EB] hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >

@@ -3,51 +3,56 @@
 @tailwind utilities;
 
 :root {
-  /* Background Levels - Lightened */
-  --bg-base: #1A2332;
-  --bg-elevated: #212D3F;
-  --bg-surface: #2D3A4F;
-  --bg-muted: #374151;
+  /* Background Levels - Apple/Google inspired lighter dark mode */
+  --bg-base: #1F1F1F;
+  --bg-elevated: #2A2A2A;
+  --bg-surface: #363636;
+  --bg-muted: #404040;
 
-  /* Accent Colors */
-  --accent-primary: #2563EB;
-  --accent-secondary: #38BDF8;
-  --accent-tertiary: #0EA5E9;
-  --accent-gold: #CA8A04;
+  /* Accent Colors - Refined academic blue */
+  --accent-primary: #3B82F6;
+  --accent-secondary: #60A5FA;
+  --accent-tertiary: #93C5FD;
+  --accent-gold: #F59E0B;
 
   /* Semantic Colors */
-  --semantic-success: #10B981;
+  --semantic-success: #22C55E;
   --semantic-warning: #F59E0B;
   --semantic-error: #EF4444;
   --semantic-info: #3B82F6;
 
-  /* Text Colors */
-  --text-primary: #F1F5F9;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
-  --text-inverse: #0F172A;
+  /* Text Colors - High contrast */
+  --text-primary: #FAFAFA;
+  --text-secondary: #A1A1AA;
+  --text-muted: #71717A;
+  --text-inverse: #18181B;
 
   /* Border Colors */
-  --border-default: #3D4A5F;
-  --border-subtle: #2D3A4F;
+  --border-default: #404040;
+  --border-subtle: #363636;
   --border-focus: #3B82F6;
 
-  /* Glass Effect - Academic Deep Sky (Lightened) */
-  --glass-bg: rgba(33, 45, 63, 0.82);
-  --glass-bg-elevated: rgba(45, 58, 79, 0.88);
-  --glass-blur: blur(24px) saturate(120%);
-  --glass-border: rgba(56, 189, 248, 0.18);
+  /* Glass Effect - Apple-style subtle blur */
+  --glass-bg: rgba(42, 42, 42, 0.9);
+  --glass-bg-elevated: rgba(54, 54, 54, 0.95);
+  --glass-blur: blur(20px) saturate(150%);
+  --glass-border: rgba(255, 255, 255, 0.1);
   --glass-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 4px 16px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
   --glass-shadow-elevated:
-    0 8px 32px rgba(0, 0, 0, 0.22),
+    0 8px 32px rgba(0, 0, 0, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 
-  /* Legacy aliases for backwards compatibility */
-  --academic-primary: #2563EB;
-  --academic-secondary: #38BDF8;
-  --academic-success: #10B981;
+  /* Form element backgrounds */
+  --input-bg: #2A2A2A;
+  --input-bg-hover: #363636;
+  --select-option-bg: #2A2A2A;
+
+  /* Legacy aliases */
+  --academic-primary: #3B82F6;
+  --academic-secondary: #60A5FA;
+  --academic-success: #22C55E;
   --academic-warning: #F59E0B;
   --academic-error: #EF4444;
 
@@ -95,7 +100,35 @@ body {
   }
 }
 
-/* Gradient Text - Simplified */
+/* Form elements - Fix for dark mode select/option visibility */
+input,
+textarea,
+select {
+  background-color: var(--input-bg);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+
+select option {
+  background-color: var(--select-option-bg);
+  color: var(--text-primary);
+  padding: 8px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--border-focus);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* Gradient Text */
 .gradient-text {
   color: var(--text-primary);
 }
@@ -160,7 +193,7 @@ body {
 
 /* Selection */
 ::selection {
-  background: rgba(37, 99, 235, 0.3);
+  background: rgba(59, 130, 246, 0.3);
 }
 
 /* Focus styles */
@@ -169,7 +202,7 @@ body {
   outline-offset: 2px;
 }
 
-/* Transitions */
+/* Links */
 a {
   color: var(--accent-secondary);
   transition: color var(--duration-fast) ease;

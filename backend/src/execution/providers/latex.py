@@ -58,8 +58,22 @@ class LaTeXProvider(ExecutionProvider):
         compiler = options.get("compiler", "xelatex")
         has_bib = bool(options.get("bibliography") or options.get("bibliography_file"))
 
+        # Build commands: write source file, then compile
+        commands = []
+
+        # Write main.tex file (escape single quotes in content)
+        escaped_content = content.replace("'", "'\\''")
+        commands.append(f"cat > main.tex << 'LATEX_EOF'\n{escaped_content}\nLATEX_EOF")
+
+        # Write bibliography if provided
+        bibliography = options.get("bibliography", "")
+        if bibliography:
+            bib_filename = options.get("bibliography_file", "refs.bib")
+            escaped_bib = bibliography.replace("'", "'\\''")
+            commands.append(f"cat > {bib_filename} << 'BIB_EOF'\n{escaped_bib}\nBIB_EOF")
+
         # Build compilation chain
-        commands = self._build_compile_chain(compiler, has_bib)
+        commands.extend(self._build_compile_chain(compiler, has_bib))
 
         # Wrap in shell for command chaining
         return ["/bin/bash", "-c", " && ".join(commands)]
@@ -247,10 +261,8 @@ class LaTeXProvider(ExecutionProvider):
         """
         try:
             import fitz  # PyMuPDF
-            doc = fitz.open(str(pdf_path))
-            page_count = doc.page_count
-            doc.close()
-            return page_count
+            with fitz.open(str(pdf_path)) as doc:
+                return doc.page_count
         except Exception as e:
             logger.warning(f"Failed to count PDF pages: {e}")
             return 0
