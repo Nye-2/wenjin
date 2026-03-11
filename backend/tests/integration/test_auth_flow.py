@@ -76,7 +76,7 @@ class TestAuthFlow:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_duplicate_registration_fails(self, client: AsyncClient, test_user: TestUser):
+    async def test_duplicate_registration_fails(self, client: AsyncClient, test_user: FixtureUser):
         """Test that registering with existing email fails."""
         # Register with existing email
         response = await client.post(
@@ -92,7 +92,7 @@ class TestAuthFlow:
         assert "already registered" in error["detail"].lower()
 
     @pytest.mark.asyncio
-    async def test_login_with_wrong_password_fails(self, client: AsyncClient, test_user: TestUser):
+    async def test_login_with_wrong_password_fails(self, client: AsyncClient, test_user: FixtureUser):
         """Test that login with wrong password fails."""
         response = await client.post(
             "/api/auth/login",
@@ -185,7 +185,7 @@ class TestAuthFlow:
         assert user["name"] == "noname"
 
     @pytest.mark.asyncio
-    async def test_admin_user_has_admin_role(self, client: AsyncClient, test_admin: TestUser):
+    async def test_admin_user_has_admin_role(self, client: AsyncClient, test_admin: FixtureUser):
         """Test that admin user gets admin role in response."""
         # Login as admin
         response = await client.post(
@@ -206,7 +206,7 @@ class TestAuthFlow:
 
     @pytest.mark.asyncio
     async def test_multiple_logins_generate_tokens(
-        self, client: AsyncClient, test_user: TestUser
+        self, client: AsyncClient, test_user: FixtureUser
     ):
         """Test that multiple logins generate valid tokens."""
         tokens_list = []
@@ -230,7 +230,7 @@ class TestAuthEdgeCases:
     """Tests for authentication edge cases."""
 
     @pytest.mark.asyncio
-    async def test_case_insensitive_email_login(self, client: AsyncClient, test_user: TestUser):
+    async def test_case_insensitive_email_login(self, client: AsyncClient, test_user: FixtureUser):
         """Test that email login is case insensitive."""
         response = await client.post(
             "/api/auth/login",
@@ -243,7 +243,7 @@ class TestAuthEdgeCases:
 
     @pytest.mark.asyncio
     async def test_email_with_leading_trailing_spaces(
-        self, client: AsyncClient, test_user: TestUser
+        self, client: AsyncClient, test_user: FixtureUser
     ):
         """Test that email with spaces is handled correctly."""
         response = await client.post(
@@ -257,7 +257,7 @@ class TestAuthEdgeCases:
 
     @pytest.mark.asyncio
     async def test_registration_with_existing_email_different_case(
-        self, client: AsyncClient, test_user: TestUser
+        self, client: AsyncClient, test_user: FixtureUser
     ):
         """Test that registration with same email different case fails."""
         response = await client.post(

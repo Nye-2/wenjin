@@ -76,7 +76,7 @@ class TestPaperFlow:
 
     @pytest.mark.asyncio
     async def test_get_paper_by_id(
-        self, authenticated_client: AsyncClient, test_paper: TestPaper
+        self, authenticated_client: AsyncClient, test_paper: FixturePaper
     ):
         """Test retrieving a paper by ID."""
         response = await authenticated_client.get(f"/api/papers/{test_paper.id}")
@@ -98,7 +98,7 @@ class TestPaperFlow:
 
     @pytest.mark.asyncio
     async def test_list_papers(
-        self, authenticated_client: AsyncClient, test_paper: TestPaper
+        self, authenticated_client: AsyncClient, test_paper: FixturePaper
     ):
         """Test listing papers."""
         response = await authenticated_client.get("/api/papers/")
@@ -128,7 +128,7 @@ class TestPaperFlow:
 
     @pytest.mark.asyncio
     async def test_update_paper(
-        self, authenticated_client: AsyncClient, test_paper: TestPaper
+        self, authenticated_client: AsyncClient, test_paper: FixturePaper
     ):
         """Test updating a paper."""
         response = await authenticated_client.put(
@@ -188,7 +188,7 @@ class TestPaperFlow:
 
     @pytest.mark.asyncio
     async def test_search_papers_by_title(
-        self, authenticated_client: AsyncClient, test_paper: TestPaper
+        self, authenticated_client: AsyncClient, test_paper: FixturePaper
     ):
         """Test searching papers by title."""
         response = await authenticated_client.post(
@@ -208,7 +208,7 @@ class TestPaperFlow:
 
     @pytest.mark.asyncio
     async def test_search_papers_by_abstract(
-        self, authenticated_client: AsyncClient, test_paper: TestPaper
+        self, authenticated_client: AsyncClient, test_paper: FixturePaper
     ):
         """Test searching papers by abstract."""
         response = await authenticated_client.post(
@@ -227,8 +227,8 @@ class TestPaperFlow:
     async def test_search_papers_in_workspace(
         self,
         authenticated_client: AsyncClient,
-        test_workspace: TestWorkspace,
-        test_paper: TestPaper,
+        test_workspace: FixtureWorkspace,
+        test_paper: FixturePaper,
     ):
         """Test searching papers within a specific workspace."""
         # First add paper to workspace
@@ -311,8 +311,8 @@ class TestPaperWorkspaceAssociation:
     async def test_list_papers_filtered_by_workspace(
         self,
         authenticated_client: AsyncClient,
-        test_workspace: TestWorkspace,
-        test_paper: TestPaper,
+        test_workspace: FixtureWorkspace,
+        test_paper: FixturePaper,
     ):
         """Test listing papers filtered by workspace."""
         # Add paper to workspace
@@ -333,9 +333,9 @@ class TestPaperWorkspaceAssociation:
     async def test_paper_can_be_in_multiple_workspaces(
         self,
         authenticated_client: AsyncClient,
-        test_user: TestUser,
-        test_paper: TestPaper,
-        test_workspace: TestWorkspace,
+        test_user: FixtureUser,
+        test_paper: FixturePaper,
+        test_workspace: FixtureWorkspace,
     ):
         """Test that the same paper can be added to multiple workspaces."""
         # Create another workspace
@@ -414,7 +414,7 @@ class TestPaperSearchFeatures:
 
     @pytest.mark.asyncio
     async def test_search_case_insensitive(
-        self, authenticated_client: AsyncClient, test_paper: TestPaper
+        self, authenticated_client: AsyncClient, test_paper: FixturePaper
     ):
         """Test that search is case insensitive."""
         response = await authenticated_client.post(

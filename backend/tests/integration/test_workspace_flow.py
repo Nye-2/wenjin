@@ -23,7 +23,7 @@ class TestWorkspaceFlow:
 
     @pytest.mark.asyncio
     async def test_create_list_update_delete_workspace(
-        self, authenticated_client: AsyncClient, test_user: TestUser
+        self, authenticated_client: AsyncClient, test_user: FixtureUser
     ):
         """Test complete CRUD flow for workspaces."""
         # 1. Create workspace
@@ -91,7 +91,7 @@ class TestWorkspaceFlow:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_create_workspace_all_types(self, authenticated_client: AsyncClient, test_user: TestUser):
+    async def test_create_workspace_all_types(self, authenticated_client: AsyncClient, test_user: FixtureUser):
         """Test creating workspaces of all valid types."""
         valid_types = ["sci", "thesis", "proposal", "grant", "literature_review"]
 
@@ -110,7 +110,7 @@ class TestWorkspaceFlow:
 
     @pytest.mark.asyncio
     async def test_create_workspace_invalid_type(
-        self, authenticated_client: AsyncClient, test_user: TestUser
+        self, authenticated_client: AsyncClient, test_user: FixtureUser
     ):
         """Test that creating workspace with invalid type fails."""
         response = await authenticated_client.post(
@@ -127,7 +127,7 @@ class TestWorkspaceFlow:
 
     @pytest.mark.asyncio
     async def test_create_workspace_missing_name(
-        self, authenticated_client: AsyncClient, test_user: TestUser
+        self, authenticated_client: AsyncClient, test_user: FixtureUser
     ):
         """Test that creating workspace without name fails."""
         response = await authenticated_client.post(
@@ -174,7 +174,7 @@ class TestWorkspaceFlow:
     async def test_list_workspaces_only_shows_own_workspaces(
         self,
         client: AsyncClient,
-        test_user: TestUser,
+        test_user: FixtureUser,
         test_session,
     ):
         """Test that listing workspaces only shows user's own workspaces."""
@@ -254,7 +254,7 @@ class TestWorkspaceFlow:
 
     @pytest.mark.asyncio
     async def test_update_workspace_partial(
-        self, authenticated_client: AsyncClient, test_user: TestUser, test_workspace: TestWorkspace
+        self, authenticated_client: AsyncClient, test_user: FixtureUser, test_workspace: FixtureWorkspace
     ):
         """Test partial update of workspace."""
         original_name = test_workspace.name
@@ -274,7 +274,7 @@ class TestWorkspaceFlow:
 
     @pytest.mark.asyncio
     async def test_update_workspace_config(
-        self, authenticated_client: AsyncClient, test_user: TestUser, test_workspace: TestWorkspace
+        self, authenticated_client: AsyncClient, test_user: FixtureUser, test_workspace: FixtureWorkspace
     ):
         """Test updating workspace config."""
         new_config = {
@@ -292,7 +292,7 @@ class TestWorkspaceFlow:
 
     @pytest.mark.asyncio
     async def test_workspace_response_format(
-        self, authenticated_client: AsyncClient, test_user: TestUser
+        self, authenticated_client: AsyncClient, test_user: FixtureUser
     ):
         """Test that workspace response has all expected fields."""
         response = await authenticated_client.post(
@@ -331,7 +331,7 @@ class TestWorkspacePaperAssociation:
     async def test_add_paper_to_workspace(
         self,
         authenticated_client: AsyncClient,
-        test_workspace: TestWorkspace,
+        test_workspace: FixtureWorkspace,
         test_paper,
     ):
         """Test adding a paper to a workspace."""
@@ -352,7 +352,7 @@ class TestWorkspacePaperAssociation:
     async def test_list_workspace_papers(
         self,
         authenticated_client: AsyncClient,
-        test_workspace: TestWorkspace,
+        test_workspace: FixtureWorkspace,
         test_workspace_paper,
     ):
         """Test listing papers in a workspace."""
@@ -369,7 +369,7 @@ class TestWorkspacePaperAssociation:
     async def test_remove_paper_from_workspace(
         self,
         authenticated_client: AsyncClient,
-        test_workspace: TestWorkspace,
+        test_workspace: FixtureWorkspace,
         test_paper,
         test_workspace_paper,
     ):
@@ -391,7 +391,7 @@ class TestWorkspacePaperAssociation:
 
     @pytest.mark.asyncio
     async def test_remove_nonexistent_paper_from_workspace(
-        self, authenticated_client: AsyncClient, test_workspace: TestWorkspace
+        self, authenticated_client: AsyncClient, test_workspace: FixtureWorkspace
     ):
         """Test removing a paper that's not in the workspace."""
         import uuid
@@ -405,7 +405,7 @@ class TestWorkspacePaperAssociation:
     async def test_add_same_paper_twice_fails(
         self,
         authenticated_client: AsyncClient,
-        test_workspace: TestWorkspace,
+        test_workspace: FixtureWorkspace,
         test_paper,
         test_workspace_paper,
     ):
@@ -420,7 +420,7 @@ class TestWorkspacePaperAssociation:
 
     @pytest.mark.asyncio
     async def test_list_papers_empty_workspace(
-        self, authenticated_client: AsyncClient, test_user: TestUser
+        self, authenticated_client: AsyncClient, test_user: FixtureUser
     ):
         """Test listing papers in workspace with no papers."""
         # Create empty workspace
