@@ -184,8 +184,64 @@ tests/thesis/
 
 | Phase | 功能 |
 |-------|------|
-| Phase 2 | 真实文献搜索 (Semantic Scholar API)、WebSocket进度推送、Memory系统集成、ExecutionService完整集成 |
+| Phase 2 | 真实文献搜索 (Semantic Scholar API)、WebSocket进度推送、Memory系统集成 |
 | Phase 3 | Skills补充 (thesis-outline, thesis-reviewer)、完整测试覆盖、性能优化 |
+
+### 3.5 ExecutionService 集成状态 ✅ (2026-03-11)
+
+**已完成:**
+- `src/thesis/execution/__init__.py` - 模块初始化，包含 DI getter/setter
+- `src/thesis/execution/latex_tool.py` - LaTeX 编译工具 (3 tests)
+- `src/thesis/execution/figure_tool.py` - 配图生成工具 (5 tests)
+- `src/thesis/workflow/nodes/compiler.py` - 完整 ExecutionService 集成 (2 integration tests)
+- `src/thesis/workflow/nodes/figure_generator.py` - 完整 ExecutionService 集成 (3 integration tests)
+
+**ExecutionType 映射:**
+| 策略 | ExecutionType | 说明 |
+|------|---------------|------|
+| `mermaid` | `ExecutionType.MERMAID_DIAGRAM` | Mermaid 图表 |
+| `python` | `ExecutionType.PYTHON_PLOT` | Matplotlib 数据图 |
+| `kling` | `ExecutionType.AI_IMAGE` | AI 生成图片 |
+| LaTeX | `ExecutionType.LATEX_COMPILE` | LaTeX 编译 |
+
+**Provider 状态:**
+| Provider | 状态 | 说明 |
+|----------|------|------|
+| LaTeXProvider | ✅ 已实现 | Docker 容器编译 |
+| MermaidProvider | ⚠️ 待实现 | 需要 mermaid-cli |
+| PythonPlotProvider | ⚠️ 待实现 | 需要 matplotlib |
+| AIImageProvider | ⚠️ 待实现 | 需要 Kling API |
+
+**下一步:**
+1. 在 `src/execution/providers/` 实现 MermaidProvider、PythonPlotProvider、AIImageProvider
+2. 在 ExecutionService.PROVIDER_MAP 注册新 providers
+3. 配置 Docker 镜像和环境变量
+
+### 3.6 测试覆盖更新
+
+```
+tests/thesis/
+├── test_api.py                    # 11 tests
+├── test_config.py                 # 14 tests
+├── execution/
+│   ├── test_latex_tool.py         # 3 tests ✅ (新增)
+│   └── test_figure_tool.py        # 5 tests ✅ (新增)
+└── workflow/
+    ├── test_state.py              # 4 tests
+    ├── test_graph.py              # 9 tests
+    ├── test_runner.py             # 11 tests
+    └── nodes/
+        ├── test_literature_search.py  # 3 tests
+        ├── test_section_writer.py     # 2 tests
+        ├── test_assembler.py          # 2 tests
+        ├── test_figure_planner.py     # 26 tests
+        ├── test_figure_generator.py   # 5 tests
+        ├── test_figure_generator_integration.py  # 3 tests ✅ (新增)
+        ├── test_compiler.py           # 2 tests
+        └── test_compiler_integration.py    # 2 tests ✅ (新增)
+
+总计: 104 tests ✅
+```
 
 ---
 
