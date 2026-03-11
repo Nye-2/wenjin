@@ -232,7 +232,7 @@ class DockerExecutionService(ExecutionService):
 
         return work_dir
 
-    def _to_sandbox_path(self, physical_path: Path, thread_id: Optional[str]) -> str:
+    def _to_sandbox_path(self, physical_path: Path, thread_id: str | None) -> str:
         """Convert physical path to sandbox virtual path.
 
         Args:

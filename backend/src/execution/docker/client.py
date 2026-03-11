@@ -6,12 +6,16 @@ proper error handling, and volume management.
 
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import docker
 from docker.errors import DockerException, ImageNotFound, APIError
 
 logger = logging.getLogger(__name__)
+
+# Shared thread pool for Docker operations
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="docker-")
 
 
 class DockerExecutionError(Exception):
@@ -70,8 +74,6 @@ class DockerClient:
         Raises:
             DockerExecutionError: If image pull fails.
         """
-        loop = asyncio.get_event_loop()
-
         def _ensure() -> bool:
             try:
                 # Check if image exists
@@ -91,7 +93,8 @@ class DockerClient:
                         original_error=e
                     ) from e
 
-        return await loop.run_in_executor(None, _ensure)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_executor, _ensure)
 
     def build_volume_mapping(
         self,
@@ -144,12 +147,10 @@ class DockerClient:
 
         Raises:
             DockerExecutionError: If container execution fails.
-            asyncio.TimeoutError: If execution exceeds timeout.
+            TimeoutError: If execution exceeds timeout.
         """
         # Ensure image exists
         await self.ensure_image(image)
-
-        loop = asyncio.get_event_loop()
 
         def _run() -> tuple[int, str, str]:
             try:
@@ -172,10 +173,13 @@ class DockerClient:
                     exit_code = result.get("StatusCode", -1)
                 except Exception as e:
                     # Kill container on timeout
-                    container.kill()
-                    logger.warning(f"Container killed due to timeout: {container.id[:12]}")
-                    raise asyncio.TimeoutError(
-                        f"Container execution exceeded {timeout}s"
+                    try:
+                        container.kill()
+                    except Exception:
+                        pass
+                    logger.warning(f"Container killed due to error: {container.id[:12]}")
+                    raise TimeoutError(
+                        f"Container execution exceeded {timeout}s or failed: {e}"
                     ) from e
 
                 # Get logs
@@ -184,8 +188,11 @@ class DockerClient:
 
                 # Remove container if requested
                 if remove:
-                    container.remove(force=True)
-                    logger.debug(f"Removed container: {container.id[:12]}")
+                    try:
+                        container.remove(force=True)
+                        logger.debug(f"Removed container: {container.id[:12]}")
+                    except Exception as e:
+                        logger.warning(f"Failed to remove container: {e}")
 
                 return exit_code, stdout, stderr
 
@@ -195,7 +202,8 @@ class DockerClient:
                     original_error=e
                 ) from e
 
-        return await loop.run_in_executor(None, _run)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_executor, _run)
 
     async def health_check(self) -> dict[str, Any]:
         """Check Docker daemon health.
@@ -206,8 +214,6 @@ class DockerClient:
             - version: str (if healthy)
             - error: str (if unhealthy)
         """
-        loop = asyncio.get_event_loop()
-
         def _check() -> dict[str, Any]:
             try:
                 version_info = self.client.version()
@@ -222,7 +228,8 @@ class DockerClient:
                     "error": str(e)
                 }
 
-        return await loop.run_in_executor(None, _check)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_executor, _check)
 
     def close(self) -> None:
         """Close Docker client connection."""

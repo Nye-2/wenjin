@@ -1,6 +1,6 @@
 """LaTeX compilation tool."""
 
-from typing import Literal, Optional
+from typing import Literal
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -16,7 +16,7 @@ class CompileLatexInput(BaseModel):
         default="xelatex",
         description="LaTeX compiler to use. Use xelatex for Chinese or multilingual content."
     )
-    bibliography: Optional[str] = Field(
+    bibliography: str | None = Field(
         default=None,
         description="Optional BibTeX bibliography content for references"
     )
@@ -32,7 +32,7 @@ class CompileLatexInput(BaseModel):
 async def compile_latex_tool(
     latex_source: str,
     compiler: str = "xelatex",
-    bibliography: Optional[str] = None,
+    bibliography: str | None = None,
     timeout: int = 120,
 ) -> str:
     """Compile LaTeX source code to PDF.

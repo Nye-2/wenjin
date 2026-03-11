@@ -9,16 +9,18 @@ import ast
 
 
 # Allowed modules for safe execution
+# Note: Only use real module names, not import aliases (e.g., 'numpy' not 'np')
 ALLOWED_MODULES: set[str] = {
     # Scientific computing
-    'numpy', 'np',
+    'numpy',
     'scipy',
-    'pandas', 'pd',
-    'sklearn', 'scikit-learn',
+    'pandas',
+    'sklearn',
 
     # Plotting and visualization
-    'matplotlib', 'matplotlib.pyplot', 'plt',
-    'seaborn', 'sns',
+    'matplotlib',
+    'matplotlib.pyplot',
+    'seaborn',
     'plotly',
     'bokeh',
 
@@ -42,16 +44,21 @@ ALLOWED_MODULES: set[str] = {
     'uuid',
     'hashlib',
     'base64',
+    'decimal',
+    'fractions',
 
     # Image processing (safe subset)
-    'PIL', 'pillow',
-    'cv2', 'opencv-python',
+    'PIL',
+    'PIL.Image',
+    'PIL.ImageDraw',
+    'PIL.ImageFont',
+    'PIL.ImageFilter',
+    'cv2',
 
-    # Other safe modules
-    'fractions',
-    'decimal',
-    'pathlib',  # Read-only usage should be controlled
-    'io',  # StringIO, BytesIO
+    # Safe I/O (memory only, no filesystem)
+    'io',
+
+    # Math/symbolic
     'sympy',
 }
 
@@ -159,7 +166,6 @@ FORBIDDEN_FUNCTIONS: set[str] = {
     'copyright',
     'quit',
     'exit',
-    'quit',
 }
 
 
