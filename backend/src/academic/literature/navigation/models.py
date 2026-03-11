@@ -1,7 +1,7 @@
 # src/academic/literature/navigation/models.py
 """Data models for TOC navigation."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TOCEntry(BaseModel):
@@ -13,8 +13,8 @@ class TOCEntry(BaseModel):
     char_end: int = Field(..., ge=0, description="字符结束位置")
     children: list["TOCEntry"] = Field(default_factory=list, description="子章节")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "title": "3. Methodology",
                 "level": 1,
@@ -32,6 +32,7 @@ class TOCEntry(BaseModel):
                 ]
             }
         }
+    )
 
 
 class PaperTOC(BaseModel):
@@ -65,8 +66,8 @@ class SectionContent(BaseModel):
     word_count: int = Field(default=0, ge=0, description="字数统计")
     has_subsections: bool = Field(default=False, description="是否有子章节")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "paper_id": "paper-123",
                 "section_title": "3. Methodology",
@@ -75,3 +76,4 @@ class SectionContent(BaseModel):
                 "has_subsections": True
             }
         }
+    )

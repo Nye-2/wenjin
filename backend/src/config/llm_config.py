@@ -18,7 +18,7 @@ import logging
 import os
 import threading
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +72,7 @@ class ModelConfig(BaseModel):
     supports_json_mode: bool = Field(default=True, description="Supports JSON response format")
     supports_json_schema: bool = Field(default=False, description="Supports JSON schema response format")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 def _parse_model_from_json(data: dict) -> ModelConfig | None:
