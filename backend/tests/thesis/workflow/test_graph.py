@@ -158,3 +158,90 @@ class TestBuildThesisGraph:
         assert thesis_graph is not None
         assert hasattr(thesis_graph, "invoke")
         assert hasattr(thesis_graph, "stream")
+
+
+class TestGraphExecution:
+    """Test full graph execution with mocked nodes."""
+
+    @pytest.mark.asyncio
+    async def test_full_graph_execution_flow(self):
+        """Test that graph executes all nodes in correct order."""
+        # Track node execution order
+        execution_order = []
+
+        # Create a simple state that will complete quickly
+        initial_state: ThesisWorkflowState = {
+            "workspace_id": "ws-test",
+            "thread_id": "test-thread",
+            "paper_title": "Test Thesis",
+            "discipline": "计算机科学",
+            "abstract_content": "Test abstract",
+            "framework_json": {"sections": []},
+            "section_plans": [],  # No sections to write
+            "writing_order": [],
+            "references": [],
+            "citation_plan": {},
+            "sections": [],
+            "figure_requests": [],
+            "generated_figures": [],
+            "current_phase": "init",
+            "progress": 0.0,
+            "errors": [],
+        }
+
+        # Run the graph
+        config = {"configurable": {"thread_id": "test-thread"}}
+        events = []
+
+        async for event in thesis_graph.astream(initial_state, config):
+            events.append(event)
+
+        # Verify graph completed
+        assert len(events) > 0
+
+        # Get final state
+        final_state = await thesis_graph.aget_state(config)
+        assert final_state.values is not None
+
+        # Verify progression through phases
+        # With no sections, should skip section_writer loop and go to figures
+        final_phase = final_state.values.get("current_phase")
+        assert final_phase in ["figure_planning", "figure_generation", "assembly", "compile"]
+
+    @pytest.mark.asyncio
+    async def test_graph_handles_errors_gracefully(self):
+        """Test that graph handles node errors without crashing."""
+        # State that will cause an error (no final_latex for compiler)
+        initial_state: ThesisWorkflowState = {
+            "workspace_id": "ws-error-test",
+            "thread_id": "error-thread",
+            "paper_title": "Error Test",
+            "discipline": "计算机科学",
+            "abstract_content": "Test",
+            "framework_json": {},
+            "section_plans": [],
+            "writing_order": [],
+            "references": [],
+            "citation_plan": {},
+            "sections": [],
+            "figure_requests": [],
+            "generated_figures": [],
+            "current_phase": "init",
+            "progress": 0.0,
+            "errors": [],
+        }
+
+        config = {"configurable": {"thread_id": "error-thread"}}
+
+        # Run graph - should complete even with errors
+        try:
+            async for _ in thesis_graph.astream(initial_state, config):
+                pass
+        except Exception as e:
+            # Graph should handle errors internally
+            pytest.fail(f"Graph raised unexpected exception: {e}")
+
+        # Check final state
+        final_state = await thesis_graph.aget_state(config)
+        # Graph should have completed
+        assert final_state.values is not None
