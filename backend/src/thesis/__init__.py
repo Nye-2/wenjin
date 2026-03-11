@@ -30,6 +30,16 @@ from .workflow.nodes import (
     generate_bibtex,
 )
 
+from .config import (
+    ThesisSettings,
+    thesis_settings,
+)
+
+from .workflow.graph import (
+    thesis_graph,
+    build_thesis_graph,
+)
+
 __all__ = [
     # State types
     "SectionPlan",
@@ -46,4 +56,10 @@ __all__ = [
     "check_literature_sufficiency",
     "assemble_latex_node",
     "generate_bibtex",
+    # Configuration
+    "ThesisSettings",
+    "thesis_settings",
+    # Workflow graph
+    "thesis_graph",
+    "build_thesis_graph",
 ]

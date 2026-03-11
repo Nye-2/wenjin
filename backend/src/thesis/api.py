@@ -93,13 +93,13 @@ async def generate_thesis(
         message="Task created, waiting to start",
     )
 
-    # TODO: Implement background task execution when workflow is ready
-    # from .workflow.runner import run_thesis_workflow
-    # background_tasks.add_task(
-    #     run_thesis_workflow,
-    #     task.task_id,
-    #     request.model_dump(),
-    # )
+    # Start background workflow execution
+    from .workflow.runner import run_thesis_workflow
+    background_tasks.add_task(
+        run_thesis_workflow,
+        task.task_id,
+        request.model_dump(),
+    )
 
     logger.info(f"[Thesis] Created task {task.task_id} for workspace {request.workspace_id}")
 
