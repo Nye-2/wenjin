@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.task_config import task_settings
 from src.database.models.task import TaskRecord
+from src.task.registry import TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -140,10 +141,10 @@ class TaskStore:
         """Mark task as started."""
         await self.update_task_record(
             task_id,
-            status="running",
+            status=TaskStatus.RUNNING.value,
             started_at=datetime.now(timezone.utc),
         )
-        await self.set_task_state(task_id, "running", worker_id=worker_id)
+        await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
 
     async def mark_task_completed(
         self,
@@ -153,7 +154,7 @@ class TaskStore:
         error: str | None = None,
     ) -> None:
         """Mark task as completed (success or failed)."""
-        status = "success" if success else "failed"
+        status = TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value
         await self.update_task_record(
             task_id,
             status=status,

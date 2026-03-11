@@ -5,8 +5,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Send, User, Bot, Sparkles } from "lucide-react";
 import { useChatStore, Message } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useTaskStore } from "@/stores/task";
+import { useFeaturesStore } from "@/stores/features";
 import { SkillSelector } from "./SkillSelector";
 import { StreamingText, ThinkingIndicator } from "@/components/glass";
+import { AgentStatusBar, QuickActions } from "@/components/workspace";
 import { cn } from "@/lib/utils";
 
 interface MessageBubbleProps {
@@ -75,9 +78,30 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     setCurrentSkill,
   } = useChatStore();
   const { workspace } = useWorkspaceStore();
+  const { startTask, isExecuting } = useTaskStore();
+  const { getFeatureById } = useFeaturesStore();
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 处理快捷指令点击
+  const handleQuickAction = (featureId: string) => {
+    if (isExecuting) return;
+
+    const feature = getFeatureById(featureId);
+    if (!feature) return;
+
+    startTask({
+      featureId: feature.id,
+      agent: feature.agent,
+      agentLabel: feature.agentLabel,
+      stages: feature.stages,
+      initialThinking: `正在准备执行 ${feature.name}...`,
+    });
+
+    // TODO: 同时调用后端API执行任务
+    // executeFeature(workspaceId, featureId, params);
+  };
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -164,6 +188,18 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
 
       {/* Input Area */}
       <div className="p-4 border-t border-[var(--border-default)] bg-[var(--bg-elevated)] backdrop-blur-xl">
+        {/* Agent Status Bar */}
+        <div className="mb-3">
+          <AgentStatusBar />
+        </div>
+
+        {/* Quick Actions */}
+        {!isExecuting && (
+          <div className="mb-3 overflow-x-auto pb-2">
+            <QuickActions onAction={handleQuickAction} />
+          </div>
+        )}
+
         {/* Skill Selector */}
         <div className="mb-3 overflow-x-auto pb-2">
           <SkillSelector

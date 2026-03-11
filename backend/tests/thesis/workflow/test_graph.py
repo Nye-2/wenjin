@@ -11,8 +11,8 @@ from src.thesis.workflow.graph import (
     should_continue_writing,
     build_thesis_graph,
     thesis_graph,
-    _get_attr,
 )
+from src.thesis.workflow.nodes.base import get_attr
 
 
 class TestGraphConstants:
@@ -25,23 +25,23 @@ class TestGraphConstants:
 
 
 class TestGetAttrHelper:
-    """Test _get_attr helper function."""
+    """Test get_attr helper function."""
 
     def test_get_attr_from_dict(self):
         """Test getting attribute from dictionary."""
         obj = {"key": "value", "num": 42}
-        assert _get_attr(obj, "key") == "value"
-        assert _get_attr(obj, "num") == 42
-        assert _get_attr(obj, "missing") is None
-        assert _get_attr(obj, "missing", "default") == "default"
+        assert get_attr(obj, "key") == "value"
+        assert get_attr(obj, "num") == 42
+        assert get_attr(obj, "missing") is None
+        assert get_attr(obj, "missing", "default") == "default"
 
     def test_get_attr_from_object(self):
         """Test getting attribute from object with getattr."""
         section = SectionContent(index=1, title="Test")
-        assert _get_attr(section, "index") == 1
-        assert _get_attr(section, "title") == "Test"
-        assert _get_attr(section, "missing") is None
-        assert _get_attr(section, "missing", "default") == "default"
+        assert get_attr(section, "index") == 1
+        assert get_attr(section, "title") == "Test"
+        assert get_attr(section, "missing") is None
+        assert get_attr(section, "missing", "default") == "default"
 
 
 class TestShouldContinueWriting:

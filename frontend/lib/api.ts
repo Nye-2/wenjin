@@ -121,6 +121,25 @@ export interface Model {
   supports_vision: boolean;
 }
 
+// ============ Feature Types ============
+
+export interface FeatureStage {
+  id: string;
+  label: string;
+}
+
+export interface WorkspaceFeature {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;  // icon name string, to be resolved by frontend
+  agent: string;
+  agentLabel: string;
+  panel?: string;  // which panel to show in right sidebar
+  stages: FeatureStage[];
+  color?: string;
+}
+
 // ============ API Functions ============
 
 // Health check
@@ -326,6 +345,15 @@ export function streamChat(
 
 export async function listModels(): Promise<{ models: Model[] }> {
   const response = await apiClient.get('/models');
+  return response.data;
+}
+
+// ============ Features API ============
+
+export async function getWorkspaceFeatures(
+  workspaceId: string
+): Promise<{ features: WorkspaceFeature[] }> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/features`);
   return response.data;
 }
 

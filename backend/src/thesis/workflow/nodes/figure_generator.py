@@ -14,16 +14,9 @@ import logging
 from typing import Any
 
 from src.thesis.workflow.state import ThesisWorkflowState
-from .base import log_node_start, log_node_end
+from .base import log_node_start, log_node_end, get_attr
 
 logger = logging.getLogger(__name__)
-
-
-def _get_attr(obj, attr: str, default=None):
-    """Handle both Pydantic models and dict objects."""
-    if isinstance(obj, dict):
-        return obj.get(attr, default)
-    return getattr(obj, attr, default)
 
 
 def figure_generator_node(state: ThesisWorkflowState) -> dict[str, Any]:
@@ -47,7 +40,7 @@ def figure_generator_node(state: ThesisWorkflowState) -> dict[str, Any]:
     generated_figures = []
 
     for request in figure_requests:
-        figure_id = _get_attr(request, "id")
+        figure_id = get_attr(request, "id")
 
         # Create stub figure with placeholder path
         generated_figure = {

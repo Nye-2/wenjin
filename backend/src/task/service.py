@@ -4,11 +4,9 @@ import logging
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from celery.result import AsyncResult
-
 from src.config.task_config import task_settings
 from src.task import celery_app
-from src.task.registry import get_task_config, is_valid_task_type
+from src.task.registry import TaskStatus, get_task_config, is_valid_task_type
 from src.task.store import TaskStore
 
 logger = logging.getLogger(__name__)
@@ -95,7 +93,7 @@ class TaskService:
             return None
 
         # Get runtime state from Redis for running tasks
-        if record.status in ("pending", "running"):
+        if record.status in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value):
             runtime_state = await self._store.get_task_state(task_id)
             if runtime_state:
                 return {
@@ -104,8 +102,11 @@ class TaskService:
                     "status": runtime_state.get("status", record.status),
                     "progress": runtime_state.get("progress", 0),
                     "message": runtime_state.get("message", ""),
+                    "result": None,  # Not available for running tasks
+                    "error": None,
                     "created_at": record.created_at.isoformat(),
                     "started_at": record.started_at.isoformat() if record.started_at else None,
+                    "completed_at": None,
                 }
 
         return {
@@ -142,7 +143,10 @@ class TaskService:
                 "status": r.status,
                 "progress": r.progress,
                 "message": r.message,
+                "result": r.result,
+                "error": r.error,
                 "created_at": r.created_at.isoformat(),
+                "started_at": r.started_at.isoformat() if r.started_at else None,
                 "completed_at": r.completed_at.isoformat() if r.completed_at else None,
             }
             for r in records
@@ -163,7 +167,7 @@ class TaskService:
             return False
 
         # Can only cancel pending or running tasks
-        if record.status not in ("pending", "running"):
+        if record.status not in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value):
             return False
 
         # Revoke Celery task
@@ -172,10 +176,10 @@ class TaskService:
         # Update database
         await self._store.update_task_record(
             task_id,
-            status="cancelled",
+            status=TaskStatus.CANCELLED.value,
             completed_at=datetime.now(timezone.utc),
         )
-        await self._store.set_task_state(task_id, "cancelled", message="Cancelled by user")
+        await self._store.set_task_state(task_id, TaskStatus.CANCELLED.value, message="Cancelled by user")
 
         logger.info(f"Task cancelled: {task_id}")
 

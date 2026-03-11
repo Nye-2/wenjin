@@ -5,6 +5,9 @@ import logging
 
 from celery import shared_task
 
+from src.task.registry import TaskStatus
+from src.task.handlers.skill_handler import get_skill_task_handler
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,22 +76,66 @@ async def _execute_task_async(
 async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
     """Dispatch task to appropriate handler.
 
-    In Phase 3, this will route to actual skill implementations.
-    For now, returns a placeholder result.
+    Routes task execution to:
+    1. SkillTaskHandler for skill-based tasks (deep_research, thesis_generation, etc.)
+    2. Custom handlers for other task types
+
+    Args:
+        task_type: Type of task to execute
+        payload: Task-specific parameters
+        progress: ProgressTracker instance for progress reporting
+
+    Returns:
+        Task result dict
+
+    Raises:
+        ValueError: If task_type is unknown
     """
     from src.task.registry import is_valid_task_type
 
     if not is_valid_task_type(task_type):
         raise ValueError(f"Unknown task type: {task_type}")
 
-    # Placeholder implementation - will be replaced in Phase 3
-    await progress.update(50, f"Processing {task_type}...")
+    # Get the skill task handler
+    handler = get_skill_task_handler()
 
-    # Simulate work (remove in Phase 3)
-    await asyncio.sleep(2)
+    # Check if this task type maps to a skill
+    skill_name = handler.get_skill_name(task_type)
+
+    if skill_name:
+        # Execute via skill handler
+        logger.info(f"Dispatching task type '{task_type}' to skill '{skill_name}'")
+        return await handler.execute_skill(task_type, payload, progress)
+    else:
+        # Fallback: placeholder implementation for task types without skill mapping
+        logger.info(f"No skill mapping for task type '{task_type}', using placeholder")
+        return await _execute_placeholder(task_type, payload, progress)
+
+
+async def _execute_placeholder(task_type: str, payload: dict, progress) -> dict:
+    """Placeholder execution for task types without skill implementations.
+
+    This should be replaced with actual implementations or skill mappings.
+
+    Args:
+        task_type: Type of task
+        payload: Task parameters
+        progress: ProgressTracker instance
+
+    Returns:
+        Placeholder result dict
+    """
+    await progress.update(25, f"Processing {task_type}...")
+    await asyncio.sleep(1)
+
+    await progress.update(50, f"Executing {task_type} logic...")
+    await asyncio.sleep(1)
+
+    await progress.update(75, "Finalizing...")
 
     return {
         "task_type": task_type,
         "status": "completed",
-        "message": "Task executed successfully (placeholder)",
+        "message": f"Task '{task_type}' executed successfully (placeholder)",
+        "payload_received": payload,
     }

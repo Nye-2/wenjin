@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useFeaturesStore } from "@/stores/features";
 import {
   LazyKnowledgePanel,
   LazyChatPanel,
@@ -34,16 +35,19 @@ export default function WorkbenchPage() {
 
   const { workspace, isLoading, error, loadWorkspace, clearWorkspace } =
     useWorkspaceStore();
+  const { fetchFeatures, clearFeatures } = useFeaturesStore();
 
   useEffect(() => {
     if (workspaceId) {
       loadWorkspace(workspaceId);
+      fetchFeatures(workspaceId);
     }
 
     return () => {
       clearWorkspace();
+      clearFeatures();
     };
-  }, [workspaceId, loadWorkspace, clearWorkspace]);
+  }, [workspaceId, loadWorkspace, clearWorkspace, fetchFeatures, clearFeatures]);
 
   if (isLoading) {
     return (

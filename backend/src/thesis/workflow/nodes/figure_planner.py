@@ -10,7 +10,7 @@ import re
 from typing import Any
 
 from src.thesis.workflow.state import ThesisWorkflowState
-from .base import log_node_start, log_node_end
+from .base import log_node_start, log_node_end, get_attr
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +19,6 @@ logger = logging.getLogger(__name__)
 PLACEHOLDER_PATTERN = re.compile(
     r"%\s*\[FIGURE:([^|]+)\|([^|]+)\|([^|]+)\|([^\]]+)\]"
 )
-
-
-def _get_attr(obj, attr: str, default=None):
-    """Handle both Pydantic models and dict objects."""
-    if isinstance(obj, dict):
-        return obj.get(attr, default)
-    return getattr(obj, attr, default)
 
 
 def extract_figure_placeholders(content: str) -> list[dict]:
@@ -98,12 +91,12 @@ def figure_planner_node(state: ThesisWorkflowState) -> dict[str, Any]:
 
     for section in sections:
         # Only process completed sections
-        status = _get_attr(section, "status", "pending")
+        status = get_attr(section, "status", "pending")
         if status != "completed":
             continue
 
-        section_index = _get_attr(section, "index")
-        content = _get_attr(section, "content", "")
+        section_index = get_attr(section, "index")
+        content = get_attr(section, "content", "")
 
         # Extract placeholders from section content
         placeholders = extract_figure_placeholders(content)

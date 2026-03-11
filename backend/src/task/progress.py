@@ -4,6 +4,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from src.task.registry import TaskStatus
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +44,7 @@ class ProgressTracker:
             store = TaskStore(redis_client, db)
             await store.set_task_state(
                 self._task_id,
-                status="running",
+                status=TaskStatus.RUNNING.value,
                 progress=progress,
                 message=message,
                 current_step=current_step,
@@ -63,12 +65,24 @@ class ProgressTracker:
 
     async def complete(self, message: str = "Task completed") -> None:
         """Mark task as completed."""
-        await self.update(100, message)
+        # Update state and broadcast in one operation
+        from src.task.store import TaskStore
+        from src.database import get_db_session
+        from src.academic.cache.redis_client import redis_client
 
-        # Broadcast completion
+        async with get_db_session() as db:
+            store = TaskStore(redis_client, db)
+            await store.set_task_state(
+                self._task_id,
+                status=TaskStatus.SUCCESS.value,
+                progress=100,
+                message=message,
+            )
+
+        # Broadcast completion (single broadcast)
         event_data = json.dumps({
             "task_id": self._task_id,
-            "status": "success",
+            "status": TaskStatus.SUCCESS.value,
             "progress": 100,
             "message": message,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -79,7 +93,7 @@ class ProgressTracker:
         """Mark task as failed."""
         event_data = json.dumps({
             "task_id": self._task_id,
-            "status": "failed",
+            "status": TaskStatus.FAILED.value,
             "progress": 0,
             "message": error,
             "timestamp": datetime.now(timezone.utc).isoformat(),

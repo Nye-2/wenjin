@@ -23,28 +23,13 @@ from src.thesis.workflow.nodes import (
     figure_generator_node,
     compile_latex_node,
 )
+from src.thesis.workflow.nodes.base import get_attr
 
 logger = logging.getLogger(__name__)
 
 # Routing constants
 ROUTE_CONTINUE = "continue_writing"
 ROUTE_DONE = "done_writing"
-
-
-def _get_attr(obj: Any, attr: str, default: Any = None) -> Any:
-    """Get attribute from object, handling both dict and object types.
-
-    Args:
-        obj: Object to get attribute from (dict or object with attributes)
-        attr: Attribute name to retrieve
-        default: Default value if attribute not found
-
-    Returns:
-        The attribute value or default
-    """
-    if isinstance(obj, dict):
-        return obj.get(attr, default)
-    return getattr(obj, attr, default)
 
 
 def should_continue_writing(state: ThesisWorkflowState) -> Literal["continue_writing", "done_writing"]:
@@ -64,9 +49,9 @@ def should_continue_writing(state: ThesisWorkflowState) -> Literal["continue_wri
 
     # Get completed section indices
     completed_indices = {
-        _get_attr(s, "index")
+        get_attr(s, "index")
         for s in sections
-        if _get_attr(s, "status", "pending") == "completed"
+        if get_attr(s, "status", "pending") == "completed"
     }
 
     # Check if any section in writing_order is not completed

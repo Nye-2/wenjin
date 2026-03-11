@@ -9,6 +9,25 @@ from src.thesis.workflow.state import ThesisWorkflowState
 logger = logging.getLogger(__name__)
 
 
+def get_attr(obj: Any, attr: str, default: Any = None) -> Any:
+    """Get attribute from dict or Pydantic model.
+
+    Handles both dict and Pydantic model objects uniformly.
+    Used throughout thesis nodes for type-safe attribute access.
+
+    Args:
+        obj: Object to get attribute from (dict or Pydantic model)
+        attr: Attribute name to retrieve
+        default: Default value if attribute not found
+
+    Returns:
+        Attribute value or default
+    """
+    if isinstance(obj, dict):
+        return obj.get(attr, default)
+    return getattr(obj, attr, default)
+
+
 def calculate_progress(state: ThesisWorkflowState, phase: str | None) -> float:
     """Calculate current progress based on state.
 
@@ -37,13 +56,7 @@ def calculate_progress(state: ThesisWorkflowState, phase: str | None) -> float:
     if not plans:
         return 0.0
 
-    # Handle both Pydantic models and dict objects
-    def get_status(s):
-        if isinstance(s, dict):
-            return s.get("status", "pending")
-        return getattr(s, "status", "pending")
-
-    completed = sum(1 for s in sections if get_status(s) == "completed")
+    completed = sum(1 for s in sections if get_attr(s, "status", "pending") == "completed")
     writing_range = 0.65  # 0.80 - 0.15
     return 0.15 + (completed / len(plans)) * writing_range
 

@@ -10,6 +10,13 @@ from .base import calculate_progress, log_node_start, log_node_end
 logger = logging.getLogger(__name__)
 
 
+def _get_attr(obj, attr: str, default=None):
+    """Handle both Pydantic models and dict objects."""
+    if isinstance(obj, dict):
+        return obj.get(attr, default)
+    return getattr(obj, attr, default)
+
+
 def get_next_section_index(state: ThesisWorkflowState) -> int | None:
     """Get the next section index to write based on writing_order.
 
@@ -22,20 +29,12 @@ def get_next_section_index(state: ThesisWorkflowState) -> int | None:
     writing_order = state.get("writing_order", [])
     sections = state.get("sections", [])
 
-    def get_section_index(s):
-        """Handle both Pydantic models and dict objects."""
-        if isinstance(s, dict):
-            return s.get("index")
-        return getattr(s, "index", None)
-
-    def get_section_status(s):
-        """Handle both Pydantic models and dict objects."""
-        if isinstance(s, dict):
-            return s.get("status", "pending")
-        return getattr(s, "status", "pending")
-
     # Get completed section indices
-    completed_indices = {get_section_index(s) for s in sections if get_section_status(s) == "completed"}
+    completed_indices = {
+        _get_attr(s, "index")
+        for s in sections
+        if _get_attr(s, "status", "pending") == "completed"
+    }
 
     # Find first uncompleted section in writing_order
     for idx in writing_order:
@@ -75,7 +74,7 @@ def section_writer_node(state: ThesisWorkflowState) -> dict[str, Any]:
 
     # Get section plan
     plans = state.get("section_plans", [])
-    section_plan = next((p for p in plans if p.index == next_idx), None)
+    section_plan = next((p for p in plans if _get_attr(p, "index") == next_idx), None)
     if not section_plan:
         logger.error(f"Section plan not found for index {next_idx}")
         return {"errors": [f"Section plan not found for index {next_idx}"]}
@@ -93,7 +92,7 @@ def section_writer_node(state: ThesisWorkflowState) -> dict[str, Any]:
     # Mark section as in-progress
     in_progress_section = SectionContent(
         index=next_idx,
-        title=section_plan.title,
+        title=_get_attr(section_plan, "title", f"Section {next_idx}"),
         content="",  # Will be filled by subagent
         status="writing",
     )

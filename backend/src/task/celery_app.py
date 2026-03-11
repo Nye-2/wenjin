@@ -33,9 +33,25 @@ celery_app.conf.update(
     # Result settings
     result_expires=task_settings.task_redis_ttl,
 
-    # Task routing
+    # Task routing - route based on task type
     task_routes={
-        "src.task.tasks.*": {"queue": "default"},
+        "src.task.tasks.execute_task": {"queue": "default"},
+    },
+
+    # Queue definitions
+    task_queues={
+        "default": {
+            "exchange": "tasks",
+            "routing_key": "task.default",
+        },
+        "long_running": {
+            "exchange": "tasks",
+            "routing_key": "task.long_running",
+        },
+        "priority": {
+            "exchange": "tasks",
+            "routing_key": "task.priority",
+        },
     },
 
     # Default queue

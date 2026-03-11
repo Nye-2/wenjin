@@ -5,6 +5,7 @@ from src.task.progress import ProgressTracker, get_progress_tracker
 from src.task.registry import (
     TASK_REGISTRY,
     TaskQueue,
+    TaskStatus,
     TaskTypeConfig,
     get_registered_task_types,
     get_task_config,
@@ -26,6 +27,7 @@ __all__ = [
     # Registry
     "TASK_REGISTRY",
     "TaskQueue",
+    "TaskStatus",
     "TaskTypeConfig",
     "get_task_config",
     "is_valid_task_type",

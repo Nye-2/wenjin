@@ -4,6 +4,20 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+class TaskStatus(str, Enum):
+    """Task status values."""
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    @classmethod
+    def terminal_statuses(cls) -> set["TaskStatus"]:
+        """Return set of statuses that indicate task is done."""
+        return {cls.SUCCESS, cls.FAILED, cls.CANCELLED}
+
+
 class TaskQueue(str, Enum):
     """Available task queues."""
     DEFAULT = "default"

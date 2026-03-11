@@ -6,6 +6,8 @@ import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
+from src.task.registry import TaskStatus
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,7 +39,11 @@ async def create_task_sse_stream(task_id: str) -> AsyncGenerator[str, None]:
 
         # Listen for updates
         timeout = 3600  # 1 hour max
-        last_ping = asyncio.get_event_loop().time()
+        start_time = asyncio.get_event_loop().time()
+        last_ping = start_time
+
+        # Get terminal status values for comparison
+        terminal_statuses = {s.value for s in TaskStatus.terminal_statuses()}
 
         async for message in pubsub.listen():
             if message["type"] == "message":
@@ -45,17 +51,18 @@ async def create_task_sse_stream(task_id: str) -> AsyncGenerator[str, None]:
                 yield _format_sse_event(data)
 
                 # Check if task is done
-                if data.get("status") in ("success", "failed", "cancelled"):
+                if data.get("status") in terminal_statuses:
                     break
 
-            # Send keepalive ping every 30 seconds
             now = asyncio.get_event_loop().time()
+
+            # Send keepalive ping every 30 seconds
             if now - last_ping > 30:
                 yield ": ping\n\n"
                 last_ping = now
 
-            # Check timeout
-            if now - last_ping > timeout:
+            # Check timeout (from start, not from last ping)
+            if now - start_time > timeout:
                 break
 
     finally:
