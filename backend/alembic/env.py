@@ -20,6 +20,7 @@ from src.database.models import (  # noqa: F401
     Artifact,
     UserKnowledge,
     GenerationRecord,
+    TaskRecord,
 )
 from src.config import settings
 
