@@ -18,6 +18,11 @@ from .prompts import (
     SYNTHESIZER_PROMPT,
     WRITER_PROMPT,
 )
+from .thesis_prompts import (
+    FIGURE_PLANNER_PROMPT,
+    LIBRARIAN_PROMPT,
+    THESIS_WRITER_PROMPT,
+)
 from .registry import (
     SUBAGENT_REGISTRY,
     SubagentConfig,
@@ -36,6 +41,9 @@ __all__ = [
     "WRITER_PROMPT",
     "SYNTHESIZER_PROMPT",
     "ANALYST_PROMPT",
+    "THESIS_WRITER_PROMPT",
+    "LIBRARIAN_PROMPT",
+    "FIGURE_PLANNER_PROMPT",
     # Registry
     "SubagentConfig",
     "SUBAGENT_REGISTRY",

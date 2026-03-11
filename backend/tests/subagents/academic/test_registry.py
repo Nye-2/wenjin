@@ -76,14 +76,20 @@ class TestSubagentPrompts:
 class TestSubagentRegistry:
     """Tests for the subagent registry."""
 
-    def test_registry_has_four_subagents(self):
-        """Test that the registry contains exactly 4 subagents."""
+    def test_registry_has_required_subagents(self):
+        """Test that the registry contains the required subagents."""
         all_types = get_all_subagent_types()
-        assert len(all_types) == 4
+        # Core academic subagents
         assert "scout" in all_types
         assert "writer" in all_types
         assert "synthesizer" in all_types
         assert "analyst" in all_types
+        # Thesis-specific subagents
+        assert "thesis_writer" in all_types
+        assert "librarian" in all_types
+        assert "figure_planner" in all_types
+        # Ensure we have at least 7 subagents
+        assert len(all_types) >= 7
 
     def test_get_scout_config(self):
         """Test getting scout subagent configuration."""

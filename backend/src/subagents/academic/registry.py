@@ -13,6 +13,11 @@ from .prompts import (
     SYNTHESIZER_PROMPT,
     WRITER_PROMPT,
 )
+from .thesis_prompts import (
+    FIGURE_PLANNER_PROMPT,
+    LIBRARIAN_PROMPT,
+    THESIS_WRITER_PROMPT,
+)
 
 
 @dataclass
@@ -66,6 +71,30 @@ ANALYST_CONFIG = SubagentConfig(
     max_turns=10,
 )
 
+THESIS_WRITER_CONFIG = SubagentConfig(
+    name="ThesisWriter",
+    description="Undergraduate thesis writing expert for producing complete thesis sections",
+    system_prompt=THESIS_WRITER_PROMPT,
+    tools=["read_file", "write_file", "str_replace", "task"],
+    max_turns=15,
+)
+
+LIBRARIAN_CONFIG = SubagentConfig(
+    name="Librarian",
+    description="Academic literature search and citation planning expert",
+    system_prompt=LIBRARIAN_PROMPT,
+    tools=["semantic_scholar_search", "read_file"],
+    max_turns=10,
+)
+
+FIGURE_PLANNER_CONFIG = SubagentConfig(
+    name="FigurePlanner",
+    description="Academic illustration planning expert for thesis figures",
+    system_prompt=FIGURE_PLANNER_PROMPT,
+    tools=["read_file"],
+    max_turns=8,
+)
+
 
 # Registry dictionary
 SUBAGENT_REGISTRY: dict[str, SubagentConfig] = {
@@ -73,6 +102,9 @@ SUBAGENT_REGISTRY: dict[str, SubagentConfig] = {
     "writer": WRITER_CONFIG,
     "synthesizer": SYNTHESIZER_CONFIG,
     "analyst": ANALYST_CONFIG,
+    "thesis_writer": THESIS_WRITER_CONFIG,
+    "librarian": LIBRARIAN_CONFIG,
+    "figure_planner": FIGURE_PLANNER_CONFIG,
 }
 
 
