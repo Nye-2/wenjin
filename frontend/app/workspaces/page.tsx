@@ -211,7 +211,7 @@ export default function WorkspacesPage() {
                 exit={{ scale: 0.9, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <LiquidGlassCard className="p-6 w-full max-w-md">
+                <LiquidGlassCard className="p-8 w-full max-w-2xl">
                   <h2 className="text-xl font-bold mb-6 text-[var(--text-primary)]">
                     Create New Workspace
                   </h2>

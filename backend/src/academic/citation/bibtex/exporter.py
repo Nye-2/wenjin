@@ -1,6 +1,38 @@
 """BibTeX exporter for exporting references."""
 
 
+def generate_citation_key(paper: dict) -> str:
+    """Generate BibTeX citation key in simple format: FirstAuthorYear.
+
+    This format (e.g., Smith2024) is designed for easy use with LaTeX \\cite{}.
+
+    Args:
+        paper: Paper dict with authors, year, title fields.
+
+    Returns:
+        Citation key string.
+    """
+    parts = []
+
+    # First author lastname (preserve case for LaTeX)
+    authors = paper.get("authors", [])
+    if authors:
+        name = authors[0].get("name", "")
+        if name:
+            # Get last name (last word)
+            last_name = name.split()[-1]
+            parts.append(last_name)
+
+    # Year
+    year = paper.get("year")
+    if year:
+        parts.append(str(year))
+    else:
+        parts.append("Nd")
+
+    return "".join(parts) if parts else "Unknown"
+
+
 class BibTeXExporter:
     """Export papers to BibTeX format."""
 
@@ -68,23 +100,5 @@ class BibTeXExporter:
         return "misc"
 
     def _generate_key(self, paper: dict) -> str:
-        """Generate BibTeX citation key."""
-        parts = []
-
-        # First author lastname
-        authors = paper.get("authors", [])
-        if authors:
-            name = authors[0].get("name", "")
-            parts.append(name.split()[-1].lower())
-
-        # Year
-        if paper.get("year"):
-            parts.append(str(paper["year"]))
-
-        # First word of title
-        title = paper.get("title", "")
-        if title:
-            first_word = "".join(c for c in title.split()[0] if c.isalnum())
-            parts.append(first_word.lower())
-
-        return "_".join(parts) if parts else "unknown"
+        """Generate BibTeX citation key using standardized format."""
+        return generate_citation_key(paper)

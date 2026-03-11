@@ -51,7 +51,7 @@ export default function HomePage() {
             <div className="mt-10 flex items-center justify-center gap-4">
               <motion.a
                 href="/workspaces"
-                className="glass-card px-6 py-3 text-base font-semibold text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] hover:shadow-lg transition-shadow cursor-pointer"
+                className="px-8 py-4 text-base font-semibold text-white rounded-xl bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] hover:shadow-xl transition-shadow cursor-pointer"
                 whileHover={{ scale: 1.02 }}
                 whileTap={buttonTap}
               >
@@ -59,7 +59,7 @@ export default function HomePage() {
               </motion.a>
               <motion.a
                 href="#features"
-                className="glass-card px-6 py-3 text-base font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-surface)] cursor-pointer"
+                className="px-8 py-4 text-base font-semibold text-[var(--accent-primary)] border-2 border-[var(--accent-primary)] rounded-xl hover:bg-[var(--accent-primary)] hover:text-white transition-all cursor-pointer"
                 whileHover={{ scale: 1.02 }}
                 whileTap={buttonTap}
               >
