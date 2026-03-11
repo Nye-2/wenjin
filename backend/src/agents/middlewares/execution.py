@@ -11,6 +11,10 @@ from src.execution.types import (
 )
 from src.agents.thread_state import ThreadState
 from langchain_core.runnables import RunnableConfig
+from src.database.models.paper import Paper
+from src.academic.citation.bibtex.exporter import BibTeXExporter
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +148,55 @@ class ExecutionMiddleware(Middleware):
 
         return tool_result
 
+    async def _generate_bibliography(
+        self,
+        db: AsyncSession,
+        citation_ids: list[str],
+    ) -> str | None:
+        """Generate BibTeX content from citation IDs.
+
+        Args:
+            db: Database session.
+            citation_ids: List of paper IDs.
+
+        Returns:
+            BibTeX formatted string or None if no papers found.
+        """
+        if not citation_ids:
+            return None
+
+        try:
+            # Fetch papers
+            result = await db.execute(
+                select(Paper).where(Paper.id.in_(citation_ids))
+            )
+            papers = result.scalars().all()
+
+            if not papers:
+                logger.warning(f"No papers found for citation_ids: {citation_ids}")
+                return None
+
+            # Convert to dicts for exporter
+            paper_dicts = [
+                {
+                    "title": p.title,
+                    "authors": p.authors,
+                    "year": p.year,
+                    "venue": p.venue,
+                    "doi": p.doi,
+                    "abstract": p.abstract,
+                }
+                for p in papers
+            ]
+
+            # Generate BibTeX
+            exporter = BibTeXExporter()
+            return exporter.export(paper_dicts)
+
+        except Exception as e:
+            logger.error(f"Failed to generate bibliography: {e}")
+            return None
+
     def _build_request(
         self,
         exec_type: ExecutionType,
@@ -169,6 +222,7 @@ class ExecutionMiddleware(Middleware):
                 options={
                     "compiler": tool_args.get("compiler", "xelatex"),
                     "bibliography": tool_args.get("bibliography"),
+                    "bibliography_style": tool_args.get("bibliography_style", "plain"),
                 },
                 timeout=tool_args.get("timeout", 120),
                 thread_id=thread_id,
