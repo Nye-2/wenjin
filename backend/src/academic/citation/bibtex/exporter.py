@@ -28,9 +28,13 @@ def generate_citation_key(paper: dict) -> str:
     if year:
         parts.append(str(year))
     else:
-        parts.append("Nd")
+        parts.append("n.d.")
 
-    return "".join(parts) if parts else "Unknown"
+    # Return "Unknown" only if no authors and no year
+    if not authors and not year:
+        return "Unknown"
+
+    return "".join(parts)
 
 
 class BibTeXExporter:

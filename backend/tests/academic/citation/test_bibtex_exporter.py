@@ -27,7 +27,7 @@ def test_generate_citation_key_no_year():
     }
 
     key = generate_citation_key(paper)
-    assert key == "DoeNd"
+    assert key == "Doen.d."
 
 
 def test_generate_citation_key_multiple_authors():
@@ -44,6 +44,32 @@ def test_generate_citation_key_multiple_authors():
 
     key = generate_citation_key(paper)
     assert key == "Johnson2023"
+
+
+def test_generate_citation_key_no_authors_no_year():
+    """Test citation key returns Unknown when both authors and year are missing."""
+    from src.academic.citation.bibtex.exporter import generate_citation_key
+
+    paper = {
+        "title": "Anonymous Paper"
+    }
+
+    key = generate_citation_key(paper)
+    assert key == "Unknown"
+
+
+def test_generate_citation_key_empty_author_name():
+    """Test citation key handles empty author name."""
+    from src.academic.citation.bibtex.exporter import generate_citation_key
+
+    paper = {
+        "authors": [{"name": ""}],
+        "year": 2024,
+    }
+
+    key = generate_citation_key(paper)
+    # Empty name means no author part, just year
+    assert key == "2024"
 
 
 class TestBibTeXExporter:
