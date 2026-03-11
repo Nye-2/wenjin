@@ -23,7 +23,7 @@ const typeIcons = {
 
 const typeLabels = {
   sci: "SCI Paper",
-  thesis: "Graduate Thesis",
+  thesis: "Undergraduate Thesis",
   proposal: "Research Proposal",
   grant: "Grant Application",
 };
