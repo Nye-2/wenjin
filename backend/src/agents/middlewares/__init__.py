@@ -17,12 +17,14 @@ from .todo_list import TodoListMiddleware
 from .uploads import UploadsMiddleware
 from .view_image import ViewImageMiddleware
 from .workspace_context import WorkspaceContextMiddleware
+from .execution import ExecutionMiddleware
 
 __all__ = [
     "CitationContextMiddleware",
     "ClarificationMiddleware",
     "DanglingToolCallMiddleware",
     "DisciplineContextMiddleware",
+    "ExecutionMiddleware",
     "KnowledgeContextMiddleware",
     "LiteratureContextMiddleware",
     "MemoryMiddleware",
