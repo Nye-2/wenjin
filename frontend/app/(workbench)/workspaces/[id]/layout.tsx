@@ -7,7 +7,7 @@ interface WorkbenchLayoutProps {
   params: Promise<{ id: string }>;
 }
 
-export default async function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
+export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">
       {children}
