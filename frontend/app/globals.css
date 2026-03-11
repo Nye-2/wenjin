@@ -3,58 +3,53 @@
 @tailwind utilities;
 
 :root {
-  /* Background Levels - Apple/Google inspired lighter dark mode */
-  --bg-base: #1F1F1F;
-  --bg-elevated: #2A2A2A;
-  --bg-surface: #363636;
-  --bg-muted: #404040;
+  /* Background Levels - Warm neutrals */
+  --bg-base: #F8F6F3;
+  --bg-elevated: #FFFEFA;
+  --bg-surface: #F1F5F9;
+  --bg-muted: #E8ECF4;
 
-  /* Accent Colors - Refined academic blue */
-  --accent-primary: #3B82F6;
-  --accent-secondary: #60A5FA;
-  --accent-tertiary: #93C5FD;
-  --accent-gold: #F59E0B;
+  /* Academic Blue - Primary accent */
+  --accent-primary: #1E3A8A;
+  --accent-secondary: #3B82F6;
+  --accent-tertiary: #60A5FA;
+  --accent-gold: #B8860B;
 
   /* Semantic Colors */
-  --semantic-success: #22C55E;
-  --semantic-warning: #F59E0B;
-  --semantic-error: #EF4444;
-  --semantic-info: #3B82F6;
+  --semantic-success: #059669;
+  --semantic-warning: #D97706;
+  --semantic-error: #DC2626;
+  --semantic-info: #2563EB;
 
   /* Text Colors - High contrast */
-  --text-primary: #FAFAFA;
-  --text-secondary: #A1A1AA;
-  --text-muted: #71717A;
-  --text-inverse: #18181B;
+  --text-primary: #1F2937;
+  --text-secondary: #475569;
+  --text-muted: #94A3B8;
 
   /* Border Colors */
-  --border-default: #404040;
-  --border-subtle: #363636;
+  --border-default: #E2E8F0;
+  --border-subtle: #F1F5F9;
   --border-focus: #3B82F6;
 
-  /* Glass Effect - Apple-style subtle blur */
-  --glass-bg: rgba(42, 42, 42, 0.9);
-  --glass-bg-elevated: rgba(54, 54, 54, 0.95);
-  --glass-blur: blur(20px) saturate(150%);
-  --glass-border: rgba(255, 255, 255, 0.1);
-  --glass-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  --glass-shadow-elevated:
-    0 8px 32px rgba(0, 0, 0, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  /* Glass Effect */
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-bg-elevated: rgba(255, 255, 255, 0.95);
+  --glass-blur: blur(16px) saturate(120%);
+  --glass-border: rgba(30, 58, 138, 0.15);
+  --glass-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --glass-shadow-elevated: 0 16px 48px rgba(0, 0, 0, 0.1);
 
-  /* Form element backgrounds */
-  --input-bg: #2A2A2A;
-  --input-bg-hover: #363636;
-  --select-option-bg: #2A2A2A;
+  /* Input styles */
+  --input-bg: #F1F5F9;
+  --input-bg-hover: #E8ECF4;
+  --select-option-bg: #F1F5F9;
 
   /* Legacy aliases */
-  --academic-primary: #3B82F6;
-  --academic-secondary: #60A5FA;
-  --academic-success: #22C55E;
-  --academic-warning: #F59E0B;
-  --academic-error: #EF4444;
+  --academic-primary: #1E3A8A;
+  --academic-secondary: #3B82F6;
+  --academic-success: #059669;
+  --academic-warning: #D97706;
+  --academic-error: #DC2626;
 
   /* Motion Tokens */
   --ease-apple: cubic-bezier(0.16, 1, 0.3, 1);
@@ -63,7 +58,6 @@
   --duration-slow: 500ms;
 }
 
-/* Base styles */
 * {
   box-sizing: border-box;
   padding: 0;
@@ -75,57 +69,38 @@ body {
   max-width: 100vw;
   overflow-x: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-
-body {
-  color: var(--text-primary);
   background: var(--bg-base);
-}
-
-/* Liquid Glass Card */
-@layer components {
-  .glass-card {
-    @apply relative overflow-hidden rounded-2xl;
-    background: var(--glass-bg);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
-  }
-
-  .glass-card-elevated {
-    @apply glass-card;
-    background: var(--glass-bg-elevated);
-    box-shadow: var(--glass-shadow-elevated);
-  }
-}
-
-/* Form elements - Fix for dark mode select/option visibility */
-input,
-textarea,
-select {
-  background-color: var(--input-bg);
   color: var(--text-primary);
-  border-color: var(--border-default);
+  min-height: 100vh;
 }
 
-select option {
-  background-color: var(--select-option-bg);
-  color: var(--text-primary);
-  padding: 8px;
+/* Glass Card */
+.glass-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  transition: box-shadow 200ms ease, transform 200ms ease;
 }
 
-input::placeholder,
-textarea::placeholder {
-  color: var(--text-muted);
+.glass-card:hover {
+  box-shadow: var(--glass-shadow-elevated);
+  transform: translateY(-2px);
 }
 
-input:focus,
-textarea:focus,
-select:focus {
-  border-color: var(--border-focus);
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+.glass-card-elevated {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: var(--glass-bg-elevated);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow-elevated);
 }
 
 /* Gradient Text */
@@ -154,32 +129,20 @@ select:focus {
   animation: gradient-x 3s ease infinite;
 }
 
-/* Scroll Animation */
-@keyframes reveal {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+@keyframes gradient-x {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 
-.reveal-on-scroll {
-  animation: reveal linear both;
-  animation-timeline: view();
-  animation-range: entry 0% cover 40%;
-}
-
-/* Custom scrollbar */
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -193,10 +156,11 @@ select:focus {
 
 /* Selection */
 ::selection {
-  background: rgba(59, 130, 246, 0.3);
+  background: rgba(30, 58, 138, 0.2);
+  color: var(--text-primary);
 }
 
-/* Focus styles */
+/* Focus */
 :focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
@@ -204,15 +168,16 @@ select:focus {
 
 /* Links */
 a {
-  color: var(--accent-secondary);
-  transition: color var(--duration-fast) ease;
+  color: var(--accent-primary);
+  text-decoration: none;
+  transition: color 150ms ease;
 }
 
 a:hover {
-  color: var(--accent-primary);
+  color: var(--accent-secondary);
 }
 
-/* Smooth scrolling */
+/* Smooth scroll */
 html {
   scroll-behavior: smooth;
 }
@@ -220,10 +185,6 @@ html {
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
-  }
-
-  .reveal-on-scroll {
-    animation: none;
   }
 
   .gradient-text-shimmer {
