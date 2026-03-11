@@ -1,72 +1,88 @@
 # src/thesis/workflow/nodes/figure_generator.py
 """Figure generator node for thesis workflow.
 
-This node generates figures based on figure_requests from the state.
-Currently a STUB implementation that returns placeholder paths.
-
-TODO: Integrate with ExecutionService
-For mermaid: ExecutionType.MERMAID_DIAGRAM
-For python: ExecutionType.PYTHON_PLOT
-For kling: ExecutionType.AI_IMAGE
+This node generates figures based on figure_requests using ExecutionService.
+Supports three strategies: mermaid (diagrams), python (plots), kling (AI images).
 """
 
 import logging
 from typing import Any
 
 from src.thesis.workflow.state import ThesisWorkflowState
+from src.thesis.execution.figure_tool import generate_figure
 from .base import log_node_start, log_node_end, get_attr
 
 logger = logging.getLogger(__name__)
 
 
-def figure_generator_node(state: ThesisWorkflowState) -> dict[str, Any]:
-    """Generate figures based on figure_requests.
+async def figure_generator_node(state: ThesisWorkflowState) -> dict[str, Any]:
+    """Generate figures using ExecutionService.
 
-    This is a STUB implementation that returns placeholder paths.
-    Future implementation will integrate with ExecutionService for:
-    - Mermaid diagram generation
-    - Python plot generation
-    - AI image generation via Kling
+    This node integrates with ExecutionService for actual figure generation:
+    - mermaid: Mermaid diagrams via MERMAID_DIAGRAM
+    - python: Data plots via PYTHON_PLOT
+    - kling: AI images via AI_IMAGE
 
     Args:
-        state: Current workflow state
+        state: Current workflow state with figure_requests
 
     Returns:
         State updates with generated_figures list
     """
     log_node_start("figure_generator", state)
 
+    workspace_id = state.get("workspace_id", "unknown")
+    thread_id = state.get("thread_id")
     figure_requests = state.get("figure_requests", [])
     generated_figures = []
 
     for request in figure_requests:
-        figure_id = get_attr(request, "id")
+        figure_id = get_attr(request, "id", "unknown")
+        strategy = get_attr(request, "strategy", "mermaid")
+        description = get_attr(request, "description", "")
+        caption = get_attr(request, "caption", "")
 
-        # Create stub figure with placeholder path
-        generated_figure = {
-            "id": figure_id,
-            "request_id": figure_id,
-            "file_path": f"/placeholder/{figure_id}.pdf",
-            "latex_ref": f"\\includegraphics[width=0.8\\textwidth]{{{figure_id}.pdf}}",
-        }
-        generated_figures.append(generated_figure)
+        logger.info(f"[Thesis:{workspace_id}] Generating figure {figure_id} with strategy={strategy}")
 
-        logger.info(
-            f"[Thesis:{state.get('workspace_id', 'unknown')}] "
-            f"Generated stub figure: {figure_id}"
+        # Call ExecutionService via tool
+        result = await generate_figure(
+            strategy=strategy,
+            content=description,  # For kling, this is the prompt; for others, it's code
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            figure_id=figure_id,
+            timeout=60,
         )
 
-    log_node_end(
-        "figure_generator",
-        state,
-        {"generated_count": len(generated_figures)},
-    )
+        if result.success:
+            generated_figures.append({
+                "id": figure_id,
+                "request_id": figure_id,
+                "file_path": result.figure_path,
+                "latex_ref": f"\\includegraphics[width=0.8\\textwidth]{{{figure_id}.{result.format or 'pdf'}}}",
+                "strategy": strategy,
+                "format": result.format,
+            })
+            logger.info(f"[Thesis:{workspace_id}] Figure {figure_id} generated: {result.figure_path}")
+        else:
+            # Store error but continue with other figures
+            generated_figures.append({
+                "id": figure_id,
+                "request_id": figure_id,
+                "file_path": None,
+                "error": result.error,
+                "strategy": strategy,
+            })
+            logger.error(f"[Thesis:{workspace_id}] Figure {figure_id} failed: {result.error}")
 
-    # Progress: 0.85 if there are figures, 0.88 if no figures to generate
-    progress = 0.85 if generated_figures else 0.88
+    progress = 0.85 if figure_requests else 0.88
+    log_node_end("figure_generator", state, {"progress": progress})
 
     return {
         "generated_figures": generated_figures,
         "current_phase": "figure_generation",
         "progress": progress,
     }
+
+
+__all__ = ["figure_generator_node"]
