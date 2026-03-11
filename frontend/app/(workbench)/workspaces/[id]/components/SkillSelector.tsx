@@ -85,12 +85,12 @@ export function SkillSelector({ selectedSkill, onSelect }: SkillSelectorProps) {
               onMouseLeave={() => setHoveredSkill(null)}
               className={cn(
                 "relative px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200",
-                "border border-white/20",
+                "border border-[var(--border-default)]",
                 isSelected
-                  ? "bg-academic-primary text-white border-academic-primary"
+                  ? "bg-[var(--accent-primary)] text-white border-[var(--accent-primary)]"
                   : cn(
-                      "bg-white/50 dark:bg-white/5",
-                      "hover:bg-white/80 dark:hover:bg-white/10",
+                      "bg-[var(--bg-surface)]",
+                      "hover:bg-[var(--bg-muted)]",
                       skill.color
                     )
               )}
@@ -117,7 +117,7 @@ export function SkillSelector({ selectedSkill, onSelect }: SkillSelectorProps) {
                   exit={{ opacity: 0, y: 5 }}
                   className={cn(
                     "absolute left-0 right-0 top-full mt-2 p-2 rounded-lg z-50",
-                    "bg-slate-900 dark:bg-slate-800 text-white text-xs",
+                    "bg-[var(--text-primary)] text-white text-xs",
                     "shadow-lg border border-white/10",
                     "whitespace-nowrap"
                   )}

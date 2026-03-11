@@ -48,14 +48,14 @@ export function MessageInput({
   };
 
   return (
-    <div className="p-4 border-t border-slate-700/50 bg-slate-800/50 backdrop-blur-xl">
+    <div className="p-4 border-t border-[var(--border-default)] bg-[var(--bg-elevated)] backdrop-blur-xl">
       <form onSubmit={handleSubmit} className="flex gap-3 items-end">
         {/* Attachment button (future feature) */}
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="flex-shrink-0 text-slate-400 hover:text-white hover:bg-slate-700"
+          className="flex-shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
           title="Attach file (coming soon)"
           disabled
         >
@@ -74,10 +74,10 @@ export function MessageInput({
             rows={1}
             className={cn(
               'w-full px-4 py-3 rounded-xl resize-none',
-              'bg-slate-900/50 backdrop-blur-sm',
-              'border border-slate-600 focus:border-blue-500/50',
-              'text-white placeholder:text-slate-500',
-              'focus:outline-none focus:ring-2 focus:ring-blue-500/20',
+              'bg-[var(--bg-surface)] backdrop-blur-sm',
+              'border border-[var(--border-default)] focus:border-[var(--border-focus)]',
+              'text-[var(--text-primary)] placeholder:text-[var(--text-muted)]',
+              'focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/20',
               'transition-all duration-200',
               isDisabled && 'opacity-50 cursor-not-allowed'
             )}
@@ -93,8 +93,8 @@ export function MessageInput({
             whileTap={{ scale: 0.98 }}
             className={cn(
               'px-4 py-3 rounded-xl flex items-center justify-center',
-              'bg-red-600 text-white',
-              'hover:bg-red-700 transition-colors'
+              'bg-[var(--semantic-error)] text-white',
+              'hover:opacity-90 transition-colors'
             )}
           >
             <Square className="h-5 w-5" />
@@ -107,9 +107,9 @@ export function MessageInput({
             whileTap={{ scale: inputValue.trim() ? 0.98 : 1 }}
             className={cn(
               'px-4 py-3 rounded-xl flex items-center justify-center',
-              'bg-blue-600 text-white',
-              'hover:bg-blue-700 transition-colors',
-              'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600'
+              'bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] text-white',
+              'hover:shadow-lg transition-all',
+              'disabled:opacity-50 disabled:cursor-not-allowed'
             )}
           >
             <Send className="h-5 w-5" />
@@ -119,10 +119,10 @@ export function MessageInput({
 
       {/* Helper text */}
       <div className="flex items-center justify-between mt-2 px-1">
-        <p className="text-xs text-slate-500">
-          Press <kbd className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">Enter</kbd> to send, <kbd className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">Shift+Enter</kbd> for new line
+        <p className="text-xs text-[var(--text-muted)]">
+          Press <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] text-[var(--text-secondary)]">Enter</kbd> to send, <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] text-[var(--text-secondary)]">Shift+Enter</kbd> for new line
         </p>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-[var(--text-muted)]">
           {inputValue.length} characters
         </p>
       </div>

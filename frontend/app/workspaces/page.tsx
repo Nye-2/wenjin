@@ -97,7 +97,7 @@ export default function WorkspacesPage() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-4 p-4 bg-[var(--semantic-error)]/10 border border-[var(--semantic-error)]/20 rounded-xl text-[var(--semantic-error)] flex justify-between items-center"
+            className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-600 flex justify-between items-center"
           >
             <span>{error}</span>
             <button onClick={clearError} className="text-sm hover:underline">
@@ -109,26 +109,24 @@ export default function WorkspacesPage() {
         {/* Actions Bar */}
         <div className="flex flex-col md:flex-row gap-4 mb-8">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-muted)]" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-muted)]" />
             <input
               type="text"
               placeholder="Search workspaces..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--input-bg)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
+              className="w-full pl-12 pr-4 py-3.5 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
             />
           </div>
 
-          <div className="flex gap-2">
-            <LiquidGlassCard className="p-2">
-              <button className="p-2 rounded-lg hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
-                <Filter className="w-5 h-5" />
-              </button>
-            </LiquidGlassCard>
+          <div className="flex gap-3">
+            <button className="p-3.5 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-all">
+              <Filter className="w-5 h-5" />
+            </button>
 
             <motion.button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#2563EB] font-medium hover:shadow-lg transition-shadow"
+              className="flex items-center gap-2 px-6 py-3.5 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] font-medium hover:shadow-xl transition-shadow"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
@@ -171,7 +169,7 @@ export default function WorkspacesPage() {
                     e.stopPropagation();
                     handleDeleteWorkspace(workspace.id);
                   }}
-                  className="absolute top-2 right-2 p-2 rounded-lg bg-[var(--semantic-error)]/10 text-[var(--semantic-error)] opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--semantic-error)]/20"
+                  className="absolute top-3 right-3 p-2 rounded-lg bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/20"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -182,8 +180,8 @@ export default function WorkspacesPage() {
 
         {/* Empty State */}
         {!isLoading && filteredWorkspaces.length === 0 && (
-          <div className="text-center py-12">
-            <LiquidGlassCard className="p-12 max-w-md mx-auto">
+          <div className="text-center py-16">
+            <div className="p-12 max-w-md mx-auto bg-[var(--bg-elevated)] rounded-2xl border border-[var(--border-default)]">
               <div className="text-6xl mb-4">📚</div>
               <h3 className="text-xl font-semibold mb-2 text-[var(--text-primary)]">No workspaces found</h3>
               <p className="text-[var(--text-secondary)]">
@@ -191,7 +189,7 @@ export default function WorkspacesPage() {
                   ? "Try a different search term"
                   : "Create your first workspace to get started"}
               </p>
-            </LiquidGlassCard>
+            </div>
           </div>
         )}
 
@@ -202,22 +200,24 @@ export default function WorkspacesPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
               onClick={() => setShowCreateModal(false)}
             >
               <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
+                initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
+                exit={{ scale: 0.95, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-3xl"
               >
-                <LiquidGlassCard className="p-8 w-full max-w-2xl">
-                  <h2 className="text-xl font-bold mb-6 text-[var(--text-primary)]">
+                <div className="bg-[var(--bg-elevated)] rounded-2xl border border-[var(--border-default)] shadow-2xl p-8">
+                  <h2 className="text-2xl font-bold mb-8 text-[var(--text-primary)]">
                     Create New Workspace
                   </h2>
 
-                  <div className="space-y-5">
-                    <div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Workspace Name - Full width */}
+                    <div className="md:col-span-2">
                       <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
                         Workspace Name
                       </label>
@@ -228,10 +228,11 @@ export default function WorkspacesPage() {
                           setNewWorkspace({ ...newWorkspace, name: e.target.value })
                         }
                         placeholder="e.g., Deep Learning for NLP"
-                        className="w-full px-4 py-3 rounded-xl bg-[var(--input-bg)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
+                        className="w-full px-4 py-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
                       />
                     </div>
 
+                    {/* Project Type */}
                     <div>
                       <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
                         Project Type
@@ -241,16 +242,17 @@ export default function WorkspacesPage() {
                         onChange={(e) =>
                           setNewWorkspace({ ...newWorkspace, type: e.target.value })
                         }
-                        className="w-full px-4 py-3 rounded-xl bg-[var(--input-bg)] border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all cursor-pointer"
+                        className="w-full px-4 py-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all cursor-pointer"
                       >
                         {WORKSPACE_TYPES.map((type) => (
-                          <option key={type.value} value={type.value} className="bg-[var(--select-option-bg)] text-[var(--text-primary)] py-2">
+                          <option key={type.value} value={type.value}>
                             {type.label}
                           </option>
                         ))}
                       </select>
                     </div>
 
+                    {/* Discipline */}
                     <div>
                       <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
                         Discipline
@@ -263,20 +265,21 @@ export default function WorkspacesPage() {
                             discipline: e.target.value,
                           })
                         }
-                        className="w-full px-4 py-3 rounded-xl bg-[var(--input-bg)] border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all cursor-pointer"
+                        className="w-full px-4 py-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all cursor-pointer"
                       >
-                        <option value="" className="bg-[var(--select-option-bg)] text-[var(--text-muted)]">
+                        <option value="">
                           Select discipline...
                         </option>
                         {DISCIPLINES.map((disc) => (
-                          <option key={disc.value} value={disc.value} className="bg-[var(--select-option-bg)] text-[var(--text-primary)]">
+                          <option key={disc.value} value={disc.value}>
                             {disc.label}
                           </option>
                         ))}
                       </select>
                     </div>
 
-                    <div>
+                    {/* Description - Full width */}
+                    <div className="md:col-span-2">
                       <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
                         Description (optional)
                       </label>
@@ -290,33 +293,33 @@ export default function WorkspacesPage() {
                         }
                         placeholder="Brief description of your research..."
                         rows={3}
-                        className="w-full px-4 py-3 rounded-xl bg-[var(--input-bg)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none resize-none transition-all"
+                        className="w-full px-4 py-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none resize-none transition-all"
                       />
                     </div>
                   </div>
 
-                  <div className="flex gap-3 mt-6">
+                  <div className="flex gap-4 mt-8">
                     <button
                       onClick={() => setShowCreateModal(false)}
-                      className="flex-1 px-4 py-3 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-all"
+                      className="flex-1 px-6 py-3.5 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-all font-medium"
                     >
                       Cancel
                     </button>
                     <motion.button
                       onClick={handleCreateWorkspace}
                       disabled={!newWorkspace.name.trim() || isLoading}
-                      className="flex-1 px-4 py-3 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#2563EB] hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
+                      className="flex-1 px-6 py-3.5 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#2563EB] hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all font-medium"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
                       {isLoading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <Loader2 className="w-5 h-5 animate-spin" />
                       ) : (
-                        "Create"
+                        "Create Workspace"
                       )}
                     </motion.button>
                   </div>
-                </LiquidGlassCard>
+                </div>
               </motion.div>
             </motion.div>
           )}

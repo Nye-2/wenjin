@@ -62,16 +62,16 @@ function ArtifactItem({ artifact, index }: ArtifactItemProps) {
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.05, duration: 0.3 }}
-      className="group flex items-start gap-3 p-3 rounded-xl bg-white/50 dark:bg-white/5 hover:bg-white/80 dark:hover:bg-white/10 transition-all cursor-pointer border border-transparent hover:border-white/20"
+      className="group flex items-start gap-3 p-3 rounded-xl bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] transition-all cursor-pointer border border-[var(--border-default)] hover:border-[var(--accent-primary)]/30"
     >
       <div className={cn("p-2 rounded-lg", colorClass)}>
         <Icon className="w-4 h-4" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+        <p className="text-sm font-medium text-[var(--text-primary)] truncate">
           {artifact.title || `Untitled ${artifact.type}`}
         </p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 capitalize">
+        <p className="text-xs text-[var(--text-muted)] capitalize">
           {artifact.type.replace("-", " ")} &middot; {formatTime(artifact.created_at)}
         </p>
       </div>
@@ -93,14 +93,14 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
   }, [workspaceId, fetchArtifacts]);
 
   return (
-    <div className="w-[280px] h-full flex flex-col bg-[var(--glass-bg)] backdrop-blur-xl border-r border-[var(--glass-border)]">
+    <div className="w-[280px] h-full flex flex-col bg-[var(--bg-elevated)] backdrop-blur-xl border-r border-[var(--border-default)]">
       {/* Header */}
-      <div className="p-4 border-b border-[var(--glass-border)]">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-          <BookOpen className="w-5 h-5 text-academic-primary" />
+      <div className="p-4 border-b border-[var(--border-default)]">
+        <h2 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">
+          <BookOpen className="w-5 h-5 text-[var(--accent-primary)]" />
           Knowledge
         </h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+        <p className="text-xs text-[var(--text-muted)] mt-1">
           Research artifacts timeline
         </p>
       </div>
@@ -113,23 +113,23 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
               <motion.div
                 animate={{ rotate: 360 }}
                 transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="w-6 h-6 border-2 border-academic-primary border-t-transparent rounded-full"
+                className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full"
               />
             </div>
           ) : artifacts.length === 0 ? (
             <div className="text-center py-8">
-              <FileText className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+              <FileText className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-2" />
+              <p className="text-sm text-[var(--text-secondary)]">
                 No artifacts yet
               </p>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+              <p className="text-xs text-[var(--text-muted)] mt-1">
                 Start a conversation to generate research artifacts
               </p>
             </div>
           ) : (
             <div className="relative">
               {/* Timeline line */}
-              <div className="absolute left-[19px] top-0 bottom-0 w-px bg-gradient-to-b from-academic-primary/50 via-academic-secondary/30 to-transparent" />
+              <div className="absolute left-[19px] top-0 bottom-0 w-px bg-gradient-to-b from-[var(--accent-primary)]/50 via-[var(--accent-secondary)]/30 to-transparent" />
 
               {/* Artifacts */}
               <div className="space-y-2">

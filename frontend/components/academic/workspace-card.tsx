@@ -29,10 +29,17 @@ const typeLabels = {
 };
 
 const typeColors = {
-  sci: "bg-blue-500",
-  thesis: "bg-purple-500",
-  proposal: "bg-green-500",
-  grant: "bg-amber-500",
+  sci: { bg: "bg-[#1E3A8A]", text: "text-white" },
+  thesis: { bg: "bg-[#7C3AED]", text: "text-white" },
+  proposal: { bg: "bg-[#059669]", text: "text-white" },
+  grant: { bg: "bg-[#B8860B]", text: "text-white" },
+};
+
+const typeBadgeColors = {
+  sci: "bg-[#1E3A8A]/10 text-[#1E3A8A]",
+  thesis: "bg-[#7C3AED]/10 text-[#7C3AED]",
+  proposal: "bg-[#059669]/10 text-[#059669]",
+  grant: "bg-[#B8860B]/10 text-[#B8860B]",
 };
 
 export function WorkspaceCard({
@@ -47,41 +54,43 @@ export function WorkspaceCard({
   const Icon = typeIcons[type];
 
   return (
-    <motion.a href={`/workspaces/${id}`}>
+    <motion.a href={`/workspaces/${id}`} className="block h-full">
       <LiquidGlassCard
         variant="floating"
-        className="p-6 cursor-pointer h-full"
+        className="p-6 cursor-pointer h-full hover:border-[var(--accent-primary)]/30"
       >
         <div className="flex items-start justify-between mb-4">
-          <div className={`p-2 rounded-lg ${typeColors[type]}`}>
-            <Icon className="w-5 h-5 text-white" />
+          <div className={`p-2.5 rounded-xl ${typeColors[type].bg} ${typeColors[type].text}`}>
+            <Icon className="w-5 h-5" />
           </div>
-          <span className="text-xs font-medium px-2 py-1 rounded-full bg-academic-primary/10 text-academic-primary">
+          <span className={`text-xs font-semibold px-3 py-1.5 rounded-full ${typeBadgeColors[type]}`}>
             {typeLabels[type]}
           </span>
         </div>
 
-        <h3 className="font-semibold text-lg mb-2 line-clamp-2">{name}</h3>
+        <h3 className="font-semibold text-lg mb-2 text-[var(--text-primary)] line-clamp-2 leading-tight">
+          {name}
+        </h3>
 
         {discipline && (
-          <p className="text-sm text-muted-foreground mb-4">
-            {discipline.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+          <p className="text-sm text-[var(--text-secondary)] mb-4">
+            {discipline.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
           </p>
         )}
 
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1">
+        <div className="flex items-center gap-4 text-sm text-[var(--text-muted)]">
+          <span className="flex items-center gap-1.5">
             <FileText className="w-4 h-4" />
             {paperCount} papers
           </span>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1.5">
             <Book className="w-4 h-4" />
             {artifactCount} artifacts
           </span>
         </div>
 
-        <div className="mt-4 pt-4 border-t border-border/50">
-          <p className="text-xs text-muted-foreground">
+        <div className="mt-4 pt-4 border-t border-[var(--border-default)]">
+          <p className="text-xs text-[var(--text-muted)]">
             Created {createdAt}
           </p>
         </div>

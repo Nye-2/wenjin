@@ -24,16 +24,16 @@ function PaperItem({ paper, index }: PaperItemProps) {
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.05, duration: 0.3 }}
-      className="group p-3 rounded-xl bg-white/50 dark:bg-white/5 hover:bg-white/80 dark:hover:bg-white/10 transition-all cursor-pointer border border-transparent hover:border-white/20"
+      className="group p-3 rounded-xl bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] transition-all cursor-pointer border border-[var(--border-default)] hover:border-[var(--accent-primary)]/30"
     >
       {/* Title */}
-      <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 line-clamp-2 mb-2">
+      <h4 className="text-sm font-medium text-[var(--text-primary)] line-clamp-2 mb-2">
         {paper.title}
       </h4>
 
       {/* Authors */}
       {paper.authors.length > 0 && (
-        <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 mb-1">
+        <div className="flex items-center gap-1 text-xs text-[var(--text-secondary)] mb-1">
           <Users className="w-3 h-3" />
           <span className="truncate">
             {paper.authors.slice(0, 3).join(", ")}
@@ -43,7 +43,7 @@ function PaperItem({ paper, index }: PaperItemProps) {
       )}
 
       {/* Year and Venue */}
-      <div className="flex items-center gap-3 text-xs text-slate-400 dark:text-slate-500">
+      <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
         {paper.year && (
           <div className="flex items-center gap-1">
             <Calendar className="w-3 h-3" />
@@ -60,7 +60,7 @@ function PaperItem({ paper, index }: PaperItemProps) {
 
       {/* Hover actions */}
       <div className="mt-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button className="text-xs text-academic-primary hover:text-academic-primary/80 flex items-center gap-1">
+        <button className="text-xs text-[var(--accent-primary)] hover:text-[var(--accent-secondary)] flex items-center gap-1">
           <ExternalLink className="w-3 h-3" />
           View
         </button>
@@ -88,12 +88,12 @@ export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
   };
 
   return (
-    <div className="w-[320px] h-full flex flex-col bg-[var(--glass-bg)] backdrop-blur-xl border-l border-[var(--glass-border)]">
+    <div className="w-[320px] h-full flex flex-col bg-[var(--bg-elevated)] backdrop-blur-xl border-l border-[var(--border-default)]">
       {/* Header */}
-      <div className="p-4 border-b border-[var(--glass-border)]">
+      <div className="p-4 border-b border-[var(--border-default)]">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-academic-primary" />
+          <h2 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">
+            <FileText className="w-5 h-5 text-[var(--accent-primary)]" />
             Literature
           </h2>
           <motion.button
@@ -102,14 +102,14 @@ export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
             onClick={handleUpload}
             className={cn(
               "p-2 rounded-lg",
-              "bg-academic-primary/10 hover:bg-academic-primary/20",
-              "text-academic-primary transition-colors"
+              "bg-[var(--accent-primary)]/10 hover:bg-[var(--accent-primary)]/20",
+              "text-[var(--accent-primary)] transition-colors"
             )}
           >
             <Upload className="w-4 h-4" />
           </motion.button>
         </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+        <p className="text-xs text-[var(--text-muted)] mt-1">
           {papers.length} paper{papers.length !== 1 ? "s" : ""} in workspace
         </p>
       </div>
@@ -122,16 +122,16 @@ export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
               <motion.div
                 animate={{ rotate: 360 }}
                 transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="w-6 h-6 border-2 border-academic-primary border-t-transparent rounded-full"
+                className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full"
               />
             </div>
           ) : papers.length === 0 ? (
             <div className="text-center py-8">
-              <FileText className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+              <FileText className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-2" />
+              <p className="text-sm text-[var(--text-secondary)]">
                 No papers yet
               </p>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+              <p className="text-xs text-[var(--text-muted)] mt-1">
                 Upload papers to build your reference library
               </p>
               <motion.button
@@ -140,8 +140,8 @@ export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
                 onClick={handleUpload}
                 className={cn(
                   "mt-4 px-4 py-2 rounded-lg text-sm font-medium",
-                  "bg-academic-primary/10 text-academic-primary",
-                  "hover:bg-academic-primary/20 transition-colors"
+                  "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]",
+                  "hover:bg-[var(--accent-primary)]/20 transition-colors"
                 )}
               >
                 <Upload className="w-4 h-4 inline mr-2" />

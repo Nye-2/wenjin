@@ -31,14 +31,14 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="p-1.5 rounded-md hover:bg-slate-700/50 transition-colors"
+      className="p-1.5 rounded-md hover:bg-[var(--bg-surface)] transition-colors"
       title="Copy message"
       aria-label="Copy message"
     >
       {copied ? (
-        <Check className="h-3.5 w-3.5 text-green-400" />
+        <Check className="h-3.5 w-3.5 text-[var(--semantic-success)]" />
       ) : (
-        <Copy className="h-3.5 w-3.5 text-slate-400" />
+        <Copy className="h-3.5 w-3.5 text-[var(--text-muted)]" />
       )}
     </button>
   );
@@ -67,8 +67,8 @@ const MessageBubble = memo(function MessageBubble({
         className={cn(
           'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
           isUser
-            ? 'bg-blue-600 text-white'
-            : 'bg-gradient-to-br from-blue-500 to-purple-600 text-white'
+            ? 'bg-[var(--accent-primary)] text-white'
+            : 'bg-gradient-to-br from-[var(--accent-secondary)] to-purple-600 text-white'
         )}
       >
         {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
@@ -80,21 +80,21 @@ const MessageBubble = memo(function MessageBubble({
           className={cn(
             'rounded-2xl px-4 py-3 relative',
             isUser
-              ? 'bg-blue-600 text-white rounded-tr-sm'
-              : 'bg-slate-700/50 text-slate-100 rounded-tl-sm border border-slate-600/50'
+              ? 'bg-[var(--accent-primary)] text-white rounded-tr-sm'
+              : 'bg-[var(--bg-surface)] text-[var(--text-primary)] rounded-tl-sm border border-[var(--border-default)]'
           )}
         >
           {isLast && !isUser && isStreaming ? (
             <div className="flex items-center gap-2">
               <div className="flex gap-1">
-                <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <span className="w-2 h-2 bg-[var(--accent-secondary)] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 bg-[var(--accent-secondary)] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 bg-[var(--accent-secondary)] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
-              <span className="text-sm text-slate-400">Thinking...</span>
+              <span className="text-sm text-[var(--text-muted)]">Thinking...</span>
             </div>
           ) : (
-            <div className="text-sm whitespace-pre-wrap prose prose-invert prose-sm max-w-none">
+            <div className="text-sm whitespace-pre-wrap prose prose-sm max-w-none">
               {message.content}
             </div>
           )}
@@ -109,12 +109,12 @@ const MessageBubble = memo(function MessageBubble({
         >
           {!isUser && <CopyButton text={message.content} />}
           {message.skill && (
-            <span className="text-xs text-slate-500 px-2 py-0.5 rounded-full bg-slate-800">
+            <span className="text-xs text-[var(--text-muted)] px-2 py-0.5 rounded-full bg-[var(--bg-surface)]">
               {message.skill}
             </span>
           )}
           {message.created_at && (
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-[var(--text-muted)]">
               {new Date(message.created_at).toLocaleTimeString([], {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -139,13 +139,13 @@ export function MessageList({ messages, isStreaming, streamingContent }: Message
     return (
       <div className="h-full flex items-center justify-center p-6">
         <div className="text-center max-w-md">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-[var(--accent-secondary)] to-purple-600 flex items-center justify-center">
             <Sparkles className="w-8 h-8 text-white" />
           </div>
-          <h3 className="text-lg font-semibold text-white mb-2">
+          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
             Start Your Research Journey
           </h3>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-[var(--text-secondary)]">
             Select a skill below and ask me anything about your research. I can help
             with literature reviews, paper writing, experiment design, and more.
           </p>

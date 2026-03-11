@@ -34,8 +34,8 @@ function MessageBubble({ message, isLast }: MessageBubbleProps) {
         className={cn(
           "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center",
           isUser
-            ? "bg-academic-primary text-white"
-            : "bg-gradient-to-br from-academic-primary to-academic-secondary text-white"
+            ? "bg-[var(--accent-primary)] text-white"
+            : "bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-secondary)] text-white"
         )}
       >
         {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
@@ -46,8 +46,8 @@ function MessageBubble({ message, isLast }: MessageBubbleProps) {
         className={cn(
           "max-w-[80%] rounded-2xl px-4 py-3",
           isUser
-            ? "bg-academic-primary text-white rounded-tr-md"
-            : "bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm text-slate-900 dark:text-slate-100 rounded-tl-md border border-white/20"
+            ? "bg-[var(--accent-primary)] text-white rounded-tr-md"
+            : "bg-[var(--bg-elevated)] backdrop-blur-sm text-[var(--text-primary)] rounded-tl-md border border-[var(--border-default)]"
         )}
       >
         {showStreaming ? (
@@ -111,19 +111,19 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   return (
     <div className="flex-1 h-full flex flex-col">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl">
+      <div className="px-6 py-4 border-b border-[var(--border-default)] bg-[var(--bg-elevated)] backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-academic-primary" />
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-[var(--accent-primary)]" />
               {workspace?.name || "Agent Chat"}
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-[var(--text-muted)]">
               AI-powered academic assistant
             </p>
           </div>
           {currentSkill && (
-            <span className="px-3 py-1 rounded-full text-xs font-medium bg-academic-primary/10 text-academic-primary">
+            <span className="px-3 py-1 rounded-full text-xs font-medium bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]">
               {currentSkill.replace("-", " ")}
             </span>
           )}
@@ -136,13 +136,13 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
           {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center">
               <div className="text-center max-w-md">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-academic-primary to-academic-secondary flex items-center justify-center">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-secondary)] flex items-center justify-center">
                   <Sparkles className="w-8 h-8 text-white" />
                 </div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
                   Start Your Research Journey
                 </h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
+                <p className="text-sm text-[var(--text-secondary)]">
                   Select a skill below and ask me anything about your research.
                   I can help with literature reviews, paper writing, experiment
                   design, and more.
@@ -163,7 +163,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
       </div>
 
       {/* Input Area */}
-      <div className="p-4 border-t border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl">
+      <div className="p-4 border-t border-[var(--border-default)] bg-[var(--bg-elevated)] backdrop-blur-xl">
         {/* Skill Selector */}
         <div className="mb-3 overflow-x-auto pb-2">
           <SkillSelector

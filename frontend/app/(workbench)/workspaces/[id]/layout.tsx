@@ -9,7 +9,7 @@ interface WorkbenchLayoutProps {
 
 export default async function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-b from-slate-50 to-indigo-50/30 dark:from-slate-950 dark:to-indigo-950/30">
+    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
       {children}
     </div>
   );
