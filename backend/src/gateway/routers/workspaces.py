@@ -37,6 +37,8 @@ class WorkspaceResponse(BaseModel):
     discipline: str | None
     description: str | None
     config: dict
+    created_at: str
+    updated_at: str
 
 
 class WorkspacesListResponse(BaseModel):
@@ -94,6 +96,8 @@ def workspace_to_response(workspace: Workspace) -> WorkspaceResponse:
         discipline=workspace.discipline,
         description=workspace.description,
         config=workspace.config or {},
+        created_at=workspace.created_at.isoformat() if workspace.created_at else "",
+        updated_at=workspace.updated_at.isoformat() if workspace.updated_at else "",
     )
 
 

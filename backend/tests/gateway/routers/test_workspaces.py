@@ -237,9 +237,11 @@ class TestListWorkspaces:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        assert data[0]["name"] == "Workspace 1"
-        assert data[1]["name"] == "Workspace 2"
+        assert "workspaces" in data
+        workspaces = data["workspaces"]
+        assert len(workspaces) == 2
+        assert workspaces[0]["name"] == "Workspace 1"
+        assert workspaces[1]["name"] == "Workspace 2"
         mock_workspace_service.list_by_user.assert_called_once_with("test-user-id")
 
     def test_list_workspaces_empty(self, client, mock_workspace_service):
@@ -250,7 +252,8 @@ class TestListWorkspaces:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 0
+        assert "workspaces" in data
+        assert len(data["workspaces"]) == 0
 
 
 # ============ Get Workspace Tests ============
@@ -687,7 +690,7 @@ class TestWorkspaceTypes:
 
         return TestClient(app)
 
-    @pytest.mark.parametrize("workspace_type", ["sci", "thesis", "proposal", "grant", "literature_review"])
+    @pytest.mark.parametrize("workspace_type", ["sci", "thesis", "proposal", "software_copyright", "patent"])
     def test_create_workspace_all_types(self, client, mock_workspace_service, workspace_type):
         """Test creating workspaces of all valid types."""
         mock_workspace = create_mock_workspace(type=workspace_type)

@@ -22,9 +22,8 @@ class WorkspaceType(enum.StrEnum):
     SCI = "sci"                    # SCI Paper
     THESIS = "thesis"              # Graduate Thesis
     PROPOSAL = "proposal"          # Research Proposal
-    GRANT = "grant"                # Grant Application
-    LITERATURE_REVIEW = "literature_review"  # Systematic Review
-    UNDERGRADUATE_THESIS = "undergraduate_thesis"  # 本科毕业设计
+    SOFTWARE_COPYRIGHT = "software_copyright"  # Software Copyright
+    PATENT = "patent"              # Patent Application
 
 
 class Workspace(Base, UUIDMixin, TimestampMixin):

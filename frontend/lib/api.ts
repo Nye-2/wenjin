@@ -54,7 +54,7 @@ export interface Workspace {
   id: string;
   user_id: string;
   name: string;
-  type: 'sci' | 'thesis' | 'proposal' | 'grant';
+  type: 'sci' | 'thesis' | 'proposal' | 'software_copyright' | 'patent';
   discipline?: string;
   description?: string;
   config: Record<string, unknown>;

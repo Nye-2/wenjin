@@ -18,8 +18,8 @@ class WorkspaceType(StrEnum):
     SCI = "sci"
     THESIS = "thesis"
     PROPOSAL = "proposal"
-    GRANT = "grant"
-    LITERATURE_REVIEW = "literature_review"
+    SOFTWARE_COPYRIGHT = "software_copyright"
+    PATENT = "patent"
 
 
 class WorkspaceStatus(StrEnum):
