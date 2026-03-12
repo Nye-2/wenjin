@@ -643,7 +643,530 @@ interface DeepResearchPaper {
 
 ---
 
-## 10. 与现有架构的兼容性
+## 10. Registry 改动计划
+
+### 10.1 现有 THESIS_FEATURES 与新设计的映射
+
+现有 registry 中的 thesis feature 定义需要调整以匹配新的模块划分：
+
+| 新模块 | 现有 registry feature | 改动 |
+|--------|----------------------|------|
+| Deep Research | 不在 registry 中（走 skill 路径） | 新增注册，task_type 设为 `deep_research` |
+| 文献管理 | `literature`（文献综述，语义不同） | 重命名为 `literature_management`，handler 改为管理型 |
+| 开题调研 | 无 | 新增 `opening_research` |
+| 论文写作 | `outline` + `chapter`（两个独立 feature） | 合并为 `thesis_writing`，通过 `action` 参数区分大纲/章节 |
+| 图表生成 | `figure` | 保留，handler_key 不变 |
+| 编译导出 | `compile` + `export`（两个独立 feature） | 合并为 `compile_export` |
+
+### 10.2 新的 THESIS_FEATURES 定义
+
+```python
+THESIS_FEATURES = (
+    WorkspaceFeatureDefinition(
+        workspace_type="thesis",
+        id="deep_research",
+        name="Deep Research",
+        description="多智能体协作：文献侦察、研究空白分析、创意生成",
+        icon="flask",
+        agent="deep_research",
+        agent_label="DeepResearch",
+        handler_key="thesis.deep_research",
+        task_type="deep_research",        # 走 skill 执行路径
+        panel="deep_research_panel",
+        stages=(_stage("scout", "搜索文献"), _stage("trend", "趋势分析"),
+                _stage("gap", "空白挖掘"), _stage("synthesize", "创意综合")),
+        color="blue",
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="thesis",
+        id="literature_management",
+        name="文献管理",
+        description="搜索、导入、管理参考文献",
+        icon="book",
+        agent="librarian",
+        agent_label="Librarian",
+        handler_key="thesis.literature_management",
+        task_type="workspace_feature",
+        panel=None,                       # 纯管理型，无异步 task
+        stages=(),
+        color="emerald",
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="thesis",
+        id="opening_research",
+        name="开题调研",
+        description="背景分析、研究现状梳理、开题报告生成",
+        icon="search",
+        agent="scout",
+        agent_label="Scout",
+        handler_key="thesis.opening_research",
+        task_type="workspace_feature",
+        panel="opening_research_panel",
+        stages=(_stage("collect", "收集资料"), _stage("analyze", "分析整理"),
+                _stage("generate", "生成报告")),
+        color="amber",
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="thesis",
+        id="thesis_writing",
+        name="论文写作",
+        description="大纲规划与全文写作",
+        icon="pen",
+        agent="thesis_writer",
+        agent_label="ThesisWriter",
+        handler_key="thesis.thesis_writing",
+        task_type="thesis_generation",    # 走 thesis workflow 路径
+        panel="thesis_writing_panel",
+        stages=(_stage("outline", "大纲规划"), _stage("writing", "全文写作")),
+        color="purple",
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="thesis",
+        id="figure_generation",
+        name="图表生成",
+        description="流程图、数据可视化图表生成",
+        icon="chart",
+        agent="figure_planner",
+        agent_label="FigurePlanner",
+        handler_key="thesis.figure_generation",
+        task_type="workspace_feature",
+        panel="figure_panel",
+        stages=(_stage("plan", "规划图表"), _stage("generate", "生成图表")),
+        color="rose",
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="thesis",
+        id="compile_export",
+        name="编译导出",
+        description="LaTeX 编译、PDF 预览、多格式导出",
+        icon="file",
+        agent="thesis_writer",
+        agent_label="ThesisWriter",
+        handler_key="thesis.compile_export",
+        task_type="workspace_feature",
+        panel="compile_panel",
+        stages=(_stage("assemble", "组装 LaTeX"), _stage("compile", "编译 PDF")),
+        color="cyan",
+    ),
+)
+```
+
+### 10.3 Deep Research 的双路径接入
+
+Deep Research 在 registry 中注册（`task_type="deep_research"`），但执行时仍走现有的 `SkillTaskHandler → SkillExecutor → DeepResearchSkillV2` 路径。`workspace_feature_handler.py` 中的分流逻辑需要增加对 `deep_research` task_type 的识别：
+
+```python
+async def _dispatch_task(task_type, payload, progress):
+    if task_type == "thesis_generation":
+        return await execute_thesis_generation(payload, progress)
+    if task_type == "deep_research":
+        return await execute_skill_task("deep-research", payload, progress)
+    if task_type == "workspace_feature":
+        return await execute_workspace_feature(payload, progress)
+```
+
+这样 Deep Research 既能通过 `/features` 接口被前端发现（registry 注册），又能复用已有的 skill 执行基础设施。
+
+---
+
+## 11. Thesis Workflow 改造详细方案
+
+### 11.1 改造策略
+
+保留现有 LangGraph workflow 框架，但拆分为可独立调用的两个入口。不重写，而是新增路由层。
+
+### 11.2 大纲生成（action: "generate_outline"）
+
+**执行路径**：
+```
+features router → task_service.submit_task(task_type="thesis_generation")
+→ workspace_feature_handler._dispatch_task()
+→ execute_thesis_generation()
+→ 检查 action == "generate_outline"
+→ 调用新增的 generate_outline_only() 函数
+```
+
+**generate_outline_only() 实现要点**：
+- 不走完整 LangGraph 6 节点工作流
+- 直接调用 LLM（thesis_writer agent）生成结构化大纲
+- 输入：研究主题 + 创意 + workspace 上下文（从 artifact 自动获取）
+- 输出：大纲 JSON + 摘要文本，保存为 `framework_outline` 类型的 artifact
+- 进度：简单的 0% → 50% → 100% 三段
+
+### 11.3 全文写作（action: "write_chapter" / "write_all"）
+
+**执行路径**：
+```
+features router → task_service.submit_task(task_type="thesis_generation")
+→ workspace_feature_handler._dispatch_task()
+→ execute_thesis_generation()
+→ 检查 action == "write_chapter" 或 "write_all"
+→ 调用改造后的 thesis workflow
+```
+
+**改造要点**：
+
+1. `execute_thesis_generation()` 增加 `action` 参数路由：
+```python
+async def execute_thesis_generation(payload, progress):
+    action = payload.get("action", "write_all")
+    if action == "generate_outline":
+        return await generate_outline_only(payload, progress)
+    elif action == "write_chapter":
+        return await write_single_chapter(payload, progress)
+    elif action == "write_all":
+        return await write_all_chapters(payload, progress)
+```
+
+2. `write_single_chapter()`：
+   - 从 artifact 加载大纲
+   - 从文献库加载引用
+   - 只执行 `section_writer_node` 一次（指定 chapter_index）
+   - 产出保存为 `thesis_chapter` artifact
+   - 返回 `refresh_targets: ["artifacts"]`
+
+3. `write_all_chapters()`：
+   - 循环调用 `section_writer_node`，逐章生成
+   - 每章完成时保存 artifact 并更新进度
+
+4. 文献不足检测（在 router 层）：
+```python
+# features.py execute_feature() 中
+if action in ("write_chapter", "write_all"):
+    lit_count = await count_workspace_literature(workspace_id)
+    if lit_count < LITERATURE_THRESHOLD:
+        return ExecuteResponse(
+            task_id=None,
+            warning="literature_insufficient",
+            detail={"current": lit_count, "recommended": LITERATURE_THRESHOLD}
+        )
+```
+
+### 11.4 _is_thesis_payload 调整
+
+现有的 `_is_thesis_payload()` 判断逻辑保持不变（检查 task_type == "thesis_generation"），但 `execute_thesis_generation()` 内部增加 `action` 分流。这样对现有代码的侵入最小。
+
+---
+
+## 12. 文献管理后端设计
+
+### 12.1 数据模型
+
+文献数据不复用 artifact 体系（artifact 是产出物，文献是输入物）。新增独立的 `workspace_literature` 表：
+
+```python
+class WorkspaceLiterature(Base):
+    __tablename__ = "workspace_literature"
+
+    id: str                    # UUID
+    workspace_id: str          # FK → workspaces.id
+    title: str
+    authors: list[str]         # JSON array
+    year: int | None
+    citations: int | None
+    venue: str | None          # 期刊/会议名
+    quartile: str | None       # "Q1" | "Q2" | ...（后续实现）
+    abstract: str | None
+    doi: str | None
+    source: str                # "deep_research" | "manual" | "doi_import" | "pdf_upload"
+    is_core: bool = False      # 核心文献标记
+    created_at: datetime
+    updated_at: datetime
+```
+
+### 12.2 CRUD 接口
+
+```python
+# 文献列表
+GET /workspaces/{id}/literature
+  ?source=deep_research     # 可选筛选
+  &is_core=true             # 可选筛选
+  → { "items": [...], "total": 18, "core_count": 5 }
+
+# 添加文献（手动输入）
+POST /workspaces/{id}/literature
+  { "title": "...", "authors": [...], "year": 2024, ... }
+
+# 批量导入（从 Deep Research）
+POST /workspaces/{id}/literature/import
+  { "source": "deep_research", "paper_ids": [...] }
+
+# 更新文献（标记核心等）
+PATCH /workspaces/{id}/literature/{lit_id}
+  { "is_core": true }
+
+# 删除文献
+DELETE /workspaces/{id}/literature/{lit_id}
+
+# 文献数量（供文献不足检测使用）
+GET /workspaces/{id}/literature/count
+  → { "total": 18, "core": 5 }
+```
+
+### 12.3 与 Deep Research 的关联
+
+Deep Research skill 执行完成后，论文数据保存在 task result 中。文献注入面板从 task result 中读取论文列表，用户选择后调用 `POST /literature/import` 批量导入。导入时从 task result 中提取论文元数据写入 `workspace_literature` 表。
+
+---
+
+## 13. Artifact 类型补充
+
+### 13.1 现有类型与模块产出的映射
+
+| 模块 | 产出物 | Artifact Type | 状态 |
+|------|--------|---------------|------|
+| Deep Research | 文献报告 | `literature_search_results` | ✅ 已有 |
+| Deep Research | 研究创意 | `research_ideas` | ✅ 已有 |
+| 开题调研 | 开题报告 | `opening_report` | ❌ **需新增** |
+| 开题调研 | 文献综述报告 | `literature_review` | ✅ 已有 |
+| 开题调研 | 可行性分析 | `feasibility_analysis` | ❌ **需新增** |
+| 论文写作 | 论文大纲 | `framework_outline` | ✅ 已有 |
+| 论文写作 | 章节内容 | `thesis_chapter` | ❌ **需新增** |
+| 图表生成 | 生成的图表 | `figure` | ✅ 已有 |
+| 编译导出 | PDF 文件 | `paper_draft` | ✅ 已有 |
+
+### 13.2 需要在 ArtifactType 枚举中新增
+
+```python
+# backend/src/artifacts/types.py 新增：
+OPENING_REPORT = "opening_report"
+FEASIBILITY_ANALYSIS = "feasibility_analysis"
+THESIS_CHAPTER = "thesis_chapter"
+```
+
+同步更新：
+- `backend/src/artifacts/types.py`（共享 taxonomy）
+- `backend/src/database/models/artifact.py`（ORM 验证，如有）
+- `frontend/.../KnowledgePanel.tsx`（icon/color 映射）
+
+---
+
+## 14. 前端架构改动
+
+### 14.1 路由设计
+
+每个工具工作区是独立的子路由页面：
+
+```
+/workspaces/[id]                          → Workspace 首页（卡片仪表盘）
+/workspaces/[id]/deep-research            → Deep Research 工作区
+/workspaces/[id]/literature               → 文献管理工作区
+/workspaces/[id]/opening-research         → 开题调研工作区
+/workspaces/[id]/thesis-writing           → 论文写作工作区
+/workspaces/[id]/figure-generation        → 图表生成工作区
+/workspaces/[id]/compile-export           → 编译导出工作区
+```
+
+### 14.2 与现有组件的关系
+
+| 现有组件 | 处置方式 |
+|---------|---------|
+| `ChatPanel.tsx` | 降级为辅助角色，不再是主交互入口。可在各工具工作区中作为"AI 助手"侧边栏组件复用 |
+| `KnowledgePanel.tsx` | 保留，改造为 Workspace 首页的"最近产出"区域。各工具工作区不再直接引用 |
+| `LiteraturePanel.tsx` | 内容合并到新的文献管理工作区组件中 |
+| `SkillSelector.tsx` | 替换为 Workspace 首页的工具卡片网格 |
+
+### 14.3 新增前端组件
+
+```
+frontend/app/(workbench)/workspaces/[id]/
+├── page.tsx                              # 改造为卡片仪表盘
+├── deep-research/page.tsx                # Deep Research 工作区
+├── literature/page.tsx                   # 文献管理工作区
+├── opening-research/page.tsx             # 开题调研工作区
+├── thesis-writing/page.tsx               # 论文写作工作区
+├── figure-generation/page.tsx            # 图表生成工作区
+├── compile-export/page.tsx               # 编译导出工作区
+└── components/
+    ├── ModuleCard.tsx                    # 通用工具卡片组件
+    ├── RecentArtifacts.tsx               # 最近产出列表
+    ├── OutlineEditor.tsx                 # 可视化大纲编辑器
+    ├── ChapterNav.tsx                    # 章节导航面板
+    ├── ChapterEditor.tsx                 # 章节 Markdown 编辑器
+    ├── AgentThoughtStream.tsx            # Agent 思考流面板
+    ├── LiteratureInjectionPanel.tsx      # 文献注入选择面板
+    └── LiteratureInsufficiencyDialog.tsx # 文献不足提示弹窗
+```
+
+### 14.4 状态管理
+
+新增或改造的 store：
+
+```typescript
+// stores/dashboard.ts - Workspace 首页模块状态
+interface DashboardState {
+  modules: ModuleStatus[]
+  recentArtifacts: Artifact[]
+  fetchDashboard: (workspaceId: string) => Promise<void>
+}
+
+// stores/thesis-writing.ts - 论文写作状态
+interface ThesisWritingState {
+  currentStep: 1 | 2                    // 大纲 or 全文
+  outline: OutlineData | null
+  chapters: ChapterStatus[]
+  currentChapterIndex: number
+}
+
+// stores/literature.ts - 文献管理状态
+interface LiteratureState {
+  items: Literature[]
+  filters: LiteratureFilters
+  fetchLiterature: (workspaceId: string) => Promise<void>
+  importFromDeepResearch: (paperIds: string[]) => Promise<void>
+}
+```
+
+### 14.5 模块间跳转的状态传递
+
+文献不足弹窗跳转到文献管理或 Deep Research 时，通过 URL query 参数传递来源信息：
+
+```
+/workspaces/[id]/literature?from=thesis-writing&reason=insufficient
+/workspaces/[id]/deep-research?from=thesis-writing&reason=insufficient
+```
+
+目标页面可根据 `from` 参数显示提示（如"论文写作需要更多文献，请补充后返回"），但不强制任何操作。
+
+---
+
+## 15. 图表生成与编译导出后端对接
+
+### 15.1 图表生成后端
+
+**现有能力**：
+- `figure_planner_node` 和 `figure_generator_node` 已在 thesis workflow 中实现
+- `ExecutionService` 已支持 `MERMAID_DIAGRAM`、`PYTHON_PLOT`、`AI_IMAGE` 三种执行类型
+- 但 provider 实现尚不完整（mermaid-cli、matplotlib、kling API 需要对接）
+
+**改动**：
+- 将图表生成从 thesis workflow 中解耦，独立为 `thesis.figure_generation` handler
+- handler 接收图表描述和类型，调用 `ExecutionService`
+- 产出保存为 `figure` 类型 artifact，包含 `chapter_index` 元数据用于关联章节
+- [插入论文] 操作：更新 artifact 的 metadata，添加 `linked_chapter` 字段
+
+**接口**：
+```python
+# POST /workspaces/{id}/features/figure_generation/execute
+{
+  "params": {
+    "description": "系统整体架构流程图",
+    "type": "flowchart",           # flowchart | data_chart | concept
+    "chapter_index": 3             # 可选，关联章节
+  }
+}
+```
+
+### 15.2 编译导出后端
+
+**现有能力**：
+- `assemble_latex_node` 和 `compile_latex_node` 已在 thesis workflow 中实现
+- `LaTeX 模板` 和 `compile_latex()` 工具已完整
+- 支持 xelatex 和 pdflatex
+
+**改动**：
+- 将编译功能从 thesis workflow 中解耦，独立为 `thesis.compile_export` handler
+- handler 从 artifact 中收集所有已完成章节 + 大纲 + 图表
+- 组装 LaTeX 并调用编译
+- 新增模板选择参数和参考文献格式参数
+
+**接口**：
+```python
+# POST /workspaces/{id}/features/compile_export/execute
+{
+  "params": {
+    "template": "default",          # 后续扩展高校模板
+    "compiler": "xelatex",          # xelatex | pdflatex
+    "bib_style": "gbt7714",         # gbt7714 | apa | ieee
+    "output_formats": ["pdf"]       # pdf, docx, latex_source
+  }
+}
+```
+
+---
+
+## 16. 错误处理与边界情况
+
+### 16.1 Deep Research 异常
+
+| 场景 | 处理策略 |
+|------|---------|
+| API 配额耗尽 | 进度面板显示错误信息 + 重试按钮 |
+| 网络超时 | Agent 思考流显示超时提示，支持重试 |
+| 部分阶段失败 | 已完成阶段的结果保留展示，失败阶段标红并提示 |
+
+### 16.2 论文写作异常
+
+| 场景 | 处理策略 |
+|------|---------|
+| 单章生成失败 | 该章节标记为"生成失败"，其他章节不受影响，支持重试 |
+| "生成全部"中途失败 | 已完成章节的 artifact 已保存不丢失，失败章节标记错误，可单独重试 |
+| 大纲生成失败 | 显示错误信息 + 重试按钮，不影响 Step 1 表单内容 |
+
+### 16.3 编译失败
+
+| 场景 | 处理策略 |
+|------|---------|
+| LaTeX 语法错误 | 显示编译日志（错误行号 + 描述），用户可回到论文写作修改后重新编译 |
+| 缺少章节 | 编译前检查，提示"第X章尚未完成，编译将不包含该章节内容"，用户确认后继续 |
+
+### 16.4 模块间跳转状态保持
+
+- 各工具工作区的状态通过 Zustand store 持久化（sessionStorage），跳转不丢失
+- 论文写作的编辑器内容实时保存到 store，离开页面后返回可恢复
+- 弹窗跳转使用 URL query 参数，不依赖内存状态传递
+
+### 16.5 并发任务控制
+
+- 同一 workspace 同一时间只允许一个 task 处于运行状态（后端 task_service 层面控制）
+- 如果用户在模块 A 有任务运行中，进入模块 B 点击执行时，提示"当前有任务正在运行，请等待完成或取消后再操作"
+
+---
+
+## 17. DeepResearchPaper 数据结构与后端对齐
+
+### 17.1 现有后端 Paper 结构
+
+```python
+# backend/src/skills/implementations/deep_research.py
+@dataclass
+class Paper:
+    title: str
+    authors: list[str]
+    year: int | None
+    venue: str | None
+    abstract: str | None
+    citations: int | None
+    url: str | None
+    doi: str | None
+    paper_id: str | None = None
+```
+
+### 17.2 前端接口调整
+
+将 `quartile` 标记为可选字段，当前后端不提供该数据，后续通过 journal ranking 查询补充：
+
+```typescript
+interface DeepResearchPaper {
+  id: string              // 对应 paper_id
+  title: string
+  authors: string[]
+  year: number | null
+  citations: number | null
+  venue?: string
+  abstract?: string
+  doi?: string
+  url?: string
+  quartile?: string       // 后续实现，当前为 undefined
+  source: string          // 从 skill 结果中推断
+}
+```
+
+文献注入面板中，如果 `quartile` 为空则不显示分区标签。
+
+---
+
+## 18. 与现有架构的兼容性
 
 ### 10.1 完全复用的部分
 
