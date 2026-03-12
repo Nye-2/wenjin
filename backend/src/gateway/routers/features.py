@@ -11,12 +11,16 @@ from src.database import User
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.tasks import get_task_service
 from src.gateway.routers.workspaces import get_workspace_service
+from src.services.literature_service import LiteratureService, get_literature_service
 from src.task.service import TaskService
 from src.workspace_features import get_workspace_feature, list_workspace_features
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["features"])
+
+# Recommended minimum literature count for thesis writing
+LITERATURE_THRESHOLD = 15
 
 
 class FeatureStage(BaseModel):
@@ -58,10 +62,12 @@ class ExecuteRequest(BaseModel):
 class ExecuteResponse(BaseModel):
     """Response for feature execution."""
 
-    task_id: str
+    task_id: str | None = None
     status: str
     feature_id: str
     message: str
+    warning: str | None = None
+    detail: dict[str, Any] | None = None
 
 
 def _resolve_workspace_type(workspace: Any) -> str:
@@ -143,6 +149,7 @@ async def execute_feature(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     task_service: TaskService = Depends(get_task_service),
+    literature_service: LiteratureService = Depends(get_literature_service),
 ) -> ExecuteResponse:
     """Execute a feature for a workspace via the unified task infrastructure."""
     workspace = await workspace_service.get(workspace_id)
@@ -159,6 +166,21 @@ async def execute_feature(
             status_code=404,
             detail=f"Feature '{feature_id}' not found for workspace type '{workspace_type}'",
         )
+
+    # Check literature sufficiency for thesis writing
+    if feature_id == "thesis_writing":
+        action = request.params.get("action", "write_all") if request.params else "write_all"
+        if action in ("write_chapter", "write_all"):
+            lit_stats = await literature_service.count_literature(workspace_id)
+            if lit_stats["total"] < LITERATURE_THRESHOLD:
+                return ExecuteResponse(
+                    task_id=None,
+                    status="warning",
+                    feature_id=feature_id,
+                    message="文献数量不足，建议先补充文献",
+                    warning="literature_insufficient",
+                    detail={"current": lit_stats["total"], "recommended": LITERATURE_THRESHOLD},
+                )
 
     task_id = await task_service.submit_task(
         user_id=str(current_user.id),

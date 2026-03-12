@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from src.database import WorkspaceType
 from src.gateway.routers import features
 from src.gateway.routers.auth import get_current_user
+from src.gateway.routers.features import ExecuteResponse
+from src.services.literature_service import get_literature_service
 
 
 def create_mock_user(user_id: str) -> MagicMock:
@@ -34,6 +36,7 @@ def create_client(
     user_id: str,
     workspace_service,
     task_service,
+    literature_service=None,
 ) -> TestClient:
     """Create a features test client with dependency overrides."""
     app = FastAPI()
@@ -47,11 +50,15 @@ def create_client(
     async def override_get_task_service():
         yield task_service
 
+    async def override_get_literature_service():
+        return literature_service or AsyncMock()
+
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[features.get_workspace_service] = (
         override_get_workspace_service
     )
     app.dependency_overrides[features.get_task_service] = override_get_task_service
+    app.dependency_overrides[get_literature_service] = override_get_literature_service
     app.include_router(features.router)
     return TestClient(app)
 
@@ -118,6 +125,8 @@ class TestWorkspaceFeaturesRouter:
             "status": "pending",
             "feature_id": "copyright_materials",
             "message": "Queued 材料准备",
+            "warning": None,
+            "detail": None,
         }
 
         submit_kwargs = task_service.submit_task.await_args.kwargs
@@ -190,3 +199,116 @@ class TestWorkspaceFeaturesRouter:
         )
         assert submit_kwargs["payload"]["agent"] == "writer"
         assert submit_kwargs["payload"]["software_name"] == "SafeName"
+
+
+class TestExecuteResponseModel:
+    """Tests for ExecuteResponse model with warning support."""
+
+    def test_normal_response(self):
+        resp = ExecuteResponse(task_id="t-1", status="pending", feature_id="f-1", message="ok")
+        assert resp.task_id == "t-1"
+        assert resp.warning is None
+
+    def test_warning_response_without_task_id(self):
+        resp = ExecuteResponse(
+            task_id=None, status="warning", feature_id="thesis_writing",
+            message="Literature insufficient", warning="literature_insufficient",
+            detail={"current": 2, "recommended": 15},
+        )
+        assert resp.task_id is None
+        assert resp.warning == "literature_insufficient"
+        assert resp.detail["current"] == 2
+
+
+class TestLiteratureInsufficientWarning:
+    """Tests for literature insufficiency warning during thesis writing."""
+
+    def test_thesis_writing_warns_when_literature_insufficient(self):
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.THESIS)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="task-789")
+
+        literature_service = AsyncMock()
+        literature_service.count_literature.return_value = {"total": 2, "core": 0}
+
+        # Create client with literature_service override
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
+        app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
+        app.dependency_overrides[features.get_task_service] = lambda: task_service
+        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.include_router(features.router)
+        client = TestClient(app)
+
+        response = client.post(
+            "/workspaces/ws-1/features/thesis_writing/execute",
+            json={"params": {"action": "write_chapter", "chapter_index": 0}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["warning"] == "literature_insufficient"
+        assert data["task_id"] is None
+        assert data["detail"]["current"] == 2
+
+    def test_thesis_writing_proceeds_when_literature_sufficient(self):
+        """When literature is sufficient, task should be submitted normally."""
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.THESIS)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="task-789")
+
+        literature_service = AsyncMock()
+        literature_service.count_literature.return_value = {"total": 20, "core": 5}
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
+        app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
+        app.dependency_overrides[features.get_task_service] = lambda: task_service
+        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.include_router(features.router)
+        client = TestClient(app)
+
+        response = client.post(
+            "/workspaces/ws-1/features/thesis_writing/execute",
+            json={"params": {"action": "write_chapter", "chapter_index": 0}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_id"] == "task-789"
+        assert data["warning"] is None
+
+    def test_thesis_writing_no_check_for_other_actions(self):
+        """Actions other than write_chapter/write_all should not check literature."""
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.THESIS)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="task-789")
+
+        literature_service = AsyncMock()
+        literature_service.count_literature.return_value = {"total": 2, "core": 0}
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
+        app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
+        app.dependency_overrides[features.get_task_service] = lambda: task_service
+        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.include_router(features.router)
+        client = TestClient(app)
+
+        response = client.post(
+            "/workspaces/ws-1/features/thesis_writing/execute",
+            json={"params": {"action": "generate_outline"}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_id"] == "task-789"
+        assert data["warning"] is None
+        # literature_service should not be called
+        literature_service.count_literature.assert_not_called()
