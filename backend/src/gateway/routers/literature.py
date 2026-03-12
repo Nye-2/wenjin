@@ -1,0 +1,311 @@
+"""Literature router for literature management API endpoints.
+
+This module provides REST endpoints for:
+- Literature CRUD operations
+- Literature batch import
+- Literature count
+"""
+
+from collections.abc import AsyncGenerator
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.database import User, get_db_session
+from src.gateway.routers.auth import get_current_user
+from src.services.literature_service import LiteratureService
+
+router = APIRouter(prefix="/workspaces", tags=["literature"])
+
+
+# ============ Request/Response Models ============
+
+class CreateLiteratureRequest(BaseModel):
+    """Request model for creating literature."""
+
+    title: str
+    authors: list[str] | None = None
+    year: int | None = None
+    citations: int | None = None
+    venue: str | None = None
+    quartile: str | None = None
+    abstract: str | None = None
+    doi: str | None = None
+    source: str = "manual"
+    is_core: bool = False
+
+
+class UpdateLiteratureRequest(BaseModel):
+    """Request model for updating literature."""
+
+    title: str | None = None
+    authors: list[str] | None = None
+    year: int | None = None
+    citations: int | None = None
+    venue: str | None = None
+    quartile: str | None = None
+    abstract: str | None = None
+    doi: str | None = None
+    source: str | None = None
+    is_core: bool | None = None
+
+
+class BatchImportRequest(BaseModel):
+    """Request model for batch importing literature."""
+
+    source: str
+    paper_ids: list[str]
+
+
+class LiteratureResponse(BaseModel):
+    """Response model for literature entry."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    workspace_id: str
+    title: str
+    authors: list[str]
+    year: int | None = None
+    citations: int | None = None
+    venue: str | None = None
+    quartile: str | None = None
+    abstract: str | None = None
+    doi: str | None = None
+    source: str
+    is_core: bool
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class LiteratureListResponse(BaseModel):
+    """Response model for literature list."""
+
+    items: list[LiteratureResponse]
+    total: int
+    core_count: int
+
+
+class LiteratureCountResponse(BaseModel):
+    """Response model for literature count."""
+
+    total: int
+    core: int
+
+
+class BatchImportResponse(BaseModel):
+    """Response model for batch import."""
+
+    imported: int
+
+
+# ============ Dependencies ============
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Dependency to get database session."""
+    async with get_db_session() as session:
+        yield session
+
+
+async def get_literature_service(
+    db: AsyncSession = Depends(get_db),
+) -> LiteratureService:
+    """Get literature service instance."""
+    return LiteratureService(db)
+
+
+# ============ Endpoints ============
+
+@router.get(
+    "/{workspace_id}/literature",
+    response_model=LiteratureListResponse,
+)
+async def list_literature(
+    workspace_id: str,
+    source: str | None = None,
+    is_core: bool | None = None,
+    offset: int = 0,
+    limit: int = 50,
+    literature_service: LiteratureService = Depends(get_literature_service),
+):
+    """List literature entries for a workspace.
+
+    Args:
+        workspace_id: UUID of the workspace
+        source: Optional filter by source
+        is_core: Optional filter by core reference status
+        offset: Number of items to skip
+        limit: Maximum number of items to return
+        literature_service: Literature service instance
+
+    Returns:
+        List of literature entries with total and core counts
+    """
+    result = await literature_service.list_literature(
+        workspace_id=workspace_id,
+        source=source,
+        is_core=is_core,
+        offset=offset,
+        limit=limit,
+    )
+    return LiteratureListResponse(**result)
+
+
+@router.post(
+    "/{workspace_id}/literature",
+    response_model=LiteratureResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_literature(
+    workspace_id: str,
+    request: CreateLiteratureRequest,
+    current_user: User = Depends(get_current_user),
+    literature_service: LiteratureService = Depends(get_literature_service),
+):
+    """Create a new literature entry.
+
+    Args:
+        workspace_id: UUID of the workspace
+        request: Literature creation request
+        current_user: Current authenticated user
+        literature_service: Literature service instance
+
+    Returns:
+        Created literature entry
+    """
+    result = await literature_service.create_literature(
+        workspace_id=workspace_id,
+        title=request.title,
+        authors=request.authors,
+        year=request.year,
+        citations=request.citations,
+        venue=request.venue,
+        quartile=request.quartile,
+        abstract=request.abstract,
+        doi=request.doi,
+        source=request.source,
+        is_core=request.is_core,
+    )
+    return LiteratureResponse(**result)
+
+
+@router.post(
+    "/{workspace_id}/literature/import",
+    response_model=BatchImportResponse,
+)
+async def batch_import_literature(
+    workspace_id: str,
+    request: BatchImportRequest,
+    current_user: User = Depends(get_current_user),
+    literature_service: LiteratureService = Depends(get_literature_service),
+):
+    """Batch import literature entries.
+
+    Args:
+        workspace_id: UUID of the workspace
+        request: Batch import request with source and paper IDs
+        current_user: Current authenticated user
+        literature_service: Literature service instance
+
+    Returns:
+        Number of imported entries
+    """
+    result = await literature_service.batch_import(
+        workspace_id=workspace_id,
+        source=request.source,
+        paper_ids=request.paper_ids,
+    )
+    return BatchImportResponse(**result)
+
+
+@router.patch(
+    "/{workspace_id}/literature/{literature_id}",
+    response_model=LiteratureResponse,
+)
+async def update_literature(
+    workspace_id: str,
+    literature_id: str,
+    request: UpdateLiteratureRequest,
+    current_user: User = Depends(get_current_user),
+    literature_service: LiteratureService = Depends(get_literature_service),
+):
+    """Update a literature entry.
+
+    Args:
+        workspace_id: UUID of the workspace
+        literature_id: UUID of the literature entry
+        request: Update request with fields to update
+        current_user: Current authenticated user
+        literature_service: Literature service instance
+
+    Returns:
+        Updated literature entry
+
+    Raises:
+        HTTPException: If literature not found
+    """
+    update_data = request.model_dump(exclude_unset=True)
+    result = await literature_service.update_literature(
+        literature_id=literature_id,
+        **update_data,
+    )
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Literature not found",
+        )
+
+    return LiteratureResponse(**result)
+
+
+@router.delete(
+    "/{workspace_id}/literature/{literature_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_literature(
+    workspace_id: str,
+    literature_id: str,
+    current_user: User = Depends(get_current_user),
+    literature_service: LiteratureService = Depends(get_literature_service),
+):
+    """Delete a literature entry.
+
+    Args:
+        workspace_id: UUID of the workspace
+        literature_id: UUID of the literature entry
+        current_user: Current authenticated user
+        literature_service: Literature service instance
+
+    Raises:
+        HTTPException: If literature not found
+    """
+    success = await literature_service.delete_literature(literature_id)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Literature not found",
+        )
+
+
+@router.get(
+    "/{workspace_id}/literature/count",
+    response_model=LiteratureCountResponse,
+)
+async def get_literature_count(
+    workspace_id: str,
+    literature_service: LiteratureService = Depends(get_literature_service),
+):
+    """Get literature count for a workspace.
+
+    Args:
+        workspace_id: UUID of the workspace
+        literature_service: Literature service instance
+
+    Returns:
+        Total and core literature counts
+    """
+    result = await literature_service.count_literature(workspace_id)
+    return LiteratureCountResponse(**result)

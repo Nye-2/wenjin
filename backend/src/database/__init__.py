@@ -11,6 +11,7 @@ from .models import (
     # Artifact
     Artifact,
     ArtifactType,
+    ChatThread,
     # Citation
     Citation,
     CitationType,
@@ -30,6 +31,8 @@ from .models import (
     Workspace,
     WorkspacePaper,
     WorkspaceType,
+    # Workspace Literature
+    WorkspaceLiterature,
 )
 from .session import (
     async_session_factory,
@@ -56,6 +59,8 @@ __all__ = [
     # Models - Workspace
     "Workspace",
     "WorkspaceType",
+    # Models - Chat
+    "ChatThread",
     # Models - Paper
     "Paper",
     "WorkspacePaper",
@@ -73,4 +78,6 @@ __all__ = [
     "KnowledgeCategory",
     # Models - Generation
     "GenerationRecord",
+    # Models - Workspace Literature
+    "WorkspaceLiterature",
 ]

@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     print("AcademiaGPT Gateway starting up...")
 
     # Initialize database
-    from src.academic.database.session import init_db
+    from src.database import init_db
     await init_db()
 
     # Connect Redis
@@ -70,7 +70,8 @@ async def health_check():
 
 
 # Include routers (imported after app creation to avoid circular imports)
-from .routers import academic, artifacts, auth, chat, features, models, papers, tasks, workspaces  # noqa: E402
+from .routers import academic, artifacts, auth, chat, features, literature, models, papers, tasks, workspaces  # noqa: E402
+from src.thesis.api import router as thesis_router  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(academic.router, prefix="/api", tags=["academic"])
@@ -79,5 +80,7 @@ app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(workspaces.router, prefix="/api", tags=["workspaces"])
 app.include_router(features.router, prefix="/api", tags=["features"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
+app.include_router(literature.router, prefix="/api", tags=["literature"])
 app.include_router(papers.router, prefix="/api", tags=["papers"])
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])
+app.include_router(thesis_router, prefix="/api/thesis", tags=["thesis"])
