@@ -8,10 +8,10 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, fun
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.database.base import Base, UUIDMixin
+from src.database.base import Base, TimestampMixin, UUIDMixin
 
 
-class WorkspaceLiterature(Base, UUIDMixin):
+class WorkspaceLiterature(Base, UUIDMixin, TimestampMixin):
     """Workspace literature model for managing research references.
 
     A literature entry represents a research paper or reference within a workspace.
@@ -30,8 +30,6 @@ class WorkspaceLiterature(Base, UUIDMixin):
         doi: Digital Object Identifier
         source: Source of the literature (manual, deep_research, etc.)
         is_core: Whether this is a core reference for the thesis
-        created_at: Creation timestamp
-        updated_at: Last update timestamp
     """
 
     __tablename__ = "workspace_literature"
@@ -51,12 +49,3 @@ class WorkspaceLiterature(Base, UUIDMixin):
     doi: Mapped[str | None] = mapped_column(String(200), nullable=True)
     source: Mapped[str] = mapped_column(String(50), default="manual")
     is_core: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
