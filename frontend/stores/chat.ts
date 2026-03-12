@@ -25,7 +25,13 @@ interface ChatState {
   error: string | null;
 
   // Actions
-  sendMessage: (content: string, skill?: string) => Promise<void>;
+  sendMessage: (
+    content: string,
+    options?: {
+      workspaceId?: string;
+      skill?: string | null;
+    }
+  ) => Promise<void>;
   addMessage: (message: Message) => void;
   setCurrentSkill: (skill: string | null) => void;
   clearMessages: () => void;
@@ -39,9 +45,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   threadId: null,
   error: null,
 
-  sendMessage: async (content: string, skill?: string) => {
+  sendMessage: async (content: string, options) => {
     const { threadId, currentSkill } = get();
-    const skillToUse = skill || currentSkill;
+    const skillToUse = options?.skill || currentSkill;
 
     // Generate unique ID for user message
     const userMessageId = `user-${Date.now()}`;
@@ -77,6 +83,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     streamChat(
       {
         message: content,
+        workspace_id: options?.workspaceId,
         thread_id: threadId || undefined,
       },
       // onMessage - receive content chunks
@@ -107,6 +114,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({ isStreaming: false });
       }
     );
+
+    if (skillToUse) {
+      set({ currentSkill: skillToUse });
+    }
   },
 
   addMessage: (message: Message) => {

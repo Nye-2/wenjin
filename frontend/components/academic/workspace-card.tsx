@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { FileText, Book, FileEdit, DollarSign, Lightbulb } from "lucide-react";
+import { FileText, Book, FileEdit, Lightbulb } from "lucide-react";
 import { LiquidGlassCard } from "@/components/glass";
 
 interface WorkspaceCardProps {
@@ -18,7 +18,6 @@ const typeIcons = {
   sci: FileText,
   thesis: Book,
   proposal: FileEdit,
-  grant: DollarSign,
   software_copyright: FileText,
   patent: Lightbulb,
 };

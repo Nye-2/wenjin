@@ -145,7 +145,7 @@ class ThreadState(AgentState):
 
     Academic-specific fields (NotRequired):
         - workspace_id: Current workspace context
-        - workspace_type: Type of workspace (sci, thesis, proposal, grant)
+        - workspace_type: Type of workspace (sci, thesis, proposal, software_copyright, patent)
         - discipline: Academic discipline
         - workspace_config: Workspace configuration (was _workspace_config)
         - literature_context: Literature context string (was _literature_context)

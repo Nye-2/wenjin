@@ -12,6 +12,7 @@ from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from .artifact import Artifact
+    from .chat_thread import ChatThread
     from .generation import GenerationRecord
     from .paper import Paper, PaperChunk, PaperSection, WorkspacePaper
     from .user import User
@@ -36,7 +37,7 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         id: UUID primary key
         user_id: Owner's user ID
         name: Workspace name
-        type: Workspace type (sci, thesis, proposal, grant)
+        type: Workspace type (sci, thesis, proposal, software_copyright, patent)
         discipline: Academic discipline (e.g., computer_science)
         description: Optional description
         config: JSON configuration for workspace-specific settings
@@ -90,6 +91,11 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         "GenerationRecord",
         back_populates="workspace",
         cascade="all, delete-orphan",
+    )
+    chat_threads: Mapped[list["ChatThread"]] = relationship(
+        "ChatThread",
+        back_populates="workspace",
+        passive_deletes=True,
     )
 
     def __repr__(self) -> str:

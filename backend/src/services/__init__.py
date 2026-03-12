@@ -13,6 +13,7 @@ from .auth import (
     verify_password,
     verify_refresh_token,
 )
+from .chat_thread_service import ChatThreadAccessError, ChatThreadService
 from .user_service import UserService
 
 __all__ = [
@@ -27,5 +28,7 @@ __all__ = [
     "verify_password",
     "hash_password",
     "hash_token",
+    "ChatThreadAccessError",
+    "ChatThreadService",
     "UserService",
 ]

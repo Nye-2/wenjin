@@ -18,6 +18,27 @@ class TaskService:
     def __init__(self, store: TaskStore):
         self._store = store
 
+    def _serialize_task_status(self, record, runtime_state: dict | None = None) -> dict:
+        """Merge persisted task data with runtime state."""
+        status = runtime_state.get("status", record.status) if runtime_state else record.status
+        progress = runtime_state.get("progress", record.progress) if runtime_state else record.progress
+        message = runtime_state.get("message", record.message) if runtime_state else record.message
+        metadata = runtime_state.get("metadata") if runtime_state else None
+
+        return {
+            "task_id": record.id,
+            "task_type": record.task_type,
+            "status": status,
+            "progress": progress,
+            "message": message,
+            "result": record.result,
+            "error": record.error,
+            "metadata": metadata,
+            "created_at": record.created_at.isoformat(),
+            "started_at": record.started_at.isoformat() if record.started_at else None,
+            "completed_at": record.completed_at.isoformat() if record.completed_at else None,
+        }
+
     async def submit_task(
         self,
         user_id: str,
@@ -92,35 +113,8 @@ class TaskService:
         if record.user_id != user_id:
             return None
 
-        # Get runtime state from Redis for running tasks
-        if record.status in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value):
-            runtime_state = await self._store.get_task_state(task_id)
-            if runtime_state:
-                return {
-                    "task_id": task_id,
-                    "task_type": record.task_type,
-                    "status": runtime_state.get("status", record.status),
-                    "progress": runtime_state.get("progress", 0),
-                    "message": runtime_state.get("message", ""),
-                    "result": None,  # Not available for running tasks
-                    "error": None,
-                    "created_at": record.created_at.isoformat(),
-                    "started_at": record.started_at.isoformat() if record.started_at else None,
-                    "completed_at": None,
-                }
-
-        return {
-            "task_id": task_id,
-            "task_type": record.task_type,
-            "status": record.status,
-            "progress": record.progress,
-            "message": record.message,
-            "result": record.result,
-            "error": record.error,
-            "created_at": record.created_at.isoformat(),
-            "started_at": record.started_at.isoformat() if record.started_at else None,
-            "completed_at": record.completed_at.isoformat() if record.completed_at else None,
-        }
+        runtime_state = await self._store.get_task_state(task_id)
+        return self._serialize_task_status(record, runtime_state)
 
     async def list_tasks(
         self,
@@ -136,21 +130,11 @@ class TaskService:
             task_type=task_type,
             limit=limit,
         )
-        return [
-            {
-                "task_id": r.id,
-                "task_type": r.task_type,
-                "status": r.status,
-                "progress": r.progress,
-                "message": r.message,
-                "result": r.result,
-                "error": r.error,
-                "created_at": r.created_at.isoformat(),
-                "started_at": r.started_at.isoformat() if r.started_at else None,
-                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
-            }
-            for r in records
-        ]
+        serialized: list[dict] = []
+        for record in records:
+            runtime_state = await self._store.get_task_state(record.id)
+            serialized.append(self._serialize_task_status(record, runtime_state))
+        return serialized
 
     async def cancel_task(self, task_id: str, user_id: str) -> bool:
         """Cancel a task.

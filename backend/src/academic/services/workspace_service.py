@@ -48,7 +48,7 @@ class WorkspaceService:
         Args:
             user_id: User ID who owns the workspace
             name: Workspace name
-            type: Workspace type (sci, thesis, proposal, grant, literature_review)
+            type: Workspace type (sci, thesis, proposal, software_copyright, patent)
             discipline: Academic discipline (e.g., computer_science)
             description: Workspace description
             config: Workspace configuration as JSON

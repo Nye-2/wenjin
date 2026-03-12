@@ -145,9 +145,31 @@ export interface WorkspaceFeature {
   icon: string;  // icon name string, to be resolved by frontend
   agent: string;
   agentLabel: string;
+  taskType?: string;
   panel?: string;  // which panel to show in right sidebar
   stages: FeatureStage[];
   color?: string;
+}
+
+export interface ExecuteWorkspaceFeatureResponse {
+  task_id: string;
+  status: string;
+  feature_id: string;
+  message: string;
+}
+
+export interface TaskStatus {
+  task_id: string;
+  task_type: string;
+  status: string;
+  progress: number;
+  message?: string;
+  result?: Record<string, unknown> | null;
+  error?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 // ============ API Functions ============
@@ -294,12 +316,28 @@ export function streamChat(
   onDone?: () => void
 ): () => void {
   const controller = new AbortController();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (typeof window !== 'undefined') {
+    try {
+      const authStorage = localStorage.getItem('auth-storage');
+      if (authStorage) {
+        const parsed = JSON.parse(authStorage);
+        const token = parsed?.state?.accessToken;
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to parse auth token:', error);
+    }
+  }
 
   fetch(`${API_BASE_URL}/api/chat/stream`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({ ...data, stream: true }),
     signal: controller.signal,
   })
@@ -364,6 +402,27 @@ export async function getWorkspaceFeatures(
   workspaceId: string
 ): Promise<{ features: WorkspaceFeature[] }> {
   const response = await apiClient.get(`/workspaces/${workspaceId}/features`);
+  return response.data;
+}
+
+export async function executeWorkspaceFeature(
+  workspaceId: string,
+  featureId: string,
+  params: Record<string, unknown> = {},
+  threadId?: string
+): Promise<ExecuteWorkspaceFeatureResponse> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/features/${featureId}/execute`,
+    {
+      params,
+      thread_id: threadId,
+    }
+  );
+  return response.data;
+}
+
+export async function getTaskStatus(taskId: string): Promise<TaskStatus> {
+  const response = await apiClient.get(`/tasks/${taskId}`);
   return response.data;
 }
 

@@ -77,8 +77,9 @@ async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
     """Dispatch task to appropriate handler.
 
     Routes task execution to:
-    1. SkillTaskHandler for skill-based tasks (deep_research, thesis_generation, etc.)
-    2. Custom handlers for other task types
+    1. Custom workflow handlers for thesis and workspace features
+    2. SkillTaskHandler for registered skill-based tasks
+    3. Placeholder execution for task types without concrete handlers
 
     Args:
         task_type: Type of task to execute
@@ -92,9 +93,21 @@ async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
         ValueError: If task_type is unknown
     """
     from src.task.registry import is_valid_task_type
+    from src.task.handlers.workspace_feature_handler import (
+        execute_thesis_generation,
+        execute_workspace_feature,
+    )
 
     if not is_valid_task_type(task_type):
         raise ValueError(f"Unknown task type: {task_type}")
+
+    if task_type == "thesis_generation":
+        logger.info("Dispatching thesis_generation task to thesis workflow handler")
+        return await execute_thesis_generation(payload, progress)
+
+    if task_type == "workspace_feature":
+        logger.info("Dispatching workspace_feature task to workspace feature handler")
+        return await execute_workspace_feature(payload, progress)
 
     # Get the skill task handler
     handler = get_skill_task_handler()

@@ -1,5 +1,7 @@
-"""Gateway module initialization."""
+"""Gateway package.
 
-from .app import app
+Avoid importing the FastAPI application at package import time. Callers that
+need the ASGI app should import ``src.gateway.app`` explicitly.
+"""
 
-__all__ = ["app"]
+__all__: list[str] = []

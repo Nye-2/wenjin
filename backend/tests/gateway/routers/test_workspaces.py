@@ -472,9 +472,10 @@ class TestListWorkspacePapers:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        assert data[0]["title"] == "Paper 1"
-        assert data[1]["title"] == "Paper 2"
+        assert data["count"] == 2
+        assert len(data["papers"]) == 2
+        assert data["papers"][0]["title"] == "Paper 1"
+        assert data["papers"][1]["title"] == "Paper 2"
 
     def test_list_workspace_papers_with_filter(self, client, mock_paper_service):
         """Test paper listing with read status filter."""
@@ -497,7 +498,7 @@ class TestListWorkspacePapers:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 0
+        assert data == {"papers": [], "count": 0}
 
 
 # ============ Add Paper to Workspace Tests ============

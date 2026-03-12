@@ -2,32 +2,37 @@
 
 import json
 import logging
-import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
-
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.database import ChatThread, User
+from src.gateway.routers.auth import get_current_user
+from src.gateway.routers.workspaces import get_db
+from src.services import ChatThreadAccessError, ChatThreadService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-# ============ Request/Response Models ============
-
 class ChatMessage(BaseModel):
     """A single chat message."""
-    role: str  # user, assistant, system
+
+    role: str
     content: str
     timestamp: datetime | None = None
 
 
 class ChatRequest(BaseModel):
     """Chat request."""
+
     message: str
     workspace_id: str | None = None
     thread_id: str | None = None
@@ -38,6 +43,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     """Chat response."""
+
     thread_id: str
     message: ChatMessage
     workspace_id: str | None = None
@@ -45,6 +51,7 @@ class ChatResponse(BaseModel):
 
 class ThreadCreate(BaseModel):
     """Thread creation request."""
+
     workspace_id: str | None = None
     title: str | None = None
     model: str = "gpt-4o"
@@ -52,6 +59,7 @@ class ThreadCreate(BaseModel):
 
 class ThreadResponse(BaseModel):
     """Thread response."""
+
     id: str
     workspace_id: str | None
     title: str | None
@@ -61,251 +69,209 @@ class ThreadResponse(BaseModel):
     updated_at: datetime
 
 
-# ============ In-Memory Thread Store (TODO: Replace with database) ============
-
-# Simple in-memory store for threads
-# In production, this should be persisted to database
-_threads_store: dict[str, dict] = {}
-
-
-def get_thread(thread_id: str) -> dict | None:
-    """Get thread by ID."""
-    return _threads_store.get(thread_id)
+async def get_chat_thread_service(
+    db: AsyncSession = Depends(get_db),
+) -> ChatThreadService:
+    """Get chat thread service instance."""
+    return ChatThreadService(db)
 
 
-def save_thread(thread_id: str, thread_data: dict) -> None:
-    """Save thread data."""
-    _threads_store[thread_id] = thread_data
+def _resolve_workspace_id(request: ChatRequest, thread: ChatThread) -> str | None:
+    """Resolve workspace context from request or existing thread."""
+    return request.workspace_id or thread.workspace_id
 
 
-def create_thread_id() -> str:
-    """Generate a new thread ID."""
-    return str(uuid.uuid4())
+def _build_langchain_messages(thread: ChatThread) -> list:
+    """Convert stored thread messages into LangChain message objects."""
+    messages = []
+    for msg in thread.messages or []:
+        if msg["role"] == "user":
+            messages.append(HumanMessage(content=msg["content"]))
+        elif msg["role"] == "assistant":
+            messages.append(AIMessage(content=msg["content"]))
+        elif msg["role"] == "system":
+            messages.append(SystemMessage(content=msg["content"]))
+    return messages
 
 
-# ============ Dependencies ============
-
-async def get_or_create_thread(
-    thread_id: str | None = None,
-    workspace_id: str | None = None,
-    model: str = "gpt-4o",
-) -> dict:
-    """Get existing thread or create new one."""
-    if thread_id and thread_id in _threads_store:
-        return _threads_store[thread_id]
-
-    new_thread = {
-        "id": create_thread_id(),
-        "workspace_id": workspace_id,
-        "title": None,
-        "model": model,
-        "messages": [],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-    }
-    _threads_store[new_thread["id"]] = new_thread
-    return new_thread
-
-
-# ============ Endpoints ============
-
-@router.post("/threads", response_model=ThreadResponse)
-async def create_thread(request: ThreadCreate):
-    """Create a new chat thread."""
-    thread = await get_or_create_thread(
-        workspace_id=request.workspace_id,
-        model=request.model,
-    )
-    if request.title:
-        thread["title"] = request.title
-
-    return ThreadResponse(
-        id=thread["id"],
-        workspace_id=thread["workspace_id"],
-        title=thread["title"],
-        model=thread["model"],
-        messages=[],
-        created_at=thread["created_at"],
-        updated_at=thread["updated_at"],
-    )
-
-
-@router.get("/threads/{thread_id}", response_model=ThreadResponse)
-async def get_thread_details(thread_id: str):
-    """Get thread details with messages."""
-    thread = get_thread(thread_id)
-    if not thread:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    messages = [
+def _thread_messages_to_response(messages: list[dict]) -> list[ChatMessage]:
+    """Map persisted JSON messages to API models."""
+    return [
         ChatMessage(
-            role=msg["role"],
-            content=msg["content"],
-            timestamp=msg.get("timestamp"),
+            role=message["role"],
+            content=message["content"],
+            timestamp=message.get("timestamp"),
         )
-        for msg in thread.get("messages", [])
+        for message in messages
     ]
 
-    return ThreadResponse(
-        id=thread["id"],
-        workspace_id=thread["workspace_id"],
-        title=thread["title"],
-        model=thread["model"],
-        messages=messages,
-        created_at=thread["created_at"],
-        updated_at=thread["updated_at"],
-    )
 
+async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> str:
+    """Generate a chat response through the unified lead-agent pipeline."""
+    workspace_id = _resolve_workspace_id(request, thread)
 
-@router.delete("/threads/{thread_id}")
-async def delete_thread(thread_id: str):
-    """Delete a thread."""
-    if thread_id not in _threads_store:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    del _threads_store[thread_id]
-    return {"success": True}
-
-
-@router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """Send a message and get a response (non-streaming)."""
-    # Get or create thread
-    thread = await get_or_create_thread(
-        thread_id=request.thread_id,
-        workspace_id=request.workspace_id,
-        model=request.model,
-    )
-
-    # Add user message to thread
-    user_msg = {
-        "role": "user",
-        "content": request.message,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-    thread["messages"].append(user_msg)
-
-    # Get AI response
     try:
         from src.agents.lead_agent.agent import make_lead_agent
 
-        # Build config
         config: RunnableConfig = {
             "configurable": {
-                "thread_id": thread["id"],
+                "thread_id": thread.id,
+                "workspace_id": workspace_id,
                 "model_name": request.model,
                 "thinking_enabled": request.thinking_enabled,
             }
         }
 
-        # Create agent
         agent = make_lead_agent(config)
-
-        # Build messages for agent
-        messages = []
-        for msg in thread["messages"]:
-            if msg["role"] == "user":
-                messages.append(HumanMessage(content=msg["content"]))
-            elif msg["role"] == "assistant":
-                messages.append(AIMessage(content=msg["content"]))
-            elif msg["role"] == "system":
-                messages.append(SystemMessage(content=msg["content"]))
-
-        # Invoke agent
         result = await agent.ainvoke(
-            {"messages": messages},
+            {
+                "messages": _build_langchain_messages(thread),
+                "workspace_id": workspace_id,
+            },
             config=config,
         )
+        return result["messages"][-1].content if result.get("messages") else ""
 
-        # Extract response
-        response_content = result["messages"][-1].content if result.get("messages") else ""
-
-    except Exception as e:
-        # Fallback to simple model call if agent fails
+    except Exception:
         logger.exception("Agent failed, falling back to simple model")
         from src.models.factory import create_chat_model
+
         model = create_chat_model(request.model, request.thinking_enabled)
-        response = await model.ainvoke([HumanMessage(content=request.message)])
-        response_content = response.content
+        response = await model.ainvoke(_build_langchain_messages(thread))
+        return response.content
 
-    # Add assistant message to thread
-    assistant_msg = {
-        "role": "assistant",
-        "content": response_content,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-    thread["messages"].append(assistant_msg)
-    thread["updated_at"] = datetime.utcnow()
 
-    # Auto-generate title if first message
-    if not thread["title"] and len(thread["messages"]) <= 2:
-        thread["title"] = request.message[:50] + ("..." if len(request.message) > 50 else "")
+def _thread_to_response(thread: ChatThread, include_messages: bool = True) -> ThreadResponse:
+    """Convert a thread ORM object to the API response model."""
+    return ThreadResponse(
+        id=thread.id,
+        workspace_id=thread.workspace_id,
+        title=thread.title,
+        model=thread.model,
+        messages=_thread_messages_to_response(thread.messages or []) if include_messages else [],
+        created_at=thread.created_at,
+        updated_at=thread.updated_at,
+    )
+
+
+async def _get_or_create_owned_thread(
+    request: ChatRequest,
+    current_user: User,
+    chat_thread_service: ChatThreadService,
+) -> ChatThread:
+    """Fetch or create a thread while enforcing owner isolation."""
+    try:
+        return await chat_thread_service.get_or_create_thread(
+            thread_id=request.thread_id,
+            user_id=str(current_user.id),
+            workspace_id=request.workspace_id,
+            model=request.model,
+        )
+    except ChatThreadAccessError as exc:
+        raise HTTPException(status_code=404, detail="Thread not found") from exc
+
+
+@router.post("/threads", response_model=ThreadResponse)
+async def create_thread(
+    request: ThreadCreate,
+    current_user: User = Depends(get_current_user),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+):
+    """Create a new chat thread."""
+    thread = await chat_thread_service.create_thread(
+        user_id=str(current_user.id),
+        workspace_id=request.workspace_id,
+        title=request.title,
+        model=request.model,
+    )
+    return _thread_to_response(thread, include_messages=False)
+
+
+@router.get("/threads/{thread_id}", response_model=ThreadResponse)
+async def get_thread_details(
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+):
+    """Get thread details with messages."""
+    thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    return _thread_to_response(thread)
+
+
+@router.delete("/threads/{thread_id}")
+async def delete_thread(
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+):
+    """Delete a thread."""
+    deleted = await chat_thread_service.delete_thread(thread_id, str(current_user.id))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return {"success": True}
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(
+    request: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+):
+    """Send a message and get a response (non-streaming)."""
+    thread = await _get_or_create_owned_thread(request, current_user, chat_thread_service)
+    await chat_thread_service.add_message(thread, role="user", content=request.message)
+
+    response_content = await _generate_chat_response(request, thread)
+
+    assistant_message = await chat_thread_service.add_message(
+        thread,
+        role="assistant",
+        content=response_content,
+    )
+    await chat_thread_service.set_title_if_empty(thread, request.message)
 
     return ChatResponse(
-        thread_id=thread["id"],
-        message=ChatMessage(
-            role="assistant",
-            content=response_content,
-            timestamp=datetime.utcnow(),
-        ),
-        workspace_id=thread["workspace_id"],
+        thread_id=thread.id,
+        message=ChatMessage(**assistant_message),
+        workspace_id=thread.workspace_id,
     )
 
 
 @router.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(
+    request: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+):
     """Send a message and get a streaming response."""
 
     async def generate() -> AsyncGenerator[str, None]:
-        """Generate streaming response."""
-        # Get or create thread
-        thread = await get_or_create_thread(
-            thread_id=request.thread_id,
-            workspace_id=request.workspace_id,
-            model=request.model,
-        )
+        thread = await _get_or_create_owned_thread(request, current_user, chat_thread_service)
+        await chat_thread_service.add_message(thread, role="user", content=request.message)
 
-        # Add user message to thread
-        user_msg = {
-            "role": "user",
-            "content": request.message,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
-        thread["messages"].append(user_msg)
-
-        # Send thread_id first
-        yield f"data: {json.dumps({'type': 'thread_id', 'thread_id': thread['id']})}\n\n"
+        yield f"data: {json.dumps({'type': 'thread_id', 'thread_id': thread.id})}\n\n"
 
         try:
-            from src.models.factory import create_chat_model
+            response_content = await _generate_chat_response(request, thread)
+            if response_content:
+                yield (
+                    f"data: {json.dumps({'type': 'content', 'content': response_content})}\n\n"
+                )
 
-            # Create model with streaming
-            model = create_chat_model(request.model, request.thinking_enabled)
-
-            # Build messages
-            messages = [HumanMessage(content=request.message)]
-
-            # Stream response
-            full_response = ""
-            async for chunk in model.astream(messages):
-                if chunk.content:
-                    full_response += chunk.content
-                    yield f"data: {json.dumps({'type': 'content', 'content': chunk.content})}\n\n"
-
-            # Add assistant message to thread
-            assistant_msg = {
-                "role": "assistant",
-                "content": full_response,
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-            thread["messages"].append(assistant_msg)
-            thread["updated_at"] = datetime.utcnow()
-
-            # Send done signal
+            await chat_thread_service.add_message(
+                thread,
+                role="assistant",
+                content=response_content,
+            )
+            await chat_thread_service.set_title_if_empty(thread, request.message)
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+        except Exception as exc:
+            logger.exception("Streaming chat failed")
+            yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
 
     return StreamingResponse(
         generate(),
@@ -322,31 +288,27 @@ async def chat_stream(request: ChatRequest):
 async def list_threads(
     workspace_id: str | None = None,
     limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
 ):
     """List all threads, optionally filtered by workspace."""
-    threads = list(_threads_store.values())
-
-    if workspace_id:
-        threads = [t for t in threads if t["workspace_id"] == workspace_id]
-
-    # Sort by updated_at descending
-    threads.sort(key=lambda t: t["updated_at"], reverse=True)
-
-    # Limit results
-    threads = threads[:limit]
-
+    threads = await chat_thread_service.list_threads(
+        user_id=str(current_user.id),
+        workspace_id=workspace_id,
+        limit=limit,
+    )
     return {
         "threads": [
             {
-                "id": t["id"],
-                "workspace_id": t["workspace_id"],
-                "title": t["title"],
-                "model": t["model"],
-                "message_count": len(t["messages"]),
-                "created_at": t["created_at"],
-                "updated_at": t["updated_at"],
+                "id": thread.id,
+                "workspace_id": thread.workspace_id,
+                "title": thread.title,
+                "model": thread.model,
+                "message_count": len(thread.messages or []),
+                "created_at": thread.created_at,
+                "updated_at": thread.updated_at,
             }
-            for t in threads
+            for thread in threads
         ],
         "count": len(threads),
     }

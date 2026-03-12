@@ -36,8 +36,8 @@ const WORKSPACE_TYPES = [
   { value: 'sci', label: 'Scientific Research' },
   { value: 'thesis', label: 'Thesis/Dissertation' },
   { value: 'proposal', label: 'Research Proposal' },
-  { value: 'grant', label: 'Grant Application' },
-  { value: 'literature_review', label: 'Literature Review' },
+  { value: 'software_copyright', label: 'Software Copyright Application' },
+  { value: 'patent', label: 'Patent Application' },
 ] as const;
 
 const DISCIPLINES = [

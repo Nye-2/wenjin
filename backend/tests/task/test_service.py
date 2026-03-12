@@ -94,3 +94,38 @@ class TestTaskService:
 
             tasks = await task_service.list_tasks("user-list")
             assert len(tasks) >= 3
+
+    @pytest.mark.asyncio
+    async def test_get_task_status_merges_runtime_metadata_for_terminal_tasks(self, task_service):
+        """Test completed tasks still expose Redis metadata while the runtime cache exists."""
+        with patch("src.task.service.celery_app") as mock_celery:
+            mock_celery.send_task = MagicMock()
+
+            task_id = await task_service.submit_task(
+                user_id="user-1",
+                task_type="thesis_generation",
+                payload={"workspace_id": "ws-1"},
+            )
+
+        await task_service._store.update_task_record(
+            task_id,
+            status="success",
+            progress=100,
+            result={"pdf_path": "/tmp/test.pdf"},
+        )
+        await task_service._store.set_task_state(
+            task_id,
+            status="success",
+            progress=100,
+            message="Completed",
+            metadata={"current_phase": "export", "pdf_path": "/tmp/test.pdf"},
+        )
+
+        status = await task_service.get_task_status(task_id, "user-1")
+
+        assert status is not None
+        assert status["status"] == "success"
+        assert status["metadata"] == {
+            "current_phase": "export",
+            "pdf_path": "/tmp/test.pdf",
+        }

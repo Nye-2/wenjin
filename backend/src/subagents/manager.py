@@ -339,7 +339,7 @@ class GlobalSubagentManager:
                     task.cancel()
                     cancelled_count += 1
             del self._threads[thread_id]
-            self._limiter.cleanup_thread(thread_id)
+            await self._limiter.cleanup_thread(thread_id)
             logger.info(
                 f"Cleaned up thread {thread_id}, cancelled {cancelled_count} tasks"
             )

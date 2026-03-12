@@ -3,6 +3,7 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -58,8 +59,8 @@ async def init_db() -> None:
     Should be called once at application startup.
     """
     async with engine.begin() as conn:
-        # Enable pgvector extension
-        await conn.execute('CREATE EXTENSION IF NOT EXISTS vector')
+        if conn.dialect.name == "postgresql":
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)
 

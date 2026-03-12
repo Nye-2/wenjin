@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from .chat_thread import ChatThread
     from .knowledge import UserKnowledge
     from .workspace import Workspace
 
@@ -50,6 +51,11 @@ class User(Base, UUIDMixin, TimestampMixin):
     )
     knowledge: Mapped[list["UserKnowledge"]] = relationship(
         "UserKnowledge",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    chat_threads: Mapped[list["ChatThread"]] = relationship(
+        "ChatThread",
         back_populates="user",
         cascade="all, delete-orphan",
     )

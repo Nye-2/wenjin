@@ -287,6 +287,10 @@ async def test_app(test_engine, test_session):
 
         model_config = ConfigDict(from_attributes=True)
 
+    class PapersListResponse(BaseModel):
+        papers: list[PaperResponse]
+        count: int
+
     class AddPaperRequest(BaseModel):
         notes: str | None = None
         tags: list | None = None
@@ -433,7 +437,13 @@ async def test_app(test_engine, test_session):
 
     @app.post("/api/workspaces/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
     async def create_workspace(request: CreateWorkspaceRequest, user_id: str):
-        valid_types = ["sci", "thesis", "proposal", "grant", "literature_review"]
+        valid_types = [
+            "sci",
+            "thesis",
+            "proposal",
+            "software_copyright",
+            "patent",
+        ]
         if request.type not in valid_types:
             raise HTTPException(status_code=400, detail=f"Invalid workspace type: {request.type}")
 
@@ -527,7 +537,7 @@ async def test_app(test_engine, test_session):
         await test_session.commit()
         return {"success": True}
 
-    @app.get("/api/workspaces/{workspace_id}/papers", response_model=list[PaperResponse])
+    @app.get("/api/workspaces/{workspace_id}/papers", response_model=PapersListResponse)
     async def list_workspace_papers(workspace_id: str, read_status: str | None = None):
         query = (
             select(FixturePaper)
@@ -539,24 +549,27 @@ async def test_app(test_engine, test_session):
         query = query.order_by(FixtureWorkspacePaper.created_at.desc())
         result = await test_session.execute(query)
         papers = result.scalars().all()
-        return [
-            PaperResponse(
-                id=str(p.id),
-                doi=p.doi,
-                title=p.title,
-                authors=p.authors or [],
-                year=p.year,
-                venue=p.venue,
-                abstract=p.abstract,
-                file_path=p.file_path,
-                source=p.source,
-                external_ids=p.external_ids or {},
-                toc=p.toc,
-                citation_count=p.citation_count,
-                reference_count=p.reference_count,
-            )
-            for p in papers
-        ]
+        return PapersListResponse(
+            papers=[
+                PaperResponse(
+                    id=str(p.id),
+                    doi=p.doi,
+                    title=p.title,
+                    authors=p.authors or [],
+                    year=p.year,
+                    venue=p.venue,
+                    abstract=p.abstract,
+                    file_path=p.file_path,
+                    source=p.source,
+                    external_ids=p.external_ids or {},
+                    toc=p.toc,
+                    citation_count=p.citation_count,
+                    reference_count=p.reference_count,
+                )
+                for p in papers
+            ],
+            count=len(papers),
+        )
 
     @app.post("/api/workspaces/{workspace_id}/papers/{paper_id}")
     async def add_paper_to_workspace(workspace_id: str, paper_id: str, request: AddPaperRequest):

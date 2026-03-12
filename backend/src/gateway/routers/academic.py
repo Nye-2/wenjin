@@ -40,20 +40,6 @@ class PaperResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class PapersListResponse(BaseModel):
-    """List of papers."""
-    papers: list[PaperResponse]
-    count: int
-
-
-class WorkspacePaperAdd(BaseModel):
-    """Add paper to workspace request."""
-    paper_id: str
-    notes: str | None = None
-    tags: list[str] | None = None
-    is_primary: bool = False
-
-
 class ArtifactCreate(BaseModel):
     """Artifact creation request."""
     type: str
@@ -116,43 +102,6 @@ async def get_artifact_service(db = Depends(get_db)):
     """Get artifact service instance."""
     from src.academic.services import ArtifactService
     return ArtifactService(db)
-
-
-# ============ Workspace Paper Endpoints ============
-# Note: Basic workspace CRUD operations are in workspaces.py
-
-@router.get("/workspaces/{workspace_id}/papers", response_model=PapersListResponse)
-async def list_workspace_papers(
-    workspace_id: str,
-    read_status: str | None = None,
-    paper_service = Depends(get_paper_service),
-):
-    """List papers in a workspace."""
-    papers = await paper_service.list_workspace_papers(
-        workspace_id=workspace_id,
-        read_status=read_status,
-    )
-    return PapersListResponse(
-        papers=[PaperResponse(**orm_to_dict(p)) for p in papers],
-        count=len(papers),
-    )
-
-
-@router.post("/workspaces/{workspace_id}/papers")
-async def add_paper_to_workspace(
-    workspace_id: str,
-    request: WorkspacePaperAdd,
-    paper_service = Depends(get_paper_service),
-):
-    """Add a paper to a workspace."""
-    await paper_service.add_to_workspace(
-        workspace_id=workspace_id,
-        paper_id=request.paper_id,
-        notes=request.notes,
-        tags=request.tags,
-        is_primary=request.is_primary,
-    )
-    return {"success": True, "paper_id": request.paper_id}
 
 
 # ============ Paper Endpoints ============

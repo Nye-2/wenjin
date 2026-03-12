@@ -1,34 +1,16 @@
 """Artifact model for academic outputs."""
-
-from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from src.artifacts import ArtifactType
+
 from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from .workspace import Workspace
-
-
-class ArtifactType(StrEnum):
-    """Types of academic artifacts."""
-    RESEARCH_IDEA = "research_idea"
-    METHODOLOGY = "methodology"
-    FRAMEWORK_OUTLINE = "framework_outline"
-    ABSTRACT = "abstract"
-    INTRODUCTION = "introduction"
-    LITERATURE_REVIEW = "literature_review"
-    METHODOLOGY_SECTION = "methodology_section"
-    EXPERIMENT_SECTION = "experiment_section"
-    RESULTS_SECTION = "results_section"
-    DISCUSSION_SECTION = "discussion_section"
-    CONCLUSION = "conclusion"
-    PAPER_DRAFT = "paper_draft"
-    PROPOSAL = "proposal"
-    REVIEW = "review"
 
 
 class Artifact(Base, UUIDMixin, TimestampMixin):

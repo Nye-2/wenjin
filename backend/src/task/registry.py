@@ -61,6 +61,12 @@ TASK_REGISTRY: dict[str, TaskTypeConfig] = {
         retry=1,
         description="Paper processing: PDF parsing, metadata extraction",
     ),
+    "workspace_feature": TaskTypeConfig(
+        queue=TaskQueue.DEFAULT,
+        timeout=300,
+        retry=1,
+        description="Generic workspace feature execution bridge",
+    ),
 }
 
 

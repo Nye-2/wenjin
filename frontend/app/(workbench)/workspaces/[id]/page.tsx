@@ -16,16 +16,18 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 const workspaceTypeLabels: Record<string, string> = {
   sci: "Scientific Paper",
-  thesis: "Thesis/Dissertation",
+  thesis: "Thesis / Dissertation",
   proposal: "Research Proposal",
-  grant: "Grant Application",
+  software_copyright: "Software Copyright Application",
+  patent: "Patent Application",
 };
 
 const workspaceTypeColors: Record<string, string> = {
   sci: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   thesis: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
   proposal: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  grant: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  software_copyright: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+  patent: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
 };
 
 export default function WorkbenchPage() {
@@ -33,7 +35,7 @@ export default function WorkbenchPage() {
   const router = useRouter();
   const workspaceId = params.id as string;
 
-  const { workspace, isLoading, error, loadWorkspace, clearWorkspace } =
+  const { workspace, isWorkspaceLoading, error, loadWorkspace, clearWorkspace } =
     useWorkspaceStore();
   const { fetchFeatures, clearFeatures } = useFeaturesStore();
 
@@ -49,7 +51,7 @@ export default function WorkbenchPage() {
     };
   }, [workspaceId, loadWorkspace, clearWorkspace, fetchFeatures, clearFeatures]);
 
-  if (isLoading) {
+  if (isWorkspaceLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-[var(--bg-base)]">
         <motion.div

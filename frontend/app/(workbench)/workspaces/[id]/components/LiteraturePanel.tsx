@@ -74,7 +74,7 @@ interface LiteraturePanelProps {
 }
 
 export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
-  const { papers, fetchPapers, isLoading } = useWorkspaceStore();
+  const { papers, fetchPapers, isPapersLoading } = useWorkspaceStore();
 
   useEffect(() => {
     if (workspaceId) {
@@ -117,7 +117,7 @@ export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
       {/* Papers List */}
       <div className="flex-1 overflow-y-auto p-3">
         <AnimatePresence mode="popLayout">
-          {isLoading ? (
+          {isPapersLoading ? (
             <div className="flex items-center justify-center py-8">
               <motion.div
                 animate={{ rotate: 360 }}

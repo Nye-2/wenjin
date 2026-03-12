@@ -5,6 +5,7 @@ workflow as a background task, updating task status in storage throughout.
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.thesis.task_storage import get_storage
@@ -13,6 +14,7 @@ from src.thesis.workflow.state import ThesisWorkflowState, SectionPlan
 from src.thesis.config import thesis_settings
 
 logger = logging.getLogger(__name__)
+StatusUpdateCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 def _build_section_plans(framework: dict[str, Any]) -> list[SectionPlan]:
@@ -94,6 +96,146 @@ def _build_writing_order(plans: list[SectionPlan]) -> list[int]:
     return result
 
 
+def _count_completed_sections(sections: list[Any]) -> int:
+    """Count completed sections across dict and model payloads."""
+    completed = 0
+    for section in sections:
+        status = getattr(section, "status", None)
+        if status is None and isinstance(section, dict):
+            status = section.get("status")
+        if status == "completed":
+            completed += 1
+    return completed
+
+
+def _build_initial_state(
+    request: dict[str, Any],
+    section_plans: list[SectionPlan],
+    writing_order: list[int],
+) -> ThesisWorkflowState:
+    """Build the initial thesis workflow state."""
+    framework = request.get("framework_json", {})
+    return {
+        "workspace_id": request.get("workspace_id", ""),
+        "thread_id": request.get("thread_id", ""),
+        "paper_title": request.get("paper_title", "Untitled"),
+        "discipline": request.get("discipline", "计算机科学"),
+        "abstract_content": request.get("abstract_content", ""),
+        "framework_json": framework,
+        "section_plans": [p.model_dump() for p in section_plans],  # type: ignore
+        "writing_order": writing_order,
+        "references": [],
+        "citation_plan": {},
+        "sections": [],
+        "figure_requests": [],
+        "generated_figures": [],
+        "current_phase": "init",
+        "progress": 0.0,
+        "errors": [],
+    }
+
+
+def _extract_update(
+    node_output: dict[str, Any],
+    *,
+    sections_total: int,
+) -> dict[str, Any]:
+    """Extract a normalized status update from a workflow node output."""
+    update: dict[str, Any] = {
+        "progress": float(node_output.get("progress", 0.0)),
+        "sections_total": sections_total,
+    }
+    phase = node_output.get("current_phase")
+    if phase:
+        update["current_phase"] = phase
+        update["message"] = f"Processing: {phase}"
+
+    sections = node_output.get("sections")
+    if sections:
+        update["sections_completed"] = _count_completed_sections(sections)
+
+    if "final_latex" in node_output:
+        update["latex_content"] = node_output.get("final_latex", "")
+    if "bib_content" in node_output:
+        update["bib_content"] = node_output.get("bib_content", "")
+    if "pdf_path" in node_output:
+        update["pdf_path"] = node_output.get("pdf_path", "")
+
+    return update
+
+
+def _build_final_result(
+    final_values: dict[str, Any],
+    *,
+    sections_total: int,
+) -> dict[str, Any]:
+    """Normalize the final workflow state into a task result payload."""
+    sections = final_values.get("sections", [])
+    return {
+        "current_phase": final_values.get("current_phase", "completed"),
+        "progress": float(final_values.get("progress", 1.0)),
+        "latex_content": final_values.get("final_latex", ""),
+        "pdf_path": final_values.get("pdf_path", ""),
+        "bib_content": final_values.get("bib_content", ""),
+        "sections_completed": _count_completed_sections(sections),
+        "sections_total": sections_total,
+    }
+
+
+async def run_thesis_workflow_request(
+    request: dict[str, Any],
+    *,
+    on_update: StatusUpdateCallback | None = None,
+) -> dict[str, Any]:
+    """Run thesis generation and emit normalized progress updates."""
+    framework = request.get("framework_json", {})
+    section_plans = _build_section_plans(framework)
+    writing_order = _build_writing_order(section_plans)
+    sections_total = len(section_plans)
+
+    if on_update:
+        await on_update(
+            {
+                "status": "running",
+                "current_phase": "init",
+                "progress": 0.0,
+                "sections_completed": 0,
+                "sections_total": sections_total,
+                "message": "Starting thesis generation workflow",
+            }
+        )
+
+    initial_state = _build_initial_state(request, section_plans, writing_order)
+    config = {
+        "configurable": {
+            "thread_id": request.get("thread_id") or request.get("task_id") or request.get("workspace_id", ""),
+        }
+    }
+
+    logger.info("Starting thesis workflow for workspace %s", request.get("workspace_id", ""))
+
+    async for event in thesis_graph.astream(initial_state, config):
+        logger.debug("Thesis workflow event: %s", event)
+        for node_output in event.values():
+            if isinstance(node_output, dict) and on_update:
+                await on_update(_extract_update(node_output, sections_total=sections_total))
+
+    final_state = thesis_graph.get_state(config)
+    final_values = final_state.values
+    result = _build_final_result(final_values, sections_total=sections_total)
+
+    if on_update:
+        await on_update(
+            {
+                "status": "completed",
+                "message": "Thesis generation completed successfully",
+                **result,
+            }
+        )
+
+    return result
+
+
 async def run_thesis_workflow(task_id: str, request: dict[str, Any]) -> None:
     """Run the thesis generation workflow as a background task.
 
@@ -125,99 +267,33 @@ async def run_thesis_workflow(task_id: str, request: dict[str, Any]) -> None:
     })
 
     try:
-        # Step 3: Build section_plans and writing_order from framework_json
-        framework = request.get("framework_json", {})
-        section_plans = _build_section_plans(framework)
-        writing_order = _build_writing_order(section_plans)
+        async def on_update(update: dict[str, Any]) -> None:
+            storage_update = {}
+            for key in (
+                "status",
+                "progress",
+                "current_phase",
+                "message",
+                "latex_content",
+                "pdf_path",
+                "bib_content",
+                "sections_completed",
+                "sections_total",
+                "error",
+            ):
+                if key in update:
+                    storage_update[key] = update[key]
+            if storage_update:
+                storage.update_task(task_id, storage_update)
 
-        # Update sections_total
-        storage.update_task(task_id, {
-            "sections_total": len(section_plans),
-            "message": f"Planning {len(section_plans)} sections",
-        })
-
-        # Step 4: Build initial ThesisWorkflowState
-        initial_state: ThesisWorkflowState = {
-            "workspace_id": request.get("workspace_id", ""),
-            "thread_id": task_id,
-            "paper_title": request.get("paper_title", "Untitled"),
-            "discipline": request.get("discipline", "计算机科学"),
-            "abstract_content": request.get("abstract_content", ""),
-            "framework_json": framework,
-            "section_plans": [p.model_dump() for p in section_plans],  # type: ignore
-            "writing_order": writing_order,
-            "references": [],
-            "citation_plan": {},
-            "sections": [],
-            "figure_requests": [],
-            "generated_figures": [],
-            "current_phase": "init",
-            "progress": 0.0,
-            "errors": [],
-        }
-
-        # Step 5: Run thesis_graph.astream with streaming
-        config = {
-            "configurable": {
+        await run_thesis_workflow_request(
+            {
+                **request,
+                "task_id": task_id,
                 "thread_id": task_id,
-            }
-        }
-
-        logger.info(f"Starting workflow for task {task_id}")
-
-        # Step 6: For each event, update task progress
-        async for event in thesis_graph.astream(initial_state, config):
-            logger.debug(f"Workflow event for task {task_id}: {event}")
-
-            # Extract progress information from event
-            for node_name, node_output in event.items():
-                if isinstance(node_output, dict):
-                    progress = node_output.get("progress", 0.0)
-                    phase = node_output.get("current_phase", "")
-
-                    # Update task progress
-                    update_data = {"progress": progress}
-                    if phase:
-                        update_data["current_phase"] = phase
-                        update_data["message"] = f"Processing: {phase}"
-
-                    # Count completed sections
-                    sections = node_output.get("sections", [])
-                    if sections:
-                        completed = sum(
-                            1 for s in sections
-                            if isinstance(s, dict) and s.get("status") == "completed"
-                        )
-                        update_data["sections_completed"] = completed
-
-                    storage.update_task(task_id, update_data)
-
-        # Step 7: After completion, get final state and update task with results
-        final_state = thesis_graph.get_state(config)
-        final_values = final_state.values
-
-        latex_content = final_values.get("final_latex", "")
-        pdf_path = final_values.get("pdf_path", "")
-        bib_content = final_values.get("bib_content", "")
-        final_progress = final_values.get("progress", 1.0)
-
-        # Count final sections
-        sections = final_values.get("sections", [])
-        sections_completed = sum(
-            1 for s in sections
-            if isinstance(s, dict) and s.get("status") == "completed"
+            },
+            on_update=on_update,
         )
-
-        storage.update_task(task_id, {
-            "status": "completed",
-            "progress": 1.0,
-            "current_phase": "completed",
-            "latex_content": latex_content,
-            "pdf_path": pdf_path,
-            "bib_content": bib_content,
-            "sections_completed": sections_completed,
-            "message": "Thesis generation completed successfully",
-        })
 
         logger.info(f"Workflow completed for task {task_id}")
 
@@ -236,5 +312,6 @@ async def run_thesis_workflow(task_id: str, request: dict[str, Any]) -> None:
 __all__ = [
     "_build_section_plans",
     "_build_writing_order",
+    "run_thesis_workflow_request",
     "run_thesis_workflow",
 ]

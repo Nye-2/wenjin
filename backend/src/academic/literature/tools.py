@@ -178,7 +178,7 @@ async def create_workspace(
 
     Args:
         name: Workspace name
-        type: Workspace type (sci, thesis, proposal, grant, literature_review)
+        type: Workspace type (sci, thesis, proposal, software_copyright, patent)
         discipline: Academic discipline (optional, e.g., computer_science)
         description: Workspace description (optional)
 

@@ -37,7 +37,7 @@ Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
 
 ```bash
 # Install dependencies
-uv sync
+uv sync --extra dev
 
 # Run database migrations
 uv run alembic upgrade head

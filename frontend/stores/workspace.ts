@@ -1,27 +1,24 @@
 /**
  * Workspace Store for AcademiaGPT
- * Manages workspace, artifacts, and papers state
+ * Manages workspace list, details, artifacts, and papers state
  */
 
 import { create } from 'zustand';
 import {
+  Workspace as ApiWorkspace,
+  WorkspaceCreate,
+  listWorkspaces,
   getWorkspace,
   listWorkspacePapers,
   listArtifacts,
   createArtifact,
-  createPaper as apiCreatePaper,
+  createWorkspace as apiCreateWorkspace,
+  deleteWorkspace as apiDeleteWorkspace,
 } from '../lib/api';
 
 // ============ Types ============
 
-export interface Workspace {
-  id: string;
-  name: string;
-  type: 'sci' | 'thesis' | 'proposal' | 'grant';
-  discipline: string | null;
-  description: string | null;
-  created_at: string;
-}
+export type Workspace = ApiWorkspace;
 
 export interface Artifact {
   id: string;
@@ -43,14 +40,22 @@ export interface Paper {
 // ============ Store State ============
 
 interface WorkspaceState {
+  workspaces: Workspace[];
   workspace: Workspace | null;
   artifacts: Artifact[];
   papers: Paper[];
-  isLoading: boolean;
+  isWorkspacesLoading: boolean;
+  isWorkspaceLoading: boolean;
+  isPapersLoading: boolean;
+  isArtifactsLoading: boolean;
+  isWorkspaceMutating: boolean;
   error: string | null;
 
   // Actions
+  fetchWorkspaces: () => Promise<void>;
   loadWorkspace: (id: string) => Promise<void>;
+  createWorkspace: (data: WorkspaceCreate) => Promise<Workspace>;
+  removeWorkspace: (id: string) => Promise<void>;
   addPaper: (paper: Paper) => void;
   addArtifact: (artifact: Artifact) => void;
   setWorkspace: (workspace: Workspace | null) => void;
@@ -63,46 +68,83 @@ interface WorkspaceState {
     title?: string;
     content: Record<string, unknown>;
   }) => Promise<Artifact>;
+  clearError: () => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
+  workspaces: [],
   workspace: null,
   artifacts: [],
   papers: [],
-  isLoading: false,
+  isWorkspacesLoading: false,
+  isWorkspaceLoading: false,
+  isPapersLoading: false,
+  isArtifactsLoading: false,
+  isWorkspaceMutating: false,
   error: null,
 
-  loadWorkspace: async (id: string) => {
-    set({ isLoading: true, error: null });
+  fetchWorkspaces: async () => {
+    set({ isWorkspacesLoading: true, error: null });
     try {
-      const workspace = await getWorkspace(id);
-      set({ workspace: workspace as unknown as Workspace, isLoading: false });
-
-      // Also load papers and artifacts for this workspace
-      const [papersResponse, artifactsResponse] = await Promise.all([
-        listWorkspacePapers(id),
-        listArtifacts(id),
-      ]);
-
+      const response = await listWorkspaces();
       set({
-        papers: papersResponse.papers.map((p) => ({
-          id: p.id,
-          title: p.title,
-          authors: p.authors?.map((a) => a.name) || [],
-          year: p.year || null,
-          venue: p.venue || null,
-        })),
-        artifacts: artifactsResponse.artifacts.map((a) => ({
-          id: a.id,
-          workspace_id: a.workspace_id,
-          type: a.type,
-          title: a.title || null,
-          content: a.content,
-          created_at: a.created_at,
-        })),
+        workspaces: response.workspaces,
+        isWorkspacesLoading: false,
       });
     } catch (error) {
-      set({ error: (error as Error).message, isLoading: false });
+      set({
+        error: (error as Error).message,
+        isWorkspacesLoading: false,
+      });
+    }
+  },
+
+  loadWorkspace: async (id: string) => {
+    set({ isWorkspaceLoading: true, error: null });
+    try {
+      const workspace = await getWorkspace(id);
+      set({
+        workspace,
+        isWorkspaceLoading: false,
+      });
+    } catch (error) {
+      set({ error: (error as Error).message, isWorkspaceLoading: false });
+    }
+  },
+
+  createWorkspace: async (data) => {
+    set({ isWorkspaceMutating: true, error: null });
+    try {
+      const workspace = await apiCreateWorkspace(data);
+      set((state) => ({
+        workspaces: [...state.workspaces, workspace],
+        isWorkspaceMutating: false,
+      }));
+      return workspace;
+    } catch (error) {
+      set({
+        error: (error as Error).message,
+        isWorkspaceMutating: false,
+      });
+      throw error;
+    }
+  },
+
+  removeWorkspace: async (id) => {
+    set({ isWorkspaceMutating: true, error: null });
+    try {
+      await apiDeleteWorkspace(id);
+      set((state) => ({
+        workspaces: state.workspaces.filter((workspace) => workspace.id !== id),
+        workspace: state.workspace?.id === id ? null : state.workspace,
+        isWorkspaceMutating: false,
+      }));
+    } catch (error) {
+      set({
+        error: (error as Error).message,
+        isWorkspaceMutating: false,
+      });
+      throw error;
     }
   },
 
@@ -127,11 +169,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       workspace: null,
       artifacts: [],
       papers: [],
-      error: null,
+      isWorkspaceLoading: false,
+      isPapersLoading: false,
+      isArtifactsLoading: false,
     });
   },
 
   fetchPapers: async (workspaceId: string) => {
+    set({ isPapersLoading: true, error: null });
     try {
       const response = await listWorkspacePapers(workspaceId);
       set({
@@ -142,13 +187,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           year: p.year || null,
           venue: p.venue || null,
         })),
+        isPapersLoading: false,
       });
     } catch (error) {
-      set({ error: (error as Error).message });
+      set({
+        error: (error as Error).message,
+        isPapersLoading: false,
+      });
     }
   },
 
   fetchArtifacts: async (workspaceId: string) => {
+    set({ isArtifactsLoading: true, error: null });
     try {
       const response = await listArtifacts(workspaceId);
       set({
@@ -160,9 +210,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           content: a.content,
           created_at: a.created_at,
         })),
+        isArtifactsLoading: false,
       });
     } catch (error) {
-      set({ error: (error as Error).message });
+      set({
+        error: (error as Error).message,
+        isArtifactsLoading: false,
+      });
     }
   },
 
@@ -188,6 +242,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ error: (error as Error).message });
       throw error;
     }
+  },
+
+  clearError: () => {
+    set({ error: null });
   },
 }));
 

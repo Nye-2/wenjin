@@ -9,6 +9,9 @@ import {
   GitBranch,
   ListChecks,
   FileCode,
+  ClipboardList,
+  ShieldCheck,
+  SearchCheck,
 } from "lucide-react";
 import { useWorkspaceStore, Artifact } from "@/stores/workspace";
 import { cn } from "@/lib/utils";
@@ -16,9 +19,18 @@ import { cn } from "@/lib/utils";
 const artifactIcons: Record<string, React.ElementType> = {
   hypothesis: Lightbulb,
   literature: BookOpen,
+  literature_review: BookOpen,
+  framework_outline: ListChecks,
   outline: ListChecks,
   "research-gap": GitBranch,
+  copyright_materials: ClipboardList,
+  technical_description: FileCode,
+  patent_outline: ShieldCheck,
+  prior_art_report: SearchCheck,
+  background_research: BookOpen,
+  paper_analysis: GitBranch,
   draft: FileText,
+  paper_draft: FileText,
   code: FileCode,
   default: FileText,
 };
@@ -26,9 +38,18 @@ const artifactIcons: Record<string, React.ElementType> = {
 const artifactColors: Record<string, string> = {
   hypothesis: "text-amber-500 bg-amber-500/10",
   literature: "text-blue-500 bg-blue-500/10",
+  literature_review: "text-blue-500 bg-blue-500/10",
+  framework_outline: "text-purple-500 bg-purple-500/10",
   outline: "text-purple-500 bg-purple-500/10",
   "research-gap": "text-rose-500 bg-rose-500/10",
+  copyright_materials: "text-violet-500 bg-violet-500/10",
+  technical_description: "text-indigo-500 bg-indigo-500/10",
+  patent_outline: "text-amber-500 bg-amber-500/10",
+  prior_art_report: "text-orange-500 bg-orange-500/10",
+  background_research: "text-emerald-500 bg-emerald-500/10",
+  paper_analysis: "text-fuchsia-500 bg-fuchsia-500/10",
   draft: "text-emerald-500 bg-emerald-500/10",
+  paper_draft: "text-emerald-500 bg-emerald-500/10",
   code: "text-cyan-500 bg-cyan-500/10",
   default: "text-slate-500 bg-slate-500/10",
 };
@@ -72,7 +93,7 @@ function ArtifactItem({ artifact, index }: ArtifactItemProps) {
           {artifact.title || `Untitled ${artifact.type}`}
         </p>
         <p className="text-xs text-[var(--text-muted)] capitalize">
-          {artifact.type.replace("-", " ")} &middot; {formatTime(artifact.created_at)}
+          {artifact.type.replace(/[_-]/g, " ")} &middot; {formatTime(artifact.created_at)}
         </p>
       </div>
     </motion.div>
@@ -84,7 +105,7 @@ interface KnowledgePanelProps {
 }
 
 export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
-  const { artifacts, fetchArtifacts, isLoading } = useWorkspaceStore();
+  const { artifacts, fetchArtifacts, isArtifactsLoading } = useWorkspaceStore();
 
   useEffect(() => {
     if (workspaceId) {
@@ -108,7 +129,7 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
       {/* Timeline */}
       <div className="flex-1 overflow-y-auto p-3">
         <AnimatePresence mode="popLayout">
-          {isLoading ? (
+          {isArtifactsLoading ? (
             <div className="flex items-center justify-center py-8">
               <motion.div
                 animate={{ rotate: 360 }}

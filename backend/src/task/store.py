@@ -21,6 +21,10 @@ class TaskStore:
         self._redis = redis_client
         self._db = db_session
 
+    def _record_model(self):
+        """Return the SQLAlchemy model used for task persistence."""
+        return getattr(self, "_model", getattr(self, "_test_model", TaskRecord))
+
     # === Redis Operations (Runtime State) ===
 
     def _task_key(self, task_id: str) -> str:
@@ -35,6 +39,7 @@ class TaskStore:
         message: str | None = None,
         current_step: str | None = None,
         worker_id: str | None = None,
+        metadata: dict | None = None,
     ) -> None:
         """Set task state in Redis."""
         key = self._task_key(task_id)
@@ -46,6 +51,8 @@ class TaskStore:
             "worker_id": worker_id or "",
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
+        if metadata is not None:
+            data["metadata"] = json.dumps(metadata, ensure_ascii=False)
         await self._redis.client.hset(key, mapping=data)
         await self._redis.client.expire(key, task_settings.task_redis_ttl)
 
@@ -55,6 +62,13 @@ class TaskStore:
         data = await self._redis.client.hgetall(key)
         if not data:
             return None
+        raw_metadata = data.get("metadata", "")
+        metadata = None
+        if raw_metadata:
+            try:
+                metadata = json.loads(raw_metadata)
+            except json.JSONDecodeError:
+                logger.warning("Failed to decode task metadata for task %s", task_id)
         return {
             "status": data.get("status", "unknown"),
             "progress": int(data.get("progress", 0)),
@@ -62,6 +76,7 @@ class TaskStore:
             "current_step": data.get("current_step", ""),
             "worker_id": data.get("worker_id", ""),
             "updated_at": data.get("updated_at", ""),
+            "metadata": metadata,
         }
 
     async def delete_task_state(self, task_id: str) -> None:
@@ -80,7 +95,8 @@ class TaskStore:
         payload: dict,
     ) -> TaskRecord:
         """Create a new task record in PostgreSQL."""
-        record = TaskRecord(
+        record_model = self._record_model()
+        record = record_model(
             id=task_id,
             user_id=user_id,
             task_type=task_type,
@@ -95,8 +111,9 @@ class TaskStore:
 
     async def get_task_record(self, task_id: str) -> TaskRecord | None:
         """Get task record from PostgreSQL."""
+        record_model = self._record_model()
         result = await self._db.execute(
-            select(TaskRecord).where(TaskRecord.id == task_id)
+            select(record_model).where(record_model.id == task_id)
         )
         return result.scalar_one_or_none()
 
@@ -126,14 +143,15 @@ class TaskStore:
         limit: int = 20,
     ) -> list[TaskRecord]:
         """List tasks for a user."""
-        query = select(TaskRecord).where(TaskRecord.user_id == user_id)
+        record_model = self._record_model()
+        query = select(record_model).where(record_model.user_id == user_id)
 
         if status:
-            query = query.where(TaskRecord.status == status)
+            query = query.where(record_model.status == status)
         if task_type:
-            query = query.where(TaskRecord.task_type == task_type)
+            query = query.where(record_model.task_type == task_type)
 
-        query = query.order_by(TaskRecord.created_at.desc()).limit(limit)
+        query = query.order_by(record_model.created_at.desc()).limit(limit)
         result = await self._db.execute(query)
         return list(result.scalars().all())
 
@@ -155,13 +173,23 @@ class TaskStore:
     ) -> None:
         """Mark task as completed (success or failed)."""
         status = TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value
+        runtime_state = await self.get_task_state(task_id)
+        final_progress = 100 if success else runtime_state.get("progress", 0) if runtime_state else 0
+        final_message = error or runtime_state.get("message") if runtime_state else error
         await self.update_task_record(
             task_id,
             status=status,
             result=result,
             error=error,
             completed_at=datetime.now(timezone.utc),
-            progress=100 if success else None,
+            progress=final_progress,
+            message=final_message,
         )
         # Keep Redis state for a while for queries
-        await self.set_task_state(task_id, status, progress=100 if success else 0, message=error)
+        await self.set_task_state(
+            task_id,
+            status,
+            progress=final_progress,
+            message=final_message,
+            metadata=runtime_state.get("metadata") if runtime_state else None,
+        )

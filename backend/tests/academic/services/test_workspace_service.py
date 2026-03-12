@@ -96,11 +96,11 @@ class TestCreateWorkspace:
         await service.create(
             user_id=sample_user_id,
             name="Enum Workspace",
-            type=WorkspaceType.GRANT,
+            type=WorkspaceType.PATENT,
         )
 
         added_workspace = mock_db_session.add.call_args[0][0]
-        assert added_workspace.type == WorkspaceType.GRANT
+        assert added_workspace.type == WorkspaceType.PATENT
 
     @pytest.mark.asyncio
     async def test_create_workspace_with_invalid_type_raises_error(
@@ -410,7 +410,13 @@ class TestWorkspaceTypeValidation:
     @pytest.mark.asyncio
     async def test_all_valid_workspace_types(self, service, mock_db_session, sample_user_id):
         """Test that all valid workspace types are accepted."""
-        valid_types = ["sci", "thesis", "proposal", "grant", "literature_review"]
+        valid_types = [
+            "sci",
+            "thesis",
+            "proposal",
+            "software_copyright",
+            "patent",
+        ]
 
         for type_value in valid_types:
             mock_db_session.add.reset_mock()

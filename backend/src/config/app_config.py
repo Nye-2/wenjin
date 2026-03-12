@@ -1,6 +1,7 @@
 """Application configuration using Pydantic Settings."""
 
 import logging
+import sys
 import warnings
 from functools import lru_cache
 
@@ -8,6 +9,22 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
+
+
+def _settings_config(env_prefix: str = "") -> SettingsConfigDict:
+    """Create consistent settings config.
+
+    Unit tests should not implicitly read a developer's local ``.env`` file,
+    otherwise test results change based on machine-specific configuration.
+    """
+    env_file = None if "pytest" in sys.modules else ".env"
+    return SettingsConfigDict(
+        env_prefix=env_prefix,
+        case_sensitive=False,
+        env_file=env_file,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 class JWTSettings(BaseSettings):
@@ -22,13 +39,7 @@ class JWTSettings(BaseSettings):
     access_token_expire_minutes: int = Field(default=30, ge=1, le=1440, description="Access token expiration in minutes")
     refresh_token_expire_days: int = Field(default=30, ge=1, le=365, description="Refresh token expiration in days")
 
-    model_config = SettingsConfigDict(
-        env_prefix="JWT_",
-        case_sensitive=False,
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = _settings_config("JWT_")
 
     @model_validator(mode="after")
     def validate_secret_key(self) -> "JWTSettings":
@@ -63,13 +74,7 @@ class RedisSettings(BaseSettings):
     rate_limit_window: int = Field(default=60, ge=1, description="Rate limit: window in seconds")
     generation_lock_ttl: int = Field(default=600, ge=60, description="Generation lock TTL")
 
-    model_config = SettingsConfigDict(
-        env_prefix="REDIS_",
-        case_sensitive=False,
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = _settings_config("REDIS_")
 
 
 class CelerySettings(BaseSettings):
@@ -82,13 +87,7 @@ class CelerySettings(BaseSettings):
     task_soft_time_limit: int = Field(default=600, ge=60, description="Soft time limit (triggers exception)")
     task_time_limit: int = Field(default=900, ge=60, description="Hard time limit (force terminate)")
 
-    model_config = SettingsConfigDict(
-        env_prefix="CELERY_",
-        case_sensitive=False,
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = _settings_config("CELERY_")
 
 
 class SentrySettings(BaseSettings):
@@ -100,13 +99,7 @@ class SentrySettings(BaseSettings):
     traces_sample_rate: float = Field(default=0.1, ge=0.0, le=1.0, description="Traces sample rate")
     profiles_sample_rate: float = Field(default=0.1, ge=0.0, le=1.0, description="Profiles sample rate")
 
-    model_config = SettingsConfigDict(
-        env_prefix="SENTRY_",
-        case_sensitive=False,
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = _settings_config("SENTRY_")
 
 
 class PrometheusSettings(BaseSettings):
@@ -114,13 +107,7 @@ class PrometheusSettings(BaseSettings):
 
     enabled: bool = Field(default=False, description="Enable Prometheus metrics")
 
-    model_config = SettingsConfigDict(
-        env_prefix="PROMETHEUS_",
-        case_sensitive=False,
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = _settings_config("PROMETHEUS_")
 
 
 class SMTPSettings(BaseSettings):
@@ -140,24 +127,13 @@ class SMTPSettings(BaseSettings):
     send_interval: int = Field(default=60, ge=10, le=600, description="Minimum send interval (seconds)")
     daily_limit: int = Field(default=10, ge=1, le=100, description="Daily send limit per email")
 
-    model_config = SettingsConfigDict(
-        env_prefix="SMTP_",
-        case_sensitive=False,
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = _settings_config("SMTP_")
 
 
 class AppConfig(BaseSettings):
     """Application configuration loaded from environment variables."""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
+    model_config = _settings_config()
 
     # CORS configuration - expects comma-separated string like "http://localhost:3000,https://example.com"
     cors_origins_str: str = Field(

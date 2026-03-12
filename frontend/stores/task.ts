@@ -30,12 +30,14 @@ interface TaskState {
 
   // Actions
   startTask: (params: {
+    taskId?: string;
     featureId: string;
     agent: string;
     agentLabel: string;
     stages: FeatureStage[];
     initialThinking?: string;
   }) => string;
+  syncTaskProgress: (progress: number, thinking?: string) => void;
   updateTaskThinking: (thinking: string) => void;
   advanceStage: () => void;
   completeTask: () => void;
@@ -50,7 +52,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   recentCompleted: null,
 
   startTask: (params) => {
-    const id = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const id = params.taskId ?? `task-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     const stagesWithStatus: TaskStage[] = params.stages.map((s, i) => ({
       ...s,
       status: i === 0 ? 'running' : 'pending',
@@ -72,6 +74,61 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       recentCompleted: null,
     });
     return id;
+  },
+
+  syncTaskProgress: (progress, thinking) => {
+    set((state) => {
+      if (!state.currentTask) {
+        return state;
+      }
+
+      const stageCount = state.currentTask.stages.length;
+      if (stageCount === 0) {
+        return {
+          currentTask: {
+            ...state.currentTask,
+            thinking: thinking ?? state.currentTask.thinking,
+          },
+        };
+      }
+
+      const normalizedProgress = Math.max(0, Math.min(100, progress));
+      if (normalizedProgress >= 100) {
+        return {
+          currentTask: {
+            ...state.currentTask,
+            currentStageIndex: stageCount - 1,
+            thinking: thinking ?? state.currentTask.thinking,
+            stages: state.currentTask.stages.map((stage) => ({
+              ...stage,
+              status: 'completed',
+            })),
+          },
+        };
+      }
+
+      const currentStageIndex = Math.min(
+        stageCount - 1,
+        Math.floor((normalizedProgress / 100) * stageCount)
+      );
+
+      return {
+        currentTask: {
+          ...state.currentTask,
+          currentStageIndex,
+          thinking: thinking ?? state.currentTask.thinking,
+          stages: state.currentTask.stages.map((stage, index) => {
+            if (index < currentStageIndex) {
+              return { ...stage, status: 'completed' as const };
+            }
+            if (index === currentStageIndex) {
+              return { ...stage, status: 'running' as const };
+            }
+            return { ...stage, status: 'pending' as const };
+          }),
+        },
+      };
+    });
   },
 
   updateTaskThinking: (thinking) => {

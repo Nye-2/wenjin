@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, User, Bot, Sparkles } from "lucide-react";
+import {
+  executeWorkspaceFeature,
+  getTaskStatus,
+} from "@/lib/api";
 import { useChatStore, Message } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useTaskStore } from "@/stores/task";
@@ -77,31 +81,122 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     sendMessage,
     setCurrentSkill,
   } = useChatStore();
-  const { workspace } = useWorkspaceStore();
-  const { startTask, isExecuting } = useTaskStore();
+  const { workspace, fetchArtifacts, fetchPapers, loadWorkspace } = useWorkspaceStore();
+  const {
+    startTask,
+    syncTaskProgress,
+    updateTaskThinking,
+    completeTask,
+    cancelTask,
+    failTask,
+    currentTask,
+    isExecuting,
+  } = useTaskStore();
   const { getFeatureById } = useFeaturesStore();
   const [inputValue, setInputValue] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // 处理快捷指令点击
-  const handleQuickAction = (featureId: string) => {
+  const handleQuickAction = async (featureId: string) => {
     if (isExecuting) return;
 
     const feature = getFeatureById(featureId);
     if (!feature) return;
 
-    startTask({
-      featureId: feature.id,
-      agent: feature.agent,
-      agentLabel: feature.agentLabel,
-      stages: feature.stages,
-      initialThinking: `正在准备执行 ${feature.name}...`,
-    });
+    setActionError(null);
 
-    // TODO: 同时调用后端API执行任务
-    // executeFeature(workspaceId, featureId, params);
+    try {
+      const execution = await executeWorkspaceFeature(workspaceId, featureId);
+      startTask({
+        taskId: execution.task_id,
+        featureId: feature.id,
+        agent: feature.agent,
+        agentLabel: feature.agentLabel,
+        stages: feature.stages,
+        initialThinking: execution.message,
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Failed to execute feature");
+    }
   };
+
+  useEffect(() => {
+    if (!currentTask) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollTaskStatus = async () => {
+      try {
+        const status = await getTaskStatus(currentTask.id);
+        if (cancelled) return;
+
+        const currentPhase =
+          typeof status.metadata?.current_phase === "string"
+            ? status.metadata.current_phase
+            : undefined;
+        syncTaskProgress(status.progress, status.message || currentPhase);
+
+        if (status.status === "success") {
+          const refreshTargets = Array.isArray(status.result?.refresh_targets)
+            ? status.result.refresh_targets.filter(
+                (target): target is string => typeof target === "string"
+              )
+            : [];
+
+          const refreshJobs: Promise<unknown>[] = [];
+          if (refreshTargets.includes("artifacts")) {
+            refreshJobs.push(fetchArtifacts(workspaceId));
+          }
+          if (refreshTargets.includes("papers")) {
+            refreshJobs.push(fetchPapers(workspaceId));
+          }
+          if (refreshTargets.includes("workspace")) {
+            refreshJobs.push(loadWorkspace(workspaceId));
+          }
+
+          if (refreshJobs.length > 0) {
+            await Promise.all(refreshJobs);
+          }
+          completeTask();
+        } else if (status.status === "failed") {
+          failTask(status.error || status.message || "Task failed");
+        } else if (status.status === "cancelled") {
+          cancelTask();
+        }
+      } catch (error) {
+        if (!cancelled) {
+          updateTaskThinking(
+            error instanceof Error ? error.message : "Task status polling failed"
+          );
+        }
+      }
+    };
+
+    void pollTaskStatus();
+    const intervalId = window.setInterval(() => {
+      void pollTaskStatus();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    cancelTask,
+    completeTask,
+    currentTask?.id,
+    failTask,
+    fetchArtifacts,
+    fetchPapers,
+    loadWorkspace,
+    syncTaskProgress,
+    updateTaskThinking,
+    workspaceId,
+  ]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -122,7 +217,10 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
 
     const content = inputValue.trim();
     setInputValue("");
-    await sendMessage(content, currentSkill || undefined);
+    await sendMessage(content, {
+      workspaceId,
+      skill: currentSkill,
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -192,6 +290,12 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
         <div className="mb-3">
           <AgentStatusBar />
         </div>
+
+        {actionError && (
+          <div className="mb-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+            {actionError}
+          </div>
+        )}
 
         {/* Quick Actions */}
         {!isExecuting && (

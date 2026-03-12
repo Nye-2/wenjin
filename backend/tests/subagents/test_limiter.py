@@ -219,7 +219,7 @@ class TestDualLayerLimiter:
         assert limiter.get_thread_active_count("thread-1") == 0
 
         # Cleanup thread
-        limiter.cleanup_thread("thread-1")
+        await limiter.cleanup_thread("thread-1")
 
         # After cleanup, count should be 0 (limiter removed)
         assert limiter.get_thread_active_count("thread-1") == 0
@@ -230,7 +230,7 @@ class TestDualLayerLimiter:
         limiter = DualLayerLimiter(global_max=10, per_thread_max=3)
 
         # Should not raise
-        limiter.cleanup_thread("unknown-thread")
+        await limiter.cleanup_thread("unknown-thread")
 
     @pytest.mark.asyncio
     async def test_concurrent_access_safety(self):

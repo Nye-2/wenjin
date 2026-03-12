@@ -93,7 +93,13 @@ class TestWorkspaceFlow:
     @pytest.mark.asyncio
     async def test_create_workspace_all_types(self, authenticated_client: AsyncClient, test_user: FixtureUser):
         """Test creating workspaces of all valid types."""
-        valid_types = ["sci", "thesis", "proposal", "grant", "literature_review"]
+        valid_types = [
+            "sci",
+            "thesis",
+            "proposal",
+            "software_copyright",
+            "patent",
+        ]
 
         for ws_type in valid_types:
             response = await authenticated_client.post(
@@ -360,7 +366,7 @@ class TestWorkspacePaperAssociation:
             f"/api/workspaces/{test_workspace.id}/papers"
         )
         assert response.status_code == 200
-        papers = response.json()
+        papers = response.json()["papers"]
         assert len(papers) >= 1
         paper_ids = [p["id"] for p in papers]
         assert test_workspace_paper.paper_id in paper_ids
@@ -385,7 +391,7 @@ class TestWorkspacePaperAssociation:
         response = await authenticated_client.get(
             f"/api/workspaces/{test_workspace.id}/papers"
         )
-        papers = response.json()
+        papers = response.json()["papers"]
         paper_ids = [p["id"] for p in papers]
         assert test_paper.id not in paper_ids
 
@@ -438,5 +444,4 @@ class TestWorkspacePaperAssociation:
             f"/api/workspaces/{workspace_id}/papers"
         )
         assert response.status_code == 200
-        papers = response.json()
-        assert papers == []
+        assert response.json() == {"papers": [], "count": 0}

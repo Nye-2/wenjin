@@ -1,16 +1,21 @@
 """HTTP API endpoints for thesis generation.
 
-This module provides REST API endpoints for managing thesis generation tasks.
-Uses thread-safe task storage that can be replaced with Redis/database in production.
+This module provides a backward-compatible thesis API surface backed by the
+unified async task infrastructure.
 """
 
 import logging
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from .task_storage import create_thesis_task, get_storage
+from src.academic.cache.redis_client import redis_client
+from src.database import User, get_db_session
+from src.gateway.routers.auth import get_current_user
+from src.gateway.routers.tasks import get_task_service
+from src.task.service import TaskService
+from src.task.store import TaskStore
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +72,45 @@ class ThesisPreviewResponse(BaseModel):
     sections_total: int
 
 
+def _map_task_status(status: str) -> str:
+    """Map generic task statuses to thesis API statuses."""
+    if status == "success":
+        return "completed"
+    return status
+
+
+def _merge_task_details(task_status: dict[str, Any]) -> dict[str, Any]:
+    """Merge runtime metadata with final task result."""
+    details: dict[str, Any] = {}
+    metadata = task_status.get("metadata")
+    result = task_status.get("result")
+    if isinstance(metadata, dict):
+        details.update(metadata)
+    if isinstance(result, dict):
+        details.update(result)
+    return details
+
+
+def _to_thesis_status_response(task_status: dict[str, Any]) -> ThesisStatusResponse:
+    """Convert a generic task status payload to thesis API response."""
+    details = _merge_task_details(task_status)
+    progress = float(task_status.get("progress", 0)) / 100
+    return ThesisStatusResponse(
+        task_id=task_status["task_id"],
+        status=_map_task_status(task_status["status"]),
+        progress=max(0.0, min(progress, 1.0)),
+        current_phase=details.get("current_phase"),
+        message=task_status.get("message"),
+        pdf_path=details.get("pdf_path"),
+        error=task_status.get("error"),
+    )
+
+
 @router.post("/generate", response_model=ThesisStatusResponse)
 async def generate_thesis(
     request: ThesisGenerateRequest,
-    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    task_service: TaskService = Depends(get_task_service),
 ) -> ThesisStatusResponse:
     """Start thesis generation task.
 
@@ -81,39 +121,34 @@ async def generate_thesis(
 
     Args:
         request: Thesis generation request parameters
-        background_tasks: FastAPI background tasks
+        current_user: Current authenticated user
+        task_service: Unified task service
 
     Returns:
         Initial task status
     """
-    # Create task using thread-safe storage
-    task = create_thesis_task(
-        workspace_id=request.workspace_id,
-        paper_title=request.paper_title,
-        message="Task created, waiting to start",
+    task_id = await task_service.submit_task(
+        user_id=str(current_user.id),
+        task_type="thesis_generation",
+        payload=request.model_dump(),
     )
-
-    # Start background workflow execution
-    from .workflow.runner import run_thesis_workflow
-    background_tasks.add_task(
-        run_thesis_workflow,
-        task.task_id,
-        request.model_dump(),
-    )
-
-    logger.info(f"[Thesis] Created task {task.task_id} for workspace {request.workspace_id}")
+    logger.info("[Thesis] Submitted unified task %s for workspace %s", task_id, request.workspace_id)
 
     return ThesisStatusResponse(
-        task_id=task.task_id,
-        status=task.status,
-        progress=task.progress,
-        current_phase=task.current_phase,
-        message=task.message,
+        task_id=task_id,
+        status="pending",
+        progress=0.0,
+        current_phase="init",
+        message="Task submitted",
     )
 
 
 @router.get("/status/{task_id}", response_model=ThesisStatusResponse)
-async def get_status(task_id: str) -> ThesisStatusResponse:
+async def get_status(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    task_service: TaskService = Depends(get_task_service),
+) -> ThesisStatusResponse:
     """Get thesis generation task status.
 
     Args:
@@ -125,23 +160,19 @@ async def get_status(task_id: str) -> ThesisStatusResponse:
     Raises:
         HTTPException: 404 if task not found
     """
-    task = get_storage().get_task(task_id)
-    if not task:
+    task_status = await task_service.get_task_status(task_id, str(current_user.id))
+    if not task_status:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
-    return ThesisStatusResponse(
-        task_id=task.task_id,
-        status=task.status,
-        progress=task.progress,
-        current_phase=task.current_phase,
-        message=task.message,
-        pdf_path=task.pdf_path,
-        error=task.error,
-    )
+    return _to_thesis_status_response(task_status)
 
 
 @router.delete("/cancel/{task_id}")
-async def cancel_task(task_id: str) -> dict[str, str]:
+async def cancel_task(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    task_service: TaskService = Depends(get_task_service),
+) -> dict[str, str]:
     """Cancel a running thesis generation task.
 
     Args:
@@ -153,25 +184,9 @@ async def cancel_task(task_id: str) -> dict[str, str]:
     Raises:
         HTTPException: 404 if task not found, 400 if task cannot be cancelled
     """
-    storage = get_storage()
-    task = storage.get_task(task_id)
-
-    if not task:
-        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
-
-    if task.status in ("completed", "failed", "cancelled"):
-        raise HTTPException(
-            status_code=400, detail=f"Cannot cancel task with status: {task.status}"
-        )
-
-    # Atomic update using storage
-    updated = storage.update_task(task_id, {
-        "status": "cancelled",
-        "message": "Task cancelled by user",
-    })
-
-    if not updated:
-        raise HTTPException(status_code=500, detail="Failed to cancel task")
+    success = await task_service.cancel_task(task_id, str(current_user.id))
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found or cannot be cancelled")
 
     logger.info(f"[Thesis] Cancelled task {task_id}")
 
@@ -183,7 +198,11 @@ async def cancel_task(task_id: str) -> dict[str, str]:
 
 
 @router.get("/preview/{task_id}", response_model=ThesisPreviewResponse)
-async def get_preview(task_id: str) -> ThesisPreviewResponse:
+async def get_preview(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    task_service: TaskService = Depends(get_task_service),
+) -> ThesisPreviewResponse:
     """Get thesis preview content.
 
     Returns the current LaTeX content for preview.
@@ -197,20 +216,26 @@ async def get_preview(task_id: str) -> ThesisPreviewResponse:
     Raises:
         HTTPException: 404 if task not found
     """
-    task = get_storage().get_task(task_id)
-    if not task:
+    task_status = await task_service.get_task_status(task_id, str(current_user.id))
+    if not task_status:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
+    details = _merge_task_details(task_status)
+
     return ThesisPreviewResponse(
-        task_id=task.task_id,
-        latex_content=task.latex_content,
-        sections_completed=task.sections_completed,
-        sections_total=task.sections_total,
+        task_id=task_id,
+        latex_content=details.get("latex_content", ""),
+        sections_completed=details.get("sections_completed", 0),
+        sections_total=details.get("sections_total", 0),
     )
 
 
 @router.get("/list")
-async def list_tasks(workspace_id: str | None = None) -> list[dict[str, Any]]:
+async def list_tasks(
+    workspace_id: str | None = None,
+    current_user: User = Depends(get_current_user),
+    task_service: TaskService = Depends(get_task_service),
+) -> list[dict[str, Any]]:
     """List all thesis generation tasks.
 
     Args:
@@ -219,5 +244,23 @@ async def list_tasks(workspace_id: str | None = None) -> list[dict[str, Any]]:
     Returns:
         List of tasks
     """
-    tasks = get_storage().list_tasks(workspace_id=workspace_id)
-    return [t.to_dict() for t in tasks]
+    async with get_db_session() as db:
+        store = TaskStore(redis_client, db)
+        records = await store.list_user_tasks(
+            user_id=str(current_user.id),
+            task_type="thesis_generation",
+            limit=100,
+        )
+
+    filtered_records = [
+        record for record in records
+        if workspace_id is None or (record.payload or {}).get("workspace_id") == workspace_id
+    ]
+
+    results: list[dict[str, Any]] = []
+    for record in filtered_records:
+        status = await task_service.get_task_status(record.id, str(current_user.id))
+        if status:
+            thesis_status = _to_thesis_status_response(status)
+            results.append(thesis_status.model_dump())
+    return results

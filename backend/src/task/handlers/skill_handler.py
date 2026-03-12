@@ -27,9 +27,6 @@ class SkillTaskHandler:
         Task Type          → Skill Name
         ─────────────────────────────────
         deep_research      → deep-research
-        thesis_generation  → thesis-generation
-        literature_search  → literature-search
-        paper_processing   → paper-processing
 
     Usage:
         handler = SkillTaskHandler(executor)
@@ -43,9 +40,6 @@ class SkillTaskHandler:
     # Mapping from task_type to skill_name
     TASK_TO_SKILL_MAP = {
         "deep_research": "deep-research",
-        "thesis_generation": "thesis-generation",
-        "literature_search": "literature-search",
-        "paper_processing": "paper-processing",
     }
 
     def __init__(self, skill_executor: SkillExecutor | None = None):

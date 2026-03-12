@@ -76,9 +76,10 @@ You have access to specialized tools and subagents for:
     if workspace_type:
         type_labels = {
             "sci": "SCI Paper",
-            "thesis": "Graduate Thesis",
+            "thesis": "Thesis / Dissertation",
             "proposal": "Research Proposal",
-            "grant": "Grant Application",
+            "software_copyright": "Software Copyright Application",
+            "patent": "Patent Application",
         }
         base_prompt += f"\n\n## Current Project\nProject Type: {type_labels.get(workspace_type, workspace_type)}"
 

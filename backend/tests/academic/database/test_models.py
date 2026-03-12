@@ -39,8 +39,8 @@ def test_workspace_type_enum():
     assert WorkspaceType.SCI.value == "sci"
     assert WorkspaceType.THESIS.value == "thesis"
     assert WorkspaceType.PROPOSAL.value == "proposal"
-    assert WorkspaceType.GRANT.value == "grant"
-    assert WorkspaceType.LITERATURE_REVIEW.value == "literature_review"
+    assert WorkspaceType.SOFTWARE_COPYRIGHT.value == "software_copyright"
+    assert WorkspaceType.PATENT.value == "patent"
 
 
 def test_paper_creation():

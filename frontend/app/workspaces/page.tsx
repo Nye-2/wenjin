@@ -4,15 +4,11 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Search, Filter, Loader2, Trash2 } from "lucide-react";
-import { LiquidGlassCard, GradientText } from "@/components/glass";
 import { WorkspaceCard } from "@/components/academic";
 import { Header } from "@/components/layout/header";
 import { useI18n } from "@/components/i18n-provider";
-import { useWorkspaceStore } from "@/lib/store";
+import { useWorkspaceStore, Workspace } from "@/stores/workspace";
 import { useAuthStore } from "@/stores/auth";
-import { Workspace } from "@/lib/api";
-
-import { createWorkspace } from "@/lib/api";
 
 export default function WorkspacesPage() {
   const router = useRouter();
@@ -66,10 +62,11 @@ export default function WorkspacesPage() {
 
   const {
     workspaces,
-    isLoading,
+    isWorkspacesLoading,
+    isWorkspaceMutating,
     error,
     fetchWorkspaces,
-    addWorkspace,
+    createWorkspace,
     removeWorkspace,
     clearError,
   } = useWorkspaceStore();
@@ -86,7 +83,7 @@ export default function WorkspacesPage() {
     if (!newWorkspace.name.trim()) return;
 
     try {
-      await addWorkspace({
+      await createWorkspace({
         name: newWorkspace.name,
         type: newWorkspace.type,
         discipline: newWorkspace.discipline || undefined,
@@ -166,7 +163,7 @@ export default function WorkspacesPage() {
         </div>
 
         {/* Loading State */}
-        {isLoading && workspaces.length === 0 && (
+        {isWorkspacesLoading && workspaces.length === 0 && (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-[var(--accent-primary)]" />
           </div>
@@ -208,7 +205,7 @@ export default function WorkspacesPage() {
         </div>
 
         {/* Empty State */}
-        {!isLoading && filteredWorkspaces.length === 0 && (
+        {!isWorkspacesLoading && filteredWorkspaces.length === 0 && (
           <div className="text-center py-16">
             <div className="p-12 max-w-md mx-auto bg-[var(--bg-elevated)] rounded-2xl border border-[var(--border-default)]">
               <div className="text-6xl mb-4">📚</div>
@@ -338,12 +335,12 @@ export default function WorkspacesPage() {
                     </button>
                     <motion.button
                       onClick={handleCreateWorkspace}
-                      disabled={!newWorkspace.name.trim() || isLoading}
+                      disabled={!newWorkspace.name.trim() || isWorkspaceMutating}
                       className="flex-1 px-6 py-3.5 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#2563EB] hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all font-medium"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
-                      {isLoading ? (
+                      {isWorkspaceMutating ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
                       ) : (
                         t("workspace.createModal.createButton")

@@ -87,8 +87,13 @@ WORKSPACE_TYPE_CONFIGS = {
         "sections": 5,
         "figures": "2-3",
     },
-    "grant": {
-        "paper_length": "5000-10000 words",
+    "software_copyright": {
+        "paper_length": "3000-6000 words",
+        "sections": 5,
+        "figures": "2-4",
+    },
+    "patent": {
+        "paper_length": "4000-8000 words",
         "sections": 6,
         "figures": "3-5",
     },

@@ -371,8 +371,8 @@ class TestPaperWorkspaceAssociation:
             f"/api/workspaces/{second_workspace_id}/papers"
         )
 
-        papers1 = response1.json()
-        papers2 = response2.json()
+        papers1 = response1.json()["papers"]
+        papers2 = response2.json()["papers"]
 
         assert any(p["id"] == test_paper.id for p in papers1)
         assert any(p["id"] == test_paper.id for p in papers2)

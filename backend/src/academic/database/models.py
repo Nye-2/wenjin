@@ -11,7 +11,7 @@ class Workspace(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     user_id: str
     name: str
-    type: str  # sci, thesis, proposal, grant
+    type: str  # sci, thesis, proposal, software_copyright, patent
     discipline: str | None = None
     config: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)

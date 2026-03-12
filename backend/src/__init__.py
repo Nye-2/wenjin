@@ -1,21 +1,9 @@
-"""AcademiaGPT v2 Backend package."""
+"""AcademiaGPT v2 backend package.
 
-from src import models
-from src import database
-from src import agents
-from src import services
-from src import academic
-from src import gateway
-from src import execution
-from src import config
+Keep package import side-effect free so tests and scripts can import individual
+modules without bootstrapping the full gateway application.
+"""
 
-__all__ = [
-    "models",
-    "database",
-    "agents",
-    "services",
-    "academic",
-    "gateway",
-    "execution",
-    "config",
-]
+__version__ = "2.0.0"
+
+__all__ = ["__version__"]

@@ -81,7 +81,7 @@ docker-compose exec backend uv run alembic upgrade head
 ```bash
 # Backend setup
 cd backend
-uv sync
+uv sync --extra dev
 cp .env.example .env
 # Edit .env with your settings
 uv run alembic upgrade head

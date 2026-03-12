@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from src.database import User
+from src.gateway.routers.auth import get_current_user
 from src.task.service import TaskService
 from src.task.store import TaskStore
 
@@ -34,6 +36,7 @@ class TaskStatusResponse(BaseModel):
     message: str | None = None
     result: dict | None = None
     error: str | None = None
+    metadata: dict | None = None
     created_at: str
     started_at: str | None = None
     completed_at: str | None = None
@@ -47,10 +50,9 @@ class TaskListResponse(BaseModel):
 
 # === Dependencies ===
 
-async def get_current_user_id() -> str:
-    """Get current user ID from request context."""
-    # TODO: Replace with actual auth when available
-    return "default-user"
+async def get_current_user_id(current_user: User = Depends(get_current_user)) -> str:
+    """Get current authenticated user ID."""
+    return str(current_user.id)
 
 
 async def get_task_service() -> TaskService:

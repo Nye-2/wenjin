@@ -9,28 +9,9 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from src.artifacts import ArtifactType
+
 from .common import sanitize_html, sanitize_string, validate_uuid
-
-
-class ArtifactType(StrEnum):
-    """Valid artifact types."""
-
-    RESEARCH_IDEA = "research_idea"
-    METHODOLOGY = "methodology"
-    FRAMEWORK_OUTLINE = "framework_outline"
-    ABSTRACT = "abstract"
-    INTRODUCTION = "introduction"
-    LITERATURE_REVIEW = "literature_review"
-    HYPOTHESIS = "hypothesis"
-    RESULTS_ANALYSIS = "results_analysis"
-    CONCLUSION = "conclusion"
-    REFERENCES = "references"
-    FIGURE = "figure"
-    TABLE = "table"
-    CODE_SNIPPET = "code_snippet"
-    NOTE = "note"
-    SUMMARY = "summary"
-    OTHER = "other"
 
 
 class ArtifactStatus(StrEnum):

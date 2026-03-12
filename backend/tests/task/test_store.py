@@ -45,6 +45,26 @@ class TestTaskStoreRedis:
         state = await task_store.get_task_state("test-task-delete")
         assert state is None
 
+    @pytest.mark.asyncio
+    async def test_task_state_metadata_roundtrip(self, task_store):
+        """Test task metadata is stored and restored from Redis."""
+        metadata = {
+            "current_phase": "draft",
+            "sections_completed": 2,
+        }
+
+        await task_store.set_task_state(
+            "test-task-metadata",
+            status="running",
+            progress=60,
+            message="Writing sections",
+            metadata=metadata,
+        )
+
+        state = await task_store.get_task_state("test-task-metadata")
+        assert state is not None
+        assert state["metadata"] == metadata
+
 
 class TestTaskStorePostgres:
     """Tests for TaskStore PostgreSQL operations (using SQLite in tests)."""
@@ -114,3 +134,37 @@ class TestTaskStorePostgres:
 
         tasks = await task_store.list_user_tasks("user-list")
         assert len(tasks) == 3
+
+    @pytest.mark.asyncio
+    async def test_mark_task_completed_preserves_runtime_progress_and_metadata(self, task_store):
+        """Test terminal task state keeps the latest runtime details."""
+        await task_store.create_task_record(
+            task_id="test-task-complete",
+            user_id="user-1",
+            task_type="workspace_feature",
+            priority=5,
+            payload={},
+        )
+        await task_store.set_task_state(
+            "test-task-complete",
+            status="running",
+            progress=80,
+            message="Compiling draft",
+            metadata={"current_phase": "compile"},
+        )
+
+        await task_store.mark_task_completed(
+            "test-task-complete",
+            success=False,
+            error="Compilation failed",
+        )
+
+        record = await task_store.get_task_record("test-task-complete")
+        state = await task_store.get_task_state("test-task-complete")
+
+        assert record is not None
+        assert record.progress == 80
+        assert record.message == "Compilation failed"
+        assert state is not None
+        assert state["progress"] == 80
+        assert state["metadata"] == {"current_phase": "compile"}
