@@ -23,6 +23,8 @@ from .models import (
     PaperChunk,
     PaperExtraction,
     PaperSection,
+    # Task
+    TaskRecord,
     # User
     User,
     # Knowledge
@@ -78,6 +80,8 @@ __all__ = [
     "KnowledgeCategory",
     # Models - Generation
     "GenerationRecord",
+    # Models - Task
+    "TaskRecord",
     # Models - Workspace Literature
     "WorkspaceLiterature",
 ]

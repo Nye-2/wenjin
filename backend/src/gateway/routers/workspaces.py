@@ -3,11 +3,12 @@
 This module provides REST endpoints for:
 - Workspace CRUD operations
 - Paper association management
+- Dashboard overview
 """
 
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +21,7 @@ from src.gateway.validators.workspace import (
     CreateWorkspaceValidator,
     UpdateWorkspaceValidator,
 )
+from src.services.dashboard_service import DashboardService
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -62,6 +64,13 @@ class PaperResponse(BaseModel):
     reference_count: int | None
 
 
+class PapersListResponse(BaseModel):
+    """Workspace papers response."""
+
+    papers: list[PaperResponse]
+    count: int
+
+
 # Re-export validators as request models for backward compatibility
 CreateWorkspaceRequest = CreateWorkspaceValidator
 UpdateWorkspaceRequest = UpdateWorkspaceValidator
@@ -84,6 +93,11 @@ async def get_workspace_service(db: AsyncSession = Depends(get_db)) -> Workspace
 async def get_paper_service(db: AsyncSession = Depends(get_db)) -> PaperService:
     """Get paper service instance."""
     return PaperService(db)
+
+
+async def get_dashboard_service(db: AsyncSession = Depends(get_db)) -> DashboardService:
+    """Get dashboard service instance."""
+    return DashboardService(db)
 
 
 def workspace_to_response(workspace: Workspace) -> WorkspaceResponse:
@@ -254,7 +268,7 @@ async def delete_workspace(
     return {"success": True}
 
 
-@router.get("/{workspace_id}/papers", response_model=list[PaperResponse])
+@router.get("/{workspace_id}/papers", response_model=PapersListResponse)
 async def list_workspace_papers(
     workspace_id: str,
     read_status: str | None = None,
@@ -268,13 +282,16 @@ async def list_workspace_papers(
         paper_service: Paper service instance
 
     Returns:
-        List of papers in the workspace
+        Papers in the workspace with total count
     """
     papers = await paper_service.list_workspace_papers(
         workspace_id=workspace_id,
         read_status=read_status,
     )
-    return [paper_to_response(p) for p in papers]
+    return PapersListResponse(
+        papers=[paper_to_response(p) for p in papers],
+        count=len(papers),
+    )
 
 
 @router.post("/{workspace_id}/papers/{paper_id}")
@@ -331,3 +348,31 @@ async def remove_paper_from_workspace(
             detail="Paper not found in workspace",
         )
     return {"success": True}
+
+
+@router.get("/{workspace_id}/dashboard")
+async def get_workspace_dashboard(
+    workspace_id: str,
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    dashboard_service: DashboardService = Depends(get_dashboard_service),
+):
+    """Get workspace dashboard overview.
+
+    Args:
+        workspace_id: Workspace ID
+        workspace_service: Workspace service instance
+        dashboard_service: Dashboard service instance
+
+    Returns:
+        Dashboard with module statuses and recent artifacts
+
+    Raises:
+        HTTPException: If workspace not found
+    """
+    workspace = await workspace_service.get(workspace_id)
+    if not workspace:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found",
+        )
+    return await dashboard_service.get_dashboard(workspace_id)
