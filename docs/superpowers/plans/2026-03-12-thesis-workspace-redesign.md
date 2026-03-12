@@ -152,10 +152,20 @@ Expected: FAIL
 
 替换 `backend/src/workspace_features/registry.py` 中的 `THESIS_FEATURES` 元组（约第 63-169 行），用 spec Section 10.2 中定义的 6 个新 feature 替换原有 6 个。完整代码见 spec。
 
+同时在 `to_api_dict()` 中增加 `handler_key` 字段，以便前端能获取 feature 的 handler_key（用于文献不足检测等场景的 feature 识别）：
+```python
+# registry.py to_api_dict() — 添加:
+"handlerKey": self.handler_key,
+```
+并在 `features.py` 的 `WorkspaceFeature` Pydantic 模型中添加对应字段：
+```python
+handlerKey: str | None = None
+```
+
 关键改动：
 - `deep_research`: `task_type="deep_research"`, `handler_key="thesis.deep_research"`
 - `literature_management`: `task_type="workspace_feature"`, `panel=None`, `stages=()`
-- `opening_research`: 新增, `task_type="thesis_generation"`
+- `opening_research`: 新增, `task_type="workspace_feature"`（走通用 handler 路径）
 - `thesis_writing`: 合并原 outline + chapter, `task_type="thesis_generation"`
 - `figure_generation`: `task_type="workspace_feature"`（走通用 handler 路径，不走 thesis LangGraph workflow）
 - `compile_export`: `task_type="workspace_feature"`（走通用 handler 路径，不走 thesis LangGraph workflow）
@@ -680,14 +690,14 @@ cd /home/cjz/AcademiaGPT-V2 && git add backend/src/services/dashboard_service.py
 
 ---
 
-### Task 7: 图表生成和编译导出 Handler
+### Task 7: 图表生成、编译导出和开题调研 Handler
 
 **Files:**
 - Create: `backend/src/workspace_features/handlers/thesis.py`
 - Modify: `backend/src/workspace_features/handlers/__init__.py`
 - Test: `backend/tests/task/test_thesis_handlers.py`
 
-**设计说明：** `figure_generation` 和 `compile_export` 使用 `task_type="workspace_feature"`，走通用 handler 路径。需要为它们注册 handler（通过 `@register_feature_handler`），与 `software_copyright.py` 中的 handler 模式一致。
+**设计说明：** `figure_generation`、`compile_export` 和 `opening_research` 均使用 `task_type="workspace_feature"`，走通用 handler 路径。需要为它们注册 handler（通过 `@register_feature_handler`），与 `software_copyright.py` 中的 handler 模式一致。
 
 - [ ] **Step 1: 写测试 — figure_generation handler**
 
@@ -773,6 +783,29 @@ async def test_compile_export_handler():
     assert result["success"] is True
     assert result["refresh_targets"] == ["artifacts"]
     assert result["handler_key"] == "thesis.compile_export"
+
+
+@pytest.mark.asyncio
+async def test_opening_research_handler():
+    progress = SimpleNamespace(update=AsyncMock())
+    payload = {
+        "workspace_id": "ws-1",
+        "workspace_type": "thesis",
+        "workspace_name": "My Thesis",
+        "workspace_description": "基于深度学习的图像分割研究",
+        "feature_id": "opening_research",
+        "feature_name": "开题调研",
+        "agent": "scout",
+        "handler_key": "thesis.opening_research",
+        "params": {
+            "topic": "基于深度学习的图像分割",
+            "report_type": "opening_report",
+        },
+    }
+    result = await execute_workspace_feature(payload, progress)
+    assert result["success"] is True
+    assert result["refresh_targets"] == ["artifacts"]
+    assert result["handler_key"] == "thesis.opening_research"
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
@@ -784,7 +817,7 @@ Expected: FAIL — handler not registered
 
 ```python
 # backend/src/workspace_features/handlers/thesis.py
-"""Thesis workspace feature handlers (figure_generation, compile_export).
+"""Thesis workspace feature handlers (figure_generation, compile_export, opening_research).
 
 These handlers implement workspace features that use task_type="workspace_feature"
 and go through the standard handler registry, NOT the thesis LangGraph workflow.
@@ -871,6 +904,51 @@ async def compile_and_export(
         artifacts=artifacts,
         refresh_targets=["artifacts"],
     )
+
+
+@register_feature_handler("thesis.opening_research")
+async def opening_research(
+    context: WorkspaceFeatureExecutionContext,
+) -> WorkspaceFeatureExecutionResult:
+    """Generate opening research report (开题报告/文献综述/可行性分析)."""
+    await context.update(10, "分析研究主题", current_step="analyze")
+
+    topic = context.params.get("topic", context.workspace_name)
+    report_type = context.params.get("report_type", "opening_report")
+
+    await context.update(40, "生成报告内容", current_step="generate")
+
+    # TODO: 实际调用 LLM 生成报告内容
+    content = {
+        "topic": topic,
+        "report_type": report_type,
+        "workspace_description": context.workspace_description,
+        "sections": [],  # placeholder
+    }
+
+    artifact = FeatureArtifactDraft(
+        type=report_type,  # opening_report / literature_review / feasibility_analysis
+        title=f"{context.workspace_name} - {_report_type_label(report_type)}",
+        content=content,
+        created_by_skill=context.handler_key,
+    )
+    artifacts = await context.persist_artifacts([artifact])
+
+    await context.update(100, "报告生成完成", current_step="generate")
+
+    return WorkspaceFeatureExecutionResult(
+        message=f"{_report_type_label(report_type)}已生成",
+        artifacts=artifacts,
+        refresh_targets=["artifacts"],
+    )
+
+
+def _report_type_label(report_type: str) -> str:
+    return {
+        "opening_report": "开题报告",
+        "literature_review": "文献综述",
+        "feasibility_analysis": "可行性分析",
+    }.get(report_type, "研究报告")
 ```
 
 - [ ] **Step 4: 在 handlers/__init__.py 中导入 thesis 模块**
