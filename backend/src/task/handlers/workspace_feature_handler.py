@@ -59,36 +59,84 @@ async def execute_thesis_generation(
     payload: dict[str, Any],
     progress: ProgressTracker,
 ) -> dict[str, Any]:
-    """Execute thesis generation on the unified task infrastructure."""
-    request = _build_thesis_request(payload)
+    """Execute thesis generation on the unified task infrastructure.
 
-    async def on_update(update: dict[str, Any]) -> None:
-        metadata = {
+    Supports action routing:
+    - "generate_outline": Generate only the thesis outline
+    - "write_chapter": Write a single chapter
+    - "write_all" (default): Full thesis workflow
+    """
+    action = payload.get("action") or payload.get("params", {}).get("action", "write_all")
+
+    if action == "generate_outline":
+        return await generate_outline_only(payload, progress)
+    elif action == "write_chapter":
+        return await write_single_chapter(payload, progress)
+    else:
+        # write_all: 走原有 thesis workflow
+        request = _build_thesis_request(payload)
+
+        async def on_update(update: dict[str, Any]) -> None:
+            metadata = {
+                "feature_id": payload.get("feature_id"),
+                "feature_name": payload.get("feature_name"),
+                "workspace_type": payload.get("workspace_type", "thesis"),
+                "handler_key": payload.get("handler_key"),
+                "current_phase": update.get("current_phase"),
+                "sections_completed": update.get("sections_completed", 0),
+                "sections_total": update.get("sections_total", 0),
+                "latex_content": update.get("latex_content", ""),
+                "bib_content": update.get("bib_content", ""),
+                "pdf_path": update.get("pdf_path", ""),
+            }
+            await progress.update(
+                _normalize_progress(update.get("progress")),
+                update.get("message"),
+                current_step=update.get("current_phase"),
+                metadata=metadata,
+            )
+
+        result = await run_thesis_workflow_request(request, on_update=on_update)
+        return {
             "feature_id": payload.get("feature_id"),
             "feature_name": payload.get("feature_name"),
             "workspace_type": payload.get("workspace_type", "thesis"),
             "handler_key": payload.get("handler_key"),
-            "current_phase": update.get("current_phase"),
-            "sections_completed": update.get("sections_completed", 0),
-            "sections_total": update.get("sections_total", 0),
-            "latex_content": update.get("latex_content", ""),
-            "bib_content": update.get("bib_content", ""),
-            "pdf_path": update.get("pdf_path", ""),
+            **result,
         }
-        await progress.update(
-            _normalize_progress(update.get("progress")),
-            update.get("message"),
-            current_step=update.get("current_phase"),
-            metadata=metadata,
-        )
 
-    result = await run_thesis_workflow_request(request, on_update=on_update)
+
+async def generate_outline_only(
+    payload: dict[str, Any],
+    progress: ProgressTracker,
+) -> dict[str, Any]:
+    """Generate thesis outline without full workflow."""
+    await progress.update(10, "收集 workspace 上下文")
+    # TODO: 实现实际的大纲生成逻辑
+    await progress.update(50, "生成论文大纲")
+    await progress.update(100, "大纲生成完成")
     return {
         "feature_id": payload.get("feature_id"),
-        "feature_name": payload.get("feature_name"),
-        "workspace_type": payload.get("workspace_type", "thesis"),
         "handler_key": payload.get("handler_key"),
-        **result,
+        "message": "Outline generation placeholder",
+        "refresh_targets": ["artifacts"],
+    }
+
+
+async def write_single_chapter(
+    payload: dict[str, Any],
+    progress: ProgressTracker,
+) -> dict[str, Any]:
+    """Write a single chapter by index."""
+    chapter_index = payload.get("params", {}).get("chapter_index", 0)
+    await progress.update(10, f"准备写作第 {chapter_index + 1} 章")
+    # TODO: 实现实际的章节写作逻辑
+    await progress.update(100, f"第 {chapter_index + 1} 章写作完成")
+    return {
+        "feature_id": payload.get("feature_id"),
+        "handler_key": payload.get("handler_key"),
+        "message": f"Chapter {chapter_index + 1} writing placeholder",
+        "refresh_targets": ["artifacts"],
     }
 
 

@@ -2,7 +2,7 @@
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -12,6 +12,7 @@ from src.task.handlers.workspace_feature_handler import (
     THESIS_WORKSPACE_TYPES,
     _is_thesis_payload,
     execute_workspace_feature,
+    execute_thesis_generation,
 )
 
 
@@ -147,3 +148,40 @@ async def test_copyright_materials_handler_persists_artifact(monkeypatch):
     ]
 
     assert progress.update.await_count == 3
+
+
+class TestThesisActionRouting:
+    """Tests for thesis workflow action routing."""
+
+    @pytest.mark.asyncio
+    async def test_default_action_is_write_all(self):
+        """Default action should call the full thesis workflow."""
+        payload = {"workspace_id": "ws-1"}
+        progress = AsyncMock()
+        with patch("src.task.handlers.workspace_feature_handler.run_thesis_workflow_request") as mock_run:
+            mock_run.return_value = {"status": "completed"}
+            await execute_thesis_generation(payload, progress)
+            # Default should call the thesis workflow (write_all behavior)
+            mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_outline_action(self):
+        """generate_outline action should route to outline-only handler."""
+        payload = {"workspace_id": "ws-1", "action": "generate_outline", "params": {"topic": "test"}}
+        progress = AsyncMock()
+        with patch("src.task.handlers.workspace_feature_handler.generate_outline_only") as mock_outline:
+            mock_outline.return_value = {"message": "Outline generated"}
+            result = await execute_thesis_generation(payload, progress)
+            mock_outline.assert_called_once_with(payload, progress)
+            assert result["message"] == "Outline generated"
+
+    @pytest.mark.asyncio
+    async def test_write_chapter_action(self):
+        """write_chapter action should route to single chapter handler."""
+        payload = {"workspace_id": "ws-1", "action": "write_chapter", "params": {"chapter_index": 1}}
+        progress = AsyncMock()
+        with patch("src.task.handlers.workspace_feature_handler.write_single_chapter") as mock_ch:
+            mock_ch.return_value = {"message": "Chapter written"}
+            result = await execute_thesis_generation(payload, progress)
+            mock_ch.assert_called_once_with(payload, progress)
+            assert result["message"] == "Chapter written"
