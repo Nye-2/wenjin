@@ -12,6 +12,8 @@ import {
   ClipboardList,
   ShieldCheck,
   SearchCheck,
+  Target,
+  CheckCircle,
 } from "lucide-react";
 import { useWorkspaceStore, Artifact } from "@/stores/workspace";
 import { cn } from "@/lib/utils";
@@ -32,6 +34,14 @@ const artifactIcons: Record<string, React.ElementType> = {
   draft: FileText,
   paper_draft: FileText,
   code: FileCode,
+  // New thesis artifact types
+  opening_report: ClipboardList,
+  feasibility_analysis: CheckCircle,
+  thesis_chapter: FileText,
+  gap_analysis: Target,
+  figure: FileCode,
+  research_ideas: Lightbulb,
+  literature_search_results: BookOpen,
   default: FileText,
 };
 
@@ -51,6 +61,14 @@ const artifactColors: Record<string, string> = {
   draft: "text-emerald-500 bg-emerald-500/10",
   paper_draft: "text-emerald-500 bg-emerald-500/10",
   code: "text-cyan-500 bg-cyan-500/10",
+  // New thesis artifact types
+  opening_report: "text-amber-500 bg-amber-500/10",
+  feasibility_analysis: "text-green-500 bg-green-500/10",
+  thesis_chapter: "text-purple-500 bg-purple-500/10",
+  gap_analysis: "text-red-500 bg-red-500/10",
+  figure: "text-cyan-500 bg-cyan-500/10",
+  research_ideas: "text-amber-500 bg-amber-500/10",
+  literature_search_results: "text-blue-500 bg-blue-500/10",
   default: "text-slate-500 bg-slate-500/10",
 };
 

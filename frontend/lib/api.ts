@@ -426,4 +426,122 @@ export async function getTaskStatus(taskId: string): Promise<TaskStatus> {
   return response.data;
 }
 
+// ============ Dashboard API ============
+
+export interface ModuleStatus {
+  id: string;
+  status: 'not_started' | 'in_progress' | 'completed';
+  summary: Record<string, unknown>;
+}
+
+export interface DashboardData {
+  modules: ModuleStatus[];
+  recent_artifacts: Array<{
+    id: string;
+    type: string;
+    title: string | null;
+    created_at: string;
+  }>;
+}
+
+export async function getWorkspaceDashboard(
+  workspaceId: string
+): Promise<DashboardData> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/dashboard`);
+  return response.data;
+}
+
+// ============ Literature API ============
+
+export interface Literature {
+  id: string;
+  title: string;
+  authors: string[];
+  year: number | null;
+  citations: number | null;
+  venue: string | null;
+  quartile: string | null;
+  abstract: string | null;
+  doi: string | null;
+  source: string;
+  is_core: boolean;
+  created_at: string;
+}
+
+export interface LiteratureListResponse {
+  items: Literature[];
+  total: number;
+  core_count: number;
+}
+
+export async function listLiterature(
+  workspaceId: string,
+  params?: { source?: string; is_core?: boolean }
+): Promise<LiteratureListResponse> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/literature`, {
+    params,
+  });
+  return response.data;
+}
+
+export async function createLiterature(
+  workspaceId: string,
+  data: {
+    title: string;
+    authors: string[];
+    year?: number;
+    doi?: string;
+    venue?: string;
+    quartile?: string;
+    abstract?: string;
+    citations?: number;
+    source?: string;
+  }
+): Promise<Literature> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/literature`,
+    data
+  );
+  return response.data;
+}
+
+export async function importLiterature(
+  workspaceId: string,
+  data: { source: string; paper_ids: string[] }
+): Promise<{ imported: number; items: Literature[] }> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/literature/import`,
+    data
+  );
+  return response.data;
+}
+
+export async function updateLiterature(
+  workspaceId: string,
+  litId: string,
+  data: { is_core?: boolean; title?: string; authors?: string[] }
+): Promise<Literature> {
+  const response = await apiClient.patch(
+    `/workspaces/${workspaceId}/literature/${litId}`,
+    data
+  );
+  return response.data;
+}
+
+export async function deleteLiterature(
+  workspaceId: string,
+  litId: string
+): Promise<void> {
+  await apiClient.delete(`/workspaces/${workspaceId}/literature/${litId}`);
+}
+
+export async function getLiteratureCount(
+  workspaceId: string
+): Promise<{ total: number; core: number }> {
+  const response = await apiClient.get(
+    `/workspaces/${workspaceId}/literature/count`
+  );
+  return response.data;
+}
+
 export default apiClient;
