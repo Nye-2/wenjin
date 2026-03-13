@@ -3,13 +3,10 @@
  */
 
 import { create } from "zustand";
-import { getWorkspaceDashboard } from "@/lib/api";
+import { getWorkspaceDashboard, type ModuleStatus } from "@/lib/api";
 
-export interface ModuleStatus {
-  id: string;
-  status: "not_started" | "in_progress" | "completed";
-  summary: Record<string, unknown>;
-}
+// Re-export for convenience
+export type { ModuleStatus };
 
 interface RecentArtifact {
   id: string;

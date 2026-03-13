@@ -17,6 +17,9 @@ import { RecentArtifacts } from "./components/RecentArtifacts";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 
+// Constants
+const RECENT_ARTIFACTS_LIMIT = 5;
+
 const workspaceTypeLabels: Record<string, string> = {
   sci: "Scientific Paper",
   thesis: "Thesis / Dissertation",
@@ -160,42 +163,44 @@ export default function WorkbenchPage() {
         </header>
 
         {/* Main Content - Card Dashboard */}
-        <main className="flex-1 overflow-auto p-6">
-          <div className="max-w-6xl mx-auto space-y-6">
-            {/* Module Cards Grid */}
-            <section>
-              <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
-                工作模块
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {features.map((feature) => {
-                  const moduleStatus = modules.find((m) => m.id === feature.id);
-                  const route = featureRouteMap[feature.id] || feature.id;
+        <ErrorBoundary>
+          <main className="flex-1 overflow-auto p-6">
+            <div className="max-w-6xl mx-auto space-y-6">
+              {/* Module Cards Grid */}
+              <section>
+                <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
+                  工作模块
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {features.map((feature) => {
+                    const moduleStatus = modules.find((m) => m.id === feature.id);
+                    const route = featureRouteMap[feature.id] || feature.id;
 
-                  return (
-                    <ModuleCard
-                      key={feature.id}
-                      workspaceId={workspaceId}
-                      feature={feature}
-                      moduleStatus={moduleStatus}
-                      route={route}
-                    />
-                  );
-                })}
-              </div>
-            </section>
+                    return (
+                      <ModuleCard
+                        key={feature.id}
+                        workspaceId={workspaceId}
+                        feature={feature}
+                        moduleStatus={moduleStatus}
+                        route={route}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
 
-            {/* Recent Artifacts */}
-            <section>
-              <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
-                最近产出
-              </h2>
-              <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl p-4">
-                <RecentArtifacts artifacts={artifacts.slice(0, 5)} />
-              </div>
-            </section>
-          </div>
-        </main>
+              {/* Recent Artifacts */}
+              <section>
+                <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
+                  最近产出
+                </h2>
+                <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl p-4">
+                  <RecentArtifacts artifacts={artifacts.slice(0, RECENT_ARTIFACTS_LIMIT)} />
+                </div>
+              </section>
+            </div>
+          </main>
+        </ErrorBoundary>
       </div>
     );
   }

@@ -75,7 +75,11 @@ export const useLiteratureStore = create<LiteratureState>((set, get) => ({
         citations: data.citations ?? undefined,
         source: data.source || "manual",
       });
-      await get().fetchLiterature(workspaceId);
+      // 直接更新列表而不是重新获取，避免无限循环
+      set((state) => ({
+        items: [lit, ...state.items],
+        total: state.total + 1,
+      }));
       return lit;
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : "Failed to add literature";
@@ -86,8 +90,14 @@ export const useLiteratureStore = create<LiteratureState>((set, get) => ({
 
   toggleCore: async (workspaceId, litId, isCore) => {
     try {
-      await updateLiterature(workspaceId, litId, { is_core: isCore });
-      await get().fetchLiterature(workspaceId);
+      const updated = await updateLiterature(workspaceId, litId, { is_core: isCore });
+      // 直接更新列表中的项
+      set((state) => ({
+        items: state.items.map((item) =>
+          item.id === litId ? { ...item, is_core: isCore } : item
+        ),
+        coreCount: isCore ? state.coreCount + 1 : state.coreCount - 1,
+      }));
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : "Failed to update";
       set({ error });
@@ -97,7 +107,15 @@ export const useLiteratureStore = create<LiteratureState>((set, get) => ({
   removeLiterature: async (workspaceId, litId) => {
     try {
       await deleteLiterature(workspaceId, litId);
-      await get().fetchLiterature(workspaceId);
+      // 直接从列表中移除
+      set((state) => {
+        const item = state.items.find((i) => i.id === litId);
+        return {
+          items: state.items.filter((i) => i.id !== litId),
+          total: state.total - 1,
+          coreCount: item?.is_core ? state.coreCount - 1 : state.coreCount,
+        };
+      });
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : "Failed to delete";
       set({ error });
@@ -110,7 +128,13 @@ export const useLiteratureStore = create<LiteratureState>((set, get) => ({
         source: "deep_research",
         paper_ids: paperIds,
       });
-      await get().fetchLiterature(workspaceId);
+      // 导入后重新获取列表（因为批量导入无法直接更新）
+      const data = await listLiterature(workspaceId);
+      set({
+        items: data.items || [],
+        total: data.total || 0,
+        coreCount: data.core_count || 0,
+      });
       return result.imported;
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : "Failed to import";
