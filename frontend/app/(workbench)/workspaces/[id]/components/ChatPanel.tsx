@@ -108,7 +108,45 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     setActionError(null);
 
     try {
-      const execution = await executeWorkspaceFeature(workspaceId, featureId);
+      // 根据 feature 类型构造参数（目前仅 deep_research 需要基础 query）
+      const params: Record<string, unknown> = {};
+      if (feature.id === "deep_research") {
+        // 暂时使用 workspace 描述或名称作为研究主题，后续可由专用页面接管
+        const topic =
+          workspace?.description?.trim() ||
+          workspace?.name?.trim() ||
+          "";
+        if (topic) {
+          params.query = topic;
+        }
+      }
+
+      const execution = await executeWorkspaceFeature(
+        workspaceId,
+        featureId,
+        params
+      );
+
+      // 文献不足等 warning 场景：后端不会创建 task，前端不应进入轮询
+      if (execution.status === "warning" && !execution.task_id) {
+        const detail = execution.detail as
+          | { current?: number; recommended?: number }
+          | undefined;
+        if (execution.warning === "literature_insufficient" && detail) {
+          setActionError(
+            `文献数量不足（当前 ${detail.current ?? 0} / 推荐 ${detail.recommended ?? 0}），请先在「文献管理」中补充文献。`
+          );
+        } else {
+          setActionError(execution.message || "该功能暂时无法执行");
+        }
+        return;
+      }
+
+      if (!execution.task_id) {
+        setActionError("任务创建失败，请稍后重试");
+        return;
+      }
+
       startTask({
         taskId: execution.task_id,
         featureId: feature.id,

@@ -310,6 +310,17 @@ class TestGetWorkspace:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
+    def test_get_workspace_forbidden_for_non_owner(self, client, mock_workspace_service):
+        """Access should be denied when workspace is owned by another user."""
+        mock_workspace_service.get.return_value = create_mock_workspace(
+            user_id="another-user"
+        )
+
+        response = client.get("/workspaces/test-workspace-id")
+
+        assert response.status_code == 403
+        assert "access denied" in response.json()["detail"].lower()
+
 
 # ============ Update Workspace Tests ============
 
@@ -319,7 +330,9 @@ class TestUpdateWorkspace:
     @pytest.fixture
     def mock_workspace_service(self):
         """Create mock workspace service."""
-        return AsyncMock()
+        service = AsyncMock()
+        service.get.return_value = create_mock_workspace()
+        return service
 
     @pytest.fixture
     def mock_user(self):
@@ -383,6 +396,20 @@ class TestUpdateWorkspace:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
+    def test_update_workspace_forbidden_for_non_owner(self, client, mock_workspace_service):
+        """Update should be denied when workspace is owned by another user."""
+        mock_workspace_service.get.return_value = create_mock_workspace(
+            user_id="another-user"
+        )
+
+        response = client.put(
+            "/workspaces/test-workspace-id",
+            json={"name": "Should Not Update"},
+        )
+
+        assert response.status_code == 403
+        mock_workspace_service.update.assert_not_called()
+
 
 # ============ Delete Workspace Tests ============
 
@@ -392,7 +419,9 @@ class TestDeleteWorkspace:
     @pytest.fixture
     def mock_workspace_service(self):
         """Create mock workspace service."""
-        return AsyncMock()
+        service = AsyncMock()
+        service.get.return_value = create_mock_workspace()
+        return service
 
     @pytest.fixture
     def mock_user(self):
@@ -436,6 +465,17 @@ class TestDeleteWorkspace:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
+    def test_delete_workspace_forbidden_for_non_owner(self, client, mock_workspace_service):
+        """Delete should be denied when workspace is owned by another user."""
+        mock_workspace_service.get.return_value = create_mock_workspace(
+            user_id="another-user"
+        )
+
+        response = client.delete("/workspaces/test-workspace-id")
+
+        assert response.status_code == 403
+        mock_workspace_service.delete.assert_not_called()
+
 
 # ============ List Workspace Papers Tests ============
 
@@ -443,19 +483,39 @@ class TestListWorkspacePapers:
     """Test list workspace papers endpoint."""
 
     @pytest.fixture
+    def mock_workspace_service(self):
+        """Create mock workspace service."""
+        service = AsyncMock()
+        service.get.return_value = create_mock_workspace()
+        return service
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create mock user for authentication."""
+        return create_mock_user()
+
+    @pytest.fixture
     def mock_paper_service(self):
         """Create mock paper service."""
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_paper_service):
+    def client(self, mock_workspace_service, mock_paper_service, mock_user):
         """Create test client with mocked dependencies."""
         app = FastAPI()
+
+        async def override_get_workspace_service():
+            return mock_workspace_service
 
         async def override_get_paper_service():
             return mock_paper_service
 
+        async def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
         app.dependency_overrides[workspaces.get_paper_service] = override_get_paper_service
+        app.dependency_overrides[get_current_user] = override_get_current_user
         app.include_router(workspaces.router)
 
         return TestClient(app)
@@ -500,6 +560,22 @@ class TestListWorkspacePapers:
         data = response.json()
         assert data == {"papers": [], "count": 0}
 
+    def test_list_workspace_papers_forbidden_for_non_owner(
+        self,
+        client,
+        mock_workspace_service,
+        mock_paper_service,
+    ):
+        """Listing papers should be denied when workspace is not owned by user."""
+        mock_workspace_service.get.return_value = create_mock_workspace(
+            user_id="another-user"
+        )
+
+        response = client.get("/workspaces/test-workspace-id/papers")
+
+        assert response.status_code == 403
+        mock_paper_service.list_workspace_papers.assert_not_called()
+
 
 # ============ Add Paper to Workspace Tests ============
 
@@ -507,19 +583,39 @@ class TestAddPaperToWorkspace:
     """Test add paper to workspace endpoint."""
 
     @pytest.fixture
+    def mock_workspace_service(self):
+        """Create mock workspace service."""
+        service = AsyncMock()
+        service.get.return_value = create_mock_workspace()
+        return service
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create mock user for authentication."""
+        return create_mock_user()
+
+    @pytest.fixture
     def mock_paper_service(self):
         """Create mock paper service."""
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_paper_service):
+    def client(self, mock_workspace_service, mock_paper_service, mock_user):
         """Create test client with mocked dependencies."""
         app = FastAPI()
+
+        async def override_get_workspace_service():
+            return mock_workspace_service
 
         async def override_get_paper_service():
             return mock_paper_service
 
+        async def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
         app.dependency_overrides[workspaces.get_paper_service] = override_get_paper_service
+        app.dependency_overrides[get_current_user] = override_get_current_user
         app.include_router(workspaces.router)
 
         return TestClient(app)
@@ -579,6 +675,25 @@ class TestAddPaperToWorkspace:
         assert response.status_code == 200
         assert response.json()["success"] is True
 
+    def test_add_paper_forbidden_for_non_owner(
+        self,
+        client,
+        mock_workspace_service,
+        mock_paper_service,
+    ):
+        """Add paper should be denied when workspace is not owned by user."""
+        mock_workspace_service.get.return_value = create_mock_workspace(
+            user_id="another-user"
+        )
+
+        response = client.post(
+            "/workspaces/test-workspace-id/papers/test-paper-id",
+            json={},
+        )
+
+        assert response.status_code == 403
+        mock_paper_service.add_to_workspace.assert_not_called()
+
 
 # ============ Remove Paper from Workspace Tests ============
 
@@ -586,19 +701,39 @@ class TestRemovePaperFromWorkspace:
     """Test remove paper from workspace endpoint."""
 
     @pytest.fixture
+    def mock_workspace_service(self):
+        """Create mock workspace service."""
+        service = AsyncMock()
+        service.get.return_value = create_mock_workspace()
+        return service
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create mock user for authentication."""
+        return create_mock_user()
+
+    @pytest.fixture
     def mock_paper_service(self):
         """Create mock paper service."""
         return AsyncMock()
 
     @pytest.fixture
-    def client(self, mock_paper_service):
+    def client(self, mock_workspace_service, mock_paper_service, mock_user):
         """Create test client with mocked dependencies."""
         app = FastAPI()
+
+        async def override_get_workspace_service():
+            return mock_workspace_service
 
         async def override_get_paper_service():
             return mock_paper_service
 
+        async def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
         app.dependency_overrides[workspaces.get_paper_service] = override_get_paper_service
+        app.dependency_overrides[get_current_user] = override_get_current_user
         app.include_router(workspaces.router)
 
         return TestClient(app)
@@ -625,6 +760,22 @@ class TestRemovePaperFromWorkspace:
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
+
+    def test_remove_paper_forbidden_for_non_owner(
+        self,
+        client,
+        mock_workspace_service,
+        mock_paper_service,
+    ):
+        """Remove paper should be denied when workspace is not owned by user."""
+        mock_workspace_service.get.return_value = create_mock_workspace(
+            user_id="another-user"
+        )
+
+        response = client.delete("/workspaces/test-workspace-id/papers/test-paper-id")
+
+        assert response.status_code == 403
+        mock_paper_service.remove_from_workspace.assert_not_called()
 
 
 # ============ Integration Tests ============

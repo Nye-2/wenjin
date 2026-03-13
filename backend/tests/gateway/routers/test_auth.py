@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from src.database.models.credit import CreditTransaction
 from src.database.models.user import User
 from src.gateway.routers.auth import get_db, router
 from src.services.auth import create_tokens
@@ -32,11 +33,13 @@ async def async_engine():
         TEST_DATABASE_URL,
         echo=False,
     )
-    # Create the User table
+    # Create required tables for auth + registration bonus.
     async with engine.begin() as conn:
         await conn.run_sync(User.__table__.create)
+        await conn.run_sync(CreditTransaction.__table__.create)
     yield engine
     async with engine.begin() as conn:
+        await conn.run_sync(CreditTransaction.__table__.drop)
         await conn.run_sync(User.__table__.drop)
     await engine.dispose()
 

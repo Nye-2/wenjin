@@ -152,10 +152,12 @@ export interface WorkspaceFeature {
 }
 
 export interface ExecuteWorkspaceFeatureResponse {
-  task_id: string;
+  task_id: string | null;
   status: string;
   feature_id: string;
   message: string;
+  warning?: string;
+  detail?: Record<string, unknown> | null;
 }
 
 export interface TaskStatus {
@@ -448,6 +450,270 @@ export async function getWorkspaceDashboard(
   workspaceId: string
 ): Promise<DashboardData> {
   const response = await apiClient.get(`/workspaces/${workspaceId}/dashboard`);
+  return response.data;
+}
+
+// ============ User/Admin Dashboard API ============
+
+export interface CreditTransactionItem {
+  id: string;
+  user_id?: string;
+  user_email?: string;
+  user_name?: string | null;
+  type: string;
+  amount: number;
+  balance_after: number;
+  description?: string | null;
+  feature_id?: string | null;
+  created_at: string;
+}
+
+export interface UserDashboardData {
+  profile: {
+    id: string;
+    email: string;
+    name: string | null;
+    role: 'user' | 'admin';
+    is_active: boolean;
+    created_at: string | null;
+    last_login: string | null;
+  };
+  credits: {
+    balance: number;
+    total_earned: number;
+    total_spent: number;
+    costs: Record<string, number | Record<string, number>>;
+  };
+  workspaces: {
+    total: number;
+    by_type: Record<string, number>;
+    created_last_7d: number;
+  };
+  tasks: {
+    total: number;
+    success: number;
+    running: number;
+    failed: number;
+    pending: number;
+    cancelled: number;
+    completion_rate: number;
+  };
+  recent_credit_transactions: CreditTransactionItem[];
+  recent_tasks: Array<{
+    id: string;
+    task_type: string;
+    status: string;
+    progress: number;
+    message?: string | null;
+    created_at: string | null;
+    completed_at: string | null;
+  }>;
+  updated_at: string;
+}
+
+export interface AdminDashboardData {
+  summary: {
+    users: {
+      total: number;
+      active: number;
+      admins: number;
+    };
+    workspaces: {
+      total: number;
+      by_type: Record<string, number>;
+    };
+    tasks: {
+      total: number;
+      running: number;
+      failed_last_24h: number;
+    };
+    artifacts: {
+      total: number;
+    };
+    credits: {
+      total_issued: number;
+      total_spent: number;
+      in_circulation: number;
+      total_transactions: number;
+    };
+  };
+  recent_users: AdminUserItem[];
+  top_spenders: Array<{
+    id: string;
+    email: string;
+    name: string | null;
+    total_spent: number;
+    balance: number;
+  }>;
+  recent_credit_transactions: CreditTransactionItem[];
+  recent_admin_logs: AdminLogItem[];
+  updated_at: string;
+}
+
+export interface AdminUserItem {
+  id: string;
+  email: string;
+  name: string | null;
+  role: 'user' | 'admin';
+  is_active: boolean;
+  credits: number;
+  total_credits_earned: number;
+  total_credits_spent: number;
+  created_at: string | null;
+  last_login: string | null;
+}
+
+export interface AdminLogItem {
+  id: string;
+  admin_id?: string;
+  action: string;
+  target_type: string;
+  target_user_id: string | null;
+  details: Record<string, unknown>;
+  ip_address?: string | null;
+  created_at: string | null;
+  admin?: {
+    id: string;
+    email: string;
+    name: string | null;
+  };
+  target_user?: {
+    id: string;
+    email: string;
+    name: string | null;
+  } | null;
+}
+
+export async function getMyDashboard(): Promise<UserDashboardData> {
+  const response = await apiClient.get('/dashboard/me');
+  return response.data;
+}
+
+export async function getMyCreditHistory(params?: {
+  page?: number;
+  page_size?: number;
+  transaction_type?: string;
+}): Promise<{
+  transactions: CreditTransactionItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}> {
+  const response = await apiClient.get('/dashboard/me/credits/history', { params });
+  return response.data;
+}
+
+export async function getWorkflowCreditCosts(): Promise<{
+  costs: Record<string, number | Record<string, number>>;
+}> {
+  const response = await apiClient.get('/dashboard/me/credits/costs');
+  return response.data;
+}
+
+export async function getAdminDashboard(): Promise<AdminDashboardData> {
+  const response = await apiClient.get('/dashboard/admin');
+  return response.data;
+}
+
+export async function listAdminUsers(params?: {
+  page?: number;
+  page_size?: number;
+  keyword?: string;
+  is_active?: boolean;
+  role?: 'user' | 'admin';
+}): Promise<{
+  users: AdminUserItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}> {
+  const response = await apiClient.get('/dashboard/admin/users', { params });
+  return response.data;
+}
+
+export async function updateAdminUserStatus(
+  userId: string,
+  isActive: boolean
+): Promise<{ success: boolean; user: AdminUserItem }> {
+  const response = await apiClient.post(`/dashboard/admin/users/${userId}/status`, {
+    is_active: isActive,
+  });
+  return response.data;
+}
+
+export async function updateAdminUserRole(
+  userId: string,
+  role: 'user' | 'admin'
+): Promise<{ success: boolean; user: AdminUserItem }> {
+  const response = await apiClient.post(`/dashboard/admin/users/${userId}/role`, {
+    role,
+  });
+  return response.data;
+}
+
+export async function adminGrantCredits(data: {
+  user_id: string;
+  amount: number;
+  description?: string;
+}): Promise<{
+  success: boolean;
+  transaction: {
+    id: string;
+    amount: number;
+    balance_after: number;
+  };
+}> {
+  const response = await apiClient.post('/dashboard/admin/credits/grant', data);
+  return response.data;
+}
+
+export async function adminDeductCredits(data: {
+  user_id: string;
+  amount: number;
+  description?: string;
+}): Promise<{
+  success: boolean;
+  transaction: {
+    id: string;
+    amount: number;
+    balance_after: number;
+  };
+}> {
+  const response = await apiClient.post('/dashboard/admin/credits/deduct', data);
+  return response.data;
+}
+
+export async function getAdminCreditHistory(params?: {
+  page?: number;
+  page_size?: number;
+  user_id?: string;
+  transaction_type?: string;
+}): Promise<{
+  transactions: CreditTransactionItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}> {
+  const response = await apiClient.get('/dashboard/admin/credits/history', { params });
+  return response.data;
+}
+
+export async function getAdminLogs(params?: {
+  page?: number;
+  page_size?: number;
+  action?: string;
+  target_user_id?: string;
+}): Promise<{
+  logs: AdminLogItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}> {
+  const response = await apiClient.get('/dashboard/admin/logs', { params });
   return response.data;
 }
 

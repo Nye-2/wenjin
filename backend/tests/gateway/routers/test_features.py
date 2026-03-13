@@ -9,7 +9,7 @@ from src.database import WorkspaceType
 from src.gateway.routers import features
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.features import ExecuteResponse
-from src.services.literature_service import get_literature_service
+from src.services.credit_service import InsufficientCreditsError
 
 
 def create_mock_user(user_id: str) -> MagicMock:
@@ -32,11 +32,22 @@ def create_workspace(workspace_type, user_id: str = "user-1") -> MagicMock:
     return workspace
 
 
+def create_mock_credit_service() -> AsyncMock:
+    """Create a credit service mock that skips real DB interactions."""
+    credit_service = AsyncMock()
+    credit_service.consume_for_feature = AsyncMock(return_value=None)
+    credit_service.refund_failed_task = AsyncMock(return_value=None)
+    credit_service.db = AsyncMock()
+    credit_service.db.commit = AsyncMock()
+    return credit_service
+
+
 def create_client(
     user_id: str,
     workspace_service,
     task_service,
     literature_service=None,
+    credit_service=None,
 ) -> TestClient:
     """Create a features test client with dependency overrides."""
     app = FastAPI()
@@ -53,12 +64,18 @@ def create_client(
     async def override_get_literature_service():
         return literature_service or AsyncMock()
 
+    async def override_get_credit_service():
+        return credit_service or create_mock_credit_service()
+
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[features.get_workspace_service] = (
         override_get_workspace_service
     )
     app.dependency_overrides[features.get_task_service] = override_get_task_service
-    app.dependency_overrides[get_literature_service] = override_get_literature_service
+    app.dependency_overrides[features.get_literature_service] = (
+        override_get_literature_service
+    )
+    app.dependency_overrides[features.get_credit_service] = override_get_credit_service
     app.include_router(features.router)
     return TestClient(app)
 
@@ -165,6 +182,76 @@ class TestWorkspaceFeaturesRouter:
 
         assert response.status_code == 404
 
+    def test_execute_technical_description_submits_canonical_task_payload(self):
+        """Technical description feature should be routed with canonical metadata."""
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.SOFTWARE_COPYRIGHT)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="task-tech-1")
+        client = create_client("user-1", workspace_service, task_service)
+
+        response = client.post(
+            "/workspaces/ws-1/features/technical_description/execute",
+            json={
+                "params": {
+                    "software_name": "Academic Assistant",
+                    "version": "V2.2",
+                }
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_id"] == "task-tech-1"
+        assert data["feature_id"] == "technical_description"
+        assert data["status"] == "pending"
+
+        submit_kwargs = task_service.submit_task.await_args.kwargs
+        assert submit_kwargs["task_type"] == "workspace_feature"
+        assert submit_kwargs["payload"]["workspace_type"] == "software_copyright"
+        assert submit_kwargs["payload"]["feature_id"] == "technical_description"
+        assert submit_kwargs["payload"]["handler_key"] == (
+            "software_copyright.technical_description"
+        )
+        assert submit_kwargs["payload"]["software_name"] == "Academic Assistant"
+        assert submit_kwargs["payload"]["version"] == "V2.2"
+
+    def test_execute_prior_art_search_submits_canonical_task_payload(self):
+        """Patent prior_art_search feature should be routed with canonical metadata."""
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.PATENT)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="task-pat-1")
+        client = create_client("user-1", workspace_service, task_service)
+
+        response = client.post(
+            "/workspaces/ws-1/features/prior_art_search/execute",
+            json={
+                "params": {
+                    "keywords": ["调度优化", "强化学习"],
+                    "time_range": "近3年",
+                }
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_id"] == "task-pat-1"
+        assert data["feature_id"] == "prior_art_search"
+        assert data["status"] == "pending"
+
+        submit_kwargs = task_service.submit_task.await_args.kwargs
+        assert submit_kwargs["task_type"] == "workspace_feature"
+        assert submit_kwargs["payload"]["workspace_type"] == "patent"
+        assert submit_kwargs["payload"]["feature_id"] == "prior_art_search"
+        assert submit_kwargs["payload"]["handler_key"] == "patent.prior_art_search"
+        assert submit_kwargs["payload"]["keywords"] == ["调度优化", "强化学习"]
+        assert submit_kwargs["payload"]["time_range"] == "近3年"
+
     def test_execute_feature_params_cannot_override_canonical_context(self):
         """User params should not overwrite routing-critical task payload fields."""
         workspace_service = AsyncMock()
@@ -200,6 +287,89 @@ class TestWorkspaceFeaturesRouter:
         assert submit_kwargs["payload"]["agent"] == "writer"
         assert submit_kwargs["payload"]["software_name"] == "SafeName"
 
+    def test_execute_sci_literature_search_submits_expected_payload(self):
+        """SCI literature search should route through canonical sci handler key."""
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.SCI)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="task-sci-1")
+        client = create_client("user-1", workspace_service, task_service)
+
+        response = client.post(
+            "/workspaces/ws-1/features/literature_search/execute",
+            json={"params": {"query": "vision transformer"}},
+        )
+
+        assert response.status_code == 200
+        submit_kwargs = task_service.submit_task.await_args.kwargs
+        assert submit_kwargs["task_type"] == "workspace_feature"
+        assert submit_kwargs["payload"]["workspace_type"] == "sci"
+        assert submit_kwargs["payload"]["feature_id"] == "literature_search"
+        assert submit_kwargs["payload"]["handler_key"] == "sci.literature_search"
+        assert submit_kwargs["payload"]["query"] == "vision transformer"
+
+    def test_execute_sci_writing_submits_expected_payload(self):
+        """SCI writing should route through canonical sci writing handler key."""
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.SCI)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="task-sci-writing-1")
+        client = create_client("user-1", workspace_service, task_service)
+
+        response = client.post(
+            "/workspaces/ws-1/features/writing/execute",
+            json={
+                "params": {
+                    "paper_title": "Diffusion Models in Vision",
+                    "section_type": "introduction",
+                    "target_words": 1200,
+                }
+            },
+        )
+
+        assert response.status_code == 200
+        submit_kwargs = task_service.submit_task.await_args.kwargs
+        assert submit_kwargs["task_type"] == "workspace_feature"
+        assert submit_kwargs["payload"]["workspace_type"] == "sci"
+        assert submit_kwargs["payload"]["feature_id"] == "writing"
+        assert submit_kwargs["payload"]["handler_key"] == "sci.writing"
+        assert submit_kwargs["payload"]["paper_title"] == "Diffusion Models in Vision"
+        assert submit_kwargs["payload"]["section_type"] == "introduction"
+        assert submit_kwargs["payload"]["target_words"] == 1200
+
+    def test_execute_proposal_outline_submits_expected_payload(self):
+        """Proposal outline should route through canonical proposal handler key."""
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.PROPOSAL)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="task-proposal-1")
+        client = create_client("user-1", workspace_service, task_service)
+
+        response = client.post(
+            "/workspaces/ws-1/features/proposal_outline/execute",
+            json={
+                "params": {
+                    "topic": "智能制造关键技术研究",
+                    "proposal_type": "provincial",
+                    "period_months": 24,
+                }
+            },
+        )
+
+        assert response.status_code == 200
+        submit_kwargs = task_service.submit_task.await_args.kwargs
+        assert submit_kwargs["task_type"] == "workspace_feature"
+        assert submit_kwargs["payload"]["workspace_type"] == "proposal"
+        assert submit_kwargs["payload"]["feature_id"] == "proposal_outline"
+        assert submit_kwargs["payload"]["handler_key"] == "proposal.proposal_outline"
+        assert submit_kwargs["payload"]["topic"] == "智能制造关键技术研究"
+
 
 class TestExecuteResponseModel:
     """Tests for ExecuteResponse model with warning support."""
@@ -233,13 +403,17 @@ class TestLiteratureInsufficientWarning:
 
         literature_service = AsyncMock()
         literature_service.count_literature.return_value = {"total": 2, "core": 0}
+        credit_service = create_mock_credit_service()
 
         # Create client with literature_service override
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
         app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[features.get_task_service] = lambda: task_service
-        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.dependency_overrides[features.get_literature_service] = (
+            lambda: literature_service
+        )
+        app.dependency_overrides[features.get_credit_service] = lambda: credit_service
         app.include_router(features.router)
         client = TestClient(app)
 
@@ -264,12 +438,16 @@ class TestLiteratureInsufficientWarning:
 
         literature_service = AsyncMock()
         literature_service.count_literature.return_value = {"total": 20, "core": 5}
+        credit_service = create_mock_credit_service()
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
         app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[features.get_task_service] = lambda: task_service
-        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.dependency_overrides[features.get_literature_service] = (
+            lambda: literature_service
+        )
+        app.dependency_overrides[features.get_credit_service] = lambda: credit_service
         app.include_router(features.router)
         client = TestClient(app)
 
@@ -293,12 +471,16 @@ class TestLiteratureInsufficientWarning:
 
         literature_service = AsyncMock()
         literature_service.count_literature.return_value = {"total": 2, "core": 0}
+        credit_service = create_mock_credit_service()
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
         app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[features.get_task_service] = lambda: task_service
-        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.dependency_overrides[features.get_literature_service] = (
+            lambda: literature_service
+        )
+        app.dependency_overrides[features.get_credit_service] = lambda: credit_service
         app.include_router(features.router)
         client = TestClient(app)
 
@@ -312,3 +494,40 @@ class TestLiteratureInsufficientWarning:
         assert data["warning"] is None
         # literature_service should not be called
         literature_service.count_literature.assert_not_called()
+
+
+class TestCreditsGuard:
+    """Tests for credit deduction guard on feature execution."""
+
+    def test_execute_feature_warns_when_credits_insufficient(self):
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.PATENT)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="task-xyz")
+
+        credit_service = create_mock_credit_service()
+        credit_service.consume_for_feature = AsyncMock(
+            side_effect=InsufficientCreditsError(current_balance=10, required=30)
+        )
+
+        client = create_client(
+            "user-1",
+            workspace_service,
+            task_service,
+            credit_service=credit_service,
+        )
+
+        response = client.post(
+            "/workspaces/ws-1/features/prior_art_search/execute",
+            json={"params": {"query": "routing"}},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_id"] is None
+        assert data["warning"] == "insufficient_credits"
+        assert data["detail"]["current"] == 10
+        assert data["detail"]["required"] == 30
+        task_service.submit_task.assert_not_called()

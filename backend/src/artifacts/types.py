@@ -39,5 +39,6 @@ class ArtifactType(StrEnum):
     BACKGROUND_RESEARCH = "background_research"
     OPENING_REPORT = "opening_report"
     FEASIBILITY_ANALYSIS = "feasibility_analysis"
+    LITERATURE_INVENTORY = "literature_inventory"
     THESIS_CHAPTER = "thesis_chapter"
     GAP_ANALYSIS = "gap_analysis"

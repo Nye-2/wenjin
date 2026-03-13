@@ -11,6 +11,7 @@ from src.workspace_features.runtime import (
     WorkspaceFeatureExecutionContext,
     register_feature_handler,
 )
+from src.workspace_features.services import build_technical_description_payload
 
 
 def _normalize_list(value: Any) -> list[str]:
@@ -216,5 +217,111 @@ async def build_copyright_materials(
             "software_name": software_name,
             "version": version,
             "materials_count": len(required_materials),
+        },
+    )
+
+
+def _read_optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+@register_feature_handler("software_copyright.technical_description")
+async def build_technical_description(
+    context: WorkspaceFeatureExecutionContext,
+) -> WorkspaceFeatureExecutionResult:
+    """Generate and persist a technical description document for software copyright."""
+    params = context.params
+
+    # Extract parameters
+    software_name = (
+        str(params.get("software_name") or "").strip()
+        or context.workspace_name
+        or "待确认软件"
+    )
+    version = str(params.get("version") or params.get("software_version") or "V1.0").strip()
+    core_modules = _normalize_list(params.get("core_modules"))
+    deployment_architecture = str(params.get("deployment_architecture") or "B/S架构").strip()
+    database_middleware = _normalize_list(params.get("database_middleware"))
+    interface_protocols = _normalize_list(params.get("interface_protocols"))
+    highlights = _normalize_list(params.get("highlights"))
+    preferred_model = _read_optional_str(params.get("model_id"))
+
+    await context.update(
+        10,
+        "分析软件技术参数",
+        current_step="analyze",
+        metadata={
+            "software_name": software_name,
+            "version": version,
+        },
+    )
+
+    await context.update(
+        40,
+        "生成技术说明书内容",
+        current_step="draft",
+    )
+
+    content = await build_technical_description_payload(
+        workspace_id=context.workspace_id,
+        workspace_name=context.workspace_name or "",
+        workspace_description=context.workspace_description or "",
+        software_name=software_name,
+        version=version,
+        core_modules=core_modules,
+        deployment_architecture=deployment_architecture,
+        database_middleware=database_middleware,
+        interface_protocols=interface_protocols,
+        highlights=highlights,
+        preferred_model=preferred_model,
+    )
+
+    artifact_title = f"{software_name} 技术说明书"
+    artifact = FeatureArtifactDraft(
+        type=ArtifactType.TECHNICAL_DESCRIPTION.value,
+        title=artifact_title,
+        content=content,
+        created_by_skill=context.handler_key,
+    )
+    artifacts = await context.persist_artifacts([artifact])
+
+    generation_mode = str(content.get("generation_mode") or "template_fallback")
+    generation_error = content.get("generation_error")
+
+    await context.update(
+        90,
+        "技术说明书已保存"
+        if generation_mode == "llm"
+        else "技术说明书已保存（模板模式）",
+        current_step="revise",
+        metadata={
+            "artifact_ids": [artifact.id for artifact in artifacts],
+            "generation_mode": generation_mode,
+        },
+    )
+
+    message = (
+        f"已生成《{artifact_title}》"
+        if generation_mode == "llm"
+        else f"已生成《{artifact_title}》（模板模式，可后续升级）"
+    )
+
+    return WorkspaceFeatureExecutionResult(
+        message=message,
+        artifacts=artifacts,
+        refresh_targets=["artifacts"],
+        next_steps=[
+            "查看生成的技术说明书内容，根据实际软件情况进行调整。",
+            "如需重新生成，可更换模型或补充更详细的软件参数。",
+            "将技术说明书与材料清单配合使用，完成软著申请材料准备。",
+        ],
+        data={
+            "software_name": software_name,
+            "version": version,
+            "generation_mode": generation_mode,
+            "generation_error": generation_error,
         },
     )

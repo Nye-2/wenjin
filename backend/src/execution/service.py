@@ -16,6 +16,7 @@ from .types import (
 )
 from .docker.client import DockerClient, DockerExecutionError
 from .providers.latex import LaTeXProvider
+from .providers.python_viz import PythonVizProvider
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,8 @@ class DockerExecutionService(ExecutionService):
     # Provider registry
     PROVIDER_MAP: dict[ExecutionType, type] = {
         ExecutionType.LATEX_COMPILE: LaTeXProvider,
+        ExecutionType.PYTHON_PLOT: PythonVizProvider,
         # More providers added in later phases:
-        # ExecutionType.PYTHON_PLOT: PythonVizProvider,
         # ExecutionType.MERMAID_DIAGRAM: DiagramProvider,
         # ExecutionType.AI_IMAGE: AIImageProvider,
     }

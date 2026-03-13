@@ -131,6 +131,28 @@ def paper_to_response(paper: Paper) -> PaperResponse:
     )
 
 
+async def require_workspace_owner(
+    workspace_id: str,
+    current_user: User,
+    workspace_service: WorkspaceService,
+) -> Workspace:
+    """Load workspace and ensure the current user is the owner."""
+    workspace = await workspace_service.get(workspace_id)
+    if not workspace:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found",
+        )
+
+    if str(workspace.user_id) != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    return workspace
+
+
 # ============ Endpoints ============
 
 @router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
@@ -190,6 +212,7 @@ async def list_workspaces(
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
 async def get_workspace(
     workspace_id: str,
+    current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ):
     """Get workspace by ID.
@@ -204,12 +227,11 @@ async def get_workspace(
     Raises:
         HTTPException: If workspace not found
     """
-    workspace = await workspace_service.get(workspace_id)
-    if not workspace:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workspace not found",
-        )
+    workspace = await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
     return workspace_to_response(workspace)
 
 
@@ -217,6 +239,7 @@ async def get_workspace(
 async def update_workspace(
     workspace_id: str,
     request: UpdateWorkspaceRequest,
+    current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ):
     """Update workspace.
@@ -232,6 +255,12 @@ async def update_workspace(
     Raises:
         HTTPException: If workspace not found
     """
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
     update_data = request.model_dump(exclude_unset=True)
     workspace = await workspace_service.update(workspace_id, **update_data)
     if not workspace:
@@ -245,6 +274,7 @@ async def update_workspace(
 @router.delete("/{workspace_id}")
 async def delete_workspace(
     workspace_id: str,
+    current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ):
     """Delete workspace.
@@ -259,6 +289,12 @@ async def delete_workspace(
     Raises:
         HTTPException: If workspace not found
     """
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
     success = await workspace_service.delete(workspace_id)
     if not success:
         raise HTTPException(
@@ -272,6 +308,8 @@ async def delete_workspace(
 async def list_workspace_papers(
     workspace_id: str,
     read_status: str | None = None,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
     paper_service: PaperService = Depends(get_paper_service),
 ):
     """List papers in workspace.
@@ -284,6 +322,12 @@ async def list_workspace_papers(
     Returns:
         Papers in the workspace with total count
     """
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
     papers = await paper_service.list_workspace_papers(
         workspace_id=workspace_id,
         read_status=read_status,
@@ -299,6 +343,8 @@ async def add_paper_to_workspace(
     workspace_id: str,
     paper_id: str,
     request: AddPaperRequest,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
     paper_service: PaperService = Depends(get_paper_service),
 ):
     """Add paper to workspace.
@@ -312,6 +358,12 @@ async def add_paper_to_workspace(
     Returns:
         Success message
     """
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
     await paper_service.add_to_workspace(
         paper_id=paper_id,
         workspace_id=workspace_id,
@@ -326,6 +378,8 @@ async def add_paper_to_workspace(
 async def remove_paper_from_workspace(
     workspace_id: str,
     paper_id: str,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
     paper_service: PaperService = Depends(get_paper_service),
 ):
     """Remove paper from workspace.
@@ -338,6 +392,12 @@ async def remove_paper_from_workspace(
     Returns:
         Success message
     """
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
     success = await paper_service.remove_from_workspace(
         paper_id=paper_id,
         workspace_id=workspace_id,
@@ -353,6 +413,7 @@ async def remove_paper_from_workspace(
 @router.get("/{workspace_id}/dashboard")
 async def get_workspace_dashboard(
     workspace_id: str,
+    current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dashboard_service: DashboardService = Depends(get_dashboard_service),
 ):
@@ -369,10 +430,13 @@ async def get_workspace_dashboard(
     Raises:
         HTTPException: If workspace not found
     """
-    workspace = await workspace_service.get(workspace_id)
-    if not workspace:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workspace not found",
-        )
-    return await dashboard_service.get_dashboard(workspace_id)
+    workspace = await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+    workspace_type = workspace.type.value if workspace.type else None
+    return await dashboard_service.get_dashboard(
+        workspace_id,
+        workspace_type=workspace_type,
+    )

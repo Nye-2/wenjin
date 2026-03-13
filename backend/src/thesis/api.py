@@ -5,21 +5,37 @@ unified async task infrastructure.
 """
 
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.cache.redis_client import redis_client
 from src.database import User, get_db_session
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.tasks import get_task_service
+from src.services.credit_service import CreditService, InsufficientCreditsError
 from src.task.service import TaskService
 from src.task.store import TaskStore
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["thesis"])
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Dependency to get database session."""
+    async with get_db_session() as session:
+        yield session
+
+
+async def get_credit_service(
+    db: AsyncSession = Depends(get_db),
+) -> CreditService:
+    """Get credit service bound to the request database session."""
+    return CreditService(db)
 
 
 class ThesisGenerateRequest(BaseModel):
@@ -111,6 +127,7 @@ async def generate_thesis(
     request: ThesisGenerateRequest,
     current_user: User = Depends(get_current_user),
     task_service: TaskService = Depends(get_task_service),
+    credit_service: CreditService = Depends(get_credit_service),
 ) -> ThesisStatusResponse:
     """Start thesis generation task.
 
@@ -127,11 +144,56 @@ async def generate_thesis(
     Returns:
         Initial task status
     """
-    task_id = await task_service.submit_task(
-        user_id=str(current_user.id),
-        task_type="thesis_generation",
-        payload=request.model_dump(),
-    )
+    task_payload = request.model_dump()
+    user_id = str(current_user.id)
+    credit_transaction = None
+    try:
+        credit_transaction = await credit_service.consume_for_feature(
+            user_id=user_id,
+            feature_id="thesis_writing",
+            action="write_all",
+            workspace_id=request.workspace_id,
+            description="论文写作 执行消耗",
+            metadata={"source": "thesis_api.generate"},
+        )
+    except InsufficientCreditsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(
+                f"积分不足：当前 {exc.current_balance}，执行论文写作需要 {exc.required}"
+            ),
+        ) from exc
+
+    if credit_transaction is not None:
+        task_payload["credit_transaction_id"] = str(credit_transaction.id)
+        task_payload["credit_cost"] = abs(int(credit_transaction.amount))
+
+    try:
+        task_id = await task_service.submit_task(
+            user_id=user_id,
+            task_type="thesis_generation",
+            payload=task_payload,
+        )
+    except Exception as exc:
+        logger.exception(
+            "[Thesis] Failed to queue thesis_generation for workspace %s",
+            request.workspace_id,
+        )
+        if credit_transaction is not None:
+            await credit_service.refund_failed_task(
+                user_id=user_id,
+                original_transaction_id=str(credit_transaction.id),
+                reason="论文任务排队失败退款",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to queue thesis generation task",
+        ) from exc
+
+    if credit_transaction is not None:
+        credit_transaction.task_id = task_id
+        await credit_service.db.commit()
+
     logger.info("[Thesis] Submitted unified task %s for workspace %s", task_id, request.workspace_id)
 
     return ThesisStatusResponse(

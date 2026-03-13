@@ -39,6 +39,7 @@ class UserService:
         email: str,
         password: str,
         name: str | None = None,
+        auto_commit: bool = True,
     ) -> User:
         """Create a new user with hashed password.
 
@@ -46,6 +47,7 @@ class UserService:
             email: User's email address (must be unique)
             password: Plain text password (will be hashed)
             name: Optional display name (defaults to email prefix)
+            auto_commit: Whether to commit immediately
 
         Returns:
             Created user object
@@ -70,8 +72,11 @@ class UserService:
         )
 
         self.db.add(user)
-        await self.db.commit()
-        await self.db.refresh(user)
+        await self.db.flush()
+
+        if auto_commit:
+            await self.db.commit()
+            await self.db.refresh(user)
 
         return user
 

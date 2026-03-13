@@ -1,8 +1,6 @@
 """Dashboard service for workspace overview.
 
-This service provides dashboard overview functionality including:
-- Module status aggregation
-- Recent artifacts listing
+This service provides workspace-specific module aggregation and recent artifacts.
 """
 
 from typing import Any
@@ -10,40 +8,91 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Artifact, TaskRecord, WorkspaceLiterature
+from src.artifacts.types import ArtifactType
+from src.database import Artifact, TaskRecord, Workspace, WorkspaceLiterature
 
 
 class DashboardService:
-    """Service for workspace dashboard overview.
-
-    This class aggregates data from multiple sources to provide
-    a comprehensive dashboard view of workspace progress.
-
-    Attributes:
-        db: AsyncSession for database operations
-    """
+    """Service for workspace dashboard overview."""
 
     def __init__(self, db: AsyncSession):
-        """Initialize DashboardService with database session.
-
-        Args:
-            db: AsyncSession for database operations
-        """
         self.db = db
 
-    async def get_dashboard(self, workspace_id: str) -> dict[str, Any]:
+    async def get_dashboard(
+        self,
+        workspace_id: str,
+        workspace_type: str | None = None,
+    ) -> dict[str, Any]:
         """Get dashboard overview for a workspace.
-
-        Aggregates status from multiple modules and returns recent artifacts.
 
         Args:
             workspace_id: UUID of the workspace
+            workspace_type: Optional workspace type override (mainly for tests)
 
         Returns:
             Dictionary with modules status list and recent artifacts
         """
-        # Get status for each module
-        modules = [
+        resolved_workspace_type = workspace_type or await self._get_workspace_type(
+            workspace_id
+        )
+
+        modules = await self._get_modules_for_workspace(
+            workspace_id,
+            resolved_workspace_type,
+        )
+        recent_artifacts = await self._get_recent_artifacts(workspace_id)
+
+        return {
+            "modules": modules,
+            "recent_artifacts": recent_artifacts,
+        }
+
+    async def _get_workspace_type(self, workspace_id: str) -> str:
+        """Resolve workspace type from DB with thesis as safe fallback."""
+        result = await self.db.execute(
+            select(Workspace.type).where(Workspace.id == workspace_id)
+        )
+        workspace_type = result.scalar_one_or_none()
+        if workspace_type is None:
+            return "thesis"
+        return (
+            workspace_type.value
+            if hasattr(workspace_type, "value")
+            else str(workspace_type)
+        )
+
+    async def _get_modules_for_workspace(
+        self,
+        workspace_id: str,
+        workspace_type: str,
+    ) -> list[dict[str, Any]]:
+        """Build workspace-specific dashboard modules."""
+        if workspace_type == "sci":
+            return [
+                await self._get_sci_literature_search_status(workspace_id),
+                await self._get_sci_paper_analysis_status(workspace_id),
+                await self._get_sci_writing_status(workspace_id),
+            ]
+
+        if workspace_type == "proposal":
+            return [
+                await self._get_proposal_outline_status(workspace_id),
+                await self._get_background_research_status(workspace_id),
+            ]
+
+        if workspace_type == "software_copyright":
+            return [
+                await self._get_software_copyright_materials_status(workspace_id),
+                await self._get_technical_description_status(workspace_id),
+            ]
+
+        if workspace_type == "patent":
+            return [
+                await self._get_patent_outline_status(workspace_id),
+                await self._get_prior_art_search_status(workspace_id),
+            ]
+
+        return [
             await self._get_deep_research_status(workspace_id),
             await self._get_literature_status(workspace_id),
             await self._get_opening_research_status(workspace_id),
@@ -52,35 +101,73 @@ class DashboardService:
             await self._get_compile_export_status(workspace_id),
         ]
 
-        # Get recent artifacts
-        recent_artifacts = await self._get_recent_artifacts(workspace_id)
+    async def _count_artifacts(
+        self,
+        workspace_id: str,
+        artifact_type: str,
+        *,
+        created_by_skill: str | None = None,
+    ) -> int:
+        stmt = (
+            select(func.count())
+            .where(Artifact.workspace_id == workspace_id)
+            .where(Artifact.type == artifact_type)
+        )
+        if created_by_skill:
+            stmt = stmt.where(Artifact.created_by_skill == created_by_skill)
+        result = await self.db.execute(stmt)
+        return int(result.scalar() or 0)
 
-        return {
-            "modules": modules,
-            "recent_artifacts": recent_artifacts,
-        }
+    async def _count_running_workspace_feature_tasks(
+        self,
+        workspace_id: str,
+        feature_id: str,
+    ) -> int:
+        result = await self.db.execute(
+            select(func.count())
+            .where(TaskRecord.payload["workspace_id"].as_string() == workspace_id)
+            .where(TaskRecord.task_type == "workspace_feature")
+            .where(TaskRecord.payload["feature_id"].as_string() == feature_id)
+            .where(TaskRecord.status.in_(["pending", "running"]))
+        )
+        return int(result.scalar() or 0)
+
+    async def _get_latest_workspace_feature_task_status(
+        self,
+        workspace_id: str,
+        feature_id: str,
+    ) -> str | None:
+        result = await self.db.execute(
+            select(TaskRecord.status)
+            .where(TaskRecord.payload["workspace_id"].as_string() == workspace_id)
+            .where(TaskRecord.task_type == "workspace_feature")
+            .where(TaskRecord.payload["feature_id"].as_string() == feature_id)
+            .order_by(TaskRecord.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def _status_from_count_and_running(
+        self,
+        *,
+        count: int,
+        running_count: int,
+    ) -> str:
+        if running_count > 0:
+            return "in_progress"
+        if count > 0:
+            return "completed"
+        return "not_started"
 
     async def _get_deep_research_status(self, workspace_id: str) -> dict[str, Any]:
-        """Get deep research module status.
-
-        Status is determined by checking for completed deep_research tasks.
-
-        Args:
-            workspace_id: UUID of the workspace
-
-        Returns:
-            Module status dictionary
-        """
-        # Check for completed deep research tasks
         result = await self.db.execute(
             select(TaskRecord)
             .where(TaskRecord.payload["workspace_id"].as_string() == workspace_id)
             .where(TaskRecord.task_type == "deep_research")
-            .where(TaskRecord.status == "completed")
+            .where(TaskRecord.status == "success")
         )
         completed_tasks = result.scalars().all()
 
-        # Check for in-progress tasks
         result = await self.db.execute(
             select(TaskRecord)
             .where(TaskRecord.payload["workspace_id"].as_string() == workspace_id)
@@ -88,6 +175,13 @@ class DashboardService:
             .where(TaskRecord.status == "running")
         )
         running_tasks = result.scalars().all()
+
+        ideas_result = await self.db.execute(
+            select(func.count())
+            .where(Artifact.workspace_id == workspace_id)
+            .where(Artifact.type == ArtifactType.RESEARCH_IDEAS.value)
+        )
+        ideas_count = ideas_result.scalar() or 0
 
         if running_tasks:
             status = "in_progress"
@@ -99,29 +193,15 @@ class DashboardService:
         return {
             "id": "deep_research",
             "status": status,
-            "summary": {},
+            "summary": {"ideas_count": ideas_count},
         }
 
     async def _get_literature_status(self, workspace_id: str) -> dict[str, Any]:
-        """Get literature module status.
-
-        Status is determined by counting literature entries.
-
-        Args:
-            workspace_id: UUID of the workspace
-
-        Returns:
-            Module status dictionary
-        """
-        # Get total count
         total_result = await self.db.execute(
-            select(func.count()).where(
-                WorkspaceLiterature.workspace_id == workspace_id
-            )
+            select(func.count()).where(WorkspaceLiterature.workspace_id == workspace_id)
         )
         total = total_result.scalar() or 0
 
-        # Get core count
         core_result = await self.db.execute(
             select(func.count()).where(
                 WorkspaceLiterature.workspace_id == workspace_id,
@@ -130,83 +210,64 @@ class DashboardService:
         )
         core = core_result.scalar() or 0
 
-        # Determine status
         if total > 0:
             status = "completed" if core >= 5 else "in_progress"
         else:
             status = "not_started"
 
         return {
-            "id": "literature",
+            "id": "literature_management",
             "status": status,
             "summary": {"total": total, "core": core},
         }
 
     async def _get_opening_research_status(self, workspace_id: str) -> dict[str, Any]:
-        """Get opening research module status.
-
-        Status is determined by checking for opening_research artifacts.
-
-        Args:
-            workspace_id: UUID of the workspace
-
-        Returns:
-            Module status dictionary
-        """
-        # Check for opening research artifacts
         result = await self.db.execute(
             select(Artifact)
             .where(Artifact.workspace_id == workspace_id)
-            .where(Artifact.type == "opening_research")
+            .where(Artifact.created_by_skill == "thesis.opening_research")
+            .where(
+                Artifact.type.in_(
+                    [
+                        ArtifactType.OPENING_REPORT.value,
+                        ArtifactType.LITERATURE_REVIEW.value,
+                        ArtifactType.FEASIBILITY_ANALYSIS.value,
+                    ]
+                )
+            )
         )
         artifacts = result.scalars().all()
 
         if artifacts:
             status = "completed"
         else:
-            # Check for in-progress tasks
-            task_result = await self.db.execute(
-                select(TaskRecord)
-                .where(TaskRecord.payload["workspace_id"].as_string() == workspace_id)
-                .where(TaskRecord.task_type == "opening_research")
-                .where(TaskRecord.status == "running")
+            running_count = await self._count_running_workspace_feature_tasks(
+                workspace_id,
+                "opening_research",
             )
-            running_tasks = task_result.scalars().all()
-            status = "in_progress" if running_tasks else "not_started"
+            status = "in_progress" if running_count > 0 else "not_started"
 
         return {
             "id": "opening_research",
             "status": status,
-            "summary": {},
+            "summary": {"reports_count": len(artifacts)},
         }
 
     async def _get_thesis_writing_status(self, workspace_id: str) -> dict[str, Any]:
-        """Get thesis writing module status.
-
-        Status is determined by checking for thesis outline and chapters.
-
-        Args:
-            workspace_id: UUID of the workspace
-
-        Returns:
-            Module status dictionary
-        """
-        # Check for outline artifact
         outline_result = await self.db.execute(
             select(Artifact)
             .where(Artifact.workspace_id == workspace_id)
-            .where(Artifact.type == "thesis_outline")
+            .where(Artifact.type == ArtifactType.FRAMEWORK_OUTLINE.value)
         )
         outline_artifact = outline_result.scalar_one_or_none()
         outline_done = outline_artifact is not None
 
-        # Check for chapter artifacts
         chapters_result = await self.db.execute(
             select(func.count())
             .where(Artifact.workspace_id == workspace_id)
-            .where(Artifact.type == "thesis_chapter")
+            .where(Artifact.type == ArtifactType.THESIS_CHAPTER.value)
         )
-        chapters_count = chapters_result.scalar() or 0
+        chapters_count = int(chapters_result.scalar() or 0)
 
         if chapters_count > 0:
             status = "completed" if chapters_count >= 3 else "in_progress"
@@ -222,25 +283,10 @@ class DashboardService:
         }
 
     async def _get_figure_generation_status(self, workspace_id: str) -> dict[str, Any]:
-        """Get figure generation module status.
-
-        Status is determined by counting figure artifacts.
-
-        Args:
-            workspace_id: UUID of the workspace
-
-        Returns:
-            Module status dictionary
-        """
-        # Check for figure artifacts
-        result = await self.db.execute(
-            select(func.count())
-            .where(Artifact.workspace_id == workspace_id)
-            .where(Artifact.type == "figure")
+        count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.FIGURE.value,
         )
-        count = result.scalar() or 0
-
-        # Determine status
         if count > 0:
             status = "completed" if count >= 3 else "in_progress"
         else:
@@ -249,51 +295,288 @@ class DashboardService:
         return {
             "id": "figure_generation",
             "status": status,
-            "summary": {"count": count},
+            "summary": {"figures_count": count},
         }
 
     async def _get_compile_export_status(self, workspace_id: str) -> dict[str, Any]:
-        """Get compile/export module status.
-
-        Status is determined by checking for compiled PDF artifacts.
-
-        Args:
-            workspace_id: UUID of the workspace
-
-        Returns:
-            Module status dictionary
-        """
-        # Check for compiled PDF artifacts
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "compile_export",
+        )
         result = await self.db.execute(
             select(Artifact)
             .where(Artifact.workspace_id == workspace_id)
-            .where(Artifact.type == "compiled_pdf")
+            .where(Artifact.type == ArtifactType.PAPER_DRAFT.value)
+            .where(Artifact.created_by_skill == "thesis.compile_export")
+            .order_by(Artifact.created_at.desc())
+            .limit(1)
         )
-        artifacts = result.scalars().all()
+        latest_artifact = result.scalar_one_or_none()
 
-        if artifacts:
-            status = "completed"
-        else:
+        if latest_artifact is None:
+            if running_count > 0:
+                return {
+                    "id": "compile_export",
+                    "status": "in_progress",
+                    "summary": {
+                        "last_compile": None,
+                        "compile_status": None,
+                        "last_compile_success": False,
+                    },
+                }
             status = "not_started"
+            last_compile = None
+            compile_status = None
+        else:
+            content = (
+                latest_artifact.content
+                if isinstance(latest_artifact.content, dict)
+                else {}
+            )
+            compile_status = str(content.get("compile_status") or "unknown")
+            last_compile = (
+                latest_artifact.created_at.isoformat()
+                if getattr(latest_artifact, "created_at", None)
+                else ""
+            )
+            if running_count > 0:
+                status = "in_progress"
+            elif compile_status == "success":
+                status = "completed"
+            else:
+                status = "in_progress"
 
         return {
             "id": "compile_export",
             "status": status,
-            "summary": {},
+            "summary": {
+                "last_compile": last_compile,
+                "compile_status": compile_status,
+                "last_compile_success": compile_status == "success",
+            },
+        }
+
+    async def _get_sci_literature_search_status(self, workspace_id: str) -> dict[str, Any]:
+        results_count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.LITERATURE_SEARCH_RESULTS.value,
+        )
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "literature_search",
+        )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "literature_search",
+        )
+
+        status = await self._status_from_count_and_running(
+            count=results_count,
+            running_count=running_count,
+        )
+
+        return {
+            "id": "literature_search",
+            "status": status,
+            "summary": {
+                "results_count": results_count,
+                "last_task_status": latest_task_status,
+            },
+        }
+
+    async def _get_sci_paper_analysis_status(self, workspace_id: str) -> dict[str, Any]:
+        analysis_count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.PAPER_ANALYSIS.value,
+        )
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "paper_analysis",
+        )
+
+        status = await self._status_from_count_and_running(
+            count=analysis_count,
+            running_count=running_count,
+        )
+
+        return {
+            "id": "paper_analysis",
+            "status": status,
+            "summary": {
+                "analysis_count": analysis_count,
+            },
+        }
+
+    async def _get_sci_writing_status(self, workspace_id: str) -> dict[str, Any]:
+        draft_count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.PAPER_DRAFT.value,
+            created_by_skill="sci.writing",
+        )
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "writing",
+        )
+        status = await self._status_from_count_and_running(
+            count=draft_count,
+            running_count=running_count,
+        )
+
+        return {
+            "id": "writing",
+            "status": status,
+            "summary": {
+                "drafts_count": draft_count,
+            },
+        }
+
+    async def _get_proposal_outline_status(self, workspace_id: str) -> dict[str, Any]:
+        outline_count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.PROPOSAL.value,
+        )
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "proposal_outline",
+        )
+        status = await self._status_from_count_and_running(
+            count=outline_count,
+            running_count=running_count,
+        )
+
+        return {
+            "id": "proposal_outline",
+            "status": status,
+            "summary": {
+                "has_outline": outline_count > 0,
+                "count": outline_count,
+            },
+        }
+
+    async def _get_background_research_status(self, workspace_id: str) -> dict[str, Any]:
+        report_count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.BACKGROUND_RESEARCH.value,
+        )
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "background_research",
+        )
+        status = await self._status_from_count_and_running(
+            count=report_count,
+            running_count=running_count,
+        )
+
+        return {
+            "id": "background_research",
+            "status": status,
+            "summary": {
+                "count": report_count,
+            },
+        }
+
+    async def _get_software_copyright_materials_status(
+        self,
+        workspace_id: str,
+    ) -> dict[str, Any]:
+        materials_count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.COPYRIGHT_MATERIALS.value,
+        )
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "copyright_materials",
+        )
+        status = await self._status_from_count_and_running(
+            count=materials_count,
+            running_count=running_count,
+        )
+
+        return {
+            "id": "copyright_materials",
+            "status": status,
+            "summary": {
+                "has_materials": materials_count > 0,
+                "count": materials_count,
+            },
+        }
+
+    async def _get_technical_description_status(
+        self,
+        workspace_id: str,
+    ) -> dict[str, Any]:
+        description_count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.TECHNICAL_DESCRIPTION.value,
+        )
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "technical_description",
+        )
+        status = await self._status_from_count_and_running(
+            count=description_count,
+            running_count=running_count,
+        )
+
+        return {
+            "id": "technical_description",
+            "status": status,
+            "summary": {
+                "has_description": description_count > 0,
+                "count": description_count,
+            },
+        }
+
+    async def _get_patent_outline_status(self, workspace_id: str) -> dict[str, Any]:
+        outline_count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.PATENT_OUTLINE.value,
+        )
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "patent_outline",
+        )
+        status = await self._status_from_count_and_running(
+            count=outline_count,
+            running_count=running_count,
+        )
+
+        return {
+            "id": "patent_outline",
+            "status": status,
+            "summary": {
+                "has_outline": outline_count > 0,
+                "count": outline_count,
+            },
+        }
+
+    async def _get_prior_art_search_status(self, workspace_id: str) -> dict[str, Any]:
+        report_count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.PRIOR_ART_REPORT.value,
+        )
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "prior_art_search",
+        )
+        status = await self._status_from_count_and_running(
+            count=report_count,
+            running_count=running_count,
+        )
+
+        return {
+            "id": "prior_art_search",
+            "status": status,
+            "summary": {
+                "reports_count": report_count,
+            },
         }
 
     async def _get_recent_artifacts(
-        self, workspace_id: str, limit: int = 5
+        self,
+        workspace_id: str,
+        limit: int = 5,
     ) -> list[dict[str, Any]]:
-        """Get recent artifacts for a workspace.
-
-        Args:
-            workspace_id: UUID of the workspace
-            limit: Maximum number of artifacts to return
-
-        Returns:
-            List of recent artifacts with id, type, title, and created_at
-        """
         result = await self.db.execute(
             select(Artifact)
             .where(Artifact.workspace_id == workspace_id)
@@ -307,21 +590,12 @@ class DashboardService:
                 "id": str(artifact.id),
                 "type": artifact.type,
                 "title": artifact.title or "",
-                "created_at": artifact.created_at.isoformat()
-                if artifact.created_at
-                else "",
+                "created_at": artifact.created_at.isoformat() if artifact.created_at else "",
             }
             for artifact in artifacts
         ]
 
 
 async def get_dashboard_service() -> DashboardService:
-    """Get DashboardService instance for dependency injection.
-
-    This is a placeholder that will be overridden in the router.
-    The actual implementation requires a database session.
-
-    Returns:
-        DashboardService instance
-    """
+    """Get DashboardService instance for dependency injection."""
     raise NotImplementedError("This should be overridden via dependency_overrides")

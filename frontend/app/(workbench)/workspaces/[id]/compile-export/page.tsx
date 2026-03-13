@@ -1,16 +1,80 @@
 "use client";
 
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, FileText, Download, FileDown } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { executeWorkspaceFeature } from "@/lib/api";
+import { pollTaskUntilTerminal } from "@/lib/taskPolling";
 import { cn } from "@/lib/utils";
 
 export default function CompileExportPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, fetchArtifacts } = useWorkspaceStore();
+
+  const [template, setTemplate] = useState("default");
+  const [compiler, setCompiler] = useState("xelatex");
+  const [bibStyle, setBibStyle] = useState("gbt7714");
+  const [isRunning, setIsRunning] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCompile = async () => {
+    if (isRunning) return;
+    setIsRunning(true);
+    setStatus(null);
+    setError(null);
+
+    try {
+      const resp = await executeWorkspaceFeature(
+        workspaceId,
+        "compile_export",
+        {
+          template,
+          compiler,
+          bibliography_style: bibStyle,
+        }
+      );
+
+      if (resp.status === "warning" && !resp.task_id) {
+        setError(resp.message || "暂时无法编译");
+        return;
+      }
+      if (!resp.task_id) {
+        setError("任务创建失败，请稍后重试");
+        return;
+      }
+
+      setStatus("编译任务已提交，正在处理中...");
+      const task = await pollTaskUntilTerminal(resp.task_id, {
+        onProgress: (task) => {
+          if (task.message) {
+            setStatus(task.message);
+          }
+        },
+      });
+      if (!task) {
+        setError("任务轮询超时，请稍后在工作区查看结果");
+        return;
+      }
+
+      if (task.status === "success") {
+        await fetchArtifacts(workspaceId);
+        setStatus(task.message || "编译任务完成");
+      } else {
+        setError(task.error || task.message || "编译失败");
+      }
+    } catch (e: unknown) {
+      setError(
+        e instanceof Error ? e.message : "编译失败，请稍后重试"
+      );
+    } finally {
+      setIsRunning(false);
+    }
+  };
 
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">
@@ -59,7 +123,11 @@ export default function CompileExportPage() {
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 LaTeX 模板
               </label>
-              <select className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50">
+              <select
+                className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+                value={template}
+                onChange={(e) => setTemplate(e.target.value)}
+              >
                 <option value="default">默认模板</option>
                 <option value="ieee">IEEE 格式</option>
                 <option value="acm">ACM 格式</option>
@@ -70,7 +138,11 @@ export default function CompileExportPage() {
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 编译器
               </label>
-              <select className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50">
+              <select
+                className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+                value={compiler}
+                onChange={(e) => setCompiler(e.target.value)}
+              >
                 <option value="xelatex">XeLaTeX</option>
                 <option value="pdflatex">PDFLaTeX</option>
                 <option value="lualatex">LuaLaTeX</option>
@@ -81,17 +153,46 @@ export default function CompileExportPage() {
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 参考文献格式
               </label>
-              <select className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50">
+              <select
+                className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+                value={bibStyle}
+                onChange={(e) => setBibStyle(e.target.value)}
+              >
                 <option value="gbt7714">GB/T 7714</option>
                 <option value="apa">APA</option>
                 <option value="mla">MLA</option>
               </select>
             </div>
 
-            <button className="w-full py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors flex items-center justify-center gap-2">
-              <FileDown className="w-4 h-4" />
-              编译 PDF
+            <button
+              className={cn(
+                "w-full py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors flex items-center justify-center gap-2",
+                isRunning && "opacity-60 cursor-not-allowed"
+              )}
+              onClick={handleCompile}
+              disabled={isRunning}
+            >
+              {isRunning ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  正在编译...
+                </>
+              ) : (
+                <>
+                  <FileDown className="w-4 h-4" />
+                  编译 PDF
+                </>
+              )}
             </button>
+
+            {error && (
+              <p className="text-xs text-red-500 mt-1">{error}</p>
+            )}
+            {status && !error && (
+              <p className="text-xs text-[var(--text-secondary)] mt-1">
+                {status}
+              </p>
+            )}
           </div>
 
           {/* Export Options */}
@@ -126,7 +227,7 @@ export default function CompileExportPage() {
                 PDF 预览
               </h2>
               <p className="text-[var(--text-secondary)]">
-                编译后在此处预览 PDF
+                编译完成后，可在知识区或最近产出中打开编译稿。
               </p>
             </div>
           </motion.div>

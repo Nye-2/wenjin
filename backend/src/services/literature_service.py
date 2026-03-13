@@ -175,6 +175,7 @@ class LiteratureService:
     async def update_literature(
         self,
         literature_id: str,
+        workspace_id: str | None = None,
         **kwargs,
     ) -> dict[str, Any] | None:
         """Update a literature entry.
@@ -186,9 +187,11 @@ class LiteratureService:
         Returns:
             Updated literature entry as dictionary, or None if not found
         """
-        result = await self.db.execute(
-            select(WorkspaceLiterature).where(WorkspaceLiterature.id == literature_id)
-        )
+        query = select(WorkspaceLiterature).where(WorkspaceLiterature.id == literature_id)
+        if workspace_id is not None:
+            query = query.where(WorkspaceLiterature.workspace_id == workspace_id)
+
+        result = await self.db.execute(query)
         literature = result.scalar_one_or_none()
 
         if literature is None:
@@ -209,7 +212,11 @@ class LiteratureService:
 
         return self._to_dict(literature)
 
-    async def delete_literature(self, literature_id: str) -> bool:
+    async def delete_literature(
+        self,
+        literature_id: str,
+        workspace_id: str | None = None,
+    ) -> bool:
         """Delete a literature entry.
 
         Args:
@@ -218,9 +225,11 @@ class LiteratureService:
         Returns:
             True if deleted, False if not found
         """
-        result = await self.db.execute(
-            select(WorkspaceLiterature).where(WorkspaceLiterature.id == literature_id)
-        )
+        query = select(WorkspaceLiterature).where(WorkspaceLiterature.id == literature_id)
+        if workspace_id is not None:
+            query = query.where(WorkspaceLiterature.workspace_id == workspace_id)
+
+        result = await self.db.execute(query)
         literature = result.scalar_one_or_none()
 
         if literature is None:

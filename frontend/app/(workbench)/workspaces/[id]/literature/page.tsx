@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { ArrowLeft, BookOpen, Plus, Search, Filter } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useLiteratureStore } from "@/stores/literature";
+import { executeWorkspaceFeature } from "@/lib/api";
+import { pollTaskUntilTerminal } from "@/lib/taskPolling";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
@@ -12,15 +14,65 @@ export default function LiteraturePage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, fetchArtifacts } = useWorkspaceStore();
   const { items, total, coreCount, isLoading, fetchLiterature } = useLiteratureStore();
   const [searchQuery, setSearchQuery] = useState("");
+  const [isOrganizing, setIsOrganizing] = useState(false);
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (workspaceId) {
       fetchLiterature(workspaceId);
     }
   }, [workspaceId, fetchLiterature]);
+
+  const handleOrganize = async () => {
+    if (isOrganizing) return;
+    setActionError(null);
+    setActionStatus(null);
+    setIsOrganizing(true);
+
+    try {
+      const resp = await executeWorkspaceFeature(workspaceId, "literature_management", {
+        topic: searchQuery.trim() || workspace?.name || "研究主题",
+      });
+
+      if (resp.status === "warning" && !resp.task_id) {
+        setActionError(resp.message || "暂时无法执行文献管理盘点");
+        return;
+      }
+      if (!resp.task_id) {
+        setActionError("任务创建失败，请稍后重试");
+        return;
+      }
+
+      setActionStatus("文献盘点任务已提交，正在处理中...");
+      const task = await pollTaskUntilTerminal(resp.task_id, {
+        onProgress: (nextTask) => {
+          if (nextTask.message) {
+            setActionStatus(nextTask.message);
+          }
+        },
+      });
+
+      if (!task) {
+        setActionError("任务轮询超时，请稍后在工作区查看结果");
+        return;
+      }
+
+      if (task.status === "success") {
+        await Promise.all([fetchLiterature(workspaceId), fetchArtifacts(workspaceId)]);
+        setActionStatus(task.message || "文献盘点完成，已同步到成果区");
+      } else {
+        setActionError(task.error || task.message || "文献盘点任务失败");
+      }
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "文献盘点任务失败");
+    } finally {
+      setIsOrganizing(false);
+    }
+  };
 
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">
@@ -57,10 +109,23 @@ export default function LiteraturePage() {
           </div>
         </div>
 
-        <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors">
-          <Plus className="w-4 h-4" />
-          添加文献
-        </button>
+        <div className="flex items-center gap-2">
+          <button className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-muted)] transition-colors">
+            <Plus className="w-4 h-4" />
+            添加文献
+          </button>
+          <button
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-colors",
+              isOrganizing ? "bg-emerald-500 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700"
+            )}
+            onClick={handleOrganize}
+            disabled={isOrganizing}
+          >
+            <BookOpen className="w-4 h-4" />
+            {isOrganizing ? "盘点中..." : "智能盘点（20积分）"}
+          </button>
+        </div>
       </header>
 
       {/* Stats Bar */}
@@ -93,6 +158,16 @@ export default function LiteraturePage() {
           筛选
         </button>
       </div>
+
+      {(actionStatus || actionError) && (
+        <div className="px-6 py-2 bg-[var(--bg-elevated)] border-b border-[var(--border-default)]">
+          {actionError ? (
+            <p className="text-sm text-red-600">{actionError}</p>
+          ) : (
+            <p className="text-sm text-[var(--text-secondary)]">{actionStatus}</p>
+          )}
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto p-6">
@@ -137,11 +212,28 @@ export default function LiteraturePage() {
                       {lit.authors.join(", ")} · {lit.year || "未知年份"}
                     </p>
                   </div>
-                  {lit.is_core && (
-                    <span className="px-2 py-1 text-xs bg-amber-500/10 text-amber-600 rounded">
-                      核心
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {workspace?.type === "sci" && (
+                      <button
+                        onClick={() => {
+                          const query = new URLSearchParams({
+                            paper_id: lit.id,
+                            paper_title: lit.title || "",
+                            paper_abstract: lit.abstract || "",
+                          });
+                          router.push(`/workspaces/${workspaceId}/paper-analysis?${query.toString()}`);
+                        }}
+                        className="px-2 py-1 text-xs bg-fuchsia-500/10 text-fuchsia-600 rounded hover:bg-fuchsia-500/20"
+                      >
+                        分析
+                      </button>
+                    )}
+                    {lit.is_core && (
+                      <span className="px-2 py-1 text-xs bg-amber-500/10 text-amber-600 rounded">
+                        核心
+                      </span>
+                    )}
+                  </div>
                 </div>
               </motion.div>
             ))}

@@ -21,6 +21,7 @@ from src.services.auth import (
     verify_access_token,
     verify_refresh_token,
 )
+from src.services.credit_service import CreditService
 from src.services.user_service import UserService
 
 router = APIRouter()
@@ -59,6 +60,9 @@ class UserResponse(BaseModel):
     email: str
     name: str | None
     role: str
+    credits: int
+    total_credits_earned: int
+    total_credits_spent: int
 
 
 class RefreshRequest(BaseModel):
@@ -277,7 +281,13 @@ async def register(
             email=request.email,
             password=request.password,
             name=request.name,
+            auto_commit=False,
         )
+
+        # Grant registration bonus with ledger record
+        credit_service = CreditService(db)
+        await credit_service.grant_registration_bonus(user_id=str(user.id))
+        await db.refresh(user)
 
         # Generate tokens
         tokens = create_tokens(
@@ -430,4 +440,7 @@ async def get_me(
         email=current_user.email,
         name=current_user.name,
         role="admin" if current_user.is_superuser else "user",
+        credits=int(current_user.credits),
+        total_credits_earned=int(current_user.total_credits_earned),
+        total_credits_spent=int(current_user.total_credits_spent),
     )

@@ -13,6 +13,8 @@
   },
   "nav": {
     "workspaces": "Workspaces",
+    "userDashboard": "My Dashboard",
+    "adminDashboard": "Admin Dashboard",
     "settings": "Settings",
     "logout": "Logout"
   },

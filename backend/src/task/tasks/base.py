@@ -5,7 +5,6 @@ import logging
 
 from celery import shared_task
 
-from src.task.registry import TaskStatus
 from src.task.handlers.skill_handler import get_skill_task_handler
 
 logger = logging.getLogger(__name__)
@@ -38,6 +37,7 @@ async def _execute_task_async(
 ) -> dict:
     """Async task execution logic."""
     from src.academic.cache.redis_client import redis_client
+    from src.academic.services import ArtifactService
     from src.database import get_db_session
     from src.task.progress import ProgressTracker
     from src.task.store import TaskStore
@@ -60,6 +60,45 @@ async def _execute_task_async(
             # Dispatch to task-specific handler
             result = await _dispatch_task(task_type, payload, progress)
 
+            # Persist artifacts for skill-based deep research tasks so they
+            # become first-class workspace artifacts.
+            if task_type == "deep_research":
+                artifacts = result.get("artifacts") or []
+                if isinstance(artifacts, list) and artifacts:
+                    service = ArtifactService(db)
+                    workspace_id = str(payload.get("workspace_id") or "")
+                    persisted_refs: list[dict] = []
+                    for artifact in artifacts:
+                        # Expect skill handler to return dicts with at least "type" and "content"
+                        art_type = artifact.get("type", "other")
+                        content = artifact.get("content", {}) or {}
+                        title = artifact.get("title") or {
+                            "literature_review": "Deep Research 文献综述",
+                            "research_ideas": "Deep Research 研究创意",
+                            "gap_analysis": "Deep Research 研究空白分析",
+                        }.get(art_type, f"Deep Research {art_type}")
+
+                        record = await service.create(
+                            workspace_id=workspace_id,
+                            type=art_type,
+                            title=title,
+                            content=content,
+                            created_by_skill=artifact.get("created_by_skill") or "deep-research",
+                        )
+                        persisted_refs.append(
+                            {
+                                "id": str(record.id),
+                                "type": record.type,
+                                "title": record.title or "",
+                            }
+                        )
+
+                    # Replace artifacts payload with lightweight references
+                    result["artifacts"] = persisted_refs
+                    refresh_targets = result.get("refresh_targets") or []
+                    if "artifacts" not in refresh_targets:
+                        result["refresh_targets"] = [*refresh_targets, "artifacts"]
+
             # Mark as completed
             await store.mark_task_completed(task_id, success=True, result=result)
             await progress.complete("Task completed successfully")
@@ -68,6 +107,32 @@ async def _execute_task_async(
 
         except Exception as e:
             logger.exception(f"Task {task_id} failed: {e}")
+            credit_transaction_id = payload.get("credit_transaction_id")
+            if credit_transaction_id:
+                try:
+                    from src.services.credit_service import CreditService
+
+                    task_record = await store.get_task_record(task_id)
+                    if task_record is not None:
+                        credit_service = CreditService(db)
+                        refund_tx = await credit_service.refund_failed_task(
+                            user_id=task_record.user_id,
+                            original_transaction_id=str(credit_transaction_id),
+                            reason="任务执行失败退款",
+                            task_id=task_id,
+                        )
+                        if refund_tx is not None:
+                            logger.info(
+                                "Refunded %s credits for failed task %s",
+                                refund_tx.amount,
+                                task_id,
+                            )
+                except Exception:
+                    logger.exception(
+                        "Failed to refund credits for task %s (tx=%s)",
+                        task_id,
+                        credit_transaction_id,
+                    )
             await store.mark_task_completed(task_id, success=False, error=str(e))
             await progress.fail(str(e))
             raise
@@ -92,11 +157,11 @@ async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
     Raises:
         ValueError: If task_type is unknown
     """
-    from src.task.registry import is_valid_task_type
     from src.task.handlers.workspace_feature_handler import (
         execute_thesis_generation,
         execute_workspace_feature,
     )
+    from src.task.registry import is_valid_task_type
 
     if not is_valid_task_type(task_type):
         raise ValueError(f"Unknown task type: {task_type}")

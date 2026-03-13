@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Settings, LogOut, FolderOpen, ChevronDown } from "lucide-react";
+import { Settings, LogOut, FolderOpen, ChevronDown, LayoutDashboard, Shield } from "lucide-react";
 import { useI18n } from "@/components/i18n-provider";
 import { useAuthStore } from "@/stores/auth";
 import { useRouter } from "next/navigation";
@@ -48,6 +48,14 @@ export function UserDropdown() {
 
   const menuItems = [
     {
+      icon: LayoutDashboard,
+      label: t("nav.userDashboard"),
+      onClick: () => {
+        router.push("/dashboard/me");
+        setIsOpen(false);
+      },
+    },
+    {
       icon: FolderOpen,
       label: t("nav.workspaces"),
       onClick: () => {
@@ -55,6 +63,18 @@ export function UserDropdown() {
         setIsOpen(false);
       },
     },
+    ...(user?.role === "admin"
+      ? [
+          {
+            icon: Shield,
+            label: t("nav.adminDashboard"),
+            onClick: () => {
+              router.push("/dashboard/admin");
+              setIsOpen(false);
+            },
+          },
+        ]
+      : []),
     {
       icon: Settings,
       label: t("nav.settings"),

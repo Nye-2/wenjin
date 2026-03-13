@@ -8,6 +8,8 @@ This package provides:
 
 from .base import Base, TimestampMixin, UUIDMixin, generate_uuid
 from .models import (
+    AdminActionType,
+    AdminLog,
     # Artifact
     Artifact,
     ArtifactType,
@@ -15,6 +17,9 @@ from .models import (
     # Citation
     Citation,
     CitationType,
+    # Credit
+    CreditTransaction,
+    CreditTransactionType,
     # Generation
     GenerationRecord,
     KnowledgeCategory,
@@ -72,6 +77,12 @@ __all__ = [
     # Models - Artifact
     "Artifact",
     "ArtifactType",
+    # Models - Credit
+    "CreditTransaction",
+    "CreditTransactionType",
+    # Models - Admin audit
+    "AdminLog",
+    "AdminActionType",
     # Models - Citation
     "Citation",
     "CitationType",

@@ -11,6 +11,13 @@ from src.task.store import TaskStore
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+BILLABLE_TASK_TYPES = {
+    "workspace_feature",
+    "deep_research",
+    "thesis_generation",
+    "literature_search",
+}
+
 
 # === Request/Response Models ===
 
@@ -74,6 +81,15 @@ async def submit_task(
     task_service: TaskService = Depends(get_task_service),
 ):
     """Submit a new async task."""
+    if request.task_type in BILLABLE_TASK_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Task type '{request.task_type}' must be started from workspace feature "
+                "execution endpoints to ensure credit accounting."
+            ),
+        )
+
     try:
         task_id = await task_service.submit_task(
             user_id=user_id,

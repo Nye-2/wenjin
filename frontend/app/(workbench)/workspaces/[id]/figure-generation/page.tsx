@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, BarChart3, Image } from "lucide-react";
+import { executeWorkspaceFeature } from "@/lib/api";
+import { pollTaskUntilTerminal } from "@/lib/taskPolling";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { cn } from "@/lib/utils";
 
@@ -10,7 +13,75 @@ export default function FigureGenerationPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const [figureType, setFigureType] = useState("flowchart");
+  const [description, setDescription] = useState("");
+  const [chapterIndex, setChapterIndex] = useState("");
+  const [isRunning, setIsRunning] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerateFigure = async () => {
+    if (isRunning) return;
+    if (!description.trim()) {
+      setError("请先输入图表描述");
+      return;
+    }
+
+    setError(null);
+    setStatus(null);
+    setIsRunning(true);
+
+    try {
+      const params: Record<string, unknown> = {
+        type: figureType,
+        description: description.trim(),
+      };
+      if (chapterIndex) {
+        params.chapter_index = Number(chapterIndex);
+      }
+
+      const resp = await executeWorkspaceFeature(
+        workspaceId,
+        "figure_generation",
+        params
+      );
+
+      if (resp.status === "warning" && !resp.task_id) {
+        setError(resp.message || "图表生成功能暂不可用");
+        return;
+      }
+      if (!resp.task_id) {
+        setError("任务创建失败，请稍后重试");
+        return;
+      }
+
+      setStatus("任务已提交，正在生成图表...");
+      const task = await pollTaskUntilTerminal(resp.task_id, {
+        onProgress: (task) => {
+          if (task.message) {
+            setStatus(task.message);
+          }
+        },
+      });
+      if (!task) {
+        setError("任务轮询超时，请稍后在工作区查看结果");
+        return;
+      }
+
+      if (task.status === "success") {
+        await fetchArtifacts(workspaceId);
+        setStatus(task.message || "图表生成完成");
+        setDescription("");
+      } else {
+        setError(task.error || task.message || "图表生成失败");
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "图表生成失败，请稍后重试");
+    } finally {
+      setIsRunning(false);
+    }
+  };
 
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">
@@ -59,7 +130,11 @@ export default function FigureGenerationPage() {
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 图表类型
               </label>
-              <select className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50">
+              <select
+                className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                value={figureType}
+                onChange={(e) => setFigureType(e.target.value)}
+              >
                 <option value="flowchart">流程图</option>
                 <option value="data_visualization">数据可视化</option>
                 <option value="concept_map">概念图</option>
@@ -73,6 +148,8 @@ export default function FigureGenerationPage() {
               <textarea
                 placeholder="描述要生成的图表..."
                 rows={4}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
                 className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 resize-none"
               />
             </div>
@@ -81,16 +158,36 @@ export default function FigureGenerationPage() {
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 关联章节
               </label>
-              <select className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50">
+              <select
+                className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                value={chapterIndex}
+                onChange={(e) => setChapterIndex(e.target.value)}
+              >
                 <option value="">不关联</option>
                 <option value="1">第一章</option>
                 <option value="2">第二章</option>
+                <option value="3">第三章</option>
+                <option value="4">第四章</option>
               </select>
             </div>
 
-            <button className="w-full py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
-              生成图表
+            <button
+              className={cn(
+                "w-full py-2 bg-cyan-600 text-white rounded-lg transition-colors",
+                isRunning ? "opacity-60 cursor-not-allowed" : "hover:bg-cyan-700"
+              )}
+              onClick={handleGenerateFigure}
+              disabled={isRunning}
+            >
+              {isRunning ? "正在生成..." : "生成图表"}
             </button>
+
+            {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+            {status && !error && (
+              <p className="text-xs text-[var(--text-secondary)] mt-1">
+                {status}
+              </p>
+            )}
           </div>
         </aside>
 
@@ -107,7 +204,9 @@ export default function FigureGenerationPage() {
                 图表预览
               </h2>
               <p className="text-[var(--text-secondary)]">
-                配置左侧参数后生成图表
+                {workspace?.name
+                  ? `当前工作区：${workspace.name}`
+                  : "配置左侧参数后生成图表"}
               </p>
             </div>
           </motion.div>

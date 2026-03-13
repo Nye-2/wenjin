@@ -3,13 +3,15 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from .admin_log import AdminLog
     from .chat_thread import ChatThread
+    from .credit import CreditTransaction
     from .knowledge import UserKnowledge
     from .workspace import Workspace
 
@@ -38,6 +40,25 @@ class User(Base, UUIDMixin, TimestampMixin):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    credits: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+        index=True,
+    )
+    total_credits_earned: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    total_credits_spent: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
     last_login: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
@@ -57,6 +78,18 @@ class User(Base, UUIDMixin, TimestampMixin):
     chat_threads: Mapped[list["ChatThread"]] = relationship(
         "ChatThread",
         back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    credit_transactions: Mapped[list["CreditTransaction"]] = relationship(
+        "CreditTransaction",
+        back_populates="user",
+        foreign_keys="CreditTransaction.user_id",
+        cascade="all, delete-orphan",
+    )
+    admin_logs: Mapped[list["AdminLog"]] = relationship(
+        "AdminLog",
+        back_populates="admin",
+        foreign_keys="AdminLog.admin_id",
         cascade="all, delete-orphan",
     )
 

@@ -13,6 +13,8 @@
   },
   "nav": {
     "workspaces": "工作空间",
+    "userDashboard": "个人仪表盘",
+    "adminDashboard": "管理仪表盘",
     "settings": "设置",
     "logout": "退出登录"
   },

@@ -58,7 +58,7 @@ class TestTaskFlow:
         mock_service.submit_task = AsyncMock(return_value=mock_task_id)
         mock_service.get_task_status = AsyncMock(return_value={
             "task_id": mock_task_id,
-            "task_type": "deep_research",
+            "task_type": "paper_processing",
             "status": "pending",
             "progress": 0,
             "message": "Task submitted",
@@ -79,7 +79,7 @@ class TestTaskFlow:
         response = await client.post(
             "/api/tasks/",
             json={
-                "task_type": "deep_research",
+                "task_type": "paper_processing",
                 "priority": 5,
                 "payload": {"query": "machine learning"},
             },
@@ -94,8 +94,31 @@ class TestTaskFlow:
         assert response.status_code == 200
         status = response.json()
         assert status["task_id"] == task_id
-        assert status["task_type"] == "deep_research"
+        assert status["task_type"] == "paper_processing"
         assert status["status"] in ("pending", "running")
+
+    @pytest.mark.asyncio
+    async def test_submit_billable_task_type_is_blocked(self, task_client, test_user: FixtureUser):
+        """Billable task types must use feature execution endpoints."""
+        client, app = task_client
+
+        mock_service = AsyncMock()
+
+        async def override_get_task_service():
+            yield mock_service
+
+        app.dependency_overrides[get_task_service] = override_get_task_service
+
+        response = await client.post(
+            "/api/tasks/",
+            json={
+                "task_type": "deep_research",
+                "payload": {"query": "machine learning"},
+            },
+        )
+        assert response.status_code == 400
+        assert "credit accounting" in response.json()["detail"]
+        mock_service.submit_task.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_submit_invalid_task_type(self, task_client, test_user: FixtureUser):
@@ -372,7 +395,7 @@ class TestTaskFlowEdgeCases:
         response = await client.post(
             "/api/tasks/",
             json={
-                "task_type": "deep_research",
+                "task_type": "paper_processing",
                 "payload": {"query": "test"},
             },
         )

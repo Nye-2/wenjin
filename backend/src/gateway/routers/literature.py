@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.academic.services.workspace_service import WorkspaceService
 from src.database import User, get_db_session
 from src.gateway.routers.auth import get_current_user
 from src.services.literature_service import LiteratureService
@@ -115,6 +116,32 @@ async def get_literature_service(
     return LiteratureService(db)
 
 
+async def get_workspace_service(
+    db: AsyncSession = Depends(get_db),
+) -> WorkspaceService:
+    """Get workspace service instance."""
+    return WorkspaceService(db)
+
+
+async def require_workspace_owner(
+    workspace_id: str,
+    current_user: User,
+    workspace_service: WorkspaceService,
+) -> None:
+    """Ensure workspace exists and belongs to current user."""
+    workspace = await workspace_service.get(workspace_id)
+    if workspace is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found",
+        )
+    if str(workspace.user_id) != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+
 # ============ Endpoints ============
 
 @router.get(
@@ -127,6 +154,8 @@ async def list_literature(
     is_core: bool | None = None,
     offset: int = 0,
     limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
 ):
     """List literature entries for a workspace.
@@ -142,6 +171,12 @@ async def list_literature(
     Returns:
         List of literature entries with total and core counts
     """
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
     result = await literature_service.list_literature(
         workspace_id=workspace_id,
         source=source,
@@ -161,6 +196,7 @@ async def create_literature(
     workspace_id: str,
     request: CreateLiteratureRequest,
     current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
 ):
     """Create a new literature entry.
@@ -174,6 +210,12 @@ async def create_literature(
     Returns:
         Created literature entry
     """
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
     result = await literature_service.create_literature(
         workspace_id=workspace_id,
         title=request.title,
@@ -198,6 +240,7 @@ async def batch_import_literature(
     workspace_id: str,
     request: BatchImportRequest,
     current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
 ):
     """Batch import literature entries.
@@ -211,6 +254,12 @@ async def batch_import_literature(
     Returns:
         Number of imported entries
     """
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
     result = await literature_service.batch_import(
         workspace_id=workspace_id,
         source=request.source,
@@ -228,6 +277,7 @@ async def update_literature(
     literature_id: str,
     request: UpdateLiteratureRequest,
     current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
 ):
     """Update a literature entry.
@@ -245,9 +295,16 @@ async def update_literature(
     Raises:
         HTTPException: If literature not found
     """
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
     update_data = request.model_dump(exclude_unset=True)
     result = await literature_service.update_literature(
         literature_id=literature_id,
+        workspace_id=workspace_id,
         **update_data,
     )
 
@@ -268,6 +325,7 @@ async def delete_literature(
     workspace_id: str,
     literature_id: str,
     current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
 ):
     """Delete a literature entry.
@@ -281,7 +339,16 @@ async def delete_literature(
     Raises:
         HTTPException: If literature not found
     """
-    success = await literature_service.delete_literature(literature_id)
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
+    success = await literature_service.delete_literature(
+        literature_id,
+        workspace_id=workspace_id,
+    )
 
     if not success:
         raise HTTPException(
@@ -296,6 +363,8 @@ async def delete_literature(
 )
 async def get_literature_count(
     workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
 ):
     """Get literature count for a workspace.
@@ -307,5 +376,11 @@ async def get_literature_count(
     Returns:
         Total and core literature counts
     """
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
     result = await literature_service.count_literature(workspace_id)
     return LiteratureCountResponse(**result)

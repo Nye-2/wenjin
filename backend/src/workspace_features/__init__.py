@@ -17,6 +17,7 @@ from .registry import (
 from .runtime import (
     WorkspaceFeatureExecutionContext,
     execute_registered_feature,
+    list_registered_handler_keys,
     register_feature_handler,
 )
 
@@ -32,6 +33,7 @@ __all__ = [
     "get_workspace_feature",
     "get_workspace_feature_by_handler",
     "iter_workspace_features",
+    "list_registered_handler_keys",
     "list_workspace_features",
     "register_feature_handler",
 ]

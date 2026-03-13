@@ -2,9 +2,11 @@
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+import os
 from typing import Any
 
 from src.academic.services import ArtifactService
+from src.config import settings
 from src.database import get_db_session
 from src.task.progress import ProgressTracker
 from src.workspace_features.contracts import (
@@ -45,6 +47,30 @@ def _load_handlers() -> None:
     from src.workspace_features import handlers  # noqa: F401
 
     _HANDLERS_LOADED = True
+
+
+def list_registered_handler_keys() -> tuple[str, ...]:
+    """Return all registered workspace feature handler keys."""
+    _load_handlers()
+    return tuple(sorted(_HANDLERS.keys()))
+
+
+def _missing_handler_mode() -> str:
+    """Resolve behavior for features without concrete handlers.
+
+    Modes:
+    - ``fail``: raise RuntimeError
+    - ``placeholder``: execute scaffold placeholder
+    - ``auto`` (default): fail in non-dev environments, placeholder in dev/test
+    """
+    raw_mode = os.getenv("WORKSPACE_FEATURE_MISSING_HANDLER_MODE", "auto").strip().lower()
+    if raw_mode in {"fail", "placeholder"}:
+        return raw_mode
+
+    environment = str(getattr(settings, "environment", "development")).strip().lower()
+    if environment in {"development", "dev", "local", "test", "testing"}:
+        return "placeholder"
+    return "fail"
 
 
 @dataclass(slots=True)
@@ -201,11 +227,14 @@ async def execute_registered_feature(
         feature=feature,
     )
     handler = _HANDLERS.get(feature.handler_key)
-    result = (
-        await handler(context)
-        if handler is not None
-        else await _execute_placeholder(context)
-    )
+    if handler is None:
+        if _missing_handler_mode() == "fail":
+            raise RuntimeError(
+                f"No concrete workspace feature handler registered: {feature.handler_key}"
+            )
+        result = await _execute_placeholder(context)
+    else:
+        result = await handler(context)
     return result.to_payload(
         feature_id=context.feature_id,
         feature_name=context.feature_name,

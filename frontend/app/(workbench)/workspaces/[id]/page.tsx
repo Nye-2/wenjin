@@ -44,6 +44,15 @@ const featureRouteMap: Record<string, string> = {
   thesis_writing: "thesis-writing",
   figure_generation: "figure-generation",
   compile_export: "compile-export",
+  literature_search: "literature-search",
+  paper_analysis: "paper-analysis",
+  writing: "writing",
+  proposal_outline: "proposal-outline",
+  background_research: "background-research",
+  copyright_materials: "copyright-materials",
+  technical_description: "technical-description",
+  patent_outline: "patent-outline",
+  prior_art_search: "prior-art-search",
 };
 
 export default function WorkbenchPage() {
@@ -174,7 +183,7 @@ export default function WorkbenchPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {features.map((feature) => {
                     const moduleStatus = modules.find((m) => m.id === feature.id);
-                    const route = featureRouteMap[feature.id] || feature.id;
+                    const route = featureRouteMap[feature.id] ?? "";
 
                     return (
                       <ModuleCard
@@ -205,11 +214,11 @@ export default function WorkbenchPage() {
     );
   }
 
-  // Other workspace types use original three-column layout
+  // Other workspace types use card dashboard layout + embedded panels
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">
       {/* Header */}
-      <header className="h-16 flex items-center justify-between px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
+      <header className="h-16 flex items-center justify-between px-6 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
         <div className="flex items-center gap-4">
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -258,12 +267,56 @@ export default function WorkbenchPage() {
         </div>
       </header>
 
-      {/* Main Content - Three Columns */}
+      {/* Main Content - Card Dashboard + Panels */}
       <ErrorBoundary>
-        <main className="flex-1 flex overflow-hidden">
-          <LazyKnowledgePanel workspaceId={workspaceId} />
-          <LazyChatPanel workspaceId={workspaceId} />
-          <LazyLiteraturePanel workspaceId={workspaceId} />
+        <main className="flex-1 overflow-auto p-6">
+          <div className="max-w-6xl mx-auto space-y-6">
+            {/* Module Cards Grid */}
+            <section>
+              <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
+                工作模块
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {features.map((feature) => {
+                  const moduleStatus = modules.find((m) => m.id === feature.id);
+                  const route = featureRouteMap[feature.id] ?? "";
+
+                  return (
+                    <ModuleCard
+                      key={feature.id}
+                      workspaceId={workspaceId}
+                      feature={feature}
+                      moduleStatus={moduleStatus}
+                      route={route}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Recent Artifacts */}
+            <section>
+              <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
+                最近产出
+              </h2>
+              <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl p-4">
+                <RecentArtifacts artifacts={artifacts.slice(0, RECENT_ARTIFACTS_LIMIT)} />
+              </div>
+            </section>
+
+            {/* Embedded Knowledge / Chat / Literature Panels */}
+            <section className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1.5fr)_minmax(0,1fr)] gap-4">
+              <div className="min-h-[360px]">
+                <LazyKnowledgePanel workspaceId={workspaceId} />
+              </div>
+              <div className="min-h-[360px]">
+                <LazyChatPanel workspaceId={workspaceId} />
+              </div>
+              <div className="min-h-[360px]">
+                <LazyLiteraturePanel workspaceId={workspaceId} />
+              </div>
+            </section>
+          </div>
         </main>
       </ErrorBoundary>
     </div>

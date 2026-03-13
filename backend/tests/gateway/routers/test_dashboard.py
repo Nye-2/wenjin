@@ -122,3 +122,14 @@ def test_dashboard_returns_404_for_nonexistent_workspace():
     client = create_test_app(create_mock_user(), ws_svc, dashboard_svc)
     resp = client.get("/workspaces/nonexistent/dashboard")
     assert resp.status_code == 404
+
+
+def test_dashboard_returns_403_for_non_owner():
+    ws_svc = AsyncMock()
+    ws_svc.get = AsyncMock(return_value=create_workspace(user_id="owner-2"))
+
+    dashboard_svc = AsyncMock()
+
+    client = create_test_app(create_mock_user(user_id="user-1"), ws_svc, dashboard_svc)
+    resp = client.get("/workspaces/ws-1/dashboard")
+    assert resp.status_code == 403
