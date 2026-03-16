@@ -200,6 +200,29 @@ async def execute_feature(
                 )
 
     action = request.params.get("action") if request.params else None
+
+    # Idempotency: if an active task already exists for this context, return it
+    existing_task_id = await task_service.find_active_task(
+        user_id=str(current_user.id),
+        task_type=feature.task_type,
+        workspace_id=workspace_id,
+        feature_id=feature_id,
+        action=str(action) if action is not None else None,
+    )
+    if existing_task_id:
+        logger.info(
+            "[Features] Idempotent hit: returning existing task %s for %s/%s",
+            existing_task_id,
+            workspace_id,
+            feature_id,
+        )
+        return ExecuteResponse(
+            task_id=existing_task_id,
+            status="pending",
+            feature_id=feature_id,
+            message=f"已有进行中的 {feature.name} 任务",
+        )
+
     credit_transaction = None
     try:
         credit_transaction = await credit_service.consume_for_feature(

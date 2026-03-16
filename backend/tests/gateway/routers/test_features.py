@@ -50,6 +50,13 @@ def create_client(
     credit_service=None,
 ) -> TestClient:
     """Create a features test client with dependency overrides."""
+    # Default find_active_task to None only if not explicitly configured by the test.
+    # When AsyncMock auto-creates an attribute, its return_value is itself another
+    # AsyncMock.  If the test explicitly set it (e.g. return_value="task-123"),
+    # the return_value will be a str/None, so we skip the override.
+    fat_rv = task_service.find_active_task.return_value
+    if isinstance(fat_rv, AsyncMock):
+        task_service.find_active_task = AsyncMock(return_value=None)
     app = FastAPI()
 
     async def override_get_current_user():
@@ -400,6 +407,7 @@ class TestLiteratureInsufficientWarning:
         )
         task_service = AsyncMock()
         task_service.submit_task = AsyncMock(return_value="task-789")
+        task_service.find_active_task = AsyncMock(return_value=None)
 
         literature_service = AsyncMock()
         literature_service.count_literature.return_value = {"total": 2, "core": 0}
@@ -435,6 +443,7 @@ class TestLiteratureInsufficientWarning:
         )
         task_service = AsyncMock()
         task_service.submit_task = AsyncMock(return_value="task-789")
+        task_service.find_active_task = AsyncMock(return_value=None)
 
         literature_service = AsyncMock()
         literature_service.count_literature.return_value = {"total": 20, "core": 5}
@@ -468,6 +477,7 @@ class TestLiteratureInsufficientWarning:
         )
         task_service = AsyncMock()
         task_service.submit_task = AsyncMock(return_value="task-789")
+        task_service.find_active_task = AsyncMock(return_value=None)
 
         literature_service = AsyncMock()
         literature_service.count_literature.return_value = {"total": 2, "core": 0}
@@ -494,6 +504,77 @@ class TestLiteratureInsufficientWarning:
         assert data["warning"] is None
         # literature_service should not be called
         literature_service.count_literature.assert_not_called()
+
+
+class TestIdempotentExecution:
+    """Tests for idempotent execution – duplicate requests reuse existing tasks."""
+
+    def test_duplicate_execute_returns_existing_task(self):
+        """When a pending/running task already exists for (workspace, feature, action),
+        the endpoint should return the existing task_id and skip billing."""
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.THESIS)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="new-task-id")
+        task_service.find_active_task = AsyncMock(return_value="existing-task-123")
+
+        literature_service = AsyncMock()
+        literature_service.count_literature.return_value = {"total": 20, "core": 5}
+        credit_service = create_mock_credit_service()
+
+        client = create_client(
+            "user-1",
+            workspace_service,
+            task_service,
+            literature_service=literature_service,
+            credit_service=credit_service,
+        )
+
+        response = client.post(
+            "/workspaces/ws-1/features/thesis_writing/execute",
+            json={"params": {"action": "generate_outline"}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_id"] == "existing-task-123"
+        assert data["status"] == "pending"
+        # No new task should have been submitted
+        task_service.submit_task.assert_not_called()
+        # No credit should have been consumed
+        credit_service.consume_for_feature.assert_not_called()
+
+    def test_no_active_task_proceeds_normally(self):
+        """When no active task exists, normal execution flow proceeds."""
+        workspace_service = AsyncMock()
+        workspace_service.get = AsyncMock(
+            return_value=create_workspace(WorkspaceType.THESIS)
+        )
+        task_service = AsyncMock()
+        task_service.submit_task = AsyncMock(return_value="new-task-id")
+        task_service.find_active_task = AsyncMock(return_value=None)
+
+        literature_service = AsyncMock()
+        literature_service.count_literature.return_value = {"total": 20, "core": 5}
+        credit_service = create_mock_credit_service()
+
+        client = create_client(
+            "user-1",
+            workspace_service,
+            task_service,
+            literature_service=literature_service,
+            credit_service=credit_service,
+        )
+
+        response = client.post(
+            "/workspaces/ws-1/features/thesis_writing/execute",
+            json={"params": {"action": "generate_outline"}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_id"] == "new-task-id"
+        task_service.submit_task.assert_called_once()
 
 
 class TestCreditsGuard:

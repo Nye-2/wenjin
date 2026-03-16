@@ -94,6 +94,38 @@ class TaskService:
 
         return task_id
 
+    async def find_active_task(
+        self,
+        user_id: str,
+        task_type: str,
+        workspace_id: str,
+        feature_id: str,
+        action: str | None = None,
+    ) -> str | None:
+        """Find an active (pending/running) task for the same context.
+
+        Returns task_id if found, None otherwise.
+        """
+        records = await self._store.list_user_tasks(
+            user_id=user_id,
+            task_type=task_type,
+            status=None,
+            limit=50,
+        )
+        active_statuses = {TaskStatus.PENDING.value, TaskStatus.RUNNING.value}
+        for record in records:
+            if record.status not in active_statuses:
+                continue
+            payload = record.payload or {}
+            if (
+                payload.get("workspace_id") == workspace_id
+                and payload.get("feature_id") == feature_id
+            ):
+                payload_action = (payload.get("params") or {}).get("action")
+                if payload_action == action:
+                    return record.id
+        return None
+
     async def get_task_status(self, task_id: str, user_id: str) -> dict | None:
         """Get task status.
 
