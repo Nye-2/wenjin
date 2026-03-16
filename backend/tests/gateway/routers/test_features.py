@@ -5,10 +5,15 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.application.handlers.feature_execution_handler import (
+    get_credit_service,
+    get_literature_service,
+)
 from src.database import WorkspaceType
 from src.gateway.routers import features
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.features import ExecuteResponse
+from src.gateway.routers.tasks import get_task_service
 from src.services.credit_service import InsufficientCreditsError
 
 
@@ -78,11 +83,9 @@ def create_client(
     app.dependency_overrides[features.get_workspace_service] = (
         override_get_workspace_service
     )
-    app.dependency_overrides[features.get_task_service] = override_get_task_service
-    app.dependency_overrides[features.get_literature_service] = (
-        override_get_literature_service
-    )
-    app.dependency_overrides[features.get_credit_service] = override_get_credit_service
+    app.dependency_overrides[get_task_service] = override_get_task_service
+    app.dependency_overrides[get_literature_service] = override_get_literature_service
+    app.dependency_overrides[get_credit_service] = override_get_credit_service
     app.include_router(features.router)
     return TestClient(app)
 
@@ -417,11 +420,9 @@ class TestLiteratureInsufficientWarning:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
         app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
-        app.dependency_overrides[features.get_task_service] = lambda: task_service
-        app.dependency_overrides[features.get_literature_service] = (
-            lambda: literature_service
-        )
-        app.dependency_overrides[features.get_credit_service] = lambda: credit_service
+        app.dependency_overrides[get_task_service] = lambda: task_service
+        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.dependency_overrides[get_credit_service] = lambda: credit_service
         app.include_router(features.router)
         client = TestClient(app)
 
@@ -452,11 +453,9 @@ class TestLiteratureInsufficientWarning:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
         app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
-        app.dependency_overrides[features.get_task_service] = lambda: task_service
-        app.dependency_overrides[features.get_literature_service] = (
-            lambda: literature_service
-        )
-        app.dependency_overrides[features.get_credit_service] = lambda: credit_service
+        app.dependency_overrides[get_task_service] = lambda: task_service
+        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.dependency_overrides[get_credit_service] = lambda: credit_service
         app.include_router(features.router)
         client = TestClient(app)
 
@@ -486,11 +485,9 @@ class TestLiteratureInsufficientWarning:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
         app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
-        app.dependency_overrides[features.get_task_service] = lambda: task_service
-        app.dependency_overrides[features.get_literature_service] = (
-            lambda: literature_service
-        )
-        app.dependency_overrides[features.get_credit_service] = lambda: credit_service
+        app.dependency_overrides[get_task_service] = lambda: task_service
+        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.dependency_overrides[get_credit_service] = lambda: credit_service
         app.include_router(features.router)
         client = TestClient(app)
 

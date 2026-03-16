@@ -1,7 +1,7 @@
 # API Surface Map
 
 Generated: 2026-03-16
-Updated: 2026-03-16 (Phase 1 complete — auth unified)
+Updated: 2026-03-16 (Phase 2 complete — features router slimmed)
 Status: Living document, updated with each Phase PR
 
 ## Route Inventory
@@ -26,12 +26,15 @@ Status: Living document, updated with each Phase PR
 | PUT | `/api/workspaces/{id}` | Bearer | user_id check | Active |
 | DELETE | `/api/workspaces/{id}` | Bearer | user_id check | Active |
 
-### Features (`gateway/routers/features.py`) - Active
+### Features (`gateway/routers/features.py`) - Active (Phase 2: thin adapter)
+
+Orchestration extracted to `application/handlers/feature_execution_handler.py`.
+Router is now a pure HTTP adapter — no business service imports.
 
 | Method | Path | Auth | Owner Isolation | Status |
 |--------|------|------|-----------------|--------|
 | GET | `/api/workspaces/{id}/features` | Bearer | workspace owner check | Active |
-| POST | `/api/workspaces/{id}/features/{fid}/execute` | Bearer | workspace owner check | Active |
+| POST | `/api/workspaces/{id}/features/{fid}/execute` | Bearer | workspace owner check (via handler) | Active |
 
 ### Tasks (`gateway/routers/tasks.py`) - Active
 

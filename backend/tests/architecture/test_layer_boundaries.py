@@ -83,13 +83,9 @@ class TestRouterLayerBoundaries:
                 "business orchestration must live in application/handlers"
             )
 
-    @pytest.mark.xfail(
-        reason="Phase 2: features.py still contains orchestration logic",
-        strict=True,
-    )
     @pytest.mark.parametrize("module_name", PHASE2_ROUTER_MODULES)
     def test_features_router_does_not_import_business_services(self, module_name: str):
-        """features.py should not import business services after Phase 2."""
+        """features.py must not import business services (Phase 2 complete)."""
         source = _get_router_source(module_name)
         imports = _get_imports(source)
         for forbidden in BUSINESS_IMPORTS:
