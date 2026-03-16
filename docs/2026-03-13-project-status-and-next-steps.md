@@ -346,10 +346,32 @@ Dashboard 卡片可正确显示“X 篇文献”，与模块状态一致。
 - 论文写作模块已经接通任务链路，但大纲生成和章节写作仍主要是占位实现，需要单独一轮设计与实现。
 - 其他 workspace 已完成前端模板迁移，可以在现有工作台框架上按需逐个填充能力。
 
-后续的重点工作应从“再造架构”彻底转向“补能力模块 + 打通具体闭环”，尤其是：
+后续的重点工作应从"再造架构"彻底转向"补能力模块 + 打通具体闭环"，尤其是：
 
 1. 让 thesis 写作模块真正产出可编辑的大纲和章节。
 2. 让图表生成模块跑通完整闭环。
 3. 让 Deep Research 的产物在文献管理、开题调研、写作中被系统性复用。
 4. 为其他 workspace 设计并实现一套最小可用模块集，在统一工作台框架下逐步扩张能力。
+
+---
+
+## 7. 2026-03-16 全量恢复更新
+
+以下为 2026-03-16 全量恢复（Phase 1 功能恢复 + Phase 2 治理收口）完成后的增量变更。
+
+### 7.1 Phase 1：功能恢复
+
+1. **Thesis 写作服务化**：新增 `thesis_writing_service.py`，统一大纲/章节 payload 构建，引入 `schema_version: "v1"` 与 `generation_mode`。Handler 已切换到服务层调用。
+2. **write_all 路径修复**：`section_writer_node` 现在生成实际内容并标记 `status="completed"`（之前仅标记 `"writing"` 且无内容）。
+3. **前端章节正文展示**：`thesis-writing/page.tsx` 从 artifact 提取章节 markdown 并渲染为可读正文。
+4. **MermaidProvider**：新增 Mermaid 图表执行 provider，已注册到 `PROVIDER_MAP`，支持 SVG/PNG/PDF 输出。
+5. **Deep Research 导入入口**：文献管理页新增"从 Deep Research 导入"按钮，调用已有 store 方法。
+6. **`/papers/upload` 实现**：替换 TODO stub，支持 PDF 验证、空文件拒绝、paper 记录创建。
+
+### 7.2 Phase 2：治理收口
+
+1. **计费规则单一真源**：新增 `feature_credit_policy.py`，`FEATURE_COSTS`/`BILLABLE_TASK_TYPES`/`get_feature_cost()` 统一管理，`credit_service` 和 `tasks` router 均已迁移。
+2. **Feature execute 幂等保护**：`TaskService.find_active_task()` + features router 幂等检查，同一上下文重复提交返回已有 task_id，避免重复扣费。
+3. **Task 提交一致性**：`submit_task` 中 `celery_app.send_task()` 失败时自动标记 DB 记录为 `failed`，不再遗留"假 pending"。
+4. **Dashboard failed 状态语义**：`_status_from_count_and_running()` 支持 `latest_task_status` 参数，所有使用该方法的模块均可正确报告 `failed` 状态。前端 `ModuleCard` 显示红色失败标记和"重试"操作。
 

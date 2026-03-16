@@ -116,33 +116,37 @@
 
 ---
 
-## 5. 残余问题清单（截至 2026-03-13）
+## 5. 残余问题清单（截至 2026-03-13，2026-03-16 更新）
 
-> 按优先级从高到低列出。
+> 按优先级从高到低列出。标注 ✅ 的项目已在 2026-03-16 全量恢复中完成。
 
 ### P1（建议优先处理）
 
-1. **计费策略尚未做到单一真源**  
-   - 现状：`BILLABLE_TASK_TYPES`（tasks router）与 `WORKFLOW_CREDIT_COSTS`（credit service）分散维护，存在未来漂移风险。
+1. ✅ **计费策略尚未做到单一真源**
+   - ~~现状：`BILLABLE_TASK_TYPES`（tasks router）与 `WORKFLOW_CREDIT_COSTS`（credit service）分散维护，存在未来漂移风险。~~
+   - 已完成：新增 `feature_credit_policy.py` 作为单一真源，`credit_service` 和 `tasks` router 均已迁移。
 
-2. **任务入库与队列提交非原子，可能遗留“假 pending”**  
-   - 现状：`TaskService.submit_task` 先创建 DB 记录再 `send_task`；若投递失败，当前路径会退款，但可能留下 pending 任务记录。
+2. ✅ **任务入库与队列提交非原子，可能遗留"假 pending"**
+   - ~~现状：`TaskService.submit_task` 先创建 DB 记录再 `send_task`；若投递失败，当前路径会退款，但可能留下 pending 任务记录。~~
+   - 已完成：`send_task` 失败时自动将 DB 记录标记为 `failed`，不再遗留假 pending。
 
-3. **缺少 execute 幂等保护，存在重复扣费风险**  
-   - 现状：快速重复点击 feature execute 可能多次提交并重复扣费。
+3. ✅ **缺少 execute 幂等保护，存在重复扣费风险**
+   - ~~现状：快速重复点击 feature execute 可能多次提交并重复扣费。~~
+   - 已完成：`find_active_task()` 幂等检查，同一上下文重复提交返回已有 task_id。
 
-4. **旧接口 `/api/thesis/generate` 仍保留，长期维护成本高**  
+4. **旧接口 `/api/thesis/generate` 仍保留，长期维护成本高**
    - 现状：虽然已接入计费，但与 feature execute 双通道并存，策略/语义可能继续分叉。
 
 ### P2（建议随后处理）
 
-1. **Dashboard 状态枚举仍无 `failed`**  
-   - 目前通过 `in_progress + summary.compile_status=failed` 规避误判，但前后端状态语义仍不够完整。
+1. ✅ **Dashboard 状态枚举仍无 `failed`**
+   - ~~目前通过 `in_progress + summary.compile_status=failed` 规避误判，但前后端状态语义仍不够完整。~~
+   - 已完成：`_status_from_count_and_running()` 支持 `latest_task_status` 参数，前端 `ModuleCard` 显示失败标记。
 
-2. **文献盘点质量指标中 `missing_title_count` 统计偏差**  
+2. **文献盘点质量指标中 `missing_title_count` 统计偏差**
    - 由于标题有兜底值，缺失标题统计可能被低估。
 
-3. **计费审计可观测性可继续加强**  
+3. **计费审计可观测性可继续加强**
    - 建议统一输出 `workspace_id / feature_id / task_id / tx_id` 的可检索审计字段。
 
 ---
@@ -178,6 +182,7 @@
 
 ## 7. 当前结论
 
-截至 2026-03-13，thesis workspace 与积分系统已从“可走通但存在关键语义误差”提升到“主链路可用且 P0 风险已消除”。  
-下一阶段重点应从“补洞”转向“规则收敛与可扩展治理”（计费单一真源、提交一致性、幂等），以支撑后续批量 workspace 并行开发。
+截至 2026-03-13，thesis workspace 与积分系统已从"可走通但存在关键语义误差"提升到"主链路可用且 P0 风险已消除"。
+
+**2026-03-16 更新：** 全量恢复已完成，P1 残余问题（计费单一真源、任务提交一致性、幂等保护）和 P2 的 Dashboard failed 状态语义均已解决。当前残余问题仅剩旧接口治理、文献统计口径修正和审计可观测性增强。项目治理层面已达到"可执行、可追踪、可治理"的生产可用状态。
 
