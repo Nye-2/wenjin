@@ -99,7 +99,9 @@ async def _execute_task_async(
                     if "artifacts" not in refresh_targets:
                         result["refresh_targets"] = [*refresh_targets, "artifacts"]
 
-            # Mark as completed
+            # Terminal state: single DB write + Pub/Sub broadcast
+            # mark_task_completed → DB + Redis (authoritative)
+            # progress.complete  → Redis + Pub/Sub (SSE notification only)
             await store.mark_task_completed(task_id, success=True, result=result)
             await progress.complete("Task completed successfully")
 
@@ -133,6 +135,7 @@ async def _execute_task_async(
                         task_id,
                         credit_transaction_id,
                     )
+            # Terminal state: single DB write + Pub/Sub broadcast
             await store.mark_task_completed(task_id, success=False, error=str(e))
             await progress.fail(str(e))
             raise

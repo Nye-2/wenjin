@@ -24,13 +24,16 @@ from src.gateway.routers.tasks import get_task_service
 from src.gateway.routers.workspaces import get_db, get_workspace_service
 from src.services.credit_service import CreditService, InsufficientCreditsError
 from src.services.literature_service import LiteratureService
-from src.task.service import TaskService
+from src.task.service import ConcurrencyLimitError, TaskService
 from src.workspace_features import get_workspace_feature
 
 logger = logging.getLogger(__name__)
 
 # Recommended minimum literature count for thesis writing
 LITERATURE_THRESHOLD = 15
+
+# Idempotency key TTL in seconds (24 hours)
+IDEMPOTENCY_KEY_TTL = 86400
 
 
 def resolve_workspace_type(workspace: Any) -> str:
@@ -96,13 +99,39 @@ class FeatureExecutionHandler:
         feature_id: str,
         params: dict[str, Any] | None = None,
         thread_id: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+        redis_client: Any | None = None,
     ) -> dict[str, Any]:
         """Execute a workspace feature.
+
+        Args:
+            idempotency_key: Optional client-supplied key for request dedup.
+            redis_client: Redis client for idempotency lookups.
 
         Returns a dict matching ExecuteResponse shape:
             task_id, status, feature_id, message, warning, detail
         """
         params = params or {}
+
+        # 0. Idempotency-Key check (before any side effects)
+        if idempotency_key and redis_client:
+            idem_redis_key = f"idempotency:{self.user.id}:{idempotency_key}"
+            cached_task_id = await redis_client.client.get(idem_redis_key)
+            if cached_task_id:
+                logger.info(
+                    "[Features] Idempotency-Key hit: %s → task %s",
+                    idempotency_key,
+                    cached_task_id,
+                )
+                return {
+                    "task_id": cached_task_id,
+                    "status": "pending",
+                    "feature_id": feature_id,
+                    "message": "请求已处理（幂等重放）",
+                    "warning": None,
+                    "detail": None,
+                }
 
         # 1. Verify workspace exists and user owns it
         workspace = await self.workspace_service.get(workspace_id)
@@ -215,6 +244,29 @@ class FeatureExecutionHandler:
                 task_type=feature.task_type,
                 payload=task_payload,
             )
+        except ConcurrencyLimitError as exc:
+            logger.warning(
+                "[Features] Concurrency limit for user %s: %s",
+                self.user.id,
+                exc,
+            )
+            if credit_transaction is not None:
+                await self.credit_service.refund_failed_task(
+                    user_id=str(self.user.id),
+                    original_transaction_id=str(credit_transaction.id),
+                    reason="并发任务上限退款",
+                )
+            return {
+                "task_id": None,
+                "status": "warning",
+                "feature_id": feature_id,
+                "message": f"并发任务数已达上限（{exc.limit}），请等待现有任务完成",
+                "warning": "concurrency_limit",
+                "detail": {
+                    "current": exc.current,
+                    "limit": exc.limit,
+                },
+            }
         except Exception as exc:
             logger.exception(
                 "[Features] Failed to queue task for feature %s in workspace %s",
@@ -235,6 +287,13 @@ class FeatureExecutionHandler:
         if credit_transaction is not None:
             credit_transaction.task_id = task_id
             await self.credit_service.db.commit()
+
+        # 9. Store idempotency key → task_id mapping
+        if idempotency_key and redis_client:
+            idem_redis_key = f"idempotency:{self.user.id}:{idempotency_key}"
+            await redis_client.client.set(
+                idem_redis_key, task_id, nx=True, ex=IDEMPOTENCY_KEY_TTL
+            )
 
         logger.info(
             "[Features] Started %s task %s for workspace %s",

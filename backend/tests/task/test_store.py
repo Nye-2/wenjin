@@ -136,6 +136,29 @@ class TestTaskStorePostgres:
         assert len(tasks) == 3
 
     @pytest.mark.asyncio
+    async def test_count_active_tasks(self, task_store):
+        """Test counting active (pending/running) tasks for a user."""
+        for i in range(3):
+            await task_store.create_task_record(
+                task_id=f"test-active-{i}",
+                user_id="user-active",
+                task_type="deep_research",
+                priority=5,
+                payload={},
+            )
+        # First task is completed
+        await task_store.update_task_record("test-active-0", status="success")
+
+        count = await task_store.count_active_tasks("user-active")
+        assert count == 2  # only pending/running count
+
+    @pytest.mark.asyncio
+    async def test_count_active_tasks_empty(self, task_store):
+        """No tasks means count is 0."""
+        count = await task_store.count_active_tasks("nonexistent-user")
+        assert count == 0
+
+    @pytest.mark.asyncio
     async def test_mark_task_completed_preserves_runtime_progress_and_metadata(self, task_store):
         """Test terminal task state keeps the latest runtime details."""
         await task_store.create_task_record(

@@ -21,6 +21,7 @@ from src.application.handlers.feature_execution_handler import (
     resolve_workspace_type,
 )
 from src.services.credit_service import InsufficientCreditsError
+from src.task.service import ConcurrencyLimitError
 
 # ============ Test Helpers ============
 
@@ -435,3 +436,156 @@ class TestFeatureExecutionHandler:
         with pytest.raises(HTTPException):
             await handler.execute("ws-1", "test_feature")
         credit_service.refund_failed_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    async def test_concurrency_limit_returns_warning_and_refunds(self, mock_get_feature):
+        """ConcurrencyLimitError should return a warning and refund credits."""
+        feature = _make_feature()
+        mock_get_feature.return_value = feature
+
+        ws = _make_workspace()
+        ws_service = AsyncMock()
+        ws_service.get.return_value = ws
+
+        task_service = AsyncMock()
+        task_service.find_active_task.return_value = None
+        task_service.submit_task.side_effect = ConcurrencyLimitError(
+            current=3, limit=3
+        )
+
+        tx = MagicMock()
+        tx.id = "tx-1"
+        tx.amount = -20
+
+        credit_service = AsyncMock()
+        credit_service.consume_for_feature.return_value = tx
+        credit_service.db = AsyncMock()
+
+        handler = _make_handler(
+            workspace_service=ws_service,
+            task_service=task_service,
+            credit_service=credit_service,
+        )
+
+        result = await handler.execute("ws-1", "test_feature")
+        assert result["status"] == "warning"
+        assert result["warning"] == "concurrency_limit"
+        assert result["detail"]["current"] == 3
+        assert result["detail"]["limit"] == 3
+        assert result["task_id"] is None
+        credit_service.refund_failed_task.assert_called_once()
+
+
+class TestIdempotencyKey:
+    """Tests for Idempotency-Key based deduplication."""
+
+    @pytest.mark.asyncio
+    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    async def test_idempotency_key_returns_cached_task(self, mock_get_feature):
+        """When idempotency_key maps to an existing task, return it."""
+        feature = _make_feature()
+        mock_get_feature.return_value = feature
+
+        ws = _make_workspace()
+        ws_service = AsyncMock()
+        ws_service.get.return_value = ws
+
+        task_service = AsyncMock()
+        task_service.find_active_task.return_value = None
+        task_service.submit_task.return_value = "new-task-1"
+
+        credit_service = AsyncMock()
+        credit_service.consume_for_feature.return_value = None
+
+        # Mock Redis for idempotency key lookup
+        redis_client = AsyncMock()
+        redis_client.client = AsyncMock()
+        redis_client.client.get = AsyncMock(return_value="cached-task-42")
+
+        handler = _make_handler(
+            workspace_service=ws_service,
+            task_service=task_service,
+            credit_service=credit_service,
+        )
+
+        result = await handler.execute(
+            "ws-1", "test_feature",
+            idempotency_key="key-123",
+            redis_client=redis_client,
+        )
+        assert result["task_id"] == "cached-task-42"
+        assert result["status"] == "pending"
+        # Should NOT bill or submit new task
+        credit_service.consume_for_feature.assert_not_called()
+        task_service.submit_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    async def test_idempotency_key_stored_after_new_task(self, mock_get_feature):
+        """When idempotency_key is new, execute normally and store the mapping."""
+        feature = _make_feature()
+        mock_get_feature.return_value = feature
+
+        ws = _make_workspace()
+        ws_service = AsyncMock()
+        ws_service.get.return_value = ws
+
+        task_service = AsyncMock()
+        task_service.find_active_task.return_value = None
+        task_service.submit_task.return_value = "new-task-999"
+
+        credit_service = AsyncMock()
+        credit_service.consume_for_feature.return_value = None
+
+        redis_client = AsyncMock()
+        redis_client.client = AsyncMock()
+        redis_client.client.get = AsyncMock(return_value=None)  # No cached key
+        redis_client.client.set = AsyncMock()
+
+        handler = _make_handler(
+            workspace_service=ws_service,
+            task_service=task_service,
+            credit_service=credit_service,
+        )
+
+        result = await handler.execute(
+            "ws-1", "test_feature",
+            idempotency_key="key-new",
+            redis_client=redis_client,
+        )
+        assert result["task_id"] == "new-task-999"
+        # Verify the key was stored
+        redis_client.client.set.assert_called_once()
+        call_args = redis_client.client.set.call_args
+        key = call_args.args[0]
+        value = call_args.args[1]
+        assert "idempotency:" in key
+        assert value == "new-task-999"
+
+    @pytest.mark.asyncio
+    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    async def test_no_idempotency_key_skips_check(self, mock_get_feature):
+        """When no idempotency_key is provided, skip the Redis check entirely."""
+        feature = _make_feature()
+        mock_get_feature.return_value = feature
+
+        ws = _make_workspace()
+        ws_service = AsyncMock()
+        ws_service.get.return_value = ws
+
+        task_service = AsyncMock()
+        task_service.find_active_task.return_value = None
+        task_service.submit_task.return_value = "new-task-1"
+
+        credit_service = AsyncMock()
+        credit_service.consume_for_feature.return_value = None
+
+        handler = _make_handler(
+            workspace_service=ws_service,
+            task_service=task_service,
+            credit_service=credit_service,
+        )
+
+        result = await handler.execute("ws-1", "test_feature")
+        assert result["task_id"] == "new-task-1"

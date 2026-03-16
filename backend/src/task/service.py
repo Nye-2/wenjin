@@ -1,7 +1,7 @@
 """Task service for task management operations."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from src.config.task_config import task_settings
@@ -10,6 +10,17 @@ from src.task.registry import TaskStatus, get_task_config, is_valid_task_type
 from src.task.store import TaskStore
 
 logger = logging.getLogger(__name__)
+
+
+class ConcurrencyLimitError(Exception):
+    """Raised when a user exceeds the maximum concurrent task limit."""
+
+    def __init__(self, current: int, limit: int) -> None:
+        self.current = current
+        self.limit = limit
+        super().__init__(
+            f"Concurrent task limit reached: {current}/{limit} active tasks"
+        )
 
 
 class TaskService:
@@ -62,6 +73,16 @@ class TaskService:
         """
         if not is_valid_task_type(task_type):
             raise ValueError(f"Unknown task type: {task_type}")
+
+        # Enforce per-user concurrency limit
+        # NOTE: TOCTOU window exists between count and insert. For strict
+        # guarantees under high concurrency, consider a Redis atomic counter
+        # or PostgreSQL advisory lock. Current DB-based check is sufficient
+        # for the expected low-concurrency per-user workload.
+        active_count = await self._store.count_active_tasks(user_id)
+        limit = task_settings.max_concurrent_tasks_per_user
+        if active_count >= limit:
+            raise ConcurrencyLimitError(current=active_count, limit=limit)
 
         # Validate priority
         priority = max(1, min(10, priority))
@@ -204,7 +225,7 @@ class TaskService:
         await self._store.update_task_record(
             task_id,
             status=TaskStatus.CANCELLED.value,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
         )
         await self._store.set_task_state(task_id, TaskStatus.CANCELLED.value, message="Cancelled by user")
 

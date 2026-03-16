@@ -2,8 +2,9 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from sqlalchemy import func as sa_func
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,7 +50,7 @@ class TaskStore:
             "message": message or "",
             "current_step": current_step or "",
             "worker_id": worker_id or "",
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         if metadata is not None:
             data["metadata"] = json.dumps(metadata, ensure_ascii=False)
@@ -155,12 +156,27 @@ class TaskStore:
         result = await self._db.execute(query)
         return list(result.scalars().all())
 
+    async def count_active_tasks(self, user_id: str) -> int:
+        """Count active (pending/running) tasks for a user."""
+        record_model = self._record_model()
+        active_statuses = [TaskStatus.PENDING.value, TaskStatus.RUNNING.value]
+        query = (
+            select(sa_func.count())
+            .select_from(record_model)
+            .where(
+                record_model.user_id == user_id,
+                record_model.status.in_(active_statuses),
+            )
+        )
+        result = await self._db.execute(query)
+        return result.scalar() or 0
+
     async def mark_task_started(self, task_id: str, worker_id: str | None = None) -> None:
         """Mark task as started."""
         await self.update_task_record(
             task_id,
             status=TaskStatus.RUNNING.value,
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
         )
         await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
 
@@ -181,7 +197,7 @@ class TaskStore:
             status=status,
             result=result,
             error=error,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
             progress=final_progress,
             message=final_message,
         )

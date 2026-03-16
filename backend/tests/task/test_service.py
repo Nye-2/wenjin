@@ -1,10 +1,11 @@
 """Tests for TaskService."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import pytest_asyncio
-from unittest.mock import patch, MagicMock
 
-from src.task.service import TaskService
+from src.task.service import ConcurrencyLimitError, TaskService
 from src.task.store import TaskStore
 
 
@@ -114,6 +115,56 @@ class TestTaskService:
         failed_task = tasks[0]
         assert failed_task["status"] == "failed"
         assert "broker unreachable" in (failed_task.get("error") or "")
+
+    @pytest.mark.asyncio
+    async def test_submit_task_enforces_concurrency_limit(self, task_service):
+        """Submitting beyond max_concurrent_tasks_per_user raises ConcurrencyLimitError."""
+        with patch("src.task.service.celery_app") as mock_celery:
+            mock_celery.send_task = MagicMock()
+
+            # Submit max_concurrent_tasks_per_user tasks (default 3)
+            for i in range(3):
+                await task_service.submit_task(
+                    user_id="user-limit",
+                    task_type="deep_research",
+                    payload={"index": i},
+                )
+
+            # 4th should fail
+            with pytest.raises(ConcurrencyLimitError):
+                await task_service.submit_task(
+                    user_id="user-limit",
+                    task_type="deep_research",
+                    payload={"index": 3},
+                )
+
+    @pytest.mark.asyncio
+    async def test_submit_task_allows_after_completion(self, task_service):
+        """Completed tasks don't count toward concurrency limit."""
+        with patch("src.task.service.celery_app") as mock_celery:
+            mock_celery.send_task = MagicMock()
+
+            task_ids = []
+            for i in range(3):
+                tid = await task_service.submit_task(
+                    user_id="user-limit2",
+                    task_type="deep_research",
+                    payload={"index": i},
+                )
+                task_ids.append(tid)
+
+            # Complete one task
+            await task_service._store.update_task_record(
+                task_ids[0], status="success"
+            )
+
+            # Now should allow submitting again
+            new_id = await task_service.submit_task(
+                user_id="user-limit2",
+                task_type="deep_research",
+                payload={"index": 3},
+            )
+            assert new_id is not None
 
     @pytest.mark.asyncio
     async def test_get_task_status_merges_runtime_metadata_for_terminal_tasks(self, task_service):

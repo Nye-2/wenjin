@@ -8,7 +8,7 @@ literature threshold checks, task submission, failure compensation) lives in
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from src.academic.services.workspace_service import WorkspaceService
@@ -122,9 +122,19 @@ async def execute_feature(
     feature_id: str,
     request: ExecuteRequest,
     handler: FeatureExecutionHandler = Depends(get_feature_execution_handler),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> ExecuteResponse:
     """Execute a feature for a workspace via the unified task infrastructure."""
+    # Lazily resolve Redis only when an idempotency key is provided
+    redis_client = None
+    if idempotency_key:
+        from src.academic.cache.redis_client import redis_client as _redis
+
+        redis_client = _redis
+
     result = await handler.execute(
-        workspace_id, feature_id, request.params, request.thread_id
+        workspace_id, feature_id, request.params, request.thread_id,
+        idempotency_key=idempotency_key,
+        redis_client=redis_client,
     )
     return ExecuteResponse(**result)
