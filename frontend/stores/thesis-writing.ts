@@ -10,6 +10,7 @@ export interface ChapterStatus {
   targetWords: number;
   currentWords: number;
   status: "pending" | "generating" | "completed" | "edited" | "failed";
+  content?: string;
 }
 
 export interface OutlineSection {
@@ -42,7 +43,8 @@ interface ThesisWritingState {
   updateChapterStatus: (
     index: number,
     status: ChapterStatus["status"],
-    words?: number
+    words?: number,
+    content?: string
   ) => void;
   setGenerating: (isGenerating: boolean) => void;
   setError: (error: string | null) => void;
@@ -75,11 +77,16 @@ export const useThesisWritingStore = create<ThesisWritingState>((set) => ({
 
   setCurrentChapter: (index) => set({ currentChapterIndex: index }),
 
-  updateChapterStatus: (index, status, words) =>
+  updateChapterStatus: (index, status, words, content) =>
     set((state) => ({
       chapters: state.chapters.map((ch) =>
         ch.index === index
-          ? { ...ch, status, currentWords: words ?? ch.currentWords }
+          ? {
+              ...ch,
+              status,
+              currentWords: words ?? ch.currentWords,
+              ...(content !== undefined ? { content } : {}),
+            }
           : ch
       ),
     })),

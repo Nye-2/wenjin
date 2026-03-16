@@ -218,13 +218,33 @@ export default function ThesisWritingPage() {
             ? (resultObj.chapter as Record<string, unknown>)
             : null;
         const writtenWords = Number(chapterObj?.target_words || 0);
+
+        // Refresh artifacts then extract chapter markdown from store
+        await fetchArtifacts(workspaceId);
+        let chapterContent: string | undefined;
+        const storeArtifacts = useWorkspaceStore.getState().artifacts;
+        if (Array.isArray(storeArtifacts)) {
+          const chapterArtifact = storeArtifacts.find(
+            (a) =>
+              a.type === "thesis_chapter" &&
+              (a.content as Record<string, unknown>)?.chapter_index ===
+                selectedChapter.index
+          );
+          if (chapterArtifact) {
+            chapterContent = String(
+              (chapterArtifact.content as Record<string, unknown>)?.markdown ||
+                ""
+            );
+          }
+        }
+
         updateChapterStatus(
           selectedChapter.index,
           "completed",
-          writtenWords > 0 ? writtenWords : selectedChapter.targetWords
+          writtenWords > 0 ? writtenWords : selectedChapter.targetWords,
+          chapterContent
         );
         setStatus(`第 ${selectedChapter.index + 1} 章写作完成，已生成章节草稿。`);
-        await fetchArtifacts(workspaceId);
       } else {
         updateChapterStatus(selectedChapter.index, "failed");
         setError(task.error || task.message || "章节写作失败，请稍后重试");
@@ -533,6 +553,18 @@ export default function ThesisWritingPage() {
                         )}
                       </div>
                     </div>
+
+                    {/* Chapter Content Display */}
+                    {selectedChapter.content && (
+                      <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+                        <h3 className="text-sm font-medium text-[var(--text-primary)] mb-3">
+                          章节正文
+                        </h3>
+                        <div className="prose prose-sm max-w-none text-[var(--text-secondary)] whitespace-pre-wrap">
+                          {selectedChapter.content}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="h-full flex items-center justify-center text-center">
