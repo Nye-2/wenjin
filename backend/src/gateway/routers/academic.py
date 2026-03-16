@@ -9,6 +9,9 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
 
+from src.database import User
+from src.gateway.routers.auth import get_current_user
+
 router = APIRouter(tags=["academic"])
 
 
@@ -109,6 +112,7 @@ async def get_artifact_service(db = Depends(get_db)):
 @router.post("/papers", response_model=PaperResponse, status_code=201)
 async def create_paper(
     request: PaperCreate,
+    current_user: User = Depends(get_current_user),
     paper_service = Depends(get_paper_service),
 ):
     """Create a new paper."""
@@ -127,6 +131,7 @@ async def create_paper(
 async def upload_paper(
     file: UploadFile = File(...),
     workspace_id: str | None = None,
+    current_user: User = Depends(get_current_user),
     paper_service=Depends(get_paper_service),
 ):
     """Upload a new paper (PDF).
@@ -168,6 +173,7 @@ async def upload_paper(
 async def search_papers(
     query: str,
     limit: int = 10,
+    current_user: User = Depends(get_current_user),
 ):
     """Search papers in Semantic Scholar."""
     # Use the semantic scholar tool
@@ -185,6 +191,7 @@ async def search_papers(
 async def list_artifacts(
     workspace_id: str,
     artifact_type: str | None = None,
+    current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
 ):
     """List artifacts in a workspace."""
@@ -202,6 +209,7 @@ async def list_artifacts(
 async def create_artifact(
     workspace_id: str,
     request: ArtifactCreate,
+    current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
 ):
     """Create a new artifact."""
@@ -220,6 +228,7 @@ async def create_artifact(
 async def get_artifact(
     workspace_id: str,
     artifact_id: str,
+    current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
 ):
     """Get artifact details."""
@@ -233,6 +242,7 @@ async def get_artifact(
 async def get_artifact_lineage(
     workspace_id: str,
     artifact_id: str,
+    current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
 ):
     """Get artifact lineage (parent chain)."""

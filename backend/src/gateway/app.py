@@ -1,15 +1,47 @@
 """FastAPI Gateway Application."""
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 
 from src.config.app_config import get_settings
 from src.gateway.middleware.correlation import correlation_middleware
 from src.gateway.middleware.error_handler import register_error_handlers
 from src.logging_config import setup_logging
+
+
+async def deprecation_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Add Deprecation and Sunset headers to deprecated routes.
+
+    Deprecated routes (retained for >=1 release cycle, sunset 2026-05-01):
+    - /api/thesis/*  — thesis direct API (use feature execute instead)
+    - academic router routes registered via ``academic.router``
+      These overlap path-wise with the active ``papers.router``; we
+      distinguish them by checking the matched route's ``tags``.
+    """
+    response: Response = await call_next(request)
+    path = request.url.path
+
+    is_deprecated = False
+    # 1) thesis routes — simple prefix match, no overlap with other routers
+    if path.startswith("/api/thesis/"):
+        is_deprecated = True
+    else:
+        # 2) academic router routes — identified by their FastAPI tags
+        route = request.scope.get("route")
+        if route and hasattr(route, "tags") and "academic" in (route.tags or []):
+            is_deprecated = True
+
+    if is_deprecated:
+        response.headers["Deprecation"] = "true"
+        response.headers["Sunset"] = "2026-05-01"
+
+    return response
 
 
 @asynccontextmanager
@@ -49,6 +81,9 @@ register_error_handlers(app)
 # Load settings for CORS configuration
 settings = get_settings()
 
+# Add deprecation signal middleware for retired routes
+app.middleware("http")(deprecation_middleware)
+
 # Add correlation ID middleware for request tracing
 app.middleware("http")(correlation_middleware)
 
@@ -70,8 +105,9 @@ async def health_check():
 
 
 # Include routers (imported after app creation to avoid circular imports)
-from .routers import academic, artifacts, auth, chat, dashboard, features, literature, models, papers, tasks, workspaces  # noqa: E402
 from src.thesis.api import router as thesis_router  # noqa: E402
+
+from .routers import academic, artifacts, auth, chat, dashboard, features, literature, models, papers, tasks, workspaces  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(academic.router, prefix="/api", tags=["academic"])

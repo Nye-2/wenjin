@@ -15,7 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import get_db_session
+from src.database import User, get_db_session
+from src.gateway.routers.auth import get_current_user
 from src.gateway.validators.artifact import (
     CreateArtifactValidator,
     UpdateArtifactValidator,
@@ -86,6 +87,7 @@ def artifact_to_response(artifact) -> ArtifactResponse:
 @router.post("/", response_model=ArtifactResponse, status_code=status.HTTP_201_CREATED)
 async def create_artifact(
     request: CreateArtifactRequest,
+    current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
 ):
     """Create a new artifact.
@@ -117,6 +119,7 @@ async def create_artifact(
 async def list_artifacts(
     workspace_id: str,
     type: str | None = None,
+    current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
 ):
     """List artifacts, filtered by workspace and optionally by type.
@@ -139,6 +142,7 @@ async def list_artifacts(
 @router.get("/{artifact_id}", response_model=ArtifactResponse)
 async def get_artifact(
     artifact_id: str,
+    current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
 ):
     """Get artifact by ID.
@@ -166,6 +170,7 @@ async def get_artifact(
 async def update_artifact(
     artifact_id: str,
     request: UpdateArtifactRequest,
+    current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
 ):
     """Update artifact.
@@ -202,6 +207,7 @@ async def update_artifact(
 @router.delete("/{artifact_id}")
 async def delete_artifact(
     artifact_id: str,
+    current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
 ):
     """Delete artifact.
@@ -230,6 +236,7 @@ async def delete_artifact(
 @router.get("/{artifact_id}/lineage", response_model=list[ArtifactResponse])
 async def get_artifact_lineage(
     artifact_id: str,
+    current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
 ):
     """Get artifact lineage (parent chain).

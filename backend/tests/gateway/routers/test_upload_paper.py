@@ -1,13 +1,23 @@
 """Tests for /papers/upload endpoint in academic router."""
 
 import io
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch
 
-from src.gateway.routers.academic import router, get_paper_service, get_db
+from src.gateway.routers.academic import get_db, get_paper_service, router
+from src.gateway.routers.auth import get_current_user
+
+
+def _create_mock_user():
+    """Create a mock authenticated user."""
+    user = MagicMock()
+    user.id = "test-user-001"
+    user.email = "test@test.com"
+    user.is_active = True
+    return user
 
 
 @pytest.fixture
@@ -42,8 +52,12 @@ def app():
     async def mock_paper_service(db=None):
         return mock_svc
 
+    async def mock_get_current_user():
+        return _create_mock_user()
+
     app.dependency_overrides[get_db] = mock_db
     app.dependency_overrides[get_paper_service] = mock_paper_service
+    app.dependency_overrides[get_current_user] = mock_get_current_user
     return app
 
 

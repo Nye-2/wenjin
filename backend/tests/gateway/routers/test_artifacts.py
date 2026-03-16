@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from src.database import Artifact
 from src.gateway.routers.artifacts import get_artifact_service, router
+from src.gateway.routers.auth import get_current_user
 
 # Valid test UUIDs
 WORKSPACE_ID = "550e8400-e29b-41d4-a716-446655440001"
@@ -142,6 +143,15 @@ def mock_service():
     return MockArtifactService()
 
 
+def create_mock_user():
+    """Create a mock authenticated user."""
+    user = MagicMock()
+    user.id = USER_ID
+    user.email = "test@test.com"
+    user.is_active = True
+    return user
+
+
 @pytest.fixture
 def app(mock_service):
     """Create FastAPI app with artifacts router."""
@@ -151,7 +161,11 @@ def app(mock_service):
     async def get_artifact_service_override():
         return mock_service
 
+    async def get_current_user_override():
+        return create_mock_user()
+
     app.dependency_overrides[get_artifact_service] = get_artifact_service_override
+    app.dependency_overrides[get_current_user] = get_current_user_override
     app.include_router(router)
 
     return app

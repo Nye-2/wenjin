@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.extraction_service import ExtractionService
 from src.academic.services.paper_service import PaperService
+from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.papers import (
     get_extraction_service,
     get_paper_service,
@@ -31,6 +32,19 @@ from src.gateway.routers.papers import (
     router,
     section_to_response,
 )
+
+# ============ Auth Mock ============
+
+MOCK_USER_ID = "test-user-001"
+
+
+def create_mock_user():
+    """Create a mock authenticated user."""
+    user = MagicMock()
+    user.id = MOCK_USER_ID
+    user.email = "test@test.com"
+    user.is_active = True
+    return user
 
 
 def create_mock_paper(
@@ -183,10 +197,14 @@ def app(mock_db, mock_paper_service, mock_extraction_service):
     async def get_extraction_service_override() -> ExtractionService:
         return mock_extraction_service
 
+    async def get_current_user_override():
+        return create_mock_user()
+
     # Set up dependency overrides
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_paper_service] = get_paper_service_override
     app.dependency_overrides[get_extraction_service] = get_extraction_service_override
+    app.dependency_overrides[get_current_user] = get_current_user_override
 
     app.include_router(router)
     return app

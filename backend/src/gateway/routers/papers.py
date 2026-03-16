@@ -20,9 +20,11 @@ from src.academic.services.paper_service import PaperService
 from src.database import (
     Paper,
     PaperSection,
+    User,
     WorkspacePaper,
     get_db_session,
 )
+from src.gateway.routers.auth import get_current_user
 from src.gateway.validators.paper import (
     CreatePaperValidator,
     SearchPapersValidator,
@@ -150,6 +152,7 @@ def section_to_response(section: PaperSection) -> SectionResponse:
 @router.post("/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
 async def create_paper(
     request: CreatePaperRequest,
+    current_user: User = Depends(get_current_user),
     paper_service: PaperService = Depends(get_paper_service),
 ):
     """Create a new paper manually.
@@ -190,6 +193,7 @@ async def create_paper(
 async def list_papers(
     workspace_id: str | None = None,
     limit: int = 20,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """List papers, optionally filtered by workspace.
@@ -228,6 +232,7 @@ async def list_papers(
 @router.get("/{paper_id}", response_model=PaperResponse)
 async def get_paper(
     paper_id: str,
+    current_user: User = Depends(get_current_user),
     paper_service: PaperService = Depends(get_paper_service),
 ):
     """Get paper by ID.
@@ -255,6 +260,7 @@ async def get_paper(
 async def update_paper(
     paper_id: str,
     request: UpdatePaperRequest,
+    current_user: User = Depends(get_current_user),
     paper_service: PaperService = Depends(get_paper_service),
     session: AsyncSession = Depends(get_session),
 ):
@@ -294,6 +300,7 @@ async def update_paper(
 @router.delete("/{paper_id}")
 async def delete_paper(
     paper_id: str,
+    current_user: User = Depends(get_current_user),
     paper_service: PaperService = Depends(get_paper_service),
     session: AsyncSession = Depends(get_session),
 ):
@@ -328,6 +335,7 @@ async def extract_paper(
     paper_id: str,
     workspace_id: str,
     tier: int = 1,
+    current_user: User = Depends(get_current_user),
     paper_service: PaperService = Depends(get_paper_service),
     extraction_service: ExtractionService = Depends(get_extraction_service),
 ):
@@ -393,6 +401,7 @@ async def extract_paper(
 async def get_paper_sections(
     paper_id: str,
     workspace_id: str | None = None,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get paper sections.
@@ -434,6 +443,7 @@ async def get_paper_sections(
 @router.post("/search")
 async def search_papers(
     request: SearchPapersRequest,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Search papers by title, authors, or content.
