@@ -82,13 +82,24 @@ class TaskService:
         config = get_task_config(task_type)
 
         # Submit to Celery
-        celery_app.send_task(
-            "src.task.tasks.execute_task",
-            args=[task_id, task_type, payload],
-            queue=config.queue if config else "default",
-            priority=10 - priority,  # Celery uses inverse priority
-            task_id=task_id,
-        )
+        try:
+            celery_app.send_task(
+                "src.task.tasks.execute_task",
+                args=[task_id, task_type, payload],
+                queue=config.queue if config else "default",
+                priority=10 - priority,  # Celery uses inverse priority
+                task_id=task_id,
+            )
+        except Exception as exc:
+            logger.error(
+                "Queue submission failed for task %s: %s", task_id, exc
+            )
+            await self._store.update_task_record(
+                task_id,
+                status=TaskStatus.FAILED.value,
+                error=f"Queue submission failed: {exc}",
+            )
+            raise
 
         logger.info(f"Task submitted: {task_id} type={task_type} user={user_id}")
 

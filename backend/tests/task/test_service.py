@@ -96,6 +96,26 @@ class TestTaskService:
             assert len(tasks) >= 3
 
     @pytest.mark.asyncio
+    async def test_queue_failure_marks_record_as_failed(self, task_service):
+        """When Celery queue submission fails, the DB record must be marked failed."""
+        with patch("src.task.service.celery_app") as mock_celery:
+            mock_celery.send_task.side_effect = ConnectionError("broker unreachable")
+
+            with pytest.raises(ConnectionError):
+                await task_service.submit_task(
+                    user_id="user-fail",
+                    task_type="workspace_feature",
+                    payload={"feature_id": "deep_research"},
+                )
+
+        # Verify the task record exists and has failed status
+        tasks = await task_service.list_tasks("user-fail")
+        assert len(tasks) >= 1
+        failed_task = tasks[0]
+        assert failed_task["status"] == "failed"
+        assert "broker unreachable" in (failed_task.get("error") or "")
+
+    @pytest.mark.asyncio
     async def test_get_task_status_merges_runtime_metadata_for_terminal_tasks(self, task_service):
         """Test completed tasks still expose Redis metadata while the runtime cache exists."""
         with patch("src.task.service.celery_app") as mock_celery:
