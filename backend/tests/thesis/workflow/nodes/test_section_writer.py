@@ -57,3 +57,21 @@ def test_get_next_section_index_all_completed(sample_state):
     ]
     idx = get_next_section_index(sample_state)
     assert idx is None
+
+
+def test_section_writer_marks_section_completed_with_content(sample_state):
+    """section_writer_node should produce completed sections with real content."""
+    result = section_writer_node(sample_state)
+    sections = result.get("sections", [])
+    assert len(sections) == 1
+    section = sections[0]
+    assert section.status == "completed"
+    assert section.content  # Must have non-empty content
+    assert section.word_count > 0
+
+
+def test_section_writer_completed_section_preserves_title(sample_state):
+    """Completed section should preserve the title from the plan."""
+    result = section_writer_node(sample_state)
+    section = result["sections"][0]
+    assert section.title == "绪论"

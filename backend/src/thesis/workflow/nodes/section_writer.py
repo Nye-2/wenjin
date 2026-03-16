@@ -10,6 +10,34 @@ from .base import calculate_progress, log_node_start, log_node_end
 logger = logging.getLogger(__name__)
 
 
+def _generate_section_content(
+    *,
+    paper_title: str,
+    section_title: str,
+    target_words: int,
+    section_refs: list[str],
+) -> str:
+    """Generate template-based section content (fallback when no LLM available)."""
+    lines = [
+        f"# {section_title}",
+        "",
+        f"## 研究背景",
+        f"围绕《{paper_title}》展开本章论证，明确研究场景与问题边界。",
+        "",
+        "## 核心内容",
+        "给出关键方法、实验设计或理论推导，并说明实现路径。",
+        "",
+        "## 本章小结",
+        "总结本章结论并衔接后续章节。",
+    ]
+    if section_refs:
+        lines.append("")
+        lines.append("## 参考文献")
+        for ref in section_refs:
+            lines.append(f"- {ref}")
+    return "\n".join(lines)
+
+
 def _get_attr(obj, attr: str, default=None):
     """Handle both Pydantic models and dict objects."""
     if isinstance(obj, dict):
@@ -89,12 +117,25 @@ def section_writer_node(state: ThesisWorkflowState) -> dict[str, Any]:
     citation_plan = state.get("citation_plan", {})
     section_refs = citation_plan.get(next_idx, [])
 
-    # Mark section as in-progress
-    in_progress_section = SectionContent(
+    # Generate section content
+    section_title = _get_attr(section_plan, "title", f"Section {next_idx}")
+    paper_title = state.get("paper_title", "未命名论文")
+    target_words = _get_attr(section_plan, "target_words", 2000)
+
+    generated_markdown = _generate_section_content(
+        paper_title=paper_title,
+        section_title=section_title,
+        target_words=target_words,
+        section_refs=section_refs,
+    )
+
+    completed_section = SectionContent(
         index=next_idx,
-        title=_get_attr(section_plan, "title", f"Section {next_idx}"),
-        content="",  # Will be filled by subagent
-        status="writing",
+        title=section_title,
+        content=generated_markdown,
+        status="completed",
+        word_count=len(generated_markdown),
+        references_used=section_refs,
     )
 
     progress = calculate_progress(state, "writing")
@@ -102,7 +143,7 @@ def section_writer_node(state: ThesisWorkflowState) -> dict[str, Any]:
     log_node_end("section_writer", state, {"current_section_index": next_idx})
 
     return {
-        "sections": [in_progress_section],
+        "sections": [completed_section],
         "current_section_index": next_idx,
         "current_phase": "writing",
         "progress": progress,
