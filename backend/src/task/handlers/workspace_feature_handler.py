@@ -9,6 +9,10 @@ from src.database import get_db_session
 from src.task.progress import ProgressTracker
 from src.thesis.workflow.runner import run_thesis_workflow_request
 from src.workspace_features import execute_registered_feature, get_workspace_feature
+from src.workspace_features.services.thesis_writing_service import (
+    build_chapter_payload,
+    build_outline_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -256,18 +260,22 @@ async def generate_outline_only(
     await progress.update(10, "收集 workspace 上下文")
     await progress.update(55, "生成论文大纲")
 
-    outline = _build_outline_template(payload)
+    params = _read_params(payload)
     paper_title = _resolve_paper_title(payload)
+    target_words = _safe_int(params.get("target_words"), 20000)
+
+    outline_payload = build_outline_payload(
+        paper_title=paper_title,
+        target_words=target_words,
+    )
+    outline = outline_payload["outline"]
+
     created_by_skill = str(payload.get("handler_key") or "thesis.thesis_writing")
     artifact_ref = await _persist_artifact(
         workspace_id=str(payload.get("workspace_id") or ""),
         artifact_type=ArtifactType.FRAMEWORK_OUTLINE.value,
         title=f"{paper_title} - 论文大纲",
-        content={
-            "paper_title": paper_title,
-            "outline": outline,
-            "action": "generate_outline",
-        },
+        content=outline_payload,
         created_by_skill=created_by_skill,
     )
 
@@ -301,23 +309,12 @@ async def write_single_chapter(
     await progress.update(10, f"准备写作第 {chapter_index + 1} 章")
     await progress.update(45, f"组织第 {chapter_index + 1} 章结构")
 
-    chapter_markdown = "\n\n".join(
-        [
-            f"# {chapter_title}",
-            f"## 研究背景\n围绕《{paper_title}》展开本章论证，明确研究场景与问题边界。",
-            "## 核心内容\n给出关键方法、实验设计或理论推导，并说明实现路径。",
-            "## 本章小结\n总结本章结论并衔接后续章节。",
-        ]
+    chapter_content = build_chapter_payload(
+        paper_title=paper_title,
+        chapter_index=chapter_index,
+        chapter_title=chapter_title,
+        target_words=target_words,
     )
-    chapter_content = {
-        "paper_title": paper_title,
-        "chapter_index": chapter_index,
-        "chapter_title": chapter_title,
-        "target_words": target_words,
-        "estimated_words": max(800, int(target_words * 0.35)),
-        "markdown": chapter_markdown,
-        "action": "write_chapter",
-    }
 
     created_by_skill = str(payload.get("handler_key") or "thesis.thesis_writing")
     artifact_ref = await _persist_artifact(
