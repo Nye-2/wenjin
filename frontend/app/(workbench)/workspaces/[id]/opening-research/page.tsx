@@ -5,8 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, Search, FileText } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 const REPORT_TYPES = [
@@ -21,13 +20,15 @@ export default function OpeningResearchPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
 
   const [topic, setTopic] = useState("");
   const [reportType, setReportType] = useState<ReportTypeValue>("opening_report");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "opening_research",
+  });
 
   useEffect(() => {
     if (workspace && !topic) {
@@ -38,61 +39,11 @@ export default function OpeningResearchPage() {
   }, [workspace, topic]);
 
   const handleGenerate = async () => {
-    if (isRunning) return;
-    if (!topic.trim()) {
-      setError("请输入研究主题");
-      return;
-    }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      const resp = await executeWorkspaceFeature(
-        workspaceId,
-        "opening_research",
-        {
-          topic: topic.trim(),
-          report_type: reportType,
-        }
-      );
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setError(resp.message || "暂时无法生成报告");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("任务已提交，正在生成报告...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (task) => {
-          if (task.message) {
-            setStatus(task.message);
-          }
-        },
-      });
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await fetchArtifacts(workspaceId);
-        setStatus(task.message || "报告生成完成");
-      } else {
-        setError(task.error || task.message || "生成报告失败");
-      }
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "生成报告失败，请稍后重试"
-      );
-    } finally {
-      setIsRunning(false);
-    }
+    if (!topic.trim()) return;
+    await run({
+      topic: topic.trim(),
+      report_type: reportType,
+    });
   };
 
   return (

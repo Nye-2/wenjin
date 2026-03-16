@@ -5,8 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, FlaskConical, FileText } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 export default function PaperAnalysisPage() {
@@ -14,14 +13,16 @@ export default function PaperAnalysisPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
 
   const [paperId, setPaperId] = useState("");
   const [paperTitle, setPaperTitle] = useState("");
   const [paperAbstract, setPaperAbstract] = useState("");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "paper_analysis",
+  });
 
   useEffect(() => {
     const queryPaperId = searchParams.get("paper_id") || "";
@@ -46,57 +47,12 @@ export default function PaperAnalysisPage() {
   }, [workspace, paperTitle]);
 
   const handleAnalyze = async () => {
-    if (isRunning) return;
-    if (!paperId.trim() && !paperTitle.trim()) {
-      setError("请至少输入论文标题或 paper_id");
-      return;
-    }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      const resp = await executeWorkspaceFeature(workspaceId, "paper_analysis", {
-        paper_id: paperId.trim() || undefined,
-        paper_title: paperTitle.trim() || undefined,
-        paper_abstract: paperAbstract.trim() || undefined,
-      });
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setError(resp.message || "暂时无法执行论文分析");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("任务已提交，正在分析论文...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (nextTask) => {
-          if (nextTask.message) {
-            setStatus(nextTask.message);
-          }
-        },
-      });
-
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await fetchArtifacts(workspaceId);
-        setStatus(task.message || "论文分析完成");
-      } else {
-        setError(task.error || task.message || "论文分析失败");
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "论文分析失败，请稍后重试");
-    } finally {
-      setIsRunning(false);
-    }
+    if (!paperId.trim() && !paperTitle.trim()) return;
+    await run({
+      paper_id: paperId.trim() || undefined,
+      paper_title: paperTitle.trim() || undefined,
+      paper_abstract: paperAbstract.trim() || undefined,
+    });
   };
 
   return (

@@ -5,75 +5,30 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, FileText, Download, FileDown } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 export default function CompileExportPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
 
   const [template, setTemplate] = useState("default");
   const [compiler, setCompiler] = useState("xelatex");
   const [bibStyle, setBibStyle] = useState("gbt7714");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "compile_export",
+  });
 
   const handleCompile = async () => {
-    if (isRunning) return;
-    setIsRunning(true);
-    setStatus(null);
-    setError(null);
-
-    try {
-      const resp = await executeWorkspaceFeature(
-        workspaceId,
-        "compile_export",
-        {
-          template,
-          compiler,
-          bibliography_style: bibStyle,
-        }
-      );
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setError(resp.message || "暂时无法编译");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("编译任务已提交，正在处理中...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (task) => {
-          if (task.message) {
-            setStatus(task.message);
-          }
-        },
-      });
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await fetchArtifacts(workspaceId);
-        setStatus(task.message || "编译任务完成");
-      } else {
-        setError(task.error || task.message || "编译失败");
-      }
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "编译失败，请稍后重试"
-      );
-    } finally {
-      setIsRunning(false);
-    }
+    await run({
+      template,
+      compiler,
+      bibliography_style: bibStyle,
+    });
   };
 
   return (

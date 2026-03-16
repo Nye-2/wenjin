@@ -5,8 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, BookOpen, FileSearch } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 const TIME_RANGE_OPTIONS = [
@@ -21,14 +20,16 @@ export default function BackgroundResearchPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
 
   const [keywords, setKeywords] = useState("");
   const [industryScope, setIndustryScope] = useState("相关领域");
   const [timeRange, setTimeRange] = useState("近5年");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "background_research",
+  });
 
   useEffect(() => {
     if (workspace && !keywords) {
@@ -39,62 +40,12 @@ export default function BackgroundResearchPage() {
   }, [workspace, keywords]);
 
   const handleGenerate = async () => {
-    if (isRunning) return;
-    if (!keywords.trim()) {
-      setError("请输入主题关键词");
-      return;
-    }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      const resp = await executeWorkspaceFeature(
-        workspaceId,
-        "background_research",
-        {
-          keywords: keywords.trim(),
-          industry_scope: industryScope,
-          time_range: timeRange,
-        }
-      );
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setError(resp.message || "暂时无法进行背景调研");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("任务已提交，正在进行背景调研...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (task) => {
-          if (task.message) {
-            setStatus(task.message);
-          }
-        },
-      });
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await fetchArtifacts(workspaceId);
-        setStatus(task.message || "背景调研完成");
-      } else {
-        setError(task.error || task.message || "背景调研失败");
-      }
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "背景调研失败，请稍后重试"
-      );
-    } finally {
-      setIsRunning(false);
-    }
+    if (!keywords.trim()) return;
+    await run({
+      keywords: keywords.trim(),
+      industry_scope: industryScope,
+      time_range: timeRange,
+    });
   };
 
   return (

@@ -5,21 +5,22 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, Search, BookMarked } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 export default function LiteratureSearchPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
 
   const [query, setQuery] = useState("");
   const [discipline, setDiscipline] = useState("");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "literature_search",
+  });
 
   useEffect(() => {
     if (workspace && !query) {
@@ -31,56 +32,11 @@ export default function LiteratureSearchPage() {
   }, [workspace, query, discipline]);
 
   const handleSearch = async () => {
-    if (isRunning) return;
-    if (!query.trim()) {
-      setError("请输入检索关键词");
-      return;
-    }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      const resp = await executeWorkspaceFeature(workspaceId, "literature_search", {
-        query: query.trim(),
-        discipline: discipline.trim() || undefined,
-      });
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setError(resp.message || "暂时无法执行文献检索");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("任务已提交，正在进行文献检索...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (nextTask) => {
-          if (nextTask.message) {
-            setStatus(nextTask.message);
-          }
-        },
-      });
-
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await fetchArtifacts(workspaceId);
-        setStatus(task.message || "文献检索完成");
-      } else {
-        setError(task.error || task.message || "文献检索失败");
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "文献检索失败，请稍后重试");
-    } finally {
-      setIsRunning(false);
-    }
+    if (!query.trim()) return;
+    await run({
+      query: query.trim(),
+      discipline: discipline.trim() || undefined,
+    });
   };
 
   return (

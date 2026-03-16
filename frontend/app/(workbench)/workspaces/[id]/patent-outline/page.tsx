@@ -5,23 +5,24 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, FileText, Lightbulb } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 export default function PatentOutlinePage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
 
   const [innovationDescription, setInnovationDescription] = useState("");
   const [technicalField, setTechnicalField] = useState("");
   const [applicationScenario, setApplicationScenario] = useState("");
   const [implementationMethod, setImplementationMethod] = useState("");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "patent_outline",
+  });
 
   useEffect(() => {
     if (workspace && !innovationDescription) {
@@ -32,63 +33,13 @@ export default function PatentOutlinePage() {
   }, [workspace, innovationDescription]);
 
   const handleGenerate = async () => {
-    if (isRunning) return;
-    if (!innovationDescription.trim()) {
-      setError("请输入创新点描述");
-      return;
-    }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      const resp = await executeWorkspaceFeature(
-        workspaceId,
-        "patent_outline",
-        {
-          innovation_description: innovationDescription.trim(),
-          technical_field: technicalField.trim(),
-          application_scenario: applicationScenario.trim(),
-          implementation_method: implementationMethod.trim(),
-        }
-      );
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setError(resp.message || "暂时无法生成专利框架");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("任务已提交，正在生成专利说明书框架...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (task) => {
-          if (task.message) {
-            setStatus(task.message);
-          }
-        },
-      });
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await fetchArtifacts(workspaceId);
-        setStatus(task.message || "专利框架生成完成");
-      } else {
-        setError(task.error || task.message || "生成专利框架失败");
-      }
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "生成专利框架失败，请稍后重试"
-      );
-    } finally {
-      setIsRunning(false);
-    }
+    if (!innovationDescription.trim()) return;
+    await run({
+      innovation_description: innovationDescription.trim(),
+      technical_field: technicalField.trim(),
+      application_scenario: applicationScenario.trim(),
+      implementation_method: implementationMethod.trim(),
+    });
   };
 
   return (

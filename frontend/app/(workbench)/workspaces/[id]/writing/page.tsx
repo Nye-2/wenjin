@@ -5,8 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, PenTool, FileEdit } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 const SECTION_OPTIONS = [
@@ -24,15 +23,17 @@ export default function SciWritingPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
 
   const [paperTitle, setPaperTitle] = useState("");
   const [sectionType, setSectionType] = useState("introduction");
   const [targetWords, setTargetWords] = useState(1200);
   const [contextArtifactIds, setContextArtifactIds] = useState("");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "writing",
+  });
 
   useEffect(() => {
     if (!workspace || paperTitle) return;
@@ -56,59 +57,14 @@ export default function SciWritingPage() {
   };
 
   const handleWrite = async () => {
-    if (isRunning) return;
-    if (!paperTitle.trim()) {
-      setError("请输入论文标题");
-      return;
-    }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      const ids = parseArtifactIds();
-      const resp = await executeWorkspaceFeature(workspaceId, "writing", {
-        paper_title: paperTitle.trim(),
-        section_type: sectionType,
-        target_words: targetWords,
-        context_artifact_ids: ids.length > 0 ? ids : undefined,
-      });
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setError(resp.message || "暂时无法执行论文写作");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("任务已提交，正在生成章节草稿...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (nextTask) => {
-          if (nextTask.message) {
-            setStatus(nextTask.message);
-          }
-        },
-      });
-
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await fetchArtifacts(workspaceId);
-        setStatus(task.message || "章节草稿生成完成");
-      } else {
-        setError(task.error || task.message || "章节草稿生成失败");
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "章节草稿生成失败，请稍后重试");
-    } finally {
-      setIsRunning(false);
-    }
+    if (!paperTitle.trim()) return;
+    const ids = parseArtifactIds();
+    await run({
+      paper_title: paperTitle.trim(),
+      section_type: sectionType,
+      target_words: targetWords,
+      context_artifact_ids: ids.length > 0 ? ids : undefined,
+    });
   };
 
   return (

@@ -5,8 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, Search, AlertTriangle } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 const TIME_RANGE_OPTIONS = [
@@ -21,14 +20,16 @@ export default function PriorArtSearchPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
 
   const [keywords, setKeywords] = useState("");
   const [ipcCodes, setIpcCodes] = useState("");
   const [timeRange, setTimeRange] = useState<string>("近5年");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "prior_art_search",
+  });
 
   useEffect(() => {
     if (workspace && !keywords) {
@@ -39,71 +40,20 @@ export default function PriorArtSearchPage() {
   }, [workspace, keywords]);
 
   const handleSearch = async () => {
-    if (isRunning) return;
-    if (!keywords.trim()) {
-      setError("请输入检索关键词");
-      return;
-    }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      const keywordList = keywords
-        .split(/[,，\s]+/)
-        .map((k) => k.trim())
-        .filter((k) => k);
-      const ipcList = ipcCodes
-        .split(/[,，\s]+/)
-        .map((c) => c.trim())
-        .filter((c) => c);
-
-      const resp = await executeWorkspaceFeature(
-        workspaceId,
-        "prior_art_search",
-        {
-          keywords: keywordList,
-          ipc_codes: ipcList,
-          time_range: timeRange,
-        }
-      );
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setError(resp.message || "暂时无法执行检索");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("任务已提交，正在分析现有技术...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (task) => {
-          if (task.message) {
-            setStatus(task.message);
-          }
-        },
-      });
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await fetchArtifacts(workspaceId);
-        setStatus(task.message || "现有技术检索分析完成");
-      } else {
-        setError(task.error || task.message || "检索分析失败");
-      }
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "检索分析失败，请稍后重试"
-      );
-    } finally {
-      setIsRunning(false);
-    }
+    if (!keywords.trim()) return;
+    const keywordList = keywords
+      .split(/[,，\s]+/)
+      .map((k) => k.trim())
+      .filter((k) => k);
+    const ipcList = ipcCodes
+      .split(/[,，\s]+/)
+      .map((c) => c.trim())
+      .filter((c) => c);
+    await run({
+      keywords: keywordList,
+      ipc_codes: ipcList,
+      time_range: timeRange,
+    });
   };
 
   return (

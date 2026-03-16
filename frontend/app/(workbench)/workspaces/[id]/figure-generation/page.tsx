@@ -4,83 +4,35 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, BarChart3, Image } from "lucide-react";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 export default function FigureGenerationPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
   const [figureType, setFigureType] = useState("flowchart");
   const [description, setDescription] = useState("");
   const [chapterIndex, setChapterIndex] = useState("");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "figure_generation",
+    onSuccess: () => setDescription(""),
+  });
 
   const handleGenerateFigure = async () => {
-    if (isRunning) return;
-    if (!description.trim()) {
-      setError("请先输入图表描述");
-      return;
+    if (!description.trim()) return;
+    const p: Record<string, unknown> = {
+      type: figureType,
+      description: description.trim(),
+    };
+    if (chapterIndex) {
+      p.chapter_index = Number(chapterIndex);
     }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      const params: Record<string, unknown> = {
-        type: figureType,
-        description: description.trim(),
-      };
-      if (chapterIndex) {
-        params.chapter_index = Number(chapterIndex);
-      }
-
-      const resp = await executeWorkspaceFeature(
-        workspaceId,
-        "figure_generation",
-        params
-      );
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setError(resp.message || "图表生成功能暂不可用");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("任务已提交，正在生成图表...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (task) => {
-          if (task.message) {
-            setStatus(task.message);
-          }
-        },
-      });
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await fetchArtifacts(workspaceId);
-        setStatus(task.message || "图表生成完成");
-        setDescription("");
-      } else {
-        setError(task.error || task.message || "图表生成失败");
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "图表生成失败，请稍后重试");
-    } finally {
-      setIsRunning(false);
-    }
+    await run(p);
   };
 
   return (

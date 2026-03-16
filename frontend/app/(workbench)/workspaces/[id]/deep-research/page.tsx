@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, FlaskConical } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { executeWorkspaceFeature } from "@/lib/api";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 export default function DeepResearchPage() {
@@ -15,9 +15,11 @@ export default function DeepResearchPage() {
   const { workspace } = useWorkspaceStore();
 
   const [topic, setTopic] = useState("");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "deep_research",
+    skipPolling: true,
+  });
 
   useEffect(() => {
     if (workspace && !topic) {
@@ -28,34 +30,8 @@ export default function DeepResearchPage() {
   }, [workspace, topic]);
 
   const handleRun = async () => {
-    if (isRunning) return;
-    if (!topic.trim()) {
-      setError("请输入研究主题");
-      return;
-    }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      // 通过统一 features API 触发 deep_research 任务
-      const resp = await executeWorkspaceFeature(workspaceId, "deep_research", {
-        query: topic.trim(),
-      });
-
-      if (resp.status === "warning") {
-        setStatus(resp.message || "暂时无法执行 Deep Research");
-      } else {
-        setStatus("任务已提交，稍后可在工作台知识区查看文献综述与研究创意。");
-      }
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "Deep Research 执行失败，请稍后重试"
-      );
-    } finally {
-      setIsRunning(false);
-    }
+    if (!topic.trim()) return;
+    await run({ query: topic.trim() });
   };
 
   return (

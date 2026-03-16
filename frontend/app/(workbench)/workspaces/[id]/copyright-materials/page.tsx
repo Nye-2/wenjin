@@ -5,15 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, ClipboardList, FolderCheck } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
 
 export default function CopyrightMaterialsPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
 
   const [softwareName, setSoftwareName] = useState("");
   const [version, setVersion] = useState("V1.0");
@@ -23,9 +22,10 @@ export default function CopyrightMaterialsPage() {
   const [targetPlatforms, setTargetPlatforms] = useState("");
   const [sourceModules, setSourceModules] = useState("");
 
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { run, isRunning, status, error } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "copyright_materials",
+  });
 
   useEffect(() => {
     if (!workspace) return;
@@ -38,64 +38,16 @@ export default function CopyrightMaterialsPage() {
   }, [workspace, softwareName, applicantName]);
 
   const handleGenerate = async () => {
-    if (isRunning) return;
-    if (!softwareName.trim()) {
-      setError("请输入软件名称");
-      return;
-    }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      const resp = await executeWorkspaceFeature(
-        workspaceId,
-        "copyright_materials",
-        {
-          software_name: softwareName.trim(),
-          version: version.trim() || "V1.0",
-          applicant_name: applicantName.trim() || undefined,
-          completion_date: completionDate.trim() || undefined,
-          highlights: highlights.trim() || undefined,
-          target_platforms: targetPlatforms.trim() || undefined,
-          source_modules: sourceModules.trim() || undefined,
-        }
-      );
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setError(resp.message || "暂时无法生成材料清单");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("任务已提交，正在生成软著材料清单...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (task) => {
-          if (task.message) {
-            setStatus(task.message);
-          }
-        },
-      });
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await fetchArtifacts(workspaceId);
-        setStatus(task.message || "材料清单生成完成");
-      } else {
-        setError(task.error || task.message || "生成材料清单失败");
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "生成材料清单失败，请稍后重试");
-    } finally {
-      setIsRunning(false);
-    }
+    if (!softwareName.trim()) return;
+    await run({
+      software_name: softwareName.trim(),
+      version: version.trim() || "V1.0",
+      applicant_name: applicantName.trim() || undefined,
+      completion_date: completionDate.trim() || undefined,
+      highlights: highlights.trim() || undefined,
+      target_platforms: targetPlatforms.trim() || undefined,
+      source_modules: sourceModules.trim() || undefined,
+    });
   };
 
   return (

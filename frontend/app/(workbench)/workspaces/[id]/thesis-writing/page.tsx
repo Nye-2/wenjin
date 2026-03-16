@@ -1,20 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, PenTool, FileText, CheckCircle } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useThesisWritingStore, type OutlineData } from "@/stores/thesis-writing";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { cn } from "@/lib/utils";
+import type { TaskStatus } from "@/lib/api";
 
 export default function ThesisWritingPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace, fetchArtifacts } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
   const {
     currentStep,
     outline,
@@ -28,9 +28,6 @@ export default function ThesisWritingPage() {
 
   const [titleInput, setTitleInput] = useState("");
   const [targetWords, setTargetWords] = useState("20000");
-  const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const parseOutline = (raw: unknown): OutlineData | null => {
     if (!raw || typeof raw !== "object") {
@@ -70,6 +67,99 @@ export default function ThesisWritingPage() {
     };
   };
 
+  const handleOutlineSuccess = useCallback(
+    (task: TaskStatus | null) => {
+      if (!task) return;
+      const outlineData = parseOutline(task.result?.outline);
+      if (outlineData) {
+        setOutline(outlineData);
+        setStep(2);
+      }
+    },
+    [setOutline, setStep]
+  );
+
+  const {
+    run: runOutline,
+    isRunning: isOutlineRunning,
+    status: outlineStatus,
+    error: outlineError,
+    clearStatus: clearOutlineStatus,
+    clearError: clearOutlineError,
+  } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "thesis_writing",
+    onSuccess: handleOutlineSuccess,
+  });
+
+  const handleChapterSuccess = useCallback(
+    (task: TaskStatus | null) => {
+      if (!task) return;
+      const chapter = chapters.find((ch) => ch.index === currentChapterIndex);
+      if (!chapter) return;
+
+      const resultObj =
+        task.result && typeof task.result === "object"
+          ? (task.result as Record<string, unknown>)
+          : null;
+      const chapterObj =
+        resultObj?.chapter && typeof resultObj.chapter === "object"
+          ? (resultObj.chapter as Record<string, unknown>)
+          : null;
+      const writtenWords = Number(chapterObj?.target_words || 0);
+
+      let chapterContent: string | undefined;
+      const storeArtifacts = useWorkspaceStore.getState().artifacts;
+      if (Array.isArray(storeArtifacts)) {
+        const chapterArtifact = storeArtifacts.find(
+          (a) =>
+            a.type === "thesis_chapter" &&
+            (a.content as Record<string, unknown>)?.chapter_index ===
+              chapter.index
+        );
+        if (chapterArtifact) {
+          chapterContent = String(
+            (chapterArtifact.content as Record<string, unknown>)?.markdown ||
+              ""
+          );
+        }
+      }
+
+      updateChapterStatus(
+        chapter.index,
+        "completed",
+        writtenWords > 0 ? writtenWords : chapter.targetWords,
+        chapterContent
+      );
+    },
+    [chapters, currentChapterIndex, updateChapterStatus]
+  );
+
+  const handleChapterError = useCallback(() => {
+    const chapter = chapters.find((ch) => ch.index === currentChapterIndex);
+    if (chapter) {
+      updateChapterStatus(chapter.index, "failed");
+    }
+  }, [chapters, currentChapterIndex, updateChapterStatus]);
+
+  const {
+    run: runChapter,
+    isRunning: isChapterRunning,
+    status: chapterStatus,
+    error: chapterError,
+    clearStatus: clearChapterStatus,
+    clearError: clearChapterError,
+  } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "thesis_writing",
+    onSuccess: handleChapterSuccess,
+    onError: handleChapterError,
+  });
+
+  const isRunning = isOutlineRunning || isChapterRunning;
+  const status = currentStep === 1 ? outlineStatus : chapterStatus;
+  const error = currentStep === 1 ? outlineError : chapterError;
+
   useEffect(() => {
     if (workspace && !titleInput) {
       setTitleInput(workspace.name || "");
@@ -92,171 +182,28 @@ export default function ThesisWritingPage() {
     outline?.chapters[currentChapterIndex] ?? null;
 
   const handleGenerateOutline = async () => {
-    if (isRunning) return;
-    if (!titleInput.trim()) {
-      setError("请输入论文主题");
-      return;
-    }
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
-
-    try {
-      const resp = await executeWorkspaceFeature(
-        workspaceId,
-        "thesis_writing",
-        {
-          action: "generate_outline",
-          paper_title: titleInput.trim(),
-          target_words: Number(targetWords),
-        }
-      );
-
-      if (resp.status === "warning") {
-        setStatus(resp.message || "暂时无法生成大纲");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setStatus("大纲生成任务已提交，正在处理中...");
-
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (task) => {
-          if (task.message) {
-            setStatus(task.message);
-          }
-        },
-      });
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        const outlineData = parseOutline(task.result?.outline);
-        if (outlineData) {
-          setOutline(outlineData);
-          setStep(2);
-          setStatus("大纲已生成并同步到章节导航。");
-        } else {
-          setStatus(task.message || "大纲任务已完成，请在成果区查看输出。");
-        }
-        await fetchArtifacts(workspaceId);
-      } else {
-        setError(task.error || task.message || "生成大纲失败，请稍后重试");
-      }
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "生成大纲失败，请稍后重试"
-      );
-    } finally {
-      setIsRunning(false);
-    }
+    if (!titleInput.trim()) return;
+    clearChapterStatus();
+    clearChapterError();
+    await runOutline({
+      action: "generate_outline",
+      paper_title: titleInput.trim(),
+      target_words: Number(targetWords),
+    });
   };
 
   const handleWriteChapter = async () => {
-    if (isRunning) return;
-    if (!selectedChapter) {
-      setError("请先生成大纲并选择章节");
-      return;
-    }
-
-    setError(null);
-    setStatus(null);
-    setIsRunning(true);
+    if (!selectedChapter) return;
+    clearOutlineStatus();
+    clearOutlineError();
     updateChapterStatus(selectedChapter.index, "generating");
-
-    try {
-      const resp = await executeWorkspaceFeature(
-        workspaceId,
-        "thesis_writing",
-        {
-          action: "write_chapter",
-          paper_title: titleInput.trim() || workspace?.name || "未命名论文",
-          chapter_index: selectedChapter.index,
-          chapter_title: selectedChapter.title,
-          target_words: selectedChapter.targetWords,
-        }
-      );
-
-      if (resp.status === "warning") {
-        setStatus(resp.message || "暂时无法生成章节");
-        updateChapterStatus(selectedChapter.index, "pending");
-        return;
-      }
-      if (!resp.task_id) {
-        setError("任务创建失败，请稍后重试");
-        updateChapterStatus(selectedChapter.index, "failed");
-        return;
-      }
-
-      setStatus(`第 ${selectedChapter.index + 1} 章任务已提交，正在处理中...`);
-
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (task) => {
-          if (task.message) {
-            setStatus(task.message);
-          }
-        },
-      });
-      if (!task) {
-        setError("任务轮询超时，请稍后在工作区查看结果");
-        updateChapterStatus(selectedChapter.index, "failed");
-        return;
-      }
-
-      if (task.status === "success") {
-        const resultObj =
-          task.result && typeof task.result === "object"
-            ? (task.result as Record<string, unknown>)
-            : null;
-        const chapterObj =
-          resultObj?.chapter && typeof resultObj.chapter === "object"
-            ? (resultObj.chapter as Record<string, unknown>)
-            : null;
-        const writtenWords = Number(chapterObj?.target_words || 0);
-
-        // Refresh artifacts then extract chapter markdown from store
-        await fetchArtifacts(workspaceId);
-        let chapterContent: string | undefined;
-        const storeArtifacts = useWorkspaceStore.getState().artifacts;
-        if (Array.isArray(storeArtifacts)) {
-          const chapterArtifact = storeArtifacts.find(
-            (a) =>
-              a.type === "thesis_chapter" &&
-              (a.content as Record<string, unknown>)?.chapter_index ===
-                selectedChapter.index
-          );
-          if (chapterArtifact) {
-            chapterContent = String(
-              (chapterArtifact.content as Record<string, unknown>)?.markdown ||
-                ""
-            );
-          }
-        }
-
-        updateChapterStatus(
-          selectedChapter.index,
-          "completed",
-          writtenWords > 0 ? writtenWords : selectedChapter.targetWords,
-          chapterContent
-        );
-        setStatus(`第 ${selectedChapter.index + 1} 章写作完成，已生成章节草稿。`);
-      } else {
-        updateChapterStatus(selectedChapter.index, "failed");
-        setError(task.error || task.message || "章节写作失败，请稍后重试");
-      }
-    } catch (e: unknown) {
-      updateChapterStatus(selectedChapter.index, "failed");
-      setError(
-        e instanceof Error ? e.message : "章节写作失败，请稍后重试"
-      );
-    } finally {
-      setIsRunning(false);
-    }
+    await runChapter({
+      action: "write_chapter",
+      paper_title: titleInput.trim() || workspace?.name || "未命名论文",
+      chapter_index: selectedChapter.index,
+      chapter_title: selectedChapter.title,
+      target_words: selectedChapter.targetWords,
+    });
   };
 
   return (
