@@ -127,13 +127,40 @@ async def create_paper(
 async def upload_paper(
     file: UploadFile = File(...),
     workspace_id: str | None = None,
+    paper_service=Depends(get_paper_service),
 ):
-    """Upload a new paper (PDF)."""
-    # TODO: Implement PDF processing and extraction
+    """Upload a new paper (PDF).
+
+    Validates the file is a PDF, saves metadata as a paper record,
+    and returns structured response with paper_id.
+    """
+    # Validate content type
+    if file.content_type not in ("application/pdf", "application/x-pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+
+    # Read and validate non-empty
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    size_bytes = len(content)
+    filename = file.filename or "untitled.pdf"
+
+    # Create paper record with minimal metadata extracted from filename
+    title = filename.rsplit(".", 1)[0] if "." in filename else filename
+    paper = await paper_service.create(
+        title=title,
+        authors=[],
+        source="upload",
+    )
+
     return {
         "success": True,
-        "filename": file.filename,
+        "paper_id": paper.id,
+        "filename": filename,
         "content_type": file.content_type,
+        "size_bytes": size_bytes,
+        "workspace_id": workspace_id,
     }
 
 
