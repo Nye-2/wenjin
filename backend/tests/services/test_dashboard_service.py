@@ -217,3 +217,59 @@ async def test_compile_export_status_success_compile_marked_completed():
     assert result["status"] == "completed"
     assert result["summary"]["compile_status"] == "success"
     assert result["summary"]["last_compile_success"] is True
+
+
+@pytest.mark.asyncio
+async def test_status_from_count_and_running_returns_failed_when_latest_task_failed():
+    """When no artifacts exist and the latest task is failed, status must be 'failed'."""
+    db = AsyncMock()
+    service = DashboardService(db)
+
+    result = await service._status_from_count_and_running(
+        count=0,
+        running_count=0,
+        latest_task_status="failed",
+    )
+    assert result == "failed"
+
+
+@pytest.mark.asyncio
+async def test_status_from_count_and_running_prefers_in_progress_over_failed():
+    """Running tasks take priority over a previous failure."""
+    db = AsyncMock()
+    service = DashboardService(db)
+
+    result = await service._status_from_count_and_running(
+        count=0,
+        running_count=1,
+        latest_task_status="failed",
+    )
+    assert result == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_status_from_count_and_running_completed_overrides_failed():
+    """Existing artifacts mean completed even if latest task failed."""
+    db = AsyncMock()
+    service = DashboardService(db)
+
+    result = await service._status_from_count_and_running(
+        count=3,
+        running_count=0,
+        latest_task_status="failed",
+    )
+    assert result == "completed"
+
+
+@pytest.mark.asyncio
+async def test_sci_literature_search_shows_failed_when_latest_task_failed():
+    """Sci literature_search module should surface failed status from task history."""
+    db = AsyncMock()
+    service = DashboardService(db)
+    service._count_artifacts = AsyncMock(return_value=0)
+    service._count_running_workspace_feature_tasks = AsyncMock(return_value=0)
+    service._get_latest_workspace_feature_task_status = AsyncMock(return_value="failed")
+
+    result = await service._get_sci_literature_search_status("ws-1")
+
+    assert result["status"] == "failed"

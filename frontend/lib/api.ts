@@ -432,7 +432,7 @@ export async function getTaskStatus(taskId: string): Promise<TaskStatus> {
 
 export interface ModuleStatus {
   id: string;
-  status: 'not_started' | 'in_progress' | 'completed';
+  status: 'not_started' | 'in_progress' | 'completed' | 'failed';
   summary: Record<string, unknown>;
 }
 

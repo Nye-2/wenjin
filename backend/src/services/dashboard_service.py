@@ -152,11 +152,14 @@ class DashboardService:
         *,
         count: int,
         running_count: int,
+        latest_task_status: str | None = None,
     ) -> str:
         if running_count > 0:
             return "in_progress"
         if count > 0:
             return "completed"
+        if latest_task_status == "failed":
+            return "failed"
         return "not_started"
 
     async def _get_deep_research_status(self, workspace_id: str) -> dict[str, Any]:
@@ -373,6 +376,7 @@ class DashboardService:
         status = await self._status_from_count_and_running(
             count=results_count,
             running_count=running_count,
+            latest_task_status=latest_task_status,
         )
 
         return {
@@ -393,10 +397,15 @@ class DashboardService:
             workspace_id,
             "paper_analysis",
         )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "paper_analysis",
+        )
 
         status = await self._status_from_count_and_running(
             count=analysis_count,
             running_count=running_count,
+            latest_task_status=latest_task_status,
         )
 
         return {
@@ -417,9 +426,14 @@ class DashboardService:
             workspace_id,
             "writing",
         )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "writing",
+        )
         status = await self._status_from_count_and_running(
             count=draft_count,
             running_count=running_count,
+            latest_task_status=latest_task_status,
         )
 
         return {
@@ -439,9 +453,14 @@ class DashboardService:
             workspace_id,
             "proposal_outline",
         )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "proposal_outline",
+        )
         status = await self._status_from_count_and_running(
             count=outline_count,
             running_count=running_count,
+            latest_task_status=latest_task_status,
         )
 
         return {
@@ -462,9 +481,14 @@ class DashboardService:
             workspace_id,
             "background_research",
         )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "background_research",
+        )
         status = await self._status_from_count_and_running(
             count=report_count,
             running_count=running_count,
+            latest_task_status=latest_task_status,
         )
 
         return {
@@ -487,9 +511,14 @@ class DashboardService:
             workspace_id,
             "copyright_materials",
         )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "copyright_materials",
+        )
         status = await self._status_from_count_and_running(
             count=materials_count,
             running_count=running_count,
+            latest_task_status=latest_task_status,
         )
 
         return {
@@ -513,9 +542,14 @@ class DashboardService:
             workspace_id,
             "technical_description",
         )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "technical_description",
+        )
         status = await self._status_from_count_and_running(
             count=description_count,
             running_count=running_count,
+            latest_task_status=latest_task_status,
         )
 
         return {
@@ -536,9 +570,14 @@ class DashboardService:
             workspace_id,
             "patent_outline",
         )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "patent_outline",
+        )
         status = await self._status_from_count_and_running(
             count=outline_count,
             running_count=running_count,
+            latest_task_status=latest_task_status,
         )
 
         return {
@@ -559,9 +598,14 @@ class DashboardService:
             workspace_id,
             "prior_art_search",
         )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "prior_art_search",
+        )
         status = await self._status_from_count_and_running(
             count=report_count,
             running_count=running_count,
+            latest_task_status=latest_task_status,
         )
 
         return {

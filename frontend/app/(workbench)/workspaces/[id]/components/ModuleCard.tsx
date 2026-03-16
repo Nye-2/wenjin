@@ -9,6 +9,7 @@ import {
   BarChart3,
   FileText,
   ListChecks,
+  AlertCircle,
   type LucideIcon,
 } from "lucide-react";
 import type { ModuleStatus } from "@/stores/dashboard";
@@ -65,11 +66,13 @@ export function ModuleCard({
   const actionLabel =
     feature.panel === null
       ? "管理 →"
-      : status === "completed"
-        ? "查看结果 →"
-        : status === "in_progress"
-          ? "继续 →"
-          : "开始 →";
+      : status === "failed"
+        ? "重试 →"
+        : status === "completed"
+          ? "查看结果 →"
+          : status === "in_progress"
+            ? "继续 →"
+            : "开始 →";
 
   const handleClick = () => {
     if (hasRoute) {
@@ -90,6 +93,12 @@ export function ModuleCard({
         <h3 className="font-semibold text-[var(--text-primary)]">
           {feature.name}
         </h3>
+        {status === "failed" && (
+          <span className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
+            <AlertCircle className="w-3.5 h-3.5" />
+            失败
+          </span>
+        )}
       </div>
       <p className="text-sm text-[var(--text-secondary)] mb-3 line-clamp-2">
         {feature.description}
