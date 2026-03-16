@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, BookOpen, Plus, Search, Filter } from "lucide-react";
+import { ArrowLeft, BookOpen, Plus, Search, Filter, Download } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useLiteratureStore } from "@/stores/literature";
 import { executeWorkspaceFeature } from "@/lib/api";
@@ -15,9 +15,11 @@ export default function LiteraturePage() {
   const router = useRouter();
   const workspaceId = params.id as string;
   const { workspace, fetchArtifacts } = useWorkspaceStore();
-  const { items, total, coreCount, isLoading, fetchLiterature } = useLiteratureStore();
+  const { items, total, coreCount, isLoading, fetchLiterature, importFromDeepResearch } =
+    useLiteratureStore();
   const [searchQuery, setSearchQuery] = useState("");
   const [isOrganizing, setIsOrganizing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -74,6 +76,41 @@ export default function LiteraturePage() {
     }
   };
 
+  const handleImportDeepResearch = async () => {
+    if (isImporting) return;
+    setActionError(null);
+    setActionStatus(null);
+    setIsImporting(true);
+
+    try {
+      // Refresh artifacts to get latest Deep Research results
+      await fetchArtifacts(workspaceId);
+      const storeArtifacts = useWorkspaceStore.getState().artifacts;
+      const deepResearchIds = storeArtifacts
+        .filter((a) => a.type === "deep_research" || a.type === "deep_research_result")
+        .map((a) => a.id);
+
+      if (deepResearchIds.length === 0) {
+        setActionStatus("未找到 Deep Research 产物，请先执行 Deep Research 任务");
+        return;
+      }
+
+      const count = await importFromDeepResearch(workspaceId, deepResearchIds);
+      if (count > 0) {
+        setActionStatus(`成功导入 ${count} 篇文献`);
+        await fetchLiterature(workspaceId);
+      } else {
+        setActionStatus("未导入新文献（可能已全部导入过）");
+      }
+    } catch (e: unknown) {
+      setActionError(
+        e instanceof Error ? e.message : "从 Deep Research 导入失败"
+      );
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">
       {/* Header */}
@@ -113,6 +150,18 @@ export default function LiteraturePage() {
           <button className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-muted)] transition-colors">
             <Plus className="w-4 h-4" />
             添加文献
+          </button>
+          <button
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg transition-colors",
+              "bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)]",
+              isImporting ? "opacity-60 cursor-not-allowed" : "hover:bg-[var(--bg-muted)]"
+            )}
+            onClick={handleImportDeepResearch}
+            disabled={isImporting}
+          >
+            <Download className="w-4 h-4" />
+            {isImporting ? "导入中..." : "从 Deep Research 导入"}
           </button>
           <button
             className={cn(
