@@ -6,17 +6,11 @@ from pydantic import BaseModel, Field
 
 from src.database import User
 from src.gateway.routers.auth import get_current_user
+from src.services.feature_credit_policy import BILLABLE_TASK_TYPES
 from src.task.service import TaskService
 from src.task.store import TaskStore
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-
-BILLABLE_TASK_TYPES = {
-    "workspace_feature",
-    "deep_research",
-    "thesis_generation",
-    "literature_search",
-}
 
 
 # === Request/Response Models ===

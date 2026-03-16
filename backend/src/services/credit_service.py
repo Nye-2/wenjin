@@ -1,61 +1,19 @@
 """Credit service for balance management and credit ledger operations."""
 
-from collections.abc import Mapping
 from typing import Any
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import CreditTransaction, CreditTransactionType, User
+from src.services.feature_credit_policy import (
+    FEATURE_COSTS as WORKFLOW_CREDIT_COSTS,
+    FEATURE_DISPLAY_NAMES,
+    THESIS_ACTION_LABELS,
+    get_feature_cost,
+)
 
 REGISTRATION_BONUS = 100
-
-WORKFLOW_CREDIT_COSTS: dict[str, int | dict[str, int]] = {
-    "deep_research": 100,
-    "literature_management": 20,
-    "opening_research": 15,
-    "thesis_writing": {
-        "generate_outline": 20,
-        "write_chapter": 60,
-        "write_all": 200,
-        "default": 200,
-    },
-    "figure_generation": 30,
-    "compile_export": 10,
-    "literature_search": 20,
-    "paper_analysis": 25,
-    "writing": 60,
-    "proposal_outline": 30,
-    "background_research": 20,
-    "copyright_materials": 15,
-    "technical_description": 30,
-    "patent_outline": 40,
-    "prior_art_search": 30,
-}
-
-FEATURE_DISPLAY_NAMES: dict[str, str] = {
-    "deep_research": "深度调研",
-    "literature_management": "文献管理",
-    "opening_research": "开题调研",
-    "thesis_writing": "论文写作",
-    "figure_generation": "图表生成",
-    "compile_export": "编译导出",
-    "literature_search": "文献检索",
-    "paper_analysis": "论文分析",
-    "writing": "论文写作",
-    "proposal_outline": "申报书大纲",
-    "background_research": "背景调研",
-    "copyright_materials": "材料准备",
-    "technical_description": "技术说明",
-    "patent_outline": "专利框架",
-    "prior_art_search": "现有技术检索",
-}
-
-THESIS_ACTION_LABELS: dict[str, str] = {
-    "generate_outline": "大纲生成",
-    "write_chapter": "章节写作",
-    "write_all": "完整写作",
-}
 
 
 class InsufficientCreditsError(Exception):
@@ -76,12 +34,7 @@ class CreditService:
     @staticmethod
     def get_feature_cost(feature_id: str, action: str | None = None) -> int:
         """Resolve credit cost for a feature and optional action."""
-        config = WORKFLOW_CREDIT_COSTS.get(feature_id, 0)
-        if isinstance(config, Mapping):
-            if action and action in config:
-                return int(config[action])
-            return int(config.get("default", 0))
-        return int(config)
+        return get_feature_cost(feature_id, action)
 
     @staticmethod
     def get_workflow_costs() -> dict[str, int | dict[str, int]]:
