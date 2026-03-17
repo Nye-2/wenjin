@@ -43,13 +43,18 @@ class ArtifactService:
     ) -> Artifact:
         """Create a new artifact.
 
+        Version-aware: if an artifact with the same workspace_id + type + title
+        already exists, auto-increments the version and links to the previous
+        version via parent_artifact_id.
+
         Args:
             workspace_id: Workspace UUID string
             type: Artifact type (research_idea, methodology, etc.)
             content: Artifact content as a dictionary
             title: Optional title for the artifact
             created_by_skill: Name of the skill that created this artifact
-            parent_artifact_id: Optional parent artifact ID for derived artifacts
+            parent_artifact_id: Optional parent artifact ID for derived artifacts.
+                If provided explicitly, it takes precedence over auto-linking.
 
         Returns:
             Created artifact object
@@ -67,20 +72,88 @@ class ArtifactService:
                     f"Invalid artifact type: {type}. Must be one of: {valid_types}"
                 ) from None
 
+        # Version-aware: check for existing artifact with same workspace+type+title
+        version = 1
+        auto_parent_id = None
+        if title:  # Only version-track named artifacts
+            existing = await self._find_latest_version(workspace_id, type, title)
+            if existing:
+                version = existing.version + 1
+                auto_parent_id = str(existing.id)
+
         artifact = Artifact(
             workspace_id=workspace_id,
             type=type,
             title=title,
             content=content,
             created_by_skill=created_by_skill,
-            parent_artifact_id=parent_artifact_id,
+            parent_artifact_id=parent_artifact_id or auto_parent_id,
             status="draft",
-            version=1,
+            version=version,
         )
         self.db.add(artifact)
         await self.db.commit()
         await self.db.refresh(artifact)
         return artifact
+
+    async def _find_latest_version(
+        self,
+        workspace_id: str,
+        type: str,
+        title: str,
+    ) -> Artifact | None:
+        """Find the latest version of an artifact with the same workspace+type+title.
+
+        Args:
+            workspace_id: Workspace UUID string
+            type: Artifact type
+            title: Artifact title
+
+        Returns:
+            The latest version of the matching artifact, or None if not found
+        """
+        result = await self.db.execute(
+            select(Artifact)
+            .where(
+                and_(
+                    Artifact.workspace_id == workspace_id,
+                    Artifact.type == type,
+                    Artifact.title == title,
+                )
+            )
+            .order_by(Artifact.version.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_versions(
+        self,
+        workspace_id: str,
+        type: str,
+        title: str,
+    ) -> list[Artifact]:
+        """List all versions of an artifact, newest first.
+
+        Args:
+            workspace_id: Workspace UUID string
+            type: Artifact type
+            title: Artifact title
+
+        Returns:
+            List of artifact versions ordered by version descending (newest first)
+        """
+        result = await self.db.execute(
+            select(Artifact)
+            .where(
+                and_(
+                    Artifact.workspace_id == workspace_id,
+                    Artifact.type == type,
+                    Artifact.title == title,
+                )
+            )
+            .order_by(Artifact.version.desc())
+        )
+        return list(result.scalars().all())
 
     async def get(self, artifact_id: str) -> Artifact | None:
         """Get artifact by ID.
