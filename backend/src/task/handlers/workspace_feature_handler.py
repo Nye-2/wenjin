@@ -358,4 +358,133 @@ async def execute_workspace_feature(
             f"Unknown workspace feature '{feature_id}' for workspace type '{workspace_type}'"
         )
 
-    return await execute_registered_feature(payload, progress, feature)
+    # Try LangGraph sub-graph for thesis workspace features
+    if workspace_type == "thesis":
+        langgraph_result = await _try_langgraph_execution(
+            feature_id, payload, progress
+        )
+        if langgraph_result is not None:
+            # Trigger async memory extraction (fire-and-forget)
+            _schedule_memory_extraction(payload, langgraph_result)
+            return langgraph_result
+
+    result = await execute_registered_feature(payload, progress, feature)
+
+    # Trigger async memory extraction for successful handler results too
+    if workspace_type == "thesis":
+        _schedule_memory_extraction(payload, result)
+
+    return result
+
+
+_GRAPHS_LOADED = False
+
+
+def _ensure_graphs_loaded() -> None:
+    """Import feature graph modules so @register_feature_graph decorators run."""
+    global _GRAPHS_LOADED
+    if _GRAPHS_LOADED:
+        return
+    try:
+        import src.agents.graphs.thesis.literature_management  # noqa: F401
+        import src.agents.graphs.thesis.opening_research  # noqa: F401
+        import src.agents.graphs.thesis.figure_generation  # noqa: F401
+        import src.agents.graphs.thesis.compile_export  # noqa: F401
+        import src.agents.graphs.thesis.thesis_writing  # noqa: F401
+        import src.agents.graphs.thesis.deep_research  # noqa: F401
+    except ImportError:
+        logger.debug("Some thesis feature graphs could not be loaded")
+    _GRAPHS_LOADED = True
+
+
+async def _try_langgraph_execution(
+    feature_id: str,
+    payload: dict[str, Any],
+    progress: ProgressTracker,
+) -> dict[str, Any] | None:
+    """Attempt LangGraph sub-graph execution. Returns None on failure (fallback to handler)."""
+    _ensure_graphs_loaded()
+
+    try:
+        from src.agents.thesis_lead_agent import (
+            _FEATURE_GRAPH_REGISTRY,
+            execute_thesis_feature_graph,
+        )
+    except ImportError:
+        logger.debug("LangGraph thesis agent not available")
+        return None
+
+    if feature_id not in _FEATURE_GRAPH_REGISTRY:
+        return None
+
+    user_id = payload.get("user_id") or payload.get("created_by")
+
+    try:
+        await progress.update(5, "启动 LangGraph 增强处理")
+        result = await execute_thesis_feature_graph(
+            feature_id,
+            payload,
+            user_id=str(user_id) if user_id else None,
+        )
+
+        # Wrap result in standard feature response format
+        wrapped = {
+            "feature_id": feature_id,
+            "feature_name": payload.get("feature_name", feature_id),
+            "workspace_type": "thesis",
+            "handler_key": payload.get("handler_key", f"thesis.{feature_id}"),
+            "generation_mode": result.get("generation_mode", "llm"),
+            "message": f"{feature_id} 已通过 LangGraph 增强完成",
+            "data": result,
+            "refresh_targets": ["artifacts"],
+        }
+        await progress.update(100, "LangGraph 增强处理完成")
+        return wrapped
+    except Exception:
+        logger.warning(
+            "LangGraph execution failed for feature '%s', falling back to handler",
+            feature_id,
+            exc_info=True,
+        )
+        return None
+
+
+def _schedule_memory_extraction(payload: dict[str, Any], result: dict[str, Any]) -> None:
+    """Schedule async memory extraction (fire-and-forget)."""
+    import asyncio
+
+    user_id = payload.get("user_id") or payload.get("created_by")
+    if not user_id:
+        return
+
+    workspace_id = payload.get("workspace_id")
+    feature_id = payload.get("feature_id", "")
+
+    # Build a brief conversation summary from the interaction
+    summary_parts = [
+        f"Feature: {feature_id}",
+        f"Result mode: {result.get('generation_mode', 'unknown')}",
+    ]
+    message = result.get("message", "")
+    if message:
+        summary_parts.append(f"Output: {message}")
+
+    conversation_text = "; ".join(summary_parts)
+
+    async def _extract():
+        try:
+            from src.agents.middleware.memory import extract_and_persist_knowledge
+            await extract_and_persist_knowledge(
+                str(user_id),
+                conversation_text,
+                workspace_context=str(workspace_id) if workspace_id else None,
+                source=f"feature:{feature_id}",
+            )
+        except Exception:
+            logger.debug("Memory extraction failed for feature %s", feature_id)
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_extract())
+    except RuntimeError:
+        pass  # No running loop, skip
