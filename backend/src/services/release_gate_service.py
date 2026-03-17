@@ -173,6 +173,61 @@ class ReleaseGateService:
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
+                check_id="extraction_tier2",
+                command=(
+                    "uv",
+                    "run",
+                    "pytest",
+                    "tests/academic/services/test_extraction_tier2.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="fuzzy_section_matching",
+                command=(
+                    "uv",
+                    "run",
+                    "pytest",
+                    "tests/academic/literature/test_fuzzy_matching.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="workspace_search",
+                command=(
+                    "uv",
+                    "run",
+                    "pytest",
+                    "tests/academic/literature/test_search_workspace.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="enriched_toc",
+                command=(
+                    "uv",
+                    "run",
+                    "pytest",
+                    "tests/academic/literature/test_enriched_toc.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="section_redis_cache",
+                command=(
+                    "uv",
+                    "run",
+                    "pytest",
+                    "tests/academic/literature/test_redis_cache.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
                 check_id="frontend_typescript_check",
                 command=("npx", "tsc", "--noEmit"),
                 cwd=self.project_root / "frontend",
