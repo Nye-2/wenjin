@@ -94,6 +94,87 @@ def _ensure_graphs_loaded(workspace_type: str) -> None:
 
 A bug in `sci/writing.py` will not prevent `thesis` graphs from loading.
 
+### 2.4 Special Task Type Routing: `thesis_generation` and `deep_research`
+
+The codebase has **three** dispatch paths in `task/tasks/base.py`:
+
+1. `task_type="workspace_feature"` → `execute_workspace_feature()` — **primary migration target**
+2. `task_type="thesis_generation"` → `execute_thesis_generation()` — **special thesis routing**
+3. `task_type="deep_research"` → LangGraph first, then skill handler fallback — **special thesis routing**
+
+#### `thesis_generation` Path
+
+`execute_thesis_generation()` handles multiple actions:
+- `generate_outline` — calls `thesis_writing_service.build_outline_payload()`
+- `write_chapter` — calls `thesis_writing_service.build_chapter_payload()`
+- `write_all` — calls `run_thesis_workflow_request()` (full thesis workflow runner)
+- `review_section` / `revise_section` / `review_and_revise` — routes to `thesis_writing` LangGraph sub-graph
+
+**Decision**: `execute_thesis_generation()` is **retained and refactored**:
+- The `_THESIS_WRITING_LANGGRAPH_ACTIONS` routing (review/revise) continues to use `workspace_lead_agent.execute_feature_graph("thesis", "thesis_writing", ...)`
+- The `generate_outline`, `write_chapter`, `write_all` actions remain in `execute_thesis_generation()` as they use the thesis workflow runner, which is a distinct subsystem (not a handler)
+- Remove only the Handler fallback from `execute_workspace_feature()`, not from `execute_thesis_generation()`
+
+#### `deep_research` Path
+
+`deep_research` in `base.py` currently: LangGraph first → skill handler fallback.
+
+**Decision**: Remove the skill handler fallback. After migration:
+- `deep_research` dispatches directly to `workspace_lead_agent.execute_feature_graph("thesis", "deep_research", ...)`
+- On failure, raise the exception (no silent fallback to skill handler)
+- Update `base.py` to use the unified lead agent instead of importing `_try_langgraph_execution` directly
+
+#### Existing Thesis Graphs: Import Path
+
+The 6 existing thesis graphs currently import `register_feature_graph` from `thesis_lead_agent.py`. After migration:
+- `thesis_lead_agent.py` will re-export `register_feature_graph` from `workspace_lead_agent.py`
+- No changes to existing thesis graph files needed (backward compatible)
+
+### 2.5 Service Layer Disposition
+
+The 6 service files in `workspace_features/services/` contain valuable business logic (LLM calls, JSON parsing, template fallback, payload construction):
+
+| Service File | Lines | Decision |
+|-------------|-------|----------|
+| `thesis_feature_service.py` | 1061 | **Keep** — called by thesis graphs and `execute_thesis_generation()` |
+| `thesis_writing_service.py` | 165 | **Keep** — called by `execute_thesis_generation()` |
+| `sci_feature_service.py` | 798 | **Keep** — new SCI graphs will call these functions |
+| `proposal_feature_service.py` | 720 | **Keep** — new Proposal graphs will call these functions |
+| `patent_feature_service.py` | 599 | **Keep** — new Patent graphs will call these functions |
+| `software_copyright_feature_service.py` | 427 | **Keep** — new SW Copyright graphs will call these functions |
+
+**Rationale**: LangGraph graphs orchestrate multi-phase pipelines. Within each phase, they call existing service functions for LLM interactions, template fallback, and payload construction. This avoids rewriting ~3500 lines of battle-tested service logic.
+
+**Graph-Service relationship**:
+```
+LangGraph Graph (new)
+  +-- Phase 1: param normalization (graph code)
+  +-- Phase 2: service.build_xxx_payload()  <-- reuse existing service
+  +-- Phase 3: cross-validation (graph code, new LLM call)
+  +-- Phase 4: assembly (graph code)
+```
+
+The service layer provides the "single LLM call + template fallback" building block. The graph layer adds multi-phase orchestration, parallel execution, cross-validation, and memory injection on top.
+
+### 2.6 Error Handling / Degradation Strategy
+
+Since handlers with template_fallback are being removed from the dispatch path, each LangGraph graph must handle failures internally:
+
+**Per-phase error handling**:
+- Each phase wraps its LLM call in try/except
+- On LLM failure, the phase falls back to the service layer's built-in `template_fallback` mode
+- The service functions already implement this: they return `generation_mode: "template_fallback"` on failure
+
+**Graph-level generation mode**:
+```python
+# At graph completion, detect overall generation mode
+step_results = {"phase2_llm": True, "phase3_validation": False}
+generation_mode = detect_generation_mode(step_results)
+# "llm", "partial_llm", or "template_fallback"
+```
+
+**No silent swallowing**: Errors are logged with context and recorded in `data.generation_error`.
+
 ## 3. LangGraph Sub-Graph Designs
 
 ### 3.1 SCI Workspace (3 graphs)
@@ -161,7 +242,7 @@ A bug in `sci/writing.py` will not prevent `thesis` graphs from loading.
 
 - **Output language**: Chinese
 - **External queries**: None (pure LLM)
-- **Artifact type**: `PROPOSAL_OUTLINE`
+- **Artifact type**: `PROPOSAL` (existing enum value)
 - **5 sections**: 立项依据, 研究目标与内容, 研究方案与技术路线, 计划进度, 经费预算
 
 #### `proposal/background_research.py` — Background Research
@@ -244,7 +325,7 @@ A bug in `sci/writing.py` will not prevent `thesis` graphs from loading.
 
 - **Output language**: Chinese
 - **External queries**: None
-- **Artifact type**: `PRIOR_ART_ANALYSIS`
+- **Artifact type**: `PRIOR_ART_REPORT` (existing enum value)
 
 ## 4. Shared Utilities
 
@@ -278,17 +359,23 @@ def truncate_text(text: str, max_len: int = 280) -> str
 
 ## 5. Artifact Mapping
 
-### 5.1 New Artifact Types Needed
+### 5.1 Artifact Types Status
 
-Check `ArtifactType` enum and add if missing:
-- `LITERATURE_SEARCH_RESULTS`
-- `PAPER_ANALYSIS`
-- `PROPOSAL_OUTLINE`
-- `BACKGROUND_RESEARCH`
-- `COPYRIGHT_MATERIALS`
-- `TECHNICAL_DESCRIPTION`
-- `PATENT_OUTLINE`
-- `PRIOR_ART_ANALYSIS`
+All required artifact types already exist in `ArtifactType` enum (`backend/src/artifacts/types.py`):
+
+| Artifact Type | Enum Value | Status |
+|--------------|------------|--------|
+| `LITERATURE_SEARCH_RESULTS` | `literature_search_results` | Already exists |
+| `PAPER_ANALYSIS` | `paper_analysis` | Already exists |
+| `PAPER_DRAFT` | `paper_draft` | Already exists |
+| `PROPOSAL` | `proposal` | Already exists (use for proposal_outline) |
+| `BACKGROUND_RESEARCH` | `background_research` | Already exists |
+| `COPYRIGHT_MATERIALS` | `copyright_materials` | Already exists |
+| `TECHNICAL_DESCRIPTION` | `technical_description` | Already exists |
+| `PATENT_OUTLINE` | `patent_outline` | Already exists |
+| `PRIOR_ART_REPORT` | `prior_art_report` | Already exists |
+
+No new enum values needed.
 
 ### 5.2 Artifact Mapping Table
 
@@ -297,12 +384,12 @@ Check `ArtifactType` enum and add if missing:
 | SCI | `literature_search` | `LITERATURE_SEARCH_RESULTS` | `{name} - Literature Search` |
 | SCI | `paper_analysis` | `PAPER_ANALYSIS` | `{name} - Paper Analysis` |
 | SCI | `writing` | `PAPER_DRAFT` | `{name} - {section_type}` |
-| Proposal | `proposal_outline` | `PROPOSAL_OUTLINE` | `{name} - 申报书大纲` |
+| Proposal | `proposal_outline` | `PROPOSAL` | `{name} - 申报书大纲` |
 | Proposal | `background_research` | `BACKGROUND_RESEARCH` | `{name} - 背景调研报告` |
 | SW Copyright | `copyright_materials` | `COPYRIGHT_MATERIALS` | `{name} - 著作权材料清单` |
 | SW Copyright | `technical_description` | `TECHNICAL_DESCRIPTION` | `{name} - 技术说明书` |
 | Patent | `patent_outline` | `PATENT_OUTLINE` | `{name} - 专利说明书框架` |
-| Patent | `prior_art_search` | `PRIOR_ART_ANALYSIS` | `{name} - 现有技术分析` |
+| Patent | `prior_art_search` | `PRIOR_ART_REPORT` | `{name} - 现有技术分析` |
 
 ### 5.3 `_build_langgraph_artifact_drafts()` Extension
 
@@ -331,22 +418,32 @@ backend/src/agents/graphs/patent/patent_outline.py
 backend/src/agents/graphs/patent/prior_art_search.py
 ```
 
-### 6.2 Modified Files (3-4)
+### 6.2 Modified Files (5)
 
 ```
 backend/src/task/handlers/workspace_feature_handler.py
-  - Remove fallback logic
-  - Use workspace_lead_agent.execute_feature_graph() for all workspaces
-  - Extend _build_langgraph_artifact_drafts() for all types
+  - Remove fallback logic in execute_workspace_feature()
+  - All workspace_feature task_type goes through workspace_lead_agent
+  - Extend _build_langgraph_artifact_drafts() for all workspace types
   - Remove _ensure_graphs_loaded() (moved to workspace_lead_agent)
+  - Keep execute_thesis_generation() (refactor to use workspace_lead_agent for review/revise actions)
+
+backend/src/task/tasks/base.py
+  - Update deep_research dispatch to use workspace_lead_agent directly
+  - Remove skill handler fallback for deep_research
+  - Update imports
 
 backend/src/workspace_features/runtime.py
-  - Remove handler dispatch logic (keep utility functions)
-
-backend/src/artifacts/types.py (if ArtifactType enum needs new values)
+  - Remove register_feature_handler() and handler dispatch logic
+  - Remove WorkspaceFeatureExecutionContext (no longer needed)
+  - Keep utility functions if any are used by service layer
 
 backend/src/agents/thesis_lead_agent.py
-  - Redirect to workspace_lead_agent or delete
+  - Re-export register_feature_graph and execute_thesis_feature_graph from workspace_lead_agent
+  - Maintains backward compat for existing thesis graph imports
+
+backend/src/workspace_features/__init__.py
+  - Remove exports of handler-related functions (execute_registered_feature, etc.)
 ```
 
 ### 6.3 Deleted Files (5)
@@ -359,9 +456,10 @@ backend/src/workspace_features/handlers/patent.py
 backend/src/workspace_features/handlers/software_copyright.py
 ```
 
-### 6.4 New Test Files (9)
+### 6.4 New Test Files (10)
 
 ```
+backend/tests/agents/test_workspace_lead_agent.py
 backend/tests/agents/graphs/sci/test_literature_search.py
 backend/tests/agents/graphs/sci/test_paper_analysis.py
 backend/tests/agents/graphs/sci/test_writing.py
@@ -379,6 +477,11 @@ backend/tests/agents/graphs/patent/test_prior_art_search.py
 backend/tests/task/test_workspace_feature_handler.py
   - Remove fallback tests
   - Add pure LangGraph path tests for all workspaces
+  - Update execute_thesis_generation tests (keep action routing tests)
+
+backend/tests/task/test_langgraph_dispatch.py
+  - Update to use workspace_lead_agent
+  - Add dispatch tests for all workspace types
 
 backend/tests/workspace_features/test_five_workspace_smoke.py
   - Verify all 5 workspaces go through LangGraph
@@ -387,7 +490,33 @@ backend/tests/workspace_features/test_workspace_e2e_matrix.py
   - Update E2E matrix
 
 backend/tests/task/test_thesis_handlers.py
-  - Delete or refactor (handlers no longer exist)
+  - Delete (handlers no longer exist)
+
+backend/tests/task/test_workspace_feature_runtime.py
+  - Update: remove handler-related tests
+
+backend/tests/task/test_workspace_feature_registry.py
+  - Verify: should pass without changes (registry unchanged)
+```
+
+### 6.6 Playbook-Required Test Matrix
+
+Per `workspace-ai-modification-playbook.md` Section 5, ALL of these must pass:
+
+```bash
+pytest -q tests/agents/graphs/thesis
+pytest -q tests/agents/graphs/sci
+pytest -q tests/agents/graphs/proposal
+pytest -q tests/agents/graphs/software_copyright
+pytest -q tests/agents/graphs/patent
+pytest -q tests/task/test_workspace_feature_handler.py
+pytest -q tests/task/test_langgraph_dispatch.py
+pytest -q tests/task/test_workspace_feature_runtime.py
+pytest -q tests/task/test_workspace_feature_registry.py
+pytest -q tests/academic/services/test_artifact_versioning.py
+pytest -q tests/services/test_knowledge_service.py tests/services/test_memory_compaction.py
+pytest -q tests/agents/middleware/test_memory.py
+pytest -q tests/workspace_features/test_five_workspace_smoke.py tests/workspace_features/test_workspace_e2e_matrix.py
 ```
 
 ## 7. Migration Strategy
@@ -397,25 +526,42 @@ backend/tests/task/test_thesis_handlers.py
 ```
 Step 1: Create workspace_lead_agent.py
   - Extract common logic from thesis_lead_agent.py
-  - Keep thesis graphs working
-  - thesis_lead_agent.py redirects to workspace_lead_agent
+  - Keep thesis graphs working via backward-compat re-exports in thesis_lead_agent.py
+  - Add lazy-loading per workspace type
 
 Step 2: Create shared utilities (agents/graphs/_shared/utils.py)
 
-Step 3: Implement 9 new graphs + unit tests
+Step 3: Implement 9 new graphs + unit tests (per workspace)
   - Each graph + test implemented together
   - Run graph-specific tests after each
+  - Service layer functions are CALLED, not rewritten
 
 Step 4: Update workspace_feature_handler.py
-  - All workspaces use LangGraph via workspace_lead_agent
-  - Remove "thesis" workspace_type check
-  - Remove fallback-to-handler path
+  - execute_workspace_feature(): all workspace types use workspace_lead_agent
+  - Remove "thesis" workspace_type check and handler fallback path
+  - Extend _build_langgraph_artifact_drafts() for all workspace types
+  - Keep execute_thesis_generation() (refactor review/revise to use workspace_lead_agent)
 
-Step 5: Delete handler files + handler-specific tests
+Step 5: Update base.py deep_research dispatch
+  - Use workspace_lead_agent.execute_feature_graph() directly
+  - Remove skill handler fallback
 
-Step 6: Update smoke and E2E tests
+Step 6: Delete handler files + handler-specific tests
+  - handlers/thesis.py, sci.py, proposal.py, patent.py, software_copyright.py
+  - test_thesis_handlers.py
 
-Step 7: Run full test matrix
+Step 7: Clean up runtime.py
+  - Remove handler registration/dispatch code
+  - Keep any utility functions needed by service layer
+
+Step 8: Update smoke, E2E, and dispatch tests
+
+Step 9: Run full playbook-required test matrix (Section 6.6)
+
+Step 10: Update workspace-ai-modification-playbook.md
+  - Reflect pure LangGraph architecture
+  - Update Quick Decision Guide (remove handler references)
+  - Update "How To Add Or Modify A Workspace Feature" section
 ```
 
 ### 7.2 Rollback Plan
@@ -448,13 +594,19 @@ All contracts from `workspace-ai-modification-playbook.md` remain enforced:
 
 ## 10. Success Criteria
 
-- [ ] All 15 features execute via LangGraph (no handler fallback)
+- [ ] All `workspace_feature` task_type features execute via LangGraph (no handler fallback)
+- [ ] `thesis_generation` task_type: `execute_thesis_generation()` refactored, review/revise use workspace_lead_agent
+- [ ] `deep_research` task_type: dispatches to workspace_lead_agent, no skill handler fallback
 - [ ] 9 new graph unit tests pass
+- [ ] `workspace_lead_agent` unit tests pass
 - [ ] Existing thesis graph tests pass (no regression)
 - [ ] 5-workspace smoke test passes
 - [ ] E2E matrix test passes
+- [ ] Full playbook-required test matrix passes (Section 6.6)
 - [ ] Feature result payload contract validated for all workspaces
-- [ ] Artifact versioning works for all new artifact types
+- [ ] Artifact versioning works for all artifact types
 - [ ] Memory extraction triggers for all workspaces (non-blocking)
 - [ ] Frontend renders results correctly (no UI changes needed)
-- [ ] No handler files remain in codebase
+- [ ] No handler files remain in `workspace_features/handlers/`
+- [ ] Service layer files preserved and functional
+- [ ] `workspace-ai-modification-playbook.md` updated
