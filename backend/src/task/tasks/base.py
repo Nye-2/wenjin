@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 
 from celery import shared_task
 
@@ -57,6 +58,20 @@ async def _execute_task_async(
             await store.mark_task_started(task_id, worker_id=celery_task.request.hostname)
             await progress.update(0, "Task started")
 
+            # Prometheus metrics
+            from src.observability.prometheus import track_task_end, track_task_start
+
+            track_task_start()
+            _task_start_time = time.perf_counter()
+
+            # Track agent status in Redis
+            thread_id = payload.get("thread_id")
+            if thread_id:
+                try:
+                    await redis_client.set_agent_status(thread_id, "running", skill=task_type)
+                except Exception:
+                    logger.debug("Failed to set agent status for thread %s", thread_id)
+
             # Dispatch to task-specific handler
             result = await _dispatch_task(task_type, payload, progress)
 
@@ -99,6 +114,14 @@ async def _execute_task_async(
                     if "artifacts" not in refresh_targets:
                         result["refresh_targets"] = [*refresh_targets, "artifacts"]
 
+            if thread_id:
+                try:
+                    await redis_client.set_agent_status(thread_id, "completed")
+                except Exception:
+                    logger.debug("Failed to update agent status for thread %s", thread_id)
+
+            track_task_end(task_type, time.perf_counter() - _task_start_time)
+
             # Terminal state: single DB write + Pub/Sub broadcast
             # mark_task_completed → DB + Redis (authoritative)
             # progress.complete  → Redis + Pub/Sub (SSE notification only)
@@ -109,6 +132,10 @@ async def _execute_task_async(
 
         except Exception as e:
             logger.exception(f"Task {task_id} failed: {e}")
+            try:
+                track_task_end(task_type, time.perf_counter() - _task_start_time)
+            except Exception:
+                pass
             credit_transaction_id = payload.get("credit_transaction_id")
             if credit_transaction_id:
                 try:
@@ -135,6 +162,13 @@ async def _execute_task_async(
                         task_id,
                         credit_transaction_id,
                     )
+            thread_id = payload.get("thread_id")
+            if thread_id:
+                try:
+                    await redis_client.set_agent_status(thread_id, "failed")
+                except Exception:
+                    logger.debug("Failed to update agent status for thread %s", thread_id)
+
             # Terminal state: single DB write + Pub/Sub broadcast
             await store.mark_task_completed(task_id, success=False, error=str(e))
             await progress.fail(str(e))

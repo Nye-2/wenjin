@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Protocol
 
 from src.config.app_config import celery_settings
+from src.observability.prometheus import track_task_end, track_task_start
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,18 @@ async def _run_task_locally(task_id: str, task_type: str, payload: dict) -> None
             await store.mark_task_started(task_id, worker_id="local-executor")
             await progress.update(0, "Task started")
 
+            # Prometheus metrics
+            track_task_start()
+            _task_start_time = time.perf_counter()
+
+            # Track agent status in Redis
+            thread_id = payload.get("thread_id")
+            if thread_id:
+                try:
+                    await redis_client.set_agent_status(thread_id, "running", skill=task_type)
+                except Exception:
+                    logger.debug("Failed to set agent status for thread %s", thread_id)
+
             from src.task.tasks.base import _dispatch_task
 
             result = await _dispatch_task(task_type, payload, progress)
@@ -125,11 +139,23 @@ async def _run_task_locally(task_id: str, task_type: str, payload: dict) -> None
                     if "artifacts" not in refresh_targets:
                         result["refresh_targets"] = [*refresh_targets, "artifacts"]
 
+            if thread_id:
+                try:
+                    await redis_client.set_agent_status(thread_id, "completed")
+                except Exception:
+                    logger.debug("Failed to update agent status for thread %s", thread_id)
+
+            track_task_end(task_type, time.perf_counter() - _task_start_time)
+
             await store.mark_task_completed(task_id, success=True, result=result)
             await progress.complete("Task completed successfully")
 
         except Exception as e:
             logger.exception("Local task %s failed: %s", task_id, e)
+            try:
+                track_task_end(task_type, time.perf_counter() - _task_start_time)
+            except Exception:
+                pass
             credit_transaction_id = payload.get("credit_transaction_id")
             if credit_transaction_id:
                 try:
@@ -146,6 +172,13 @@ async def _run_task_locally(task_id: str, task_type: str, payload: dict) -> None
                         )
                 except Exception:
                     logger.exception("Failed to refund credits for task %s", task_id)
+            thread_id = payload.get("thread_id")
+            if thread_id:
+                try:
+                    await redis_client.set_agent_status(thread_id, "failed")
+                except Exception:
+                    logger.debug("Failed to update agent status for thread %s", thread_id)
+
             await store.mark_task_completed(task_id, success=False, error=str(e))
             await progress.fail(str(e))
 
