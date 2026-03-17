@@ -48,6 +48,10 @@ async def deprecation_middleware(
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
     # Startup
+    # Initialize Sentry (must be before anything else)
+    from src.observability.sentry import init_sentry
+    init_sentry()
+
     # Initialize structured logging
     setup_logging(level="INFO")
     print("AcademiaGPT Gateway starting up...")

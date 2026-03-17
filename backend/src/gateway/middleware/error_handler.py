@@ -132,6 +132,12 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
         str(exc),
     )
 
+    try:
+        import sentry_sdk
+        sentry_sdk.capture_exception(exc)
+    except Exception:
+        pass
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={

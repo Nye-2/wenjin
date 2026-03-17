@@ -42,6 +42,7 @@ dependencies = [
     "aiosmtplib>=3.0.0",  # Async SMTP for email verification
     "langgraph-cli>=0.4.14",
     "docker>=7.0.0",
+    "sentry-sdk[fastapi]>=2.0.0",
 ]
 
 [project.optional-dependencies]

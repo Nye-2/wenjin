@@ -1,8 +1,8 @@
 """Correlation ID middleware for request tracing."""
 
 import uuid
+from collections.abc import Callable
 from contextvars import ContextVar
-from typing import Callable
 
 from fastapi import Request, Response
 
@@ -25,6 +25,12 @@ async def correlation_middleware(request: Request, call_next: Callable) -> Respo
 
     # Store in context
     correlation_id_var.set(correlation_id)
+
+    try:
+        import sentry_sdk
+        sentry_sdk.set_tag("correlation_id", correlation_id)
+    except Exception:
+        pass
 
     # Process request
     response = await call_next(request)
