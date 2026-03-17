@@ -118,6 +118,61 @@ class ReleaseGateService:
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
+                check_id="observability_sentry",
+                command=(
+                    "uv",
+                    "run",
+                    "pytest",
+                    "tests/observability/test_sentry.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="observability_prometheus",
+                command=(
+                    "uv",
+                    "run",
+                    "pytest",
+                    "tests/observability/test_prometheus.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="agent_status_tracking",
+                command=(
+                    "uv",
+                    "run",
+                    "pytest",
+                    "tests/task/test_agent_status.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="workspace_lock",
+                command=(
+                    "uv",
+                    "run",
+                    "pytest",
+                    "tests/application/handlers/test_workspace_lock.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="task_metrics",
+                command=(
+                    "uv",
+                    "run",
+                    "pytest",
+                    "tests/task/test_task_metrics.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
                 check_id="frontend_typescript_check",
                 command=("npx", "tsc", "--noEmit"),
                 cwd=self.project_root / "frontend",
