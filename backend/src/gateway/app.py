@@ -97,6 +97,11 @@ from src.gateway.middleware import setup_rate_limiting
 
 setup_rate_limiting(app, redis_client=_redis_client)
 
+# Prometheus metrics
+from src.observability.prometheus import setup_prometheus
+
+setup_prometheus(app)
+
 # CORS middleware - configured from settings
 app.add_middleware(
     CORSMiddleware,
