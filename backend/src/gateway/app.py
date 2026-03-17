@@ -87,6 +87,12 @@ app.middleware("http")(deprecation_middleware)
 # Add correlation ID middleware for request tracing
 app.middleware("http")(correlation_middleware)
 
+# Rate limiting middleware
+from src.academic.cache.redis_client import redis_client as _redis_client
+from src.gateway.middleware import setup_rate_limiting
+
+setup_rate_limiting(app, redis_client=_redis_client)
+
 # CORS middleware - configured from settings
 app.add_middleware(
     CORSMiddleware,
