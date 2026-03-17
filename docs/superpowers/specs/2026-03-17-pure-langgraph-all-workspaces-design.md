@@ -397,7 +397,7 @@ This function in `workspace_feature_handler.py` needs to handle all workspace ty
 
 ## 6. File Changes
 
-### 6.1 New Files (14)
+### 6.1 New Files (16)
 
 ```
 backend/src/agents/workspace_lead_agent.py
@@ -559,9 +559,13 @@ Step 8: Update smoke, E2E, and dispatch tests
 Step 9: Run full playbook-required test matrix (Section 6.6)
 
 Step 10: Update workspace-ai-modification-playbook.md
-  - Reflect pure LangGraph architecture
-  - Update Quick Decision Guide (remove handler references)
-  - Update "How To Add Or Modify A Workspace Feature" section
+  - Section 1: Remove "handler fallback chain" from scope
+  - Section 2: Update execution chain (remove "fallback handler" from step 4)
+  - Section 4 Step 2: Remove "Handler Implementation (Fallback Path)" or repurpose
+  - Section 4 Step 3: Remove "Fallback to handler must remain functional"
+  - Section 5: Remove test_thesis_handlers.py from test matrix, add new graph tests
+  - Section 7: Remove "inconsistent payload schemas between LangGraph and fallback handlers"
+  - Section 9: Update Quick Decision Guide (remove handler references)
 ```
 
 ### 7.2 Rollback Plan
