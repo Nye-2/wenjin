@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, Eye, EyeOff, Mail } from "lucide-react";
+import { X, Loader2, Eye, EyeOff } from "lucide-react";
 import { useI18n } from "@/components/i18n-provider";
 import { useAuthStore } from "@/stores/auth";
 
@@ -30,13 +30,22 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
 
   const { login, register, sendVerificationCode, isLoading, error, clearError, isAuthenticated } = useAuthStore();
 
+  const resetForm = useCallback(() => {
+    setFormData({ email: "", password: "", confirmPassword: "", name: "", verificationCode: "" });
+    setPasswordError("");
+    setVerificationError("");
+    setCountdown(0);
+    clearError();
+  }, [clearError]);
+
   // Close modal when authenticated
   useEffect(() => {
     if (isAuthenticated && isOpen) {
       onClose();
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to auth state change
       resetForm();
     }
-  }, [isAuthenticated, isOpen, onClose]);
+  }, [isAuthenticated, isOpen, onClose, resetForm]);
 
   // Close on ESC key
   useEffect(() => {
@@ -52,6 +61,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
   // Reset mode when modal opens
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing mode prop on modal open
       setMode(initialMode);
     }
   }, [isOpen, initialMode]);
@@ -126,14 +136,6 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
       }
     }
   };
-
-  const resetForm = useCallback(() => {
-    setFormData({ email: "", password: "", confirmPassword: "", name: "", verificationCode: "" });
-    setPasswordError("");
-    setVerificationError("");
-    setCountdown(0);
-    clearError();
-  }, [clearError]);
 
   const switchMode = () => {
     setMode(mode === "login" ? "register" : "login");

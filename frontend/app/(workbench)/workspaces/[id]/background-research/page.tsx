@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, BookOpen, FileSearch } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { cn } from "@/lib/utils";
 
 const TIME_RANGE_OPTIONS = [
@@ -33,9 +34,8 @@ export default function BackgroundResearchPage() {
 
   useEffect(() => {
     if (workspace && !keywords) {
-      setKeywords(
-        (workspace.description || workspace.name || "").toString()
-      );
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setKeywords((workspace.description || workspace.name || "").toString());
     }
   }, [workspace, keywords]);
 
@@ -145,14 +145,12 @@ export default function BackgroundResearchPage() {
               {isRunning ? "正在调研..." : "开始调研"}
             </button>
 
-            {error && (
-              <p className="text-xs text-red-500 mt-1">{error}</p>
-            )}
-            {status && !error && (
-              <p className="text-xs text-[var(--text-secondary)] mt-1">
-                {status}
-              </p>
-            )}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleGenerate}
+            />
           </div>
         </aside>
 

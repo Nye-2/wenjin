@@ -5,7 +5,7 @@ import {
   FileText,
   Lightbulb,
   BookOpen,
-  GitBranch,
+
   ListChecks,
   FileCode,
   ClipboardList,

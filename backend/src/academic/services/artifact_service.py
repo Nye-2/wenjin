@@ -8,9 +8,13 @@ This service provides artifact management functionality including:
 
 
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Artifact, ArtifactType
+from src.database import Artifact, ArtifactType, Workspace
+
+_ARTIFACT_VERSION_UNIQUE_CONSTRAINT = "uq_artifacts_workspace_type_title_version"
+_CREATE_RETRY_LIMIT = 3
 
 
 class ArtifactService:
@@ -72,29 +76,68 @@ class ArtifactService:
                     f"Invalid artifact type: {type}. Must be one of: {valid_types}"
                 ) from None
 
-        # Version-aware: check for existing artifact with same workspace+type+title
-        version = 1
-        auto_parent_id = None
-        if title:  # Only version-track named artifacts
-            existing = await self._find_latest_version(workspace_id, type, title)
-            if existing:
-                version = existing.version + 1
-                auto_parent_id = str(existing.id)
+        max_attempts = _CREATE_RETRY_LIMIT if title else 1
 
-        artifact = Artifact(
-            workspace_id=workspace_id,
-            type=type,
-            title=title,
-            content=content,
-            created_by_skill=created_by_skill,
-            parent_artifact_id=parent_artifact_id or auto_parent_id,
-            status="draft",
-            version=version,
+        for attempt in range(max_attempts):
+            # Version-aware: check for existing artifact with same workspace+type+title
+            version = 1
+            auto_parent_id = None
+            if title:  # Only version-track named artifacts
+                await self._lock_workspace_for_artifact_versioning(workspace_id)
+                existing = await self._find_latest_version(workspace_id, type, title)
+                if existing:
+                    version = existing.version + 1
+                    auto_parent_id = str(existing.id)
+
+            artifact = Artifact(
+                workspace_id=workspace_id,
+                type=type,
+                title=title,
+                content=content,
+                created_by_skill=created_by_skill,
+                parent_artifact_id=parent_artifact_id or auto_parent_id,
+                status="draft",
+                version=version,
+            )
+            self.db.add(artifact)
+
+            try:
+                await self.db.commit()
+            except IntegrityError as exc:
+                await self.db.rollback()
+                can_retry = (
+                    title
+                    and attempt < max_attempts - 1
+                    and self._is_version_uniqueness_conflict(exc)
+                )
+                if can_retry:
+                    continue
+                raise
+
+            await self.db.refresh(artifact)
+            return artifact
+
+        raise RuntimeError("Artifact create retry loop exhausted unexpectedly")
+
+    async def _lock_workspace_for_artifact_versioning(self, workspace_id: str) -> None:
+        """Serialize version assignment for artifacts within one workspace."""
+        await self.db.execute(
+            select(Workspace.id)
+            .where(Workspace.id == workspace_id)
+            .with_for_update()
         )
-        self.db.add(artifact)
-        await self.db.commit()
-        await self.db.refresh(artifact)
-        return artifact
+
+    @staticmethod
+    def _is_version_uniqueness_conflict(error: IntegrityError) -> bool:
+        """Check whether the IntegrityError is for artifact version uniqueness."""
+        original = getattr(error, "orig", None)
+        diag = getattr(original, "diag", None)
+        constraint_name = getattr(diag, "constraint_name", None)
+        if constraint_name == _ARTIFACT_VERSION_UNIQUE_CONSTRAINT:
+            return True
+
+        message = f"{error} {original}"
+        return _ARTIFACT_VERSION_UNIQUE_CONSTRAINT in message
 
     async def _find_latest_version(
         self,

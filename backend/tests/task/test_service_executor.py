@@ -61,3 +61,30 @@ class TestSubmitTaskUsesExecutor:
                 )
 
         mock_store.update_task_record.assert_called_once()
+
+
+class TestCancelTaskInLocalMode:
+    """TaskService.cancel_task should cancel local asyncio tasks when Celery is disabled."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_uses_local_cancel_helper_when_celery_disabled(self, mock_store):
+        service = TaskService(mock_store)
+
+        record = MagicMock()
+        record.user_id = "user-1"
+        record.status = "running"
+        mock_store.get_task_record = AsyncMock(return_value=record)
+        mock_store.update_task_record = AsyncMock()
+        mock_store.set_task_state = AsyncMock()
+
+        with (
+            patch("src.task.service.celery_settings") as mock_celery_settings,
+            patch("src.task.service.cancel_local_task", return_value=True) as mock_cancel_local,
+            patch("src.task.service.celery_app.control.revoke") as mock_revoke,
+        ):
+            mock_celery_settings.enabled = False
+            cancelled = await service.cancel_task("task-1", "user-1")
+
+        assert cancelled is True
+        mock_cancel_local.assert_called_once_with("task-1")
+        mock_revoke.assert_not_called()

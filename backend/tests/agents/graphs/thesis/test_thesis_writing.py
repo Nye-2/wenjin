@@ -340,6 +340,27 @@ class TestHandleReviseSection:
 
         assert result["revision_round"] == 2  # clamped to _MAX_REVISION_ROUNDS
 
+    @pytest.mark.asyncio
+    async def test_invalid_revision_round_falls_back_to_default(self, monkeypatch):
+        from src.agents.graphs.thesis import thesis_writing
+
+        async def _mock_revise(*args, **kwargs):
+            return {"revised_content": "text", "changes_summary": "ok"}
+
+        monkeypatch.setattr(thesis_writing, "_revise_section", _mock_revise)
+
+        result = await thesis_writing._handle_revise_section(
+            params={
+                "section_title": "Ch1",
+                "section_content": "original",
+                "revision_instructions": "fix",
+                "revision_round": "invalid-round",
+            },
+            memory_context=None,
+        )
+
+        assert result["revision_round"] == 1
+
 
 class TestHandleReviewAndRevise:
     """Test the full review-and-revise loop."""

@@ -125,16 +125,19 @@ async def execute_feature(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> ExecuteResponse:
     """Execute a feature for a workspace via the unified task infrastructure."""
-    # Lazily resolve Redis only when an idempotency key is provided
-    redis_client = None
-    if idempotency_key:
-        from src.academic.cache.redis_client import redis_client as _redis
+    # Always provide Redis client so distributed workspace lock can be applied.
+    from src.academic.cache.redis_client import redis_client
+    from src.config import redis_settings
 
-        redis_client = _redis
+    runtime_redis = (
+        redis_client
+        if redis_settings.enabled and redis_client._client is not None
+        else None
+    )
 
     result = await handler.execute(
         workspace_id, feature_id, request.params, request.thread_id,
         idempotency_key=idempotency_key,
-        redis_client=redis_client,
+        redis_client=runtime_redis,
     )
     return ExecuteResponse(**result)

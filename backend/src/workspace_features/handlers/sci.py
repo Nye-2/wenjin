@@ -217,11 +217,11 @@ async def write_sci_paper(
     section_title = (
         _read_optional_str(content.get("section_title"))
         or _read_optional_str(content.get("section_type"))
-        or "章节"
+        or "Section"
     )
     artifact = FeatureArtifactDraft(
         type=ArtifactType.PAPER_DRAFT.value,
-        title=f"{paper_title} - {section_title}草稿",
+        title=f"{paper_title} - {section_title} draft",
         content=content,
         created_by_skill=context.handler_key,
     )
@@ -239,6 +239,7 @@ async def write_sci_paper(
             "writing_mode": writing_mode,
             "section_type": content.get("section_type"),
             "word_count": word_count,
+            "output_language": content.get("output_language"),
         },
     )
 
@@ -257,6 +258,7 @@ async def write_sci_paper(
             "writing_mode": writing_mode,
             "word_count": word_count,
             "target_words": content.get("target_words"),
+            "output_language": content.get("output_language"),
             "model_id": content.get("model_id"),
             "generation_error": content.get("generation_error"),
         },

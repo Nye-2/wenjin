@@ -1,7 +1,8 @@
 """Tests for features router."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -175,6 +176,41 @@ class TestWorkspaceFeaturesRouter:
             "params": {"project_name": "Alpha"},
             "project_name": "Alpha",
         }
+
+    @pytest.mark.asyncio
+    async def test_execute_feature_passes_redis_without_idempotency_key(self):
+        """Workspace lock should still be available even when Idempotency-Key is absent."""
+        request = features.ExecuteRequest(params={"k": "v"}, thread_id="thread-1")
+
+        mock_handler = AsyncMock()
+        mock_handler.execute = AsyncMock(return_value={
+            "task_id": "task-123",
+            "status": "pending",
+            "feature_id": "deep_research",
+            "message": "Queued Deep Research",
+            "warning": None,
+            "detail": None,
+        })
+
+        from src.academic.cache.redis_client import redis_client as global_redis_client
+        original_client = global_redis_client._client
+        global_redis_client._client = object()
+        try:
+            with patch("src.config.redis_settings") as mock_redis_settings:
+                mock_redis_settings.enabled = True
+                response = await features.execute_feature(
+                    workspace_id="ws-1",
+                    feature_id="deep_research",
+                    request=request,
+                    handler=mock_handler,
+                    idempotency_key=None,
+                )
+        finally:
+            global_redis_client._client = original_client
+
+        kwargs = mock_handler.execute.await_args.kwargs
+        assert kwargs["redis_client"] is global_redis_client
+        assert isinstance(response, ExecuteResponse)
 
     def test_execute_feature_returns_404_for_unknown_feature(self):
         """Unknown feature ids are rejected before task submission."""

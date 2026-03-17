@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { useI18n } from "@/components/i18n-provider";
 import { useAuthStore } from "@/stores/auth";
@@ -38,12 +39,12 @@ export function Header({ showLanguageSwitcher = true }: HeaderProps) {
       <header className="fixed top-0 left-0 right-0 z-50 px-4 py-4 bg-[var(--bg-base)]/80 backdrop-blur-md border-b border-[var(--border-default)]/50">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Logo */}
-          <a href="/" className="flex items-center gap-2 group">
+          <Link href="/" className="flex items-center gap-2 group">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--accent-primary)] to-[#2563EB] flex items-center justify-center group-hover:shadow-lg transition-shadow">
               <span className="text-white font-bold text-lg">A</span>
             </div>
             <span className="text-xl font-bold text-[var(--text-primary)]">AcademiaGPT</span>
-          </a>
+          </Link>
 
           {/* Right Side */}
           <div className="flex items-center gap-3">

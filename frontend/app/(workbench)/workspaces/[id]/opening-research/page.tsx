@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Search, FileText } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { cn } from "@/lib/utils";
 
 const REPORT_TYPES = [
@@ -32,9 +33,8 @@ export default function OpeningResearchPage() {
 
   useEffect(() => {
     if (workspace && !topic) {
-      setTopic(
-        (workspace.description || workspace.name || "").toString()
-      );
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setTopic((workspace.description || workspace.name || "").toString());
     }
   }, [workspace, topic]);
 
@@ -139,14 +139,12 @@ export default function OpeningResearchPage() {
               {isRunning ? "正在生成..." : "生成报告"}
             </button>
 
-            {error && (
-              <p className="text-xs text-red-500 mt-1">{error}</p>
-            )}
-            {status && !error && (
-              <p className="text-xs text-[var(--text-secondary)] mt-1">
-                {status}
-              </p>
-            )}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleGenerate}
+            />
           </div>
         </aside>
 

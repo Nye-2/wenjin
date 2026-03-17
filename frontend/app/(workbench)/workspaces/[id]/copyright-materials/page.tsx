@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, ClipboardList, FolderCheck } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { cn } from "@/lib/utils";
 
 export default function CopyrightMaterialsPage() {
@@ -16,7 +17,14 @@ export default function CopyrightMaterialsPage() {
 
   const [softwareName, setSoftwareName] = useState("");
   const [version, setVersion] = useState("V1.0");
-  const [applicantName, setApplicantName] = useState("");
+  const [applicantName, setApplicantName] = useState("待确认申请主体");
+
+  useEffect(() => {
+    if (workspace && !softwareName) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setSoftwareName(workspace.name || "");
+    }
+  }, [workspace, softwareName]);
   const [completionDate, setCompletionDate] = useState("");
   const [highlights, setHighlights] = useState("");
   const [targetPlatforms, setTargetPlatforms] = useState("");
@@ -26,16 +34,6 @@ export default function CopyrightMaterialsPage() {
     workspaceId,
     featureId: "copyright_materials",
   });
-
-  useEffect(() => {
-    if (!workspace) return;
-    if (!softwareName) {
-      setSoftwareName(workspace.name || "");
-    }
-    if (!applicantName) {
-      setApplicantName("待确认申请主体");
-    }
-  }, [workspace, softwareName, applicantName]);
 
   const handleGenerate = async () => {
     if (!softwareName.trim()) return;
@@ -192,14 +190,12 @@ export default function CopyrightMaterialsPage() {
               {isRunning ? "正在生成..." : "生成材料清单"}
             </button>
 
-            {error && (
-              <p className="text-xs text-red-500 mt-1">{error}</p>
-            )}
-            {status && !error && (
-              <p className="text-xs text-[var(--text-secondary)] mt-1">
-                {status}
-              </p>
-            )}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleGenerate}
+            />
           </div>
         </aside>
 

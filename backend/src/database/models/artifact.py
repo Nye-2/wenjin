@@ -1,7 +1,7 @@
 """Artifact model for academic outputs."""
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import ForeignKey, Index, String
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,6 +33,13 @@ class Artifact(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "artifacts"
     __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "type",
+            "title",
+            "version",
+            name="uq_artifacts_workspace_type_title_version",
+        ),
         Index("ix_artifacts_workspace_type", "workspace_id", "type"),
         Index("ix_artifacts_parent", "parent_artifact_id"),
     )

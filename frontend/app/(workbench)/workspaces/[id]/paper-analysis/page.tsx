@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, FlaskConical, FileText } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { cn } from "@/lib/utils";
 
 export default function PaperAnalysisPage() {
@@ -15,36 +16,27 @@ export default function PaperAnalysisPage() {
   const workspaceId = params.id as string;
   const { workspace } = useWorkspaceStore();
 
-  const [paperId, setPaperId] = useState("");
-  const [paperTitle, setPaperTitle] = useState("");
-  const [paperAbstract, setPaperAbstract] = useState("");
+  const [paperId, setPaperId] = useState(
+    () => searchParams.get("paper_id") || ""
+  );
+  const [paperTitle, setPaperTitle] = useState(
+    () => searchParams.get("paper_title") || ""
+  );
+  const [paperAbstract, setPaperAbstract] = useState(
+    () => searchParams.get("paper_abstract") || ""
+  );
+
+  useEffect(() => {
+    if (workspace && !paperTitle) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setPaperTitle((workspace.description || workspace.name || "").toString());
+    }
+  }, [workspace, paperTitle]);
 
   const { run, isRunning, status, error } = useFeatureTaskRunner({
     workspaceId,
     featureId: "paper_analysis",
   });
-
-  useEffect(() => {
-    const queryPaperId = searchParams.get("paper_id") || "";
-    const queryPaperTitle = searchParams.get("paper_title") || "";
-    const queryPaperAbstract = searchParams.get("paper_abstract") || "";
-
-    if (queryPaperId && !paperId) {
-      setPaperId(queryPaperId);
-    }
-    if (queryPaperTitle && !paperTitle) {
-      setPaperTitle(queryPaperTitle);
-    }
-    if (queryPaperAbstract && !paperAbstract) {
-      setPaperAbstract(queryPaperAbstract);
-    }
-  }, [searchParams, paperId, paperTitle, paperAbstract]);
-
-  useEffect(() => {
-    if (workspace && !paperTitle) {
-      setPaperTitle((workspace.description || workspace.name || "").toString());
-    }
-  }, [workspace, paperTitle]);
 
   const handleAnalyze = async () => {
     if (!paperId.trim() && !paperTitle.trim()) return;
@@ -133,8 +125,12 @@ export default function PaperAnalysisPage() {
               {isRunning ? "分析中..." : "开始分析"}
             </button>
 
-            {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
-            {status && !error && <p className="text-xs text-[var(--text-secondary)] mt-1">{status}</p>}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleAnalyze}
+            />
           </div>
         </aside>
 

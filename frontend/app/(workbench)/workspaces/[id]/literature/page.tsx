@@ -5,8 +5,8 @@ import { motion } from "framer-motion";
 import { ArrowLeft, BookOpen, Plus, Search, Filter, Download } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useLiteratureStore } from "@/stores/literature";
-import { executeWorkspaceFeature } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
@@ -18,10 +18,19 @@ export default function LiteraturePage() {
   const { items, total, coreCount, isLoading, fetchLiterature, importFromDeepResearch } =
     useLiteratureStore();
   const [searchQuery, setSearchQuery] = useState("");
-  const [isOrganizing, setIsOrganizing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [actionStatus, setActionStatus] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  const {
+    run: runOrganize,
+    isRunning: isOrganizing,
+    status: organizeStatus,
+    error: organizeError,
+  } = useFeatureTaskRunner({
+    workspaceId,
+    featureId: "literature_management",
+  });
 
   useEffect(() => {
     if (workspaceId) {
@@ -31,55 +40,17 @@ export default function LiteraturePage() {
 
   const handleOrganize = async () => {
     if (isOrganizing) return;
-    setActionError(null);
-    setActionStatus(null);
-    setIsOrganizing(true);
-
-    try {
-      const resp = await executeWorkspaceFeature(workspaceId, "literature_management", {
-        topic: searchQuery.trim() || workspace?.name || "研究主题",
-      });
-
-      if (resp.status === "warning" && !resp.task_id) {
-        setActionError(resp.message || "暂时无法执行文献管理盘点");
-        return;
-      }
-      if (!resp.task_id) {
-        setActionError("任务创建失败，请稍后重试");
-        return;
-      }
-
-      setActionStatus("文献盘点任务已提交，正在处理中...");
-      const task = await pollTaskUntilTerminal(resp.task_id, {
-        onProgress: (nextTask) => {
-          if (nextTask.message) {
-            setActionStatus(nextTask.message);
-          }
-        },
-      });
-
-      if (!task) {
-        setActionError("任务轮询超时，请稍后在工作区查看结果");
-        return;
-      }
-
-      if (task.status === "success") {
-        await Promise.all([fetchLiterature(workspaceId), fetchArtifacts(workspaceId)]);
-        setActionStatus(task.message || "文献盘点完成，已同步到成果区");
-      } else {
-        setActionError(task.error || task.message || "文献盘点任务失败");
-      }
-    } catch (e: unknown) {
-      setActionError(e instanceof Error ? e.message : "文献盘点任务失败");
-    } finally {
-      setIsOrganizing(false);
-    }
+    setImportError(null);
+    setImportStatus(null);
+    await runOrganize({
+      topic: searchQuery.trim() || workspace?.name || "研究主题",
+    });
   };
 
   const handleImportDeepResearch = async () => {
     if (isImporting) return;
-    setActionError(null);
-    setActionStatus(null);
+    setImportError(null);
+    setImportStatus(null);
     setIsImporting(true);
 
     try {
@@ -91,19 +62,19 @@ export default function LiteraturePage() {
         .map((a) => a.id);
 
       if (deepResearchIds.length === 0) {
-        setActionStatus("未找到 Deep Research 产物，请先执行 Deep Research 任务");
+        setImportStatus("未找到 Deep Research 产物，请先执行 Deep Research 任务");
         return;
       }
 
       const count = await importFromDeepResearch(workspaceId, deepResearchIds);
       if (count > 0) {
-        setActionStatus(`成功导入 ${count} 篇文献`);
+        setImportStatus(`成功导入 ${count} 篇文献`);
         await fetchLiterature(workspaceId);
       } else {
-        setActionStatus("未导入新文献（可能已全部导入过）");
+        setImportStatus("未导入新文献（可能已全部导入过）");
       }
     } catch (e: unknown) {
-      setActionError(
+      setImportError(
         e instanceof Error ? e.message : "从 Deep Research 导入失败"
       );
     } finally {
@@ -208,13 +179,24 @@ export default function LiteraturePage() {
         </button>
       </div>
 
-      {(actionStatus || actionError) && (
+      {(organizeStatus || organizeError || isOrganizing || importStatus || importError || isImporting) && (
         <div className="px-6 py-2 bg-[var(--bg-elevated)] border-b border-[var(--border-default)]">
-          {actionError ? (
-            <p className="text-sm text-red-600">{actionError}</p>
-          ) : (
-            <p className="text-sm text-[var(--text-secondary)]">{actionStatus}</p>
-          )}
+          <TaskFeedbackBanner
+            isRunning={isOrganizing}
+            status={organizeStatus}
+            error={organizeError}
+            onRetry={handleOrganize}
+            className="mt-0"
+            pendingText="文献盘点任务执行中..."
+          />
+          <TaskFeedbackBanner
+            isRunning={isImporting}
+            status={importStatus}
+            error={importError}
+            onRetry={handleImportDeepResearch}
+            className="mt-2"
+            pendingText="正在从 Deep Research 导入文献..."
+          />
         </div>
       )}
 

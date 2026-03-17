@@ -2,12 +2,13 @@
 
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import redis.asyncio as redis
 
-from src.config import redis_settings, settings
+from src.config import redis_settings
 
 logger = logging.getLogger(__name__)
 
@@ -111,14 +112,25 @@ class RedisClient:
         """Acquire workspace write lock as context manager."""
         key = self._workspace_lock_key(workspace_id)
         timeout = timeout or self._settings.generation_lock_ttl
-        acquired = await self.client.set(key, "locked", nx=True, ex=timeout)
+        token = uuid.uuid4().hex
+        acquired = await self.client.set(key, token, nx=True, ex=timeout)
         if not acquired:
             raise RuntimeError(f"Could not acquire lock for workspace {workspace_id}")
         try:
             yield
         finally:
             try:
-                await self.client.delete(key)
+                await self.client.eval(
+                    """
+                    if redis.call('get', KEYS[1]) == ARGV[1] then
+                        return redis.call('del', KEYS[1])
+                    end
+                    return 0
+                    """,
+                    1,
+                    key,
+                    token,
+                )
             except Exception:
                 logger.exception(f"Failed to release workspace lock for {workspace_id}")
 

@@ -39,7 +39,7 @@ interface LiteratureState {
   reset: () => void;
 }
 
-export const useLiteratureStore = create<LiteratureState>((set, get) => ({
+export const useLiteratureStore = create<LiteratureState>((set) => ({
   items: [],
   total: 0,
   coreCount: 0,
@@ -90,7 +90,7 @@ export const useLiteratureStore = create<LiteratureState>((set, get) => ({
 
   toggleCore: async (workspaceId, litId, isCore) => {
     try {
-      const updated = await updateLiterature(workspaceId, litId, { is_core: isCore });
+      await updateLiterature(workspaceId, litId, { is_core: isCore });
       // 直接更新列表中的项
       set((state) => ({
         items: state.items.map((item) =>

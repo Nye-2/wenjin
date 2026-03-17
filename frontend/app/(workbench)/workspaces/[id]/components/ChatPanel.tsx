@@ -223,6 +223,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
       cancelled = true;
       window.clearInterval(intervalId);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on currentTask?.id only
   }, [
     cancelTask,
     completeTask,

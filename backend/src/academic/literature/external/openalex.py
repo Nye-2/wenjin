@@ -2,11 +2,19 @@
 """OpenAlex API client."""
 
 import logging
-import httpx
+
+from src.integration.http_client import ServiceHttpClient
+
 from .base import ExternalDBBase, PaperSearchResult
 
 logger = logging.getLogger(__name__)
 API_BASE = "https://api.openalex.org"
+
+_http = ServiceHttpClient(
+    service_name="openalex",
+    timeout=30.0,
+    headers={"mailto": "contact@example.com"},
+)
 
 
 class OpenAlexClient(ExternalDBBase):
@@ -22,14 +30,12 @@ class OpenAlexClient(ExternalDBBase):
 
     async def search(self, query: str, limit: int = 10) -> list[PaperSearchResult]:
         """Search OpenAlex for papers."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{API_BASE}/works",
-                params={"search": query, "per_page": limit},
-                headers={"mailto": "contact@example.com"},
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await _http.get(
+            f"{API_BASE}/works",
+            params={"search": query, "per_page": limit},
+        )
+        response.raise_for_status()
+        data = response.json()
 
         results = []
         for item in data.get("results", []):
@@ -50,15 +56,13 @@ class OpenAlexClient(ExternalDBBase):
 
     async def get_by_doi(self, doi: str) -> PaperSearchResult | None:
         """Get paper by DOI."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{API_BASE}/works/doi:{doi}",
-                headers={"mailto": "contact@example.com"},
-            )
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
-            item = response.json()
+        response = await _http.get(
+            f"{API_BASE}/works/doi:{doi}",
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        item = response.json()
 
         return PaperSearchResult(
             title=item.get("title", ""),

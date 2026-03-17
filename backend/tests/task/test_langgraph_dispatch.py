@@ -119,6 +119,47 @@ async def test_try_langgraph_wraps_result_on_success(progress):
     assert progress.update.await_count >= 2
 
 
+@pytest.mark.asyncio
+async def test_try_langgraph_persists_artifacts(progress):
+    """LangGraph success should persist artifacts and return references."""
+    graph_result = {"generation_mode": "llm", "summary": {"total": 12}}
+    mock_execute = AsyncMock(return_value=graph_result)
+    mock_registry = {"literature_management": mock_execute}
+
+    mock_module = MagicMock()
+    mock_module._FEATURE_GRAPH_REGISTRY = mock_registry
+    mock_module.execute_thesis_feature_graph = mock_execute
+
+    payload = {
+        "workspace_type": "thesis",
+        "workspace_id": "ws-1",
+        "workspace_name": "测试工作区",
+        "feature_id": "literature_management",
+        "feature_name": "文献管理",
+        "handler_key": "thesis.literature_management",
+        "user_id": "user-123",
+    }
+
+    artifact_refs = [{"id": "a1", "type": "literature_inventory", "title": "文献管理盘点"}]
+
+    with patch(
+        "src.task.handlers.workspace_feature_handler._ensure_graphs_loaded"
+    ), patch(
+        "src.task.handlers.workspace_feature_handler._persist_langgraph_artifacts",
+        new_callable=AsyncMock,
+        create=True,
+        return_value=artifact_refs,
+    ) as mock_persist:
+        with patch.dict("sys.modules", {"src.agents.thesis_lead_agent": mock_module}):
+            result = await _try_langgraph_execution(
+                "literature_management", payload, progress
+            )
+
+    assert result is not None
+    assert result["artifacts"] == artifact_refs
+    mock_persist.assert_awaited_once()
+
+
 # ── Test 4: Exception in graph returns None (fallback) ──
 
 
@@ -184,3 +225,20 @@ def test_ensure_graphs_loaded_idempotent():
         # Second call: should be a no-op (already loaded)
         _ensure_graphs_loaded()
         assert mod._GRAPHS_LOADED is True
+
+
+def test_ensure_graphs_loaded_retries_after_import_error():
+    """Import failures should not permanently mark graphs as loaded."""
+    import src.task.handlers.workspace_feature_handler as mod
+
+    mod._GRAPHS_LOADED = False
+
+    with patch.dict(
+        "sys.modules",
+        {"src.agents.graphs.thesis.literature_management": None},
+    ):
+        _ensure_graphs_loaded()
+        assert mod._GRAPHS_LOADED is False
+
+    _ensure_graphs_loaded()
+    assert mod._GRAPHS_LOADED is True

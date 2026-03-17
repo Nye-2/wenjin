@@ -767,6 +767,26 @@ class TestThesisActionRouting:
             mock_ch.assert_called_once_with(payload, progress)
             assert result["message"] == "Chapter written"
 
+    @pytest.mark.asyncio
+    async def test_review_section_routes_to_langgraph(self):
+        """Review/revise actions should route to thesis_writing LangGraph when available."""
+        payload = {
+            "workspace_id": "ws-1",
+            "params": {"action": "review_section", "section_title": "绪论"},
+            "feature_id": "thesis_writing",
+        }
+        progress = AsyncMock()
+
+        with patch(
+            "src.task.handlers.workspace_feature_handler._try_langgraph_execution",
+            new_callable=AsyncMock,
+            return_value={"message": "reviewed"},
+        ) as mock_try:
+            result = await execute_thesis_generation(payload, progress)
+
+        mock_try.assert_awaited_once_with("thesis_writing", payload, progress)
+        assert result["message"] == "reviewed"
+
 
 @pytest.mark.asyncio
 async def test_generate_outline_only_persists_framework_outline(monkeypatch):

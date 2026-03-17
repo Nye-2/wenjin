@@ -98,9 +98,13 @@ class TestTaskService:
 
     @pytest.mark.asyncio
     async def test_queue_failure_marks_record_as_failed(self, task_service):
-        """When Celery queue submission fails, the DB record must be marked failed."""
-        with patch("src.task.service.celery_app") as mock_celery:
-            mock_celery.send_task.side_effect = ConnectionError("broker unreachable")
+        """When queue submission fails, the DB record must be marked failed."""
+        with patch("src.task.service.get_executor") as mock_get_executor:
+            from unittest.mock import AsyncMock
+
+            mock_executor = AsyncMock()
+            mock_executor.execute.side_effect = ConnectionError("broker unreachable")
+            mock_get_executor.return_value = mock_executor
 
             with pytest.raises(ConnectionError):
                 await task_service.submit_task(

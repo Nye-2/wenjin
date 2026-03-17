@@ -158,6 +158,8 @@ async def build_copyright_materials(
 
     artifact_title = f"{software_name} 软著申请材料清单"
     artifact_content = {
+        "schema_version": "v1",
+        "output_language": "zh",
         "document_type": ArtifactType.COPYRIGHT_MATERIALS.value,
         "workspace": {
             "id": context.workspace_id,
@@ -217,6 +219,7 @@ async def build_copyright_materials(
             "software_name": software_name,
             "version": version,
             "materials_count": len(required_materials),
+            "output_language": "zh",
         },
     )
 
@@ -322,6 +325,7 @@ async def build_technical_description(
             "software_name": software_name,
             "version": version,
             "generation_mode": generation_mode,
+            "output_language": content.get("output_language"),
             "generation_error": generation_error,
         },
     )

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
 import { useLocaleStore, Locale } from "@/stores/locale";
 import { getMessages, Messages, getBrowserLocale } from "@/lib/i18n";
 
@@ -27,11 +27,12 @@ interface I18nProviderProps {
 export function I18nProvider({ children }: I18nProviderProps) {
   const { locale, setLocale } = useLocaleStore();
   const [messages, setMessages] = useState<Messages | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const initializedRef = useRef(false);
 
   // Initialize locale from localStorage or browser
   useEffect(() => {
-    if (!isInitialized) {
+    if (!initializedRef.current) {
+      initializedRef.current = true;
       const savedLocale = localStorage.getItem("academiagpt-locale");
       if (savedLocale) {
         try {
@@ -47,9 +48,8 @@ export function I18nProvider({ children }: I18nProviderProps) {
         // No saved preference, use browser language
         setLocale(getBrowserLocale());
       }
-      setIsInitialized(true);
     }
-  }, [isInitialized, setLocale]);
+  }, [setLocale]);
 
   // Load messages when locale changes
   useEffect(() => {

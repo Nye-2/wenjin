@@ -23,12 +23,27 @@ export default function WorkspacesPage() {
     description: "",
   });
 
+  const {
+    workspaces,
+    isWorkspacesLoading,
+    isWorkspaceMutating,
+    error,
+    fetchWorkspaces,
+    createWorkspace,
+    removeWorkspace,
+    clearError,
+  } = useWorkspaceStore();
+
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       router.push("/login");
     }
   }, [isAuthenticated, authLoading, router]);
+
+  useEffect(() => {
+    fetchWorkspaces();
+  }, [fetchWorkspaces]);
 
   // Show loading while checking authentication
   if (authLoading) {
@@ -59,21 +74,6 @@ export default function WorkspacesPage() {
     { value: "social_science", label: t("workspace.disciplines.social_science") },
     { value: "humanities", label: t("workspace.disciplines.humanities") },
   ];
-
-  const {
-    workspaces,
-    isWorkspacesLoading,
-    isWorkspaceMutating,
-    error,
-    fetchWorkspaces,
-    createWorkspace,
-    removeWorkspace,
-    clearError,
-  } = useWorkspaceStore();
-
-  useEffect(() => {
-    fetchWorkspaces();
-  }, [fetchWorkspaces]);
 
   const filteredWorkspaces = workspaces.filter((w: Workspace) =>
     w.name.toLowerCase().includes(searchQuery.toLowerCase())

@@ -82,6 +82,7 @@ async def generate_proposal_outline(
         refresh_targets=["artifacts"],
         data={
             "generation_mode": generation_mode,
+            "output_language": content.get("output_language"),
             "model_id": content.get("model_id"),
             "proposal_type": content.get("proposal_type"),
             "period_months": content.get("period_months"),
@@ -138,6 +139,7 @@ async def conduct_background_research(
         refresh_targets=["artifacts"],
         data={
             "generation_mode": generation_mode,
+            "output_language": content.get("output_language"),
             "model_id": content.get("model_id"),
             "keywords": content.get("keywords"),
             "generation_error": content.get("generation_error"),

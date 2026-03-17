@@ -211,6 +211,32 @@ async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
         logger.info("Dispatching workspace_feature task to workspace feature handler")
         return await execute_workspace_feature(payload, progress)
 
+    # Thesis deep_research: prefer LangGraph sub-graph, fall back to skill.
+    if (
+        task_type == "deep_research"
+        and str(payload.get("workspace_type", "")).lower() == "thesis"
+    ):
+        try:
+            from src.task.handlers.workspace_feature_handler import (
+                _schedule_memory_extraction,
+                _try_langgraph_execution,
+            )
+
+            logger.info("Dispatching thesis deep_research to LangGraph first")
+            langgraph_result = await _try_langgraph_execution(
+                "deep_research",
+                payload,
+                progress,
+            )
+            if langgraph_result is not None:
+                _schedule_memory_extraction(payload, langgraph_result)
+                return langgraph_result
+        except Exception:
+            logger.warning(
+                "LangGraph dispatch failed for thesis deep_research, falling back to skill",
+                exc_info=True,
+            )
+
     # Get the skill task handler
     handler = get_skill_task_handler()
 

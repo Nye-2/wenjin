@@ -10,6 +10,7 @@ This module tests the version-aware artifact creation including:
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from src.academic.services.artifact_service import ArtifactService
 
@@ -58,6 +59,7 @@ class TestCreateFirstVersion:
         service = ArtifactService(db)
 
         with patch.object(service, "_find_latest_version", new_callable=AsyncMock) as mock_find, \
+             patch.object(service, "_lock_workspace_for_artifact_versioning", new_callable=AsyncMock, create=True) as mock_lock, \
              patch("src.academic.services.artifact_service.Artifact") as MockArtifact, \
              patch("src.academic.services.artifact_service.ArtifactType") as MockType:
             mock_find.return_value = None
@@ -72,6 +74,7 @@ class TestCreateFirstVersion:
                 title="My Research",
             )
 
+            mock_lock.assert_awaited_once_with("ws-1")
             # _find_latest_version was called with the right args
             mock_find.assert_awaited_once_with("ws-1", "research_idea", "My Research")
 
@@ -120,6 +123,52 @@ class TestCreateAutoIncrementsVersion:
             call_kwargs = MockArtifact.call_args[1]
             assert call_kwargs["version"] == 4
             assert call_kwargs["parent_artifact_id"] == "existing-v3"
+
+    @pytest.mark.asyncio
+    async def test_retries_on_unique_version_conflict(self):
+        """When unique(version) conflicts, create should rollback and retry."""
+        db = _make_db_session()
+        db.commit = AsyncMock(
+            side_effect=[
+                IntegrityError(
+                    "INSERT",
+                    {"workspace_id": "ws-1"},
+                    Exception(
+                        'duplicate key value violates unique constraint '
+                        '"uq_artifacts_workspace_type_title_version"'
+                    ),
+                ),
+                None,
+            ]
+        )
+        db.rollback = AsyncMock()
+
+        service = ArtifactService(db)
+        v1 = _make_mock_artifact(id="existing-v1", version=1)
+        v2 = _make_mock_artifact(id="existing-v2", version=2)
+
+        with patch.object(service, "_find_latest_version", new_callable=AsyncMock) as mock_find, \
+             patch.object(service, "_lock_workspace_for_artifact_versioning", new_callable=AsyncMock, create=True), \
+             patch("src.academic.services.artifact_service.Artifact") as MockArtifact, \
+             patch("src.academic.services.artifact_service.ArtifactType") as MockType:
+            mock_find.side_effect = [v1, v2]
+            first = MagicMock()
+            second = MagicMock()
+            MockArtifact.side_effect = [first, second]
+            MockType.side_effect = lambda v: v
+
+            result = await service.create(
+                workspace_id="ws-1",
+                type="research_idea",
+                content={"body": "test"},
+                title="My Research",
+            )
+
+            assert result is second
+            assert db.commit.await_count == 2
+            db.rollback.assert_awaited_once()
+            assert MockArtifact.call_args_list[0][1]["version"] == 2
+            assert MockArtifact.call_args_list[1][1]["version"] == 3
 
 
 class TestCreateRespectsExplicitParent:

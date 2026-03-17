@@ -13,10 +13,116 @@ logger = logging.getLogger(__name__)
 
 
 class KnowledgeService:
-    """Manages UserKnowledge lifecycle."""
+    """Canonical service for UserKnowledge lifecycle."""
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
+        # Keep backward compatibility for callers expecting `service.db`.
+        self.db = db
+
+    @staticmethod
+    def _normalize_category(category: KnowledgeCategory | str) -> KnowledgeCategory:
+        """Coerce string category into enum for consistent DB writes."""
+        if isinstance(category, str):
+            return KnowledgeCategory(category)
+        return category
+
+    async def create(
+        self,
+        user_id: str,
+        category: KnowledgeCategory | str,
+        content: str,
+        confidence: float = 0.7,
+        source: str | None = None,
+        workspace_context: str | None = None,
+    ) -> UserKnowledge:
+        """Create a new knowledge entry (CRUD style API)."""
+        entry = UserKnowledge(
+            user_id=user_id,
+            category=self._normalize_category(category),
+            content=content,
+            confidence=confidence,
+            source=source,
+            workspace_context=workspace_context,
+        )
+        self._db.add(entry)
+        await self._db.commit()
+        await self._db.refresh(entry)
+        return entry
+
+    async def get(self, knowledge_id: str) -> UserKnowledge | None:
+        """Get knowledge by ID."""
+        stmt = select(UserKnowledge).where(UserKnowledge.id == knowledge_id)
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_by_user(
+        self,
+        user_id: str,
+        category: KnowledgeCategory | str | None = None,
+        min_confidence: float | None = None,
+        active_only: bool = True,
+    ) -> list[UserKnowledge]:
+        """List knowledge entries for a user (CRUD style API)."""
+        conditions = [UserKnowledge.user_id == user_id]
+
+        if category is not None:
+            conditions.append(UserKnowledge.category == self._normalize_category(category))
+        if min_confidence is not None:
+            conditions.append(UserKnowledge.confidence >= min_confidence)
+        if active_only:
+            conditions.append(UserKnowledge.is_active == True)  # noqa: E712
+
+        stmt = (
+            select(UserKnowledge)
+            .where(and_(*conditions))
+            .order_by(UserKnowledge.confidence.desc(), UserKnowledge.updated_at.desc())
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update(
+        self,
+        knowledge_id: str,
+        content: str | None = None,
+        confidence: float | None = None,
+        is_active: bool | None = None,
+    ) -> UserKnowledge | None:
+        """Update a knowledge entry (CRUD style API)."""
+        entry = await self.get(knowledge_id)
+        if not entry:
+            return None
+
+        if content is not None:
+            entry.content = content
+        if confidence is not None:
+            entry.confidence = confidence
+        if is_active is not None:
+            entry.is_active = is_active
+
+        await self._db.commit()
+        await self._db.refresh(entry)
+        return entry
+
+    async def deactivate(self, knowledge_id: str) -> bool:
+        """Deactivate a knowledge entry."""
+        entry = await self.get(knowledge_id)
+        if not entry:
+            return False
+
+        entry.is_active = False
+        await self._db.commit()
+        return True
+
+    async def delete(self, knowledge_id: str) -> bool:
+        """Delete a knowledge entry."""
+        entry = await self.get(knowledge_id)
+        if not entry:
+            return False
+
+        await self._db.delete(entry)
+        await self._db.commit()
+        return True
 
     async def list_active(
         self,
@@ -62,14 +168,13 @@ class KnowledgeService:
         workspace_context: str | None = None,
     ) -> UserKnowledge:
         """Insert or update (boost confidence if duplicate content)."""
-        if isinstance(category, str):
-            category = KnowledgeCategory(category)
+        normalized_category = self._normalize_category(category)
 
         # Check for existing similar entry
         stmt = select(UserKnowledge).where(
             and_(
                 UserKnowledge.user_id == user_id,
-                UserKnowledge.category == category,
+                UserKnowledge.category == normalized_category,
                 UserKnowledge.content == content,
                 UserKnowledge.is_active == True,  # noqa: E712
             )
@@ -85,7 +190,7 @@ class KnowledgeService:
 
         entry = UserKnowledge(
             user_id=user_id,
-            category=category,
+            category=normalized_category,
             content=content,
             confidence=confidence,
             source=source,

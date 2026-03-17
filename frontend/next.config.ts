@@ -5,10 +5,6 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   transpilePackages: ["framer-motion"],
   output: "standalone",
-  env: {
-    NEXT_PUBLIC_LANGGRAPH_BASE_URL: process.env.NEXT_PUBLIC_LANGGRAPH_BASE_URL || "/langgraph",
-    NEXT_PUBLIC_BACKEND_BASE_URL: process.env.NEXT_PUBLIC_BACKEND_BASE_URL || "/api",
-  },
 };
 
 export default nextConfig;

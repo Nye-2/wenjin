@@ -29,6 +29,9 @@ from src.thesis.workflow.latex_template import get_template
 
 logger = logging.getLogger(__name__)
 
+THESIS_SCHEMA_VERSION = "v1"
+THESIS_OUTPUT_LANGUAGE = "zh"
+
 _FIGURE_STRATEGY_BY_TYPE: dict[str, str] = {
     "flowchart": "mermaid",
     "architecture": "mermaid",
@@ -56,6 +59,12 @@ _STRATEGY_TO_EXECUTION_TYPE: dict[str, ExecutionType] = {
 
 def _utc_now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
+
+
+def resolve_thesis_output_language(template: str | None = None) -> str:
+    """Thesis output language is fixed to Chinese regardless of template."""
+    _ = template
+    return THESIS_OUTPUT_LANGUAGE
 
 
 def _truncate(value: str, max_len: int = 280) -> str:
@@ -594,7 +603,7 @@ async def build_compile_payload(
     content_body = "\n\n".join(chapter_latex)
     abstract_latex = f"\\begin{{abstract}}\n{_escape_latex(abstract_text)}\n\\end{{abstract}}\n"
 
-    language = "en" if template.lower() in {"ieee", "acm", "english"} else "zh"
+    language = resolve_thesis_output_language(template)
     final_latex = get_template(language).format(
         title=_escape_latex(paper_title),
         author="",
@@ -620,7 +629,9 @@ async def build_compile_payload(
 
     compile_status = "success" if compile_result.success else "failed"
     return {
+        "schema_version": THESIS_SCHEMA_VERSION,
         "template": template,
+        "output_language": language,
         "compiler": normalized_compiler,
         "bibliography_style": bibliography_style,
         "paper_title": paper_title,

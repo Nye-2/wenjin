@@ -1,8 +1,9 @@
 # tests/unit/literature/external/test_semantic_scholar.py
 """Tests for Semantic Scholar client."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from src.academic.literature.external.semantic_scholar import SemanticScholarClient
 
@@ -42,12 +43,9 @@ class TestSemanticScholarClient:
         }
         mock_response.raise_for_status = MagicMock()
 
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+        with patch("src.academic.literature.external.semantic_scholar._http") as mock_http:
+            mock_http.get = AsyncMock(return_value=mock_response)
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
             results = await client.search("machine learning", limit=5)
 
         assert len(results) == 1
@@ -69,12 +67,9 @@ class TestSemanticScholarClient:
         mock_response.status_code = 200
         mock_response.raise_for_status = MagicMock()
 
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+        with patch("src.academic.literature.external.semantic_scholar._http") as mock_http:
+            mock_http.get = AsyncMock(return_value=mock_response)
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
             result = await client.get_by_doi("10.1234/doi-test")
 
         assert result is not None
@@ -86,12 +81,9 @@ class TestSemanticScholarClient:
         mock_response = MagicMock()
         mock_response.status_code = 404
 
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+        with patch("src.academic.literature.external.semantic_scholar._http") as mock_http:
+            mock_http.get = AsyncMock(return_value=mock_response)
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
             result = await client.get_by_doi("10.1234/not-found")
 
         assert result is None

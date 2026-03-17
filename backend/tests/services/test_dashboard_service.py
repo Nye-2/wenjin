@@ -163,13 +163,18 @@ async def test_get_dashboard_patent_uses_workspace_specific_modules():
 @pytest.mark.asyncio
 async def test_opening_research_status_filters_by_opening_handler():
     db = AsyncMock()
-    db.execute = AsyncMock(return_value=_ScalarsResult([]))
+    db.execute = AsyncMock(
+        side_effect=[
+            _ScalarsResult([]),
+            _ScalarOneOrNoneResult(None),
+        ]
+    )
     service = DashboardService(db)
     service._count_running_workspace_feature_tasks = AsyncMock(return_value=0)
 
     await service._get_opening_research_status("ws-1")
 
-    statement = db.execute.call_args.args[0]
+    statement = db.execute.call_args_list[0].args[0]
     params = statement.compile().params
     assert "thesis.opening_research" in params.values()
 
@@ -191,7 +196,7 @@ async def test_compile_export_status_failed_compile_not_marked_completed():
     result = await service._get_compile_export_status("ws-1")
 
     assert result["id"] == "compile_export"
-    assert result["status"] == "in_progress"
+    assert result["status"] == "failed"
     assert result["summary"]["compile_status"] == "failed"
     assert result["summary"]["last_compile_success"] is False
     assert result["summary"]["last_compile"]

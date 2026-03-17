@@ -98,7 +98,7 @@ class TestSectionLoaderCache:
         # Should have stored in cache
         mock_redis.client.setex.assert_called_once()
         call_args = mock_redis.client.setex.call_args
-        assert call_args[0][0] == "section:paper-1:Introduction"
+        assert call_args[0][0] == "section:paper-1:0:47:Introduction"
         assert call_args[0][1] == 3600  # TTL
 
     @pytest.mark.asyncio
@@ -195,3 +195,44 @@ class TestSectionLoaderCache:
         assert result is not None
         assert result.content == "Cached via entry"
         db.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cache_key_avoids_collision_for_duplicate_titles(self):
+        """Sections with the same title but different ranges must not share cache entries."""
+        store: dict[str, str] = {}
+
+        async def _get(key: str):
+            return store.get(key)
+
+        async def _setex(key: str, _ttl: int, value: str):
+            store[key] = value
+
+        mock_redis = MagicMock()
+        mock_redis.client = AsyncMock()
+        mock_redis.client.get = AsyncMock(side_effect=_get)
+        mock_redis.client.setex = AsyncMock(side_effect=_setex)
+
+        db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value={"full_text": "AAAAABBBBB"})
+        db.execute = AsyncMock(return_value=mock_result)
+
+        loader = SectionLoader(db, redis_client=mock_redis)
+        toc = PaperTOC(
+            paper_id="paper-dup",
+            title="Dup",
+            abstract="",
+            total_chars=10,
+            entries=[
+                TOCEntry(title="Intro", level=1, char_start=0, char_end=5, children=[]),
+                TOCEntry(title="Intro", level=1, char_start=5, char_end=10, children=[]),
+            ],
+        )
+
+        first = await loader.load_section_by_entry(toc, toc.entries[0])
+        second = await loader.load_section_by_entry(toc, toc.entries[1])
+
+        assert first is not None
+        assert second is not None
+        assert first.content == "AAAAA"
+        assert second.content == "BBBBB"

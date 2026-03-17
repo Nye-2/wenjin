@@ -133,3 +133,31 @@ class TestWorkspaceLockIntegration:
 
         assert result["warning"] == "workspace_locked"
         assert result["task_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_lock_backend_error_falls_back_to_unlocked_submit(self):
+        """Non-contention lock runtime errors should fall back to unlocked submit."""
+
+        @asynccontextmanager
+        async def mock_lock(workspace_id, timeout=None):
+            raise RuntimeError("Redis not connected. Call connect() first.")
+            yield  # pragma: no cover
+
+        redis_client = MagicMock()
+        redis_client.workspace_lock = mock_lock
+
+        handler = _make_handler()
+
+        with patch(
+            "src.application.handlers.feature_execution_handler.get_workspace_feature",
+            return_value=_make_feature(),
+        ):
+            result = await handler.execute(
+                workspace_id="ws-1",
+                feature_id="deep_research",
+                params={},
+                redis_client=redis_client,
+            )
+
+        assert result["warning"] is None
+        assert result["task_id"] == "task-123"

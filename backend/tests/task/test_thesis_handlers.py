@@ -57,6 +57,10 @@ def mock_runtime(monkeypatch):
         "src.workspace_features.runtime.ArtifactService",
         DummyArtifactService,
     )
+    monkeypatch.setattr(
+        "src.task.handlers.workspace_feature_handler._try_langgraph_execution",
+        AsyncMock(return_value=None),
+    )
 
 
 @pytest.mark.asyncio

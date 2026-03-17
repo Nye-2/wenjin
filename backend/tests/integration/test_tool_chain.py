@@ -196,19 +196,15 @@ print(f"Found {count} papers")
 
         tool = DOITool()
         # Test with mock
-        with patch("httpx.AsyncClient") as mock_client:
+        with patch("src.mcp.tools.doi._http") as mock_http:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
                 "title": "Test Paper",
                 "author": [{"given": "John", "family": "Doe"}],
             }
-
-            mock_context = MagicMock()
-            mock_context.__aenter__ = AsyncMock(return_value=mock_context)
-            mock_context.__aexit__ = AsyncMock(return_value=None)
-            mock_context.get.return_value = mock_response
-            mock_client.return_value = mock_context
+            mock_response.raise_for_status = MagicMock()
+            mock_http.get = AsyncMock(return_value=mock_response)
 
             result = await tool.resolve("10.1234/test")
             # Result may be None if mock isn't set up perfectly, that's ok
@@ -277,15 +273,10 @@ print(f"Median: {median_val}")
 
         tool = DOITool()
 
-        with patch("httpx.AsyncClient") as mock_client:
+        with patch("src.mcp.tools.doi._http") as mock_http:
             mock_response = MagicMock()
             mock_response.status_code = 404
-
-            mock_context = MagicMock()
-            mock_context.__aenter__ = AsyncMock(return_value=mock_context)
-            mock_context.__aexit__ = AsyncMock(return_value=None)
-            mock_context.get.return_value = mock_response
-            mock_client.return_value = mock_context
+            mock_http.get = AsyncMock(return_value=mock_response)
 
             result = await tool.resolve("10.1234/nonexistent")
             assert result is None
@@ -482,16 +473,12 @@ print(f"Total: {total}")
 
         tool = DOITool()
 
-        with patch("httpx.AsyncClient") as mock_client:
+        with patch("src.mcp.tools.doi._http") as mock_http:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {"title": "Test"}
-
-            mock_context = MagicMock()
-            mock_context.__aenter__ = AsyncMock(return_value=mock_context)
-            mock_context.__aexit__ = AsyncMock(return_value=None)
-            mock_context.get.return_value = mock_response
-            mock_client.return_value = mock_context
+            mock_response.raise_for_status = MagicMock()
+            mock_http.get = AsyncMock(return_value=mock_response)
 
             start = time.time()
             await tool.resolve("10.1234/test")
@@ -553,16 +540,12 @@ print("Should not reach here")
             assert arxiv_result == []
 
         # DOI should still work
-        with patch("httpx.AsyncClient") as mock_client:
+        with patch("src.mcp.tools.doi._http") as mock_http:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {"title": "Test Paper"}
-
-            mock_context = MagicMock()
-            mock_context.__aenter__ = AsyncMock(return_value=mock_context)
-            mock_context.__aexit__ = AsyncMock(return_value=None)
-            mock_context.get.return_value = mock_response
-            mock_client.return_value = mock_context
+            mock_response.raise_for_status = MagicMock()
+            mock_http.get = AsyncMock(return_value=mock_response)
 
             doi_result = await doi.resolve("10.1234/test")
             # Should complete without error

@@ -3,9 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, PenTool, FileEdit } from "lucide-react";
+import { ArrowLeft, PenTool } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
 import { cn } from "@/lib/utils";
 
 const SECTION_OPTIONS = [
@@ -27,6 +32,13 @@ export default function SciWritingPage() {
 
   const [paperTitle, setPaperTitle] = useState("");
   const [sectionType, setSectionType] = useState("introduction");
+
+  useEffect(() => {
+    if (workspace && !paperTitle) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setPaperTitle((workspace.description || workspace.name || "").toString().trim());
+    }
+  }, [workspace, paperTitle]);
   const [targetWords, setTargetWords] = useState(1200);
   const [contextArtifactIds, setContextArtifactIds] = useState("");
 
@@ -34,15 +46,6 @@ export default function SciWritingPage() {
     workspaceId,
     featureId: "writing",
   });
-
-  useEffect(() => {
-    if (!workspace || paperTitle) return;
-    const fallbackTitle =
-      (workspace.description || workspace.name || "").toString().trim();
-    if (fallbackTitle) {
-      setPaperTitle(fallbackTitle);
-    }
-  }, [workspace, paperTitle]);
 
   const sectionHint = useMemo(() => {
     const current = SECTION_OPTIONS.find((option) => option.value === sectionType);
@@ -55,6 +58,40 @@ export default function SciWritingPage() {
       .map((item) => item.trim())
       .filter(Boolean);
   };
+
+  const resultViewModel: WorkspaceResultViewModel = useMemo(
+    () => ({
+      summary: `当前为 SCI ${sectionHint}写作工作区。执行后将生成可编辑的 paper_draft 产出，并沉淀到知识区。`,
+      sections: [
+        {
+          title: "本次写作参数",
+          content: `标题：${paperTitle || "未填写"}；章节：${sectionHint}；目标字数：${targetWords}`,
+        },
+        {
+          title: "上下文注入",
+          content:
+            contextArtifactIds.trim().length > 0
+              ? `已配置上下文 artifact IDs：${contextArtifactIds}`
+              : "未配置上下文 artifact，建议先完成文献检索与论文分析。",
+        },
+        {
+          title: "任务状态",
+          content: error
+            ? `执行失败：${error}`
+            : status
+              ? `执行反馈：${status}`
+              : "尚未开始执行写作任务。",
+        },
+      ],
+      nextActions: [
+        "补充/确认标题与章节参数后执行写作。",
+        "将关键检索与分析产出作为上下文注入。",
+        "生成后在知识区继续迭代编辑并进入后续章节写作。",
+      ],
+      outputLanguage: "en",
+    }),
+    [sectionHint, paperTitle, targetWords, contextArtifactIds, status, error]
+  );
 
   const handleWrite = async () => {
     if (!paperTitle.trim()) return;
@@ -163,8 +200,12 @@ export default function SciWritingPage() {
               {isRunning ? "生成中..." : "生成草稿"}
             </button>
 
-            {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
-            {status && !error && <p className="text-xs text-[var(--text-secondary)] mt-1">{status}</p>}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleWrite}
+            />
           </div>
         </aside>
 
@@ -172,20 +213,9 @@ export default function SciWritingPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="h-full"
           >
-            <div className="text-center max-w-xl">
-              <FileEdit className="w-16 h-16 text-amber-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                SCI {sectionHint}写作工作区
-              </h2>
-              <p className="text-[var(--text-secondary)]">
-                执行后将生成 <code>paper_draft</code> artifact，并在知识区可继续迭代编辑。
-              </p>
-              <p className="text-sm text-[var(--text-muted)] mt-2">
-                建议先完成文献检索与论文分析，再将关键 artifact 作为上下文注入写作任务。
-              </p>
-            </div>
+            <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>
       </main>

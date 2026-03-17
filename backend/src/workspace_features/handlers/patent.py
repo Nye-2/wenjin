@@ -107,6 +107,7 @@ async def generate_patent_outline(
         ],
         data={
             "generation_mode": generation_mode,
+            "output_language": content.get("output_language"),
             "sections_count": len(content.get("sections", [])),
             "claims_count": len(content.get("claims_draft", {}).get("independent_claims", []))
             + len(content.get("claims_draft", {}).get("dependent_claims", [])),
@@ -184,6 +185,7 @@ async def search_prior_art(
         ],
         data={
             "generation_mode": generation_mode,
+            "output_language": content.get("output_language"),
             "keywords": content.get("keywords", []),
             "ipc_codes": content.get("ipc_codes", []),
             "time_range": content.get("time_range"),

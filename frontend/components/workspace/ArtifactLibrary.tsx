@@ -42,13 +42,11 @@ const artifactColorMap: Record<string, string> = {
 };
 
 interface ArtifactLibraryProps {
-  workspaceId: string;
   onSelectArtifact: (artifact: Artifact) => void;
   onExport?: () => void;
 }
 
 export function ArtifactLibrary({
-  workspaceId,
   onSelectArtifact,
   onExport,
 }: ArtifactLibraryProps) {

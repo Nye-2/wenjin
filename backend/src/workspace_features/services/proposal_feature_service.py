@@ -18,6 +18,8 @@ from src.models.factory import create_chat_model
 
 logger = logging.getLogger(__name__)
 
+PROPOSAL_OUTPUT_LANGUAGE = "zh"
+
 # Proposal types mapping
 PROPOSAL_TYPES = {
     "national_natural_science": "国家自然科学基金",
@@ -443,6 +445,8 @@ async def build_proposal_outline_payload(
     type_label = PROPOSAL_TYPES.get(normalized_type, "科研项目")
 
     return {
+        "schema_version": "v1",
+        "output_language": PROPOSAL_OUTPUT_LANGUAGE,
         "topic": normalized_topic,
         "proposal_type": normalized_type,
         "proposal_type_label": type_label,
@@ -701,6 +705,8 @@ async def build_background_research_payload(
         references = _build_references_template(normalized_keywords)
 
     return {
+        "schema_version": "v1",
+        "output_language": PROPOSAL_OUTPUT_LANGUAGE,
         "keywords": normalized_keywords,
         "industry_scope": normalized_industry,
         "time_range": normalized_time,

@@ -2,9 +2,8 @@
 """Semantic Scholar API client."""
 
 import logging
-from typing import Any
 
-import httpx
+from src.integration.http_client import ServiceHttpClient
 
 from .base import ExternalDBBase, PaperSearchResult
 
@@ -12,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 # Semantic Scholar API base URL
 API_BASE = "https://api.semanticscholar.org/graph/v1"
+
+_http = ServiceHttpClient(service_name="semantic_scholar", timeout=30.0)
 
 
 class SemanticScholarClient(ExternalDBBase):
@@ -35,17 +36,16 @@ class SemanticScholarClient(ExternalDBBase):
         Returns:
             List of search results
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{API_BASE}/paper/search",
-                params={
-                    "query": query,
-                    "limit": limit,
-                    "fields": "paperId,title,authors,year,doi,url,abstract,citationCount,venue",
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await _http.get(
+            f"{API_BASE}/paper/search",
+            params={
+                "query": query,
+                "limit": limit,
+                "fields": "paperId,title,authors,year,doi,url,abstract,citationCount,venue",
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
 
         results = []
         for item in data.get("data", []):
@@ -74,17 +74,16 @@ class SemanticScholarClient(ExternalDBBase):
         Returns:
             Paper if found, None otherwise
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{API_BASE}/paper/DOI:{doi}",
-                params={
-                    "fields": "paperId,title,authors,year,doi,url,abstract,citationCount,venue",
-                },
-            )
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
-            item = response.json()
+        response = await _http.get(
+            f"{API_BASE}/paper/DOI:{doi}",
+            params={
+                "fields": "paperId,title,authors,year,doi,url,abstract,citationCount,venue",
+            },
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        item = response.json()
 
         return PaperSearchResult(
             title=item.get("title", ""),
@@ -108,16 +107,15 @@ class SemanticScholarClient(ExternalDBBase):
         Returns:
             List of citing papers
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{API_BASE}/paper/{paper_id}/citations",
-                params={
-                    "limit": limit,
-                    "fields": "paperId,title,authors,year,doi,url,abstract",
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await _http.get(
+            f"{API_BASE}/paper/{paper_id}/citations",
+            params={
+                "limit": limit,
+                "fields": "paperId,title,authors,year,doi,url,abstract",
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
 
         results = []
         for item in data.get("data", []):

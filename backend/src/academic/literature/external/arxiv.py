@@ -3,9 +3,8 @@
 
 import logging
 import xml.etree.ElementTree as ET
-from typing import Any
 
-import httpx
+from src.integration.http_client import ServiceHttpClient
 
 from .base import ExternalDBBase, PaperSearchResult
 
@@ -13,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 # arXiv API base URL
 API_BASE = "http://export.arxiv.org/api/query"
+
+_http = ServiceHttpClient(service_name="arxiv", timeout=30.0)
 
 
 class ArxivClient(ExternalDBBase):
@@ -36,16 +37,15 @@ class ArxivClient(ExternalDBBase):
         Returns:
             List of search results
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                API_BASE,
-                params={
-                    "search_query": f"all:{query}",
-                    "start": 0,
-                    "max_results": limit,
-                },
-            )
-            response.raise_for_status()
+        response = await _http.get(
+            API_BASE,
+            params={
+                "search_query": f"all:{query}",
+                "start": 0,
+                "max_results": limit,
+            },
+        )
+        response.raise_for_status()
 
         return self._parse_arxiv_response(response.text)
 
@@ -63,15 +63,14 @@ class ArxivClient(ExternalDBBase):
         if "arXiv" in doi:
             arxiv_id = doi.split("arXiv.")[-1]
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                API_BASE,
-                params={
-                    "id_list": arxiv_id,
-                    "max_results": 1,
-                },
-            )
-            response.raise_for_status()
+        response = await _http.get(
+            API_BASE,
+            params={
+                "id_list": arxiv_id,
+                "max_results": 1,
+            },
+        )
+        response.raise_for_status()
 
         results = self._parse_arxiv_response(response.text)
         return results[0] if results else None

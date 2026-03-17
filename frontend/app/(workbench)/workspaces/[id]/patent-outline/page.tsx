@@ -3,9 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, FileText, Lightbulb } from "lucide-react";
+import { ArrowLeft, FileText } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
 import { cn } from "@/lib/utils";
 
 export default function PatentOutlinePage() {
@@ -26,9 +31,8 @@ export default function PatentOutlinePage() {
 
   useEffect(() => {
     if (workspace && !innovationDescription) {
-      setInnovationDescription(
-        (workspace.description || workspace.name || "").toString()
-      );
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setInnovationDescription((workspace.description || workspace.name || "").toString());
     }
   }, [workspace, innovationDescription]);
 
@@ -40,6 +44,35 @@ export default function PatentOutlinePage() {
       application_scenario: applicationScenario.trim(),
       implementation_method: implementationMethod.trim(),
     });
+  };
+
+  const resultViewModel: WorkspaceResultViewModel = {
+    summary:
+      "本工作区用于生成专利说明书框架与权利要求草案，支持后续检索和新颖性风险评估。",
+    sections: [
+      {
+        title: "当前创新点输入",
+        content: `创新描述：${innovationDescription || "未填写"}；技术领域：${technicalField || "未填写"}`,
+      },
+      {
+        title: "方案上下文",
+        content: `应用场景：${applicationScenario || "未填写"}；实施方式：${implementationMethod || "未填写"}`,
+      },
+      {
+        title: "任务状态",
+        content: error
+          ? `执行失败：${error}`
+          : status
+            ? `执行反馈：${status}`
+            : "尚未开始生成专利框架。",
+      },
+    ],
+    nextActions: [
+      "补齐创新点、场景与实施方式后执行生成。",
+      "基于框架完善权利要求并准备附图说明。",
+      "进入 prior-art-search 评估新颖性风险并迭代方案。",
+    ],
+    outputLanguage: "zh",
   };
 
   return (
@@ -148,14 +181,12 @@ export default function PatentOutlinePage() {
               {isRunning ? "正在生成..." : "生成专利框架"}
             </button>
 
-            {error && (
-              <p className="text-xs text-red-500 mt-1">{error}</p>
-            )}
-            {status && !error && (
-              <p className="text-xs text-[var(--text-secondary)] mt-1">
-                {status}
-              </p>
-            )}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleGenerate}
+            />
           </div>
         </aside>
 
@@ -164,43 +195,9 @@ export default function PatentOutlinePage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="h-full"
           >
-            <div className="text-center max-w-md">
-              <Lightbulb className="w-16 h-16 text-rose-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                专利框架生成
-              </h2>
-              <p className="text-[var(--text-secondary)] mb-4">
-                填写左侧创新点信息后点击生成，系统将生成包含以下内容的专利框架：
-              </p>
-              <div className="text-left text-sm text-[var(--text-muted)] space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  技术领域说明
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  背景技术分析
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  发明内容描述
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  附图说明
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  具体实施方式
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  权利要求草案
-                </div>
-              </div>
-            </div>
+            <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>
       </main>

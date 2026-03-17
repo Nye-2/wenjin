@@ -584,6 +584,45 @@ export interface AdminLogItem {
   } | null;
 }
 
+export interface ReleaseGateCheck {
+  id: string;
+  status: 'passed' | 'failed' | 'missing' | 'pending';
+  description: string;
+  fix_hint: string;
+  runtime?: {
+    command?: string;
+    cwd?: string;
+    return_code?: number;
+    duration_seconds?: number;
+    output_tail?: string;
+    error?: string | null;
+  };
+}
+
+export interface ReleaseGateBlock {
+  status: 'passed' | 'failed' | 'pending';
+  total: number;
+  passed: number;
+  failed: number;
+  missing: number;
+  checks: ReleaseGateCheck[];
+}
+
+export interface AdminReleaseGateReport {
+  status: 'passed' | 'failed';
+  go_no_go: 'go' | 'no-go';
+  core_gate: ReleaseGateBlock;
+  extended_gate: ReleaseGateBlock;
+  generated_at: string;
+  recommendations: string[];
+  include_extended?: boolean;
+  runner?: {
+    project_root?: string;
+    backend_root?: string;
+    timeout_seconds?: number;
+  };
+}
+
 export async function getMyDashboard(): Promise<UserDashboardData> {
   const response = await apiClient.get('/dashboard/me');
   return response.data;
@@ -613,6 +652,13 @@ export async function getWorkflowCreditCosts(): Promise<{
 
 export async function getAdminDashboard(): Promise<AdminDashboardData> {
   const response = await apiClient.get('/dashboard/admin');
+  return response.data;
+}
+
+export async function getAdminReleaseGate(params?: {
+  include_extended?: boolean;
+}): Promise<AdminReleaseGateReport> {
+  const response = await apiClient.get('/dashboard/admin/release-gate', { params });
   return response.data;
 }
 

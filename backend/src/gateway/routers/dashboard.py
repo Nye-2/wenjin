@@ -11,6 +11,7 @@ from src.database import AdminActionType, User, get_db_session
 from src.gateway.routers.auth import get_current_user
 from src.services.admin_dashboard_service import AdminDashboardService
 from src.services.credit_service import CreditService
+from src.services.release_gate_service import ReleaseGateService
 from src.services.user_dashboard_service import UserDashboardService
 
 router = APIRouter(tags=["dashboard"])
@@ -67,6 +68,11 @@ async def get_admin_dashboard_service(
 ) -> AdminDashboardService:
     """Get AdminDashboardService instance."""
     return AdminDashboardService(db)
+
+
+async def get_release_gate_service() -> ReleaseGateService:
+    """Get ReleaseGateService instance."""
+    return ReleaseGateService()
 
 
 def _require_admin(current_user: User) -> None:
@@ -128,6 +134,17 @@ async def get_admin_dashboard(
     """Get admin dashboard payload."""
     _require_admin(current_user)
     return await dashboard_service.get_dashboard()
+
+
+@router.get("/dashboard/admin/release-gate")
+async def get_admin_release_gate(
+    include_extended: bool = Query(default=False),
+    current_user: User = Depends(get_current_user),
+    release_gate_service: ReleaseGateService = Depends(get_release_gate_service),
+) -> dict[str, Any]:
+    """Run release gate checks and return Go/No-Go report (admin only)."""
+    _require_admin(current_user)
+    return await release_gate_service.run(include_extended=include_extended)
 
 
 @router.get("/dashboard/admin/users")

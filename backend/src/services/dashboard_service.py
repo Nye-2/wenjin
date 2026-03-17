@@ -186,17 +186,28 @@ class DashboardService:
         )
         ideas_count = ideas_result.scalar() or 0
 
+        latest_task_result = await self.db.execute(
+            select(TaskRecord.status)
+            .where(TaskRecord.payload["workspace_id"].as_string() == workspace_id)
+            .where(TaskRecord.task_type == "deep_research")
+            .order_by(TaskRecord.created_at.desc())
+            .limit(1)
+        )
+        latest_task_status = latest_task_result.scalar_one_or_none()
+
         if running_tasks:
             status = "in_progress"
         elif completed_tasks:
             status = "completed"
+        elif latest_task_status == "failed":
+            status = "failed"
         else:
             status = "not_started"
 
         return {
             "id": "deep_research",
             "status": status,
-            "summary": {"ideas_count": ideas_count},
+            "summary": {"ideas_count": ideas_count, "last_task_status": latest_task_status},
         }
 
     async def _get_literature_status(self, workspace_id: str) -> dict[str, Any]:
@@ -213,15 +224,28 @@ class DashboardService:
         )
         core = core_result.scalar() or 0
 
-        if total > 0:
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "literature_management",
+        )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "literature_management",
+        )
+
+        if running_count > 0:
+            status = "in_progress"
+        elif total > 0:
             status = "completed" if core >= 5 else "in_progress"
+        elif latest_task_status == "failed":
+            status = "failed"
         else:
             status = "not_started"
 
         return {
             "id": "literature_management",
             "status": status,
-            "summary": {"total": total, "core": core},
+            "summary": {"total": total, "core": core, "last_task_status": latest_task_status},
         }
 
     async def _get_opening_research_status(self, workspace_id: str) -> dict[str, Any]:
@@ -248,7 +272,16 @@ class DashboardService:
                 workspace_id,
                 "opening_research",
             )
-            status = "in_progress" if running_count > 0 else "not_started"
+            latest_task_status = await self._get_latest_workspace_feature_task_status(
+                workspace_id,
+                "opening_research",
+            )
+            if running_count > 0:
+                status = "in_progress"
+            elif latest_task_status == "failed":
+                status = "failed"
+            else:
+                status = "not_started"
 
         return {
             "id": "opening_research",
@@ -272,17 +305,34 @@ class DashboardService:
         )
         chapters_count = int(chapters_result.scalar() or 0)
 
-        if chapters_count > 0:
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "thesis_writing",
+        )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "thesis_writing",
+        )
+
+        if running_count > 0:
+            status = "in_progress"
+        elif chapters_count > 0:
             status = "completed" if chapters_count >= 3 else "in_progress"
         elif outline_done:
             status = "in_progress"
+        elif latest_task_status == "failed":
+            status = "failed"
         else:
             status = "not_started"
 
         return {
             "id": "thesis_writing",
             "status": status,
-            "summary": {"outline_done": outline_done, "chapters": chapters_count},
+            "summary": {
+                "outline_done": outline_done,
+                "chapters": chapters_count,
+                "last_task_status": latest_task_status,
+            },
         }
 
     async def _get_figure_generation_status(self, workspace_id: str) -> dict[str, Any]:
@@ -290,15 +340,28 @@ class DashboardService:
             workspace_id,
             ArtifactType.FIGURE.value,
         )
-        if count > 0:
+        running_count = await self._count_running_workspace_feature_tasks(
+            workspace_id,
+            "figure_generation",
+        )
+        latest_task_status = await self._get_latest_workspace_feature_task_status(
+            workspace_id,
+            "figure_generation",
+        )
+
+        if running_count > 0:
+            status = "in_progress"
+        elif count > 0:
             status = "completed" if count >= 3 else "in_progress"
+        elif latest_task_status == "failed":
+            status = "failed"
         else:
             status = "not_started"
 
         return {
             "id": "figure_generation",
             "status": status,
-            "summary": {"figures_count": count},
+            "summary": {"figures_count": count, "last_task_status": latest_task_status},
         }
 
     async def _get_compile_export_status(self, workspace_id: str) -> dict[str, Any]:
@@ -346,6 +409,8 @@ class DashboardService:
                 status = "in_progress"
             elif compile_status == "success":
                 status = "completed"
+            elif compile_status == "failed":
+                status = "failed"
             else:
                 status = "in_progress"
 

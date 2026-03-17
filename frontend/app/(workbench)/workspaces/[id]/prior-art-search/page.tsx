@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Search, AlertTriangle } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { cn } from "@/lib/utils";
 
 const TIME_RANGE_OPTIONS = [
@@ -24,20 +25,19 @@ export default function PriorArtSearchPage() {
 
   const [keywords, setKeywords] = useState("");
   const [ipcCodes, setIpcCodes] = useState("");
+
+  useEffect(() => {
+    if (workspace && !keywords) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setKeywords((workspace.name || workspace.description || "").toString());
+    }
+  }, [workspace, keywords]);
   const [timeRange, setTimeRange] = useState<string>("近5年");
 
   const { run, isRunning, status, error } = useFeatureTaskRunner({
     workspaceId,
     featureId: "prior_art_search",
   });
-
-  useEffect(() => {
-    if (workspace && !keywords) {
-      setKeywords(
-        (workspace.name || workspace.description || "").toString()
-      );
-    }
-  }, [workspace, keywords]);
 
   const handleSearch = async () => {
     if (!keywords.trim()) return;
@@ -171,14 +171,12 @@ export default function PriorArtSearchPage() {
               {isRunning ? "正在检索..." : "开始检索分析"}
             </button>
 
-            {error && (
-              <p className="text-xs text-red-500 mt-1">{error}</p>
-            )}
-            {status && !error && (
-              <p className="text-xs text-[var(--text-secondary)] mt-1">
-                {status}
-              </p>
-            )}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleSearch}
+            />
           </div>
         </aside>
 

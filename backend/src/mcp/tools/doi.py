@@ -3,12 +3,14 @@
 import logging
 from typing import Any
 
-import httpx
+from src.integration.http_client import ServiceHttpClient
 
 logger = logging.getLogger(__name__)
 
 # DOI Content Negotiation API
 DOI_API_URL = "https://doi.org"
+
+_http = ServiceHttpClient(service_name="doi", timeout=10.0)
 
 
 class DOITool:
@@ -49,34 +51,30 @@ class DOITool:
 
             url = f"{self._base_url}/{doi}"
 
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=self._headers, timeout=10.0, follow_redirects=True)
+            response = await _http.get(url, headers=self._headers)
 
-                if response.status_code == 404:
-                    logger.info(f"DOI not found: {doi}")
-                    return None
+            if response.status_code == 404:
+                logger.info(f"DOI not found: {doi}")
+                return None
 
-                if response.status_code == 406:
-                    # Content negotiation failed, try with different accept header
-                    alt_headers = {
-                        "Accept": "application/json",
-                        "User-Agent": "AcademiaGPT (mailto:academiagpt@example.com)",
-                    }
-                    response = await client.get(url, headers=alt_headers, timeout=10.0, follow_redirects=True)
+            if response.status_code == 406:
+                # Content negotiation failed, try with different accept header
+                alt_headers = {
+                    "Accept": "application/json",
+                    "User-Agent": "AcademiaGPT (mailto:academiagpt@example.com)",
+                }
+                response = await _http.get(url, headers=alt_headers)
 
-                response.raise_for_status()
+            response.raise_for_status()
 
-                data = response.json()
+            data = response.json()
 
-                # Normalize the response to a common format
-                metadata = self._normalize_metadata(data)
-                metadata["doi"] = doi
+            # Normalize the response to a common format
+            metadata = self._normalize_metadata(data)
+            metadata["doi"] = doi
 
-                return metadata
+            return metadata
 
-        except httpx.HTTPStatusError as e:
-            logger.error(f"DOI resolution HTTP error for {doi}: {e}")
-            return None
         except Exception as e:
             logger.error(f"DOI resolution error for {doi}: {e}")
             return None

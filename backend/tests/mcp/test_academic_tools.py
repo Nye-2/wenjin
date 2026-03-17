@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from src.mcp.tools.arxiv import ArxivTool
 from src.mcp.tools.doi import DOITool
 from src.mcp.tools.pubmed import PubMedTool
@@ -104,9 +105,8 @@ class TestPubMedTool:
         </PubmedArticleSet>"""
         mock_fetch_response.raise_for_status = MagicMock()
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = mock_client.return_value.__aenter__.return_value
-            mock_instance.get = AsyncMock(side_effect=[mock_search_response, mock_fetch_response])
+        with patch("src.mcp.tools.pubmed._http") as mock_http:
+            mock_http.get = AsyncMock(side_effect=[mock_search_response, mock_fetch_response])
             results = await tool.search("cancer treatment", max_results=5)
 
         assert isinstance(results, list)
@@ -116,9 +116,8 @@ class TestPubMedTool:
         """Search should return empty list on error."""
         tool = PubMedTool()
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = mock_client.return_value.__aenter__.return_value
-            mock_instance.get = AsyncMock(side_effect=Exception("Network error"))
+        with patch("src.mcp.tools.pubmed._http") as mock_http:
+            mock_http.get = AsyncMock(side_effect=Exception("Network error"))
             results = await tool.search("cancer treatment", max_results=5)
 
         assert isinstance(results, list)
@@ -154,9 +153,8 @@ class TestDOITool:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = mock_client.return_value.__aenter__.return_value
-            mock_instance.get = AsyncMock(return_value=mock_response)
+        with patch("src.mcp.tools.doi._http") as mock_http:
+            mock_http.get = AsyncMock(return_value=mock_response)
             metadata = await tool.resolve("10.1234/test.doi.123")
 
         assert isinstance(metadata, dict)
@@ -172,8 +170,8 @@ class TestDOITool:
         mock_response = AsyncMock()
         mock_response.status_code = 404
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
+        with patch("src.mcp.tools.doi._http") as mock_http:
+            mock_http.get = AsyncMock(return_value=mock_response)
             metadata = await tool.resolve("10.1234/nonexistent.doi")
 
         assert metadata is None
@@ -183,8 +181,8 @@ class TestDOITool:
         """Should return None on network errors."""
         tool = DOITool()
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get = AsyncMock(side_effect=Exception("Network error"))
+        with patch("src.mcp.tools.doi._http") as mock_http:
+            mock_http.get = AsyncMock(side_effect=Exception("Network error"))
             metadata = await tool.resolve("10.1234/error.doi")
 
         assert metadata is None

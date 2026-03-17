@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Paperclip, Mic, Square } from 'lucide-react';
+import { Send, Paperclip, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 

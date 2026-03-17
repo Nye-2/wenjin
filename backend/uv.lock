@@ -28,6 +28,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-cli" },
     { name = "passlib", extra = ["bcrypt"] },
+    { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pymupdf" },
@@ -36,6 +37,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "redis" },
     { name = "semanticscholar" },
+    { name = "sentry-sdk", extra = ["fastapi"] },
     { name = "sqlalchemy" },
     { name = "tenacity" },
     { name = "tiktoken" },
@@ -77,6 +79,7 @@ requires-dist = [
     { name = "langgraph-cli", specifier = ">=0.4.14" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
     { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
+    { name = "prometheus-client", specifier = ">=0.21.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pydantic-settings", specifier = ">=2.6.0" },
     { name = "pymupdf", specifier = ">=1.24.0" },
@@ -89,6 +92,7 @@ requires-dist = [
     { name = "redis", specifier = ">=5.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
     { name = "semanticscholar", specifier = ">=0.4.0" },
+    { name = "sentry-sdk", extras = ["fastapi"], specifier = ">=2.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "tenacity", specifier = ">=9.0.0" },
     { name = "tiktoken", specifier = ">=0.8.0" },
@@ -2196,6 +2200,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8a/5c/18302aad8f094b3e4b8bb79ee82dd0fafceee7811f9844c41f393f8a0e5f/semanticscholar-0.11.0.tar.gz", hash = "sha256:91e1233aedbf8e290daf8556fc7a3a6a6db78fe833adee88fd99ddb0a07a0c17", size = 28283, upload-time = "2025-09-14T01:14:51.832Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7e/af/0627cf6bb64054d03a1fe8e9b0e659b496794000c30ba4fb921ca8aef20a/semanticscholar-0.11.0-py3-none-any.whl", hash = "sha256:824b7c3d11237ec829a211480ed1ed05f4ee9dfdf03e226b04c3d2051ea19b6e", size = 26048, upload-time = "2025-09-14T01:14:50.575Z" },
+]
+
+[[package]]
+name = "sentry-sdk"
+version = "2.54.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c8/e9/2e3a46c304e7fa21eaa70612f60354e32699c7102eb961f67448e222ad7c/sentry_sdk-2.54.0.tar.gz", hash = "sha256:2620c2575128d009b11b20f7feb81e4e4e8ae08ec1d36cbc845705060b45cc1b", size = 413813, upload-time = "2026-03-02T15:12:41.355Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/53/39/be412cc86bc6247b8f69e9383d7950711bd86f8d0a4a4b0fe8fad685bc21/sentry_sdk-2.54.0-py2.py3-none-any.whl", hash = "sha256:fd74e0e281dcda63afff095d23ebcd6e97006102cdc8e78a29f19ecdf796a0de", size = 439198, upload-time = "2026-03-02T15:12:39.546Z" },
+]
+
+[package.optional-dependencies]
+fastapi = [
+    { name = "fastapi" },
 ]
 
 [[package]]

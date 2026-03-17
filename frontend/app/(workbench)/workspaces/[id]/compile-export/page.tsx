@@ -6,13 +6,14 @@ import { motion } from "framer-motion";
 import { ArrowLeft, FileText, Download, FileDown } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { cn } from "@/lib/utils";
 
 export default function CompileExportPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  useWorkspaceStore();
 
   const [template, setTemplate] = useState("default");
   const [compiler, setCompiler] = useState("xelatex");
@@ -140,14 +141,12 @@ export default function CompileExportPage() {
               )}
             </button>
 
-            {error && (
-              <p className="text-xs text-red-500 mt-1">{error}</p>
-            )}
-            {status && !error && (
-              <p className="text-xs text-[var(--text-secondary)] mt-1">
-                {status}
-              </p>
-            )}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleCompile}
+            />
           </div>
 
           {/* Export Options */}

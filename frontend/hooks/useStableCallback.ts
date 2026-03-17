@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 /**
  * Returns a stable callback that always calls the latest function.
@@ -8,7 +8,9 @@ export function useStableCallback<T extends (...args: unknown[]) => unknown>(
   callback: T
 ): T {
   const ref = useRef<T>(callback);
-  ref.current = callback;
+  useEffect(() => {
+    ref.current = callback;
+  });
 
-  return useCallback(((...args: Parameters<T>) => ref.current(...args)) as T, []);
+  return useCallback((...args: Parameters<T>) => ref.current(...args), []) as T;
 }

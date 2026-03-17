@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, BarChart3, Image } from "lucide-react";
+import { ArrowLeft, BarChart3, Image as ImageIcon } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { cn } from "@/lib/utils";
 
 export default function FigureGenerationPage() {
@@ -134,12 +135,12 @@ export default function FigureGenerationPage() {
               {isRunning ? "正在生成..." : "生成图表"}
             </button>
 
-            {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
-            {status && !error && (
-              <p className="text-xs text-[var(--text-secondary)] mt-1">
-                {status}
-              </p>
-            )}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleGenerateFigure}
+            />
           </div>
         </aside>
 
@@ -151,7 +152,7 @@ export default function FigureGenerationPage() {
             className="h-full flex items-center justify-center"
           >
             <div className="text-center">
-              <Image className="w-16 h-16 text-cyan-500 mx-auto mb-4 opacity-50" />
+              <ImageIcon className="w-16 h-16 text-cyan-500 mx-auto mb-4 opacity-50" />
               <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
                 图表预览
               </h2>

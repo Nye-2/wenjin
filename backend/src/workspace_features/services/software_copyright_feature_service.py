@@ -20,6 +20,8 @@ from src.models.factory import create_chat_model
 
 logger = logging.getLogger(__name__)
 
+COPYRIGHT_OUTPUT_LANGUAGE = "zh"
+
 
 def _utc_now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
@@ -394,6 +396,8 @@ async def build_technical_description_payload(
         generation_mode = "template_fallback"
 
     return {
+        "schema_version": "v1",
+        "output_language": COPYRIGHT_OUTPUT_LANGUAGE,
         "document_type": ArtifactType.TECHNICAL_DESCRIPTION.value,
         "workspace": {
             "id": workspace_id,

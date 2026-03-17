@@ -3,9 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, List, FileText } from "lucide-react";
+import { ArrowLeft, List } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
 import { cn } from "@/lib/utils";
 
 const PROPOSAL_TYPES = [
@@ -35,20 +40,19 @@ export default function ProposalOutlinePage() {
 
   const [topic, setTopic] = useState("");
   const [proposalType, setProposalType] = useState<ProposalTypeValue>("other");
+
+  useEffect(() => {
+    if (workspace && !topic) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setTopic((workspace.description || workspace.name || "").toString());
+    }
+  }, [workspace, topic]);
   const [periodMonths, setPeriodMonths] = useState<number>(24);
 
   const { run, isRunning, status, error } = useFeatureTaskRunner({
     workspaceId,
     featureId: "proposal_outline",
   });
-
-  useEffect(() => {
-    if (workspace && !topic) {
-      setTopic(
-        (workspace.description || workspace.name || "").toString()
-      );
-    }
-  }, [workspace, topic]);
 
   const handleGenerate = async () => {
     if (!topic.trim()) return;
@@ -57,6 +61,36 @@ export default function ProposalOutlinePage() {
       proposal_type: proposalType,
       period_months: periodMonths,
     });
+  };
+
+  const resultViewModel: WorkspaceResultViewModel = {
+    summary:
+      "本工作区用于生成研究项目申报书的大纲骨架，并沉淀为可复用产出。",
+    sections: [
+      {
+        title: "当前配置",
+        content: `主题：${topic || "未填写"}；类型：${proposalType}；周期：${periodMonths} 个月`,
+      },
+      {
+        title: "任务状态",
+        content: error
+          ? `执行失败：${error}`
+          : status
+            ? `执行反馈：${status}`
+            : "尚未开始执行生成。",
+      },
+      {
+        title: "产出内容",
+        content:
+          "产出包含立项依据、研究目标、技术路线、计划进度、预算框架等核心分区。",
+      },
+    ],
+    nextActions: [
+      "确认主题、申报类型与周期后执行生成。",
+      "结合背景调研补充关键问题与技术路线细节。",
+      "根据预算与里程碑形成可提交版本。",
+    ],
+    outputLanguage: "zh",
   };
 
   return (
@@ -160,14 +194,12 @@ export default function ProposalOutlinePage() {
               {isRunning ? "正在生成..." : "生成大纲"}
             </button>
 
-            {error && (
-              <p className="text-xs text-red-500 mt-1">{error}</p>
-            )}
-            {status && !error && (
-              <p className="text-xs text-[var(--text-secondary)] mt-1">
-                {status}
-              </p>
-            )}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleGenerate}
+            />
           </div>
         </aside>
 
@@ -176,20 +208,9 @@ export default function ProposalOutlinePage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="h-full"
           >
-            <div className="text-center">
-              <FileText className="w-16 h-16 text-purple-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                申报书大纲工作区
-              </h2>
-              <p className="text-[var(--text-secondary)]">
-                配置左侧参数后点击生成大纲，生成的大纲将作为产出物保存。
-              </p>
-              <p className="text-sm text-[var(--text-muted)] mt-2">
-                包含：立项依据、研究目标、技术路线、计划进度、预算框架
-              </p>
-            </div>
+            <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>
       </main>

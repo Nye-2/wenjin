@@ -23,6 +23,9 @@ from src.services.literature_service import LiteratureService
 
 logger = logging.getLogger(__name__)
 
+SCI_SCHEMA_VERSION = "v1"
+SCI_OUTPUT_LANGUAGE = "en"
+
 
 def _utc_now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
@@ -55,14 +58,14 @@ def _normalize_discipline(discipline: str | None) -> str:
 
 
 SCI_WRITING_SECTION_MAP: dict[str, str] = {
-    "abstract": "摘要",
-    "introduction": "引言",
-    "related_work": "相关工作",
-    "methodology": "方法",
-    "experiments": "实验",
-    "results": "结果分析",
-    "discussion": "讨论",
-    "conclusion": "结论",
+    "abstract": "Abstract",
+    "introduction": "Introduction",
+    "related_work": "Related Work",
+    "methodology": "Methodology",
+    "experiments": "Experiments",
+    "results": "Results",
+    "discussion": "Discussion",
+    "conclusion": "Conclusion",
 }
 
 
@@ -486,7 +489,7 @@ def _normalize_section_type(section_type: str | None) -> str:
 
 
 def _resolve_section_title(section_type: str) -> str:
-    return SCI_WRITING_SECTION_MAP.get(section_type, "章节")
+    return SCI_WRITING_SECTION_MAP.get(section_type, "Section")
 
 
 def _estimate_word_count(content: str) -> int:
@@ -595,38 +598,39 @@ def _build_sci_writing_template(
 ) -> dict[str, Any]:
     section_title = _resolve_section_title(section_type)
     section_focus = {
-        "abstract": "研究目的、方法、结果与结论",
-        "introduction": "研究背景、问题定义与贡献",
-        "related_work": "现有方法对比与研究空白",
-        "methodology": "方法框架、核心算法与设计动机",
-        "experiments": "实验设置、评价指标与基线",
-        "results": "主要结果、误差分析与可解释性",
-        "discussion": "局限性、适用边界与改进方向",
-        "conclusion": "工作总结与未来研究展望",
-    }.get(section_type, "章节核心论点与论证结构")
+        "abstract": "research objective, method, key results, and conclusion",
+        "introduction": "background, problem statement, and contributions",
+        "related_work": "comparison with prior work and identified research gap",
+        "methodology": "method framework, core approach, and design motivation",
+        "experiments": "experimental setup, metrics, and baselines",
+        "results": "primary findings, error analysis, and interpretability",
+        "discussion": "limitations, applicability boundary, and improvement directions",
+        "conclusion": "summary and future work",
+    }.get(section_type, "core claims and evidence structure for this section")
 
     content = (
-        f"【{section_title}草稿模板】\n"
-        f"本文围绕《{paper_title}》展开，当前章节重点聚焦于{section_focus}。\n\n"
-        "第一段：说明本章节在全文中的作用，明确与研究目标的对应关系。\n"
-        "第二段：给出关键论证主线，可结合方法、实验或结论形成完整叙述。\n"
-        "第三段：补充局限性或下一步工作，确保章节与后续内容可衔接。\n\n"
-        f"建议字数：约 {target_words} 词。请结合真实数据、公式与图表进一步完善。"
+        f"{section_title} Draft Template\n"
+        f"The paper \"{paper_title}\" should focus this section on {section_focus}.\n\n"
+        "Paragraph 1: explain the role of this section in the full paper and align it with the research objective.\n"
+        "Paragraph 2: provide the core reasoning chain, supported by method, experiment, or result evidence.\n"
+        "Paragraph 3: summarize limitations or next steps and prepare transition to subsequent sections.\n\n"
+        f"Suggested length: around {target_words} words. Refine with real data, equations, and figures."
     )
     outline = [
-        f"{section_title}写作目标与边界",
-        "核心论点与证据组织",
-        "章节小结与后续衔接",
+        f"{section_title} objective and boundary",
+        "core claims and evidence organization",
+        "section summary and transition",
     ]
     references = [
-        "补充与章节论点直接相关的核心文献",
-        "为关键结论添加可复现的实验或数据支撑",
+        "Add core references directly supporting the section claims",
+        "Attach reproducible experiment or data evidence for key conclusions",
     ]
     return {
         "section_title": section_title,
         "content": content,
         "outline": outline,
         "references": references,
+        "output_language": SCI_OUTPUT_LANGUAGE,
         "writing_mode": "template_fallback",
     }
 
@@ -664,34 +668,34 @@ async def _try_llm_sci_writing(
         context_lines.append(
             f"- [{item.get('type', 'artifact')}] {item.get('title', 'Untitled')}: {item.get('summary', '')}"
         )
-    context_block = "\n".join(context_lines) if context_lines else "- 无可用上下文产出"
+    context_block = "\n".join(context_lines) if context_lines else "- No usable context artifacts."
 
     prompt = "\n".join(
         [
-            "请根据以下信息撰写 SCI 论文的章节草稿，输出 JSON。",
-            f"论文标题：{paper_title}",
-            f"章节类型：{section_type}",
-            f"章节标题：{section_title}",
-            f"目标字数：约 {target_words} 词",
+            "Write a SCI paper section draft in English and return JSON only.",
+            f"Paper title: {paper_title}",
+            f"Section type: {section_type}",
+            f"Section title: {section_title}",
+            f"Target length: around {target_words} words",
             "",
-            "可用上下文摘要：",
+            "Available context summaries:",
             context_block,
             "",
-            "你必须输出如下 JSON 结构：",
-            '{"section_title":"章节标题","content":"章节正文","outline":["小节1","小节2"],"references":["参考建议1","参考建议2"]}',
+            "Required JSON schema:",
+            '{"section_title":"Section Title","content":"Section body in English","outline":["Subsection 1","Subsection 2"],"references":["Reference suggestion 1","Reference suggestion 2"]}',
             "",
-            "要求：",
-            "1. content 必须是可直接编辑的学术段落，结构完整。",
-            "2. 语言风格学术、严谨，避免空泛表述。",
-            "3. 若上下文存在证据缺口，可在 references 中给出补充建议。",
-            "4. 不要输出 markdown 代码块，不要输出额外解释文本。",
+            "Constraints:",
+            "1. content must be directly editable academic prose in English.",
+            "2. Keep a rigorous and specific academic tone.",
+            "3. If context lacks evidence, provide supplemental suggestions in references.",
+            "4. Do not output markdown code blocks or extra explanatory text.",
         ]
     )
 
     try:
         response = await model.ainvoke(
             [
-                SystemMessage(content="你是 SCI 论文写作助手，只输出 JSON。"),
+                SystemMessage(content="You are a SCI writing assistant. Output JSON only, in English."),
                 HumanMessage(content=prompt),
             ]
         )
@@ -714,6 +718,7 @@ async def _try_llm_sci_writing(
             "content": content,
             "outline": outline if isinstance(outline, list) else [],
             "references": references if isinstance(references, list) else [],
+            "output_language": SCI_OUTPUT_LANGUAGE,
             "writing_mode": "llm",
         },
         model_id,
@@ -769,7 +774,9 @@ async def build_sci_writing_payload(
     writing_mode = str(llm_result.get("writing_mode") or "template_fallback")
 
     return {
+        "schema_version": SCI_SCHEMA_VERSION,
         "document_type": ArtifactType.PAPER_DRAFT.value,
+        "output_language": SCI_OUTPUT_LANGUAGE,
         "paper_title": resolved_title,
         "workspace_name": workspace_name,
         "workspace_description": workspace_description,

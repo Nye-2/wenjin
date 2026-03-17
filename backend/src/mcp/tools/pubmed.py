@@ -1,16 +1,17 @@
 """PubMed search tool for academic paper discovery."""
 
-import asyncio
 import logging
 from typing import Any
 from xml.etree import ElementTree
 
-import httpx
+from src.integration.http_client import ServiceHttpClient
 
 logger = logging.getLogger(__name__)
 
 # PubMed API base URLs
 EUTILS_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+
+_http = ServiceHttpClient(service_name="pubmed", timeout=30.0)
 
 
 class PubMedTool:
@@ -24,11 +25,10 @@ class PubMedTool:
         self._base_url = EUTILS_BASE_URL
         self._email = "academiagpt@example.com"  # NCBI requires email for API usage
 
-    async def _fetch(self, client: httpx.AsyncClient, url: str, params: dict[str, Any]) -> str | None:
+    async def _fetch(self, url: str, params: dict[str, Any]) -> str | None:
         """Fetch data from URL with error handling.
 
         Args:
-            client: HTTP client instance.
             url: URL to fetch.
             params: Query parameters.
 
@@ -36,7 +36,7 @@ class PubMedTool:
             Response text or None on error.
         """
         try:
-            response = await client.get(url, params=params, timeout=30.0)
+            response = await _http.get(url, params=params)
             response.raise_for_status()
             return response.text
         except Exception as e:
@@ -133,52 +133,51 @@ class PubMedTool:
             Returns empty list on error.
         """
         try:
-            async with httpx.AsyncClient() as client:
-                # Step 1: Search for PMIDs
-                search_params = {
-                    "db": "pubmed",
-                    "term": query,
-                    "retmax": max_results,
-                    "retmode": "json",
-                    "email": self._email,
-                }
+            # Step 1: Search for PMIDs
+            search_params = {
+                "db": "pubmed",
+                "term": query,
+                "retmax": max_results,
+                "retmode": "json",
+                "email": self._email,
+            }
 
-                search_url = f"{self._base_url}/esearch.fcgi"
-                search_text = await self._fetch(client, search_url, search_params)
-                if not search_text:
-                    return []
+            search_url = f"{self._base_url}/esearch.fcgi"
+            search_text = await self._fetch(search_url, search_params)
+            if not search_text:
+                return []
 
-                import json
+            import json
 
-                search_data = json.loads(search_text)
-                id_list = search_data.get("esearchresult", {}).get("idlist", [])
+            search_data = json.loads(search_text)
+            id_list = search_data.get("esearchresult", {}).get("idlist", [])
 
-                if not id_list:
-                    return []
+            if not id_list:
+                return []
 
-                # Step 2: Fetch paper details
-                fetch_params = {
-                    "db": "pubmed",
-                    "id": ",".join(id_list),
-                    "retmode": "xml",
-                    "email": self._email,
-                }
+            # Step 2: Fetch paper details
+            fetch_params = {
+                "db": "pubmed",
+                "id": ",".join(id_list),
+                "retmode": "xml",
+                "email": self._email,
+            }
 
-                fetch_url = f"{self._base_url}/efetch.fcgi"
-                fetch_text = await self._fetch(client, fetch_url, fetch_params)
-                if not fetch_text:
-                    return []
+            fetch_url = f"{self._base_url}/efetch.fcgi"
+            fetch_text = await self._fetch(fetch_url, fetch_params)
+            if not fetch_text:
+                return []
 
-                # Parse XML response
-                root = ElementTree.fromstring(fetch_text)
-                results = []
+            # Parse XML response
+            root = ElementTree.fromstring(fetch_text)
+            results = []
 
-                for article_elem in root.findall(".//PubmedArticle"):
-                    paper = self._parse_paper(article_elem)
-                    if paper:
-                        results.append(paper)
+            for article_elem in root.findall(".//PubmedArticle"):
+                paper = self._parse_paper(article_elem)
+                if paper:
+                    results.append(paper)
 
-                return results
+            return results
 
         except Exception as e:
             logger.error(f"PubMed search error: {e}")

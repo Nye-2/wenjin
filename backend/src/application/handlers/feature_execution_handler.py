@@ -378,27 +378,35 @@ class FeatureExecutionHandler:
             try:
                 async with redis_client.workspace_lock(workspace_id, timeout=30):
                     return await _do_submit()
-            except RuntimeError:
-                logger.warning(
-                    "[Features] Could not acquire workspace lock for %s, "
-                    "another submission in progress",
-                    workspace_id,
-                )
-                # Refund credit since we cannot proceed
-                if credit_transaction is not None:
-                    await self.credit_service.refund_failed_task(
-                        user_id=str(self.user.id),
-                        original_transaction_id=str(credit_transaction.id),
-                        reason="工作区锁竞争退款",
+            except RuntimeError as exc:
+                if "Could not acquire lock" in str(exc):
+                    logger.warning(
+                        "[Features] Could not acquire workspace lock for %s, "
+                        "another submission in progress",
+                        workspace_id,
                     )
-                return {
-                    "task_id": None,
-                    "status": "warning",
-                    "feature_id": feature_id,
-                    "message": "该工作区正在处理另一个提交，请稍后重试",
-                    "warning": "workspace_locked",
-                    "detail": None,
-                }
+                    # Refund credit since we cannot proceed
+                    if credit_transaction is not None:
+                        await self.credit_service.refund_failed_task(
+                            user_id=str(self.user.id),
+                            original_transaction_id=str(credit_transaction.id),
+                            reason="工作区锁竞争退款",
+                        )
+                    return {
+                        "task_id": None,
+                        "status": "warning",
+                        "feature_id": feature_id,
+                        "message": "该工作区正在处理另一个提交，请稍后重试",
+                        "warning": "workspace_locked",
+                        "detail": None,
+                    }
+
+                logger.warning(
+                    "[Features] Workspace lock unavailable for %s, proceeding without lock: %s",
+                    workspace_id,
+                    exc,
+                )
+                return await _do_submit()
         else:
             return await _do_submit()
 

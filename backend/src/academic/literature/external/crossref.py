@@ -2,11 +2,19 @@
 """Crossref API client."""
 
 import logging
-import httpx
+
+from src.integration.http_client import ServiceHttpClient
+
 from .base import ExternalDBBase, PaperSearchResult
 
 logger = logging.getLogger(__name__)
 API_BASE = "https://api.crossref.org"
+
+_http = ServiceHttpClient(
+    service_name="crossref",
+    timeout=30.0,
+    headers={"User-Agent": "AcademiaGPT/2.0 (mailto:contact@example.com)"},
+)
 
 
 class CrossrefClient(ExternalDBBase):
@@ -22,14 +30,12 @@ class CrossrefClient(ExternalDBBase):
 
     async def search(self, query: str, limit: int = 10) -> list[PaperSearchResult]:
         """Search Crossref for papers."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{API_BASE}/works",
-                params={"query": query, "rows": limit},
-                headers={"User-Agent": "AcademiaGPT/2.0 (mailto:contact@example.com)"},
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await _http.get(
+            f"{API_BASE}/works",
+            params={"query": query, "rows": limit},
+        )
+        response.raise_for_status()
+        data = response.json()
 
         results = []
         for item in data.get("message", {}).get("items", []):
@@ -50,15 +56,11 @@ class CrossrefClient(ExternalDBBase):
 
     async def get_by_doi(self, doi: str) -> PaperSearchResult | None:
         """Get paper by DOI."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{API_BASE}/works/{doi}",
-                headers={"User-Agent": "AcademiaGPT/2.0"},
-            )
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
-            item = response.json().get("message", {})
+        response = await _http.get(f"{API_BASE}/works/{doi}")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        item = response.json().get("message", {})
 
         return PaperSearchResult(
             title=item.get("title", [""])[0] if item.get("title") else "",

@@ -28,7 +28,7 @@ interface UploadingFile {
   error?: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
 export function PaperUpload({
   workspaceId,
@@ -69,7 +69,7 @@ export function PaperUpload({
     formData.append('workspace_id', workspaceId);
 
     try {
-      const response = await fetch(`${API_BASE}/papers/upload`, {
+      const response = await fetch(`${API_BASE}/api/papers/upload`, {
         method: 'POST',
         body: formData,
       });
@@ -158,6 +158,7 @@ export function PaperUpload({
       setIsDragging(false);
       processFiles(e.dataTransfer.files);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- processFiles is stable within same render cycle
     [workspaceId]
   );
 

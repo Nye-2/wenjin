@@ -20,6 +20,12 @@ THESIS_WORKSPACE_TYPES: set[str] = set()  # 不再按 workspace_type 判断
 THESIS_AGENTS: set[str] = set()  # thesis features 通过 task_type 路由，不需要 agent 检测
 THESIS_HANDLER_KEYS: set[str] = set()  # thesis features 通过 task_type 路由，不需要 handler_key 检测
 
+_THESIS_WRITING_LANGGRAPH_ACTIONS = {
+    "review_section",
+    "revise_section",
+    "review_and_revise",
+}
+
 
 def _is_thesis_payload(payload: dict[str, Any]) -> bool:
     """Determine whether a task payload should run the thesis workflow."""
@@ -201,6 +207,157 @@ async def _persist_artifact(
     }
 
 
+def _report_type_label(report_type: str) -> str:
+    return {
+        "opening_report": "开题报告",
+        "literature_review": "文献综述",
+        "feasibility_analysis": "可行性分析",
+    }.get(report_type, "研究报告")
+
+
+def _build_langgraph_artifact_drafts(
+    feature_id: str,
+    workspace_name: str,
+    result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Map LangGraph feature result to artifact drafts."""
+    title_prefix = workspace_name or "未命名工作区"
+
+    if feature_id == "literature_management":
+        return [
+            {
+                "type": ArtifactType.LITERATURE_INVENTORY.value,
+                "title": f"{title_prefix} - 文献管理盘点",
+                "content": result,
+            }
+        ]
+
+    if feature_id == "opening_research":
+        report_type = str(result.get("report_type", "opening_report"))
+        return [
+            {
+                "type": report_type,
+                "title": f"{title_prefix} - {_report_type_label(report_type)}",
+                "content": result,
+            }
+        ]
+
+    if feature_id == "figure_generation":
+        description = str(result.get("description") or "图表")
+        return [
+            {
+                "type": ArtifactType.FIGURE.value,
+                "title": f"{title_prefix} - {description}",
+                "content": result,
+            }
+        ]
+
+    if feature_id == "compile_export":
+        return [
+            {
+                "type": ArtifactType.PAPER_DRAFT.value,
+                "title": f"{title_prefix} - 编译预检结果",
+                "content": result,
+            }
+        ]
+
+    if feature_id == "deep_research":
+        topic = str(result.get("topic") or title_prefix)
+        drafts: list[dict[str, Any]] = []
+        discovery = result.get("discovery")
+        if isinstance(discovery, dict) and discovery:
+            drafts.append(
+                {
+                    "type": ArtifactType.LITERATURE_REVIEW.value,
+                    "title": f"{topic} - 深度调研综述",
+                    "content": {
+                        "topic": topic,
+                        "discovery": discovery,
+                        "cross_validation": result.get("cross_validation"),
+                        "generation_mode": result.get("generation_mode"),
+                    },
+                }
+            )
+        gaps = result.get("gaps")
+        if isinstance(gaps, list) and gaps:
+            drafts.append(
+                {
+                    "type": ArtifactType.GAP_ANALYSIS.value,
+                    "title": f"{topic} - 研究空白分析",
+                    "content": {
+                        "topic": topic,
+                        "gaps": gaps,
+                        "generation_mode": result.get("generation_mode"),
+                    },
+                }
+            )
+        ideas = result.get("ideas")
+        if isinstance(ideas, list) and ideas:
+            drafts.append(
+                {
+                    "type": ArtifactType.RESEARCH_IDEAS.value,
+                    "title": f"{topic} - 研究构想",
+                    "content": {
+                        "topic": topic,
+                        "ideas": ideas,
+                        "cross_validation": result.get("cross_validation"),
+                        "generation_mode": result.get("generation_mode"),
+                    },
+                }
+            )
+        return drafts
+
+    return []
+
+
+async def _persist_langgraph_artifacts(
+    feature_id: str,
+    payload: dict[str, Any],
+    result: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Persist artifacts for LangGraph feature results."""
+    workspace_id = str(payload.get("workspace_id") or "")
+    if not workspace_id:
+        return []
+
+    drafts = _build_langgraph_artifact_drafts(
+        feature_id,
+        str(payload.get("workspace_name") or ""),
+        result,
+    )
+    if not drafts:
+        return []
+
+    created_by_skill = str(payload.get("handler_key") or f"thesis.{feature_id}")
+    try:
+        async with get_db_session() as db:
+            service = ArtifactService(db)
+            refs: list[dict[str, str]] = []
+            for draft in drafts:
+                artifact = await service.create(
+                    workspace_id=workspace_id,
+                    type=str(draft["type"]),
+                    title=str(draft["title"]),
+                    content=draft["content"],
+                    created_by_skill=created_by_skill,
+                )
+                refs.append(
+                    {
+                        "id": str(artifact.id),
+                        "type": artifact.type,
+                        "title": artifact.title or "",
+                    }
+                )
+            return refs
+    except Exception:
+        logger.warning(
+            "Failed to persist LangGraph artifacts for feature '%s'",
+            feature_id,
+            exc_info=True,
+        )
+        return []
+
+
 async def execute_thesis_generation(
     payload: dict[str, Any],
     progress: ProgressTracker,
@@ -212,7 +369,17 @@ async def execute_thesis_generation(
     - "write_chapter": Write a single chapter
     - "write_all" (default): Full thesis workflow
     """
-    action = payload.get("action") or payload.get("params", {}).get("action", "write_all")
+    params = _read_params(payload)
+    action = payload.get("action") or params.get("action", "write_all")
+
+    # Review/revise actions route to thesis_writing LangGraph sub-graph.
+    if str(action) in _THESIS_WRITING_LANGGRAPH_ACTIONS:
+        langgraph_result = await _try_langgraph_execution(
+            "thesis_writing", payload, progress
+        )
+        if langgraph_result is not None:
+            _schedule_memory_extraction(payload, langgraph_result)
+            return langgraph_result
 
     if action == "generate_outline":
         return await generate_outline_only(payload, progress)
@@ -394,6 +561,7 @@ def _ensure_graphs_loaded() -> None:
         import src.agents.graphs.thesis.deep_research  # noqa: F401
     except ImportError:
         logger.debug("Some thesis feature graphs could not be loaded")
+        return
     _GRAPHS_LOADED = True
 
 
@@ -426,9 +594,11 @@ async def _try_langgraph_execution(
             payload,
             user_id=str(user_id) if user_id else None,
         )
+        artifacts = await _persist_langgraph_artifacts(feature_id, payload, result)
 
         # Wrap result in standard feature response format
         wrapped = {
+            "success": True,
             "feature_id": feature_id,
             "feature_name": payload.get("feature_name", feature_id),
             "workspace_type": "thesis",
@@ -436,6 +606,7 @@ async def _try_langgraph_execution(
             "generation_mode": result.get("generation_mode", "llm"),
             "message": f"{feature_id} 已通过 LangGraph 增强完成",
             "data": result,
+            "artifacts": artifacts,
             "refresh_targets": ["artifacts"],
         }
         await progress.update(100, "LangGraph 增强处理完成")

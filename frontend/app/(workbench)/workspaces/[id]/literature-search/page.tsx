@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Search, BookMarked } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { cn } from "@/lib/utils";
 
 export default function LiteratureSearchPage() {
@@ -17,19 +18,20 @@ export default function LiteratureSearchPage() {
   const [query, setQuery] = useState("");
   const [discipline, setDiscipline] = useState("");
 
+  useEffect(() => {
+    if (workspace && !query) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setQuery((workspace.description || workspace.name || "").toString());
+    }
+    if (workspace && !discipline && workspace.discipline) {
+      setDiscipline(workspace.discipline.toString());
+    }
+  }, [workspace, query, discipline]);
+
   const { run, isRunning, status, error } = useFeatureTaskRunner({
     workspaceId,
     featureId: "literature_search",
   });
-
-  useEffect(() => {
-    if (workspace && !query) {
-      setQuery((workspace.description || workspace.name || "").toString());
-    }
-    if (workspace?.discipline && !discipline) {
-      setDiscipline(workspace.discipline.toString());
-    }
-  }, [workspace, query, discipline]);
 
   const handleSearch = async () => {
     if (!query.trim()) return;
@@ -106,8 +108,12 @@ export default function LiteratureSearchPage() {
               {isRunning ? "检索中..." : "开始检索"}
             </button>
 
-            {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
-            {status && !error && <p className="text-xs text-[var(--text-secondary)] mt-1">{status}</p>}
+            <TaskFeedbackBanner
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              onRetry={handleSearch}
+            />
           </div>
         </aside>
 

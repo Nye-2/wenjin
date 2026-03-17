@@ -119,3 +119,17 @@ class TestGetExecutor:
             mock_settings.enabled = False
             executor = get_executor()
             assert isinstance(executor, LocalExecutor)
+
+    def test_returns_same_local_instance_when_disabled(self):
+        """Local executor should be process-scoped so semaphore is effective."""
+        import src.task.executor as executor_module
+
+        with patch("src.task.executor.celery_settings") as mock_settings:
+            mock_settings.enabled = False
+            # Reset singleton cache for deterministic test
+            executor_module._LOCAL_EXECUTOR = None
+
+            first = executor_module.get_executor()
+            second = executor_module.get_executor()
+
+            assert first is second

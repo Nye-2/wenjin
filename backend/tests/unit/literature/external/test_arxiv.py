@@ -1,8 +1,9 @@
 # tests/unit/literature/external/test_arxiv.py
 """Tests for arXiv client."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from src.academic.literature.external.arxiv import ArxivClient
 
@@ -36,16 +37,12 @@ class TestArxivClient:
   </entry>
 </feed>"""
 
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_response = AsyncMock()
-            mock_response.text = sample_xml
-            mock_response.raise_for_status = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = sample_xml
+        mock_response.raise_for_status = MagicMock()
 
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        with patch("src.academic.literature.external.arxiv._http") as mock_http:
+            mock_http.get = AsyncMock(return_value=mock_response)
 
             results = await client.search("machine learning", limit=5)
 
@@ -75,16 +72,12 @@ class TestArxivClient:
   </entry>
 </feed>"""
 
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_response = AsyncMock()
-            mock_response.text = sample_xml
-            mock_response.raise_for_status = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = sample_xml
+        mock_response.raise_for_status = MagicMock()
 
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        with patch("src.academic.literature.external.arxiv._http") as mock_http:
+            mock_http.get = AsyncMock(return_value=mock_response)
 
             # arXiv DOI format: 10.48550/arXiv.2306.12345
             result = await client.get_by_doi("10.48550/arXiv.2306.12345")

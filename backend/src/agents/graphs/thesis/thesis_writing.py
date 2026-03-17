@@ -92,10 +92,13 @@ async def _handle_revise_section(
     section_title = str(params.get("section_title", ""))
     section_content = str(params.get("section_content", ""))
     revision_instructions = str(params.get("revision_instructions", ""))
-    revision_round = int(params.get("revision_round", 1))
+    try:
+        revision_round = int(params.get("revision_round", 1))
+    except (TypeError, ValueError):
+        revision_round = 1
 
     # Clamp revision round
-    revision_round = min(revision_round, _MAX_REVISION_ROUNDS)
+    revision_round = max(1, min(revision_round, _MAX_REVISION_ROUNDS))
 
     revision = await _revise_section(
         section_title=section_title,

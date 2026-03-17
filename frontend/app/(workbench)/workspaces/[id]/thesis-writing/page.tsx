@@ -3,10 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, PenTool, FileText, CheckCircle } from "lucide-react";
+import { ArrowLeft, PenTool, CheckCircle } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useThesisWritingStore, type OutlineData } from "@/stores/thesis-writing";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
 import { cn } from "@/lib/utils";
 import type { TaskStatus } from "@/lib/api";
 
@@ -28,6 +33,13 @@ export default function ThesisWritingPage() {
 
   const [titleInput, setTitleInput] = useState("");
   const [targetWords, setTargetWords] = useState("20000");
+
+  useEffect(() => {
+    if (workspace && !titleInput) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setTitleInput(workspace.name || "");
+    }
+  }, [workspace, titleInput]);
 
   const parseOutline = (raw: unknown): OutlineData | null => {
     if (!raw || typeof raw !== "object") {
@@ -160,16 +172,9 @@ export default function ThesisWritingPage() {
   const status = currentStep === 1 ? outlineStatus : chapterStatus;
   const error = currentStep === 1 ? outlineError : chapterError;
 
+  // Sync chapter selection when chapters change
   useEffect(() => {
-    if (workspace && !titleInput) {
-      setTitleInput(workspace.name || "");
-    }
-  }, [workspace, titleInput]);
-
-  useEffect(() => {
-    if (chapters.length === 0) {
-      return;
-    }
+    if (chapters.length === 0) return;
     const hasCurrent = chapters.some((ch) => ch.index === currentChapterIndex);
     if (!hasCurrent) {
       setCurrentChapter(chapters[0].index);
@@ -180,6 +185,38 @@ export default function ThesisWritingPage() {
     chapters.find((ch) => ch.index === currentChapterIndex) ?? null;
   const selectedOutlineChapter =
     outline?.chapters[currentChapterIndex] ?? null;
+
+  const step1ResultViewModel: WorkspaceResultViewModel = {
+    summary:
+      "本工作区用于生成中文论文大纲并逐章写作，最终可进入图表生成与编译导出流程。",
+    sections: [
+      {
+        title: "当前配置",
+        content: `论文主题：${titleInput || "未填写"}；目标字数：${targetWords}`,
+      },
+      {
+        title: "流程阶段",
+        content:
+          currentStep === 1
+            ? "当前阶段：大纲规划"
+            : `当前阶段：正文写作（${selectedChapter?.title || "未选择章节"}）`,
+      },
+      {
+        title: "任务状态",
+        content: error
+          ? `执行失败：${error}`
+          : status
+            ? `执行反馈：${status}`
+            : "尚未开始执行。",
+      },
+    ],
+    nextActions: [
+      "在 Step 1 先生成完整大纲。",
+      "切换到 Step 2 按章节逐步写作并检查字数进度。",
+      "完成正文后进入图表生成与编译导出。",
+    ],
+    outputLanguage: "zh",
+  };
 
   const handleGenerateOutline = async () => {
     if (!titleInput.trim()) return;
@@ -322,14 +359,12 @@ export default function ThesisWritingPage() {
                   {isRunning ? "正在生成..." : "生成大纲"}
                 </button>
 
-                {error && (
-                  <p className="text-xs text-red-500 mt-1">{error}</p>
-                )}
-                {status && !error && (
-                  <p className="text-xs text-[var(--text-secondary)] mt-1">
-                    {status}
-                  </p>
-                )}
+                <TaskFeedbackBanner
+                  isRunning={isRunning}
+                  status={status}
+                  error={error}
+                  onRetry={handleGenerateOutline}
+                />
               </div>
             </aside>
 
@@ -338,17 +373,9 @@ export default function ThesisWritingPage() {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="h-full flex items-center justify-center"
+                className="h-full"
               >
-                <div className="text-center">
-                  <FileText className="w-16 h-16 text-purple-500 mx-auto mb-4 opacity-50" />
-                  <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                    大纲规划
-                  </h2>
-                  <p className="text-[var(--text-secondary)]">
-                    配置左侧参数后生成论文大纲
-                  </p>
-                </div>
+                <WorkspaceResultPanel viewModel={step1ResultViewModel} />
               </motion.div>
             </div>
           </>
@@ -469,14 +496,13 @@ export default function ThesisWritingPage() {
                         {isRunning ? "正在写作..." : "写作本章"}
                       </button>
 
-                      {error && (
-                        <p className="text-xs text-red-500 mt-3">{error}</p>
-                      )}
-                      {status && !error && (
-                        <p className="text-xs text-[var(--text-secondary)] mt-3">
-                          {status}
-                        </p>
-                      )}
+                      <TaskFeedbackBanner
+                        isRunning={isRunning}
+                        status={status}
+                        error={error}
+                        onRetry={handleWriteChapter}
+                        className="mt-3"
+                      />
                     </div>
 
                     <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">

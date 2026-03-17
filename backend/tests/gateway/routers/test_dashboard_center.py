@@ -23,6 +23,7 @@ def _create_client(
     user_dashboard_service=None,
     admin_dashboard_service=None,
     credit_service=None,
+    release_gate_service=None,
 ) -> TestClient:
     app = FastAPI()
 
@@ -38,6 +39,9 @@ def _create_client(
     async def override_credit_service():
         return credit_service or AsyncMock()
 
+    async def override_release_gate_service():
+        return release_gate_service or AsyncMock()
+
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[dashboard.get_user_dashboard_service] = (
         override_user_dashboard_service
@@ -46,6 +50,9 @@ def _create_client(
         override_admin_dashboard_service
     )
     app.dependency_overrides[dashboard.get_credit_service] = override_credit_service
+    app.dependency_overrides[dashboard.get_release_gate_service] = (
+        override_release_gate_service
+    )
     app.include_router(dashboard.router)
     return TestClient(app)
 
@@ -115,3 +122,57 @@ def test_grant_credits_logs_admin_action():
     assert data["transaction"]["id"] == "tx-1"
     credit_service.admin_grant.assert_awaited_once()
     admin_service.create_admin_log.assert_awaited_once()
+
+
+def test_get_admin_release_gate_requires_admin():
+    client = _create_client(user=_mock_user(is_superuser=False))
+
+    response = client.get("/dashboard/admin/release-gate")
+
+    assert response.status_code == 403
+
+
+def test_get_admin_release_gate_runs_service_with_query_flag():
+    release_gate_service = AsyncMock()
+    release_gate_service.run = AsyncMock(
+        return_value={
+            "status": "passed",
+            "go_no_go": "go",
+            "core_gate": {"status": "passed"},
+            "extended_gate": {"status": "failed"},
+        }
+    )
+
+    client = _create_client(
+        user=_mock_user(is_superuser=True),
+        release_gate_service=release_gate_service,
+    )
+
+    response = client.get("/dashboard/admin/release-gate?include_extended=true")
+
+    assert response.status_code == 200
+    assert response.json()["go_no_go"] == "go"
+    release_gate_service.run.assert_awaited_once_with(include_extended=True)
+
+
+def test_get_admin_release_gate_defaults_to_core_only():
+    release_gate_service = AsyncMock()
+    release_gate_service.run = AsyncMock(
+        return_value={
+            "status": "passed",
+            "go_no_go": "go",
+            "core_gate": {"status": "passed"},
+            "extended_gate": {"status": "pending"},
+        }
+    )
+
+    client = _create_client(
+        user=_mock_user(is_superuser=True),
+        release_gate_service=release_gate_service,
+    )
+
+    response = client.get("/dashboard/admin/release-gate")
+
+    assert response.status_code == 200
+    assert response.json()["extended_gate"]["status"] == "pending"
+    release_gate_service.run.assert_awaited_once_with(include_extended=False)

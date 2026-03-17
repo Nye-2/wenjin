@@ -89,7 +89,9 @@ class SectionLoader:
         Returns:
             SectionContent if found, None otherwise
         """
-        cache_key = f"section:{toc.paper_id}:{entry.title}"
+        cache_key = (
+            f"section:{toc.paper_id}:{entry.char_start}:{entry.char_end}:{entry.title}"
+        )
 
         # Try cache first
         if self._redis:

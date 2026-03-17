@@ -12,11 +12,11 @@ logger = logging.getLogger(__name__)
 
 KNOWLEDGE_EXTRACTION_PROMPT = """从以下对话中提取学术相关知识点。返回 JSON 数组:
 [
-  {
+  {{
     "category": "preference | knowledge | context | behavior | goal",
     "content": "简洁描述（一句话）",
     "confidence": 0.5-1.0
-  }
+  }}
 ]
 
 仅提取明确或高度可推断的信息。不要猜测。不确定时不要提取。
@@ -31,6 +31,15 @@ category 说明:
 {conversation}
 
 仅返回 JSON 数组，不要其他内容。"""
+
+
+def _coerce_confidence(value: Any, default: float = 0.7) -> float:
+    """Parse and clamp confidence into [0.0, 1.0]."""
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        confidence = default
+    return min(1.0, max(0.0, confidence))
 
 
 def format_knowledge_for_prompt(knowledge_items: list[dict[str, Any]]) -> str:
@@ -138,9 +147,11 @@ async def extract_and_persist_knowledge(
         async with get_db_session() as db:
             service = KnowledgeService(db)
             for item in items:
-                cat = item.get("category", "")
-                text = item.get("content", "")
-                conf = float(item.get("confidence", 0.7))
+                if not isinstance(item, dict):
+                    continue
+                cat = str(item.get("category", "")).strip()
+                text = str(item.get("content", "")).strip()
+                conf = _coerce_confidence(item.get("confidence", 0.7))
                 if not text or conf < 0.5:
                     continue
                 try:

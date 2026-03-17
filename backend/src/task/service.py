@@ -4,9 +4,10 @@ import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from src.config.app_config import celery_settings
 from src.config.task_config import task_settings
 from src.task import celery_app
-from src.task.executor import get_executor
+from src.task.executor import cancel_local_task, get_executor
 from src.task.registry import TaskStatus, get_task_config, is_valid_task_type
 from src.task.store import TaskStore
 
@@ -220,8 +221,13 @@ class TaskService:
         if record.status not in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value):
             return False
 
-        # Revoke Celery task
-        celery_app.control.revoke(task_id, terminate=True)
+        # Cancel backend task
+        if celery_settings.enabled:
+            celery_app.control.revoke(task_id, terminate=True)
+        else:
+            if not cancel_local_task(task_id):
+                logger.warning("Local task %s not found or already finished", task_id)
+                return False
 
         # Update database
         await self._store.update_task_record(

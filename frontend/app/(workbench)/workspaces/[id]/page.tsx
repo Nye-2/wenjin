@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Clock3, CheckCircle2, AlertCircle } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeaturesStore } from "@/stores/features";
 import { useDashboardStore } from "@/stores/dashboard";
@@ -55,6 +55,55 @@ const featureRouteMap: Record<string, string> = {
   prior_art_search: "prior-art-search",
 };
 
+type ModuleStatusValue = "not_started" | "in_progress" | "completed" | "failed";
+
+const moduleStatusOrder: ModuleStatusValue[] = [
+  "not_started",
+  "in_progress",
+  "completed",
+  "failed",
+];
+
+const moduleStatusMeta: Record<
+  ModuleStatusValue,
+  { label: string; badgeClass: string; iconClass: string }
+> = {
+  not_started: {
+    label: "未开始",
+    badgeClass: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    iconClass: "text-slate-500",
+  },
+  in_progress: {
+    label: "进行中",
+    badgeClass: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+    iconClass: "text-amber-500",
+  },
+  completed: {
+    label: "已完成",
+    badgeClass: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+    iconClass: "text-emerald-500",
+  },
+  failed: {
+    label: "失败",
+    badgeClass: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+    iconClass: "text-red-500",
+  },
+};
+
+const moduleStatusIconMap = {
+  not_started: Clock3,
+  in_progress: Loader2,
+  completed: CheckCircle2,
+  failed: AlertCircle,
+} as const;
+
+function normalizeModuleStatus(status: string | undefined): ModuleStatusValue {
+  if (status === "in_progress") return "in_progress";
+  if (status === "completed") return "completed";
+  if (status === "failed") return "failed";
+  return "not_started";
+}
+
 export default function WorkbenchPage() {
   const params = useParams();
   const router = useRouter();
@@ -64,6 +113,23 @@ export default function WorkbenchPage() {
     useWorkspaceStore();
   const { features, fetchFeatures, clearFeatures } = useFeaturesStore();
   const { modules, fetchDashboard, reset: resetDashboard } = useDashboardStore();
+
+  const moduleStatusCounts = useMemo(() => {
+    const counts: Record<ModuleStatusValue, number> = {
+      not_started: 0,
+      in_progress: 0,
+      completed: 0,
+      failed: 0,
+    };
+    const moduleStatusById = new Map(modules.map((module) => [module.id, module.status]));
+
+    for (const feature of features) {
+      const status = normalizeModuleStatus(moduleStatusById.get(feature.id));
+      counts[status] += 1;
+    }
+
+    return counts;
+  }, [features, modules]);
 
   useEffect(() => {
     if (workspaceId) {
@@ -116,6 +182,48 @@ export default function WorkbenchPage() {
       </div>
     );
   }
+
+  const moduleStatusOverview = (
+    <section>
+      <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
+        模块状态概览
+      </h2>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {moduleStatusOrder.map((status) => {
+          const meta = moduleStatusMeta[status];
+          const Icon = moduleStatusIconMap[status];
+          const count = moduleStatusCounts[status];
+          return (
+            <div
+              key={status}
+              className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-3"
+            >
+              <div className="flex items-center justify-between">
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
+                    meta.badgeClass
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      "h-3.5 w-3.5",
+                      meta.iconClass,
+                      status === "in_progress" && count > 0 && "animate-spin"
+                    )}
+                  />
+                  {meta.label}
+                </span>
+                <span className="text-sm font-semibold text-[var(--text-primary)]">
+                  {count}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 
   // Thesis workspace uses card dashboard layout
   if (workspace.type === "thesis") {
@@ -175,6 +283,8 @@ export default function WorkbenchPage() {
         <ErrorBoundary>
           <main className="flex-1 overflow-auto p-6">
             <div className="max-w-6xl mx-auto space-y-6">
+              {moduleStatusOverview}
+
               {/* Module Cards Grid */}
               <section>
                 <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
@@ -271,6 +381,8 @@ export default function WorkbenchPage() {
       <ErrorBoundary>
         <main className="flex-1 overflow-auto p-6">
           <div className="max-w-6xl mx-auto space-y-6">
+            {moduleStatusOverview}
+
             {/* Module Cards Grid */}
             <section>
               <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">

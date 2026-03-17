@@ -9,6 +9,9 @@ import {
   BarChart3,
   FileText,
   ListChecks,
+  Clock3,
+  Loader2,
+  CheckCircle2,
   AlertCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -35,6 +38,32 @@ const colorMap: Record<string, { bg: string; border: string; text: string }> = {
   indigo: { bg: "bg-indigo-50 dark:bg-indigo-950/30", border: "border-indigo-200 dark:border-indigo-800", text: "text-indigo-700 dark:text-indigo-300" },
 };
 
+const statusMetaMap: Record<
+  ModuleStatus["status"],
+  { label: string; icon: LucideIcon; className: string }
+> = {
+  not_started: {
+    label: "未开始",
+    icon: Clock3,
+    className: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+  },
+  in_progress: {
+    label: "进行中",
+    icon: Loader2,
+    className: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+  },
+  completed: {
+    label: "已完成",
+    icon: CheckCircle2,
+    className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
+  },
+  failed: {
+    label: "失败",
+    icon: AlertCircle,
+    className: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+  },
+};
+
 interface Feature {
   id: string;
   name: string;
@@ -42,6 +71,13 @@ interface Feature {
   icon: string;
   color?: string;
   panel?: string | null;
+}
+
+function normalizeModuleStatus(status: string | undefined): ModuleStatus["status"] {
+  if (status === "in_progress") return "in_progress";
+  if (status === "completed") return "completed";
+  if (status === "failed") return "failed";
+  return "not_started";
 }
 
 interface ModuleCardProps {
@@ -60,8 +96,10 @@ export function ModuleCard({
   const router = useRouter();
   const Icon = iconMap[feature.icon] || FileText;
   const colors = colorMap[feature.color || "blue"] ?? colorMap.blue;
-  const status = moduleStatus?.status || "not_started";
+  const status = normalizeModuleStatus(moduleStatus?.status);
   const hasRoute = Boolean(route);
+  const statusMeta = statusMetaMap[status];
+  const StatusIcon = statusMeta.icon;
 
   const actionLabel =
     feature.panel === null
@@ -71,7 +109,7 @@ export function ModuleCard({
         : status === "completed"
           ? "查看结果 →"
           : status === "in_progress"
-            ? "继续 →"
+            ? "查看进度 →"
             : "开始 →";
 
   const handleClick = () => {
@@ -93,19 +131,19 @@ export function ModuleCard({
         <h3 className="font-semibold text-[var(--text-primary)]">
           {feature.name}
         </h3>
-        {status === "failed" && (
-          <span className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
-            <AlertCircle className="w-3.5 h-3.5" />
-            失败
-          </span>
-        )}
+        <span
+          className={`ml-auto inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${statusMeta.className}`}
+        >
+          <StatusIcon className={`h-3.5 w-3.5 ${status === "in_progress" ? "animate-spin" : ""}`} />
+          {statusMeta.label}
+        </span>
       </div>
       <p className="text-sm text-[var(--text-secondary)] mb-3 line-clamp-2">
         {feature.description}
       </p>
       <div className="flex items-center justify-between">
         <span className="text-xs text-[var(--text-muted)]">
-          {renderSummary(feature.id, moduleStatus?.summary)}
+          {renderSummary(feature.id, moduleStatus?.summary, status)}
         </span>
         <span className={`text-xs font-medium ${colors.text} group-hover:translate-x-1 transition-transform`}>
           {actionLabel}
@@ -117,9 +155,17 @@ export function ModuleCard({
 
 function renderSummary(
   moduleId: string,
-  summary?: Record<string, unknown>
+  summary: Record<string, unknown> | undefined,
+  status: ModuleStatus["status"]
 ): string {
-  if (!summary) return "未开始";
+  const fallbackByStatus: Record<ModuleStatus["status"], string> = {
+    not_started: "未开始",
+    in_progress: "任务进行中",
+    completed: "已完成",
+    failed: "执行失败，请重试",
+  };
+
+  if (!summary) return fallbackByStatus[status];
 
   const num = (value: unknown): number => {
     if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -179,6 +225,6 @@ function renderSummary(
     case "prior_art_search":
       return num(summary.reports_count) ? `${num(summary.reports_count)} 份检索报告` : "未开始";
     default:
-      return "未开始";
+      return fallbackByStatus[status];
   }
 }

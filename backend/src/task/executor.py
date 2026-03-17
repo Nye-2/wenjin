@@ -59,6 +59,7 @@ class LocalExecutor:
 
     def __init__(self, max_concurrency: int = 3):
         self._semaphore = asyncio.Semaphore(max_concurrency)
+        self._tasks: dict[str, asyncio.Task] = {}
 
     async def execute(
         self,
@@ -69,11 +70,25 @@ class LocalExecutor:
         *,
         priority: int = 5,
     ) -> None:
-        asyncio.create_task(self._guarded_run(task_id, task_type, payload))
+        task = asyncio.create_task(self._guarded_run(task_id, task_type, payload))
+        self._tasks[task_id] = task
+
+        def _cleanup(_done: asyncio.Task) -> None:
+            self._tasks.pop(task_id, None)
+
+        task.add_done_callback(_cleanup)
 
     async def _guarded_run(self, task_id: str, task_type: str, payload: dict) -> None:
         async with self._semaphore:
             await _run_task_locally(task_id, task_type, payload)
+
+    def cancel(self, task_id: str) -> bool:
+        """Cancel a local in-process task by id."""
+        task = self._tasks.get(task_id)
+        if task is None or task.done():
+            return False
+        task.cancel()
+        return True
 
 
 async def _run_task_locally(task_id: str, task_type: str, payload: dict) -> None:
@@ -185,6 +200,24 @@ async def _run_task_locally(task_id: str, task_type: str, payload: dict) -> None
 
 def get_executor() -> TaskExecutor:
     """Factory: return CeleryExecutor or LocalExecutor based on settings."""
+    global _CELERY_EXECUTOR, _LOCAL_EXECUTOR
+
     if celery_settings.enabled:
-        return CeleryExecutor()
-    return LocalExecutor()
+        if _CELERY_EXECUTOR is None:
+            _CELERY_EXECUTOR = CeleryExecutor()
+        return _CELERY_EXECUTOR
+
+    if _LOCAL_EXECUTOR is None:
+        _LOCAL_EXECUTOR = LocalExecutor()
+    return _LOCAL_EXECUTOR
+
+
+def cancel_local_task(task_id: str) -> bool:
+    """Cancel task in local executor mode."""
+    if _LOCAL_EXECUTOR is None:
+        return False
+    return _LOCAL_EXECUTOR.cancel(task_id)
+
+
+_CELERY_EXECUTOR: CeleryExecutor | None = None
+_LOCAL_EXECUTOR: LocalExecutor | None = None

@@ -32,6 +32,15 @@ COMPACT_PROMPT = """你是一个记忆压缩系统。将以下用户知识条目
 仅返回 JSON，不要其他内容。"""
 
 
+def _coerce_confidence(value: Any, default: float = 0.7) -> float:
+    """Parse and clamp confidence into [0.0, 1.0]."""
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        confidence = default
+    return min(1.0, max(0.0, confidence))
+
+
 async def compact_user_memory(
     user_id: str,
     *,
@@ -81,9 +90,11 @@ async def compact_user_memory(
         compacted_items = result.get("compacted", [])
         count = 0
         for item in compacted_items:
-            cat = item.get("category", "")
-            text = item.get("content", "")
-            conf = float(item.get("confidence", 0.7))
+            if not isinstance(item, dict):
+                continue
+            cat = str(item.get("category", "")).strip()
+            text = str(item.get("content", "")).strip()
+            conf = _coerce_confidence(item.get("confidence", 0.7))
             if not text:
                 continue
             try:

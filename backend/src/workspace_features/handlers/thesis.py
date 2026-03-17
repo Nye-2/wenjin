@@ -166,6 +166,7 @@ async def compile_and_export(
         refresh_targets=["artifacts"],
         data={
             "compile_status": compile_status,
+            "output_language": content.get("output_language"),
             "pdf_path": content.get("pdf_path"),
             "compile_error": content.get("compile_error"),
         },

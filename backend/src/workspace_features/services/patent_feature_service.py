@@ -20,6 +20,8 @@ from src.models.factory import create_chat_model
 
 logger = logging.getLogger(__name__)
 
+PATENT_OUTPUT_LANGUAGE = "zh"
+
 
 def _utc_now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
@@ -324,6 +326,8 @@ async def build_patent_outline_payload(
             claim["source"] = "llm"
 
         return {
+            "schema_version": "v1",
+            "output_language": PATENT_OUTPUT_LANGUAGE,
             "innovation_description": normalized_innovation,
             "technical_field": normalized_field,
             "application_scenario": normalized_scenario,
@@ -338,6 +342,8 @@ async def build_patent_outline_payload(
         }
 
     return {
+        "schema_version": "v1",
+        "output_language": PATENT_OUTPUT_LANGUAGE,
         "innovation_description": normalized_innovation,
         "technical_field": normalized_field,
         "application_scenario": normalized_scenario,
@@ -558,6 +564,8 @@ async def build_prior_art_search_payload(
         search_scope["time_range"] = normalized_time_range
 
         return {
+            "schema_version": "v1",
+            "output_language": PATENT_OUTPUT_LANGUAGE,
             "keywords": normalized_keywords,
             "ipc_codes": normalized_ipc,
             "time_range": normalized_time_range,
@@ -573,6 +581,8 @@ async def build_prior_art_search_payload(
         }
 
     return {
+        "schema_version": "v1",
+        "output_language": PATENT_OUTPUT_LANGUAGE,
         "keywords": normalized_keywords,
         "ipc_codes": normalized_ipc,
         "time_range": normalized_time_range,

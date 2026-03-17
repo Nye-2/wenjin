@@ -5,12 +5,13 @@ algorithm with Redis as the backend storage.
 """
 
 import time
-from typing import Callable, Optional
-from fastapi import Request, Response, HTTPException, status
+from collections.abc import Callable
+
+from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from src.config import settings
+from src.config import redis_settings
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -109,7 +110,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return response
 
-    def _get_client_ip(self, request: Request) -> Optional[str]:
+    def _get_client_ip(self, request: Request) -> str | None:
         """Extract client IP from request.
 
         Checks X-Forwarded-For header first, then falls back to client.host.
@@ -218,8 +219,8 @@ def setup_rate_limiting(app, redis_client=None):
         setup_rate_limiting(app, redis_client=my_redis_client)
     """
     # Get settings from config
-    requests_per_minute = getattr(settings, 'RATE_LIMIT_REQUESTS', 60)
-    window_seconds = getattr(settings, 'RATE_LIMIT_WINDOW', 60)
+    requests_per_minute = getattr(redis_settings, "rate_limit_requests", 60)
+    window_seconds = getattr(redis_settings, "rate_limit_window", 60)
 
     app.add_middleware(
         RateLimitMiddleware,

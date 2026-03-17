@@ -7,6 +7,11 @@ import { ArrowLeft, FileText, Settings } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { listArtifacts } from "@/lib/api";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
 import { cn } from "@/lib/utils";
 
 interface CopyrightMaterialsProfile {
@@ -77,6 +82,7 @@ export default function TechnicalDescriptionPage() {
     };
 
     loadDefaults();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only load defaults on mount or workspace change, not on field edits
   }, [workspaceId, workspace]);
 
   // Update software name when workspace changes
@@ -97,6 +103,37 @@ export default function TechnicalDescriptionPage() {
       interface_protocols: interfaceProtocols.trim() || undefined,
       highlights: highlights.trim() || undefined,
     });
+  };
+
+  const resultViewModel: WorkspaceResultViewModel = {
+    summary:
+      "本工作区用于生成软著技术说明书主文档，系统会根据软件参数产出结构化说明内容。",
+    sections: [
+      {
+        title: "当前软件信息",
+        content: `软件：${softwareName || "未填写"}；版本：${version || "未填写"}；部署：${deploymentArchitecture || "未填写"}`,
+      },
+      {
+        title: "配置完整度",
+        content: `核心模块：${coreModules || "未填写"}；数据库/中间件：${databaseMiddleware || "未填写"}；接口协议：${interfaceProtocols || "未填写"}`,
+      },
+      {
+        title: "任务状态",
+        content: isLoadingDefaults
+          ? "正在读取历史材料默认值..."
+          : error
+            ? `执行失败：${error}`
+            : status
+              ? `执行反馈：${status}`
+              : "尚未开始生成技术说明书。",
+      },
+    ],
+    nextActions: [
+      "补齐核心模块、数据库和接口协议信息后执行生成。",
+      "生成后在知识区审阅章节内容并按登记要求修订。",
+      "与材料清单联动完成软著申请包准备。",
+    ],
+    outputLanguage: "zh",
   };
 
   return (
@@ -262,16 +299,12 @@ export default function TechnicalDescriptionPage() {
                 {isRunning ? "正在生成..." : "生成技术说明书"}
               </button>
 
-              {error && (
-                <p className="text-xs text-red-500 mt-2 bg-red-500/10 p-2 rounded-lg">
-                  {error}
-                </p>
-              )}
-              {status && !error && (
-                <p className="text-xs text-[var(--text-secondary)] mt-2 bg-[var(--bg-elevated)] p-2 rounded-lg">
-                  {status}
-                </p>
-              )}
+              <TaskFeedbackBanner
+                isRunning={isRunning}
+                status={status}
+                error={error}
+                onRetry={handleGenerate}
+              />
             </div>
           )}
         </aside>
@@ -281,33 +314,9 @@ export default function TechnicalDescriptionPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="h-full"
           >
-            <div className="text-center max-w-lg">
-              <FileText className="w-16 h-16 text-indigo-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                技术说明书生成
-              </h2>
-              <p className="text-[var(--text-secondary)] mb-4">
-                填写左侧软件技术参数后点击生成，系统将自动生成符合软著登记要求的技术说明书。
-              </p>
-              <div className="text-left bg-[var(--bg-surface)] rounded-lg p-4 border border-[var(--border-default)]">
-                <h3 className="text-sm font-medium text-[var(--text-primary)] mb-2">
-                  生成的说明书包含以下章节：
-                </h3>
-                <ul className="text-xs text-[var(--text-muted)] space-y-1">
-                  <li>1. 系统概述 - 软件整体介绍</li>
-                  <li>2. 模块设计 - 核心功能模块说明</li>
-                  <li>3. 数据流程 - 系统数据流转说明</li>
-                  <li>4. 部署架构 - 部署方案说明</li>
-                  <li>5. 安全与权限 - 安全机制说明</li>
-                  <li>6. 操作步骤 - 主要操作流程</li>
-                </ul>
-              </div>
-              <p className="text-xs text-[var(--text-muted)] mt-4">
-                提示：如果之前已生成过材料清单，系统会自动读取已填信息作为默认值。
-              </p>
-            </div>
+            <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>
       </main>

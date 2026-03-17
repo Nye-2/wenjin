@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, FlaskConical } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { cn } from "@/lib/utils";
 
 export default function DeepResearchPage() {
@@ -23,9 +24,8 @@ export default function DeepResearchPage() {
 
   useEffect(() => {
     if (workspace && !topic) {
-      setTopic(
-        (workspace.description || workspace.name || "").toString()
-      );
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
+      setTopic((workspace.description || workspace.name || "").toString());
     }
   }, [workspace, topic]);
 
@@ -128,16 +128,12 @@ export default function DeepResearchPage() {
                 </p>
               </div>
 
-              {error && (
-                <p className="text-xs text-red-500 mt-1">
-                  {error}
-                </p>
-              )}
-              {status && !error && (
-                <p className="text-xs text-[var(--text-secondary)] mt-1">
-                  {status}
-                </p>
-              )}
+              <TaskFeedbackBanner
+                isRunning={isRunning}
+                status={status}
+                error={error}
+                onRetry={handleRun}
+              />
             </div>
           </motion.div>
         </div>

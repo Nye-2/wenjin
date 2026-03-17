@@ -257,11 +257,11 @@ start_backend() {
 
     if check_command uv; then
         # 启动 Gateway
-        uv run uvicorn src.gateway.main:app --host 0.0.0.0 --port 8001 --reload > "$LOG_DIR/backend.log" 2>&1 &
+        uv run uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 --reload > "$LOG_DIR/backend.log" 2>&1 &
         echo $! > "$BACKEND_PID_FILE"
     else
         source .venv/bin/activate
-        uvicorn src.gateway.main:app --host 0.0.0.0 --port 8001 --reload > "$LOG_DIR/backend.log" 2>&1 &
+        uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 --reload > "$LOG_DIR/backend.log" 2>&1 &
         echo $! > "$BACKEND_PID_FILE"
     fi
 
