@@ -147,6 +147,38 @@ services:
     networks:
       - academiagpt-network
 
+  # Prometheus metrics collection (Sprint 2)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: academiagpt-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      - academiagpt-network
+
+  # Grafana dashboards (Sprint 2)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: academiagpt-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    ports:
+      - "3001:3000"
+    networks:
+      - academiagpt-network
+
 networks:
   academiagpt-network:
     driver: bridge
@@ -157,4 +189,8 @@ volumes:
   redis_data:
     driver: local
   uploads:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
     driver: local
