@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -288,6 +288,11 @@ class PaperSection(Base, UUIDMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_paper_sections_paper_workspace", "paper_id", "workspace_id"),
         Index("ix_paper_sections_path", "paper_id", "section_path"),
+        Index(
+            "ix_paper_sections_content_fts",
+            text("to_tsvector('simple', content)"),
+            postgresql_using="gin",
+        ),
     )
 
     paper_id: Mapped[str] = mapped_column(
