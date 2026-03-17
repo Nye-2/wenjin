@@ -4,22 +4,22 @@
 import logging
 from typing import Literal
 
-from langchain_core.tools import tool, InjectedToolArg
+from langchain_core.tools import InjectedToolArg, tool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Paper, WorkspacePaper, Workspace
-from src.academic.services.workspace_service import WorkspaceService
 from src.academic.services.paper_service import PaperService
-from .navigation.models import PaperTOC
-from .navigation.toc_service import TocService
-from .navigation.section_loader import SectionLoader
+from src.academic.services.workspace_service import WorkspaceService
+from src.database import Paper, PaperSection, WorkspacePaper
+
 from .external import (
-    SemanticScholarClient,
     ArxivClient,
     CrossrefClient,
     OpenAlexClient,
+    SemanticScholarClient,
 )
+from .navigation.section_loader import SectionLoader
+from .navigation.toc_service import TocService
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ async def get_section(
 
     Args:
         paper_id: Paper ID
-        section_title: Section title (e.g., "3. Methodology")
+        section_title: Section title (e.g., "3. Methodology") or section path (e.g., "3.2.1")
 
     Returns:
         Section content in markdown format
@@ -87,9 +87,22 @@ async def get_section(
         content = await section_loader.get_abstract(toc)
         return content.content if content else "Abstract not available"
 
-    content = await section_loader.load_section(toc, section_title)
+    # Try section_path lookup first (e.g., "3.2.1")
+    entry = None
+    if section_title.replace(".", "").isdigit():
+        entry = toc.find_entry_by_path(section_title)
+
+    # Fall back to title-based lookup (with fuzzy matching)
+    if not entry:
+        entry = toc.find_entry(section_title)
+
+    if not entry:
+        available = [e.title for e in toc.entries]
+        return f"Section '{section_title}' not found. Available sections: {available}"
+
+    content = await section_loader.load_section_by_entry(toc, entry)
     if not content:
-        return f"Section '{section_title}' not found. Available sections: {[e.title for e in toc.entries]}"
+        return f"Content not available for section '{section_title}'"
 
     return content.content
 
@@ -422,3 +435,88 @@ async def import_paper(
         return f"Successfully imported: {paper.title} (from {source})"
     except Exception as e:
         return f"Error importing paper: {str(e)}"
+
+
+@tool
+async def search_workspace(
+    query: str,
+    workspace_id: str,
+    db: AsyncSession = InjectedToolArg,
+    limit: int = 10,
+) -> list[dict]:
+    """Search section content across all papers in a workspace.
+
+    Uses PostgreSQL full-text search to find relevant sections.
+    Supports Chinese + English mixed search.
+
+    Args:
+        query: Search keywords
+        workspace_id: Workspace ID to search within
+        limit: Maximum results (default 10)
+
+    Returns:
+        List of matching sections with paper title, section title, snippet, and relevance score
+    """
+    from sqlalchemy import func
+    from sqlalchemy import text as sa_text
+
+    # Build tsquery from the search query
+    # Use 'simple' config for Chinese+English mixed support
+    # Split query into words and join with & for AND matching
+    words = query.strip().split()
+    if not words:
+        return []
+
+    ts_query_str = " & ".join(words)
+
+    # Query using PostgreSQL full-text search
+    stmt = (
+        select(
+            PaperSection.paper_id,
+            PaperSection.section_title,
+            PaperSection.section_path,
+            PaperSection.content,
+            func.ts_rank(
+                func.to_tsvector(sa_text("'simple'"), PaperSection.content),
+                func.to_tsquery(sa_text("'simple'"), ts_query_str),
+            ).label("relevance"),
+        )
+        .where(PaperSection.workspace_id == workspace_id)
+        .where(
+            func.to_tsvector(sa_text("'simple'"), PaperSection.content).match(
+                ts_query_str, postgresql_regconfig="simple"
+            )
+        )
+        .order_by(sa_text("relevance DESC"))
+        .limit(limit)
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    # Get paper titles for the results
+    paper_ids = list({row.paper_id for row in rows})
+    paper_titles = {}
+    if paper_ids:
+        papers_result = await db.execute(
+            select(Paper.id, Paper.title).where(Paper.id.in_(paper_ids))
+        )
+        paper_titles = {str(r.id): r.title for r in papers_result.all()}
+
+    # Build response with snippets
+    results = []
+    for row in rows:
+        # Create a snippet (first 300 chars of content)
+        content = row.content or ""
+        snippet = content[:300] + "..." if len(content) > 300 else content
+
+        results.append({
+            "paper_id": row.paper_id,
+            "paper_title": paper_titles.get(row.paper_id, "Unknown"),
+            "section_title": row.section_title,
+            "section_path": row.section_path,
+            "snippet": snippet,
+            "relevance_score": float(row.relevance) if row.relevance else 0.0,
+        })
+
+    return results

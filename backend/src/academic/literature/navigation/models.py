@@ -44,8 +44,53 @@ class PaperTOC(BaseModel):
     total_chars: int = Field(default=0, ge=0, description="全文字符数")
 
     def find_entry(self, title: str) -> TOCEntry | None:
-        """通过标题查找目录条目"""
-        return self._find_entry_recursive(title, self.entries)
+        """通过标题查找目录条目 — 支持精确匹配和模糊匹配"""
+        # 1. Exact match (case-insensitive)
+        exact = self._find_entry_recursive(title, self.entries)
+        if exact:
+            return exact
+
+        # 2. Fuzzy match using difflib
+        import difflib
+
+        all_entries = self._flatten_entries(self.entries)
+        titles = [e.title for e in all_entries]
+        matches = difflib.get_close_matches(title, titles, n=1, cutoff=0.6)
+        if matches:
+            return self._find_entry_recursive(matches[0], self.entries)
+
+        return None
+
+    def find_entry_by_path(self, section_path: str) -> TOCEntry | None:
+        """通过章节路径查找 (如 "3.2.1")"""
+        return self._find_by_path_recursive(section_path, self.entries, "")
+
+    def _find_by_path_recursive(
+        self,
+        target_path: str,
+        entries: list[TOCEntry],
+        prefix: str,
+    ) -> TOCEntry | None:
+        for i, entry in enumerate(entries):
+            current_path = f"{i + 1}" if not prefix else f"{prefix}.{i + 1}"
+            if current_path == target_path:
+                return entry
+            if entry.children:
+                found = self._find_by_path_recursive(
+                    target_path, entry.children, current_path
+                )
+                if found:
+                    return found
+        return None
+
+    def _flatten_entries(self, entries: list[TOCEntry]) -> list[TOCEntry]:
+        """Flatten nested entries into a flat list."""
+        result: list[TOCEntry] = []
+        for entry in entries:
+            result.append(entry)
+            if entry.children:
+                result.extend(self._flatten_entries(entry.children))
+        return result
 
     def _find_entry_recursive(self, title: str, entries: list[TOCEntry]) -> TOCEntry | None:
         for entry in entries:

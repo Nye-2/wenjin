@@ -2,10 +2,12 @@
 """Section content loader."""
 
 import logging
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import PaperExtraction
+
 from .models import PaperTOC, SectionContent, TOCEntry
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,47 @@ class SectionLoader:
             return None
 
         # Extract section content
+        content = full_text[entry.char_start:entry.char_end]
+
+        return SectionContent(
+            paper_id=toc.paper_id,
+            section_title=entry.title,
+            content=content.strip(),
+            word_count=len(content.split()),
+            has_subsections=len(entry.children) > 0,
+        )
+
+    async def load_section_by_entry(
+        self,
+        toc: PaperTOC,
+        entry: TOCEntry,
+    ) -> SectionContent | None:
+        """Load content for a specific TOC entry.
+
+        Args:
+            toc: Paper TOC structure
+            entry: TOC entry to load content for
+
+        Returns:
+            SectionContent if found, None otherwise
+        """
+        # Get paper full text from extraction
+        result = await self.db.execute(
+            select(PaperExtraction.structured_data)
+            .where(PaperExtraction.paper_id == toc.paper_id)
+            .where(PaperExtraction.extraction_type == "full_text")
+            .order_by(PaperExtraction.tier.desc(), PaperExtraction.created_at.desc())
+            .limit(1)
+        )
+        structured_data = result.scalar_one_or_none()
+
+        if not structured_data:
+            return None
+
+        full_text = structured_data.get("full_text", "")
+        if not full_text:
+            return None
+
         content = full_text[entry.char_start:entry.char_end]
 
         return SectionContent(
