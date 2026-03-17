@@ -11,6 +11,7 @@ The service handles:
 - Caching to avoid re-processing
 """
 
+import json
 import logging
 import time
 from pathlib import Path
@@ -215,21 +216,48 @@ class ExtractionService:
             tier1 = await self._extract_tier1(paper_id, file_path)
 
         base_data = tier1.structured_data
+        full_text = base_data.get("full_text", "")
+        toc = base_data.get("toc", [])
 
-        # For now, this is a placeholder for LLM-based extraction
-        # In a full implementation, this would call LLM APIs to:
-        # 1. Extract and clean up metadata
-        # 2. Generate section summaries
-        # 3. Extract key concepts and entities
-        # 4. Identify citations and references
+        # LLM-based extraction (graceful — failures produce empty fields)
+        section_summaries: dict = {}
+        key_concepts: list = []
+        entities: list = []
+
+        if full_text:
+            try:
+                section_summaries = await self._extract_section_summaries(
+                    full_text, toc,
+                )
+            except Exception:
+                logger.warning(
+                    "Section summary extraction failed for paper %s",
+                    paper_id,
+                )
+
+            try:
+                key_concepts = await self._extract_key_concepts(full_text)
+            except Exception:
+                logger.warning(
+                    "Key concept extraction failed for paper %s",
+                    paper_id,
+                )
+
+            try:
+                entities = await self._extract_entities(full_text)
+            except Exception:
+                logger.warning(
+                    "Entity extraction failed for paper %s",
+                    paper_id,
+                )
 
         # Enhanced structured data
         enhanced_data = {
             **base_data,
             "llm_enhanced": True,
-            "section_summaries": {},  # Would be populated by LLM
-            "key_concepts": [],  # Would be populated by LLM
-            "entities": [],  # Would be populated by LLM
+            "section_summaries": section_summaries,
+            "key_concepts": key_concepts,
+            "entities": entities,
         }
 
         # Create extraction record
@@ -243,6 +271,173 @@ class ExtractionService:
         self.db.add(extraction)
 
         return extraction
+
+    # ------------------------------------------------------------------
+    # Tier 2 LLM helper methods
+    # ------------------------------------------------------------------
+
+    def _get_llm(self):
+        """Get LLM instance for Tier 2 extraction.
+
+        Attempts to create a model via the project's ``create_chat_model``
+        factory.  Falls back to a plain ``ChatOpenAI`` instance if the
+        factory is unavailable.  Returns ``None`` when no LLM can be
+        created, allowing callers to degrade gracefully.
+        """
+        try:
+            from src.models.factory import create_chat_model
+            return create_chat_model(self.LLM_MODEL_FAST, temperature=0)
+        except Exception:
+            logger.debug(
+                "create_chat_model failed for %s, trying ChatOpenAI fallback",
+                self.LLM_MODEL_FAST,
+            )
+        try:
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        except Exception:
+            logger.warning("No LLM available for Tier 2 extraction")
+            return None
+
+    async def _extract_section_summaries(
+        self,
+        full_text: str,
+        toc: list[dict],
+    ) -> dict:
+        """Generate 2-3 sentence summaries for each section using LLM.
+
+        For every entry in *toc* that can be located in *full_text*,
+        the LLM is asked for a brief summary of the surrounding text
+        (up to 4 000 characters).
+
+        Returns:
+            A mapping from section title to summary string.
+            Empty dict if the LLM is unavailable.
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        llm = self._get_llm()
+        if not llm:
+            return {}
+
+        summaries: dict[str, str] = {}
+        for entry in toc:
+            title = entry.get("title", "")
+            if not title:
+                continue
+            idx = full_text.find(title)
+            if idx < 0:
+                continue
+            section_text = full_text[idx : idx + 4000]
+
+            try:
+                response = await llm.ainvoke([
+                    SystemMessage(
+                        content=(
+                            "You are an academic paper analyzer. Generate a "
+                            "concise 2-3 sentence summary of the following "
+                            "paper section. Respond ONLY with the summary, "
+                            "no prefixes."
+                        ),
+                    ),
+                    HumanMessage(
+                        content=f"Section: {title}\n\nContent:\n{section_text}",
+                    ),
+                ])
+                summaries[title] = response.content.strip()
+            except Exception:
+                logger.debug("Failed to summarize section: %s", title)
+
+        return summaries
+
+    async def _extract_key_concepts(self, full_text: str) -> list[str]:
+        """Extract 10-20 key concepts from the paper.
+
+        Uses the first 8 000 characters (typically abstract, introduction,
+        and methodology) to identify the most important terms.
+
+        Returns:
+            A list of concept strings, or an empty list on failure.
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        llm = self._get_llm()
+        if not llm:
+            return []
+
+        text_sample = full_text[:8000]
+
+        response = await llm.ainvoke([
+            SystemMessage(
+                content=(
+                    "You are an academic paper analyzer. Extract 10-20 key "
+                    "concepts, terms, and techniques from this paper. Return "
+                    'ONLY a JSON array of strings, e.g. ["concept1", '
+                    '"concept2"].'
+                ),
+            ),
+            HumanMessage(content=text_sample),
+        ])
+
+        try:
+            concepts = json.loads(response.content.strip())
+            if isinstance(concepts, list):
+                return [str(c) for c in concepts[:20]]
+        except (json.JSONDecodeError, ValueError):
+            # Fallback: parse as newline-separated list
+            lines = [
+                line.strip().strip("-").strip("\u2022").strip()
+                for line in response.content.strip().split("\n")
+                if line.strip()
+            ]
+            return lines[:20]
+
+        return []
+
+    async def _extract_entities(self, full_text: str) -> list[dict]:
+        """Extract academic entities: methods, datasets, baselines, metrics.
+
+        Returns:
+            A list of dicts with ``type`` and ``name`` keys, or an empty
+            list on failure.
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        llm = self._get_llm()
+        if not llm:
+            return []
+
+        text_sample = full_text[:8000]
+
+        response = await llm.ainvoke([
+            SystemMessage(
+                content=(
+                    "You are an academic paper analyzer. Extract academic "
+                    "entities from this paper.\n"
+                    "Return ONLY a JSON array of objects with \"type\" and "
+                    "\"name\" fields.\n"
+                    'Types: "method", "dataset", "baseline", "metric", '
+                    '"tool", "theory"\n'
+                    "Example: "
+                    '[{"type": "method", "name": "Transformer"}, '
+                    '{"type": "dataset", "name": "ImageNet"}]'
+                ),
+            ),
+            HumanMessage(content=text_sample),
+        ])
+
+        try:
+            entities = json.loads(response.content.strip())
+            if isinstance(entities, list):
+                return [
+                    e
+                    for e in entities
+                    if isinstance(e, dict) and "type" in e and "name" in e
+                ][:30]
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        return []
 
     async def extract_sections(
         self,
