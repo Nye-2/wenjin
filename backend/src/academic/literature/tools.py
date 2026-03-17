@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.paper_service import PaperService
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import Paper, PaperSection, WorkspacePaper
+from src.database import Paper, PaperExtraction, PaperSection, WorkspacePaper
 
 from .external import (
     ArxivClient,
@@ -29,13 +29,14 @@ async def list_papers(
     workspace_id: str,
     db: AsyncSession = InjectedToolArg,
 ) -> list[dict]:
-    """List all papers in a workspace with their TOC.
+    """List all papers in a workspace with enriched TOC.
 
     Args:
         workspace_id: Workspace ID
 
     Returns:
-        List of papers with their table of contents
+        List of papers with their table of contents including
+        word_count, page_range, and summary per section
     """
     result = await db.execute(
         select(Paper)
@@ -49,13 +50,41 @@ async def list_papers(
 
     for paper in papers:
         toc = await toc_service.get_paper_toc(paper.id)
+
+        # Try to get Tier 2 section summaries
+        section_summaries: dict = {}
+        tier2_result = await db.execute(
+            select(PaperExtraction.structured_data)
+            .where(PaperExtraction.paper_id == str(paper.id))
+            .where(PaperExtraction.tier == 2)
+            .order_by(PaperExtraction.created_at.desc())
+            .limit(1)
+        )
+        tier2_data = tier2_result.scalar_one_or_none()
+        if tier2_data:
+            section_summaries = tier2_data.get("section_summaries", {})
+
+        enriched_toc = []
+        if toc:
+            for entry in toc.entries:
+                word_count = (entry.char_end - entry.char_start) // 5
+                toc_item = {
+                    "title": entry.title,
+                    "level": entry.level,
+                    "word_count": word_count,
+                    "page_range": (
+                        f"{entry.page_start or '?'}-?"
+                        if entry.page_start
+                        else None
+                    ),
+                    "summary": section_summaries.get(entry.title, ""),
+                }
+                enriched_toc.append(toc_item)
+
         paper_list.append({
             "paper_id": str(paper.id),
             "title": paper.title,
-            "toc": [
-                {"title": e.title, "level": e.level}
-                for e in (toc.entries if toc else [])
-            ],
+            "toc": enriched_toc,
         })
 
     return paper_list
