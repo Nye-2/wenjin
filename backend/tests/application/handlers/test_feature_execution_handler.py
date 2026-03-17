@@ -9,6 +9,7 @@ Verifies orchestration logic independently of HTTP routing:
 - Task submission and payload construction
 """
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -538,7 +539,12 @@ class TestIdempotencyKey:
         credit_service = AsyncMock()
         credit_service.consume_for_feature.return_value = None
 
+        @asynccontextmanager
+        async def _noop_lock(workspace_id, timeout=None):
+            yield
+
         redis_client = AsyncMock()
+        redis_client.workspace_lock = _noop_lock
         redis_client.client = AsyncMock()
         redis_client.client.get = AsyncMock(return_value=None)  # No cached key
         redis_client.client.set = AsyncMock()

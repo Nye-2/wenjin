@@ -224,92 +224,183 @@ class FeatureExecutionHandler:
                 },
             }
 
-        # 6. Build task payload
-        task_payload = build_task_payload(
-            workspace=workspace,
+        # 6-9. Submit task (with distributed lock if Redis available)
+        return await self._submit_with_lock(
             workspace_id=workspace_id,
             workspace_type=workspace_type,
+            workspace=workspace,
             feature=feature,
+            feature_id=feature_id,
             params=params,
             thread_id=thread_id,
+            credit_transaction=credit_transaction,
+            idempotency_key=idempotency_key,
+            redis_client=redis_client,
         )
-        if credit_transaction is not None:
-            task_payload["credit_transaction_id"] = str(credit_transaction.id)
-            task_payload["credit_cost"] = abs(int(credit_transaction.amount))
 
-        # 7. Submit task (with failure compensation)
-        try:
-            task_id = await self.task_service.submit_task(
+    async def _submit_with_lock(
+        self,
+        *,
+        workspace_id: str,
+        workspace_type: str,
+        workspace: Any,
+        feature: Any,
+        feature_id: str,
+        params: dict[str, Any],
+        thread_id: str | None,
+        credit_transaction: Any | None,
+        idempotency_key: str | None,
+        redis_client: Any | None,
+    ) -> dict[str, Any]:
+        """Submit task, optionally guarded by distributed workspace lock.
+
+        Re-checks for active tasks inside the lock to prevent the race
+        condition where two concurrent requests both pass the optimistic
+        dedup check (step 4) and both submit tasks.
+        """
+        action = params.get("action")
+
+        async def _do_submit() -> dict[str, Any]:
+            # Re-check for active task inside lock (atomic dedup)
+            existing_task_id = await self.task_service.find_active_task(
                 user_id=str(self.user.id),
                 task_type=feature.task_type,
-                payload=task_payload,
+                workspace_id=workspace_id,
+                feature_id=feature_id,
+                action=str(action) if action is not None else None,
             )
-        except ConcurrencyLimitError as exc:
-            logger.warning(
-                "[Features] Concurrency limit for user %s: %s",
-                self.user.id,
-                exc,
+            if existing_task_id:
+                # Refund credit if we already billed
+                if credit_transaction is not None:
+                    await self.credit_service.refund_failed_task(
+                        user_id=str(self.user.id),
+                        original_transaction_id=str(credit_transaction.id),
+                        reason="分布式锁内发现重复任务退款",
+                    )
+                return {
+                    "task_id": existing_task_id,
+                    "status": "pending",
+                    "feature_id": feature_id,
+                    "message": f"已有进行中的 {feature.name} 任务",
+                    "warning": None,
+                    "detail": None,
+                }
+
+            # Build task payload
+            task_payload = build_task_payload(
+                workspace=workspace,
+                workspace_id=workspace_id,
+                workspace_type=workspace_type,
+                feature=feature,
+                params=params,
+                thread_id=thread_id,
             )
             if credit_transaction is not None:
-                await self.credit_service.refund_failed_task(
+                task_payload["credit_transaction_id"] = str(credit_transaction.id)
+                task_payload["credit_cost"] = abs(int(credit_transaction.amount))
+
+            # Submit task
+            try:
+                task_id = await self.task_service.submit_task(
                     user_id=str(self.user.id),
-                    original_transaction_id=str(credit_transaction.id),
-                    reason="并发任务上限退款",
+                    task_type=feature.task_type,
+                    payload=task_payload,
                 )
-            return {
-                "task_id": None,
-                "status": "warning",
-                "feature_id": feature_id,
-                "message": f"并发任务数已达上限（{exc.limit}），请等待现有任务完成",
-                "warning": "concurrency_limit",
-                "detail": {
-                    "current": exc.current,
-                    "limit": exc.limit,
-                },
-            }
-        except Exception as exc:
-            logger.exception(
-                "[Features] Failed to queue task for feature %s in workspace %s",
+            except ConcurrencyLimitError as exc:
+                logger.warning(
+                    "[Features] Concurrency limit for user %s: %s",
+                    self.user.id,
+                    exc,
+                )
+                if credit_transaction is not None:
+                    await self.credit_service.refund_failed_task(
+                        user_id=str(self.user.id),
+                        original_transaction_id=str(credit_transaction.id),
+                        reason="并发任务上限退款",
+                    )
+                return {
+                    "task_id": None,
+                    "status": "warning",
+                    "feature_id": feature_id,
+                    "message": f"并发任务数已达上限（{exc.limit}），请等待现有任务完成",
+                    "warning": "concurrency_limit",
+                    "detail": {
+                        "current": exc.current,
+                        "limit": exc.limit,
+                    },
+                }
+            except Exception as exc:
+                logger.exception(
+                    "[Features] Failed to queue task for feature %s in workspace %s",
+                    feature_id,
+                    workspace_id,
+                )
+                if credit_transaction is not None:
+                    await self.credit_service.refund_failed_task(
+                        user_id=str(self.user.id),
+                        original_transaction_id=str(credit_transaction.id),
+                        reason="任务排队失败退款",
+                    )
+                raise HTTPException(
+                    status_code=500, detail="Failed to queue feature task"
+                ) from exc
+
+            # Link credit transaction to task
+            if credit_transaction is not None:
+                credit_transaction.task_id = task_id
+                await self.credit_service.db.commit()
+
+            # Store idempotency key → task_id mapping
+            if idempotency_key and redis_client:
+                idem_redis_key = f"idempotency:{self.user.id}:{idempotency_key}"
+                await redis_client.client.set(
+                    idem_redis_key, task_id, nx=True, ex=IDEMPOTENCY_KEY_TTL
+                )
+
+            logger.info(
+                "[Features] Started %s task %s for workspace %s",
                 feature_id,
+                task_id,
                 workspace_id,
             )
-            if credit_transaction is not None:
-                await self.credit_service.refund_failed_task(
-                    user_id=str(self.user.id),
-                    original_transaction_id=str(credit_transaction.id),
-                    reason="任务排队失败退款",
+
+            return {
+                "task_id": task_id,
+                "status": "pending",
+                "feature_id": feature_id,
+                "message": f"Queued {feature.name}",
+                "warning": None,
+                "detail": None,
+            }
+
+        # Try to use distributed lock; fall back to unlocked if Redis unavailable
+        if redis_client:
+            try:
+                async with redis_client.workspace_lock(workspace_id, timeout=30):
+                    return await _do_submit()
+            except RuntimeError:
+                logger.warning(
+                    "[Features] Could not acquire workspace lock for %s, "
+                    "another submission in progress",
+                    workspace_id,
                 )
-            raise HTTPException(
-                status_code=500, detail="Failed to queue feature task"
-            ) from exc
-
-        # 8. Link credit transaction to task
-        if credit_transaction is not None:
-            credit_transaction.task_id = task_id
-            await self.credit_service.db.commit()
-
-        # 9. Store idempotency key → task_id mapping
-        if idempotency_key and redis_client:
-            idem_redis_key = f"idempotency:{self.user.id}:{idempotency_key}"
-            await redis_client.client.set(
-                idem_redis_key, task_id, nx=True, ex=IDEMPOTENCY_KEY_TTL
-            )
-
-        logger.info(
-            "[Features] Started %s task %s for workspace %s",
-            feature_id,
-            task_id,
-            workspace_id,
-        )
-
-        return {
-            "task_id": task_id,
-            "status": "pending",
-            "feature_id": feature_id,
-            "message": f"Queued {feature.name}",
-            "warning": None,
-            "detail": None,
-        }
+                # Refund credit since we cannot proceed
+                if credit_transaction is not None:
+                    await self.credit_service.refund_failed_task(
+                        user_id=str(self.user.id),
+                        original_transaction_id=str(credit_transaction.id),
+                        reason="工作区锁竞争退款",
+                    )
+                return {
+                    "task_id": None,
+                    "status": "warning",
+                    "feature_id": feature_id,
+                    "message": "该工作区正在处理另一个提交，请稍后重试",
+                    "warning": "workspace_locked",
+                    "detail": None,
+                }
+        else:
+            return await _do_submit()
 
 
 # ============ FastAPI Dependency Factories ============
