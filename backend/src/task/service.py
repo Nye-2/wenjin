@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from src.config.task_config import task_settings
 from src.task import celery_app
+from src.task.executor import get_executor
 from src.task.registry import TaskStatus, get_task_config, is_valid_task_type
 from src.task.store import TaskStore
 
@@ -102,23 +103,24 @@ class TaskService:
         # Get task config
         config = get_task_config(task_type)
 
-        # Submit to Celery
+        # Submit via executor (Celery or local depending on config)
         try:
-            celery_app.send_task(
-                "src.task.tasks.execute_task",
-                args=[task_id, task_type, payload],
+            executor = get_executor()
+            await executor.execute(
+                task_id=task_id,
+                task_type=task_type,
+                payload=payload,
                 queue=config.queue if config else "default",
                 priority=10 - priority,  # Celery uses inverse priority
-                task_id=task_id,
             )
         except Exception as exc:
             logger.error(
-                "Queue submission failed for task %s: %s", task_id, exc
+                "Task submission failed for task %s: %s", task_id, exc
             )
             await self._store.update_task_record(
                 task_id,
                 status=TaskStatus.FAILED.value,
-                error=f"Queue submission failed: {exc}",
+                error=f"Task submission failed: {exc}",
             )
             raise
 
