@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, FileText, Download, FileDown } from "lucide-react";
+import { ArrowLeft, FileText, FileDown } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 export default function CompileExportPage() {
@@ -23,12 +25,23 @@ export default function CompileExportPage() {
     workspaceId,
     featureId: "compile_export",
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
 
   const handleCompile = async () => {
     await run({
       template,
       compiler,
       bibliography_style: bibStyle,
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -120,6 +133,17 @@ export default function CompileExportPage() {
               </select>
             </div>
 
+            <ModelSelector
+              id="compile-export-model"
+              label="生成模型"
+              models={availableModels}
+              selectedModel={selectedModel}
+              onChange={setSelectedModel}
+              isLoading={isModelLoading}
+              loadError={modelLoadError}
+              disabled={isRunning}
+            />
+
             <button
               className={cn(
                 "w-full py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors flex items-center justify-center gap-2",
@@ -154,17 +178,9 @@ export default function CompileExportPage() {
             <h3 className="text-sm font-medium text-[var(--text-primary)] mb-3">
               导出格式
             </h3>
-            <div className="space-y-2">
-              {["PDF", "Word (.docx)", "LaTeX (.tex)", "Markdown"].map((format) => (
-                <button
-                  key={format}
-                  className="w-full flex items-center gap-2 p-2 bg-[var(--bg-elevated)] rounded-lg text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]"
-                >
-                  <Download className="w-4 h-4" />
-                  {format}
-                </button>
-              ))}
-            </div>
+            <p className="text-xs text-[var(--text-muted)]">
+              多格式导出功能即将推出，敬请期待
+            </p>
           </div>
         </aside>
 

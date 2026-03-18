@@ -1,7 +1,7 @@
 """Tests for ChatThreadService."""
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -69,6 +69,17 @@ class TestChatThreadService:
         assert thread.messages == []
 
     @pytest.mark.asyncio
+    async def test_create_thread_without_model_uses_resolved_default(self, service):
+        """Missing model should resolve through llm_config default resolver."""
+        with patch(
+            "src.services.chat_thread_service.route_model",
+            return_value="resolved-model-id",
+        ):
+            thread = await service.create_thread(user_id="user-1")
+
+        assert thread.model == "resolved-model-id"
+
+    @pytest.mark.asyncio
     async def test_get_or_create_thread_reuses_owned_thread(self, service, mock_db_session):
         """Existing owned threads are reused and can absorb workspace context."""
         thread = _make_thread(workspace_id=None)
@@ -84,6 +95,34 @@ class TestChatThreadService:
 
         assert resolved is thread
         assert resolved.workspace_id == "ws-2"
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_thread_updates_model_when_explicitly_selected(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Existing thread model is updated when user explicitly selects another model."""
+        thread = _make_thread(workspace_id="ws-1")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = thread
+        mock_db_session.execute.return_value = result
+
+        with patch(
+            "src.services.chat_thread_service.route_model",
+            return_value="resolved-model-id",
+        ):
+            resolved = await service.get_or_create_thread(
+                user_id="user-1",
+                thread_id="thread-1",
+                workspace_id="ws-1",
+                model="some-user-selected-model",
+            )
+
+        assert resolved is thread
+        assert resolved.model == "resolved-model-id"
         mock_db_session.commit.assert_awaited_once()
         mock_db_session.refresh.assert_awaited_once_with(thread)
 

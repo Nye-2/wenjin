@@ -15,8 +15,8 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install all dependencies for build (dev deps are required by next build)
+RUN npm ci
 
 # ============================================
 # Builder Stage
@@ -30,6 +30,7 @@ COPY --from=deps /app/node_modules ./node_modules
 
 # Copy source code
 COPY . .
+RUN mkdir -p public
 
 # Set environment variables for build
 ENV NEXT_TELEMETRY_DISABLED=1 \
@@ -74,7 +75,7 @@ ENV PORT=3000 \
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000 || exit 1
 
 # Start the server
 CMD ["node", "server.js"]

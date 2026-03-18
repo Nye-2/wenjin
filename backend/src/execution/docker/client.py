@@ -6,16 +6,21 @@ proper error handling, and volume management.
 
 import asyncio
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
+from docker.errors import APIError, DockerException, ImageNotFound
+
 import docker
-from docker.errors import DockerException, ImageNotFound, APIError
 
 logger = logging.getLogger(__name__)
 
 # Shared thread pool for Docker operations
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="docker-")
+_LATEX_IMAGE = "academiagpt/texlive:2024"
+_LATEX_IMAGE_ARCHIVE = "academiagpt-texlive-2024.tar"
 
 
 class DockerExecutionError(Exception):
@@ -63,7 +68,7 @@ class DockerClient:
         return self._client
 
     async def ensure_image(self, image: str) -> bool:
-        """Ensure Docker image exists, pulling if necessary.
+        """Ensure Docker image exists, loading/pulling if necessary.
 
         Args:
             image: Image name with optional tag (e.g., "python:3.12").
@@ -81,6 +86,9 @@ class DockerClient:
                 logger.debug(f"Image already exists: {image}")
                 return True
             except ImageNotFound:
+                if self._try_load_local_archive(image):
+                    return True
+
                 # Pull the image
                 logger.info(f"Pulling image: {image}")
                 try:
@@ -95,6 +103,73 @@ class DockerClient:
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_executor, _ensure)
+
+    def _get_local_archive_candidates(self, image: str) -> list[Path]:
+        """Get candidate tar archives for local image auto-loading."""
+        if image != _LATEX_IMAGE:
+            return []
+
+        candidates: list[Path] = []
+
+        env_specific = os.getenv("ACADEMIAGPT_TEXLIVE_IMAGE_TAR")
+        if env_specific:
+            candidates.append(Path(env_specific))
+
+        env_generic = os.getenv("DOCKER_IMAGE_TAR_PATH")
+        if env_generic:
+            candidates.append(Path(env_generic))
+
+        backend_root = Path(__file__).resolve().parents[3]
+        candidates.append(
+            backend_root / "docker" / "images" / "texlive" / _LATEX_IMAGE_ARCHIVE
+        )
+        candidates.append(
+            Path("/opt/academiagpt/images/texlive") / _LATEX_IMAGE_ARCHIVE
+        )
+
+        deduped: list[Path] = []
+        seen: set[str] = set()
+        for path in candidates:
+            resolved = str(path.expanduser())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            deduped.append(Path(resolved))
+        return deduped
+
+    def _try_load_local_archive(self, image: str) -> bool:
+        """Try loading an image from local tar archive if available."""
+        for archive_path in self._get_local_archive_candidates(image):
+            if not archive_path.is_file():
+                continue
+
+            logger.info(
+                "Image '%s' not found locally. Trying archive: %s",
+                image,
+                archive_path,
+            )
+            try:
+                with archive_path.open("rb") as archive_fp:
+                    load_stream = self.client.api.load_image(
+                        archive_fp,
+                        quiet=True,
+                    )
+                    if load_stream is not None:
+                        for _ in load_stream:
+                            pass
+
+                self.client.images.get(image)
+                logger.info("Loaded image from archive: %s", archive_path)
+                return True
+            except Exception as exc:
+                logger.warning(
+                    "Failed loading image '%s' from archive '%s': %s",
+                    image,
+                    archive_path,
+                    exc,
+                )
+
+        return False
 
     def build_volume_mapping(
         self,

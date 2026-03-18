@@ -47,12 +47,11 @@ services:
       target: gateway
     container_name: academiagpt-gateway
     restart: unless-stopped
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/academiagpt
       - REDIS_URL=redis://redis:6379/0
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - GATEWAY_HOST=0.0.0.0
       - GATEWAY_PORT=8001
@@ -82,12 +81,11 @@ services:
       target: langgraph
     container_name: academiagpt-langgraph
     restart: unless-stopped
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/academiagpt
       - REDIS_URL=redis://redis:6379/0
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - LANGGRAPH_HOST=0.0.0.0
       - LANGGRAPH_PORT=2024
@@ -118,6 +116,7 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_LANGGRAPH_BASE_URL=/langgraph
+      - NEXT_PUBLIC_API_URL=/api
       - NEXT_PUBLIC_BACKEND_BASE_URL=/api
     depends_on:
       - gateway

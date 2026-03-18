@@ -7,9 +7,19 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
+from src.models.router import route_writing_model
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_writing_model(requested_model: str | None) -> str:
+    """Resolve a writing model with safe fallback."""
+    try:
+        return route_writing_model(requested_model=requested_model)
+    except Exception:
+        return requested_model or "default"
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +160,8 @@ async def _review_consistency(
     chapter_summaries: list[dict[str, str]],
     literature_count: int,
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> dict[str, Any] | None:
     """Step 1: LLM reviews thesis consistency. Returns None on failure."""
     if not chapter_summaries:
@@ -158,7 +170,7 @@ async def _review_consistency(
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return None
 
@@ -216,6 +228,8 @@ async def _generate_abstract_keywords(
     topic: str,
     workspace_description: str,
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> dict[str, Any] | None:
     """Step 2: LLM generates abstract and keywords. Returns None on failure."""
     if not chapter_summaries:
@@ -224,7 +238,7 @@ async def _generate_abstract_keywords(
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return None
 
@@ -289,6 +303,9 @@ async def compile_export_graph(
     )
     workspace_description = str(payload.get("workspace_description", ""))
     memory_context = initial_state.get("knowledge_context")
+    params = payload.get("params", {})
+    requested_model = _read_optional_str(params.get("model_id"))
+    model_id = _resolve_writing_model(requested_model)
 
     # Load data
     chapter_summaries = await _load_chapter_summaries(workspace_id)
@@ -299,6 +316,7 @@ async def compile_export_graph(
         chapter_summaries=chapter_summaries,
         literature_count=literature_count,
         memory_context=memory_context,
+        model_id=model_id,
     )
 
     # Step 2: Generate abstract and keywords
@@ -307,6 +325,7 @@ async def compile_export_graph(
         topic=workspace_name,
         workspace_description=workspace_description,
         memory_context=memory_context,
+        model_id=model_id,
     )
 
     # Determine pipeline results
@@ -319,6 +338,7 @@ async def compile_export_graph(
         "workspace_name": workspace_name,
         "consistency_review": consistency_review,
         "abstract_keywords": abstract_keywords,
+        "model_id": model_id,
         "chapter_count": len(chapter_summaries),
         "literature_count": literature_count,
         "generation_mode": generation_mode,

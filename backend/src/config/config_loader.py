@@ -121,7 +121,7 @@ class RedisConfig(BaseModel):
 class AppConfig(BaseModel):
     """Unified application configuration loaded from config.yaml."""
     models: list[ModelConfig] = Field(default_factory=list)
-    default_model: str = "gpt-4o"
+    default_model: str = "default"
     tools: list[ToolConfig] = Field(default_factory=list)
     tool_groups: list[ToolGroupConfig] = Field(default_factory=list)
     subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)

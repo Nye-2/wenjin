@@ -14,7 +14,7 @@ import logging
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
-from src.config.llm_config import get_model_full_config
+from src.config.llm_config import get_model_full_config, resolve_model_id
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +72,15 @@ def create_chat_model(
         >>> model = create_chat_model("deepseek-v3", temperature=0.7)
         >>> model = create_chat_model("claude-sonnet-4", thinking_enabled=True)
     """
+    # Resolve legacy/default aliases and get full model configuration
+    resolved_model_id = resolve_model_id(model_id)
+
     # Get the full configuration for this model
     try:
-        config = get_model_full_config(model_id)
+        config = get_model_full_config(resolved_model_id)
     except ValueError as e:
-        logger.error("Model not found: %s", model_id)
-        raise ValueError(f"Model not found: {model_id}") from e
+        logger.error("Model not found after resolution: %s", resolved_model_id)
+        raise ValueError(f"Model not found: {resolved_model_id}") from e
 
     # Extract configuration values
     model_string = config["model"]

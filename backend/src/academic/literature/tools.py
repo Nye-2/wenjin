@@ -116,24 +116,28 @@ async def get_section(
         content = await section_loader.get_abstract(toc)
         return content.content if content else "Abstract not available"
 
-    # Try section_path lookup first (e.g., "3.2.1")
-    entry = None
+    # Section path lookup (e.g., "3.2.1") uses exact TOC entry loading.
     if section_title.replace(".", "").isdigit():
         entry = toc.find_entry_by_path(section_title)
+        if not entry:
+            available = [e.title for e in toc.entries]
+            return f"Section '{section_title}' not found. Available sections: {available}"
 
-    # Fall back to title-based lookup (with fuzzy matching)
-    if not entry:
-        entry = toc.find_entry(section_title)
+        content = await section_loader.load_section_by_entry(toc, entry)
+        if not content:
+            return f"Content not available for section '{section_title}'"
+        return content.content
 
-    if not entry:
+    # Title lookup uses the section loader's built-in fuzzy logic.
+    content = await section_loader.load_section(toc, section_title)
+    if content:
+        return content.content
+
+    # Distinguish "missing section" from "section exists but content missing".
+    if toc.find_entry(section_title) is None:
         available = [e.title for e in toc.entries]
         return f"Section '{section_title}' not found. Available sections: {available}"
-
-    content = await section_loader.load_section_by_entry(toc, entry)
-    if not content:
-        return f"Content not available for section '{section_title}'"
-
-    return content.content
+    return f"Content not available for section '{section_title}'"
 
 
 @tool

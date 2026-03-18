@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from .base import ExecutionService
+from .docker.client import DockerClient, DockerExecutionError
+from .providers.latex import LaTeXProvider
+from .providers.mermaid import MermaidProvider
+from .providers.python_viz import PythonVizProvider
 from .types import (
     ExecutionRequest,
     ExecutionResult,
@@ -14,10 +18,6 @@ from .types import (
     ExecutionType,
     ProviderResult,
 )
-from .docker.client import DockerClient, DockerExecutionError
-from .providers.latex import LaTeXProvider
-from .providers.mermaid import MermaidProvider
-from .providers.python_viz import PythonVizProvider
 
 logger = logging.getLogger(__name__)
 
@@ -186,8 +186,8 @@ class DockerExecutionService(ExecutionService):
 
         # Build volume mapping
         volumes = self.docker_client.build_volume_mapping(
-            host_dir=work_dir,
-            container_dir="/workspace",
+            host_path=work_dir,
+            container_path="/workspace",
         )
 
         # Build command
@@ -198,6 +198,8 @@ class DockerExecutionService(ExecutionService):
             image=provider.docker_image,
             command=command,
             volumes=volumes,
+            working_dir="/workspace",
+            entrypoint="",
             timeout=request.timeout,
         )
 

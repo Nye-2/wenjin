@@ -60,28 +60,34 @@ class LaTeXProvider(ExecutionProvider):
         bibliography = options.get("bibliography", "")
         has_bib = bool(bibliography or options.get("bibliography_file"))
 
-        commands = []
-
         # Inject bibliography commands if needed
         if has_bib:
             bib_filename = options.get("bibliography_file", "refs.bib").replace(".bib", "")
             style = options.get("bibliography_style", "plain")
             content = self._inject_bibliography(content, bib_filename, style)
 
-        # Write main.tex file
-        escaped_content = content.replace("'", "'\\''")
-        commands.append(f"cat > main.tex << 'LATEX_EOF'\n{escaped_content}\nLATEX_EOF")
+        script_lines: list[str] = ["set -e"]
 
-        # Write bibliography if provided
+        # Write main.tex file.
+        script_lines.extend([
+            "cat > main.tex << 'LATEX_EOF'",
+            content.rstrip("\n"),
+            "LATEX_EOF",
+        ])
+
+        # Write bibliography if provided.
         if bibliography:
             bib_filename = options.get("bibliography_file", "refs.bib")
-            escaped_bib = bibliography.replace("'", "'\\''")
-            commands.append(f"cat > {bib_filename} << 'BIB_EOF'\n{escaped_bib}\nBIB_EOF")
+            script_lines.extend([
+                f"cat > {bib_filename} << 'BIB_EOF'",
+                bibliography.rstrip("\n"),
+                "BIB_EOF",
+            ])
 
-        # Build compilation chain
-        commands.extend(self._build_compile_chain(compiler, has_bib))
+        # Build compilation chain.
+        script_lines.extend(self._build_compile_chain(compiler, has_bib))
 
-        return ["/bin/bash", "-c", " && ".join(commands)]
+        return ["/bin/bash", "-c", "\n".join(script_lines)]
 
     def _build_compile_chain(self, compiler: str, has_bib: bool) -> list[str]:
         """Build LaTeX compilation command chain.
@@ -238,6 +244,7 @@ class LaTeXProvider(ExecutionProvider):
             metadata={
                 "page_count": page_count,
                 "compiler": options.get("compiler", "xelatex"),
+                "file_size": pdf_path.stat().st_size,
             },
             logs=self._truncate_log(log_content) if log_content else None
         )

@@ -1,7 +1,7 @@
 """Tests for LaTeX execution provider."""
 
 import pytest
-from pathlib import Path
+
 from src.execution.providers.latex import LaTeXProvider
 
 
@@ -28,6 +28,15 @@ class TestLaTeXProvider:
 
         assert "xelatex" in " ".join(command)
         assert "main.tex" in " ".join(command)
+
+    def test_build_command_heredoc_terminator_stays_on_own_line(self, provider):
+        """Heredoc terminator must not be followed by shell operators."""
+        content = r"\documentclass{article}\begin{document}Hello\end{document}"
+        command = provider.build_command(content, {"compiler": "pdflatex"})
+
+        script = command[2]
+        assert "\nLATEX_EOF\n" in script
+        assert "LATEX_EOF &&" not in script
 
     def test_build_command_with_bibtex(self, provider):
         """Should build command chain with BibTeX."""

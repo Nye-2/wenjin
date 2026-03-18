@@ -14,9 +14,9 @@ from typing import Any
 
 from src.academic.services import ArtifactService
 from src.artifacts import ArtifactType
-from src.config import get_gen_models
 from src.database import Artifact, get_db_session
 from src.models.factory import create_chat_model
+from src.models.router import list_user_selectable_models, route_writing_model
 
 logger = logging.getLogger(__name__)
 
@@ -256,12 +256,13 @@ async def _try_generate_technical_sections(
     preferred_model: str | None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt to generate technical description sections using LLM."""
-    models = get_gen_models()
+    models = list_user_selectable_models(purpose="writing")
     if not models:
         return None, None, "no_generation_model_configured"
 
-    model_id = preferred_model or models[0].id
-    if not any(model.id == model_id for model in models):
+    try:
+        model_id = route_writing_model(requested_model=preferred_model)
+    except Exception:
         model_id = models[0].id
 
     try:

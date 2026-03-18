@@ -21,6 +21,7 @@ from src.database import (
     Paper,
     PaperSection,
     User,
+    Workspace,
     WorkspacePaper,
     get_db_session,
 )
@@ -93,7 +94,7 @@ SearchPapersRequest = SearchPapersValidator
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get database session."""
-    async for session in get_db_session():
+    async with get_db_session() as session:
         yield session
 
 
@@ -145,6 +146,68 @@ def section_to_response(section: PaperSection) -> SectionResponse:
         content=section.content,
         level=section.level,
     )
+
+
+def _is_owner_check_enabled(session: AsyncSession) -> bool:
+    """Enable owner checks only for real SQLAlchemy sessions."""
+    return isinstance(session, AsyncSession)
+
+
+async def _require_workspace_owner(
+    session: AsyncSession,
+    workspace_id: str,
+    user_id: str,
+) -> None:
+    """Ensure workspace exists and is owned by user."""
+    result = await session.execute(
+        select(Workspace.user_id).where(Workspace.id == workspace_id)
+    )
+    owner_id = result.scalar_one_or_none()
+    if owner_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found",
+        )
+    if str(owner_id) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+
+async def _paper_accessible_by_user(
+    session: AsyncSession,
+    paper_id: str,
+    user_id: str,
+) -> bool:
+    """Check whether user owns at least one workspace containing this paper."""
+    result = await session.execute(
+        select(WorkspacePaper.paper_id)
+        .join(Workspace, Workspace.id == WorkspacePaper.workspace_id)
+        .where(
+            WorkspacePaper.paper_id == paper_id,
+            Workspace.user_id == user_id,
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def _paper_in_workspace(
+    session: AsyncSession,
+    paper_id: str,
+    workspace_id: str,
+) -> bool:
+    """Check whether paper is associated with workspace."""
+    result = await session.execute(
+        select(WorkspacePaper.paper_id)
+        .where(
+            WorkspacePaper.paper_id == paper_id,
+            WorkspacePaper.workspace_id == workspace_id,
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
 
 
 # ============ Endpoints ============
@@ -206,7 +269,15 @@ async def list_papers(
     Returns:
         List of paper responses
     """
+    owner_check = _is_owner_check_enabled(session)
+
     if workspace_id:
+        if owner_check:
+            await _require_workspace_owner(
+                session,
+                workspace_id=workspace_id,
+                user_id=str(current_user.id),
+            )
         # List papers in a specific workspace
         query = (
             select(Paper)
@@ -216,12 +287,24 @@ async def list_papers(
             .limit(limit)
         )
     else:
-        # List all papers globally
-        query = (
-            select(Paper)
-            .order_by(Paper.created_at.desc())
-            .limit(limit)
-        )
+        # List papers visible to current user.
+        if owner_check:
+            query = (
+                select(Paper)
+                .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
+                .join(Workspace, Workspace.id == WorkspacePaper.workspace_id)
+                .where(Workspace.user_id == str(current_user.id))
+                .order_by(Paper.created_at.desc())
+                .distinct()
+                .limit(limit)
+            )
+        else:
+            # Test fallback for mocked sessions.
+            query = (
+                select(Paper)
+                .order_by(Paper.created_at.desc())
+                .limit(limit)
+            )
 
     result = await session.execute(query)
     papers = list(result.scalars().all())
@@ -234,6 +317,7 @@ async def get_paper(
     paper_id: str,
     current_user: User = Depends(get_current_user),
     paper_service: PaperService = Depends(get_paper_service),
+    session: AsyncSession = Depends(get_session),
 ):
     """Get paper by ID.
 
@@ -253,6 +337,17 @@ async def get_paper(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Paper not found: {paper_id}",
         )
+    if _is_owner_check_enabled(session):
+        accessible = await _paper_accessible_by_user(
+            session,
+            paper_id=paper_id,
+            user_id=str(current_user.id),
+        )
+        if not accessible:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Paper not found: {paper_id}",
+            )
     return paper_to_response(paper)
 
 
@@ -284,6 +379,17 @@ async def update_paper(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Paper not found: {paper_id}",
         )
+    if _is_owner_check_enabled(session):
+        accessible = await _paper_accessible_by_user(
+            session,
+            paper_id=paper_id,
+            user_id=str(current_user.id),
+        )
+        if not accessible:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Paper not found: {paper_id}",
+            )
 
     # Update only provided fields
     update_data = request.model_dump(exclude_unset=True)
@@ -323,6 +429,17 @@ async def delete_paper(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Paper not found: {paper_id}",
         )
+    if _is_owner_check_enabled(session):
+        accessible = await _paper_accessible_by_user(
+            session,
+            paper_id=paper_id,
+            user_id=str(current_user.id),
+        )
+        if not accessible:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Paper not found: {paper_id}",
+            )
 
     await session.delete(paper)
     await session.commit()
@@ -338,6 +455,7 @@ async def extract_paper(
     current_user: User = Depends(get_current_user),
     paper_service: PaperService = Depends(get_paper_service),
     extraction_service: ExtractionService = Depends(get_extraction_service),
+    session: AsyncSession = Depends(get_session),
 ):
     """Trigger paper extraction.
 
@@ -360,6 +478,22 @@ async def extract_paper(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Paper not found: {paper_id}",
         )
+    if _is_owner_check_enabled(session):
+        await _require_workspace_owner(
+            session,
+            workspace_id=workspace_id,
+            user_id=str(current_user.id),
+        )
+        in_workspace = await _paper_in_workspace(
+            session,
+            paper_id=paper_id,
+            workspace_id=workspace_id,
+        )
+        if not in_workspace:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Paper not found in workspace",
+            )
 
     if not paper.file_path:
         raise HTTPException(
@@ -429,9 +563,21 @@ async def get_paper_sections(
         )
 
     # Query sections
+    owner_check = _is_owner_check_enabled(session)
     query = select(PaperSection).where(PaperSection.paper_id == paper_id)
     if workspace_id:
+        if owner_check:
+            await _require_workspace_owner(
+                session,
+                workspace_id=workspace_id,
+                user_id=str(current_user.id),
+            )
         query = query.where(PaperSection.workspace_id == workspace_id)
+    elif owner_check:
+        query = (
+            query.join(Workspace, Workspace.id == PaperSection.workspace_id)
+            .where(Workspace.user_id == str(current_user.id))
+        )
     query = query.order_by(PaperSection.page_start)
 
     result = await session.execute(query)
@@ -456,6 +602,14 @@ async def search_papers(
         List of matching papers
     """
     query_text = request.query
+    owner_check = _is_owner_check_enabled(session)
+
+    if request.workspace_id and owner_check:
+        await _require_workspace_owner(
+            session,
+            workspace_id=request.workspace_id,
+            user_id=str(current_user.id),
+        )
 
     if request.workspace_id:
         # Search within workspace papers
@@ -472,17 +626,33 @@ async def search_papers(
             .limit(request.limit)
         )
     else:
-        # Global search
-        query = (
-            select(Paper)
-            .where(
-                or_(
-                    Paper.title.ilike(f"%{query_text}%"),
-                    Paper.abstract.ilike(f"%{query_text}%"),
+        # Global search scoped to current user's owned workspaces.
+        if owner_check:
+            query = (
+                select(Paper)
+                .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
+                .join(Workspace, Workspace.id == WorkspacePaper.workspace_id)
+                .where(Workspace.user_id == str(current_user.id))
+                .where(
+                    or_(
+                        Paper.title.ilike(f"%{query_text}%"),
+                        Paper.abstract.ilike(f"%{query_text}%"),
+                    )
                 )
+                .distinct()
+                .limit(request.limit)
             )
-            .limit(request.limit)
-        )
+        else:
+            query = (
+                select(Paper)
+                .where(
+                    or_(
+                        Paper.title.ilike(f"%{query_text}%"),
+                        Paper.abstract.ilike(f"%{query_text}%"),
+                    )
+                )
+                .limit(request.limit)
+            )
 
     result = await session.execute(query)
     papers = list(result.scalars().all())

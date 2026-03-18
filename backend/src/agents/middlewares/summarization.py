@@ -83,8 +83,16 @@ class SummarizationMiddleware(Middleware):
         """Generate a summary of the messages."""
         try:
             from src.models.factory import create_chat_model
-            model = create_chat_model(self._model_name or "qwen-flash")
-        except ValueError:
+            from src.models.router import route_model
+
+            model_id = route_model(
+                requested_model=self._model_name,
+                preferred_categories=("utility", "gen", "tool"),
+                allowed_categories=("utility", "gen", "tool"),
+                require_tools=False,
+            )
+            model = create_chat_model(model_id)
+        except Exception:
             return None
 
         # Format messages for summarization

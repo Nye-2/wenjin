@@ -224,12 +224,13 @@ async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
 
             logger.info("Dispatching thesis deep_research to LangGraph first")
             langgraph_result = await _try_langgraph_execution(
+                "thesis",
                 "deep_research",
                 payload,
                 progress,
             )
             if langgraph_result is not None:
-                _schedule_memory_extraction("deep_research", payload, langgraph_result)
+                _schedule_memory_extraction("thesis", payload, langgraph_result)
                 return langgraph_result
         except Exception:
             logger.warning(

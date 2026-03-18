@@ -3,10 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, User, Bot, Sparkles } from "lucide-react";
-import {
-  executeWorkspaceFeature,
-  getTaskStatus,
-} from "@/lib/api";
+import { executeWorkspaceFeature, getTaskStatus } from "@/lib/api";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { useChatStore, Message } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useTaskStore } from "@/stores/task";
@@ -95,6 +93,14 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   const { getFeatureById } = useFeaturesStore();
   const [inputValue, setInputValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+  } = useModelSelection({
+    purpose: "chat",
+    persistenceKey: `workspace:${workspaceId}:model:chat`,
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -108,7 +114,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     setActionError(null);
 
     try {
-      // 根据 feature 类型构造参数（目前仅 deep_research 需要基础 query）
+      // 根据 feature 类型构造默认参数，保证快捷动作命中正确后端 action。
       const params: Record<string, unknown> = {};
       if (feature.id === "deep_research") {
         // 暂时使用 workspace 描述或名称作为研究主题，后续可由专用页面接管
@@ -118,7 +124,21 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
           "";
         if (topic) {
           params.query = topic;
+          params.topic = topic;
         }
+      }
+      if (feature.id === "thesis_writing") {
+        // Chat 快捷动作默认走 Step 1：大纲生成，避免落入无参写作动作。
+        const paperTitle =
+          workspace?.name?.trim() ||
+          workspace?.description?.trim() ||
+          "未命名论文";
+        params.action = "generate_outline";
+        params.paper_title = paperTitle;
+        params.target_words = 20000;
+      }
+      if (selectedModel) {
+        params.model_id = selectedModel;
       }
 
       const execution = await executeWorkspaceFeature(
@@ -259,6 +279,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     await sendMessage(content, {
       workspaceId,
       skill: currentSkill,
+      model: selectedModel || undefined,
     });
   };
 
@@ -349,6 +370,32 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
             selectedSkill={currentSkill}
             onSelect={setCurrentSkill}
           />
+        </div>
+
+        <div className="mb-3 flex items-center gap-3">
+          <label
+            htmlFor="chat-model-select"
+            className="text-xs font-medium text-[var(--text-muted)]"
+          >
+            Chat Model
+          </label>
+          <select
+            id="chat-model-select"
+            value={selectedModel ?? ""}
+            onChange={(event) => setSelectedModel(event.target.value || null)}
+            disabled={availableModels.length === 0 || isStreaming}
+            className="min-w-[220px] rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
+          >
+            {availableModels.length === 0 ? (
+              <option value="">No models available</option>
+            ) : (
+              availableModels.map((model) => (
+                <option key={model.name} value={model.name}>
+                  {model.display_name}
+                </option>
+              ))
+            )}
+          </select>
         </div>
 
         {/* Input Form */}

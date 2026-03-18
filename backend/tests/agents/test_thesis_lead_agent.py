@@ -1,15 +1,19 @@
 """Tests for ThesisLeadAgent routing via WorkspaceLeadAgent."""
 
+import sys
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, patch
 
 from src.agents.thesis_lead_agent import (
     THESIS_FEATURE_IDS,
     execute_thesis_feature_graph,
 )
 from src.agents.workspace_lead_agent import (
-    _build_system_prompt,
     _FEATURE_GRAPH_REGISTRY,
+    _LOADED_WORKSPACES,
+    _build_system_prompt,
+    _ensure_graphs_loaded,
 )
 
 
@@ -55,3 +59,46 @@ class TestFeatureRouting:
             mock_fn.assert_called_once()
         finally:
             _FEATURE_GRAPH_REGISTRY.pop("thesis._test_feature", None)
+
+    def test_thesis_graph_modules_register_feature_handlers(self):
+        module_names = [
+            "src.agents.graphs.thesis",
+            "src.agents.graphs.thesis.deep_research",
+            "src.agents.graphs.thesis.literature_management",
+            "src.agents.graphs.thesis.opening_research",
+            "src.agents.graphs.thesis.thesis_writing",
+            "src.agents.graphs.thesis.figure_generation",
+            "src.agents.graphs.thesis.compile_export",
+        ]
+        expected_keys = {
+            "thesis.deep_research",
+            "thesis.literature_management",
+            "thesis.opening_research",
+            "thesis.thesis_writing",
+            "thesis.figure_generation",
+            "thesis.compile_export",
+        }
+
+        previous_registry = dict(_FEATURE_GRAPH_REGISTRY)
+        previous_loaded = set(_LOADED_WORKSPACES)
+        previous_modules = {name: sys.modules.get(name) for name in module_names}
+
+        try:
+            for name in module_names:
+                sys.modules.pop(name, None)
+            _FEATURE_GRAPH_REGISTRY.clear()
+            _LOADED_WORKSPACES.clear()
+
+            _ensure_graphs_loaded("thesis")
+
+            assert expected_keys.issubset(set(_FEATURE_GRAPH_REGISTRY.keys()))
+        finally:
+            _FEATURE_GRAPH_REGISTRY.clear()
+            _FEATURE_GRAPH_REGISTRY.update(previous_registry)
+            _LOADED_WORKSPACES.clear()
+            _LOADED_WORKSPACES.update(previous_loaded)
+            for name, module in previous_modules.items():
+                if module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = module

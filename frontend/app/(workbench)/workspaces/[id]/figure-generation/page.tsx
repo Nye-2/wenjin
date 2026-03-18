@@ -1,19 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, BarChart3, Image as ImageIcon } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 export default function FigureGenerationPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts, fetchArtifacts } = useWorkspaceStore();
   const [figureType, setFigureType] = useState("flowchart");
   const [description, setDescription] = useState("");
   const [chapterIndex, setChapterIndex] = useState("");
@@ -23,6 +25,50 @@ export default function FigureGenerationPage() {
     featureId: "figure_generation",
     onSuccess: () => setDescription(""),
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
+
+  // 获取章节列表
+  useEffect(() => {
+    if (workspaceId) {
+      fetchArtifacts(workspaceId);
+    }
+  }, [workspaceId, fetchArtifacts]);
+
+  const chapters = useMemo(() => {
+    const outlineArtifact = artifacts.find(
+      (a) =>
+        a.type === "framework_outline" ||
+        a.type === "thesis_outline" ||
+        a.type === "outline"
+    );
+
+    if (!outlineArtifact?.content) return [];
+
+    const content = outlineArtifact.content as Record<string, unknown>;
+    const outlineContent =
+      content.outline && typeof content.outline === "object"
+        ? (content.outline as Record<string, unknown>)
+        : content;
+    const chaptersList = outlineContent.chapters as
+      | Array<Record<string, unknown>>
+      | undefined;
+
+    if (!chaptersList) return [];
+
+    return chaptersList.map((chapter, index) => ({
+      index: index + 1,
+      title: String(chapter.title || `第${index + 1}章`),
+    }));
+  }, [artifacts]);
 
   const handleGenerateFigure = async () => {
     if (!description.trim()) return;
@@ -33,6 +79,7 @@ export default function FigureGenerationPage() {
     if (chapterIndex) {
       p.chapter_index = Number(chapterIndex);
     }
+    p.model_id = selectedModel || undefined;
     await run(p);
   };
 
@@ -117,12 +164,38 @@ export default function FigureGenerationPage() {
                 onChange={(e) => setChapterIndex(e.target.value)}
               >
                 <option value="">不关联</option>
-                <option value="1">第一章</option>
-                <option value="2">第二章</option>
-                <option value="3">第三章</option>
-                <option value="4">第四章</option>
+                {chapters.length > 0 ? (
+                  chapters.map((ch) => (
+                    <option key={ch.index} value={ch.index}>
+                      {ch.title}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="1">第一章</option>
+                    <option value="2">第二章</option>
+                    <option value="3">第三章</option>
+                    <option value="4">第四章</option>
+                  </>
+                )}
               </select>
+              {chapters.length === 0 && (
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  请先生成论文大纲以获取实际章节
+                </p>
+              )}
             </div>
+
+            <ModelSelector
+              id="figure-generation-model"
+              label="生成模型"
+              models={availableModels}
+              selectedModel={selectedModel}
+              onChange={setSelectedModel}
+              isLoading={isModelLoading}
+              loadError={modelLoadError}
+              disabled={isRunning}
+            />
 
             <button
               className={cn(

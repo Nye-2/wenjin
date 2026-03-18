@@ -265,20 +265,34 @@ class TestGetLlm:
         service = _make_service()
         with (
             patch(
-                "src.academic.services.extraction_service.ExtractionService._get_llm",
-                wraps=service._get_llm,
-            ),
-            patch(
                 "src.models.factory.create_chat_model",
                 side_effect=Exception("no config"),
             ),
             patch(
-                "langchain_openai.ChatOpenAI",
-                side_effect=Exception("no api key"),
+                "src.config.get_default_model_id",
+                side_effect=Exception("no default"),
             ),
         ):
             result = service._get_llm()
         assert result is None
+
+    def test_falls_back_to_default_model_when_fast_model_fails(self):
+        service = _make_service()
+        mock_model = MagicMock()
+        with (
+            patch(
+                "src.models.factory.create_chat_model",
+                side_effect=[Exception("fast missing"), mock_model],
+            ) as mock_create,
+            patch(
+                "src.config.get_default_model_id",
+                return_value="qwen3.5-plus",
+            ),
+        ):
+            result = service._get_llm()
+
+        assert result is mock_model
+        assert mock_create.call_count == 2
 
     def test_returns_model_from_factory(self):
         service = _make_service()

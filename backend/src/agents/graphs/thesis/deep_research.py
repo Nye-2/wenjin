@@ -8,9 +8,24 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
+from src.models.router import route_model
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_research_model(requested_model: str | None) -> str:
+    """Resolve a chat/research model for deep-research tasks."""
+    try:
+        return route_model(
+            requested_model=requested_model,
+            preferred_categories=("tool", "gen"),
+            allowed_categories=("tool", "gen"),
+            require_tools=False,
+        )
+    except Exception:
+        return requested_model or "default"
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +47,11 @@ async def deep_research_graph(
     Each phase has LLM fallback. Output combined into structured result payload.
     """
     params = payload.get("params", {})
-    topic = str(params.get("topic", payload.get("workspace_name", ""))).strip()
+    topic = str(
+        params.get("topic")
+        or params.get("query")
+        or payload.get("workspace_name", "")
+    ).strip()
     if not topic:
         topic = "未命名研究主题"
     discipline = str(params.get("discipline", payload.get("workspace_discipline", ""))).strip()
@@ -40,6 +59,8 @@ async def deep_research_graph(
         discipline = "通用学科"
     focus_areas: list[str] = params.get("focus_areas", [])
     memory_context = initial_state.get("knowledge_context")
+    requested_model = _read_optional_str(params.get("model_id"))
+    model_id = _resolve_research_model(requested_model)
 
     pipeline_steps: dict[str, bool] = {
         "discovery": False,
@@ -49,7 +70,13 @@ async def deep_research_graph(
     }
 
     # Phase 1: Discovery (parallel)
-    discovery = await _phase1_discovery(topic, discipline, focus_areas, memory_context)
+    discovery = await _phase1_discovery(
+        topic,
+        discipline,
+        focus_areas,
+        memory_context,
+        model_id=model_id,
+    )
     pipeline_steps["discovery"] = bool(
         discovery.get("seminal_works")
         or discovery.get("recent_works")
@@ -57,15 +84,34 @@ async def deep_research_graph(
     )
 
     # Phase 2: Gap Mining (sequential, depends on Phase 1)
-    gaps = await _phase2_gap_mining(discovery, topic, discipline, memory_context)
+    gaps = await _phase2_gap_mining(
+        discovery,
+        topic,
+        discipline,
+        memory_context,
+        model_id=model_id,
+    )
     pipeline_steps["gap_mining"] = bool(gaps)
 
     # Phase 3: Synthesis (sequential, depends on Phase 1 + Phase 2)
-    ideas = await _phase3_synthesis(discovery, gaps, topic, discipline, memory_context)
+    ideas = await _phase3_synthesis(
+        discovery,
+        gaps,
+        topic,
+        discipline,
+        memory_context,
+        model_id=model_id,
+    )
     pipeline_steps["synthesis"] = bool(ideas)
 
     # Phase 4: Cross-Validation (sequential, depends on all above)
-    cross_validation = await _phase4_cross_validate(discovery, gaps, ideas, topic)
+    cross_validation = await _phase4_cross_validate(
+        discovery,
+        gaps,
+        ideas,
+        topic,
+        model_id=model_id,
+    )
     pipeline_steps["cross_validation"] = cross_validation is not None
 
     return {
@@ -75,6 +121,7 @@ async def deep_research_graph(
         "gaps": gaps,
         "ideas": ideas,
         "cross_validation": cross_validation,
+        "model_id": model_id,
         "pipeline_steps": pipeline_steps,
         "generation_mode": _determine_generation_mode(pipeline_steps),
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
@@ -89,12 +136,14 @@ async def _phase1_discovery(
     discipline: str,
     focus_areas: list[str],
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> dict[str, Any]:
     """Run 3 discovery tasks in parallel via asyncio.gather."""
     results = await asyncio.gather(
-        _scout_seminal_works(topic, discipline, focus_areas, memory_context),
-        _scout_recent_works(topic, discipline, focus_areas, memory_context),
-        _analyze_trends(topic, discipline, focus_areas, memory_context),
+        _scout_seminal_works(topic, discipline, focus_areas, memory_context, model_id=model_id),
+        _scout_recent_works(topic, discipline, focus_areas, memory_context, model_id=model_id),
+        _analyze_trends(topic, discipline, focus_areas, memory_context, model_id=model_id),
         return_exceptions=True,
     )
 
@@ -144,12 +193,14 @@ async def _scout_seminal_works(
     discipline: str,
     focus_areas: list[str],
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Identify seminal/foundational works for the topic."""
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return []
 
@@ -198,12 +249,14 @@ async def _scout_recent_works(
     discipline: str,
     focus_areas: list[str],
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Identify recent cutting-edge works for the topic."""
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return []
 
@@ -251,12 +304,14 @@ async def _analyze_trends(
     discipline: str,
     focus_areas: list[str],
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Analyze current research trends for the topic."""
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return []
 
@@ -309,12 +364,14 @@ async def _phase2_gap_mining(
     topic: str,
     discipline: str,
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Identify research gaps from discovered works."""
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return []
 
@@ -372,12 +429,14 @@ async def _phase3_synthesis(
     topic: str,
     discipline: str,
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Generate novel research ideas addressing identified gaps."""
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return []
 
@@ -435,12 +494,14 @@ async def _phase4_cross_validate(
     gaps: list[dict[str, Any]],
     ideas: list[dict[str, Any]],
     topic: str,
+    *,
+    model_id: str = "default",
 ) -> dict[str, Any] | None:
     """Verify synthesis quality and internal consistency. Returns None on failure."""
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return None
 

@@ -16,8 +16,12 @@ Required fields: id, model, api_key, base_url
 import json
 import logging
 import os
+import sys
 import threading
+from pathlib import Path
+from typing import Any
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
@@ -48,6 +52,34 @@ class LLMSettings:
                 cls.MAX_RETRIES = int(retries)
             except ValueError:
                 pass
+
+
+_env_loaded = False
+
+
+def _maybe_load_env_file() -> None:
+    """Load .env into process env for local/dev runtime consistency.
+
+    We intentionally skip this in pytest to keep tests deterministic and
+    independent from developer-specific local environment files.
+    """
+    global _env_loaded
+    if _env_loaded:
+        return
+    _env_loaded = True
+
+    if "pytest" in sys.modules:
+        return
+
+    candidates = [
+        Path(".env"),
+        Path(__file__).resolve().parents[2] / ".env",  # backend/.env
+    ]
+    for env_path in candidates:
+        if env_path.exists():
+            load_dotenv(env_path, override=False)
+            logger.debug("Loaded LLM env from %s", env_path)
+            return
 
 
 class ModelConfig(BaseModel):
@@ -130,6 +162,7 @@ def _load_models_from_env() -> tuple[
     image_models: dict[str, ModelConfig] = {}
 
     # Load LLM global settings
+    _maybe_load_env_file()
     LLMSettings.load()
 
     # Parse generation models from LLM_GEN_MODELS
@@ -321,7 +354,7 @@ def get_model_config(model_id: str) -> ModelConfig | None:
     return None
 
 
-def get_model_full_config(model_id: str) -> dict[str, any]:
+def get_model_full_config(model_id: str) -> dict[str, Any]:
     """
     Get the full configuration for a model, suitable for API calls.
 
@@ -376,3 +409,56 @@ def get_all_models() -> dict[str, list[ModelConfig]]:
         "utility": list(utility_models.values()),
         "image": list(image_models.values()),
     }
+
+
+def get_default_model_id() -> str:
+    """Resolve the default chat model id from environment-backed model config.
+
+    Priority:
+    1. ``LLM_DEFAULT_MODEL`` when it points to a configured model id
+    2. First tool model
+    3. First generation model
+    4. First utility model
+    5. First image model
+
+    Returns:
+        Model id string.
+
+    Raises:
+        ValueError: If no models are configured.
+    """
+    explicit = os.environ.get("LLM_DEFAULT_MODEL", "").strip()
+    if explicit:
+        if get_model_config(explicit) is not None:
+            return explicit
+        logger.warning(
+            "LLM_DEFAULT_MODEL=%s is not configured, falling back to first available model",
+            explicit,
+        )
+
+    gen_models, tool_models, utility_models, image_models = _get_cached_models()
+    for model_map in (tool_models, gen_models, utility_models, image_models):
+        if model_map:
+            return next(iter(model_map.keys()))
+
+    raise ValueError(
+        "No models configured. Set LLM_TOOL_MODELS/LLM_GEN_MODELS in backend/.env."
+    )
+
+
+def resolve_model_id(model_id: str | None) -> str:
+    """Normalize requested model id with safe fallback to configured default."""
+    requested = (model_id or "").strip()
+    if not requested or requested == "default":
+        return get_default_model_id()
+
+    if get_model_config(requested) is not None:
+        return requested
+
+    fallback = get_default_model_id()
+    logger.warning(
+        "Requested model id '%s' is not configured, falling back to '%s'",
+        requested,
+        fallback,
+    )
+    return fallback

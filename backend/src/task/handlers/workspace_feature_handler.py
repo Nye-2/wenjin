@@ -19,6 +19,8 @@ from src.workspace_features import get_workspace_feature
 logger = logging.getLogger(__name__)
 
 _THESIS_WRITING_LANGGRAPH_ACTIONS = {
+    "generate_outline",
+    "write_chapter",
     "review_section",
     "revise_section",
     "review_and_revise",
@@ -101,6 +103,59 @@ def _build_langgraph_artifact_drafts(
                     }
                 )
             return drafts
+        if feature_id == "thesis_writing":
+            action = str(result.get("action") or "").strip().lower()
+
+            if action == "generate_outline":
+                outline = result.get("outline")
+                if not isinstance(outline, dict) or not outline:
+                    return []
+
+                return [
+                    {
+                        "type": ArtifactType.FRAMEWORK_OUTLINE.value,
+                        "title": f"{title_prefix} - 论文大纲",
+                        "content": {
+                            "paper_title": str(result.get("paper_title") or title_prefix),
+                            "outline": outline,
+                            "source_context": (
+                                result.get("source_context")
+                                if isinstance(result.get("source_context"), dict)
+                                else {}
+                            ),
+                            "generation_mode": result.get("generation_mode"),
+                            "model_id": result.get("model_id"),
+                            "schema_version": result.get("schema_version"),
+                        },
+                    }
+                ]
+
+            if action == "write_chapter":
+                chapter = result.get("chapter")
+                if not isinstance(chapter, dict) or not chapter:
+                    return []
+
+                chapter_content = dict(chapter)
+                chapter_content.setdefault("model_id", result.get("model_id"))
+                chapter_content.setdefault(
+                    "generation_mode",
+                    result.get("generation_mode"),
+                )
+
+                chapter_title = str(
+                    chapter.get("chapter_title")
+                    or chapter.get("title")
+                    or "章节草稿"
+                )
+                return [
+                    {
+                        "type": ArtifactType.THESIS_CHAPTER.value,
+                        "title": f"{title_prefix} - {chapter_title}",
+                        "content": chapter_content,
+                    }
+                ]
+
+            return []
 
     # SCI workspace artifacts
     if workspace_type == "sci":
@@ -372,7 +427,7 @@ async def execute_thesis_generation(
     params = _read_params(payload)
     action = payload.get("action") or params.get("action", "write_all")
 
-    # Review/revise actions route to thesis_writing LangGraph sub-graph.
+    # Thesis-writing actions route to thesis_writing LangGraph sub-graph.
     if str(action) in _THESIS_WRITING_LANGGRAPH_ACTIONS:
         result = await _try_langgraph_execution(
             "thesis", "thesis_writing", payload, progress

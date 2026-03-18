@@ -9,7 +9,7 @@ This module provides REST endpoints for:
 from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
@@ -56,7 +56,10 @@ class BatchImportRequest(BaseModel):
     """Request model for batch importing literature."""
 
     source: str
-    paper_ids: list[str]
+    # Backward compatibility: paper_ids used by existing clients.
+    paper_ids: list[str] = Field(default_factory=list)
+    # Preferred name for deep-research imports (artifact ids).
+    artifact_ids: list[str] = Field(default_factory=list)
 
 
 class LiteratureResponse(BaseModel):
@@ -247,7 +250,7 @@ async def batch_import_literature(
 
     Args:
         workspace_id: UUID of the workspace
-        request: Batch import request with source and paper IDs
+        request: Batch import request with source and artifact IDs
         current_user: Current authenticated user
         literature_service: Literature service instance
 
@@ -260,10 +263,12 @@ async def batch_import_literature(
         workspace_service=workspace_service,
     )
 
+    import_ids = request.artifact_ids or request.paper_ids
+
     result = await literature_service.batch_import(
         workspace_id=workspace_id,
         source=request.source,
-        paper_ids=request.paper_ids,
+        paper_ids=import_ids,
     )
     return BatchImportResponse(**result)
 

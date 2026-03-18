@@ -63,8 +63,8 @@ frontend/
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `NEXT_PUBLIC_API_URL` | Backend API URL | Yes |
-| `NEXT_PUBLIC_WS_URL` | WebSocket URL for streaming | Yes |
+| `NEXT_PUBLIC_API_URL` | Backend API base (e.g. `/api` or `http://localhost:8001`) | Recommended |
+| `NEXT_PUBLIC_BACKEND_BASE_URL` | Legacy alias for `NEXT_PUBLIC_API_URL` | Optional |
 
 ## License
 

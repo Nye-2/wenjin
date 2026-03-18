@@ -77,8 +77,11 @@ LOG_LEVEL=INFO
 Create a `.env.local` file in the `frontend/` directory:
 
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:8001/api
-NEXT_PUBLIC_WS_URL=ws://localhost:8001/api/chat/stream
+# If frontend and gateway are on different ports (local dev):
+NEXT_PUBLIC_API_URL=http://localhost:8001
+
+# If frontend is behind Nginx reverse proxy (recommended):
+# NEXT_PUBLIC_API_URL=/api
 ```
 
 ---

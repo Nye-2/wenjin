@@ -3,13 +3,11 @@
  */
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
-
-// API Configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+import { API_BASE_URL, API_SERVER_BASE_URL } from '@/lib/api-base';
 
 // Create axios instance
 const apiClient: AxiosInstance = axios.create({
-  baseURL: `${API_BASE_URL}/api`,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -125,11 +123,16 @@ export interface ChatRequest {
 export interface Model {
   name: string;
   display_name: string;
+  category?: string;
   provider: string;
   max_tokens: number;
+  supports_tools?: boolean;
   supports_thinking: boolean;
   supports_vision: boolean;
+  is_default?: boolean;
 }
+
+export type ModelPurpose = "chat" | "writing" | "image" | "all";
 
 // ============ Feature Types ============
 
@@ -178,7 +181,9 @@ export interface TaskStatus {
 
 // Health check
 export async function healthCheck(): Promise<{ status: string; version: string }> {
-  const response = await apiClient.get('/health');
+  const response = await axios.get(`${API_SERVER_BASE_URL}/health`, {
+    timeout: 30000,
+  });
   return response.data;
 }
 
@@ -250,9 +255,13 @@ export async function listArtifacts(
   workspaceId: string,
   type?: string
 ): Promise<{ artifacts: Artifact[]; count: number }> {
-  const params = type ? { artifact_type: type } : {};
-  const response = await apiClient.get(`/workspaces/${workspaceId}/artifacts`, { params });
-  return response.data;
+  const params: Record<string, unknown> = { workspace_id: workspaceId };
+  if (type) {
+    params.type = type;
+  }
+  const response = await apiClient.get('/artifacts/', { params });
+  const artifacts = Array.isArray(response.data) ? response.data : [];
+  return { artifacts, count: artifacts.length };
 }
 
 export async function createArtifact(data: {
@@ -263,10 +272,7 @@ export async function createArtifact(data: {
   created_by_skill?: string;
   parent_artifact_id?: string;
 }): Promise<Artifact> {
-  const response = await apiClient.post(
-    `/workspaces/${data.workspace_id}/artifacts`,
-    data
-  );
+  const response = await apiClient.post('/artifacts/', data);
   return response.data;
 }
 
@@ -337,49 +343,94 @@ export function streamChat(
     }
   }
 
-  fetch(`${API_BASE_URL}/api/chat/stream`, {
+  fetch(`${API_BASE_URL}/chat/stream`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ ...data, stream: true }),
     signal: controller.signal,
   })
     .then(async (response) => {
+      if (!response.ok) {
+        let message = `Request failed (${response.status})`;
+        try {
+          const payload = await response.json();
+          const detail =
+            typeof payload?.detail === 'string'
+              ? payload.detail
+              : typeof payload?.error === 'string'
+                ? payload.error
+                : null;
+          if (detail) {
+            message = detail;
+          }
+        } catch {
+          // Ignore parsing errors and keep default message
+        }
+        throw new Error(message);
+      }
+
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No reader available');
 
       const decoder = new TextDecoder();
+      let buffer = '';
+      let finished = false;
+
+      const processLine = (line: string) => {
+        if (!line.startsWith('data: ')) {
+          return;
+        }
+
+        const payload = line.slice(6).trim();
+        if (!payload) {
+          return;
+        }
+
+        try {
+          const json = JSON.parse(payload);
+          switch (json.type) {
+            case 'thread_id':
+              onThreadId?.(json.thread_id);
+              break;
+            case 'content':
+              onMessage(json.content);
+              break;
+            case 'error':
+              onError?.(json.error);
+              break;
+            case 'done':
+              if (!finished) {
+                finished = true;
+                onDone?.();
+              }
+              break;
+          }
+        } catch {
+          // Ignore malformed SSE payloads
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const json = JSON.parse(line.slice(6));
-
-              switch (json.type) {
-                case 'thread_id':
-                  onThreadId?.(json.thread_id);
-                  break;
-                case 'content':
-                  onMessage(json.content);
-                  break;
-                case 'error':
-                  onError?.(json.error);
-                  break;
-                case 'done':
-                  onDone?.();
-                  break;
-              }
-            } catch {
-              // Ignore parse errors
-            }
-          }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const rawLine of lines) {
+          processLine(rawLine.trim());
         }
+      }
+
+      buffer += decoder.decode();
+      const remaining = buffer.trim();
+      if (remaining) {
+        for (const rawLine of remaining.split('\n')) {
+          processLine(rawLine.trim());
+        }
+      }
+      if (!finished) {
+        onDone?.();
       }
     })
     .catch((error) => {
@@ -393,8 +444,12 @@ export function streamChat(
 
 // ============ Models API ============
 
-export async function listModels(): Promise<{ models: Model[] }> {
-  const response = await apiClient.get('/models');
+export async function listModels(
+  purpose: ModelPurpose = "chat"
+): Promise<{ models: Model[] }> {
+  const response = await apiClient.get('/models', {
+    params: { purpose },
+  });
   return response.data;
 }
 
@@ -819,8 +874,8 @@ export async function createLiterature(
 
 export async function importLiterature(
   workspaceId: string,
-  data: { source: string; paper_ids: string[] }
-): Promise<{ imported: number; items: Literature[] }> {
+  data: { source: string; artifact_ids?: string[]; paper_ids?: string[] }
+): Promise<{ imported: number }> {
   const response = await apiClient.post(
     `/workspaces/${workspaceId}/literature/import`,
     data

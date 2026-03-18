@@ -8,8 +8,10 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import User
+from src.database import User, Workspace
 from src.gateway.routers.auth import get_current_user
 
 router = APIRouter(tags=["academic"])
@@ -83,6 +85,28 @@ def orm_to_dict(obj) -> dict:
         column.name: getattr(obj, column.name)
         for column in obj.__table__.columns
     }
+
+
+def _owner_check_session_from_service(service) -> AsyncSession | None:
+    """Extract SQLAlchemy session from service for owner checks."""
+    db = getattr(service, "db", None)
+    return db if isinstance(db, AsyncSession) else None
+
+
+async def _require_workspace_owner(
+    session: AsyncSession,
+    workspace_id: str,
+    user_id: str,
+) -> None:
+    """Ensure workspace exists and is owned by user."""
+    result = await session.execute(
+        select(Workspace.user_id).where(Workspace.id == workspace_id)
+    )
+    owner_id = result.scalar_one_or_none()
+    if owner_id is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if str(owner_id) != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
 
 # ============ Dependency Injection ============
@@ -195,6 +219,14 @@ async def list_artifacts(
     artifact_service = Depends(get_artifact_service),
 ):
     """List artifacts in a workspace."""
+    owner_session = _owner_check_session_from_service(artifact_service)
+    if owner_session is not None:
+        await _require_workspace_owner(
+            owner_session,
+            workspace_id=workspace_id,
+            user_id=str(current_user.id),
+        )
+
     artifacts = await artifact_service.list_by_workspace(
         workspace_id=workspace_id,
         type=artifact_type,
@@ -213,6 +245,14 @@ async def create_artifact(
     artifact_service = Depends(get_artifact_service),
 ):
     """Create a new artifact."""
+    owner_session = _owner_check_session_from_service(artifact_service)
+    if owner_session is not None:
+        await _require_workspace_owner(
+            owner_session,
+            workspace_id=workspace_id,
+            user_id=str(current_user.id),
+        )
+
     artifact = await artifact_service.create(
         workspace_id=workspace_id,
         type=request.type,
@@ -232,8 +272,16 @@ async def get_artifact(
     artifact_service = Depends(get_artifact_service),
 ):
     """Get artifact details."""
+    owner_session = _owner_check_session_from_service(artifact_service)
+    if owner_session is not None:
+        await _require_workspace_owner(
+            owner_session,
+            workspace_id=workspace_id,
+            user_id=str(current_user.id),
+        )
+
     artifact = await artifact_service.get(artifact_id)
-    if not artifact or artifact.workspace_id != workspace_id:
+    if not artifact or str(artifact.workspace_id) != workspace_id:
         raise HTTPException(status_code=404, detail="Artifact not found")
     return ArtifactResponse(**orm_to_dict(artifact))
 
@@ -246,6 +294,18 @@ async def get_artifact_lineage(
     artifact_service = Depends(get_artifact_service),
 ):
     """Get artifact lineage (parent chain)."""
+    owner_session = _owner_check_session_from_service(artifact_service)
+    if owner_session is not None:
+        await _require_workspace_owner(
+            owner_session,
+            workspace_id=workspace_id,
+            user_id=str(current_user.id),
+        )
+
+    artifact = await artifact_service.get(artifact_id)
+    if not artifact or str(artifact.workspace_id) != workspace_id:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
     lineage = await artifact_service.get_lineage(artifact_id)
     return {
         "lineage": [ArtifactResponse(**orm_to_dict(a)) for a in lineage],

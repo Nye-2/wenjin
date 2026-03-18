@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import importlib
 import logging
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from langchain_core.messages import SystemMessage
 
@@ -34,6 +35,33 @@ FeatureGraphFn = Callable[[dict[str, Any], dict[str, Any]], Awaitable[dict[str, 
 # Legacy format: "{feature_id}" (backward compat, deprecated)
 _FEATURE_GRAPH_REGISTRY: dict[str, FeatureGraphFn] = {}
 _LOADED_WORKSPACES: set[str] = set()
+_WORKSPACE_GRAPH_MODULES: dict[str, tuple[str, ...]] = {
+    "thesis": (
+        "src.agents.graphs.thesis.deep_research",
+        "src.agents.graphs.thesis.literature_management",
+        "src.agents.graphs.thesis.opening_research",
+        "src.agents.graphs.thesis.thesis_writing",
+        "src.agents.graphs.thesis.figure_generation",
+        "src.agents.graphs.thesis.compile_export",
+    ),
+    "sci": (
+        "src.agents.graphs.sci.literature_search",
+        "src.agents.graphs.sci.paper_analysis",
+        "src.agents.graphs.sci.writing",
+    ),
+    "proposal": (
+        "src.agents.graphs.proposal.proposal_outline",
+        "src.agents.graphs.proposal.background_research",
+    ),
+    "patent": (
+        "src.agents.graphs.patent.patent_outline",
+        "src.agents.graphs.patent.prior_art_search",
+    ),
+    "software_copyright": (
+        "src.agents.graphs.software_copyright.copyright_materials",
+        "src.agents.graphs.software_copyright.technical_description",
+    ),
+}
 
 
 def register_feature_graph(feature_id: str, workspace_type: str | None = None):
@@ -73,30 +101,28 @@ def _ensure_graphs_loaded(workspace_type: str) -> None:
     if workspace_type in _LOADED_WORKSPACES:
         return
 
-    _LOADED_WORKSPACES.add(workspace_type)
-
-    workspace_modules = {
-        "thesis": "src.agents.graphs.thesis",
-        "sci": "src.agents.graphs.sci",
-        "proposal": "src.agents.graphs.proposal",
-        "patent": "src.agents.graphs.patent",
-        "software_copyright": "src.agents.graphs.software_copyright",
-    }
-
-    module_name = workspace_modules.get(workspace_type)
-    if not module_name:
+    module_names = _WORKSPACE_GRAPH_MODULES.get(workspace_type)
+    if not module_names:
         logger.warning("Unknown workspace type: %s", workspace_type)
         return
 
     try:
-        importlib.import_module(module_name)
-        logger.info("Loaded graphs for workspace type: %s", workspace_type)
-    except ImportError:
+        for module_name in module_names:
+            importlib.import_module(module_name)
+    except Exception:
         logger.warning(
             "Graphs for workspace '%s' not available",
             workspace_type,
             exc_info=True,
         )
+        return
+
+    _LOADED_WORKSPACES.add(workspace_type)
+    logger.info(
+        "Loaded %d graph modules for workspace type: %s",
+        len(module_names),
+        workspace_type,
+    )
 
 
 async def execute_feature_graph(

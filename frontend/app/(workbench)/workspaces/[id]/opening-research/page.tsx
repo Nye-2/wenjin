@@ -7,6 +7,8 @@ import { ArrowLeft, Search, FileText } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 const REPORT_TYPES = [
@@ -30,6 +32,16 @@ export default function OpeningResearchPage() {
     workspaceId,
     featureId: "opening_research",
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
 
   useEffect(() => {
     if (workspace && !topic) {
@@ -43,6 +55,7 @@ export default function OpeningResearchPage() {
     await run({
       topic: topic.trim(),
       report_type: reportType,
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -127,6 +140,17 @@ export default function OpeningResearchPage() {
                 ))}
               </div>
             </div>
+
+            <ModelSelector
+              id="opening-research-model"
+              label="生成模型"
+              models={availableModels}
+              selectedModel={selectedModel}
+              onChange={setSelectedModel}
+              isLoading={isModelLoading}
+              loadError={modelLoadError}
+              disabled={isRunning}
+            />
 
             <button
               className={cn(

@@ -187,6 +187,16 @@ class TestActionRouting:
         action = str(params.get("action", "")).strip()
         assert action == "revise_section"
 
+    def test_generate_outline_action_detected(self):
+        params = {"action": "generate_outline", "paper_title": "Test"}
+        action = str(params.get("action", "")).strip()
+        assert action == "generate_outline"
+
+    def test_write_chapter_action_detected(self):
+        params = {"action": "write_chapter", "chapter_title": "Ch1"}
+        action = str(params.get("action", "")).strip()
+        assert action == "write_chapter"
+
     def test_default_action_empty_string(self):
         params = {"section_title": "Ch1", "section_content": "text"}
         action = str(params.get("action", "")).strip()
@@ -266,6 +276,59 @@ class TestHandleReviewSection:
         assert result["action"] == "review_section"
         assert result["generation_mode"] == "llm"
         assert result["review"]["overall_score"] == 8.0
+
+
+class TestGenerateOutlineAndWriteChapter:
+    """Test template payload actions used by thesis writing frontend."""
+
+    @pytest.mark.asyncio
+    async def test_generate_outline_payload_shape(self):
+        from src.agents.graphs.thesis import thesis_writing
+
+        result = await thesis_writing._handle_generate_outline(
+            params={
+                "paper_title": "测试论文",
+                "target_words": 20000,
+                "literature_count": 6,
+                "deep_research_artifact_ids": ["dr-1"],
+            },
+            model_id="resolved-writing-model",
+        )
+
+        assert result["action"] == "generate_outline"
+        assert result["paper_title"] == "测试论文"
+        assert result["model_id"] == "resolved-writing-model"
+        assert result["generation_mode"] == "template_fallback"
+        assert "generated_at" in result
+        outline = result.get("outline")
+        assert isinstance(outline, dict)
+        assert isinstance(outline.get("chapters"), list)
+
+    @pytest.mark.asyncio
+    async def test_write_chapter_payload_shape(self):
+        from src.agents.graphs.thesis import thesis_writing
+
+        result = await thesis_writing._handle_write_chapter(
+            params={
+                "paper_title": "测试论文",
+                "chapter_index": 2,
+                "chapter_title": "实验与分析",
+                "target_words": 3200,
+                "references_used": ["ref-1", "ref-2"],
+            },
+            model_id="resolved-writing-model",
+        )
+
+        assert result["action"] == "write_chapter"
+        assert result["model_id"] == "resolved-writing-model"
+        assert result["generation_mode"] == "template_fallback"
+        assert "generated_at" in result
+        chapter = result.get("chapter")
+        assert isinstance(chapter, dict)
+        assert chapter.get("chapter_index") == 2
+        assert chapter.get("chapter_title") == "实验与分析"
+        assert chapter.get("target_words") == 3200
+        assert chapter.get("references_used") == ["ref-1", "ref-2"]
 
 
 class TestHandleReviseSection:

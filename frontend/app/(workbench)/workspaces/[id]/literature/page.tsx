@@ -6,7 +6,9 @@ import { ArrowLeft, BookOpen, Plus, Search, Filter, Download } from "lucide-reac
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useLiteratureStore } from "@/stores/literature";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
@@ -31,6 +33,16 @@ export default function LiteraturePage() {
     workspaceId,
     featureId: "literature_management",
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "chat",
+    persistenceKey: `workspace:${workspaceId}:model:chat`,
+  });
 
   useEffect(() => {
     if (workspaceId) {
@@ -44,6 +56,7 @@ export default function LiteraturePage() {
     setImportStatus(null);
     await runOrganize({
       topic: searchQuery.trim() || workspace?.name || "研究主题",
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -58,7 +71,12 @@ export default function LiteraturePage() {
       await fetchArtifacts(workspaceId);
       const storeArtifacts = useWorkspaceStore.getState().artifacts;
       const deepResearchIds = storeArtifacts
-        .filter((a) => a.type === "deep_research" || a.type === "deep_research_result")
+        .filter(
+          (a) =>
+            a.type === "literature_review" ||
+            a.type === "deep_research" ||
+            a.type === "deep_research_result"
+        )
         .map((a) => a.id);
 
       if (deepResearchIds.length === 0) {
@@ -118,7 +136,12 @@ export default function LiteraturePage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-muted)] transition-colors">
+          <button
+            onClick={() => {
+              alert("手动添加文献功能即将推出，请使用「从 Deep Research 导入」");
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-muted)] transition-colors"
+          >
             <Plus className="w-4 h-4" />
             添加文献
           </button>
@@ -143,7 +166,7 @@ export default function LiteraturePage() {
             disabled={isOrganizing}
           >
             <BookOpen className="w-4 h-4" />
-            {isOrganizing ? "盘点中..." : "智能盘点（20积分）"}
+            {isOrganizing ? "盘点中..." : "智能盘点"}
           </button>
         </div>
       </header>
@@ -173,10 +196,27 @@ export default function LiteraturePage() {
             className="w-full pl-10 pr-4 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
           />
         </div>
-        <button className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]">
+        <button
+          onClick={() => {
+            alert("筛选功能即将推出");
+          }}
+          className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg text-sm text-[var(--text-muted)] cursor-not-allowed"
+          title="筛选功能即将推出"
+        >
           <Filter className="w-4 h-4" />
           筛选
         </button>
+        <ModelSelector
+          id="literature-management-model"
+          label="盘点模型"
+          className="w-64"
+          models={availableModels}
+          selectedModel={selectedModel}
+          onChange={setSelectedModel}
+          isLoading={isModelLoading}
+          loadError={modelLoadError}
+          disabled={isOrganizing}
+        />
       </div>
 
       {(organizeStatus || organizeError || isOrganizing || importStatus || importError || isImporting) && (

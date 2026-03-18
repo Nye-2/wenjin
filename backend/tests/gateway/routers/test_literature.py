@@ -158,6 +158,24 @@ class TestLiteratureRouter:
         assert resp.status_code == 200
         assert resp.json()["imported"] == 3
 
+    def test_batch_import_literature_accepts_artifact_ids(self):
+        svc = AsyncMock()
+        svc.batch_import.return_value = {"imported": 2}
+        ws_svc = AsyncMock()
+        ws_svc.get.return_value = create_mock_workspace()
+        client = create_test_app(create_mock_user(), svc, ws_svc)
+
+        resp = client.post("/workspaces/ws-1/literature/import", json={
+            "source": "deep_research", "artifact_ids": ["a1", "a2"],
+        })
+        assert resp.status_code == 200
+        assert resp.json()["imported"] == 2
+        svc.batch_import.assert_called_once_with(
+            workspace_id="ws-1",
+            source="deep_research",
+            paper_ids=["a1", "a2"],
+        )
+
     def test_list_literature_forbidden_when_not_owner(self):
         svc = AsyncMock()
         ws_svc = AsyncMock()

@@ -7,9 +7,19 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
+from src.models.router import route_writing_model
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_writing_model(requested_model: str | None) -> str:
+    """Resolve a writing model with safe fallback."""
+    try:
+        return route_writing_model(requested_model=requested_model)
+    except Exception:
+        return requested_model or "default"
 
 # ---------------------------------------------------------------------------
 # Strategy mapping (mirrors thesis_feature_service)
@@ -134,12 +144,14 @@ async def _plan_figure(
     description: str,
     chapter_context: str | None,
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> dict[str, Any] | None:
     """Step 1: LLM plans optimal figure. Returns None on failure."""
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return None
 
@@ -224,12 +236,14 @@ async def _generate_figure_code(
     description: str,
     plan: dict[str, Any] | None,
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> str | None:
     """Step 2: LLM generates figure code/prompt. Returns None on failure."""
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return None
 
@@ -277,7 +291,12 @@ async def figure_generation_graph(
     Each step has fallback. Output is code/prompt ready for downstream execution.
     """
     params = payload.get("params", {})
-    fig_type = str(params.get("fig_type", params.get("figure_type", "flowchart"))).strip().lower()
+    fig_type = str(
+        params.get("fig_type")
+        or params.get("figure_type")
+        or params.get("type")
+        or "flowchart"
+    ).strip().lower()
     description = str(params.get("description", "")).strip()
     chapter_index = params.get("chapter_index")
     if chapter_index is not None:
@@ -288,6 +307,8 @@ async def figure_generation_graph(
 
     chapter_context = str(params.get("chapter_context", "")).strip() or None
     memory_context = initial_state.get("knowledge_context")
+    requested_model = _read_optional_str(params.get("model_id"))
+    model_id = _resolve_writing_model(requested_model)
 
     # Resolve default strategy from fig_type
     strategy = _resolve_strategy(fig_type)
@@ -298,6 +319,7 @@ async def figure_generation_graph(
         description=description,
         chapter_context=chapter_context,
         memory_context=memory_context,
+        model_id=model_id,
     )
 
     # Allow plan to override strategy
@@ -310,6 +332,7 @@ async def figure_generation_graph(
         description=description,
         plan=figure_plan,
         memory_context=memory_context,
+        model_id=model_id,
     )
 
     # Determine pipeline step results
@@ -331,6 +354,7 @@ async def figure_generation_graph(
         "source_code": generated_code if strategy != "kling" else None,
         "prompt": generated_code if strategy == "kling" else None,
         "figure_plan": figure_plan,
+        "model_id": model_id,
         "generation_mode": generation_mode,
         "pipeline_steps": {
             "figure_planning": planning_ok,

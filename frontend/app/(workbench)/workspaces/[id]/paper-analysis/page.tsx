@@ -7,6 +7,8 @@ import { ArrowLeft, FlaskConical, FileText } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 export default function PaperAnalysisPage() {
@@ -37,6 +39,16 @@ export default function PaperAnalysisPage() {
     workspaceId,
     featureId: "paper_analysis",
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
 
   const handleAnalyze = async () => {
     if (!paperId.trim() && !paperTitle.trim()) return;
@@ -44,6 +56,7 @@ export default function PaperAnalysisPage() {
       paper_id: paperId.trim() || undefined,
       paper_title: paperTitle.trim() || undefined,
       paper_abstract: paperAbstract.trim() || undefined,
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -113,6 +126,17 @@ export default function PaperAnalysisPage() {
                 className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50"
               />
             </div>
+
+            <ModelSelector
+              id="paper-analysis-model"
+              label="生成模型"
+              models={availableModels}
+              selectedModel={selectedModel}
+              onChange={setSelectedModel}
+              isLoading={isModelLoading}
+              loadError={modelLoadError}
+              disabled={isRunning}
+            />
 
             <button
               className={cn(

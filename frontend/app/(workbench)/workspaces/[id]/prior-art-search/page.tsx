@@ -7,6 +7,8 @@ import { ArrowLeft, Search, AlertTriangle } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 const TIME_RANGE_OPTIONS = [
@@ -38,6 +40,16 @@ export default function PriorArtSearchPage() {
     workspaceId,
     featureId: "prior_art_search",
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
 
   const handleSearch = async () => {
     if (!keywords.trim()) return;
@@ -53,6 +65,7 @@ export default function PriorArtSearchPage() {
       keywords: keywordList,
       ipc_codes: ipcList,
       time_range: timeRange,
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -159,6 +172,17 @@ export default function PriorArtSearchPage() {
                 ))}
               </div>
             </div>
+
+            <ModelSelector
+              id="prior-art-model"
+              label="生成模型"
+              models={availableModels}
+              selectedModel={selectedModel}
+              onChange={setSelectedModel}
+              isLoading={isModelLoading}
+              loadError={modelLoadError}
+              disabled={isRunning}
+            />
 
             <button
               className={cn(

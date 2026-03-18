@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import ChatThread
+from src.models.router import route_model
 
 
 class ChatThreadAccessError(LookupError):
@@ -23,13 +24,29 @@ class ChatThreadService:
         self.db = db
         self._model = model
 
+    @staticmethod
+    def _resolve_model(model: str | None) -> str:
+        """Resolve model id through env-backed config with graceful fallback."""
+        requested = (model or "").strip() or None
+        try:
+            return route_model(
+                requested_model=requested,
+                preferred_categories=("tool", "gen"),
+                allowed_categories=("tool", "gen"),
+                require_tools=False,
+            )
+        except Exception:
+            if requested:
+                return requested
+            return "default"
+
     async def create_thread(
         self,
         *,
         user_id: str,
         workspace_id: str | None = None,
         title: str | None = None,
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> ChatThread:
         """Create and persist a new chat thread."""
         now = datetime.now(timezone.utc)
@@ -37,7 +54,7 @@ class ChatThreadService:
             user_id=user_id,
             workspace_id=workspace_id,
             title=title,
-            model=model,
+            model=self._resolve_model(model),
             messages=[],
             created_at=now,
             updated_at=now,
@@ -67,16 +84,24 @@ class ChatThreadService:
         user_id: str,
         thread_id: str | None = None,
         workspace_id: str | None = None,
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> ChatThread:
         """Reuse an owned thread or create a new one."""
+        resolved_model = self._resolve_model(model) if model and model.strip() else None
+
         if thread_id:
             thread = await self.get_by_id(thread_id)
             if thread:
                 if thread.user_id != user_id:
                     raise ChatThreadAccessError("Thread not found")
+                needs_update = False
                 if workspace_id and not thread.workspace_id:
                     thread.workspace_id = workspace_id
+                    needs_update = True
+                if resolved_model and thread.model != resolved_model:
+                    thread.model = resolved_model
+                    needs_update = True
+                if needs_update:
                     thread.updated_at = datetime.now(timezone.utc)
                     await self.db.commit()
                     await self.db.refresh(thread)
@@ -85,7 +110,7 @@ class ChatThreadService:
         return await self.create_thread(
             user_id=user_id,
             workspace_id=workspace_id,
-            model=model,
+            model=resolved_model,
         )
 
     async def add_message(

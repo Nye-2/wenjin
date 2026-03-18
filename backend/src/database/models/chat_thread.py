@@ -40,8 +40,8 @@ class ChatThread(Base, UUIDMixin, TimestampMixin):
     model: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-        default="gpt-4o",
-        server_default="gpt-4o",
+        default="default",
+        server_default="default",
     )
     messages: Mapped[list[dict[str, Any]]] = mapped_column(
         MESSAGES_JSON_TYPE,

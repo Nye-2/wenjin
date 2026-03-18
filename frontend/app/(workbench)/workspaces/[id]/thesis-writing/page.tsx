@@ -8,12 +8,28 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { useThesisWritingStore, type OutlineData } from "@/stores/thesis-writing";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
 import {
   WorkspaceResultPanel,
   type WorkspaceResultViewModel,
 } from "@/components/workspace/WorkspaceResultPanel";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 import type { TaskStatus } from "@/lib/api";
+
+function resolveFeatureResult(
+  task: TaskStatus | null
+): Record<string, unknown> | null {
+  if (!task?.result || typeof task.result !== "object") {
+    return null;
+  }
+  const resultObj = task.result as Record<string, unknown>;
+  const nested = resultObj.data;
+  if (nested && typeof nested === "object") {
+    return nested as Record<string, unknown>;
+  }
+  return resultObj;
+}
 
 export default function ThesisWritingPage() {
   const params = useParams();
@@ -33,6 +49,16 @@ export default function ThesisWritingPage() {
 
   const [titleInput, setTitleInput] = useState("");
   const [targetWords, setTargetWords] = useState("20000");
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
 
   useEffect(() => {
     if (workspace && !titleInput) {
@@ -82,7 +108,8 @@ export default function ThesisWritingPage() {
   const handleOutlineSuccess = useCallback(
     (task: TaskStatus | null) => {
       if (!task) return;
-      const outlineData = parseOutline(task.result?.outline);
+      const featureResult = resolveFeatureResult(task);
+      const outlineData = parseOutline(featureResult?.outline);
       if (outlineData) {
         setOutline(outlineData);
         setStep(2);
@@ -110,15 +137,14 @@ export default function ThesisWritingPage() {
       const chapter = chapters.find((ch) => ch.index === currentChapterIndex);
       if (!chapter) return;
 
-      const resultObj =
-        task.result && typeof task.result === "object"
-          ? (task.result as Record<string, unknown>)
-          : null;
+      const resultObj = resolveFeatureResult(task);
       const chapterObj =
         resultObj?.chapter && typeof resultObj.chapter === "object"
           ? (resultObj.chapter as Record<string, unknown>)
           : null;
-      const writtenWords = Number(chapterObj?.target_words || 0);
+      const writtenWords = Number(
+        chapterObj?.target_words ?? chapterObj?.estimated_words ?? 0
+      );
 
       let chapterContent: string | undefined;
       const storeArtifacts = useWorkspaceStore.getState().artifacts;
@@ -226,6 +252,7 @@ export default function ThesisWritingPage() {
       action: "generate_outline",
       paper_title: titleInput.trim(),
       target_words: Number(targetWords),
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -240,6 +267,7 @@ export default function ThesisWritingPage() {
       chapter_index: selectedChapter.index,
       chapter_title: selectedChapter.title,
       target_words: selectedChapter.targetWords,
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -294,6 +322,7 @@ export default function ThesisWritingPage() {
           <button
             onClick={() => setStep(2)}
             disabled={!outline}
+            title={!outline ? "请先生成大纲" : undefined}
             className={cn(
               "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
               currentStep === 2
@@ -304,6 +333,11 @@ export default function ThesisWritingPage() {
           >
             Step 2: 全文写作
           </button>
+          {!outline && (
+            <span className="text-xs text-[var(--text-muted)]">
+              需要先完成 Step 1
+            </span>
+          )}
         </div>
       </header>
 
@@ -347,6 +381,17 @@ export default function ThesisWritingPage() {
                     <option value="50000">50,000 字</option>
                   </select>
                 </div>
+
+                <ModelSelector
+                  id="thesis-writing-model"
+                  label="写作模型"
+                  models={availableModels}
+                  selectedModel={selectedModel}
+                  onChange={setSelectedModel}
+                  isLoading={isModelLoading}
+                  loadError={modelLoadError}
+                  disabled={isRunning}
+                />
 
                 <button
                   className={cn(
@@ -482,6 +527,18 @@ export default function ThesisWritingPage() {
                           </p>
                         </div>
                       </div>
+
+                      <ModelSelector
+                        id="thesis-writing-model-step2"
+                        label="写作模型"
+                        models={availableModels}
+                        selectedModel={selectedModel}
+                        onChange={setSelectedModel}
+                        isLoading={isModelLoading}
+                        loadError={modelLoadError}
+                        disabled={isRunning}
+                        className="mt-4 max-w-sm"
+                      />
 
                       <button
                         className={cn(

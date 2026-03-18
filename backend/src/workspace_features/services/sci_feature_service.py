@@ -11,14 +11,14 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from src.academic.services import ArtifactService
 from src.artifacts import ArtifactType
-from src.config import get_gen_models
 from src.database import get_db_session
 from src.models.factory import create_chat_model
+from src.models.router import list_user_selectable_models, route_writing_model
 from src.services.literature_service import LiteratureService
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ SCI_OUTPUT_LANGUAGE = "en"
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(tz=timezone.utc).isoformat()
+    return datetime.now(tz=UTC).isoformat()
 
 
 def _truncate(value: str, max_len: int = 280) -> str:
@@ -71,9 +71,18 @@ SCI_WRITING_SECTION_MAP: dict[str, str] = {
 
 async def _load_workspace_literature(workspace_id: str) -> list[dict[str, Any]]:
     """Load literature from workspace for context enrichment."""
-    async with get_db_session() as db:
-        service = LiteratureService(db)
-        response = await service.list_literature(workspace_id, offset=0, limit=100)
+    try:
+        async with get_db_session() as db:
+            service = LiteratureService(db)
+            response = await service.list_literature(workspace_id, offset=0, limit=100)
+    except Exception as exc:
+        logger.warning(
+            "Failed to load workspace literature for '%s', fallback to empty context: %s",
+            workspace_id,
+            exc,
+        )
+        return []
+
     items = response.get("items")
     return items if isinstance(items, list) else []
 
@@ -107,12 +116,13 @@ async def _try_llm_literature_search(
     preferred_model: str | None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt LLM-based literature search synthesis."""
-    models = get_gen_models()
+    models = list_user_selectable_models(purpose="writing")
     if not models:
         return None, None, "no_generation_model_configured"
 
-    model_id = preferred_model or models[0].id
-    if not any(model.id == model_id for model in models):
+    try:
+        model_id = route_writing_model(requested_model=preferred_model)
+    except Exception:
         model_id = models[0].id
 
     try:
@@ -137,7 +147,7 @@ async def _try_llm_literature_search(
         literature_context = "已有相关文献：\n" + "\n".join(lit_summaries)
 
     prompt = "\n".join([
-        f"请根据检索需求生成文献检索建议和分析，返回 JSON。",
+        "请根据检索需求生成文献检索建议和分析，返回 JSON。",
         f"检索查询：{query}",
         f"学科领域：{discipline}",
         literature_context if literature_context else "暂无已有文献",
@@ -317,12 +327,13 @@ async def _try_llm_paper_analysis(
     preferred_model: str | None = None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt LLM-based paper analysis."""
-    models = get_gen_models()
+    models = list_user_selectable_models(purpose="writing")
     if not models:
         return None, None, "no_generation_model_configured"
 
-    model_id = preferred_model or models[0].id
-    if not any(model.id == model_id for model in models):
+    try:
+        model_id = route_writing_model(requested_model=preferred_model)
+    except Exception:
         model_id = models[0].id
 
     try:
@@ -644,12 +655,13 @@ async def _try_llm_sci_writing(
     preferred_model: str | None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt LLM-based SCI section writing."""
-    models = get_gen_models()
+    models = list_user_selectable_models(purpose="writing")
     if not models:
         return None, None, "no_generation_model_configured"
 
-    model_id = preferred_model or models[0].id
-    if not any(model.id == model_id for model in models):
+    try:
+        model_id = route_writing_model(requested_model=preferred_model)
+    except Exception:
         model_id = models[0].id
 
     try:

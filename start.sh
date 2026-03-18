@@ -16,6 +16,7 @@ NC='\033[0m' # No Color
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
+ENSURE_TEXLIVE_SCRIPT="$PROJECT_ROOT/scripts/ensure_texlive_image.sh"
 
 # 日志目录
 LOG_DIR="$PROJECT_ROOT/logs"
@@ -39,6 +40,31 @@ check_command() {
         return 1
     fi
     return 0
+}
+
+# 自动准备 LaTeX Docker 镜像（用于论文编译执行）
+ensure_texlive_image() {
+    if [ "${SKIP_TEXLIVE_IMAGE_ENSURE:-0}" = "1" ]; then
+        log_warn "已跳过 TeXLive 镜像准备（SKIP_TEXLIVE_IMAGE_ENSURE=1）"
+        return 0
+    fi
+
+    if ! command -v docker &> /dev/null; then
+        log_warn "Docker 未安装，跳过 TeXLive 镜像准备"
+        return 0
+    fi
+
+    if [ ! -x "$ENSURE_TEXLIVE_SCRIPT" ]; then
+        log_warn "未找到镜像准备脚本: $ENSURE_TEXLIVE_SCRIPT"
+        return 0
+    fi
+
+    log_info "自动准备 TeXLive 镜像（academiagpt/texlive:2024）..."
+    if "$ENSURE_TEXLIVE_SCRIPT"; then
+        log_success "TeXLive 镜像就绪"
+    else
+        log_warn "TeXLive 镜像准备失败，LaTeX 编译功能可能不可用"
+    fi
 }
 
 # 检查服务是否运行
@@ -372,6 +398,9 @@ show_help() {
     echo "  ./start.sh --status     # 查看服务状态"
     echo "  ./start.sh --logs       # 查看日志"
     echo "  ./start.sh --help       # 显示帮助"
+    echo ""
+    echo "环境变量:"
+    echo "  SKIP_TEXLIVE_IMAGE_ENSURE=1  # 跳过自动准备 TeXLive 镜像"
 }
 
 # 查看日志
@@ -430,10 +459,12 @@ main() {
     case "${1:-}" in
         --backend)
             init_backend
+            ensure_texlive_image
             start_backend
             ;;
         --langgraph)
             init_backend
+            ensure_texlive_image
             start_langgraph
             ;;
         --frontend)
@@ -444,6 +475,7 @@ main() {
             # 启动所有服务
             init_backend
             init_frontend
+            ensure_texlive_image
             start_backend
             start_langgraph || true
             start_frontend

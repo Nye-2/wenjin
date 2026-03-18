@@ -7,6 +7,8 @@ import { ArrowLeft, FlaskConical } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 export default function DeepResearchPage() {
@@ -21,6 +23,16 @@ export default function DeepResearchPage() {
     featureId: "deep_research",
     skipPolling: true,
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "chat",
+    persistenceKey: `workspace:${workspaceId}:model:chat`,
+  });
 
   useEffect(() => {
     if (workspace && !topic) {
@@ -31,7 +43,11 @@ export default function DeepResearchPage() {
 
   const handleRun = async () => {
     if (!topic.trim()) return;
-    await run({ query: topic.trim() });
+    await run({
+      topic: topic.trim(),
+      query: topic.trim(),
+      model_id: selectedModel || undefined,
+    });
   };
 
   return (
@@ -99,6 +115,17 @@ export default function DeepResearchPage() {
                   className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none"
                 />
               </div>
+
+              <ModelSelector
+                id="deep-research-model"
+                label="推理模型"
+                models={availableModels}
+                selectedModel={selectedModel}
+                onChange={setSelectedModel}
+                isLoading={isModelLoading}
+                loadError={modelLoadError}
+                disabled={isRunning}
+              />
 
               <div className="flex items-center justify-between">
                 <button

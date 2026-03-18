@@ -104,5 +104,5 @@ EXPOSE 2024
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:2024/info || exit 1
 
-# Default command - run langgraph server
-CMD ["python", "-m", "langgraph", "api", "--host", "0.0.0.0", "--port", "2024"]
+# Default command - run langgraph API server
+CMD ["langgraph", "dev", "--no-browser", "--no-reload", "--host", "0.0.0.0", "--port", "2024", "--config", "langgraph.json"]

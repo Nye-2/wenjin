@@ -7,6 +7,8 @@ import { ArrowLeft, Search, BookMarked } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 export default function LiteratureSearchPage() {
@@ -32,12 +34,23 @@ export default function LiteratureSearchPage() {
     workspaceId,
     featureId: "literature_search",
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
 
   const handleSearch = async () => {
     if (!query.trim()) return;
     await run({
       query: query.trim(),
       discipline: discipline.trim() || undefined,
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -96,6 +109,17 @@ export default function LiteratureSearchPage() {
                 className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
               />
             </div>
+
+            <ModelSelector
+              id="literature-search-model"
+              label="生成模型"
+              models={availableModels}
+              selectedModel={selectedModel}
+              onChange={setSelectedModel}
+              isLoading={isModelLoading}
+              loadError={modelLoadError}
+              disabled={isRunning}
+            />
 
             <button
               className={cn(

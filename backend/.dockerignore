@@ -53,8 +53,10 @@ dist
 uploads/
 *.pdf
 
-# Skills (mounted as volume)
-skills/
+# Skills
+skills/*
+!skills/public/
+!skills/public/**
 
 # Alembic (keep for migrations)
 # alembic/

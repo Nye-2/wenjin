@@ -34,7 +34,7 @@ interface LiteratureState {
   removeLiterature: (workspaceId: string, litId: string) => Promise<void>;
   importFromDeepResearch: (
     workspaceId: string,
-    paperIds: string[]
+    artifactIds: string[]
   ) => Promise<number>;
   reset: () => void;
 }
@@ -122,11 +122,11 @@ export const useLiteratureStore = create<LiteratureState>((set) => ({
     }
   },
 
-  importFromDeepResearch: async (workspaceId, paperIds) => {
+  importFromDeepResearch: async (workspaceId, artifactIds) => {
     try {
       const result = await importLiterature(workspaceId, {
         source: "deep_research",
-        paper_ids: paperIds,
+        artifact_ids: artifactIds,
       });
       // 导入后重新获取列表（因为批量导入无法直接更新）
       const data = await listLiterature(workspaceId);

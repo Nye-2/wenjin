@@ -296,3 +296,84 @@ class TestCaching:
                 assert models1[0].id == "reload-test"
                 assert len(models2) == 1
                 assert models2[0].id == "new-model"
+
+
+class TestDefaultModelResolution:
+    """Test default and fallback model resolution helpers."""
+
+    @pytest.fixture(autouse=True)
+    def reset_cache(self) -> Generator[None, None, None]:
+        from src.config.llm_config import reload_models
+
+        reload_models()
+        yield
+        reload_models()
+
+    def test_get_default_model_prefers_explicit_llm_default_model(self) -> None:
+        tool_models = json.dumps([
+            {
+                "id": "tool-a",
+                "model": "provider/tool-a",
+                "api_key": "sk-tool",
+                "base_url": "https://example.com/v1",
+            }
+        ])
+        gen_models = json.dumps([
+            {
+                "id": "gen-a",
+                "model": "provider/gen-a",
+                "api_key": "sk-gen",
+                "base_url": "https://example.com/v1",
+            }
+        ])
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_TOOL_MODELS": tool_models,
+                "LLM_GEN_MODELS": gen_models,
+                "LLM_DEFAULT_MODEL": "gen-a",
+            },
+            clear=False,
+        ):
+            from src.config.llm_config import get_default_model_id, reload_models
+
+            reload_models()
+            assert get_default_model_id() == "gen-a"
+
+    def test_get_default_model_falls_back_to_first_tool_model(self) -> None:
+        tool_models = json.dumps([
+            {
+                "id": "tool-primary",
+                "model": "provider/tool-primary",
+                "api_key": "sk-tool",
+                "base_url": "https://example.com/v1",
+            }
+        ])
+        with patch.dict(
+            os.environ,
+            {"LLM_TOOL_MODELS": tool_models, "LLM_DEFAULT_MODEL": "missing-model"},
+            clear=False,
+        ):
+            from src.config.llm_config import get_default_model_id, reload_models
+
+            reload_models()
+            assert get_default_model_id() == "tool-primary"
+
+    def test_resolve_model_id_falls_back_for_unknown_requested_model(self) -> None:
+        gen_models = json.dumps([
+            {
+                "id": "gen-default",
+                "model": "provider/gen-default",
+                "api_key": "sk-gen",
+                "base_url": "https://example.com/v1",
+            }
+        ])
+        with patch.dict(
+            os.environ,
+            {"LLM_GEN_MODELS": gen_models, "LLM_DEFAULT_MODEL": "gen-default"},
+            clear=False,
+        ):
+            from src.config.llm_config import reload_models, resolve_model_id
+
+            reload_models()
+            assert resolve_model_id("unknown-model") == "gen-default"

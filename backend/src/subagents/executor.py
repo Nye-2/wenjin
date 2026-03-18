@@ -114,7 +114,15 @@ class SubagentExecutor:
     def _create_agent(self):
         """Create a lightweight agent for subagent execution."""
         from src.models.factory import create_chat_model
-        model_name = self.parent_model or "gpt-4o"
+
+        model_name = self.parent_model
+        if not model_name:
+            try:
+                from src.config import get_default_model_id
+                model_name = get_default_model_id()
+            except Exception:
+                model_name = "default"
+
         model = create_chat_model(model_name, thinking_enabled=False)
 
         from langgraph.prebuilt import create_react_agent

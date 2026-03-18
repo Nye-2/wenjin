@@ -7,6 +7,8 @@ import { ArrowLeft, BookOpen, FileSearch } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 const TIME_RANGE_OPTIONS = [
@@ -31,6 +33,16 @@ export default function BackgroundResearchPage() {
     workspaceId,
     featureId: "background_research",
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
 
   useEffect(() => {
     if (workspace && !keywords) {
@@ -45,6 +57,7 @@ export default function BackgroundResearchPage() {
       keywords: keywords.trim(),
       industry_scope: industryScope,
       time_range: timeRange,
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -133,6 +146,17 @@ export default function BackgroundResearchPage() {
                 ))}
               </select>
             </div>
+
+            <ModelSelector
+              id="background-research-model"
+              label="生成模型"
+              models={availableModels}
+              selectedModel={selectedModel}
+              onChange={setSelectedModel}
+              isLoading={isModelLoading}
+              loadError={modelLoadError}
+              disabled={isRunning}
+            />
 
             <button
               className={cn(

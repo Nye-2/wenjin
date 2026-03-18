@@ -7,9 +7,19 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
+from src.models.router import route_writing_model
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_writing_model(requested_model: str | None) -> str:
+    """Resolve a writing model with safe fallback."""
+    try:
+        return route_writing_model(requested_model=requested_model)
+    except Exception:
+        return requested_model or "default"
 
 # ---------------------------------------------------------------------------
 # Report type constants
@@ -42,6 +52,8 @@ async def opening_research_graph(
     report_type = _normalize_report_type(str(params.get("report_type", "opening_report")))
     workspace_description = str(payload.get("workspace_description", ""))
     memory_context = initial_state.get("knowledge_context")
+    requested_model = _read_optional_str(params.get("model_id"))
+    model_id = _resolve_writing_model(requested_model)
 
     # Step 0: Load literature
     literature = await _load_literature(workspace_id)
@@ -52,6 +64,7 @@ async def opening_research_graph(
         literature=literature,
         focus_topic=topic,
         memory_context=memory_context,
+        model_id=model_id,
     )
 
     # Step 2: Plan methodology
@@ -59,6 +72,7 @@ async def opening_research_graph(
         research_analysis=research_analysis,
         report_type=report_type,
         topic=topic,
+        model_id=model_id,
     )
 
     # Step 3: Generate report sections
@@ -70,6 +84,7 @@ async def opening_research_graph(
         workspace_description=workspace_description,
         literature_highlights=literature_highlights,
         memory_context=memory_context,
+        model_id=model_id,
     )
 
     # Determine generation mode
@@ -94,6 +109,7 @@ async def opening_research_graph(
         "methodology_plan": methodology_plan,
         "reference_clues": literature_highlights,
         "literature_count": len(literature),
+        "model_id": model_id,
         "generation_mode": generation_mode,
         "pipeline_steps": step_results,
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
@@ -312,6 +328,8 @@ async def _analyze_research_status(
     literature: list[dict[str, Any]],
     focus_topic: str,
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> dict[str, Any] | None:
     """Step 1: LLM analyzes research landscape. Returns None on failure."""
     if not literature:
@@ -320,7 +338,7 @@ async def _analyze_research_status(
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return None
 
@@ -368,12 +386,14 @@ async def _plan_methodology(
     research_analysis: dict[str, Any] | None,
     report_type: str,
     topic: str,
+    *,
+    model_id: str = "default",
 ) -> dict[str, Any] | None:
     """Step 2: LLM plans research methodology. Returns None on failure."""
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return None
 
@@ -451,12 +471,14 @@ async def _generate_report_sections(
     workspace_description: str,
     literature_highlights: list[str],
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Step 3: LLM generates full report sections. Falls back to template."""
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return _fallback_template_sections(report_type, topic, workspace_description, literature_highlights)
 

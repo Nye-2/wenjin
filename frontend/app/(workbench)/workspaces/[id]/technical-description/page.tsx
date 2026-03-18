@@ -8,10 +8,12 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { listArtifacts } from "@/lib/api";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
 import {
   WorkspaceResultPanel,
   type WorkspaceResultViewModel,
 } from "@/components/workspace/WorkspaceResultPanel";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 interface CopyrightMaterialsProfile {
@@ -48,6 +50,16 @@ export default function TechnicalDescriptionPage() {
   const { run, isRunning, status, error } = useFeatureTaskRunner({
     workspaceId,
     featureId: "technical_description",
+  });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
   });
 
   // Load defaults from copyright_materials artifact
@@ -102,6 +114,7 @@ export default function TechnicalDescriptionPage() {
       database_middleware: databaseMiddleware.trim() || undefined,
       interface_protocols: interfaceProtocols.trim() || undefined,
       highlights: highlights.trim() || undefined,
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -287,6 +300,17 @@ export default function TechnicalDescriptionPage() {
                   className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
                 />
               </div>
+
+              <ModelSelector
+                id="technical-description-model"
+                label="生成模型"
+                models={availableModels}
+                selectedModel={selectedModel}
+                onChange={setSelectedModel}
+                isLoading={isModelLoading}
+                loadError={modelLoadError}
+                disabled={isRunning}
+              />
 
               <button
                 className={cn(

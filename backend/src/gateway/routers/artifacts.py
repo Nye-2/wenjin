@@ -13,9 +13,10 @@ from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import User, get_db_session
+from src.database import User, Workspace, get_db_session
 from src.gateway.routers.auth import get_current_user
 from src.gateway.validators.artifact import (
     CreateArtifactValidator,
@@ -53,7 +54,7 @@ UpdateArtifactRequest = UpdateArtifactValidator
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get database session."""
-    async for session in get_db_session():
+    async with get_db_session() as session:
         yield session
 
 
@@ -82,6 +83,34 @@ def artifact_to_response(artifact) -> ArtifactResponse:
     return ArtifactResponse(**orm_to_dict(artifact))
 
 
+def _owner_check_session_from_service(artifact_service) -> AsyncSession | None:
+    """Extract SQLAlchemy session from service for owner checks."""
+    db = getattr(artifact_service, "db", None)
+    return db if isinstance(db, AsyncSession) else None
+
+
+async def _require_workspace_owner(
+    session: AsyncSession,
+    workspace_id: str,
+    user_id: str,
+) -> None:
+    """Ensure workspace exists and is owned by user."""
+    result = await session.execute(
+        select(Workspace.user_id).where(Workspace.id == workspace_id)
+    )
+    owner_id = result.scalar_one_or_none()
+    if owner_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found",
+        )
+    if str(owner_id) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+
 # ============ Endpoints ============
 
 @router.post("/", response_model=ArtifactResponse, status_code=status.HTTP_201_CREATED)
@@ -104,6 +133,14 @@ async def create_artifact(
     Raises:
         HTTPException: If workspace not found or creation fails
     """
+    owner_session = _owner_check_session_from_service(artifact_service)
+    if owner_session is not None:
+        await _require_workspace_owner(
+            owner_session,
+            workspace_id=request.workspace_id,
+            user_id=str(current_user.id),
+        )
+
     artifact = await artifact_service.create(
         workspace_id=request.workspace_id,
         type=request.type,
@@ -132,6 +169,14 @@ async def list_artifacts(
     Returns:
         List of ArtifactResponse objects
     """
+    owner_session = _owner_check_session_from_service(artifact_service)
+    if owner_session is not None:
+        await _require_workspace_owner(
+            owner_session,
+            workspace_id=workspace_id,
+            user_id=str(current_user.id),
+        )
+
     artifacts = await artifact_service.list_by_workspace(
         workspace_id=workspace_id,
         type=type,
@@ -163,6 +208,13 @@ async def get_artifact(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Artifact not found",
         )
+    owner_session = _owner_check_session_from_service(artifact_service)
+    if owner_session is not None:
+        await _require_workspace_owner(
+            owner_session,
+            workspace_id=str(artifact.workspace_id),
+            user_id=str(current_user.id),
+        )
     return artifact_to_response(artifact)
 
 
@@ -189,6 +241,21 @@ async def update_artifact(
     Raises:
         HTTPException: If artifact not found (404)
     """
+    existing_artifact = await artifact_service.get(artifact_id)
+    if not existing_artifact:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        )
+
+    owner_session = _owner_check_session_from_service(artifact_service)
+    if owner_session is not None:
+        await _require_workspace_owner(
+            owner_session,
+            workspace_id=str(existing_artifact.workspace_id),
+            user_id=str(current_user.id),
+        )
+
     artifact = await artifact_service.update(
         artifact_id=artifact_id,
         title=request.title,
@@ -224,6 +291,21 @@ async def delete_artifact(
     Raises:
         HTTPException: If artifact not found (404)
     """
+    artifact = await artifact_service.get(artifact_id)
+    if not artifact:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        )
+
+    owner_session = _owner_check_session_from_service(artifact_service)
+    if owner_session is not None:
+        await _require_workspace_owner(
+            owner_session,
+            workspace_id=str(artifact.workspace_id),
+            user_id=str(current_user.id),
+        )
+
     success = await artifact_service.delete(artifact_id)
     if not success:
         raise HTTPException(
@@ -260,6 +342,13 @@ async def get_artifact_lineage(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Artifact not found",
+        )
+    owner_session = _owner_check_session_from_service(artifact_service)
+    if owner_session is not None:
+        await _require_workspace_owner(
+            owner_session,
+            workspace_id=str(artifact.workspace_id),
+            user_id=str(current_user.id),
         )
 
     lineage = await artifact_service.get_lineage(artifact_id)

@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { Upload, File, X, Loader2, CheckCircle } from 'lucide-react';
+import { API_BASE_URL } from '@/lib/api-base';
 
 interface PaperUploadProps {
   workspaceId: string;
@@ -28,14 +29,28 @@ interface UploadingFile {
   error?: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+function getAuthToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const authStorage = localStorage.getItem('auth-storage');
+    if (!authStorage) {
+      return null;
+    }
+    const parsed = JSON.parse(authStorage);
+    return parsed?.state?.accessToken ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export function PaperUpload({
   workspaceId,
   onUploadComplete,
   onUploadError,
   maxFileSize = 50 * 1024 * 1024, // 50MB default
-  acceptedTypes = ['.pdf', '.tex', '.docx'],
+  acceptedTypes = ['.pdf'],
 }: PaperUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
@@ -69,8 +84,10 @@ export function PaperUpload({
     formData.append('workspace_id', workspaceId);
 
     try {
-      const response = await fetch(`${API_BASE}/api/papers/upload`, {
+      const token = getAuthToken();
+      const response = await fetch(`${API_BASE_URL}/papers/upload`, {
         method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: formData,
       });
 
@@ -79,8 +96,17 @@ export function PaperUpload({
         throw new Error(data.detail || 'Upload failed');
       }
 
-      const paper = await response.json();
-      onUploadComplete?.(paper);
+      const payload = await response.json();
+      const uploadedPaper: UploadedPaper = {
+        id: String(payload.paper_id ?? ''),
+        title:
+          typeof payload.filename === 'string'
+            ? payload.filename.replace(/\.pdf$/i, '')
+            : file.name.replace(/\.pdf$/i, ''),
+        filename:
+          typeof payload.filename === 'string' ? payload.filename : file.name,
+      };
+      onUploadComplete?.(uploadedPaper);
     } catch (error) {
       onUploadError?.(error instanceof Error ? error.message : 'Upload failed');
       throw error;

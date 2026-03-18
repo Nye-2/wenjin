@@ -7,10 +7,12 @@ import { ArrowLeft, List } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
 import {
   WorkspaceResultPanel,
   type WorkspaceResultViewModel,
 } from "@/components/workspace/WorkspaceResultPanel";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 const PROPOSAL_TYPES = [
@@ -53,6 +55,16 @@ export default function ProposalOutlinePage() {
     workspaceId,
     featureId: "proposal_outline",
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
 
   const handleGenerate = async () => {
     if (!topic.trim()) return;
@@ -60,6 +72,7 @@ export default function ProposalOutlinePage() {
       topic: topic.trim(),
       proposal_type: proposalType,
       period_months: periodMonths,
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -182,6 +195,17 @@ export default function ProposalOutlinePage() {
                 ))}
               </select>
             </div>
+
+            <ModelSelector
+              id="proposal-outline-model"
+              label="生成模型"
+              models={availableModels}
+              selectedModel={selectedModel}
+              onChange={setSelectedModel}
+              isLoading={isModelLoading}
+              loadError={modelLoadError}
+              disabled={isRunning}
+            />
 
             <button
               className={cn(

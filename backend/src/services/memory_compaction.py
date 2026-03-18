@@ -71,7 +71,17 @@ async def compact_user_memory(
 
         try:
             from src.models.factory import create_chat_model
-            model = create_chat_model("default", temperature=0.1)
+            from src.models.router import route_model
+
+            try:
+                model_id = route_model(
+                    preferred_categories=("utility", "gen", "tool"),
+                    allowed_categories=("utility", "gen", "tool"),
+                    require_tools=False,
+                )
+            except Exception:
+                model_id = "default"
+            model = create_chat_model(model_id, temperature=0.1)
             prompt = COMPACT_PROMPT.format(entries_json=json.dumps(entries_data, ensure_ascii=False))
             response = await model.ainvoke(prompt)
             content = response.content if hasattr(response, "content") else str(response)

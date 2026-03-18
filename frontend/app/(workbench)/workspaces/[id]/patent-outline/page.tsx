@@ -7,10 +7,12 @@ import { ArrowLeft, FileText } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
 import {
   WorkspaceResultPanel,
   type WorkspaceResultViewModel,
 } from "@/components/workspace/WorkspaceResultPanel";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 export default function PatentOutlinePage() {
@@ -28,6 +30,16 @@ export default function PatentOutlinePage() {
     workspaceId,
     featureId: "patent_outline",
   });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
 
   useEffect(() => {
     if (workspace && !innovationDescription) {
@@ -43,6 +55,7 @@ export default function PatentOutlinePage() {
       technical_field: technicalField.trim(),
       application_scenario: applicationScenario.trim(),
       implementation_method: implementationMethod.trim(),
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -169,6 +182,17 @@ export default function PatentOutlinePage() {
                 className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50 resize-none"
               />
             </div>
+
+            <ModelSelector
+              id="patent-outline-model"
+              label="生成模型"
+              models={availableModels}
+              selectedModel={selectedModel}
+              onChange={setSelectedModel}
+              isLoading={isModelLoading}
+              loadError={modelLoadError}
+              disabled={isRunning}
+            />
 
             <button
               className={cn(

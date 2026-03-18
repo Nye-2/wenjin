@@ -104,14 +104,24 @@ class TestCreateChatModel:
             # ChatAnthropic with thinking should have thinking_budget
             assert hasattr(model, "thinking_budget") or hasattr(model, "model_kwargs")
 
-    def test_error_when_model_not_found(self) -> None:
-        """Test that ValueError is raised when model is not found."""
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": "[]"}, clear=False):
+    def test_error_when_no_models_configured(self) -> None:
+        """No configured models should raise explicit configuration error."""
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_GEN_MODELS": "[]",
+                "LLM_TOOL_MODELS": "[]",
+                "LLM_UTILITY_MODELS": "[]",
+                "LLM_IMAGE_MODELS": "[]",
+                "LLM_DEFAULT_MODEL": "",
+            },
+            clear=False,
+        ):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
             reload_models()
 
-            with pytest.raises(ValueError, match="Model not found"):
+            with pytest.raises(ValueError, match="No models configured"):
                 create_chat_model(model_id="nonexistent-model", temperature=0.7)
 
     def test_temperature_override(self, openai_compatible_config: str) -> None:

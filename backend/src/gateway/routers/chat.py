@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import ChatThread, User
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.workspaces import get_db
+from src.models import route_chat_model
 from src.services import ChatThreadAccessError, ChatThreadService
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class ChatRequest(BaseModel):
     message: str
     workspace_id: str | None = None
     thread_id: str | None = None
-    model: str = "gpt-4o"
+    model: str | None = None
     thinking_enabled: bool = False
     stream: bool = True
 
@@ -54,7 +55,7 @@ class ThreadCreate(BaseModel):
 
     workspace_id: str | None = None
     title: str | None = None
-    model: str = "gpt-4o"
+    model: str | None = None
 
 
 class ThreadResponse(BaseModel):
@@ -109,6 +110,11 @@ def _thread_messages_to_response(messages: list[dict]) -> list[ChatMessage]:
 async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> str:
     """Generate a chat response through the unified lead-agent pipeline."""
     workspace_id = _resolve_workspace_id(request, thread)
+    effective_model = route_chat_model(
+        requested_model=request.model,
+        thread_model=thread.model,
+        require_tools=True,
+    )
 
     try:
         from src.agents.lead_agent.agent import make_lead_agent
@@ -117,7 +123,7 @@ async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> s
             "configurable": {
                 "thread_id": thread.id,
                 "workspace_id": workspace_id,
-                "model_name": request.model,
+                "model_name": effective_model,
                 "thinking_enabled": request.thinking_enabled,
             }
         }
@@ -136,7 +142,7 @@ async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> s
         logger.exception("Agent failed, falling back to simple model")
         from src.models.factory import create_chat_model
 
-        model = create_chat_model(request.model, request.thinking_enabled)
+        model = create_chat_model(effective_model, request.thinking_enabled)
         response = await model.ainvoke(_build_langchain_messages(thread))
         return response.content
 

@@ -7,10 +7,12 @@ import { ArrowLeft, PenTool } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import { ModelSelector } from "@/components/workspace/ModelSelector";
 import {
   WorkspaceResultPanel,
   type WorkspaceResultViewModel,
 } from "@/components/workspace/WorkspaceResultPanel";
+import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
 
 const SECTION_OPTIONS = [
@@ -45,6 +47,16 @@ export default function SciWritingPage() {
   const { run, isRunning, status, error } = useFeatureTaskRunner({
     workspaceId,
     featureId: "writing",
+  });
+  const {
+    models: availableModels,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isModelLoading,
+    loadError: modelLoadError,
+  } = useModelSelection({
+    purpose: "writing",
+    persistenceKey: `workspace:${workspaceId}:model:writing`,
   });
 
   const sectionHint = useMemo(() => {
@@ -101,6 +113,7 @@ export default function SciWritingPage() {
       section_type: sectionType,
       target_words: targetWords,
       context_artifact_ids: ids.length > 0 ? ids : undefined,
+      model_id: selectedModel || undefined,
     });
   };
 
@@ -188,6 +201,17 @@ export default function SciWritingPage() {
                 className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </div>
+
+            <ModelSelector
+              id="sci-writing-model"
+              label="生成模型"
+              models={availableModels}
+              selectedModel={selectedModel}
+              onChange={setSelectedModel}
+              isLoading={isModelLoading}
+              loadError={modelLoadError}
+              disabled={isRunning}
+            />
 
             <button
               className={cn(

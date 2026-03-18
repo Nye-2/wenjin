@@ -130,8 +130,17 @@ async def extract_and_persist_knowledge(
 
     try:
         from src.models.factory import create_chat_model
+        from src.models.router import route_model
 
-        model = create_chat_model("default", temperature=0.1)
+        try:
+            model_id = route_model(
+                preferred_categories=("utility", "gen", "tool"),
+                allowed_categories=("utility", "gen", "tool"),
+                require_tools=False,
+            )
+        except Exception:
+            model_id = "default"
+        model = create_chat_model(model_id, temperature=0.1)
         prompt = KNOWLEDGE_EXTRACTION_PROMPT.format(
             conversation=conversation_text[:4000],
         )

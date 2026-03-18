@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { API_BASE_URL } from '@/lib/api-base';
 
 interface User {
   id: string;
@@ -27,8 +28,6 @@ interface AuthState {
   clearError: () => void;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -42,7 +41,7 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await fetch(`${API_BASE}/api/auth/login`, {
+          const response = await fetch(`${API_BASE_URL}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password }),
@@ -56,7 +55,7 @@ export const useAuthStore = create<AuthState>()(
           const data = await response.json();
 
           // Fetch user info with the new token
-          const meResponse = await fetch(`${API_BASE}/api/auth/me`, {
+          const meResponse = await fetch(`${API_BASE_URL}/auth/me`, {
             headers: {
               Authorization: `Bearer ${data.access_token}`,
             },
@@ -100,7 +99,7 @@ export const useAuthStore = create<AuthState>()(
       register: async (email: string, password: string, name: string, verificationCode: string) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await fetch(`${API_BASE}/api/auth/register`, {
+          const response = await fetch(`${API_BASE_URL}/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -119,7 +118,7 @@ export const useAuthStore = create<AuthState>()(
           const data = await response.json();
 
           // Fetch user info with the new token
-          const meResponse = await fetch(`${API_BASE}/api/auth/me`, {
+          const meResponse = await fetch(`${API_BASE_URL}/auth/me`, {
             headers: {
               Authorization: `Bearer ${data.access_token}`,
             },
@@ -162,7 +161,7 @@ export const useAuthStore = create<AuthState>()(
 
       sendVerificationCode: async (email: string, purpose: 'register' | 'reset_password') => {
         try {
-          const response = await fetch(`${API_BASE}/api/auth/send-verification-code`, {
+          const response = await fetch(`${API_BASE_URL}/auth/send-verification-code`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, purpose }),
@@ -202,7 +201,7 @@ export const useAuthStore = create<AuthState>()(
         if (!refreshToken) return false;
 
         try {
-          const response = await fetch(`${API_BASE}/api/auth/refresh`, {
+          const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refresh_token: refreshToken }),
@@ -220,7 +219,7 @@ export const useAuthStore = create<AuthState>()(
           });
 
           // Fetch user info
-          const meResponse = await fetch(`${API_BASE}/api/auth/me`, {
+          const meResponse = await fetch(`${API_BASE_URL}/auth/me`, {
             headers: {
               Authorization: `Bearer ${data.access_token}`,
             },

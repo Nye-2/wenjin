@@ -8,9 +8,24 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
+from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
+from src.models.router import route_model
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_management_model(requested_model: str | None) -> str:
+    """Resolve a model for literature management analysis."""
+    try:
+        return route_model(
+            requested_model=requested_model,
+            preferred_categories=("tool", "gen"),
+            allowed_categories=("tool", "gen"),
+            require_tools=False,
+        )
+    except Exception:
+        return requested_model or "default"
 
 
 @register_feature_graph("literature_management", workspace_type="thesis")
@@ -24,7 +39,10 @@ async def literature_management_graph(
     Falls back to template mode if LLM unavailable.
     """
     workspace_id = str(payload.get("workspace_id", ""))
-    focus_topic = str(payload.get("params", {}).get("topic", payload.get("workspace_name", "")))
+    params = payload.get("params", {})
+    focus_topic = str(params.get("topic", payload.get("workspace_name", "")))
+    requested_model = _read_optional_str(params.get("model_id"))
+    model_id = _resolve_management_model(requested_model)
 
     # Step 1: Load literature
     literature = await _load_literature(workspace_id)
@@ -33,7 +51,12 @@ async def literature_management_graph(
     stats = _compute_statistics(literature, focus_topic)
 
     # Step 3: LLM-powered analysis (with fallback)
-    llm_analysis = await _llm_analyze_literature(literature, focus_topic, initial_state.get("knowledge_context"))
+    llm_analysis = await _llm_analyze_literature(
+        literature,
+        focus_topic,
+        initial_state.get("knowledge_context"),
+        model_id=model_id,
+    )
 
     # Merge LLM analysis into stats
     if llm_analysis:
@@ -44,6 +67,7 @@ async def literature_management_graph(
     else:
         stats["generation_mode"] = "template_fallback"
 
+    stats["model_id"] = model_id
     stats["generated_at"] = datetime.now(tz=timezone.utc).isoformat()
     return stats
 
@@ -142,6 +166,8 @@ async def _llm_analyze_literature(
     literature: list[dict],
     focus_topic: str,
     memory_context: str | None,
+    *,
+    model_id: str = "default",
 ) -> dict[str, Any] | None:
     """LLM-powered literature analysis. Returns None on failure."""
     if not literature:
@@ -150,7 +176,7 @@ async def _llm_analyze_literature(
     try:
         from src.models.factory import create_chat_model
 
-        model = create_chat_model("default", temperature=0.3)
+        model = create_chat_model(model_id, temperature=0.3)
     except Exception:
         return None
 

@@ -30,6 +30,7 @@ interface ChatState {
     options?: {
       workspaceId?: string;
       skill?: string | null;
+      model?: string;
     }
   ) => Promise<void>;
   addMessage: (message: Message) => void;
@@ -85,6 +86,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         message: content,
         workspace_id: options?.workspaceId,
         thread_id: threadId || undefined,
+        model: options?.model,
       },
       // onMessage - receive content chunks
       (chunk) => {

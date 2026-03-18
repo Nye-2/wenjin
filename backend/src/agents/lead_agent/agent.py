@@ -27,6 +27,7 @@ from src.agents.middlewares import (
     WorkspaceContextMiddleware,
 )
 from src.agents.thread_state import ThreadState
+from src.config import get_default_model_id
 from src.config.config_loader import get_app_config
 
 logger = logging.getLogger(__name__)
@@ -444,7 +445,11 @@ def make_lead_agent(config: RunnableConfig, middlewares: list | None = None) -> 
     """
     # Get configuration
     configurable = config.get("configurable", {})
-    model_name = configurable.get("model_name", "gpt-4o")
+    try:
+        default_model = get_default_model_id()
+    except Exception:
+        default_model = "default"
+    model_name = configurable.get("model_name") or default_model
     thinking_enabled = configurable.get("thinking_enabled", False)
     subagent_enabled = configurable.get("subagent_enabled", True)
 

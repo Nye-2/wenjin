@@ -21,11 +21,11 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 const RECENT_ARTIFACTS_LIMIT = 5;
 
 const workspaceTypeLabels: Record<string, string> = {
-  sci: "Scientific Paper",
-  thesis: "Thesis / Dissertation",
-  proposal: "Research Proposal",
-  software_copyright: "Software Copyright Application",
-  patent: "Patent Application",
+  sci: "学术论文",
+  thesis: "学位论文",
+  proposal: "研究计划",
+  software_copyright: "软件著作权申请",
+  patent: "专利申请",
 };
 
 const workspaceTypeColors: Record<string, string> = {

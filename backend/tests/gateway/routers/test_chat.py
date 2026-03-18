@@ -51,14 +51,14 @@ class FakeChatThreadService:
         user_id: str,
         workspace_id: str | None = None,
         title: str | None = None,
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> FakeThread:
         thread = FakeThread(
             id=self._new_thread_id(),
             user_id=user_id,
             workspace_id=workspace_id,
             title=title,
-            model=model,
+            model=model or "default",
         )
         self.threads[thread.id] = thread
         return thread
@@ -75,7 +75,7 @@ class FakeChatThreadService:
         user_id: str,
         thread_id: str | None = None,
         workspace_id: str | None = None,
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> FakeThread:
         if thread_id:
             thread = self.threads.get(thread_id)

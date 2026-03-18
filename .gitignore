@@ -16,3 +16,6 @@ node_modules/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local docker image archives
+backend/docker/images/texlive/*.tar
