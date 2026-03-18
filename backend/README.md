@@ -9,6 +9,12 @@ Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
 - **Workspace Service** - Project organization and management
 - **Artifact Service** - Research artifact tracking and lineage
 - **Paper Service** - Paper management and search
+- **LangGraph Workspace Features** - Unified feature execution for all workspace types:
+  - Thesis: literature_management, opening_research, figure_generation, compile_export, deep_research
+  - SCI: literature_search, paper_analysis, writing
+  - Patent: patent_outline, prior_art_search
+  - Proposal: proposal_outline, background_research
+  - Software Copyright: copyright_materials, technical_description
 - **Skill Execution Framework** - Pluggable skill system with:
   - Deep Research Skill
   - Framework Designer Skill
@@ -20,11 +26,13 @@ Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
   - Papers Router (upload, search, extraction)
   - Artifacts Router (CRUD + lineage)
   - Chat Router (conversation threads)
+  - Workspace Features Router (feature execution)
 - **Input Validation** - Request validation using Pydantic
 - **Error Handling** - Centralized error handling middleware
 - **API Integration Tests** - Comprehensive endpoint testing
 
 ## Tech Stack
+
 - Python 3.12+
 - FastAPI
 - SQLAlchemy 2.0 (async)
@@ -50,6 +58,7 @@ uv run langgraph dev --port 2024
 ```
 
 ## Project Structure
+
 ```
 src/
 ├── gateway/          # FastAPI gateway
@@ -58,7 +67,14 @@ src/
 │   ├── middleware/     # Error handling, validation
 │   └── validators/     # Request validators
 ├── agents/           # Lead agent and middlewares
-│   ├── lead_agent/     # Main orchestrating agent
+│   ├── workspace_lead_agent.py  # Unified graph registry and executor
+│   ├── graphs/           # LangGraph sub-graphs by workspace type
+│   │   ├── _shared/      # Shared utilities (JSON parsing, normalization)
+│   │   ├── thesis/       # Thesis workspace graphs
+│   │   ├── sci/          # SCI paper workspace graphs
+│   │   ├── patent/       # Patent workspace graphs
+│   │   ├── proposal/     # Proposal workspace graphs
+│   │   └── software_copyright/  # Software copyright graphs
 │   └── middlewares/    # Request processing pipeline
 ├── academic/         # Academic services and tools
 │   ├── services/       # Business logic services
@@ -77,7 +93,32 @@ src/
 │   ├── base.py        # Base skill classes
 │   ├── executor.py    # Skill execution
 │   └── implementations/  # Skill implementations
+├── task/             # Async task system
+│   ├── service.py       # Task submission and management
+│   ├── progress.py      # Progress tracking
+│   └── handlers/        # Task handlers
+├── workspace_features/  # Workspace feature registry and services
+│   ├── registry.py      # Feature definitions
+│   └── services/        # Feature service layer
 └── tools/            # Built-in tools
+```
+
+## LangGraph Workspace Architecture
+
+All workspace types now use a unified LangGraph architecture:
+
+```
+workspace_lead_agent.py
+├── register_feature_graph()  # Decorator to register graph functions
+├── execute_feature_graph()   # Unified entry point for all features
+└── _ensure_graphs_loaded()   # Lazy loading of workspace modules
+
+Each workspace type has its own graph directory:
+- graphs/thesis/     → thesis_lead_agent.py (backward compatible)
+- graphs/sci/        → literature_search, paper_analysis, writing
+- graphs/patent/     → patent_outline, prior_art_search
+- graphs/proposal/   → proposal_outline, background_research
+- graphs/software_copyright/ → copyright_materials, technical_description
 ```
 
 ## API Endpoints
@@ -123,9 +164,10 @@ src/
 
 ## Testing
 
-The project has 790+ tests covering:
+The project has comprehensive tests covering:
 - Services (extraction, user, workspace, artifact, paper)
 - API endpoints (auth, workspaces, papers, artifacts)
+- LangGraph sub-graphs (all workspace types)
 - Skills (deep research, framework designer, fullpaper writer, literature review)
 - Academic tools (PDF extraction, semantic scholar)
 
@@ -135,6 +177,9 @@ uv run pytest
 
 # Run with coverage
 uv run pytest --cov=src --cov-report=term-missing
+
+# Run specific graph tests
+uv run pytest tests/agents/graphs/ -v
 ```
 
 ## Environment Variables
