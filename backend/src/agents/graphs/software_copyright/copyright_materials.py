@@ -1,9 +1,6 @@
 """Copyright Materials sub-graph — Deterministic software copyright application materials checklist generation.
 
-This module implements the copyright_materials feature using LangGraph pattern:
-- Parameter extraction and normalization
-- Deterministic materials checklist generation
-- Completeness checking and structured output
+Pipeline: extract parameters -> build checklist -> build output
 
 Note: This feature has NO independent service function - business logic is directly in handler.
 See handoff document for details.
@@ -11,30 +8,15 @@ See handoff document for details.
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
+from src.agents.graphs._shared import _normalize_list, _utc_now_iso
 from src.agents.workspace_lead_agent import register_feature_graph
 
 logger = logging.getLogger(__name__)
 
 COPYRIGHT_OUTPUT_LANGUAGE = "zh"
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(tz=timezone.utc).isoformat()
-
-
-def _normalize_list(value: Any) -> list[str]:
-    """Normalize params values into a non-empty string list."""
-    if isinstance(value, str):
-        parts = [item.strip() for item in value.split(",")]
-        return [item for item in parts if item]
-    if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    return []
 
 
 def _build_required_materials(
@@ -46,7 +28,7 @@ def _build_required_materials(
     highlights: list[str],
     target_platforms: list[str],
     source_modules: list[str],
-) -> list[dict[str, Any]:
+) -> list[dict[str, Any]]:
     """Build a deterministic materials checklist artifact."""
     return [
         {
@@ -117,7 +99,7 @@ def _build_required_materials(
             "required_fields": highlights or [
                 "核心业务流程",
                 "权限与数据管理",
-                "结果导出与报表"
+                "结果导出与报表",
             ],
             "platforms": target_platforms or ["Web", "Desktop", "Server"],
         },
@@ -141,18 +123,26 @@ async def copyright_materials_graph(
 ) -> dict[str, Any]:
     """Execute copyright materials checklist generation.
 
-    Pipeline: extract params -> build checklist -> output
+    Pipeline: extract params -> build checklist -> build output
     This is a deterministic generation (no LLM needed).
     """
-    params = payload.get("params", {})
+    workspace_id = str(payload.get("workspace_id", ""))
     workspace_name = str(payload.get("workspace_name", ""))
-    workspace_description = str(payload.get("workspace_description", "")
-    workspace_id = str(payload.get("workspace_id", "")
-    workspace_discipline = str(payload.get("workspace_discipline", "")
+    workspace_description = str(payload.get("workspace_description", ""))
+    workspace_discipline = str(payload.get("workspace_discipline", ""))
+    params = payload.get("params", {})
 
-    # Step 1: Extract parameters
-    software_name = str(params.get("software_name") or workspace_name or "待确认软件名称").strip()
-    version = str(params.get("version") or params.get("software_version") or "V1.0").strip()
+    # Step 1: Extract parameters (per handoff document)
+    software_name = str(
+        params.get("software_name")
+        or workspace_name
+        or "待确认软件名称"
+    ).strip()
+    version = str(
+        params.get("version")
+        or params.get("software_version")
+        or "V1.0"
+    ).strip()
     applicant_name = str(params.get("applicant_name") or "待确认申请主体").strip()
     completion_date = str(params.get("completion_date") or "待确认开发完成日期").strip()
     highlights = _normalize_list(params.get("highlights"))
@@ -171,7 +161,7 @@ async def copyright_materials_graph(
     )
 
     # Step 3: Build review checklist
-    review_checklist = _build_review_checklist(required_materials)
+    review_checklist = _build_review_checklist()
 
     # Step 4: Build output
     return {
@@ -190,7 +180,6 @@ async def copyright_materials_graph(
             "applicant_name": applicant_name,
             "completion_date": completion_date,
             "description": workspace_description,
-            "config_snapshot": payload.get("workspace_config"),
             "highlights": highlights,
             "target_platforms": target_platforms,
             "source_modules": source_modules,

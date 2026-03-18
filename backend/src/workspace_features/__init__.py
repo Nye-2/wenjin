@@ -1,4 +1,8 @@
-"""Workspace feature registry exports."""
+"""Workspace feature registry exports.
+
+Note: Handler-related exports have been removed per LangGraph migration.
+All features now route through workspace_lead_agent.execute_feature_graph.
+"""
 
 from .contracts import (
     FeatureArtifactDraft,
@@ -14,12 +18,6 @@ from .registry import (
     iter_workspace_features,
     list_workspace_features,
 )
-from .runtime import (
-    WorkspaceFeatureExecutionContext,
-    execute_registered_feature,
-    list_registered_handler_keys,
-    register_feature_handler,
-)
 
 __all__ = [
     "CANONICAL_WORKSPACE_TYPES",
@@ -27,13 +25,9 @@ __all__ = [
     "FeatureArtifactReference",
     "FeatureStageDefinition",
     "WorkspaceFeatureDefinition",
-    "WorkspaceFeatureExecutionContext",
     "WorkspaceFeatureExecutionResult",
-    "execute_registered_feature",
     "get_workspace_feature",
     "get_workspace_feature_by_handler",
     "iter_workspace_features",
-    "list_registered_handler_keys",
     "list_workspace_features",
-    "register_feature_handler",
 ]

@@ -1,9 +1,9 @@
-"""Imports concrete workspace feature handlers for decorator registration."""
+"""Workspace feature handlers have been migrated to LangGraph sub-graphs.
 
-from . import patent  # noqa: F401
-from . import proposal  # noqa: F401
-from . import sci  # noqa: F401
-from . import software_copyright
-from . import thesis  # noqa: F401
+This directory is kept for backwards compatibility. All feature execution
+now routes through workspace_lead_agent.execute_feature_graph().
 
-__all__ = ["patent", "proposal", "sci", "software_copyright", "thesis"]
+See: docs/plans/2026-03-17-langgraph-implementation-handoff.md
+"""
+
+__all__: list[str] = []
