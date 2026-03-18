@@ -229,7 +229,7 @@ async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
                 progress,
             )
             if langgraph_result is not None:
-                _schedule_memory_extraction(payload, langgraph_result)
+                _schedule_memory_extraction("deep_research", payload, langgraph_result)
                 return langgraph_result
         except Exception:
             logger.warning(
