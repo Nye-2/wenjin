@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from langchain_core.messages import SystemMessage
 
@@ -26,9 +26,13 @@ __all__ = [
     "register_feature_graph",
 ]
 
+# Type alias for feature graph functions
+FeatureGraphFn = Callable[[dict[str, Any], dict[str, Any]], Awaitable[dict[str, Any]]]
+
 # Feature graph registry: composite_key -> async callable(initial_state, payload) -> result
-# Key format: "{workspace_type}.{feature_id}" or "{feature_id}" (backward compat)
-_FEATURE_GRAPH_REGISTRY: dict[str, Callable] = {}
+# Key format: "{workspace_type}.{feature_id}" (e.g., "thesis.literature_management")
+# Legacy format: "{feature_id}" (backward compat, deprecated)
+_FEATURE_GRAPH_REGISTRY: dict[str, FeatureGraphFn] = {}
 _LOADED_WORKSPACES: set[str] = set()
 
 
@@ -192,8 +196,8 @@ def _build_system_prompt(
     return "\n".join(parts)
 
 
-# Backward compatibility aliases for thesis_lead_agent.py
-# These are used by thesis graphs that import from thesis_lead_agent
+# Backward compatibility wrapper for thesis_lead_agent.py
+# Thesis graphs now import directly from this module with workspace_type="thesis"
 async def execute_thesis_feature_graph(
     feature_id: str,
     payload: dict[str, Any],

@@ -30,36 +30,6 @@ def _read_params(payload: dict[str, Any]) -> dict[str, Any]:
     return params if isinstance(params, dict) else {}
 
 
-def _safe_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _resolve_paper_title(payload: dict[str, Any]) -> str:
-    params = _read_params(payload)
-    candidate = (
-        params.get("paper_title")
-        or payload.get("paper_title")
-        or params.get("topic")
-        or payload.get("title")
-        or payload.get("workspace_name")
-        or "未命名论文"
-    )
-    return str(candidate).strip() or "未命名论文"
-
-
-def _normalize_progress(progress: float | int | None) -> int:
-    """Convert workflow progress to an integer percentage."""
-    if progress is None:
-        return 0
-    numeric = float(progress)
-    if numeric <= 1:
-        numeric *= 100
-    return max(0, min(int(round(numeric)), 100))
-
-
 def _report_type_label(report_type: str) -> str:
     return {
         "opening_report": "开题报告",
@@ -353,7 +323,7 @@ def _schedule_memory_extraction(
                 source=f"feature:{workspace_type}.{feature_id}",
             )
         except Exception:
-            logger.debug("Memory extraction failed for feature %s", feature_id)
+            logger.debug("Memory extraction failed for feature %s", feature_id, exc_info=True)
 
     try:
         loop = asyncio.get_running_loop()
@@ -393,7 +363,7 @@ async def execute_workspace_feature(
     )
 
 
-# Legacy handlers kept for thesis writing actions (review_section, etc.)
+# Thesis writing actions that route to thesis_writing LangGraph sub-graph
 async def execute_thesis_generation(
     payload: dict[str, Any],
     progress: ProgressTracker,
