@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from src.agents.thesis_lead_agent import register_feature_graph
+from src.agents.workspace_lead_agent import register_feature_graph
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ _MAX_REVISION_ROUNDS = 2
 # ---------------------------------------------------------------------------
 # Main graph entry point
 # ---------------------------------------------------------------------------
-@register_feature_graph("thesis_writing")
+@register_feature_graph("thesis_writing", workspace_type="thesis")
 async def thesis_writing_graph(
     initial_state: dict[str, Any],
     payload: dict[str, Any],

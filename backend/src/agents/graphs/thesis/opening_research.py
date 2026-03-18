@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from src.agents.thesis_lead_agent import register_feature_graph
+from src.agents.workspace_lead_agent import register_feature_graph
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ _REPORT_TYPES = {"opening_report", "literature_review", "feasibility_analysis"}
 # ---------------------------------------------------------------------------
 # Main graph entry point
 # ---------------------------------------------------------------------------
-@register_feature_graph("opening_research")
+@register_feature_graph("opening_research", workspace_type="thesis")
 async def opening_research_graph(
     initial_state: dict[str, Any],
     payload: dict[str, Any],

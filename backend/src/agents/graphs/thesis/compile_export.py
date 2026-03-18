@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from src.agents.thesis_lead_agent import register_feature_graph
+from src.agents.workspace_lead_agent import register_feature_graph
 
 logger = logging.getLogger(__name__)
 
@@ -268,7 +268,7 @@ def _determine_generation_mode(
 # ---------------------------------------------------------------------------
 # Main graph entry point
 # ---------------------------------------------------------------------------
-@register_feature_graph("compile_export")
+@register_feature_graph("compile_export", workspace_type="thesis")
 async def compile_export_graph(
     initial_state: dict[str, Any],
     payload: dict[str, Any],
