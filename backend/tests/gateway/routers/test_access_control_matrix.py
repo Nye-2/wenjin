@@ -125,11 +125,10 @@ class TestArtifactsAuth:
         return TestClient(app)
 
     def test_create_artifact_requires_auth(self, unauthenticated_client):
-        """POST /artifacts/ without token should return 401."""
+        """POST /workspaces/{id}/artifacts without token should return 401."""
         response = unauthenticated_client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"test": True},
             },
@@ -137,23 +136,21 @@ class TestArtifactsAuth:
         assert response.status_code == 401
 
     def test_list_artifacts_requires_auth(self, unauthenticated_client):
-        """GET /artifacts/ without token should return 401."""
-        response = unauthenticated_client.get(
-            f"/artifacts/?workspace_id={WORKSPACE_ID}"
-        )
+        """GET /workspaces/{id}/artifacts without token should return 401."""
+        response = unauthenticated_client.get(f"/workspaces/{WORKSPACE_ID}/artifacts")
         assert response.status_code == 401
 
     def test_update_artifact_requires_auth(self, unauthenticated_client):
-        """PUT /artifacts/{id} without token should return 401."""
+        """PUT /workspaces/{id}/artifacts/{id} without token should return 401."""
         response = unauthenticated_client.put(
-            f"/artifacts/{uuid4()}",
+            f"/workspaces/{WORKSPACE_ID}/artifacts/{uuid4()}",
             json={"title": "Updated"},
         )
         assert response.status_code == 401
 
     def test_delete_artifact_requires_auth(self, unauthenticated_client):
-        """DELETE /artifacts/{id} without token should return 401."""
-        response = unauthenticated_client.delete(f"/artifacts/{uuid4()}")
+        """DELETE /workspaces/{id}/artifacts/{id} without token should return 401."""
+        response = unauthenticated_client.delete(f"/workspaces/{WORKSPACE_ID}/artifacts/{uuid4()}")
         assert response.status_code == 401
 
 

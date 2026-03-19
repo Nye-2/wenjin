@@ -22,7 +22,6 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 | Literature | `/api/workspaces/{workspace_id}/literature*` | Bearer | 文献 CRUD、批量导入、数量统计 |
 | Papers | `/api/papers*` | Bearer | 论文 CRUD、提取、检索、章节 |
 | Artifacts | `/api/workspaces/{workspace_id}/artifacts*` | Bearer | Canonical workspace-scoped 成果 CRUD、lineage |
-| Artifacts Compatibility | `/api/artifacts*` | Bearer | 兼容根路径；列表接口需传 `workspace_id` |
 | Tasks | `/api/tasks*` | Bearer | 任务提交、状态、SSE 进度、取消 |
 | Dashboard | `/api/dashboard/*` | Bearer | 用户看板 + 管理员看板/积分/发布门禁 |
 
@@ -38,7 +37,7 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 ## Notes for API Consumers
 
 - 新能力只应接入 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`。
-- artifact 的新读写应优先接入 `/api/workspaces/{workspace_id}/artifacts*`。
+- artifact 的读写应统一接入 `/api/workspaces/{workspace_id}/artifacts*`。
 - thread skill 属于会话级状态，服务端持久化在 `chat_threads.skill`。
 - 对长时任务，前端应使用 `/api/tasks/{task_id}` 或 `/api/tasks/{task_id}/stream` 获取进度。
 - `/api/chat/stream` 与 `/api/tasks/{task_id}/stream` 均为 SSE，需要反向代理禁用缓冲。

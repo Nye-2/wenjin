@@ -185,9 +185,8 @@ class TestCreateArtifact:
     def test_create_artifact_success(self, client):
         """Test successful artifact creation."""
         response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "title": "My Research Idea",
                 "content": {"idea": "Test idea"},
@@ -208,9 +207,8 @@ class TestCreateArtifact:
     def test_create_artifact_minimal(self, client):
         """Test artifact creation with minimal fields."""
         response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "methodology",
                 "content": {"method": "quantitative"},
             },
@@ -227,9 +225,8 @@ class TestCreateArtifact:
         """Test artifact creation with parent artifact."""
         # First create a parent artifact
         parent_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "Parent idea"},
             },
@@ -238,9 +235,8 @@ class TestCreateArtifact:
 
         # Create child artifact
         response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "abstract",
                 "content": {"text": "Child abstract"},
                 "parent_artifact_id": parent_id,
@@ -254,9 +250,8 @@ class TestCreateArtifact:
     def test_create_artifact_missing_required_fields(self, client):
         """Test artifact creation with missing required fields."""
         response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 # Missing type and content
             },
         )
@@ -271,23 +266,21 @@ class TestListArtifacts:
         """Test successful artifact listing."""
         # Create some artifacts
         client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "Idea 1"},
             },
         )
         client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "methodology",
                 "content": {"method": "Method 1"},
             },
         )
 
-        response = client.get(f"/artifacts/?workspace_id={WORKSPACE_ID}")
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts")
 
         assert response.status_code == 200
         data = response.json()
@@ -298,23 +291,21 @@ class TestListArtifacts:
         """Test artifact listing filtered by type."""
         # Create artifacts of different types
         client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "Idea 1"},
             },
         )
         client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "methodology",
                 "content": {"method": "Method 1"},
             },
         )
 
-        response = client.get(f"/artifacts/?workspace_id={WORKSPACE_ID}&type=research_idea")
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts?type=research_idea")
 
         assert response.status_code == 200
         data = response.json()
@@ -325,7 +316,7 @@ class TestListArtifacts:
     def test_list_artifacts_empty(self, client):
         """Test artifact listing with no artifacts."""
         other_workspace = "550e8400-e29b-41d4-a716-446655440099"
-        response = client.get(f"/artifacts/?workspace_id={other_workspace}")
+        response = client.get(f"/workspaces/{other_workspace}/artifacts")
 
         assert response.status_code == 200
         data = response.json()
@@ -337,23 +328,21 @@ class TestListArtifacts:
         ws2 = "550e8400-e29b-41d4-a716-446655440098"
         # Create artifacts in different workspaces
         client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "WS1 Idea"},
             },
         )
         client.post(
-            "/artifacts",
+            f"/workspaces/{ws2}/artifacts",
             json={
-                "workspace_id": ws2,
                 "type": "research_idea",
                 "content": {"idea": "WS2 Idea"},
             },
         )
 
-        response = client.get(f"/artifacts/?workspace_id={WORKSPACE_ID}")
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts")
 
         assert response.status_code == 200
         data = response.json()
@@ -369,9 +358,8 @@ class TestGetArtifact:
         """Test successful artifact retrieval."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "title": "Test Idea",
                 "content": {"idea": "Test idea"},
@@ -379,7 +367,7 @@ class TestGetArtifact:
         )
         artifact_id = create_response.json()["id"]
 
-        response = client.get(f"/artifacts/{artifact_id}")
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts/{artifact_id}")
 
         assert response.status_code == 200
         data = response.json()
@@ -389,7 +377,9 @@ class TestGetArtifact:
 
     def test_get_artifact_not_found(self, client):
         """Test get artifact with non-existent ID."""
-        response = client.get("/artifacts/550e8400-e29b-41d4-a716-446655440099")
+        response = client.get(
+            f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440099"
+        )
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -402,9 +392,8 @@ class TestUpdateArtifact:
         """Test updating artifact content."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "Original idea"},
             },
@@ -412,7 +401,7 @@ class TestUpdateArtifact:
         artifact_id = create_response.json()["id"]
 
         response = client.put(
-            f"/artifacts/{artifact_id}",
+            f"/workspaces/{WORKSPACE_ID}/artifacts/{artifact_id}",
             json={
                 "content": {"idea": "Updated idea"},
             },
@@ -427,9 +416,8 @@ class TestUpdateArtifact:
         """Test updating artifact title."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "Test"},
             },
@@ -437,7 +425,7 @@ class TestUpdateArtifact:
         artifact_id = create_response.json()["id"]
 
         response = client.put(
-            f"/artifacts/{artifact_id}",
+            f"/workspaces/{WORKSPACE_ID}/artifacts/{artifact_id}",
             json={
                 "title": "New Title",
             },
@@ -451,9 +439,8 @@ class TestUpdateArtifact:
         """Test updating artifact status."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "Test"},
             },
@@ -461,7 +448,7 @@ class TestUpdateArtifact:
         artifact_id = create_response.json()["id"]
 
         response = client.put(
-            f"/artifacts/{artifact_id}",
+            f"/workspaces/{WORKSPACE_ID}/artifacts/{artifact_id}",
             json={
                 "status": "in_review",
             },
@@ -475,9 +462,8 @@ class TestUpdateArtifact:
         """Test updating multiple artifact fields."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "Test"},
             },
@@ -485,7 +471,7 @@ class TestUpdateArtifact:
         artifact_id = create_response.json()["id"]
 
         response = client.put(
-            f"/artifacts/{artifact_id}",
+            f"/workspaces/{WORKSPACE_ID}/artifacts/{artifact_id}",
             json={
                 "title": "Updated Title",
                 "content": {"idea": "Updated idea"},
@@ -502,7 +488,7 @@ class TestUpdateArtifact:
     def test_update_artifact_not_found(self, client):
         """Test updating non-existent artifact."""
         response = client.put(
-            "/artifacts/550e8400-e29b-41d4-a716-446655440099",
+            f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440099",
             json={
                 "title": "New Title",
             },
@@ -519,27 +505,28 @@ class TestDeleteArtifact:
         """Test successful artifact deletion."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "Test"},
             },
         )
         artifact_id = create_response.json()["id"]
 
-        response = client.delete(f"/artifacts/{artifact_id}")
+        response = client.delete(f"/workspaces/{WORKSPACE_ID}/artifacts/{artifact_id}")
 
         assert response.status_code == 200
         assert response.json()["success"] is True
 
         # Verify artifact is deleted
-        get_response = client.get(f"/artifacts/{artifact_id}")
+        get_response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts/{artifact_id}")
         assert get_response.status_code == 404
 
     def test_delete_artifact_not_found(self, client):
         """Test deleting non-existent artifact."""
-        response = client.delete("/artifacts/550e8400-e29b-41d4-a716-446655440099")
+        response = client.delete(
+            f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440099"
+        )
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -552,16 +539,15 @@ class TestGetArtifactLineage:
         """Test lineage for artifact without parent."""
         # Create a root artifact
         create_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "Root idea"},
             },
         )
         artifact_id = create_response.json()["id"]
 
-        response = client.get(f"/artifacts/{artifact_id}/lineage")
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts/{artifact_id}/lineage")
 
         assert response.status_code == 200
         data = response.json()
@@ -572,9 +558,8 @@ class TestGetArtifactLineage:
         """Test lineage for artifact with parent chain."""
         # Create grandparent
         gp_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
                 "content": {"idea": "Grandparent"},
             },
@@ -583,9 +568,8 @@ class TestGetArtifactLineage:
 
         # Create parent
         p_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "methodology",
                 "content": {"method": "Parent"},
                 "parent_artifact_id": gp_id,
@@ -595,9 +579,8 @@ class TestGetArtifactLineage:
 
         # Create child
         c_response = client.post(
-            "/artifacts",
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
-                "workspace_id": WORKSPACE_ID,
                 "type": "abstract",
                 "content": {"text": "Child"},
                 "parent_artifact_id": p_id,
@@ -605,7 +588,7 @@ class TestGetArtifactLineage:
         )
         c_id = c_response.json()["id"]
 
-        response = client.get(f"/artifacts/{c_id}/lineage")
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts/{c_id}/lineage")
 
         assert response.status_code == 200
         data = response.json()
@@ -617,7 +600,9 @@ class TestGetArtifactLineage:
 
     def test_get_lineage_not_found(self, client):
         """Test lineage for non-existent artifact."""
-        response = client.get("/artifacts/550e8400-e29b-41d4-a716-446655440099/lineage")
+        response = client.get(
+            f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440099/lineage"
+        )
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()

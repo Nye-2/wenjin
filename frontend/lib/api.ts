@@ -229,10 +229,21 @@ export interface ChatMessage {
 export interface Thread {
   id: string;
   workspace_id?: string;
-  title?: string;
+  title?: string | null;
   model: string;
   skill?: string | null;
   messages: ChatMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ThreadSummary {
+  id: string;
+  workspace_id?: string;
+  title?: string | null;
+  model: string;
+  skill?: string | null;
+  message_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -435,7 +446,7 @@ export async function getThread(threadId: string): Promise<Thread> {
 export async function listThreads(
   workspaceId?: string,
   limit: number = 20
-): Promise<{ threads: Thread[]; count: number }> {
+): Promise<{ threads: ThreadSummary[]; count: number }> {
   const params: Record<string, unknown> = { limit };
   if (workspaceId) params.workspace_id = workspaceId;
   const response = await apiClient.get('/threads', { params });

@@ -157,15 +157,10 @@ Each workspace type has its own graph directory:
 - `PUT /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact update route
 - `DELETE /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact delete route
 - `GET /api/workspaces/{workspace_id}/artifacts/{artifact_id}/lineage` - Canonical artifact lineage route
-- `GET /api/artifacts` - Compatibility artifact list route
-- `POST /api/artifacts` - Compatibility artifact creation route
-- `GET /api/artifacts/{id}` - Get artifact
-- `PUT /api/artifacts/{id}` - Update artifact
-- `DELETE /api/artifacts/{id}` - Delete artifact
-- `GET /api/artifacts/{id}/lineage` - Get artifact lineage
 
 ### Chat
 - `POST /api/threads` - Create thread
+- `GET /api/threads` - List threads
 - `GET /api/threads/{id}` - Get thread
 - `DELETE /api/threads/{id}` - Delete thread
 - `POST /api/chat` - Send message (non-streaming)

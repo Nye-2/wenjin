@@ -162,15 +162,12 @@ academiagpt-v2/
 - `PUT /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact update route
 - `DELETE /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact delete route
 - `GET /api/workspaces/{workspace_id}/artifacts/{artifact_id}/lineage` - Canonical artifact lineage route
-- `GET /api/artifacts` - Compatibility artifact list route
-- `POST /api/artifacts` - Compatibility artifact creation route
-- `GET /api/artifacts/{id}` - Get artifact
-- `PUT /api/artifacts/{id}` - Update artifact
-- `DELETE /api/artifacts/{id}` - Delete artifact
-- `GET /api/artifacts/{id}/lineage` - Get artifact lineage
 
 ### Chat
 - `POST /api/threads` - Create chat thread
+- `GET /api/threads` - List chat threads
+- `GET /api/threads/{id}` - Get chat thread with messages
+- `DELETE /api/threads/{id}` - Delete chat thread
 - `POST /api/chat` - Send message
 - `POST /api/chat/stream` - Streaming chat
 

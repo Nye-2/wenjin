@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import { streamChat } from '../lib/api';
+import { getThread, listThreads, streamChat, type ThreadSummary } from '../lib/api';
 
 // ============ Types ============
 
@@ -22,6 +22,7 @@ interface ChatState {
   isStreaming: boolean;
   currentSkill: string | null;
   threadId: string | null;
+  threads: ThreadSummary[];
   error: string | null;
 
   // Actions
@@ -34,6 +35,7 @@ interface ChatState {
     }
   ) => Promise<void>;
   addMessage: (message: Message) => void;
+  loadLatestThread: (workspaceId: string) => Promise<void>;
   setCurrentSkill: (skill: string | null) => void;
   clearMessages: () => void;
   setThreadId: (threadId: string | null) => void;
@@ -44,6 +46,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isStreaming: false,
   currentSkill: null,
   threadId: null,
+  threads: [],
   error: null,
 
   sendMessage: async (content: string, options) => {
@@ -109,7 +112,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
       // onThreadId - receive thread ID
       ({ threadId: newThreadId, skill }) => {
-        set({ threadId: newThreadId, currentSkill: skill });
+        set((state) => ({
+          threadId: newThreadId,
+          currentSkill: skill,
+          threads: state.threads.some((thread) => thread.id === newThreadId)
+            ? state.threads
+            : [
+                {
+                  id: newThreadId,
+                  workspace_id: options?.workspaceId,
+                  title: null,
+                  model: options?.model ?? "default",
+                  skill,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                },
+                ...state.threads,
+              ],
+        }));
       },
       // onError
       (error) => {
@@ -132,6 +152,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
+  loadLatestThread: async (workspaceId: string) => {
+    try {
+      const { threads } = await listThreads(workspaceId, 20);
+      if (threads.length === 0) {
+        set({
+          messages: [],
+          currentSkill: null,
+          threadId: null,
+          threads: [],
+          error: null,
+        });
+        return;
+      }
+
+      const latest = threads[0];
+      const detail = await getThread(latest.id);
+      const messages = detail.messages
+        .filter(
+          (message): message is typeof message & { role: 'user' | 'assistant' } =>
+            message.role === 'user' || message.role === 'assistant'
+        )
+        .map((message, index) => ({
+          id: `${detail.id}:${index}`,
+          role: message.role,
+          content: message.content,
+          created_at: message.timestamp ?? detail.updated_at,
+        }));
+
+      set({
+        messages,
+        currentSkill: detail.skill ?? null,
+        threadId: detail.id,
+        threads,
+        error: null,
+      });
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to load chat thread',
+      });
+    }
+  },
+
   setCurrentSkill: (skill: string | null) => {
     set({ currentSkill: skill });
   },
@@ -141,6 +203,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [],
       currentSkill: null,
       threadId: null,
+      threads: [],
       error: null,
     });
   },
