@@ -1,12 +1,11 @@
 """Tests for the task delegation tool with real executor."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.subagents.task_tool import task_tool
-from src.subagents.registry import registry
 from src.subagents.executor import SubagentStatus
+from src.subagents.task_tool import task_tool
 
 
 class TestTaskTool:

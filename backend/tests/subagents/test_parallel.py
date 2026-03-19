@@ -1,17 +1,17 @@
 """Tests for parallel subagent execution."""
 
 import asyncio
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.subagents.executor import SubagentStatus
 from src.subagents.parallel import (
-    ParallelExecutor,
     ExecutionPhase,
+    ParallelExecutor,
     PhasedPlan,
     PhaseResult,
 )
-from src.subagents.executor import SubagentStatus
-from unittest.mock import MagicMock, patch
 
 
 class TestParallelExecutor:
@@ -218,7 +218,7 @@ class TestParallelExecutorIntegration:
             mock_executor = mock_executor_class.return_value
             mock_result = MagicMock()
             mock_result.status = SubagentStatus.COMPLETED
-            mock_result.result = f"test result"
+            mock_result.result = "test result"
             mock_result.error = None
             mock_executor.execute = MagicMock(return_value=mock_result)
 

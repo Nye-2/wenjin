@@ -3,9 +3,7 @@
 import json
 from datetime import UTC, datetime
 
-import pytest
-
-from src.subagents.models import SubagentStatus, SubagentTask, SubagentEvent, SubagentResult
+from src.subagents.models import SubagentEvent, SubagentResult, SubagentStatus, SubagentTask
 
 
 class TestSubagentStatus:

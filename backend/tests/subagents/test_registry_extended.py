@@ -1,8 +1,7 @@
 """Tests for extended subagent registry."""
 
-import pytest
 
-from src.subagents.registry import registry, SubagentConfig
+from src.subagents.registry import registry
 
 
 class TestExtendedSubagentRegistry:

@@ -1,9 +1,9 @@
 """Tests for AcademicAgentResolver."""
 
 import pytest
+
+from src.subagents.academic.errors import InvalidToolError, UnknownSubagentTypeError
 from src.subagents.academic.resolver import AcademicAgentResolver
-from src.subagents.academic.errors import UnknownSubagentTypeError, InvalidToolError
-from src.subagents.academic.registry import SubagentConfig
 
 
 class TestAcademicAgentResolver:

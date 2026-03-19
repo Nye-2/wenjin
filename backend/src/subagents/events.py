@@ -4,10 +4,11 @@ import asyncio
 import json
 import queue
 import threading
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, AsyncIterator, Iterator, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .models import SubagentEvent as SubagentEventFromModels
@@ -37,7 +38,7 @@ class SubagentEvent:
     task_id: str
     subagent_type: str
     message: str
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     data: dict[str, Any] | None = None
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -105,11 +106,11 @@ class EventStream:
                 if event is None:
                     break
                 yield event
-            except queue.Empty:
+            except queue.Empty as exc:
                 with self._lock:
                     if self._closed:
                         break
-                raise TimeoutError("Event stream timeout")
+                raise TimeoutError("Event stream timeout") from exc
 
 
 def create_event_stream() -> EventStream:
@@ -160,7 +161,7 @@ class SubagentEventStream:
         return len(self._subscribers)
 
     async def subscribe(
-        self, thread_id: Optional[str] = None
+        self, thread_id: str | None = None
     ) -> AsyncIterator[str]:
         """Subscribe to events, optionally filtered by thread_id.
 
@@ -228,17 +229,17 @@ class SubagentEventStream:
         async with self._lock:
             subscribers_copy = dict(self._subscribers)
 
-        for queue in subscribers_copy.values():
+        for subscriber_queue in subscribers_copy.values():
             try:
-                queue.put_nowait(None)
+                subscriber_queue.put_nowait(None)
             except asyncio.QueueFull:
                 # Clear queue and try again if full
-                while not queue.empty():
+                while not subscriber_queue.empty():
                     try:
-                        queue.get_nowait()
+                        subscriber_queue.get_nowait()
                     except asyncio.QueueEmpty:
                         break
                 try:
-                    queue.put_nowait(None)
+                    subscriber_queue.put_nowait(None)
                 except asyncio.QueueFull:
                     pass

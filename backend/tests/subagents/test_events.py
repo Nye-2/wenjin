@@ -6,10 +6,11 @@ import time
 from datetime import datetime
 
 import pytest
+
 from src.subagents.events import (
-    SubagentEventType,
     EventStream,
     SubagentEventStream,
+    SubagentEventType,
     create_event_stream,
 )
 from src.subagents.models import SubagentEvent
@@ -370,7 +371,7 @@ class TestSubagentEventStream:
         completed = []
 
         async def subscriber(name):
-            async for sse in stream.subscribe(thread_id=name):
+            async for _sse in stream.subscribe(thread_id=name):
                 pass  # Should exit when None is received
             completed.append(name)
 
@@ -432,7 +433,7 @@ class TestSubagentEventStream:
         stream = SubagentEventStream()
 
         async def subscribe_and_exit():
-            async for sse in stream.subscribe(thread_id="test"):
+            async for _sse in stream.subscribe(thread_id="test"):
                 break  # Exit immediately
 
         task = asyncio.create_task(subscribe_and_exit())

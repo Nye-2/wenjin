@@ -12,12 +12,11 @@ from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.subagents import (
     GlobalSubagentManager,
-    SubagentTask,
-    SubagentStatus,
     SubagentResult,
+    SubagentStatus,
+    SubagentTask,
 )
 from src.subagents.manager import SubagentAccessError
-
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +112,8 @@ async def spawn_subagent(
     # Import academic resolver components
     from src.subagents.academic import (
         AcademicAgentResolver,
-        UnknownSubagentTypeError,
         InvalidToolError,
+        UnknownSubagentTypeError,
         get_all_subagent_types,
     )
 

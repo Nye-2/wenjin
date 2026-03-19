@@ -1,10 +1,11 @@
 """Tests for academic agent error classes."""
 
 import pytest
+
 from src.subagents.academic.errors import (
     AcademicAgentError,
-    UnknownSubagentTypeError,
     InvalidToolError,
+    UnknownSubagentTypeError,
 )
 
 

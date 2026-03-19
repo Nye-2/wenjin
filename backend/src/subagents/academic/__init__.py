@@ -18,11 +18,6 @@ from .prompts import (
     SYNTHESIZER_PROMPT,
     WRITER_PROMPT,
 )
-from .thesis_prompts import (
-    FIGURE_PLANNER_PROMPT,
-    LIBRARIAN_PROMPT,
-    THESIS_WRITER_PROMPT,
-)
 from .registry import (
     SUBAGENT_REGISTRY,
     SubagentConfig,
@@ -30,6 +25,11 @@ from .registry import (
     get_subagent_config,
 )
 from .resolver import AcademicAgentResolver
+from .thesis_prompts import (
+    FIGURE_PLANNER_PROMPT,
+    LIBRARIAN_PROMPT,
+    THESIS_WRITER_PROMPT,
+)
 
 __all__ = [
     # Errors

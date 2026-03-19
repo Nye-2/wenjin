@@ -6,14 +6,13 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from .config import SubagentConfig
 from .events import SubagentEventStream
 from .graph import GraphTemplateRegistry, create_default_subagent_graph
 from .limiter import DualLayerLimiter
 from .models import SubagentResult, SubagentStatus, SubagentTask
-
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +40,11 @@ class ThreadContext:
         """Store a task result."""
         self._results[task_id] = result
 
-    def get_result(self, task_id: str) -> Optional[SubagentResult]:
+    def get_result(self, task_id: str) -> SubagentResult | None:
         """Get a stored result."""
         return self._results.get(task_id)
 
-    def get_task_status(self, task_id: str) -> Optional[SubagentStatus]:
+    def get_task_status(self, task_id: str) -> SubagentStatus | None:
         """Get the status of a task."""
         if task_id in self._results:
             return self._results[task_id].status
@@ -160,7 +159,6 @@ class GlobalSubagentManager:
         Returns:
             Execution result.
         """
-        from datetime import datetime
         from langchain_core.messages import HumanMessage
 
         start_time = datetime.now()
@@ -209,7 +207,7 @@ class GlobalSubagentManager:
                 duration_seconds=(datetime.now() - start_time).total_seconds(),
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             from .models import SubagentEvent
             await self._event_stream.publish(SubagentEvent(
                 event_type="task_failed",
@@ -294,7 +292,7 @@ class GlobalSubagentManager:
         thread_id: str,
         task_id: str,
         user_id: str | None = None,
-    ) -> Optional[SubagentStatus]:
+    ) -> SubagentStatus | None:
         """Get the status of a task.
 
         Args:
@@ -315,7 +313,7 @@ class GlobalSubagentManager:
         thread_id: str,
         task_id: str,
         user_id: str | None = None,
-    ) -> Optional[SubagentResult]:
+    ) -> SubagentResult | None:
         """Get the result of a completed task.
 
         Args:
@@ -333,7 +331,7 @@ class GlobalSubagentManager:
 
     async def subscribe_events(
         self,
-        thread_id: Optional[str] = None,
+        thread_id: str | None = None,
         user_id: str | None = None,
     ):
         """Subscribe to event stream.

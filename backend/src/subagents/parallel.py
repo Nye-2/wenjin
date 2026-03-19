@@ -138,22 +138,6 @@ class ParallelExecutor:
                 result = await self._execute_task(task, context)
                 task_results.append(result)
 
-        # Check each result for success, handling cases where 'success' key might be missing
-        phase_success = True
-        for result in task_results:
-            if isinstance(result, dict):
-                if result.get("success") is False:
-                    phase_success = False
-                    break
-                # If success key is missing or None, assume failure
-                elif result.get("success") is None:
-                    phase_success = False
-                    break
-            else:
-                # If result is not a dict, treat as failure
-                phase_success = False
-                break
-
         return PhaseResult(
             phase_name=phase.name,
             task_results=list(task_results),

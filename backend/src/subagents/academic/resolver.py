@@ -6,7 +6,6 @@ from typing import Any
 from .errors import InvalidToolError, UnknownSubagentTypeError
 from .registry import SubagentConfig, get_subagent_config
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -47,8 +46,8 @@ class AcademicAgentResolver:
         # Get base config from registry (raises ValueError if unknown)
         try:
             base_config = get_subagent_config(subagent_type)
-        except ValueError:
-            raise UnknownSubagentTypeError(subagent_type)
+        except ValueError as exc:
+            raise UnknownSubagentTypeError(subagent_type) from exc
 
         # Merge tools: requested > default > base
         if requested_tools is not None:

@@ -1,9 +1,10 @@
 """Tests for GlobalSubagentManager and ThreadContext."""
 
 import asyncio
-import pytest
 from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from src.subagents.manager import (
     GlobalSubagentManager,
@@ -111,7 +112,7 @@ class TestGlobalSubagentManager:
         )
 
         # Mock the graph creation and invocation
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(return_value={
@@ -140,7 +141,7 @@ class TestGlobalSubagentManager:
             timeout=60,
         )
 
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         # Create a mock graph that will hang
         async def slow_invoke(*args, **kwargs):
@@ -178,7 +179,7 @@ class TestGlobalSubagentManager:
             timeout=60,
         )
 
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(return_value={
@@ -210,7 +211,7 @@ class TestGlobalSubagentManager:
             timeout=60,
         )
 
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(return_value={
@@ -233,7 +234,7 @@ class TestGlobalSubagentManager:
     @pytest.mark.asyncio
     async def test_concurrent_spawn_multiple_threads(self, manager):
         """Test spawning tasks across multiple threads."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(return_value={
@@ -272,7 +273,7 @@ class TestGlobalSubagentManager:
             metadata={"user_id": "user-1"},
         )
 
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(return_value={
@@ -317,7 +318,7 @@ class TestGlobalSubagentManager:
             metadata={"user_id": "user-2"},
         )
 
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(return_value={

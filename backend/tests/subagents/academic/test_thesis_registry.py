@@ -1,10 +1,8 @@
 """Tests for thesis subagent configurations."""
 
-import pytest
 from src.subagents.academic.registry import (
-    SUBAGENT_REGISTRY,
-    get_subagent_config,
     get_all_subagent_types,
+    get_subagent_config,
 )
 
 

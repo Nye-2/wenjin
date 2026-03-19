@@ -7,7 +7,6 @@ Provides two levels of concurrency control:
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Dict
 
 
 class ConcurrencyLimiter:
@@ -83,7 +82,7 @@ class DualLayerLimiter:
         self._global_max = global_max
         self._per_thread_max = per_thread_max
         self._global = ConcurrencyLimiter(global_max)
-        self._thread_limiters: Dict[str, ConcurrencyLimiter] = {}
+        self._thread_limiters: dict[str, ConcurrencyLimiter] = {}
         self._lock = asyncio.Lock()
 
     @property

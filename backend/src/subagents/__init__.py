@@ -1,24 +1,24 @@
 """Subagents module initialization."""
 
-from .registry import SubagentConfig as SubagentTypeConfig, SubagentRegistry
-from .task_tool import task_tool
-from .parallel import ParallelExecutor, ExecutionPhase, PhasedPlan, PhaseResult
-from .models import SubagentStatus, SubagentTask, SubagentEvent, SubagentResult
-from .config import SubagentConfig
-from .manager import ThreadContext, GlobalSubagentManager
-from .graph import GraphTemplateRegistry, create_academic_agent_graph, register_academic_templates
-
 # Academic subagents
 from .academic import (
-    AcademicAgentResolver,
-    AcademicAgentError,
-    UnknownSubagentTypeError,
-    InvalidToolError,
-    SCOUT_PROMPT,
-    WRITER_PROMPT,
-    SYNTHESIZER_PROMPT,
     ANALYST_PROMPT,
+    SCOUT_PROMPT,
+    SYNTHESIZER_PROMPT,
+    WRITER_PROMPT,
+    AcademicAgentError,
+    AcademicAgentResolver,
+    InvalidToolError,
+    UnknownSubagentTypeError,
 )
+from .config import SubagentConfig
+from .graph import GraphTemplateRegistry, create_academic_agent_graph, register_academic_templates
+from .manager import GlobalSubagentManager, ThreadContext
+from .models import SubagentEvent, SubagentResult, SubagentStatus, SubagentTask
+from .parallel import ExecutionPhase, ParallelExecutor, PhasedPlan, PhaseResult
+from .registry import SubagentConfig as SubagentTypeConfig
+from .registry import SubagentRegistry
+from .task_tool import task_tool
 
 __all__ = [
     "SubagentRegistry",

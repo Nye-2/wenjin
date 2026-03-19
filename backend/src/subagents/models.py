@@ -3,11 +3,11 @@
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from typing import Any, Optional
+from enum import StrEnum
+from typing import Any
 
 
-class SubagentStatus(str, Enum):
+class SubagentStatus(StrEnum):
     """Status of a subagent task."""
     PENDING = "pending"       # Waiting for execution slot
     RUNNING = "running"       # Currently executing
@@ -75,8 +75,8 @@ class SubagentResult:
     """Represents the final result of a subagent task."""
     task_id: str
     status: SubagentStatus
-    output: Optional[str]
-    error: Optional[str]
+    output: str | None
+    error: str | None
     turns_used: int = 0
     duration_seconds: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)

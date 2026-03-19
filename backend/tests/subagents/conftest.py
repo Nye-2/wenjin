@@ -1,7 +1,8 @@
 """Test fixtures for subagent tests."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from src.subagents.config import SubagentConfig
 from src.subagents.events import SubagentEventStream

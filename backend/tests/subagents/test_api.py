@@ -1,16 +1,15 @@
 """Tests for subagent API routes."""
 
-from datetime import datetime
+import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.api.subagents import router, get_manager
+from src.api.subagents import get_manager, router
 from src.gateway.auth_dependencies import get_current_user
-from src.subagents.models import SubagentStatus, SubagentResult
-import uuid
+from src.subagents.models import SubagentResult, SubagentStatus
 
 
 @pytest.fixture

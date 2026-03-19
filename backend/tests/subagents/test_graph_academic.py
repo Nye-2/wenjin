@@ -1,7 +1,8 @@
 """Tests for academic graph template functions."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.subagents.graph import (
     GraphTemplateRegistry,
@@ -27,6 +28,7 @@ class TestCreateAcademicAgentGraph:
                 system_prompt,
                 max_turns=10
             )
+            assert graph is mock_create.return_value
             mock_create.assert_called_once()
             call_kwargs = mock_create.call_args[1]
             assert call_kwargs["state_modifier"] == system_prompt

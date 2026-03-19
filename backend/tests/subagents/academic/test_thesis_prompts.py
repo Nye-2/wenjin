@@ -1,10 +1,9 @@
 """Tests for thesis subagent prompts."""
 
-import pytest
 from src.subagents.academic.thesis_prompts import (
-    THESIS_WRITER_PROMPT,
-    LIBRARIAN_PROMPT,
     FIGURE_PLANNER_PROMPT,
+    LIBRARIAN_PROMPT,
+    THESIS_WRITER_PROMPT,
 )
 
 

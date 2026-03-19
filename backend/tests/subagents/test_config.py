@@ -1,8 +1,10 @@
 """Tests for subagent configuration."""
 
 import os
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
+from pydantic import ValidationError
 
 from src.subagents.config import SubagentConfig
 
@@ -37,13 +39,13 @@ class TestSubagentConfig:
 
     def test_validation_positive_concurrency(self):
         """Test that concurrency values must be positive."""
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValidationError):
             SubagentConfig(global_max_concurrent=0)
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             SubagentConfig(global_max_concurrent=-1)
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             SubagentConfig(per_thread_max_concurrent=0)
 
     def test_validation_timeout_values(self):
@@ -140,10 +142,10 @@ class TestSubagentConfig:
         assert config.event_queue_size == 200
 
         # Should fail with invalid value
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             SubagentConfig(event_queue_size=0)
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             SubagentConfig(event_queue_size=-10)
 
     def test_sse_heartbeat_interval_validation(self):
@@ -152,7 +154,7 @@ class TestSubagentConfig:
         assert config.sse_heartbeat_interval == 60
 
         # Should fail with invalid value
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             SubagentConfig(sse_heartbeat_interval=0)
 
     def test_complex_config(self):

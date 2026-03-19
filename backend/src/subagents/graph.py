@@ -1,7 +1,7 @@
 """Graph template registry for subagent graphs."""
 
 import threading
-from typing import Any, Optional
+from typing import Any
 
 
 class GraphTemplateRegistry:
@@ -28,7 +28,7 @@ class GraphTemplateRegistry:
         with self._lock:
             self._templates[name] = graph
 
-    def get(self, name: str) -> Optional[Any]:
+    def get(self, name: str) -> Any | None:
         """Get a registered graph template.
 
         Args:
@@ -69,10 +69,10 @@ def create_default_subagent_graph(llm: Any, tools: list, max_turns: int = 10) ->
     """
     try:
         from langgraph.prebuilt import create_react_agent
-    except ImportError:
+    except ImportError as exc:
         raise ImportError(
             "langgraph is required. Install with: pip install langgraph"
-        )
+        ) from exc
 
     return create_react_agent(llm, tools=tools)
 
@@ -99,10 +99,10 @@ def create_academic_agent_graph(
     """
     try:
         from langgraph.prebuilt import create_react_agent
-    except ImportError:
+    except ImportError as exc:
         raise ImportError(
             "langgraph is required. Install with: pip install langgraph"
-        )
+        ) from exc
 
     return create_react_agent(
         llm,
@@ -123,7 +123,7 @@ def register_academic_templates(
         llm: Language model instance
         tools: Dictionary of available tools
     """
-    from src.subagents.academic import get_subagent_config, get_all_subagent_types
+    from src.subagents.academic import get_all_subagent_types, get_subagent_config
 
     for agent_type in get_all_subagent_types():
         config = get_subagent_config(agent_type)

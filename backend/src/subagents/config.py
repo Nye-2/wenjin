@@ -1,7 +1,7 @@
 """Configuration for subagent system using Pydantic."""
 
 import os
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 

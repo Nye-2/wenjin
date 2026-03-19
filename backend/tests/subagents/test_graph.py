@@ -1,7 +1,8 @@
 """Tests for graph template registry and default graph creation."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestGraphTemplateRegistry:
@@ -148,8 +149,9 @@ class TestCreateDefaultSubagentGraph:
 
     def test_create_graph_default_max_turns(self):
         """Should have default max_turns of 10."""
-        from src.subagents.graph import create_default_subagent_graph
         import inspect
+
+        from src.subagents.graph import create_default_subagent_graph
 
         sig = inspect.signature(create_default_subagent_graph)
         assert sig.parameters["max_turns"].default == 10
