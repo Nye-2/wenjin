@@ -16,7 +16,7 @@ from src.application.errors import (
     NotFoundError,
 )
 from src.database import Paper, PaperExtraction, PaperSection
-from src.gateway.dependencies import (
+from src.gateway.deps import (
     get_extraction_service,
     get_paper_service,
     get_workspace_service,

@@ -29,7 +29,7 @@ from src.application.results import (
 )
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.dependencies import (
+from src.gateway.deps import (
     get_credit_service,
     get_literature_service,
     get_task_service,

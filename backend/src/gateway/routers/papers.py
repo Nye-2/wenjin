@@ -24,7 +24,7 @@ from src.gateway.contracts.paper import (
     paper_to_response,
     section_to_response,
 )
-from src.gateway.dependencies import (
+from src.gateway.deps import (
     get_extraction_service,
     get_paper_service,
     get_workspace_service,

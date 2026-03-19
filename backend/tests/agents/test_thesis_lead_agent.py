@@ -5,15 +5,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.agents.thesis_lead_agent import (
-    THESIS_FEATURE_IDS,
-    execute_thesis_feature_graph,
-)
 from src.agents.workspace_lead_agent import (
     _FEATURE_GRAPH_REGISTRY,
     _LOADED_WORKSPACES,
+    THESIS_FEATURE_IDS,
     _build_system_prompt,
     _ensure_graphs_loaded,
+    execute_thesis_feature_graph,
 )
 
 

@@ -7,7 +7,6 @@ patent, software_copyright).
 Key features:
 - Lazy loading of graph modules per workspace type
 - Composite registry key: {workspace_type}.{feature_id}
-- Backward compatibility with thesis_lead_agent.py imports
 """
 
 from __future__ import annotations
@@ -22,10 +21,20 @@ from langchain_core.messages import SystemMessage
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "THESIS_FEATURE_IDS",
     "execute_feature_graph",
     "execute_thesis_feature_graph",
     "register_feature_graph",
 ]
+
+THESIS_FEATURE_IDS = (
+    "deep_research",
+    "literature_management",
+    "opening_research",
+    "thesis_writing",
+    "figure_generation",
+    "compile_export",
+)
 
 # Type alias for feature graph functions
 FeatureGraphFn = Callable[[dict[str, Any], dict[str, Any]], Awaitable[dict[str, Any]]]
@@ -148,7 +157,7 @@ async def execute_feature_graph(
     Raises:
         ValueError: If no graph is registered or execution fails
     """
-    from src.agents.middleware.memory import (
+    from src.agents.middlewares.memory import (
         format_knowledge_for_prompt,
         load_user_memory,
     )
@@ -221,9 +230,6 @@ def _build_system_prompt(
         parts.append(f"\n{memory_text}")
     return "\n".join(parts)
 
-
-# Backward compatibility wrapper for thesis_lead_agent.py
-# Thesis graphs now import directly from this module with workspace_type="thesis"
 async def execute_thesis_feature_graph(
     feature_id: str,
     payload: dict[str, Any],

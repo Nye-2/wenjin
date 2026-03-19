@@ -18,7 +18,7 @@ from src.gateway.auth_dependencies import (
     get_current_user_optional,
     security,
 )
-from src.gateway.dependencies import get_db
+from src.gateway.deps import get_db
 from src.services.auth import (
     create_and_persist_tokens,
     verify_refresh_token_recorded,

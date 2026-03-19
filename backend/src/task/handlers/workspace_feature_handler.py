@@ -369,7 +369,7 @@ def _schedule_memory_extraction(
 
     async def _extract():
         try:
-            from src.agents.middleware.memory import extract_and_persist_knowledge
+            from src.agents.middlewares.memory import extract_and_persist_knowledge
 
             await extract_and_persist_knowledge(
                 str(user_id),

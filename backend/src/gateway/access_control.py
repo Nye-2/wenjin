@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import User, Workspace
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.dependencies import get_workspace_service
+from src.gateway.deps import get_workspace_service
 
 
 async def require_workspace_owner(

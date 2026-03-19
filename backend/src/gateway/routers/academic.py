@@ -29,7 +29,7 @@ from src.gateway.contracts.paper import (
 from src.gateway.contracts.paper import (
     paper_to_summary_response,
 )
-from src.gateway.dependencies import get_artifact_service, get_db, get_paper_service, get_workspace_service
+from src.gateway.deps import get_artifact_service, get_db, get_paper_service, get_workspace_service
 from src.gateway.error_mapping import to_http_exception
 from src.gateway.resource_access import (
     ensure_workspace_owner_for_service as _shared_ensure_workspace_owner_for_service,

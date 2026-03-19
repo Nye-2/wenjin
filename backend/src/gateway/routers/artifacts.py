@@ -23,7 +23,7 @@ from src.gateway.contracts.artifact import (
     ArtifactResponse,
     artifact_to_response,
 )
-from src.gateway.dependencies import get_artifact_service
+from src.gateway.deps import get_artifact_service
 from src.gateway.resource_access import (
     ensure_workspace_owner_for_service as _ensure_workspace_owner_for_artifact_service,
 )

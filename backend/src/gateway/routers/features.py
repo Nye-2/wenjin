@@ -21,7 +21,7 @@ from src.application.handlers.feature_execution_handler import (
 from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.dependencies import get_workspace_service
+from src.gateway.deps import get_workspace_service
 from src.gateway.error_mapping import to_http_exception
 from src.workspace_features import list_workspace_features
 

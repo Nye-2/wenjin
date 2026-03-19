@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from src.database import ChatThread, User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.dependencies import get_chat_thread_service
+from src.gateway.deps import get_chat_thread_service
 from src.models import route_chat_model
 from src.services import ChatThreadAccessError, ChatThreadService
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.dependencies import get_task_service
+from src.gateway.deps import get_task_service
 from src.services.feature_credit_policy import BILLABLE_TASK_TYPES
 from src.task.service import TaskService
 

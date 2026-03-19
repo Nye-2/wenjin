@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from src.application.handlers.feature_execution_handler import get_feature_execution_handler
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.dependencies import get_task_service
+from src.gateway.deps import get_task_service
 from src.thesis.api import router
 
 

@@ -13,7 +13,7 @@ from src.academic.services.workspace_service import WorkspaceService
 from src.database import User
 from src.gateway.access_control import require_workspace_owner
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.dependencies import get_literature_service, get_workspace_service
+from src.gateway.deps import get_literature_service, get_workspace_service
 from src.services.literature_service import LiteratureService
 
 router = APIRouter(prefix="/workspaces", tags=["literature"])

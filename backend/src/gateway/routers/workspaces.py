@@ -20,7 +20,7 @@ from src.gateway.contracts.paper import (
 from src.gateway.contracts.paper import (
     paper_to_summary_response as paper_to_response,
 )
-from src.gateway.dependencies import get_dashboard_service, get_paper_service, get_workspace_service
+from src.gateway.deps import get_dashboard_service, get_paper_service, get_workspace_service
 from src.gateway.validators.workspace import (
     AddPaperToWorkspaceValidator,
     CreateWorkspaceValidator,

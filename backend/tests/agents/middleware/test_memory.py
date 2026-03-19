@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from src.agents.middleware.memory import (
+from src.agents.middlewares.memory import (
     _parse_knowledge_json,
     extract_and_persist_knowledge,
     format_knowledge_for_prompt,

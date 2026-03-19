@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from src.database import AdminActionType, User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.dependencies import (
+from src.gateway.deps import (
     get_admin_dashboard_service,
     get_credit_service,
     get_release_gate_service,

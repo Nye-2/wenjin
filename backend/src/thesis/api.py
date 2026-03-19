@@ -16,7 +16,7 @@ from src.application.handlers.thesis_api_handler import ThesisApiHandler
 from src.application.results import ThesisCancelResult, ThesisPreviewResult, ThesisStatusResult
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.dependencies import get_task_service
+from src.gateway.deps import get_task_service
 from src.gateway.error_mapping import to_http_exception
 from src.task.service import TaskService
 
