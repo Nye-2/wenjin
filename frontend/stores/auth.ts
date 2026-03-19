@@ -28,6 +28,34 @@ interface AuthState {
   clearError: () => void;
 }
 
+async function parseErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const data = await response.json();
+    if (typeof data?.detail === 'string' && data.detail.trim()) {
+      return data.detail;
+    }
+    if (typeof data?.message === 'string' && data.message.trim()) {
+      return data.message;
+    }
+    if (typeof data?.error?.message === 'string' && data.error.message.trim()) {
+      return data.error.message;
+    }
+  } catch {
+    // Ignore JSON parse errors and fall back to generic message.
+  }
+  return fallback;
+}
+
+function normalizeRequestError(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    if (error.message === 'Failed to fetch') {
+      return 'Network error: unable to reach API server';
+    }
+    return error.message;
+  }
+  return fallback;
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -48,8 +76,7 @@ export const useAuthStore = create<AuthState>()(
           });
 
           if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.detail || 'Login failed');
+            throw new Error(await parseErrorMessage(response, 'Login failed'));
           }
 
           const data = await response.json();
@@ -89,7 +116,7 @@ export const useAuthStore = create<AuthState>()(
           return true;
         } catch (error) {
           set({
-            error: error instanceof Error ? error.message : 'Login failed',
+            error: normalizeRequestError(error, 'Login failed'),
             isLoading: false,
           });
           return false;
@@ -111,8 +138,7 @@ export const useAuthStore = create<AuthState>()(
           });
 
           if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.detail || 'Registration failed');
+            throw new Error(await parseErrorMessage(response, 'Registration failed'));
           }
 
           const data = await response.json();
@@ -152,7 +178,7 @@ export const useAuthStore = create<AuthState>()(
           return true;
         } catch (error) {
           set({
-            error: error instanceof Error ? error.message : 'Registration failed',
+            error: normalizeRequestError(error, 'Registration failed'),
             isLoading: false,
           });
           return false;
@@ -167,11 +193,14 @@ export const useAuthStore = create<AuthState>()(
             body: JSON.stringify({ email, purpose }),
           });
 
-          const data = await response.json();
-
           if (!response.ok) {
-            return { success: false, message: data.detail || 'Failed to send code' };
+            return {
+              success: false,
+              message: await parseErrorMessage(response, 'Failed to send code'),
+            };
           }
+
+          const data = await response.json();
 
           return {
             success: true,
@@ -181,7 +210,7 @@ export const useAuthStore = create<AuthState>()(
         } catch (error) {
           return {
             success: false,
-            message: error instanceof Error ? error.message : 'Failed to send code',
+            message: normalizeRequestError(error, 'Failed to send code'),
           };
         }
       },

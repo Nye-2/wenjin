@@ -2,6 +2,7 @@
 
 import logging
 import random
+import string
 from datetime import datetime, timedelta, UTC
 from typing import Optional, Tuple
 
@@ -67,10 +68,8 @@ class EmailService:
         return self._smtp_client
 
     def _generate_code(self) -> str:
-        """生成验证码（数字+字母混合，提高安全性）"""
-        # 使用数字+大小写字母混合，排除易混淆字符（0/O, 1/I/l）
-        characters = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz'
-        return ''.join(random.choices(characters, k=self.settings.code_length))
+        """生成 6 位纯数字验证码。"""
+        return "".join(random.choices(string.digits, k=6))
 
     def _generate_email_template(self, code: str, purpose: str = "注册") -> Tuple[str, str]:
         """
@@ -284,7 +283,11 @@ class EmailService:
         code_key = f"verify:code:{purpose_key}:{email}"
         fail_key = f"verify:fail:{purpose_key}:{email}"
 
-        # 获取存储的验证码并转换为大写进行比较（不区分大小写）
+        normalized_code = code.strip()
+        if len(normalized_code) != 6 or not normalized_code.isdigit():
+            return False, "验证码格式错误，请输入6位数字"
+
+        # 获取存储的验证码
         stored_code = await redis.get(code_key)
         if not stored_code:
             return False, "验证码已过期或不存在，请重新获取"
@@ -293,8 +296,7 @@ class EmailService:
         if isinstance(stored_code, bytes):
             stored_code = stored_code.decode("utf-8")
 
-        # 不区分大小写比较
-        if stored_code.upper() != code.strip().upper():
+        if stored_code != normalized_code:
             # 增加失败计数
             fail_count = await redis.incr(fail_key)
             await redis.expire(fail_key, 3600)

@@ -298,7 +298,7 @@ wait_for_service() {
 
     log_info "等待 $name 启动..."
     while [ $attempt -lt $max_attempts ]; do
-        if curl -s "$url" > /dev/null 2>&1; then
+        if is_http_ready "$url"; then
             log_success "$name 已就绪"
             return 0
         fi
@@ -503,8 +503,10 @@ start_langgraph() {
     cd "$BACKEND_DIR"
     load_runtime_config
 
-    # 使用 langgraph up 命令启动（需要 Docker）
-    nohup env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" uv run langgraph up --port 2024 > "$LOG_DIR/langgraph.log" 2>&1 &
+    # 使用 langgraph dev 启动本地开发服务（避免 langgraph up 的部署构建阻塞）
+    nohup env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" \
+        uv run langgraph dev --no-browser --no-reload --host 0.0.0.0 --port 2024 --config langgraph.json \
+        > "$LOG_DIR/langgraph.log" 2>&1 &
     echo $! > "$LANGGRAPH_PID_FILE"
 
     if is_running "$LANGGRAPH_PID_FILE" && wait_for_service "http://localhost:2024/info" "LangGraph"; then
@@ -604,6 +606,7 @@ stop_services() {
     pkill -f "uvicorn src.gateway" 2>/dev/null || true
     pkill -f "langgraph api" 2>/dev/null || true
     pkill -f "langgraph up" 2>/dev/null || true
+    pkill -f "langgraph dev" 2>/dev/null || true
     pkill -f "next dev" 2>/dev/null || true
 
     log_success "所有服务已停止"

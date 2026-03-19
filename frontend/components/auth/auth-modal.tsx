@@ -126,8 +126,8 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
       return;
     }
 
-    if (!formData.verificationCode || formData.verificationCode.length < 4) {
-      setVerificationError(t("auth.register.verificationCodeRequired"));
+    if (!/^\d{6}$/.test(formData.verificationCode)) {
+      setVerificationError("请输入6位数字验证码");
       return;
     }
 
@@ -313,12 +313,17 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                         id="auth-modal-code"
                         type="text"
                         required
-                        maxLength={10}
+                        inputMode="numeric"
+                        pattern="\d{6}"
+                        maxLength={6}
                         value={formData.verificationCode}
                         onChange={(e) =>
-                          setFormData((prev) => ({ ...prev, verificationCode: e.target.value.toUpperCase() }))
+                          setFormData((prev) => ({
+                            ...prev,
+                            verificationCode: e.target.value.replace(/\D/g, "").slice(0, 6),
+                          }))
                         }
-                        placeholder={t("auth.register.verificationCodePlaceholder")}
+                        placeholder="请输入6位数字验证码"
                         className="flex-1 font-mono tracking-wider"
                       />
                       <Button

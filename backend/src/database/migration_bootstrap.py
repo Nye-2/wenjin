@@ -19,6 +19,8 @@ from enum import Enum
 
 import asyncpg
 
+LEGACY_STAMP_REVISION = "007_chat_thread_model_default"
+
 
 class MigrationBootstrapMode(str, Enum):
     """How migrations should be bootstrapped for the current database state."""
@@ -87,9 +89,9 @@ def main() -> int:
     if mode is MigrationBootstrapMode.STAMP_THEN_UPGRADE:
         print(
             "[migration-bootstrap] Legacy schema detected without alembic_version; "
-            "stamping head before upgrade."
+            f"stamping {LEGACY_STAMP_REVISION} before upgrade."
         )
-        _run_alembic("stamp", "head")
+        _run_alembic("stamp", LEGACY_STAMP_REVISION)
 
     _run_alembic("upgrade", "head")
     return 0

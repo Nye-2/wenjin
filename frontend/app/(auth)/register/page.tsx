@@ -78,8 +78,8 @@ export default function RegisterPage() {
       return;
     }
 
-    if (!verificationCode || verificationCode.length < 4) {
-      setValidationError('Please enter the verification code');
+    if (!/^\d{6}$/.test(verificationCode)) {
+      setValidationError('Please enter a 6-digit numeric verification code');
       return;
     }
 
@@ -149,11 +149,13 @@ export default function RegisterPage() {
               <Input
                 id="verificationCode"
                 type="text"
-                placeholder="Enter code"
+                placeholder="Enter 6-digit code"
                 value={verificationCode}
-                onChange={(e) => setVerificationCode(e.target.value.toUpperCase())}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 required
-                maxLength={10}
+                inputMode="numeric"
+                pattern="\d{6}"
+                maxLength={6}
                 className="flex-1 font-mono tracking-wider"
               />
               <Button
