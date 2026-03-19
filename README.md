@@ -68,7 +68,7 @@ Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
 git clone <repository-url>
 cd academiagpt-v2
 
-# Copy backend environment file
+# Create a local backend env file (not tracked)
 cp backend/.env.example backend/.env
 # Edit backend/.env with your model/provider settings
 
@@ -88,6 +88,7 @@ docker compose logs -f migrate
 # Backend setup
 cd backend
 uv sync --extra dev
+# Create a local backend env file (not tracked)
 cp .env.example .env
 # Edit .env with your settings
 uv run alembic upgrade head
@@ -96,7 +97,8 @@ uv run uvicorn src.gateway.app:app --reload --port 8001
 # Frontend setup (in another terminal)
 cd frontend
 npm install
-cp .env.example .env.local
+# Optional: create .env.local only if you need to override API/LangGraph URLs
+# cp .env.example .env.local
 npm run dev
 ```
 

@@ -8,7 +8,7 @@
 
 ```bash
 ./start.sh --logs langgraph
-tail -n 100 /home/cjz/AcademiaGPT-V2/logs/langgraph.log
+tail -n 100 /home/cjz/academiagpt-v2/logs/langgraph.log
 ```
 
 常见原因:
@@ -51,6 +51,10 @@ docker compose logs -f gateway
 - Gateway 未启动/未健康
 - 前端请求地址配置错误（`NEXT_PUBLIC_API_URL`）
 - 反向代理路径未转发到 `/api`
+
+补充说明:
+
+- 如果没有创建 `frontend/.env.local`，开发环境默认会请求 `http://localhost:8001/api`。
 
 排查命令:
 

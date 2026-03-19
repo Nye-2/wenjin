@@ -4,6 +4,12 @@
 
 配置基线以 `backend/.env.example` 与 `frontend/.env.example` 为准。
 
+约定:
+
+- `backend/.env` 是本地后端运行时配置，需从 `backend/.env.example` 复制生成，默认不提交。
+- `frontend/.env.local` 仅在需要覆盖前端 API / LangGraph 地址时才创建，默认不提交。
+- 根目录 `.env` 用于 `docker compose` 的镜像源、构建参数等仓库级配置。
+
 ## 1. Backend (`backend/.env`)
 
 ### 1.1 必填（至少满足可启动）
@@ -44,11 +50,11 @@
 - 当 `SMTP_ENABLED=false` 时，系统进入开发模式，验证码不会真实发邮件，只会写入日志与 Redis。
 - 验证码格式为 **6 位纯数字**。
 
-## 2. Frontend (`frontend/.env.local`)
+## 2. Frontend (`frontend/.env.local`, 可选)
 
 | 变量 | 说明 | 默认 |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | Gateway API 基路径 | `/api` |
+| `NEXT_PUBLIC_API_URL` | Gateway API 基路径 | 开发环境默认 `http://localhost:8001/api`，生产默认 `/api` |
 | `NEXT_PUBLIC_LANGGRAPH_BASE_URL` | LangGraph 反向代理路径 | `/langgraph` |
 | `NEXT_PUBLIC_BACKEND_BASE_URL` | 兼容变量 | `/api` |
 

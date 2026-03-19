@@ -24,8 +24,8 @@ Next.js frontend for AcademiaGPT v2 - an Academic AI Assistant.
 # Install dependencies
 npm install
 
-# Copy env template
-cp .env.example .env.local
+# Optional: copy env template only if you need to override API or LangGraph URLs
+# cp .env.example .env.local
 
 # Start development server
 npm run dev
@@ -66,9 +66,14 @@ frontend/
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `NEXT_PUBLIC_API_URL` | Backend API base (e.g. `/api` or `http://localhost:8001/api`) | Recommended |
+| `NEXT_PUBLIC_API_URL` | Backend API base (e.g. `/api` or `http://localhost:8001/api`) | Optional |
 | `NEXT_PUBLIC_BACKEND_BASE_URL` | Legacy alias for `NEXT_PUBLIC_API_URL` | Optional |
 | `NEXT_PUBLIC_LANGGRAPH_BASE_URL` | LangGraph proxy base | Optional |
+
+Notes:
+
+- In local development, the frontend defaults to `http://localhost:8001/api` when no env override is provided.
+- `.env.local` is intentionally kept local and should not be committed.
 
 ## License
 

@@ -26,9 +26,10 @@
 ### 2.1 初始化
 
 ```bash
-cd /home/cjz/AcademiaGPT-V2
+cd /home/cjz/academiagpt-v2
 cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env.local
+# Optional: only if you need to override frontend API/LangGraph URLs locally
+# cp frontend/.env.example frontend/.env.local
 ./start.sh --init
 ```
 
@@ -79,7 +80,7 @@ cp frontend/.env.example frontend/.env.local
 ### 3.1 启动
 
 ```bash
-cd /home/cjz/AcademiaGPT-V2
+cd /home/cjz/academiagpt-v2
 cp backend/.env.example backend/.env
 docker compose up -d --build
 ```
@@ -126,7 +127,7 @@ docker compose exec langgraph curl -f http://localhost:2024/info
 
 ### 本地脚本日志
 
-日志目录: `/home/cjz/AcademiaGPT-V2/logs`
+日志目录: `/home/cjz/academiagpt-v2/logs`
 
 - `backend.log`
 - `langgraph.log`

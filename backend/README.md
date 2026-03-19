@@ -47,6 +47,9 @@ Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
 # Install dependencies
 uv sync --extra dev
 
+# Create a local backend env file (not tracked)
+cp .env.example .env
+
 # Run database migrations
 uv run alembic upgrade head
 
@@ -80,7 +83,7 @@ src/
 │   ├── services/       # Business logic services
 │   ├── tools/          # Academic tools (search, extraction)
 │   ├── cache/          # Redis caching
-│   └── database/       # Database session management
+│   └── database/       # Legacy compatibility re-exports
 ├── database/         # SQLAlchemy models
 │   ├── models/        # ORM models
 │   └── session.py     # Database session
