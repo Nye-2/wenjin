@@ -1,4 +1,4 @@
-"""Owner-isolation regression tests for legacy academic artifact routes."""
+"""Owner-isolation regression tests for workspace-scoped artifact routes."""
 
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from src.gateway.routers.academic import get_artifact_service, router
+from src.gateway.routers.artifacts import get_artifact_service, router
 from src.gateway.routers.auth import get_current_user
 
 WORKSPACE_ID = "550e8400-e29b-41d4-a716-446655440001"
@@ -89,11 +89,11 @@ def test_list_artifacts_invokes_workspace_owner_check(
     owner_session = object()
     require_owner = AsyncMock()
     monkeypatch.setattr(
-        "src.gateway.routers.academic._owner_check_session_from_service",
+        "src.gateway.routers.artifacts._owner_check_session_from_service",
         lambda service: owner_session,
     )
     monkeypatch.setattr(
-        "src.gateway.routers.academic._require_workspace_owner",
+        "src.gateway.routers.artifacts._require_workspace_owner",
         require_owner,
     )
 
@@ -117,11 +117,11 @@ def test_create_artifact_invokes_workspace_owner_check(
     owner_session = object()
     require_owner = AsyncMock()
     monkeypatch.setattr(
-        "src.gateway.routers.academic._owner_check_session_from_service",
+        "src.gateway.routers.artifacts._owner_check_session_from_service",
         lambda service: owner_session,
     )
     monkeypatch.setattr(
-        "src.gateway.routers.academic._require_workspace_owner",
+        "src.gateway.routers.artifacts._require_workspace_owner",
         require_owner,
     )
 
@@ -149,11 +149,11 @@ def test_list_artifacts_returns_403_when_owner_check_fails(client, monkeypatch):
         raise HTTPException(status_code=403, detail="Access denied")
 
     monkeypatch.setattr(
-        "src.gateway.routers.academic._owner_check_session_from_service",
+        "src.gateway.routers.artifacts._owner_check_session_from_service",
         lambda service: owner_session,
     )
     monkeypatch.setattr(
-        "src.gateway.routers.academic._require_workspace_owner",
+        "src.gateway.routers.artifacts._require_workspace_owner",
         _deny,
     )
 
@@ -166,11 +166,11 @@ def test_list_artifacts_returns_403_when_owner_check_fails(client, monkeypatch):
 def test_get_artifact_requires_workspace_match(client, mock_artifact_service, monkeypatch):
     owner_session = object()
     monkeypatch.setattr(
-        "src.gateway.routers.academic._owner_check_session_from_service",
+        "src.gateway.routers.artifacts._owner_check_session_from_service",
         lambda service: owner_session,
     )
     monkeypatch.setattr(
-        "src.gateway.routers.academic._require_workspace_owner",
+        "src.gateway.routers.artifacts._require_workspace_owner",
         AsyncMock(),
     )
     mock_artifact_service.get = AsyncMock(
@@ -191,11 +191,11 @@ def test_get_artifact_requires_workspace_match(client, mock_artifact_service, mo
 def test_lineage_requires_workspace_match(client, mock_artifact_service, monkeypatch):
     owner_session = object()
     monkeypatch.setattr(
-        "src.gateway.routers.academic._owner_check_session_from_service",
+        "src.gateway.routers.artifacts._owner_check_session_from_service",
         lambda service: owner_session,
     )
     monkeypatch.setattr(
-        "src.gateway.routers.academic._require_workspace_owner",
+        "src.gateway.routers.artifacts._require_workspace_owner",
         AsyncMock(),
     )
     mock_artifact_service.get = AsyncMock(

@@ -43,6 +43,7 @@ class ChatThread(Base, UUIDMixin, TimestampMixin):
         default="default",
         server_default="default",
     )
+    skill: Mapped[str | None] = mapped_column(String(100), nullable=True)
     messages: Mapped[list[dict[str, Any]]] = mapped_column(
         MESSAGES_JSON_TYPE,
         nullable=False,

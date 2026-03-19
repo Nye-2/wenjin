@@ -32,12 +32,14 @@ def _make_thread(
     user_id: str = "user-1",
     workspace_id: str | None = None,
     title: str | None = None,
+    skill: str | None = None,
 ) -> ChatThread:
     thread = ChatThread(
         user_id=user_id,
         workspace_id=workspace_id,
         title=title,
         model="gpt-4o",
+        skill=skill,
         messages=[],
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -57,6 +59,7 @@ class TestChatThreadService:
             workspace_id="ws-1",
             title="Draft thread",
             model="gpt-4o-mini",
+            skill="deep-research",
         )
 
         mock_db_session.add.assert_called_once_with(thread)
@@ -66,6 +69,7 @@ class TestChatThreadService:
         assert thread.workspace_id == "ws-1"
         assert thread.title == "Draft thread"
         assert thread.model == "gpt-4o-mini"
+        assert thread.skill == "deep-research"
         assert thread.messages == []
 
     @pytest.mark.asyncio
@@ -78,6 +82,7 @@ class TestChatThreadService:
             thread = await service.create_thread(user_id="user-1")
 
         assert thread.model == "resolved-model-id"
+        assert thread.skill is None
 
     @pytest.mark.asyncio
     async def test_get_or_create_thread_reuses_owned_thread(self, service, mock_db_session):
@@ -123,6 +128,31 @@ class TestChatThreadService:
 
         assert resolved is thread
         assert resolved.model == "resolved-model-id"
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_thread_updates_skill_when_explicitly_selected(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Existing thread skill is updated when user explicitly selects another skill."""
+        thread = _make_thread(workspace_id="ws-1", skill="deep-research")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = thread
+        mock_db_session.execute.return_value = result
+
+        resolved = await service.get_or_create_thread(
+            user_id="user-1",
+            thread_id="thread-1",
+            workspace_id="ws-1",
+            skill="literature-review",
+            skill_explicit=True,
+        )
+
+        assert resolved is thread
+        assert resolved.skill == "literature-review"
         mock_db_session.commit.assert_awaited_once()
         mock_db_session.refresh.assert_awaited_once_with(thread)
 

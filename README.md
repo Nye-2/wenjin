@@ -156,8 +156,14 @@ academiagpt-v2/
 - `POST /api/papers/search` - Search papers
 
 ### Artifacts
-- `GET /api/artifacts` - List artifacts
-- `POST /api/artifacts` - Create artifact
+- `GET /api/workspaces/{workspace_id}/artifacts` - Canonical artifact list route
+- `POST /api/workspaces/{workspace_id}/artifacts` - Canonical artifact creation route
+- `GET /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact detail route
+- `PUT /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact update route
+- `DELETE /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact delete route
+- `GET /api/workspaces/{workspace_id}/artifacts/{artifact_id}/lineage` - Canonical artifact lineage route
+- `GET /api/artifacts` - Compatibility artifact list route
+- `POST /api/artifacts` - Compatibility artifact creation route
 - `GET /api/artifacts/{id}` - Get artifact
 - `PUT /api/artifacts/{id}` - Update artifact
 - `DELETE /api/artifacts/{id}` - Delete artifact
@@ -167,6 +173,11 @@ academiagpt-v2/
 - `POST /api/threads` - Create chat thread
 - `POST /api/chat` - Send message
 - `POST /api/chat/stream` - Streaming chat
+
+Notes:
+
+- Thread skill selection is now persisted at the chat-thread level.
+- Sending `skill: null` on chat requests explicitly clears the thread skill.
 
 ### Subagents
 - `POST /api/subagents/threads/{thread_id}/spawn` - Spawn subagent task

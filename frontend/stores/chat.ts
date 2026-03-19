@@ -48,7 +48,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage: async (content: string, options) => {
     const { threadId, currentSkill } = get();
-    const skillToUse = options?.skill || currentSkill;
+    const hasExplicitSkill = Boolean(options && "skill" in options);
+    const skillToUse = hasExplicitSkill ? (options?.skill ?? null) : currentSkill;
 
     // Generate unique ID for user message
     const userMessageId = `user-${Date.now()}`;
@@ -80,15 +81,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [...state.messages, assistantMessage],
     }));
 
+    const requestPayload = {
+      message: content,
+      workspace_id: options?.workspaceId,
+      thread_id: threadId || undefined,
+      model: options?.model,
+      ...(hasExplicitSkill ? { skill: skillToUse } : currentSkill ? { skill: currentSkill } : {}),
+    };
+
     // Stream response
     streamChat(
-      {
-        message: content,
-        workspace_id: options?.workspaceId,
-        thread_id: threadId || undefined,
-        model: options?.model,
-        skill: skillToUse || undefined,
-      },
+      requestPayload,
       // onMessage - receive content chunks
       (chunk) => {
         assistantContent += chunk;
@@ -105,8 +108,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
       },
       // onThreadId - receive thread ID
-      (newThreadId) => {
-        set({ threadId: newThreadId });
+      ({ threadId: newThreadId, skill }) => {
+        set({ threadId: newThreadId, currentSkill: skill });
       },
       // onError
       (error) => {
@@ -118,7 +121,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     );
 
-    if (skillToUse) {
+    if (hasExplicitSkill) {
       set({ currentSkill: skillToUse });
     }
   },
@@ -136,6 +139,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   clearMessages: () => {
     set({
       messages: [],
+      currentSkill: null,
       threadId: null,
       error: null,
     });

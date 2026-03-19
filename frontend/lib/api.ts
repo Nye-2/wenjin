@@ -231,6 +231,7 @@ export interface Thread {
   workspace_id?: string;
   title?: string;
   model: string;
+  skill?: string | null;
   messages: ChatMessage[];
   created_at: string;
   updated_at: string;
@@ -241,7 +242,7 @@ export interface ChatRequest {
   workspace_id?: string;
   thread_id?: string;
   model?: string;
-  skill?: string;
+  skill?: string | null;
   thinking_enabled?: boolean;
   stream?: boolean;
 }
@@ -385,11 +386,11 @@ export async function listArtifacts(
   workspaceId: string,
   type?: string
 ): Promise<{ artifacts: Artifact[]; count: number }> {
-  const params: Record<string, unknown> = { workspace_id: workspaceId };
+  const params: Record<string, unknown> = {};
   if (type) {
     params.type = type;
   }
-  const response = await apiClient.get('/artifacts/', { params });
+  const response = await apiClient.get(`/workspaces/${workspaceId}/artifacts`, { params });
   return response.data;
 }
 
@@ -401,7 +402,16 @@ export async function createArtifact(data: {
   created_by_skill?: string;
   parent_artifact_id?: string;
 }): Promise<Artifact> {
-  const response = await apiClient.post('/artifacts/', data);
+  const response = await apiClient.post(
+    `/workspaces/${data.workspace_id}/artifacts`,
+    {
+      type: data.type,
+      title: data.title,
+      content: data.content,
+      created_by_skill: data.created_by_skill,
+      parent_artifact_id: data.parent_artifact_id,
+    }
+  );
   return response.data;
 }
 
@@ -411,6 +421,7 @@ export async function createThread(data: {
   workspace_id?: string;
   title?: string;
   model?: string;
+  skill?: string | null;
 }): Promise<Thread> {
   const response = await apiClient.post('/threads', data);
   return response.data;
@@ -448,7 +459,7 @@ export async function sendMessage(data: ChatRequest): Promise<{
 export function streamChat(
   data: ChatRequest,
   onMessage: (content: string) => void,
-  onThreadId?: (threadId: string) => void,
+  onThreadId?: (context: { threadId: string; skill: string | null }) => void,
   onError?: (error: string) => void,
   onDone?: () => void
 ): () => void {
@@ -505,7 +516,10 @@ export function streamChat(
           const json = JSON.parse(payload);
           switch (json.type) {
             case 'thread_id':
-              onThreadId?.(json.thread_id);
+              onThreadId?.({
+                threadId: json.thread_id,
+                skill: typeof json.skill === 'string' ? json.skill : null,
+              });
               break;
             case 'content':
               onMessage(json.content);

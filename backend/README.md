@@ -151,8 +151,14 @@ Each workspace type has its own graph directory:
 - `POST /api/papers/search` - Search papers
 
 ### Artifacts
-- `GET /api/artifacts` - List artifacts
-- `POST /api/artifacts` - Create artifact
+- `GET /api/workspaces/{workspace_id}/artifacts` - Canonical artifact list route
+- `POST /api/workspaces/{workspace_id}/artifacts` - Canonical artifact creation route
+- `GET /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact detail route
+- `PUT /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact update route
+- `DELETE /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact delete route
+- `GET /api/workspaces/{workspace_id}/artifacts/{artifact_id}/lineage` - Canonical artifact lineage route
+- `GET /api/artifacts` - Compatibility artifact list route
+- `POST /api/artifacts` - Compatibility artifact creation route
 - `GET /api/artifacts/{id}` - Get artifact
 - `PUT /api/artifacts/{id}` - Update artifact
 - `DELETE /api/artifacts/{id}` - Delete artifact
@@ -164,6 +170,11 @@ Each workspace type has its own graph directory:
 - `DELETE /api/threads/{id}` - Delete thread
 - `POST /api/chat` - Send message (non-streaming)
 - `POST /api/chat/stream` - Send message (streaming)
+
+Notes:
+
+- `ChatThread.skill` is the persisted session-level capability selection.
+- Chat requests may explicitly set `skill` to update the thread capability, or `null` to clear it.
 
 ### Subagents
 - `POST /api/subagents/threads/{thread_id}/spawn` - Spawn subagent task

@@ -47,6 +47,7 @@ class ChatThreadService:
         workspace_id: str | None = None,
         title: str | None = None,
         model: str | None = None,
+        skill: str | None = None,
     ) -> ChatThread:
         """Create and persist a new chat thread."""
         now = datetime.now(UTC)
@@ -55,6 +56,7 @@ class ChatThreadService:
             workspace_id=workspace_id,
             title=title,
             model=self._resolve_model(model),
+            skill=(skill or "").strip() or None,
             messages=[],
             created_at=now,
             updated_at=now,
@@ -85,9 +87,12 @@ class ChatThreadService:
         thread_id: str | None = None,
         workspace_id: str | None = None,
         model: str | None = None,
+        skill: str | None = None,
+        skill_explicit: bool = False,
     ) -> ChatThread:
         """Reuse an owned thread or create a new one."""
         resolved_model = self._resolve_model(model) if model and model.strip() else None
+        resolved_skill = (skill or "").strip() or None if skill_explicit else None
 
         if thread_id:
             thread = await self.get_by_id(thread_id)
@@ -101,6 +106,9 @@ class ChatThreadService:
                 if resolved_model and thread.model != resolved_model:
                     thread.model = resolved_model
                     needs_update = True
+                if skill_explicit and thread.skill != resolved_skill:
+                    thread.skill = resolved_skill
+                    needs_update = True
                 if needs_update:
                     thread.updated_at = datetime.now(UTC)
                     await self.db.commit()
@@ -111,6 +119,7 @@ class ChatThreadService:
             user_id=user_id,
             workspace_id=workspace_id,
             model=resolved_model,
+            skill=resolved_skill,
         )
 
     async def add_message(

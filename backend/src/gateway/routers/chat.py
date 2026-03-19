@@ -48,6 +48,7 @@ class ChatResponse(BaseModel):
     thread_id: str
     message: ChatMessage
     workspace_id: str | None = None
+    skill: str | None = None
 
 
 class ThreadCreate(BaseModel):
@@ -56,6 +57,7 @@ class ThreadCreate(BaseModel):
     workspace_id: str | None = None
     title: str | None = None
     model: str | None = None
+    skill: str | None = None
 
 
 class ThreadResponse(BaseModel):
@@ -65,6 +67,7 @@ class ThreadResponse(BaseModel):
     workspace_id: str | None
     title: str | None
     model: str
+    skill: str | None
     messages: list[ChatMessage]
     created_at: datetime
     updated_at: datetime
@@ -103,6 +106,7 @@ def _thread_messages_to_response(messages: list[dict]) -> list[ChatMessage]:
 async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> str:
     """Generate a chat response through the unified lead-agent pipeline."""
     workspace_id = _resolve_workspace_id(request, thread)
+    effective_skill = thread.skill
     effective_model = route_chat_model(
         requested_model=request.model,
         thread_model=thread.model,
@@ -117,7 +121,7 @@ async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> s
                 "thread_id": thread.id,
                 "workspace_id": workspace_id,
                 "model_name": effective_model,
-                "selected_skill": request.skill,
+                "selected_skill": effective_skill,
                 "thinking_enabled": request.thinking_enabled,
             }
         }
@@ -127,7 +131,7 @@ async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> s
             {
                 "messages": _build_langchain_messages(thread),
                 "workspace_id": workspace_id,
-                "current_skill": request.skill,
+                "current_skill": effective_skill,
             },
             config=config,
         )
@@ -149,6 +153,7 @@ def _thread_to_response(thread: ChatThread, include_messages: bool = True) -> Th
         workspace_id=thread.workspace_id,
         title=thread.title,
         model=thread.model,
+        skill=thread.skill,
         messages=_thread_messages_to_response(thread.messages or []) if include_messages else [],
         created_at=thread.created_at,
         updated_at=thread.updated_at,
@@ -167,6 +172,8 @@ async def _get_or_create_owned_thread(
             user_id=str(current_user.id),
             workspace_id=request.workspace_id,
             model=request.model,
+            skill=request.skill,
+            skill_explicit="skill" in request.model_fields_set,
         )
     except ChatThreadAccessError as exc:
         raise HTTPException(status_code=404, detail="Thread not found") from exc
@@ -184,6 +191,7 @@ async def create_thread(
         workspace_id=request.workspace_id,
         title=request.title,
         model=request.model,
+        skill=request.skill,
     )
     return _thread_to_response(thread, include_messages=False)
 
@@ -238,6 +246,7 @@ async def chat(
         thread_id=thread.id,
         message=ChatMessage(**assistant_message),
         workspace_id=thread.workspace_id,
+        skill=thread.skill,
     )
 
 
@@ -253,7 +262,7 @@ async def chat_stream(
         thread = await _get_or_create_owned_thread(request, current_user, chat_thread_service)
         await chat_thread_service.add_message(thread, role="user", content=request.message)
 
-        yield f"data: {json.dumps({'type': 'thread_id', 'thread_id': thread.id})}\n\n"
+        yield f"data: {json.dumps({'type': 'thread_id', 'thread_id': thread.id, 'skill': thread.skill})}\n\n"
 
         try:
             response_content = await _generate_chat_response(request, thread)
@@ -305,6 +314,7 @@ async def list_threads(
                 "workspace_id": thread.workspace_id,
                 "title": thread.title,
                 "model": thread.model,
+                "skill": thread.skill,
                 "message_count": len(thread.messages or []),
                 "created_at": thread.created_at,
                 "updated_at": thread.updated_at,

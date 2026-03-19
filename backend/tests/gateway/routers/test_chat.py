@@ -29,6 +29,7 @@ class FakeThread:
     workspace_id: str | None
     title: str | None
     model: str
+    skill: str | None = None
     messages: list[dict] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -52,6 +53,7 @@ class FakeChatThreadService:
         workspace_id: str | None = None,
         title: str | None = None,
         model: str | None = None,
+        skill: str | None = None,
     ) -> FakeThread:
         thread = FakeThread(
             id=self._new_thread_id(),
@@ -59,6 +61,7 @@ class FakeChatThreadService:
             workspace_id=workspace_id,
             title=title,
             model=model or "default",
+            skill=skill,
         )
         self.threads[thread.id] = thread
         return thread
@@ -76,6 +79,8 @@ class FakeChatThreadService:
         thread_id: str | None = None,
         workspace_id: str | None = None,
         model: str | None = None,
+        skill: str | None = None,
+        skill_explicit: bool = False,
     ) -> FakeThread:
         if thread_id:
             thread = self.threads.get(thread_id)
@@ -85,12 +90,15 @@ class FakeChatThreadService:
                 if workspace_id and not thread.workspace_id:
                     thread.workspace_id = workspace_id
                     thread.updated_at = datetime.now(timezone.utc)
+                if skill_explicit:
+                    thread.skill = skill
                 return thread
 
         return await self.create_thread(
             user_id=user_id,
             workspace_id=workspace_id,
             model=model,
+            skill=skill if skill_explicit else None,
         )
 
     async def add_message(
@@ -177,6 +185,7 @@ class TestChatThreads:
         data = response.json()
         assert data["workspace_id"] == "ws-1"
         assert data["title"] == "Thread 1"
+        assert data["skill"] is None
 
         thread_id = data["id"]
         response = client.get(f"/threads/{thread_id}")
@@ -247,15 +256,15 @@ class TestChatMessages:
             "assistant",
         ]
 
-    def test_chat_accepts_selected_skill(self):
-        """Chat requests preserve the selected skill through request parsing."""
+    def test_chat_persists_selected_skill_on_thread(self):
+        """Chat requests persist the selected skill on the thread."""
         service = FakeChatThreadService()
         client = create_client("user-1", service)
 
         with patch(
             "src.gateway.routers.chat._generate_chat_response",
             AsyncMock(return_value="assistant reply"),
-        ) as mock_generate:
+        ):
             response = client.post(
                 "/chat",
                 json={
@@ -266,8 +275,39 @@ class TestChatMessages:
             )
 
         assert response.status_code == 200
-        request = mock_generate.await_args.args[0]
-        assert request.skill == "deep-research"
+        thread_id = response.json()["thread_id"]
+        assert service.threads[thread_id].skill == "deep-research"
+        assert response.json()["skill"] == "deep-research"
+
+    def test_chat_can_clear_selected_skill(self):
+        """Explicit null skill should clear the persisted thread skill."""
+        service = FakeChatThreadService()
+        service.threads["thread-1"] = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="default",
+            skill="deep-research",
+        )
+        client = create_client("user-1", service)
+
+        with patch(
+            "src.gateway.routers.chat._generate_chat_response",
+            AsyncMock(return_value="assistant reply"),
+        ):
+            response = client.post(
+                "/chat",
+                json={
+                    "message": "Hello",
+                    "thread_id": "thread-1",
+                    "skill": None,
+                },
+            )
+
+        assert response.status_code == 200
+        assert service.threads["thread-1"].skill is None
+        assert response.json()["skill"] is None
 
     def test_chat_stream_returns_thread_id_and_persists_messages(self):
         """Streaming chat keeps the same persistence and SSE contract."""
@@ -285,12 +325,14 @@ class TestChatMessages:
 
         assert response.status_code == 200
         assert '"type": "thread_id"' in response.text
+        assert '"skill": null' in response.text
         assert '"type": "content"' in response.text
         assert '"type": "done"' in response.text
 
         assert len(service.threads) == 1
         thread = next(iter(service.threads.values()))
         assert thread.workspace_id == "ws-stream"
+        assert thread.skill is None
         assert [message["role"] for message in thread.messages] == [
             "user",
             "assistant",

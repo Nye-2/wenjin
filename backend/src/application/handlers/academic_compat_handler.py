@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from fastapi import UploadFile
 
-from src.academic.services import ArtifactService
 from src.academic.services.paper_service import PaperService
-from src.application.errors import BadRequestError, InternalServiceError
+from src.application.errors import BadRequestError
 
 
 class AcademicCompatHandler:
@@ -16,10 +15,8 @@ class AcademicCompatHandler:
         self,
         *,
         paper_service: PaperService,
-        artifact_service: ArtifactService | None = None,
     ) -> None:
         self.paper_service = paper_service
-        self.artifact_service = artifact_service
 
     async def create_paper(self, request) -> object:
         """Create a paper using the compatibility request payload."""
@@ -82,47 +79,3 @@ class AcademicCompatHandler:
             }
         )
         return {"result": result}
-
-    async def list_artifacts(
-        self,
-        *,
-        workspace_id: str,
-        artifact_type: str | None,
-    ) -> list[object]:
-        """List artifacts for a workspace via the compatibility surface."""
-        self._require_artifact_service()
-        return await self.artifact_service.list_by_workspace(  # type: ignore[union-attr]
-            workspace_id=workspace_id,
-            type=artifact_type,
-        )
-
-    async def create_artifact(
-        self,
-        *,
-        workspace_id: str,
-        request,
-    ) -> object:
-        """Create an artifact via the compatibility surface."""
-        self._require_artifact_service()
-        return await self.artifact_service.create(  # type: ignore[union-attr]
-            workspace_id=workspace_id,
-            type=request.type,
-            title=request.title,
-            content=request.content,
-            created_by_skill=request.created_by_skill,
-            parent_artifact_id=request.parent_artifact_id,
-        )
-
-    async def get_artifact(self, artifact_id: str) -> object | None:
-        """Get an artifact by id via the compatibility surface."""
-        self._require_artifact_service()
-        return await self.artifact_service.get(artifact_id)  # type: ignore[union-attr]
-
-    async def get_artifact_lineage(self, artifact_id: str) -> list[object]:
-        """Get artifact lineage via the compatibility surface."""
-        self._require_artifact_service()
-        return await self.artifact_service.get_lineage(artifact_id)  # type: ignore[union-attr]
-
-    def _require_artifact_service(self) -> None:
-        if self.artifact_service is None:
-            raise InternalServiceError("artifact_service is required for artifact compatibility operations")

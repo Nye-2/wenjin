@@ -158,15 +158,15 @@ class TestArtifactsAuth:
 
 
 class TestAcademicAuth:
-    """Test that academic endpoints require authentication."""
+    """Test that deprecated academic and canonical workspace artifact endpoints require authentication."""
 
     @pytest.fixture
     def unauthenticated_client(self):
         """Client with NO auth override."""
-        from src.gateway.routers.academic import (
+        from src.gateway.routers.academic import get_paper_service, router as academic_router
+        from src.gateway.routers.artifacts import (
             get_artifact_service,
-            get_paper_service,
-            router,
+            router as artifacts_router,
         )
 
         app = FastAPI()
@@ -184,7 +184,8 @@ class TestAcademicAuth:
 
         app.dependency_overrides[get_paper_service] = override_paper_service
         app.dependency_overrides[get_artifact_service] = override_artifact_service
-        app.include_router(router)
+        app.include_router(academic_router)
+        app.include_router(artifacts_router)
         return TestClient(app)
 
     def test_create_paper_requires_auth(self, unauthenticated_client):

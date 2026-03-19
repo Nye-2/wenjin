@@ -8,7 +8,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.gateway.routers.academic import (
-    get_db,
     get_paper_service,
     get_workspace_service,
     router,
@@ -30,10 +29,6 @@ def app():
     """Create FastAPI app with academic router."""
     app = FastAPI()
     app.include_router(router, prefix="/api")
-
-    # Override deps
-    async def mock_db():
-        yield object()
 
     mock_svc = AsyncMock()
     mock_svc.create_in_workspace = AsyncMock(return_value=type(
@@ -75,7 +70,6 @@ def app():
 
     app.state.mock_paper_service = mock_svc
     app.state.mock_workspace_service = mock_workspace_service
-    app.dependency_overrides[get_db] = mock_db
     app.dependency_overrides[get_paper_service] = mock_paper_service
     app.dependency_overrides[get_workspace_service] = mock_workspace_service_dep
     app.dependency_overrides[get_current_user] = mock_get_current_user

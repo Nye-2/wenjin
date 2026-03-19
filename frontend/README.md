@@ -14,7 +14,7 @@ Next.js frontend for AcademiaGPT v2 - an Academic AI Assistant.
 ## Features
 - Workspace management interface
 - Paper upload and viewing
-- Chat interface with skill selection
+- Chat interface with session-level skill selection
 - Knowledge panel for artifacts
 - Literature panel for references
 
