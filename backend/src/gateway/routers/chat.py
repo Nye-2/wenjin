@@ -73,6 +73,28 @@ class ThreadResponse(BaseModel):
     updated_at: datetime
 
 
+class ThreadSummaryResponse(BaseModel):
+    """Thread summary used by history and restoration surfaces."""
+
+    id: str
+    workspace_id: str | None
+    title: str | None
+    model: str
+    skill: str | None
+    message_count: int = 0
+    last_message_preview: str | None = None
+    last_message_role: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ThreadListResponse(BaseModel):
+    """List wrapper for thread summaries."""
+
+    threads: list[ThreadSummaryResponse]
+    count: int
+
+
 class ThreadAgentStatusResponse(BaseModel):
     """Execution status for a chat thread."""
 
@@ -110,6 +132,16 @@ def _thread_messages_to_response(messages: list[dict]) -> list[ChatMessage]:
         )
         for message in messages
     ]
+
+
+def _truncate_preview(content: str | None, limit: int = 120) -> str | None:
+    """Collapse message text into a short single-line preview."""
+    normalized = " ".join((content or "").split())
+    if not normalized:
+        return None
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
 
 
 async def _set_thread_agent_status(
@@ -181,6 +213,27 @@ def _thread_to_response(thread: ChatThread, include_messages: bool = True) -> Th
         model=thread.model,
         skill=thread.skill,
         messages=_thread_messages_to_response(thread.messages or []) if include_messages else [],
+        created_at=thread.created_at,
+        updated_at=thread.updated_at,
+    )
+
+
+def _thread_to_summary(thread: ChatThread) -> ThreadSummaryResponse:
+    """Convert a thread ORM object into a history summary."""
+    messages = thread.messages or []
+    last_message = messages[-1] if messages else {}
+    last_message_content = last_message.get("content") if isinstance(last_message, dict) else None
+    last_message_role = last_message.get("role") if isinstance(last_message, dict) else None
+
+    return ThreadSummaryResponse(
+        id=thread.id,
+        workspace_id=thread.workspace_id,
+        title=thread.title,
+        model=thread.model,
+        skill=thread.skill,
+        message_count=len(messages),
+        last_message_preview=_truncate_preview(last_message_content),
+        last_message_role=last_message_role,
         created_at=thread.created_at,
         updated_at=thread.updated_at,
     )
@@ -329,7 +382,7 @@ async def chat_stream(
     )
 
 
-@router.get("/threads")
+@router.get("/threads", response_model=ThreadListResponse)
 async def list_threads(
     workspace_id: str | None = None,
     limit: int = 20,
@@ -342,22 +395,10 @@ async def list_threads(
         workspace_id=workspace_id,
         limit=limit,
     )
-    return {
-        "threads": [
-            {
-                "id": thread.id,
-                "workspace_id": thread.workspace_id,
-                "title": thread.title,
-                "model": thread.model,
-                "skill": thread.skill,
-                "message_count": len(thread.messages or []),
-                "created_at": thread.created_at,
-                "updated_at": thread.updated_at,
-            }
-            for thread in threads
-        ],
-        "count": len(threads),
-    }
+    return ThreadListResponse(
+        threads=[_thread_to_summary(thread) for thread in threads],
+        count=len(threads),
+    )
 
 
 @router.get("/threads/{thread_id}/agent-status", response_model=ThreadAgentStatusResponse)

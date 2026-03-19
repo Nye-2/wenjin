@@ -68,7 +68,12 @@ async def _execute_task_async(
             thread_id = payload.get("thread_id")
             if thread_id:
                 try:
-                    await redis_client.set_agent_status(thread_id, "running", skill=task_type)
+                    await redis_client.set_agent_status(
+                        thread_id,
+                        "running",
+                        skill=task_type,
+                        subagent_count=0,
+                    )
                 except Exception:
                     logger.debug("Failed to set agent status for thread %s", thread_id)
 
@@ -116,7 +121,11 @@ async def _execute_task_async(
 
             if thread_id:
                 try:
-                    await redis_client.set_agent_status(thread_id, "completed")
+                    await redis_client.set_agent_status(
+                        thread_id,
+                        "completed",
+                        subagent_count=0,
+                    )
                 except Exception:
                     logger.debug("Failed to update agent status for thread %s", thread_id)
 
@@ -165,7 +174,11 @@ async def _execute_task_async(
             thread_id = payload.get("thread_id")
             if thread_id:
                 try:
-                    await redis_client.set_agent_status(thread_id, "failed")
+                    await redis_client.set_agent_status(
+                        thread_id,
+                        "failed",
+                        subagent_count=0,
+                    )
                 except Exception:
                     logger.debug("Failed to update agent status for thread %s", thread_id)
 

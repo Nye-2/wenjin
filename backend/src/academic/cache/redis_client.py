@@ -77,15 +77,20 @@ class RedisClient:
 
     # Agent status operations
     async def set_agent_status(
-        self, thread_id: str, status: str, skill: str = None, subagent_count: int = 0
+        self,
+        thread_id: str,
+        status: str,
+        skill: str | None = None,
+        subagent_count: int | None = None,
     ) -> None:
         """Set agent status for a thread."""
         key = self._agent_status_key(thread_id)
-        await self.client.hset(key, mapping={
-            "status": status,
-            "current_skill": skill or "",
-            "subagent_count": subagent_count,
-        })
+        mapping: dict[str, str | int] = {"status": status}
+        if skill is not None:
+            mapping["current_skill"] = skill
+        if subagent_count is not None:
+            mapping["subagent_count"] = subagent_count
+        await self.client.hset(key, mapping=mapping)
 
     async def get_agent_status(self, thread_id: str) -> dict | None:
         """Get agent status for a thread."""

@@ -244,6 +244,8 @@ export interface ThreadSummary {
   model: string;
   skill?: string | null;
   message_count?: number;
+  last_message_preview?: string | null;
+  last_message_role?: 'user' | 'assistant' | 'system' | null;
   created_at: string;
   updated_at: string;
 }

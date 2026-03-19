@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, User, Bot, Sparkles, History, Plus } from "lucide-react";
+import { Send, User, Bot, Sparkles, History, Plus, Trash2 } from "lucide-react";
 import { executeWorkspaceFeature, getTaskStatus } from "@/lib/api";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import { useChatStore, Message } from "@/stores/chat";
@@ -75,9 +75,11 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   const {
     messages,
     isStreaming,
+    isThreadsLoading,
     currentSkill,
     threadId,
     threads,
+    deleteThread,
     loadThread,
     sendMessage,
     startNewThread,
@@ -98,6 +100,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   const [inputValue, setInputValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
   const {
     models: availableModels,
     selectedModel,
@@ -306,6 +309,20 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     startNewThread();
   };
 
+  const handleDeleteThread = async (selectedThreadId: string) => {
+    setActionError(null);
+    setDeletingThreadId(selectedThreadId);
+    try {
+      await deleteThread(selectedThreadId, workspaceId);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Failed to delete chat thread"
+      );
+    } finally {
+      setDeletingThreadId(null);
+    }
+  };
+
   return (
     <div className="flex-1 h-full flex flex-col">
       {/* Header */}
@@ -352,7 +369,11 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
               exit={{ opacity: 0, y: -6 }}
               className="mt-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2"
             >
-              {threads.length === 0 ? (
+              {isThreadsLoading ? (
+                <p className="px-2 py-3 text-xs text-[var(--text-muted)]">
+                  正在加载历史会话...
+                </p>
+              ) : threads.length === 0 ? (
                 <p className="px-2 py-3 text-xs text-[var(--text-muted)]">
                   当前工作区还没有历史会话。
                 </p>
@@ -362,30 +383,70 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
                     const isActive = thread.id === threadId;
                     const label =
                       thread.title?.trim() ||
+                      thread.last_message_preview ||
                       `${thread.skill ? thread.skill.replace("-", " ") : "未命名会话"}`;
+                    const secondaryText =
+                      thread.title?.trim() && thread.last_message_preview
+                        ? thread.last_message_preview
+                        : null;
+                    const metadataText =
+                      `${thread.skill ? thread.skill.replace("-", " ") : "未设置能力"} · ${
+                        thread.message_count ?? 0
+                      } 条消息`;
                     return (
-                      <button
+                      <div
                         key={thread.id}
-                        type="button"
-                        onClick={() => void handleSelectThread(thread.id)}
                         className={cn(
-                          "flex w-full items-start justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+                          "flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors",
                           isActive
-                            ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
-                            : "hover:bg-[var(--bg-muted)] text-[var(--text-primary)]"
+                            ? "bg-[var(--accent-primary)]/10"
+                            : "hover:bg-[var(--bg-muted)]"
                         )}
                       >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{label}</p>
-                          <p className="text-[11px] text-[var(--text-muted)]">
-                            {thread.skill ? thread.skill.replace("-", " ") : "未设置能力"} ·{" "}
-                            {thread.message_count ?? 0} 条消息
-                          </p>
-                        </div>
-                        <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
-                          {new Date(thread.updated_at).toLocaleDateString()}
-                        </span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleSelectThread(thread.id)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p
+                                className={cn(
+                                  "truncate text-sm font-medium",
+                                  isActive
+                                    ? "text-[var(--accent-primary)]"
+                                    : "text-[var(--text-primary)]"
+                                )}
+                              >
+                                {label}
+                              </p>
+                              {secondaryText && (
+                                <p className="mt-0.5 line-clamp-2 text-[11px] text-[var(--text-muted)]">
+                                  {secondaryText}
+                                </p>
+                              )}
+                              <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                                {metadataText}
+                              </p>
+                            </div>
+                            <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
+                              {new Date(thread.updated_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDeleteThread(thread.id);
+                          }}
+                          disabled={deletingThreadId === thread.id || isStreaming}
+                          className="mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label="删除会话"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     );
                   })}
                 </div>

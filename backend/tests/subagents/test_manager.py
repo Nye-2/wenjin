@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -234,8 +234,6 @@ class TestGlobalSubagentManager:
     @pytest.mark.asyncio
     async def test_concurrent_spawn_multiple_threads(self, manager):
         """Test spawning tasks across multiple threads."""
-        from unittest.mock import MagicMock, patch
-
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(return_value={
             "messages": [MagicMock(content="Done")]
@@ -260,6 +258,55 @@ class TestGlobalSubagentManager:
 
             # Check all threads were created
             assert len(manager._threads) == 3
+
+    @pytest.mark.asyncio
+    async def test_spawn_syncs_thread_agent_status_with_active_subagent_count(self, manager):
+        """Thread status cache should reflect active and completed subagent work."""
+        task = SubagentTask(
+            task_id="status-test",
+            thread_id="thread-status",
+            prompt="Test",
+            created_at=datetime.now(),
+            timeout=60,
+        )
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_invoke(*args, **kwargs):
+            started.set()
+            await release.wait()
+            return {"messages": [MagicMock(content="Done")]}
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = slow_invoke
+
+        with patch.object(manager._graph_registry, "get", return_value=mock_graph), \
+             patch("src.academic.cache.redis_client.redis_client.set_agent_status", new=AsyncMock()) as mock_set_status:
+            from src.academic.cache.redis_client import redis_client
+
+            original_client = redis_client._client
+            redis_client._client = object()
+            try:
+                await manager.spawn(task)
+                await asyncio.wait_for(started.wait(), timeout=1)
+
+                mock_set_status.assert_any_await(
+                    "thread-status",
+                    "running",
+                    subagent_count=1,
+                )
+
+                release.set()
+                await asyncio.sleep(0.1)
+
+                mock_set_status.assert_any_await(
+                    "thread-status",
+                    "completed",
+                    subagent_count=0,
+                )
+            finally:
+                redis_client._client = original_client
 
     @pytest.mark.asyncio
     async def test_thread_access_isolated_by_user(self, manager):

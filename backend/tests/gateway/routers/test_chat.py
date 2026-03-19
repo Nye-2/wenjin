@@ -238,6 +238,37 @@ class TestChatThreads:
         assert response.status_code == 200
         assert response.json()["threads"][0]["skill"] == "deep-research"
 
+    def test_list_threads_includes_last_message_preview(self):
+        """Thread summaries expose a compact preview for history UI."""
+        service = FakeChatThreadService()
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title=None,
+            model="default",
+            messages=[
+                {"role": "user", "content": "first prompt"},
+                {
+                    "role": "assistant",
+                    "content": "This is a fairly long assistant reply for preview rendering.",
+                },
+            ],
+        )
+        service.threads[thread.id] = thread
+        client = create_client("user-1", service)
+
+        response = client.get("/threads")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["count"] == 1
+        assert payload["threads"][0]["message_count"] == 2
+        assert payload["threads"][0]["last_message_role"] == "assistant"
+        assert payload["threads"][0]["last_message_preview"] == (
+            "This is a fairly long assistant reply for preview rendering."
+        )
+
 
 class TestChatMessages:
     """Chat message flow tests."""

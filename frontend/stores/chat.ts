@@ -4,7 +4,14 @@
  */
 
 import { create } from 'zustand';
-import { getThread, listThreads, streamChat, type ThreadSummary } from '../lib/api';
+import {
+  deleteThread as deleteThreadRequest,
+  getThread,
+  listThreads,
+  streamChat,
+  type Thread,
+  type ThreadSummary,
+} from '../lib/api';
 
 // ============ Types ============
 
@@ -20,6 +27,7 @@ export interface Message {
 interface ChatState {
   messages: Message[];
   isStreaming: boolean;
+  isThreadsLoading: boolean;
   currentSkill: string | null;
   threadId: string | null;
   threads: ThreadSummary[];
@@ -35,17 +43,75 @@ interface ChatState {
     }
   ) => Promise<void>;
   addMessage: (message: Message) => void;
+  loadThreads: (workspaceId: string) => Promise<ThreadSummary[]>;
   loadLatestThread: (workspaceId: string) => Promise<void>;
   loadThread: (threadId: string) => Promise<void>;
+  deleteThread: (threadId: string, workspaceId: string) => Promise<void>;
   startNewThread: () => void;
   setCurrentSkill: (skill: string | null) => void;
   clearMessages: () => void;
   setThreadId: (threadId: string | null) => void;
 }
 
+function toStoreMessages(detail: Thread): Message[] {
+  return detail.messages
+    .filter(
+      (message): message is typeof message & { role: 'user' | 'assistant' } =>
+        message.role === 'user' || message.role === 'assistant'
+    )
+    .map((message, index) => ({
+      id: `${detail.id}:${index}`,
+      role: message.role,
+      content: message.content,
+      created_at: message.timestamp ?? detail.updated_at,
+    }));
+}
+
+function buildThreadPreview(messages: Thread['messages']) {
+  const lastMessage = messages[messages.length - 1];
+  const normalizedPreview = typeof lastMessage?.content === 'string'
+    ? lastMessage.content.replace(/\s+/g, ' ').trim()
+    : '';
+
+  return {
+    message_count: messages.length,
+    last_message_role: lastMessage?.role ?? null,
+    last_message_preview: normalizedPreview
+      ? normalizedPreview.length <= 120
+        ? normalizedPreview
+        : `${normalizedPreview.slice(0, 117).trimEnd()}...`
+      : null,
+  };
+}
+
+function toThreadSummary(thread: Thread | ThreadSummary): ThreadSummary {
+  if ('messages' in thread) {
+    return {
+      id: thread.id,
+      workspace_id: thread.workspace_id,
+      title: thread.title ?? null,
+      model: thread.model,
+      skill: thread.skill ?? null,
+      created_at: thread.created_at,
+      updated_at: thread.updated_at,
+      ...buildThreadPreview(thread.messages),
+    };
+  }
+
+  return thread;
+}
+
+function upsertThreadSummary(threads: ThreadSummary[], summary: ThreadSummary): ThreadSummary[] {
+  return [summary, ...threads.filter((thread) => thread.id !== summary.id)].sort(
+    (left, right) =>
+      new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+  );
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isStreaming: false,
+  isThreadsLoading: false,
   currentSkill: null,
   threadId: null,
   threads: [],
@@ -119,18 +185,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
           currentSkill: skill,
           threads: state.threads.some((thread) => thread.id === newThreadId)
             ? state.threads
-            : [
-                {
-                  id: newThreadId,
-                  workspace_id: options?.workspaceId,
-                  title: null,
-                  model: options?.model ?? "default",
-                  skill,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                },
-                ...state.threads,
-              ],
+            : upsertThreadSummary(state.threads, {
+                id: newThreadId,
+                workspace_id: options?.workspaceId,
+                title: null,
+                model: options?.model ?? "default",
+                skill,
+                message_count: state.messages.length + 1,
+                last_message_role: 'assistant',
+                last_message_preview: null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }),
         }));
       },
       // onError
@@ -140,6 +206,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // onDone
       () => {
         set({ isStreaming: false });
+        if (options?.workspaceId) {
+          void get().loadThreads(options.workspaceId);
+        }
       }
     );
 
@@ -154,41 +223,65 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
-  loadLatestThread: async (workspaceId: string) => {
+  loadThreads: async (workspaceId: string) => {
+    set({ isThreadsLoading: true });
     try {
       const { threads } = await listThreads(workspaceId, 20);
-      if (threads.length === 0) {
-        set({
-          messages: [],
-          currentSkill: null,
-          threadId: null,
-          threads: [],
+      set((state) => {
+        const activeThreadStillVisible = state.threadId
+          ? threads.some((thread) => thread.id === state.threadId)
+          : true;
+        return {
+          threads,
+          isThreadsLoading: false,
+          ...(activeThreadStillVisible
+            ? {}
+            : {
+                messages: [],
+                currentSkill: null,
+                threadId: null,
+              }),
           error: null,
-        });
-        return;
-      }
-
-      const latest = threads[0];
-      const detail = await getThread(latest.id);
-      const messages = detail.messages
-        .filter(
-          (message): message is typeof message & { role: 'user' | 'assistant' } =>
-            message.role === 'user' || message.role === 'assistant'
-        )
-        .map((message, index) => ({
-          id: `${detail.id}:${index}`,
-          role: message.role,
-          content: message.content,
-          created_at: message.timestamp ?? detail.updated_at,
-        }));
-
+        };
+      });
+      return threads;
+    } catch (error) {
       set({
-        messages,
-        currentSkill: detail.skill ?? null,
-        threadId: detail.id,
-        threads,
+        error: error instanceof Error ? error.message : 'Failed to load chat threads',
+        isThreadsLoading: false,
+      });
+      return [];
+    }
+  },
+
+  loadLatestThread: async (workspaceId: string) => {
+    const threads = await get().loadThreads(workspaceId);
+    if (threads.length === 0) {
+      set({
+        messages: [],
+        currentSkill: null,
+        threadId: null,
+        threads: [],
         error: null,
       });
+      return;
+    }
+
+    await get().loadThread(threads[0].id);
+  },
+
+  loadThread: async (threadId: string) => {
+    try {
+      const detail = await getThread(threadId);
+      const summary = toThreadSummary(detail);
+
+      set((state) => ({
+        messages: toStoreMessages(detail),
+        currentSkill: detail.skill ?? null,
+        threadId: detail.id,
+        threads: upsertThreadSummary(state.threads, summary),
+        error: null,
+      }));
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to load chat thread',
@@ -196,34 +289,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  loadThread: async (threadId: string) => {
+  deleteThread: async (threadId: string, workspaceId: string) => {
     try {
-      const detail = await getThread(threadId);
-      const messages = detail.messages
-        .filter(
-          (message): message is typeof message & { role: 'user' | 'assistant' } =>
-            message.role === 'user' || message.role === 'assistant'
-        )
-        .map((message, index) => ({
-          id: `${detail.id}:${index}`,
-          role: message.role,
-          content: message.content,
-          created_at: message.timestamp ?? detail.updated_at,
-        }));
+      await deleteThreadRequest(threadId);
+      const state = get();
+      const remainingThreads = state.threads.filter((thread) => thread.id !== threadId);
 
-      set((state) => ({
-        messages,
-        currentSkill: detail.skill ?? null,
-        threadId: detail.id,
-        threads: state.threads.some((thread) => thread.id === detail.id)
-          ? state.threads
-          : [detail, ...state.threads],
+      set({
+        threads: remainingThreads,
         error: null,
-      }));
+      });
+
+      if (state.threadId !== threadId) {
+        return;
+      }
+
+      if (remainingThreads.length > 0) {
+        await get().loadThread(remainingThreads[0].id);
+        return;
+      }
+
+      const refreshedThreads = await get().loadThreads(workspaceId);
+      if (refreshedThreads.length > 0) {
+        await get().loadThread(refreshedThreads[0].id);
+      } else {
+        get().startNewThread();
+      }
     } catch (error) {
       set({
-        error: error instanceof Error ? error.message : 'Failed to load chat thread',
+        error: error instanceof Error ? error.message : 'Failed to delete chat thread',
       });
+      throw error;
     }
   },
 

@@ -30,6 +30,7 @@ class ThreadContext:
     owner_user_id: str | None = None
     _tasks: dict[str, asyncio.Task] = field(default_factory=dict)
     _results: dict[str, SubagentResult] = field(default_factory=dict)
+    _active_task_ids: set[str] = field(default_factory=set)
 
     @property
     def total_tasks(self) -> int:
@@ -39,6 +40,19 @@ class ThreadContext:
     def store_result(self, task_id: str, result: SubagentResult) -> None:
         """Store a task result."""
         self._results[task_id] = result
+
+    @property
+    def active_task_count(self) -> int:
+        """Count currently running tasks for the thread."""
+        return len(self._active_task_ids)
+
+    def mark_task_active(self, task_id: str) -> None:
+        """Mark a task as active for UI-facing status tracking."""
+        self._active_task_ids.add(task_id)
+
+    def mark_task_finished(self, task_id: str) -> None:
+        """Remove a task from the active set after it terminates."""
+        self._active_task_ids.discard(task_id)
 
     def get_result(self, task_id: str) -> SubagentResult | None:
         """Get a stored result."""
@@ -137,17 +151,36 @@ class GlobalSubagentManager:
             ctx = self._get_or_create_context(task.thread_id, owner_user_id)
 
         async def run_with_limiter():
-            async with self._limiter.acquire(task.thread_id):
-                logger.debug(f"Executing task {task.task_id}")
-                result = await self._execute_task(task)
-                ctx.store_result(task.task_id, result)
-                logger.info(
-                    f"Task {task.task_id} completed with status {result.status}"
+            terminal_status = "completed"
+            try:
+                async with self._limiter.acquire(task.thread_id):
+                    logger.debug(f"Executing task {task.task_id}")
+                    result = await self._execute_task(task)
+                    ctx.store_result(task.task_id, result)
+                    terminal_status = self._map_result_status(result.status)
+                    logger.info(
+                        f"Task {task.task_id} completed with status {result.status}"
+                    )
+                    return result
+            except Exception:
+                terminal_status = "failed"
+                raise
+            finally:
+                ctx.mark_task_finished(task.task_id)
+                await self._sync_thread_agent_status(
+                    task.thread_id,
+                    status="running" if ctx.active_task_count > 0 else terminal_status,
+                    subagent_count=ctx.active_task_count,
                 )
-                return result
 
         async_task = asyncio.create_task(run_with_limiter())
         ctx._tasks[task.task_id] = async_task
+        ctx.mark_task_active(task.task_id)
+        await self._sync_thread_agent_status(
+            task.thread_id,
+            status="running",
+            subagent_count=ctx.active_task_count,
+        )
         return task.task_id
 
     async def _execute_task(self, task: SubagentTask) -> SubagentResult:
@@ -387,6 +420,31 @@ class GlobalSubagentManager:
                 f"Cleaned up thread {thread_id}, cancelled {cancelled_count} tasks"
             )
 
+    async def _sync_thread_agent_status(
+        self,
+        thread_id: str,
+        *,
+        status: str,
+        subagent_count: int,
+    ) -> None:
+        """Mirror subagent activity into the thread-scoped status cache."""
+        try:
+            from src.academic.cache.redis_client import redis_client
+
+            if redis_client._client is None:
+                return
+            await redis_client.set_agent_status(
+                thread_id,
+                status,
+                subagent_count=subagent_count,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to sync subagent status for thread %s",
+                thread_id,
+                exc_info=True,
+            )
+
     def _get_or_create_context(
         self,
         thread_id: str,
@@ -447,3 +505,12 @@ class GlobalSubagentManager:
             thread_id = payload.get("thread_id")
             return str(thread_id) if thread_id is not None else None
         return None
+
+    @staticmethod
+    def _map_result_status(status: SubagentStatus) -> str:
+        """Normalize subagent terminal states into UI-facing thread states."""
+        if status == SubagentStatus.COMPLETED:
+            return "completed"
+        if status in {SubagentStatus.CANCELLED, SubagentStatus.FAILED, SubagentStatus.TIMED_OUT}:
+            return "failed"
+        return "running"
