@@ -36,7 +36,6 @@ const workspaceTypeColors: Record<string, string> = {
   patent: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
 };
 
-// Module feature to route mapping
 const featureRouteMap: Record<string, string> = {
   deep_research: "deep-research",
   literature_management: "literature",

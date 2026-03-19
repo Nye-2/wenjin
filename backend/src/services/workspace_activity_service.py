@@ -111,6 +111,10 @@ class WorkspaceActivityService:
                 "action": (payload.get("params") or {}).get("action")
                 if isinstance(payload.get("params"), dict)
                 else None,
+                "params": payload.get("params") if isinstance(payload.get("params"), dict) else None,
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "started_at": record.started_at.isoformat() if record.started_at else None,
+                "completed_at": record.completed_at.isoformat() if record.completed_at else None,
             },
         }
 

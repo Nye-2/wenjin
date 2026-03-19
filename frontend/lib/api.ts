@@ -401,6 +401,16 @@ export interface TaskStatus {
   completed_at?: string | null;
 }
 
+export interface TaskProgressEvent {
+  task_id: string;
+  status: string;
+  progress: number;
+  message?: string | null;
+  current_step?: string | null;
+  metadata?: Record<string, unknown> | null;
+  timestamp?: string;
+}
+
 // ============ API Functions ============
 
 // Health check
@@ -804,6 +814,98 @@ export async function executeWorkspaceFeature(
 export async function getTaskStatus(taskId: string): Promise<TaskStatus> {
   const response = await apiClient.get(`/tasks/${taskId}`);
   return response.data;
+}
+
+export function subscribeTaskProgress(
+  taskId: string,
+  onUpdate: (event: TaskProgressEvent) => void,
+  onError?: (error: string) => void
+): () => void {
+  const controller = new AbortController();
+
+  authorizedFetch(
+    `${API_BASE_URL}/tasks/${taskId}/stream`,
+    {
+      method: 'GET',
+      signal: controller.signal,
+    }
+  )
+    .then(async (response) => {
+      if (!response.ok) {
+        let message = `Request failed (${response.status})`;
+        try {
+          const payload = await response.json();
+          const detail =
+            typeof payload?.detail === 'string'
+              ? payload.detail
+              : typeof payload?.error === 'string'
+                ? payload.error
+                : null;
+          if (detail) {
+            message = detail;
+          }
+        } catch {
+          // Ignore parsing errors
+        }
+        throw new Error(message);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No reader available');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const processLine = (line: string) => {
+        if (!line.startsWith('data: ')) {
+          return;
+        }
+
+        const payload = line.slice(6).trim();
+        if (!payload) {
+          return;
+        }
+
+        try {
+          onUpdate(JSON.parse(payload) as TaskProgressEvent);
+        } catch {
+          // Ignore malformed SSE payloads
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const rawLine of lines) {
+          processLine(rawLine.trim());
+        }
+      }
+
+      buffer += decoder.decode();
+      const remaining = buffer.trim();
+      if (remaining) {
+        for (const rawLine of remaining.split('\n')) {
+          processLine(rawLine.trim());
+        }
+      }
+
+      if (!controller.signal.aborted) {
+        onError?.('Task progress stream closed');
+      }
+    })
+    .catch((error) => {
+      if (error.name !== 'AbortError') {
+        onError?.(error.message);
+      }
+    });
+
+  return () => controller.abort();
 }
 
 // ============ Dashboard API ============

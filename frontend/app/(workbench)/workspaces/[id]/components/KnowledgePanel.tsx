@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
@@ -15,10 +16,12 @@ import {
   ListChecks,
   Loader2,
   MessageSquareText,
+  RefreshCw,
   SearchCheck,
   ShieldCheck,
   Sparkles,
   Target,
+  ExternalLink,
   XCircle,
 } from "lucide-react";
 import {
@@ -26,8 +29,20 @@ import {
   type Artifact,
   type WorkspaceActivityItem,
 } from "@/stores/workspace";
+import { executeWorkspaceFeature } from "@/lib/api";
 import { useFeaturesStore } from "@/stores/features";
+import { useChatStore } from "@/stores/chat";
+import { useTaskStore } from "@/stores/task";
 import { ArtifactDetailDialog } from "@/components/workspace/ArtifactDetailDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { getWorkspaceFeatureRoute } from "@/lib/workspace-feature-routes";
 import { cn } from "@/lib/utils";
 
 const artifactIcons: Record<string, React.ElementType> = {
@@ -91,6 +106,25 @@ const filterOptions: Array<{ value: ActivityFilter; label: string }> = [
   { value: "subagent_task", label: "子代理" },
   { value: "artifact", label: "产出" },
 ];
+
+function inferActivityModuleId(item: WorkspaceActivityItem): string | null {
+  if (item.feature_id) {
+    return item.feature_id;
+  }
+
+  const createdBySkill =
+    typeof item.metadata?.created_by_skill === "string"
+      ? item.metadata.created_by_skill
+      : null;
+  if (!createdBySkill) {
+    return null;
+  }
+
+  const tail = createdBySkill.includes(".")
+    ? createdBySkill.split(".").at(-1) || createdBySkill
+    : createdBySkill;
+  return tail.replace(/-/g, "_");
+}
 
 function formatTime(dateString: string) {
   const date = new Date(dateString);
@@ -245,6 +279,14 @@ interface ActivityItemRowProps {
   artifact: Artifact | null;
   featureName?: string;
   onSelectArtifact: (artifact: Artifact) => void;
+  onOpenDetails: (item: WorkspaceActivityItem) => void;
+  actions?: Array<{
+    key: string;
+    label: string;
+    icon: React.ElementType;
+    onClick: () => void;
+    tone?: "default" | "primary" | "danger";
+  }>;
 }
 
 function ActivityItemRow({
@@ -252,11 +294,13 @@ function ActivityItemRow({
   artifact,
   featureName,
   onSelectArtifact,
+  onOpenDetails,
+  actions = [],
 }: ActivityItemRowProps) {
   const meta = getActivityMeta(item, artifact);
   const statusMeta = getStatusMeta(item.status);
   const Icon = meta.icon;
-  const clickable = item.kind === "artifact" && artifact !== null;
+  const clickableArtifact = item.kind === "artifact" && artifact !== null;
   const metadataLine = resolveMetadataLine(item, featureName);
 
   const content = (
@@ -294,6 +338,34 @@ function ActivityItemRow({
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
               {metadataLine}
             </p>
+            {actions.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {actions.map((action) => {
+                  const ActionIcon = action.icon;
+                  return (
+                    <button
+                      key={action.key}
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        action.onClick();
+                      }}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                        action.tone === "primary"
+                          ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/15"
+                          : action.tone === "danger"
+                            ? "bg-red-500/10 text-red-600 hover:bg-red-500/15"
+                            : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      )}
+                    >
+                      <ActionIcon className="h-3 w-3" />
+                      {action.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
             {formatTime(item.occurred_at)}
@@ -303,7 +375,7 @@ function ActivityItemRow({
     </>
   );
 
-  if (clickable && artifact) {
+  if (clickableArtifact && artifact) {
     return (
       <motion.button
         type="button"
@@ -318,13 +390,15 @@ function ActivityItemRow({
   }
 
   return (
-    <motion.div
+    <motion.button
+      type="button"
       initial={{ opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
-      className="relative flex items-start gap-3 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-3"
+      onClick={() => onOpenDetails(item)}
+      className="relative flex w-full items-start gap-3 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-3 text-left transition-all hover:border-[var(--accent-primary)]/20"
     >
       {content}
-    </motion.div>
+    </motion.button>
   );
 }
 
@@ -333,22 +407,126 @@ interface KnowledgePanelProps {
 }
 
 export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
-  void workspaceId;
+  const router = useRouter();
   const {
     activities,
     artifacts,
     isActivityLoading,
   } = useWorkspaceStore();
   const { getFeatureById } = useFeaturesStore();
+  const { loadThread } = useChatStore();
+  const { startTask } = useTaskStore();
   const [filter, setFilter] = useState<ActivityFilter>("all");
+  const [moduleFilter, setModuleFilter] = useState<string>("all");
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+  const [selectedActivity, setSelectedActivity] = useState<WorkspaceActivityItem | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const moduleOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options = [];
+
+    for (const item of activities) {
+      const moduleId = inferActivityModuleId(item);
+      if (!moduleId || seen.has(moduleId)) {
+        continue;
+      }
+      seen.add(moduleId);
+      options.push({
+        id: moduleId,
+        label: getFeatureById(moduleId)?.name || moduleId.replace(/[_-]/g, " "),
+      });
+    }
+
+    return options.sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+  }, [activities, getFeatureById]);
 
   const visibleItems = useMemo(() => {
-    if (filter === "all") {
-      return activities;
+    return activities.filter((item) => {
+      const matchesKind = filter === "all" ? true : item.kind === filter;
+      const matchesModule =
+        moduleFilter === "all"
+          ? true
+          : inferActivityModuleId(item) === moduleFilter;
+      return matchesKind && matchesModule;
+    });
+  }, [activities, filter, moduleFilter]);
+
+  const selectedActivityFeatureId = selectedActivity
+    ? inferActivityModuleId(selectedActivity)
+    : null;
+  const selectedActivityFeature = selectedActivityFeatureId
+    ? getFeatureById(selectedActivityFeatureId)
+    : undefined;
+  const selectedActivityRoute = getWorkspaceFeatureRoute(
+    workspaceId,
+    selectedActivityFeatureId
+  );
+
+  const openThread = async (threadId: string) => {
+    await loadThread(threadId);
+    setSelectedActivity(null);
+  };
+
+  const openModule = (featureId: string | null | undefined) => {
+    const route = getWorkspaceFeatureRoute(workspaceId, featureId);
+    if (route) {
+      router.push(route);
+      setSelectedActivity(null);
     }
-    return activities.filter((item) => item.kind === filter);
-  }, [activities, filter]);
+  };
+
+  const retryFeatureTask = async (item: WorkspaceActivityItem) => {
+    const featureId = inferActivityModuleId(item);
+    const feature = featureId ? getFeatureById(featureId) : undefined;
+    const params =
+      item.metadata?.params && typeof item.metadata.params === "object"
+        ? (item.metadata.params as Record<string, unknown>)
+        : {};
+
+    if (!featureId || !feature) {
+      setActionError("当前活动无法直接重试，请进入对应模块重新执行。");
+      return;
+    }
+
+    setActionError(null);
+    setIsRetrying(true);
+    try {
+      const execution = await executeWorkspaceFeature(
+        workspaceId,
+        featureId,
+        params,
+        item.thread_id || undefined
+      );
+
+      if (execution.status === "warning" && !execution.task_id) {
+        setActionError(execution.message || "该功能当前无法重试");
+        return;
+      }
+
+      if (!execution.task_id) {
+        setActionError("任务创建失败，请稍后重试");
+        return;
+      }
+
+      startTask({
+        taskId: execution.task_id,
+        featureId: feature.id,
+        agent: feature.agent,
+        agentLabel: feature.agentLabel,
+        stages: feature.stages,
+        initialThinking: execution.message,
+      });
+      setSelectedActivity(null);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "重试失败，请稍后重试"
+      );
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   return (
     <>
@@ -380,6 +558,23 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
               </button>
             ))}
           </div>
+          <div className="mt-3">
+            <label className="mb-1 block text-[11px] font-medium text-[var(--text-muted)]">
+              模块筛选
+            </label>
+            <select
+              value={moduleFilter}
+              onChange={(event) => setModuleFilter(event.target.value)}
+              className="w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
+            >
+              <option value="all">全部模块</option>
+              {moduleOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-3">
@@ -407,9 +602,47 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
                   const artifact = item.artifact_id
                     ? artifacts.find((candidate) => candidate.id === item.artifact_id) ?? null
                     : null;
-                  const featureName = item.feature_id
-                    ? getFeatureById(item.feature_id)?.name
+                  const featureId = inferActivityModuleId(item);
+                  const featureName = featureId
+                    ? getFeatureById(featureId)?.name
                     : undefined;
+                  const route = getWorkspaceFeatureRoute(workspaceId, featureId);
+                  const actions = [];
+
+                  if (item.kind === "feature_task" && route) {
+                    actions.push({
+                      key: "open-module",
+                      label: "打开模块",
+                      icon: ExternalLink,
+                      onClick: () => openModule(featureId),
+                      tone: "primary" as const,
+                    });
+                  }
+                  if (
+                    item.kind === "feature_task" &&
+                    item.status === "failed" &&
+                    featureId
+                  ) {
+                    actions.push({
+                      key: "retry-task",
+                      label: "重试",
+                      icon: RefreshCw,
+                      onClick: () => void retryFeatureTask(item),
+                      tone: "danger" as const,
+                    });
+                  }
+                  if (
+                    (item.kind === "chat_thread" || item.kind === "subagent_task") &&
+                    item.thread_id
+                  ) {
+                    actions.push({
+                      key: "open-thread",
+                      label: "打开对话",
+                      icon: MessageSquareText,
+                      onClick: () => void openThread(item.thread_id!),
+                      tone: "primary" as const,
+                    });
+                  }
 
                   return (
                     <ActivityItemRow
@@ -418,6 +651,8 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
                       artifact={artifact}
                       featureName={featureName}
                       onSelectArtifact={setSelectedArtifact}
+                      onOpenDetails={setSelectedActivity}
+                      actions={actions}
                     />
                   );
                 })}
@@ -436,6 +671,99 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
           }
         }}
       />
+
+      <Dialog
+        open={selectedActivity !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedActivity(null);
+            setActionError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedActivityFeature?.name || selectedActivity?.title || "活动详情"}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedActivity
+                ? `${selectedActivity.kind} · ${new Date(selectedActivity.occurred_at).toLocaleString("zh-CN")}`
+                : "查看工作区活动详情"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedActivity && (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                  摘要
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[var(--text-primary)]">
+                  {resolveSummary(selectedActivity)}
+                </p>
+                <p className="mt-2 text-xs text-[var(--text-muted)]">
+                  {resolveMetadataLine(
+                    selectedActivity,
+                    selectedActivityFeature?.name
+                  )}
+                </p>
+              </div>
+
+              {actionError && (
+                <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-600">
+                  {actionError}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                  Metadata
+                </p>
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--bg-elevated)] p-3 text-xs leading-6 text-[var(--text-secondary)]">
+                  {JSON.stringify(selectedActivity.metadata || {}, null, 2)}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            {selectedActivity?.thread_id && (
+              <button
+                type="button"
+                onClick={() => void openThread(selectedActivity.thread_id!)}
+                className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)]"
+              >
+                <MessageSquareText className="h-4 w-4" />
+                打开对话
+              </button>
+            )}
+            {selectedActivityRoute && (
+              <button
+                type="button"
+                onClick={() => openModule(selectedActivityFeatureId)}
+                className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)]"
+              >
+                <ExternalLink className="h-4 w-4" />
+                打开模块
+              </button>
+            )}
+            {selectedActivity?.kind === "feature_task" &&
+              selectedActivity.status === "failed" &&
+              selectedActivityFeatureId && (
+                <button
+                  type="button"
+                  onClick={() => void retryFeatureTask(selectedActivity)}
+                  disabled={isRetrying}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent-primary)] px-3 py-2 text-sm text-white disabled:opacity-60"
+                >
+                  <RefreshCw className={cn("h-4 w-4", isRetrying && "animate-spin")} />
+                  立即重试
+                </button>
+              )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

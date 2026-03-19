@@ -1,6 +1,10 @@
-import { useState, useCallback, useRef } from "react";
-import { executeWorkspaceFeature, type TaskStatus } from "@/lib/api";
-import { pollTaskUntilTerminal } from "@/lib/taskPolling";
+import { useState, useCallback, useEffect, useRef } from "react";
+import {
+  executeWorkspaceFeature,
+  getTaskStatus,
+  subscribeTaskProgress,
+  type TaskStatus,
+} from "@/lib/api";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 export interface UseFeatureTaskRunnerOptions {
@@ -81,6 +85,7 @@ export function useFeatureTaskRunner({
   const [task, setTask] = useState<TaskStatus | null>(null);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const runningRef = useRef(false);
+  const taskStreamRef = useRef<(() => void) | null>(null);
 
   // Hold callbacks in refs so `run` never re-creates due to callback identity changes
   const onSuccessRef = useRef(onSuccess);
@@ -95,6 +100,13 @@ export function useFeatureTaskRunner({
   const clearTask = useCallback(() => {
     setTask(null);
     setResult(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      taskStreamRef.current?.();
+      taskStreamRef.current = null;
+    };
   }, []);
 
   const run = useCallback(
@@ -141,16 +153,53 @@ export function useFeatureTaskRunner({
         }
 
         setStatus("任务已提交，正在处理中...");
-        const task = await pollTaskUntilTerminal(resp.task_id, {
-          onProgress: (t) => {
-            if (t.message) {
-              setStatus(t.message);
+        const taskId = resp.task_id;
+        const task = await new Promise<TaskStatus | null>((resolve) => {
+          const stopStreaming = subscribeTaskProgress(
+            taskId,
+            (event) => {
+              if (event.message) {
+                setStatus(event.message);
+              }
+
+              if (
+                event.status === "success" ||
+                event.status === "failed" ||
+                event.status === "cancelled"
+              ) {
+                stopStreaming();
+                taskStreamRef.current = null;
+                void getTaskStatus(taskId)
+                  .then((finalTask) => resolve(finalTask))
+                  .catch(() => resolve(null));
+              }
+            },
+            async () => {
+              stopStreaming();
+              taskStreamRef.current = null;
+              try {
+                const finalTask = await getTaskStatus(taskId);
+                if (
+                  finalTask.status === "success" ||
+                  finalTask.status === "failed" ||
+                  finalTask.status === "cancelled"
+                ) {
+                  resolve(finalTask);
+                  return;
+                }
+              } catch {
+                // Ignore fallback fetch errors below and resolve null.
+              }
+              resolve(null);
             }
-          },
+          );
+
+          taskStreamRef.current?.();
+          taskStreamRef.current = stopStreaming;
         });
 
         if (!task) {
-          setError("任务轮询超时，请稍后在工作区查看结果");
+          setError("任务状态流中断，请稍后在工作区查看结果");
           if (onErrorRef.current) {
             await onErrorRef.current();
           }
