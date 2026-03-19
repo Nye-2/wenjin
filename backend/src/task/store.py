@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config.task_config import task_settings
 from src.database.models.task import TaskRecord
 from src.task.registry import TaskStatus
+from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ class TaskStore:
         runtime_state = await self.get_task_state(task_id)
         final_progress = 100 if success else runtime_state.get("progress", 0) if runtime_state else 0
         final_message = error or runtime_state.get("message") if runtime_state else error
-        await self.update_task_record(
+        record = await self.update_task_record(
             task_id,
             status=status,
             result=result,
@@ -209,3 +210,36 @@ class TaskStore:
             message=final_message,
             metadata=runtime_state.get("metadata") if runtime_state else None,
         )
+
+        payload = record.payload if record and isinstance(record.payload, dict) else {}
+        workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
+        if workspace_id:
+            await publish_workspace_event(
+                workspace_id,
+                "task.updated",
+                {
+                    "task": {
+                        "task_id": task_id,
+                        "task_type": record.task_type if record else None,
+                        "status": status,
+                        "progress": final_progress,
+                        "message": final_message,
+                        "feature_id": payload.get("feature_id"),
+                        "thread_id": payload.get("thread_id"),
+                        "metadata": runtime_state.get("metadata") if runtime_state else None,
+                        "result": result,
+                        "error": error,
+                    }
+                },
+            )
+
+            refresh_targets = ["activity", "dashboard"]
+            if success and isinstance(result, dict):
+                for target in result.get("refresh_targets") or []:
+                    if isinstance(target, str) and target not in refresh_targets:
+                        refresh_targets.append(target)
+            await publish_workspace_event(
+                workspace_id,
+                "workspace.refresh",
+                {"refresh_targets": refresh_targets},
+            )

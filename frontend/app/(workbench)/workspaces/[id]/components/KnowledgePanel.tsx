@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
@@ -27,8 +27,6 @@ import {
   type WorkspaceActivityItem,
 } from "@/stores/workspace";
 import { useFeaturesStore } from "@/stores/features";
-import { useTaskStore } from "@/stores/task";
-import { useChatStore } from "@/stores/chat";
 import { ArtifactDetailDialog } from "@/components/workspace/ArtifactDetailDialog";
 import { cn } from "@/lib/utils";
 
@@ -335,31 +333,15 @@ interface KnowledgePanelProps {
 }
 
 export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
+  void workspaceId;
   const {
     activities,
     artifacts,
-    fetchActivity,
     isActivityLoading,
   } = useWorkspaceStore();
   const { getFeatureById } = useFeaturesStore();
-  const { currentTask } = useTaskStore();
-  const { isStreaming, threadId } = useChatStore();
   const [filter, setFilter] = useState<ActivityFilter>("all");
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
-
-  useEffect(() => {
-    if (!workspaceId) {
-      return;
-    }
-
-    void fetchActivity(workspaceId);
-
-    const interval = window.setInterval(() => {
-      void fetchActivity(workspaceId);
-    }, currentTask?.id || isStreaming ? 3000 : 10000);
-
-    return () => window.clearInterval(interval);
-  }, [workspaceId, fetchActivity, currentTask?.id, isStreaming, threadId]);
 
   const visibleItems = useMemo(() => {
     if (filter === "all") {

@@ -10,6 +10,7 @@ from src.task import celery_app
 from src.task.executor import cancel_local_task, get_executor
 from src.task.registry import TaskStatus, get_task_config, is_valid_task_type
 from src.task.store import TaskStore
+from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,14 @@ class TaskService:
             "started_at": record.started_at.isoformat() if record.started_at else None,
             "completed_at": record.completed_at.isoformat() if record.completed_at else None,
         }
+
+    @staticmethod
+    def _workspace_id_from_payload(payload: dict | None) -> str | None:
+        """Extract workspace id from a task payload if present."""
+        if not isinstance(payload, dict):
+            return None
+        workspace_id = payload.get("workspace_id")
+        return str(workspace_id) if workspace_id else None
 
     async def submit_task(
         self,
@@ -126,6 +135,29 @@ class TaskService:
             raise
 
         logger.info(f"Task submitted: {task_id} type={task_type} user={user_id}")
+
+        workspace_id = self._workspace_id_from_payload(payload)
+        await publish_workspace_event(
+            workspace_id,
+            "task.updated",
+            {
+                "task": {
+                    "task_id": task_id,
+                    "task_type": task_type,
+                    "status": TaskStatus.PENDING.value,
+                    "progress": 0,
+                    "message": None,
+                    "feature_id": payload.get("feature_id") if isinstance(payload, dict) else None,
+                    "thread_id": payload.get("thread_id") if isinstance(payload, dict) else None,
+                    "metadata": None,
+                }
+            },
+        )
+        await publish_workspace_event(
+            workspace_id,
+            "workspace.refresh",
+            {"refresh_targets": ["activity", "dashboard"]},
+        )
 
         return task_id
 
@@ -251,6 +283,30 @@ class TaskService:
             completed_at=datetime.now(UTC),
         )
         await self._store.set_task_state(task_id, TaskStatus.CANCELLED.value, message="Cancelled by user")
+
+        payload = record.payload if isinstance(record.payload, dict) else {}
+        workspace_id = self._workspace_id_from_payload(payload)
+        await publish_workspace_event(
+            workspace_id,
+            "task.updated",
+            {
+                "task": {
+                    "task_id": task_id,
+                    "task_type": record.task_type,
+                    "status": TaskStatus.CANCELLED.value,
+                    "progress": 0,
+                    "message": "Cancelled by user",
+                    "feature_id": payload.get("feature_id"),
+                    "thread_id": payload.get("thread_id"),
+                    "metadata": None,
+                }
+            },
+        )
+        await publish_workspace_event(
+            workspace_id,
+            "workspace.refresh",
+            {"refresh_targets": ["activity", "dashboard"]},
+        )
 
         logger.info(f"Task cancelled: {task_id}")
 

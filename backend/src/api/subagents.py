@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
+from src.gateway.deps import get_chat_thread_service
 from src.subagents import (
     GlobalSubagentManager,
     SubagentResult,
@@ -17,6 +18,7 @@ from src.subagents import (
     SubagentTask,
 )
 from src.subagents.manager import SubagentAccessError
+from src.services import ChatThreadService
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +97,7 @@ async def spawn_subagent(
     request: SpawnRequest,
     current_user: User = Depends(get_current_user),
     manager: GlobalSubagentManager = Depends(get_manager),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
 ) -> SpawnResponse:
     """Spawn a new subagent task.
 
@@ -151,6 +154,9 @@ async def spawn_subagent(
                 }
             ) from e
 
+    thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
+    workspace_id = thread.workspace_id if thread else None
+
     task = SubagentTask(
         task_id=str(uuid4()),
         thread_id=thread_id,
@@ -164,6 +170,7 @@ async def spawn_subagent(
             "subagent_type": request.subagent_type,
             "system_prompt": system_prompt,
             "user_id": str(current_user.id),
+            "workspace_id": workspace_id,
         }
     )
     try:

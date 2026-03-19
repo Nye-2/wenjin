@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.api import subagents
 from src.api.subagents import get_manager, router
 from src.gateway.auth_dependencies import get_current_user
 from src.subagents.models import SubagentResult, SubagentStatus
@@ -55,9 +56,15 @@ def override_auth(app):
     """Subagent routes are protected and require an authenticated user."""
     user = MagicMock()
     user.id = "user-123"
+    chat_thread_service = MagicMock()
+    chat_thread_service.get_thread = AsyncMock(
+        return_value=MagicMock(workspace_id="ws-1")
+    )
     app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[subagents.get_chat_thread_service] = lambda: chat_thread_service
     yield
     app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(subagents.get_chat_thread_service, None)
 
 
 class TestSpawnEndpoint:

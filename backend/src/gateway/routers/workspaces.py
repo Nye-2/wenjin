@@ -9,6 +9,7 @@ This module provides REST endpoints for:
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.academic.services.paper_service import PaperService
@@ -35,6 +36,7 @@ from src.gateway.validators.workspace import (
 )
 from src.services.dashboard_service import DashboardService
 from src.services.workspace_activity_service import WorkspaceActivityService
+from src.workspace_events import stream_workspace_events
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -446,4 +448,28 @@ async def get_workspace_activity(
     return WorkspaceActivityResponse(
         items=[workspace_activity_to_response(item) for item in activity["items"]],
         count=int(activity.get("count", 0)),
+    )
+
+
+@router.get("/{workspace_id}/events")
+async def subscribe_workspace_events(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+):
+    """Subscribe to workspace-scoped live events via SSE."""
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
+    return StreamingResponse(
+        await stream_workspace_events(workspace_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )

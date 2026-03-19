@@ -16,6 +16,7 @@ from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_chat_thread_service
 from src.models import route_chat_model
 from src.services import ChatThreadAccessError, ChatThreadService
+from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
 
@@ -145,10 +146,12 @@ def _truncate_preview(content: str | None, limit: int = 120) -> str | None:
 
 
 async def _set_thread_agent_status(
+    workspace_id: str | None,
     thread_id: str,
     *,
     status: str,
     skill: str | None,
+    subagent_count: int = 0,
 ) -> None:
     """Best-effort agent status update for thread-scoped UI polling."""
     try:
@@ -156,7 +159,24 @@ async def _set_thread_agent_status(
         from src.config import redis_settings
 
         if redis_settings.enabled and redis_client._client is not None:
-            await redis_client.set_agent_status(thread_id, status, skill=skill, subagent_count=0)
+            await redis_client.set_agent_status(
+                thread_id,
+                status,
+                skill=skill,
+                subagent_count=subagent_count,
+            )
+        await publish_workspace_event(
+            workspace_id,
+            "thread.status",
+            {
+                "thread": {
+                    "thread_id": thread_id,
+                    "status": status,
+                    "current_skill": skill,
+                    "subagent_count": subagent_count,
+                }
+            },
+        )
     except Exception:
         logger.debug("Failed to update agent status for thread %s", thread_id, exc_info=True)
 
@@ -239,6 +259,24 @@ def _thread_to_summary(thread: ChatThread) -> ThreadSummaryResponse:
     )
 
 
+async def _publish_thread_updated(thread: ChatThread) -> None:
+    """Publish a thread summary update to the workspace event stream."""
+    await publish_workspace_event(
+        thread.workspace_id,
+        "thread.updated",
+        {"thread": _thread_to_summary(thread).model_dump(mode="json")},
+    )
+
+
+async def _publish_thread_deleted(workspace_id: str | None, thread_id: str) -> None:
+    """Publish a thread deletion event for workspace consumers."""
+    await publish_workspace_event(
+        workspace_id,
+        "thread.deleted",
+        {"thread_id": thread_id},
+    )
+
+
 async def _get_or_create_owned_thread(
     request: ChatRequest,
     current_user: User,
@@ -272,6 +310,7 @@ async def create_thread(
         model=request.model,
         skill=request.skill,
     )
+    await _publish_thread_updated(thread)
     return _thread_to_response(thread, include_messages=False)
 
 
@@ -296,9 +335,13 @@ async def delete_thread(
     chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
 ):
     """Delete a thread."""
+    thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
     deleted = await chat_thread_service.delete_thread(thread_id, str(current_user.id))
     if not deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
+    await _publish_thread_deleted(thread.workspace_id, thread_id)
     return {"success": True}
 
 
@@ -311,7 +354,12 @@ async def chat(
     """Send a message and get a response (non-streaming)."""
     thread = await _get_or_create_owned_thread(request, current_user, chat_thread_service)
     await chat_thread_service.add_message(thread, role="user", content=request.message)
-    await _set_thread_agent_status(thread.id, status="running", skill=thread.skill)
+    await _set_thread_agent_status(
+        thread.workspace_id,
+        thread.id,
+        status="running",
+        skill=thread.skill,
+    )
 
     try:
         response_content = await _generate_chat_response(request, thread)
@@ -322,9 +370,20 @@ async def chat(
             content=response_content,
         )
         await chat_thread_service.set_title_if_empty(thread, request.message)
-        await _set_thread_agent_status(thread.id, status="completed", skill=thread.skill)
+        await _publish_thread_updated(thread)
+        await _set_thread_agent_status(
+            thread.workspace_id,
+            thread.id,
+            status="completed",
+            skill=thread.skill,
+        )
     except Exception:
-        await _set_thread_agent_status(thread.id, status="failed", skill=thread.skill)
+        await _set_thread_agent_status(
+            thread.workspace_id,
+            thread.id,
+            status="failed",
+            skill=thread.skill,
+        )
         raise
 
     return ChatResponse(
@@ -346,7 +405,12 @@ async def chat_stream(
     async def generate() -> AsyncGenerator[str, None]:
         thread = await _get_or_create_owned_thread(request, current_user, chat_thread_service)
         await chat_thread_service.add_message(thread, role="user", content=request.message)
-        await _set_thread_agent_status(thread.id, status="running", skill=thread.skill)
+        await _set_thread_agent_status(
+            thread.workspace_id,
+            thread.id,
+            status="running",
+            skill=thread.skill,
+        )
 
         yield f"data: {json.dumps({'type': 'thread_id', 'thread_id': thread.id, 'skill': thread.skill})}\n\n"
 
@@ -363,12 +427,23 @@ async def chat_stream(
                 content=response_content,
             )
             await chat_thread_service.set_title_if_empty(thread, request.message)
-            await _set_thread_agent_status(thread.id, status="completed", skill=thread.skill)
+            await _publish_thread_updated(thread)
+            await _set_thread_agent_status(
+                thread.workspace_id,
+                thread.id,
+                status="completed",
+                skill=thread.skill,
+            )
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         except Exception as exc:
             logger.exception("Streaming chat failed")
-            await _set_thread_agent_status(thread.id, status="failed", skill=thread.skill)
+            await _set_thread_agent_status(
+                thread.workspace_id,
+                thread.id,
+                status="failed",
+                skill=thread.skill,
+            )
             yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
 
     return StreamingResponse(

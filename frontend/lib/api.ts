@@ -257,6 +257,83 @@ export interface ThreadAgentStatus {
   subagent_count?: number;
 }
 
+export interface WorkspaceRefreshEvent {
+  type: 'workspace.refresh';
+  workspace_id: string;
+  refresh_targets?: string[];
+  timestamp?: string;
+}
+
+export interface WorkspaceReadyEvent {
+  type: 'workspace.ready';
+  workspace_id: string;
+  message?: string;
+  timestamp?: string;
+}
+
+export interface WorkspaceTaskEvent {
+  type: 'task.updated';
+  workspace_id: string;
+  task: {
+    task_id: string;
+    task_type?: string | null;
+    status: string;
+    progress: number;
+    message?: string | null;
+    current_step?: string | null;
+    feature_id?: string | null;
+    thread_id?: string | null;
+    metadata?: Record<string, unknown> | null;
+    result?: Record<string, unknown> | null;
+    error?: string | null;
+  };
+  timestamp?: string;
+}
+
+export interface WorkspaceThreadStatusEvent {
+  type: 'thread.status';
+  workspace_id: string;
+  thread: ThreadAgentStatus;
+  timestamp?: string;
+}
+
+export interface WorkspaceThreadUpdatedEvent {
+  type: 'thread.updated';
+  workspace_id: string;
+  thread: ThreadSummary;
+  timestamp?: string;
+}
+
+export interface WorkspaceThreadDeletedEvent {
+  type: 'thread.deleted';
+  workspace_id: string;
+  thread_id: string;
+  timestamp?: string;
+}
+
+export interface WorkspaceSubagentUpdatedEvent {
+  type: 'subagent.updated';
+  workspace_id: string;
+  subagent: {
+    task_id: string;
+    thread_id: string;
+    status: string;
+    subagent_type?: string | null;
+    output_preview?: string | null;
+    error?: string | null;
+  };
+  timestamp?: string;
+}
+
+export type WorkspaceEvent =
+  | WorkspaceRefreshEvent
+  | WorkspaceReadyEvent
+  | WorkspaceTaskEvent
+  | WorkspaceThreadStatusEvent
+  | WorkspaceThreadUpdatedEvent
+  | WorkspaceThreadDeletedEvent
+  | WorkspaceSubagentUpdatedEvent;
+
 export interface ChatRequest {
   message: string;
   workspace_id?: string;
@@ -585,6 +662,98 @@ export function streamChat(
       }
       if (!finished) {
         onDone?.();
+      }
+    })
+    .catch((error) => {
+      if (error.name !== 'AbortError') {
+        onError?.(error.message);
+      }
+    });
+
+  return () => controller.abort();
+}
+
+export function subscribeWorkspaceEvents(
+  workspaceId: string,
+  onEvent: (event: WorkspaceEvent) => void,
+  onError?: (error: string) => void
+): () => void {
+  const controller = new AbortController();
+
+  authorizedFetch(
+    `${API_BASE_URL}/workspaces/${workspaceId}/events`,
+    {
+      method: 'GET',
+      signal: controller.signal,
+    }
+  )
+    .then(async (response) => {
+      if (!response.ok) {
+        let message = `Request failed (${response.status})`;
+        try {
+          const payload = await response.json();
+          const detail =
+            typeof payload?.detail === 'string'
+              ? payload.detail
+              : typeof payload?.error === 'string'
+                ? payload.error
+                : null;
+          if (detail) {
+            message = detail;
+          }
+        } catch {
+          // Ignore parsing errors
+        }
+        throw new Error(message);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No reader available');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const processLine = (line: string) => {
+        if (!line.startsWith('data: ')) {
+          return;
+        }
+
+        const payload = line.slice(6).trim();
+        if (!payload) {
+          return;
+        }
+
+        try {
+          onEvent(JSON.parse(payload) as WorkspaceEvent);
+        } catch {
+          // Ignore malformed SSE payloads
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const rawLine of lines) {
+          processLine(rawLine.trim());
+        }
+      }
+
+      buffer += decoder.decode();
+      const remaining = buffer.trim();
+      if (remaining) {
+        for (const rawLine of remaining.split('\n')) {
+          processLine(rawLine.trim());
+        }
+      }
+
+      if (!controller.signal.aborted) {
+        onError?.('Workspace event stream closed');
       }
     })
     .catch((error) => {

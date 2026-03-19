@@ -2,6 +2,7 @@
 
 import { ReactNode, useEffect } from "react";
 import { useParams } from "next/navigation";
+import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
 import { useFeaturesStore } from "@/stores/features";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -14,6 +15,7 @@ interface WorkbenchLayoutProps {
 export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const params = useParams();
   const workspaceId = params.id as string;
+  useWorkspaceEventStream(workspaceId || null);
   const { loadWorkspace, fetchArtifacts, fetchActivity, clearWorkspace } = useWorkspaceStore();
   const { fetchFeatures, clearFeatures } = useFeaturesStore();
   const { loadLatestThread, clearMessages } = useChatStore();

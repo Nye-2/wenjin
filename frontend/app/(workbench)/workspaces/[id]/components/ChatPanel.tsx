@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, User, Bot, Sparkles, History, Plus, Trash2 } from "lucide-react";
-import { executeWorkspaceFeature, getTaskStatus } from "@/lib/api";
+import { executeWorkspaceFeature } from "@/lib/api";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import { useChatStore, Message } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -85,15 +85,9 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     startNewThread,
     setCurrentSkill,
   } = useChatStore();
-  const { workspace, fetchArtifacts, fetchPapers, loadWorkspace } = useWorkspaceStore();
+  const { workspace } = useWorkspaceStore();
   const {
     startTask,
-    syncTaskProgress,
-    updateTaskThinking,
-    completeTask,
-    cancelTask,
-    failTask,
-    currentTask,
     isExecuting,
   } = useTaskStore();
   const { getFeatureById } = useFeaturesStore();
@@ -187,83 +181,6 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
       setActionError(error instanceof Error ? error.message : "Failed to execute feature");
     }
   };
-
-  useEffect(() => {
-    if (!currentTask) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const pollTaskStatus = async () => {
-      try {
-        const status = await getTaskStatus(currentTask.id);
-        if (cancelled) return;
-
-        const currentPhase =
-          typeof status.metadata?.current_phase === "string"
-            ? status.metadata.current_phase
-            : undefined;
-        syncTaskProgress(status.progress, status.message || currentPhase);
-
-        if (status.status === "success") {
-          const refreshTargets = Array.isArray(status.result?.refresh_targets)
-            ? status.result.refresh_targets.filter(
-                (target): target is string => typeof target === "string"
-              )
-            : [];
-
-          const refreshJobs: Promise<unknown>[] = [];
-          if (refreshTargets.includes("artifacts")) {
-            refreshJobs.push(fetchArtifacts(workspaceId));
-          }
-          if (refreshTargets.includes("papers")) {
-            refreshJobs.push(fetchPapers(workspaceId));
-          }
-          if (refreshTargets.includes("workspace")) {
-            refreshJobs.push(loadWorkspace(workspaceId));
-          }
-
-          if (refreshJobs.length > 0) {
-            await Promise.all(refreshJobs);
-          }
-          completeTask();
-        } else if (status.status === "failed") {
-          failTask(status.error || status.message || "Task failed");
-        } else if (status.status === "cancelled") {
-          cancelTask();
-        }
-      } catch (error) {
-        if (!cancelled) {
-          updateTaskThinking(
-            error instanceof Error ? error.message : "Task status polling failed"
-          );
-        }
-      }
-    };
-
-    void pollTaskStatus();
-    const intervalId = window.setInterval(() => {
-      void pollTaskStatus();
-    }, 2000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on currentTask?.id only
-  }, [
-    cancelTask,
-    completeTask,
-    currentTask?.id,
-    failTask,
-    fetchArtifacts,
-    fetchPapers,
-    loadWorkspace,
-    syncTaskProgress,
-    updateTaskThinking,
-    workspaceId,
-  ]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

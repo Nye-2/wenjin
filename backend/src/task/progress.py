@@ -25,9 +25,22 @@ class ProgressTracker:
     via ``TaskStore.mark_task_completed`` for terminal states.
     """
 
-    def __init__(self, redis_client, task_id: str):
+    def __init__(
+        self,
+        redis_client,
+        task_id: str,
+        *,
+        workspace_id: str | None = None,
+        thread_id: str | None = None,
+        task_type: str | None = None,
+        feature_id: str | None = None,
+    ):
         self._redis = redis_client
         self._task_id = task_id
+        self._workspace_id = workspace_id
+        self._thread_id = thread_id
+        self._task_type = task_type
+        self._feature_id = feature_id
 
     def _task_key(self) -> str:
         return f"task:{self._task_id}"
@@ -73,7 +86,7 @@ class ProgressTracker:
     ) -> None:
         """Publish progress event to Pub/Sub subscribers."""
         ts = now or datetime.now(UTC).isoformat()
-        event_data = json.dumps({
+        event_payload = {
             "task_id": self._task_id,
             "status": status,
             "progress": progress,
@@ -81,8 +94,30 @@ class ProgressTracker:
             "current_step": current_step,
             "metadata": metadata,
             "timestamp": ts,
-        })
+        }
+        event_data = json.dumps(event_payload)
         await self._redis.client.publish(self._channel_name(), event_data)
+
+        if self._workspace_id and status == TaskStatus.RUNNING.value:
+            from src.workspace_events import publish_workspace_event
+
+            await publish_workspace_event(
+                self._workspace_id,
+                "task.updated",
+                {
+                    "task": {
+                        "task_id": self._task_id,
+                        "task_type": self._task_type,
+                        "status": status,
+                        "progress": progress,
+                        "message": message,
+                        "current_step": current_step,
+                        "feature_id": self._feature_id,
+                        "thread_id": self._thread_id,
+                        "metadata": metadata,
+                    }
+                },
+            )
 
     async def update(
         self,

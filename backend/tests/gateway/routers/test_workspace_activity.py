@@ -1,6 +1,6 @@
 """Tests for workspace activity router surface."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -102,3 +102,20 @@ def test_workspace_activity_returns_404_for_missing_workspace():
     response = client.get("/workspaces/ws-1/activity")
 
     assert response.status_code == 404
+
+
+def test_workspace_events_stream_requires_owned_workspace():
+    workspace_service = AsyncMock()
+    workspace_service.get = AsyncMock(return_value=_mock_workspace())
+
+    activity_service = AsyncMock()
+    client = _create_client(_mock_user(), workspace_service, activity_service)
+
+    with patch(
+        "src.gateway.routers.workspaces.stream_workspace_events",
+        new=AsyncMock(return_value=iter(())),
+    ) as mock_stream:
+        response = client.get("/workspaces/ws-1/events")
+
+    assert response.status_code == 200
+    mock_stream.assert_awaited_once_with("ws-1")

@@ -74,40 +74,34 @@ function StageConnector({ isCompleted }: StageConnectorProps) {
 export function AgentStatusBar() {
   const { currentTask, recentCompleted, cancelTask, clearRecentCompleted } =
     useTaskStore();
-  const { threadId, currentSkill, isStreaming } = useChatStore();
+  const { threadId, currentSkill, isStreaming, threadStatuses, setThreadStatus } = useChatStore();
   const [isExpanded, setIsExpanded] = useState(true);
-  const [threadStatus, setThreadStatus] = useState<ThreadAgentStatus | null>(null);
+  const threadStatus: ThreadAgentStatus | null = threadId ? threadStatuses[threadId] ?? null : null;
 
   useEffect(() => {
-    if (!threadId) {
+    if (!threadId || threadStatus) {
       return;
     }
 
     let cancelled = false;
 
-    const refreshStatus = async () => {
+    const loadStatus = async () => {
       try {
         const status = await getThreadAgentStatus(threadId);
         if (!cancelled) {
           setThreadStatus(status);
         }
       } catch {
-        if (!cancelled) {
-          setThreadStatus(null);
-        }
+        // Ignore transient load errors; live workspace events will retry naturally.
       }
     };
 
-    void refreshStatus();
-    const interval = window.setInterval(() => {
-      void refreshStatus();
-    }, 2000);
+    void loadStatus();
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
     };
-  }, [threadId]);
+  }, [threadId, threadStatus, setThreadStatus]);
 
   // 完成状态提示
   if (recentCompleted) {

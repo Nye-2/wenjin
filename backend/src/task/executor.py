@@ -102,7 +102,14 @@ async def _run_task_locally(task_id: str, task_type: str, payload: dict) -> None
     if redis_client._client is None:
         await redis_client.connect()
 
-    progress = ProgressTracker(redis_client, task_id)
+    progress = ProgressTracker(
+        redis_client,
+        task_id,
+        workspace_id=str(payload.get("workspace_id") or "") or None,
+        thread_id=str(payload.get("thread_id") or "") or None,
+        task_type=task_type,
+        feature_id=str(payload.get("feature_id") or "") or None,
+    )
 
     async with get_db_session() as db:
         store = TaskStore(redis_client, db)

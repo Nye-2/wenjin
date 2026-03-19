@@ -28,6 +28,7 @@ class ThreadContext:
     thread_id: str
     max_concurrent: int
     owner_user_id: str | None = None
+    workspace_id: str | None = None
     _tasks: dict[str, asyncio.Task] = field(default_factory=dict)
     _task_defs: dict[str, SubagentTask] = field(default_factory=dict)
     _results: dict[str, SubagentResult] = field(default_factory=dict)
@@ -152,15 +153,18 @@ class GlobalSubagentManager:
         """
         logger.info(f"Spawning subagent task {task.task_id} for thread {task.thread_id}")
         owner_user_id = self._get_task_owner_user_id(task)
+        workspace_id = self._get_task_workspace_id(task)
         async with self._lock:
-            ctx = self._get_or_create_context(task.thread_id, owner_user_id)
+            ctx = self._get_or_create_context(task.thread_id, owner_user_id, workspace_id)
 
         async def run_with_limiter():
             terminal_status = "completed"
+            final_result: SubagentResult | None = None
             try:
                 async with self._limiter.acquire(task.thread_id):
                     logger.debug(f"Executing task {task.task_id}")
                     result = await self._execute_task(task)
+                    final_result = result
                     ctx.store_result(task.task_id, result)
                     terminal_status = self._map_result_status(result.status)
                     logger.info(
@@ -173,9 +177,16 @@ class GlobalSubagentManager:
             finally:
                 ctx.mark_task_finished(task.task_id)
                 await self._sync_thread_agent_status(
+                    ctx.workspace_id,
                     task.thread_id,
                     status="running" if ctx.active_task_count > 0 else terminal_status,
                     subagent_count=ctx.active_task_count,
+                )
+                await self._publish_subagent_update(
+                    ctx.workspace_id,
+                    task,
+                    status=terminal_status,
+                    result=final_result,
                 )
 
         async_task = asyncio.create_task(run_with_limiter())
@@ -183,9 +194,15 @@ class GlobalSubagentManager:
         ctx.store_task_definition(task)
         ctx.mark_task_active(task.task_id)
         await self._sync_thread_agent_status(
+            ctx.workspace_id,
             task.thread_id,
             status="running",
             subagent_count=ctx.active_task_count,
+        )
+        await self._publish_subagent_update(
+            ctx.workspace_id,
+            task,
+            status="running",
         )
         return task.task_id
 
@@ -464,6 +481,7 @@ class GlobalSubagentManager:
 
     async def _sync_thread_agent_status(
         self,
+        workspace_id: str | None,
         thread_id: str,
         *,
         status: str,
@@ -480,6 +498,20 @@ class GlobalSubagentManager:
                 status,
                 subagent_count=subagent_count,
             )
+            from src.workspace_events import publish_workspace_event
+
+            await publish_workspace_event(
+                workspace_id,
+                "thread.status",
+                {
+                    "thread": {
+                        "thread_id": thread_id,
+                        "status": status,
+                        "current_skill": None,
+                        "subagent_count": subagent_count,
+                    }
+                },
+            )
         except Exception:
             logger.debug(
                 "Failed to sync subagent status for thread %s",
@@ -487,10 +519,49 @@ class GlobalSubagentManager:
                 exc_info=True,
             )
 
+    async def _publish_subagent_update(
+        self,
+        workspace_id: str | None,
+        task: SubagentTask,
+        *,
+        status: str,
+        result: SubagentResult | None = None,
+    ) -> None:
+        """Mirror subagent lifecycle into the workspace event stream."""
+        try:
+            from src.workspace_events import publish_workspace_event
+
+            await publish_workspace_event(
+                workspace_id,
+                "subagent.updated",
+                {
+                    "subagent": {
+                        "task_id": task.task_id,
+                        "thread_id": task.thread_id,
+                        "status": status,
+                        "subagent_type": task.metadata.get("subagent_type"),
+                        "output_preview": self._truncate_preview(result.output if result else None),
+                        "error": result.error if result else None,
+                    }
+                },
+            )
+            await publish_workspace_event(
+                workspace_id,
+                "workspace.refresh",
+                {"refresh_targets": ["activity"]},
+            )
+        except Exception:
+            logger.debug(
+                "Failed to publish subagent update for thread %s",
+                task.thread_id,
+                exc_info=True,
+            )
+
     def _get_or_create_context(
         self,
         thread_id: str,
         owner_user_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> ThreadContext:
         """Get or create a thread context.
 
@@ -505,6 +576,7 @@ class GlobalSubagentManager:
                 thread_id=thread_id,
                 max_concurrent=self._config.per_thread_max_concurrent,
                 owner_user_id=owner_user_id,
+                workspace_id=workspace_id,
             )
             return self._threads[thread_id]
 
@@ -513,6 +585,8 @@ class GlobalSubagentManager:
             raise SubagentAccessError("Thread not found")
         if owner_user_id and ctx.owner_user_id is None:
             ctx.owner_user_id = owner_user_id
+        if workspace_id and ctx.workspace_id is None:
+            ctx.workspace_id = workspace_id
         return ctx
 
     def _get_accessible_context(
@@ -533,6 +607,12 @@ class GlobalSubagentManager:
         """Extract owner user id from task metadata."""
         user_id = task.metadata.get("user_id")
         return str(user_id) if user_id is not None else None
+
+    @staticmethod
+    def _get_task_workspace_id(task: SubagentTask) -> str | None:
+        """Extract workspace id from task metadata."""
+        workspace_id = task.metadata.get("workspace_id")
+        return str(workspace_id) if workspace_id is not None else None
 
     @staticmethod
     def _extract_thread_id_from_sse(event_str: str) -> str | None:

@@ -10,6 +10,7 @@ import {
   listThreads,
   streamChat,
   type Thread,
+  type ThreadAgentStatus,
   type ThreadSummary,
 } from '../lib/api';
 
@@ -31,6 +32,7 @@ interface ChatState {
   currentSkill: string | null;
   threadId: string | null;
   threads: ThreadSummary[];
+  threadStatuses: Record<string, ThreadAgentStatus>;
   error: string | null;
 
   // Actions
@@ -47,6 +49,9 @@ interface ChatState {
   loadLatestThread: (workspaceId: string) => Promise<void>;
   loadThread: (threadId: string) => Promise<void>;
   deleteThread: (threadId: string, workspaceId: string) => Promise<void>;
+  upsertThreadSummary: (summary: ThreadSummary) => void;
+  removeThread: (threadId: string) => void;
+  setThreadStatus: (status: ThreadAgentStatus) => void;
   startNewThread: () => void;
   setCurrentSkill: (skill: string | null) => void;
   clearMessages: () => void;
@@ -115,6 +120,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentSkill: null,
   threadId: null,
   threads: [],
+  threadStatuses: {},
   error: null,
 
   sendMessage: async (content: string, options) => {
@@ -323,11 +329,51 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  upsertThreadSummary: (summary: ThreadSummary) => {
+    set((state) => ({
+      threads: upsertThreadSummary(state.threads, summary),
+      currentSkill:
+        state.threadId === summary.id
+          ? summary.skill ?? state.currentSkill
+          : state.currentSkill,
+    }));
+  },
+
+  removeThread: (threadId: string) => {
+    set((state) => {
+      const remainingThreads = state.threads.filter((thread) => thread.id !== threadId);
+      const nextState: Partial<ChatState> = {
+        threads: remainingThreads,
+      };
+
+      if (state.threadId === threadId) {
+        nextState.threadId = null;
+        nextState.currentSkill = null;
+        nextState.messages = [];
+      }
+
+      const restStatuses = { ...state.threadStatuses };
+      delete restStatuses[threadId];
+      nextState.threadStatuses = restStatuses;
+      return nextState;
+    });
+  },
+
+  setThreadStatus: (status: ThreadAgentStatus) => {
+    set((state) => ({
+      threadStatuses: {
+        ...state.threadStatuses,
+        [status.thread_id]: status,
+      },
+    }));
+  },
+
   startNewThread: () => {
     set({
       messages: [],
       currentSkill: null,
       threadId: null,
+      threadStatuses: {},
       error: null,
     });
   },
@@ -342,6 +388,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentSkill: null,
       threadId: null,
       threads: [],
+      threadStatuses: {},
       error: null,
     });
   },
