@@ -4,6 +4,7 @@
 # 使用方法: ./start.sh [--backend-only | --frontend-only]
 
 set -e
+set -o pipefail
 
 # 颜色定义
 RED='\033[0;31m'
@@ -17,6 +18,26 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 ENSURE_TEXLIVE_SCRIPT="$PROJECT_ROOT/scripts/ensure_texlive_image.sh"
+
+# 本地兜底容器（当宿主机 PostgreSQL/Redis 不满足要求时）
+LOCAL_PGVECTOR_CONTAINER="${LOCAL_PGVECTOR_CONTAINER:-academiagpt-local-postgres}"
+LOCAL_REDIS_CONTAINER="${LOCAL_REDIS_CONTAINER:-academiagpt-local-redis}"
+LOCAL_PGVECTOR_PORT="${LOCAL_PGVECTOR_PORT:-55432}"
+LOCAL_REDIS_PORT="${LOCAL_REDIS_PORT:-56379}"
+
+# 运行时连接（可被自动兜底覆盖）
+RUNTIME_DATABASE_URL=""
+RUNTIME_REDIS_URL=""
+RUNTIME_DATABASE_URL_OVERRIDE=""
+RUNTIME_REDIS_URL_OVERRIDE=""
+DB_HOST="localhost"
+DB_PORT="5432"
+DB_USER="postgres"
+DB_PASS="postgres"
+DB_NAME="academiagpt"
+REDIS_HOST="localhost"
+REDIS_PORT="6379"
+REDIS_DB="0"
 
 # 日志目录
 LOG_DIR="$PROJECT_ROOT/logs"
@@ -39,6 +60,195 @@ check_command() {
         log_error "$1 未安装，请先安装"
         return 1
     fi
+    return 0
+}
+
+# 从 backend/.env 读取运行时连接配置
+load_runtime_config() {
+    RUNTIME_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/academiagpt"
+    RUNTIME_REDIS_URL="redis://localhost:6379/0"
+
+    DB_HOST="localhost"
+    DB_PORT="5432"
+    DB_USER="postgres"
+    DB_PASS="postgres"
+    DB_NAME="academiagpt"
+
+    REDIS_HOST="localhost"
+    REDIS_PORT="6379"
+    REDIS_DB="0"
+
+    if [ -f "$BACKEND_DIR/.env" ]; then
+        local db_url
+        db_url=$(grep -v '^#' "$BACKEND_DIR/.env" | grep '^DATABASE_URL=' | head -1 | cut -d'=' -f2- || true)
+        local redis_url
+        redis_url=$(grep -v '^#' "$BACKEND_DIR/.env" | grep '^REDIS_URL=' | head -1 | cut -d'=' -f2- || true)
+
+        if [ -n "$db_url" ]; then
+            RUNTIME_DATABASE_URL="$db_url"
+            DB_USER=$(echo "$db_url" | sed -n 's/.*:\/\/\([^:]*\):.*/\1/p')
+            DB_PASS=$(echo "$db_url" | sed -n 's/.*:\/\/[^:]*:\([^@]*\)@.*/\1/p')
+            DB_HOST=$(echo "$db_url" | sed -n 's/.*@\([^:\/]*\):.*/\1/p')
+            DB_PORT=$(echo "$db_url" | sed -n 's/.*:\([0-9]*\)\/.*/\1/p')
+            DB_NAME=$(echo "$db_url" | sed -n 's#.*/\([^?]*\).*#\1#p')
+        fi
+
+        if [ -n "$redis_url" ]; then
+            RUNTIME_REDIS_URL="$redis_url"
+            REDIS_HOST=$(echo "$redis_url" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\1#p')
+            REDIS_PORT=$(echo "$redis_url" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\2#p')
+            REDIS_DB=$(echo "$redis_url" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\3#p')
+            REDIS_HOST=${REDIS_HOST:-localhost}
+            REDIS_PORT=${REDIS_PORT:-6379}
+            REDIS_DB=${REDIS_DB:-0}
+        fi
+    fi
+
+    if [ -n "$RUNTIME_DATABASE_URL_OVERRIDE" ]; then
+        RUNTIME_DATABASE_URL="$RUNTIME_DATABASE_URL_OVERRIDE"
+        DB_USER=$(echo "$RUNTIME_DATABASE_URL" | sed -n 's/.*:\/\/\([^:]*\):.*/\1/p')
+        DB_PASS=$(echo "$RUNTIME_DATABASE_URL" | sed -n 's/.*:\/\/[^:]*:\([^@]*\)@.*/\1/p')
+        DB_HOST=$(echo "$RUNTIME_DATABASE_URL" | sed -n 's/.*@\([^:\/]*\):.*/\1/p')
+        DB_PORT=$(echo "$RUNTIME_DATABASE_URL" | sed -n 's/.*:\([0-9]*\)\/.*/\1/p')
+        DB_NAME=$(echo "$RUNTIME_DATABASE_URL" | sed -n 's#.*/\([^?]*\).*#\1#p')
+    fi
+
+    if [ -n "$RUNTIME_REDIS_URL_OVERRIDE" ]; then
+        RUNTIME_REDIS_URL="$RUNTIME_REDIS_URL_OVERRIDE"
+        REDIS_HOST=$(echo "$RUNTIME_REDIS_URL" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\1#p')
+        REDIS_PORT=$(echo "$RUNTIME_REDIS_URL" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\2#p')
+        REDIS_DB=$(echo "$RUNTIME_REDIS_URL" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\3#p')
+        REDIS_HOST=${REDIS_HOST:-localhost}
+        REDIS_PORT=${REDIS_PORT:-6379}
+        REDIS_DB=${REDIS_DB:-0}
+    fi
+}
+
+postgres_can_connect() {
+    if ! command -v psql &> /dev/null; then
+        return 1
+    fi
+    PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1" > /dev/null 2>&1
+}
+
+postgres_supports_vector() {
+    if ! command -v psql &> /dev/null; then
+        return 1
+    fi
+    PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -tAc \
+        "SELECT 1 FROM pg_available_extensions WHERE name='vector';" | grep -q "1"
+}
+
+postgres_enable_vector() {
+    if ! command -v psql &> /dev/null; then
+        return 1
+    fi
+    PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+        -c "CREATE EXTENSION IF NOT EXISTS vector;" > /dev/null 2>&1
+}
+
+redis_can_connect() {
+    if command -v redis-cli &> /dev/null; then
+        redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$REDIS_DB" ping 2>/dev/null | grep -q "PONG"
+        return $?
+    fi
+    (echo > "/dev/tcp/$REDIS_HOST/$REDIS_PORT") > /dev/null 2>&1
+}
+
+ensure_local_pgvector_container() {
+    if ! command -v docker &> /dev/null; then
+        log_error "本机 PostgreSQL 不满足 pgvector 要求，且 Docker 不可用，无法自动兜底"
+        return 1
+    fi
+
+    log_warn "检测到当前数据库不支持 pgvector，尝试启动本地 pgvector 容器兜底..."
+
+    if docker ps -a --format '{{.Names}}' | grep -Fx "$LOCAL_PGVECTOR_CONTAINER" > /dev/null; then
+        docker start "$LOCAL_PGVECTOR_CONTAINER" > /dev/null || true
+    else
+        docker run -d \
+            --name "$LOCAL_PGVECTOR_CONTAINER" \
+            --restart unless-stopped \
+            -p "${LOCAL_PGVECTOR_PORT}:5432" \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=academiagpt \
+            pgvector/pgvector:pg16 > /dev/null
+    fi
+
+    local attempts=0
+    while [ $attempts -lt 30 ]; do
+        if PGPASSWORD="postgres" psql -h "localhost" -p "$LOCAL_PGVECTOR_PORT" -U "postgres" -d "academiagpt" -c "SELECT 1" > /dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+
+    if [ $attempts -ge 30 ]; then
+        log_error "本地 pgvector 容器启动超时（${LOCAL_PGVECTOR_CONTAINER}）"
+        return 1
+    fi
+
+    DB_HOST="localhost"
+    DB_PORT="$LOCAL_PGVECTOR_PORT"
+    DB_USER="postgres"
+    DB_PASS="postgres"
+    DB_NAME="academiagpt"
+    RUNTIME_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:${LOCAL_PGVECTOR_PORT}/academiagpt"
+    RUNTIME_DATABASE_URL_OVERRIDE="$RUNTIME_DATABASE_URL"
+
+    if ! postgres_enable_vector; then
+        log_error "本地 pgvector 容器已启动，但创建 vector 扩展失败"
+        return 1
+    fi
+
+    log_success "已切换到本地 pgvector 数据库: $DB_HOST:$DB_PORT/$DB_NAME"
+    return 0
+}
+
+ensure_local_redis_container() {
+    if ! command -v docker &> /dev/null; then
+        log_error "Redis 不可用，且 Docker 不可用，无法自动兜底"
+        return 1
+    fi
+
+    log_warn "检测到 Redis 不可用，尝试启动本地 Redis 容器兜底..."
+
+    if docker ps -a --format '{{.Names}}' | grep -Fx "$LOCAL_REDIS_CONTAINER" > /dev/null; then
+        docker start "$LOCAL_REDIS_CONTAINER" > /dev/null || true
+    else
+        docker run -d \
+            --name "$LOCAL_REDIS_CONTAINER" \
+            --restart unless-stopped \
+            -p "${LOCAL_REDIS_PORT}:6379" \
+            redis:7-alpine > /dev/null
+    fi
+
+    local attempts=0
+    while [ $attempts -lt 30 ]; do
+        if command -v redis-cli &> /dev/null; then
+            if redis-cli -h "localhost" -p "$LOCAL_REDIS_PORT" ping 2>/dev/null | grep -q "PONG"; then
+                break
+            fi
+        elif (echo > "/dev/tcp/localhost/$LOCAL_REDIS_PORT") > /dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+
+    if [ $attempts -ge 30 ]; then
+        log_error "本地 Redis 容器启动超时（${LOCAL_REDIS_CONTAINER}）"
+        return 1
+    fi
+
+    REDIS_HOST="localhost"
+    REDIS_PORT="$LOCAL_REDIS_PORT"
+    REDIS_DB="0"
+    RUNTIME_REDIS_URL="redis://localhost:${LOCAL_REDIS_PORT}/0"
+    RUNTIME_REDIS_URL_OVERRIDE="$RUNTIME_REDIS_URL"
+    log_success "已切换到本地 Redis: $REDIS_HOST:$REDIS_PORT/$REDIS_DB"
     return 0
 }
 
@@ -83,7 +293,7 @@ is_running() {
 wait_for_service() {
     local url="$1"
     local name="$2"
-    local max_attempts=30
+    local max_attempts=60
     local attempt=0
 
     log_info "等待 $name 启动..."
@@ -122,6 +332,11 @@ check_dependencies() {
         missing=1
     fi
 
+    # 检查 PostgreSQL 客户端（用于健康检查与迁移前置验证）
+    if ! check_command psql; then
+        missing=1
+    fi
+
     if [ $missing -eq 1 ]; then
         log_error "缺少必要依赖，请先安装"
         exit 1
@@ -133,43 +348,60 @@ check_dependencies() {
 # 检查 PostgreSQL
 check_postgres() {
     log_info "检查 PostgreSQL..."
+    load_runtime_config
 
-    # 默认连接信息
-    DB_HOST="localhost"
-    DB_PORT="5432"
-    DB_USER="postgres"
-    DB_PASS="postgres"
-    DB_NAME="academiagpt"
-
-    # 从 .env 读取数据库配置
-    if [ -f "$BACKEND_DIR/.env" ]; then
-        # 解析 DATABASE_URL
-        local db_url=$(grep -v '^#' "$BACKEND_DIR/.env" | grep DATABASE_URL | head -1 | cut -d'=' -f2-)
-        if [ -n "$db_url" ]; then
-            # 提取用户名和密码 postgresql+asyncpg://user:pass@host:port/db
-            DB_USER=$(echo "$db_url" | sed -n 's/.*:\/\/\([^:]*\):.*/\1/p')
-            DB_PASS=$(echo "$db_url" | sed -n 's/.*:\/\/[^:]*:\([^@]*\)@.*/\1/p')
-            DB_HOST=$(echo "$db_url" | sed -n 's/.*@\([^:]*\):.*/\1/p')
-            DB_PORT=$(echo "$db_url" | sed -n 's/.*:\([0-9]*\)\/.*/\1/p')
-            DB_NAME=$(echo "$db_url" | sed -n 's/.*\/\([^?]*\).*/\1/p')
-        fi
-    fi
-
-    if command -v psql &> /dev/null; then
-        # 使用 PGPASSWORD 环境变量避免密码提示
-        if PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1" > /dev/null 2>&1; then
-            log_success "PostgreSQL 连接正常"
-            return 0
-        else
-            log_warn "PostgreSQL 连接失败，请确保数据库服务正在运行"
-            log_warn "数据库: $DB_HOST:$DB_PORT/$DB_NAME (用户: $DB_USER)"
-            log_warn "如果使用 Docker: docker run -d --name postgres -p 5432:5432 -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg16"
+    if ! postgres_can_connect; then
+        log_warn "PostgreSQL 连接失败: $DB_HOST:$DB_PORT/$DB_NAME (用户: $DB_USER)"
+        if ! ensure_local_pgvector_container; then
+            log_error "数据库不可用。请启动 PostgreSQL（并确保 pgvector 可用）后重试"
             return 1
         fi
-    else
-        log_warn "psql 未安装，跳过数据库连接检查"
+    fi
+
+    if ! postgres_supports_vector; then
+        log_warn "当前 PostgreSQL 不支持 pgvector 扩展"
+        if ! ensure_local_pgvector_container; then
+            log_error "pgvector 扩展不可用，后端无法启动"
+            return 1
+        fi
+    fi
+
+    if ! postgres_enable_vector; then
+        log_error "无法在目标数据库创建/确认 vector 扩展"
+        return 1
+    fi
+
+    log_success "PostgreSQL 连接正常且 pgvector 可用: $DB_HOST:$DB_PORT/$DB_NAME"
+    return 0
+}
+
+# 检查 Redis
+check_redis() {
+    log_info "检查 Redis..."
+
+    if redis_can_connect; then
+        log_success "Redis 连接正常: $REDIS_HOST:$REDIS_PORT/$REDIS_DB"
         return 0
     fi
+
+    log_warn "Redis 连接失败: $REDIS_HOST:$REDIS_PORT/$REDIS_DB"
+    if ! ensure_local_redis_container; then
+        log_error "Redis 不可用，后端无法启动"
+        return 1
+    fi
+
+    if redis_can_connect; then
+        log_success "Redis 连接正常: $REDIS_HOST:$REDIS_PORT/$REDIS_DB"
+        return 0
+    fi
+
+    log_error "Redis 连接验证失败"
+    return 1
+}
+
+is_http_ready() {
+    local url="$1"
+    curl --max-time 2 -fsS "$url" > /dev/null 2>&1
 }
 
 # 初始化后端环境
@@ -177,6 +409,7 @@ init_backend() {
     log_info "初始化后端环境..."
 
     cd "$BACKEND_DIR"
+    load_runtime_config
 
     # 检查 .env 文件
     if [ ! -f ".env" ]; then
@@ -201,13 +434,19 @@ init_backend() {
         pip install -r requirements.txt 2>/dev/null || pip install -e .
     fi
 
-    # 运行数据库迁移
+    # 运行数据库迁移（兼容 legacy create_all 无 alembic_version 的历史库）
     log_info "运行数据库迁移..."
     if check_command uv; then
-        uv run alembic upgrade head 2>/dev/null || log_warn "数据库迁移跳过（可能已完成）"
+        if ! env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" uv run python -m src.database.migration_bootstrap; then
+            log_error "数据库迁移失败，请检查配置与迁移链"
+            return 1
+        fi
     else
         source .venv/bin/activate
-        alembic upgrade head 2>/dev/null || log_warn "数据库迁移跳过（可能已完成）"
+        if ! env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" python -m src.database.migration_bootstrap; then
+            log_error "数据库迁移失败，请检查配置与迁移链"
+            return 1
+        fi
     fi
 
     log_success "后端环境初始化完成"
@@ -230,9 +469,13 @@ init_frontend() {
         fi
     fi
 
-    # 安装依赖
+    # 安装依赖（优先使用 npm ci，避免无意改写 lockfile）
     log_info "安装 npm 依赖..."
-    npm install
+    if [ -f "package-lock.json" ]; then
+        npm ci
+    else
+        npm install
+    fi
 
     log_success "前端环境初始化完成"
 }
@@ -240,8 +483,12 @@ init_frontend() {
 # 启动 LangGraph 服务
 start_langgraph() {
     if is_running "$LANGGRAPH_PID_FILE"; then
-        log_warn "LangGraph 服务已在运行中 (PID: $(cat $LANGGRAPH_PID_FILE))"
-        return 0
+        if is_http_ready "http://localhost:2024/info"; then
+            log_warn "LangGraph 服务已在运行中 (PID: $(cat $LANGGRAPH_PID_FILE))"
+            return 0
+        fi
+        log_warn "检测到 LangGraph 进程存在但健康检查失败，尝试重启..."
+        rm -f "$LANGGRAPH_PID_FILE"
     fi
 
     # LangGraph CLI 需要 Docker
@@ -254,18 +501,19 @@ start_langgraph() {
     log_info "启动 LangGraph 服务..."
 
     cd "$BACKEND_DIR"
+    load_runtime_config
 
     # 使用 langgraph up 命令启动（需要 Docker）
-    nohup uv run langgraph up --port 2024 > "$LOG_DIR/langgraph.log" 2>&1 &
+    nohup env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" uv run langgraph up --port 2024 > "$LOG_DIR/langgraph.log" 2>&1 &
     echo $! > "$LANGGRAPH_PID_FILE"
 
-    sleep 5
-
-    if is_running "$LANGGRAPH_PID_FILE"; then
+    if is_running "$LANGGRAPH_PID_FILE" && wait_for_service "http://localhost:2024/info" "LangGraph"; then
         log_success "LangGraph 服务已启动 (PID: $(cat $LANGGRAPH_PID_FILE))"
         log_info "LangGraph 地址: http://localhost:2024"
     else
-        log_warn "LangGraph 服务启动失败，查看日志: $LOG_DIR/langgraph.log"
+        log_error "LangGraph 服务启动失败，查看日志: $LOG_DIR/langgraph.log"
+        rm -f "$LANGGRAPH_PID_FILE"
+        tail -n 60 "$LOG_DIR/langgraph.log" || true
         return 1
     fi
 }
@@ -273,32 +521,37 @@ start_langgraph() {
 # 启动后端
 start_backend() {
     if is_running "$BACKEND_PID_FILE"; then
-        log_warn "后端服务已在运行中 (PID: $(cat $BACKEND_PID_FILE))"
-        return 0
+        if is_http_ready "http://localhost:8001/health"; then
+            log_warn "后端服务已在运行中 (PID: $(cat $BACKEND_PID_FILE))"
+            return 0
+        fi
+        log_warn "检测到后端进程存在但健康检查失败，尝试重启..."
+        rm -f "$BACKEND_PID_FILE"
     fi
 
     log_info "启动后端服务..."
 
     cd "$BACKEND_DIR"
+    load_runtime_config
 
     if check_command uv; then
         # 启动 Gateway
-        uv run uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 --reload > "$LOG_DIR/backend.log" 2>&1 &
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" uv run uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/backend.log" 2>&1 &
         echo $! > "$BACKEND_PID_FILE"
     else
         source .venv/bin/activate
-        uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 --reload > "$LOG_DIR/backend.log" 2>&1 &
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/backend.log" 2>&1 &
         echo $! > "$BACKEND_PID_FILE"
     fi
 
-    sleep 2
-
-    if is_running "$BACKEND_PID_FILE"; then
+    if is_running "$BACKEND_PID_FILE" && wait_for_service "http://localhost:8001/health" "后端服务"; then
         log_success "后端服务已启动 (PID: $(cat $BACKEND_PID_FILE))"
         log_info "后端地址: http://localhost:8001"
         log_info "API 文档: http://localhost:8001/docs"
     else
         log_error "后端服务启动失败，查看日志: $LOG_DIR/backend.log"
+        rm -f "$BACKEND_PID_FILE"
+        tail -n 80 "$LOG_DIR/backend.log" || true
         return 1
     fi
 }
@@ -306,8 +559,12 @@ start_backend() {
 # 启动前端
 start_frontend() {
     if is_running "$FRONTEND_PID_FILE"; then
-        log_warn "前端服务已在运行中 (PID: $(cat $FRONTEND_PID_FILE))"
-        return 0
+        if is_http_ready "http://localhost:3000"; then
+            log_warn "前端服务已在运行中 (PID: $(cat $FRONTEND_PID_FILE))"
+            return 0
+        fi
+        log_warn "检测到前端进程存在但健康检查失败，尝试重启..."
+        rm -f "$FRONTEND_PID_FILE"
     fi
 
     log_info "启动前端服务..."
@@ -317,13 +574,13 @@ start_frontend() {
     npm run dev > "$LOG_DIR/frontend.log" 2>&1 &
     echo $! > "$FRONTEND_PID_FILE"
 
-    sleep 3
-
-    if is_running "$FRONTEND_PID_FILE"; then
+    if is_running "$FRONTEND_PID_FILE" && wait_for_service "http://localhost:3000" "前端服务"; then
         log_success "前端服务已启动 (PID: $(cat $FRONTEND_PID_FILE))"
         log_info "前端地址: http://localhost:3000"
     else
         log_error "前端服务启动失败，查看日志: $LOG_DIR/frontend.log"
+        rm -f "$FRONTEND_PID_FILE"
+        tail -n 80 "$LOG_DIR/frontend.log" || true
         return 1
     fi
 }
@@ -346,6 +603,7 @@ stop_services() {
     # 额外清理可能残留的进程
     pkill -f "uvicorn src.gateway" 2>/dev/null || true
     pkill -f "langgraph api" 2>/dev/null || true
+    pkill -f "langgraph up" 2>/dev/null || true
     pkill -f "next dev" 2>/dev/null || true
 
     log_success "所有服务已停止"
@@ -358,21 +616,21 @@ show_status() {
     echo "         AcademiaGPT-V2 状态"
     echo "======================================"
 
-    if is_running "$BACKEND_PID_FILE"; then
+    if is_running "$BACKEND_PID_FILE" && is_http_ready "http://localhost:8001/health"; then
         echo -e "后端服务:   ${GREEN}运行中${NC} (PID: $(cat $BACKEND_PID_FILE))"
         echo "           http://localhost:8001"
     else
         echo -e "后端服务:   ${RED}未运行${NC}"
     fi
 
-    if is_running "$LANGGRAPH_PID_FILE"; then
+    if is_running "$LANGGRAPH_PID_FILE" && is_http_ready "http://localhost:2024/info"; then
         echo -e "LangGraph:  ${GREEN}运行中${NC} (PID: $(cat $LANGGRAPH_PID_FILE))"
         echo "           http://localhost:2024"
     else
         echo -e "LangGraph:  ${YELLOW}未运行${NC}"
     fi
 
-    if is_running "$FRONTEND_PID_FILE"; then
+    if is_running "$FRONTEND_PID_FILE" && is_http_ready "http://localhost:3000"; then
         echo -e "前端服务:   ${GREEN}运行中${NC} (PID: $(cat $FRONTEND_PID_FILE))"
         echo "           http://localhost:3000"
     else
@@ -401,6 +659,8 @@ show_help() {
     echo ""
     echo "环境变量:"
     echo "  SKIP_TEXLIVE_IMAGE_ENSURE=1  # 跳过自动准备 TeXLive 镜像"
+    echo "  LOCAL_PGVECTOR_PORT=55432    # 本地 pgvector 兜底容器端口"
+    echo "  LOCAL_REDIS_PORT=56379       # 本地 Redis 兜底容器端口"
 }
 
 # 查看日志
@@ -443,6 +703,8 @@ main() {
             ;;
         --init)
             check_dependencies
+            check_postgres
+            check_redis
             init_backend
             init_frontend
             log_success "环境初始化完成"
@@ -453,8 +715,12 @@ main() {
     # 检查依赖
     check_dependencies
 
-    # 检查 PostgreSQL
-    check_postgres || true
+    if [ "${1:-}" != "--frontend" ]; then
+        # 检查 PostgreSQL 与 pgvector
+        check_postgres
+        # 检查 Redis
+        check_redis
+    fi
 
     case "${1:-}" in
         --backend)

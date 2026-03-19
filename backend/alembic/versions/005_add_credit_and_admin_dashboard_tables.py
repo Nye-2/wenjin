@@ -19,21 +19,23 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-credit_transaction_type = sa.Enum(
+credit_transaction_type = postgresql.ENUM(
     "admin_grant",
     "admin_deduct",
     "workflow_consume",
     "registration_bonus",
     "refund",
     name="credit_transaction_type",
+    create_type=False,
 )
 
-admin_action_type = sa.Enum(
+admin_action_type = postgresql.ENUM(
     "credit_grant",
     "credit_deduct",
     "user_role_change",
     "user_status_change",
     name="admin_action_type",
+    create_type=False,
 )
 
 

@@ -40,6 +40,28 @@ services:
       - academiagpt-network
 
   # FastAPI Gateway Service
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: gateway
+    container_name: academiagpt-migrate
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/academiagpt
+      - REDIS_URL=redis://redis:6379/0
+    command: ["uv", "run", "python", "-m", "src.database.migration_bootstrap"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - academiagpt-network
+
+  # FastAPI Gateway Service
   gateway:
     build:
       context: ./backend
@@ -60,10 +82,8 @@ services:
       - uploads:/app/uploads
       - ./backend/skills:/app/skills:ro
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
@@ -93,10 +113,8 @@ services:
       - uploads:/app/uploads
       - ./backend/skills:/app/skills:ro
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:2024/info"]
       interval: 30s
@@ -119,8 +137,10 @@ services:
       - NEXT_PUBLIC_API_URL=/api
       - NEXT_PUBLIC_BACKEND_BASE_URL=/api
     depends_on:
-      - gateway
-      - langgraph
+      gateway:
+        condition: service_healthy
+      langgraph:
+        condition: service_healthy
     networks:
       - academiagpt-network
 
@@ -139,7 +159,7 @@ services:
       - gateway
       - langgraph
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

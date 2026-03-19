@@ -1,7 +1,7 @@
 """add task_records table
 
 Revision ID: 002_task_records
-Revises: 001_initial
+Revises: 20260309_toc
 Create Date: 2026-03-11
 
 Creates the task_records table for the async task system.
@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers
 revision: str = "002_task_records"
-down_revision: Union[str, None] = "001_initial"
+down_revision: Union[str, None] = "20260309_toc"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
