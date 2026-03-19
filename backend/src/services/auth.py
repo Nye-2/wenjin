@@ -4,7 +4,6 @@ Migrated from AcademiaGPT v1 backend/services/auth.py
 """
 
 import hashlib
-from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 

@@ -3,8 +3,7 @@
 import logging
 import random
 import string
-from datetime import datetime, timedelta, UTC
-from typing import Optional, Tuple
+from datetime import UTC, datetime, timedelta
 
 from src.config.app_config import smtp_settings
 
@@ -71,7 +70,7 @@ class EmailService:
         """生成 6 位纯数字验证码。"""
         return "".join(random.choices(string.digits, k=6))
 
-    def _generate_email_template(self, code: str, purpose: str = "注册") -> Tuple[str, str]:
+    def _generate_email_template(self, code: str, purpose: str = "注册") -> tuple[str, str]:
         """
         生成邮件内容
         返回: (subject, html_body)
@@ -170,8 +169,8 @@ class EmailService:
         self,
         email: str,
         purpose: str = "注册",
-        ip_address: Optional[str] = None
-    ) -> Tuple[bool, str]:
+        ip_address: str | None = None
+    ) -> tuple[bool, str]:
         """
         发送验证码邮件
 
@@ -225,8 +224,8 @@ class EmailService:
 
             subject, html_body = self._generate_email_template(code, purpose)
 
-            from email.mime.text import MIMEText
             from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
 
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
@@ -264,7 +263,7 @@ class EmailService:
             logger.error("发送邮件失败: %s", e)
             return False, "邮件发送失败，请稍后重试"
 
-    async def verify_code(self, email: str, code: str, purpose: str = "注册") -> Tuple[bool, str]:
+    async def verify_code(self, email: str, code: str, purpose: str = "注册") -> tuple[bool, str]:
         """
         验证验证码（使用 Lua 脚本实现原子性验证，防止竞态条件）
 

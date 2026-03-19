@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import CreditTransaction, CreditTransactionType, User
 from src.services.feature_credit_policy import (
     FEATURE_COSTS as WORKFLOW_CREDIT_COSTS,
+)
+from src.services.feature_credit_policy import (
     FEATURE_DISPLAY_NAMES,
     THESIS_ACTION_LABELS,
     get_feature_cost,

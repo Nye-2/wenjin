@@ -1,6 +1,6 @@
 """Service layer for persisted chat threads."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,7 +49,7 @@ class ChatThreadService:
         model: str | None = None,
     ) -> ChatThread:
         """Create and persist a new chat thread."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         thread = self._model(
             user_id=user_id,
             workspace_id=workspace_id,
@@ -102,7 +102,7 @@ class ChatThreadService:
                     thread.model = resolved_model
                     needs_update = True
                 if needs_update:
-                    thread.updated_at = datetime.now(timezone.utc)
+                    thread.updated_at = datetime.now(UTC)
                     await self.db.commit()
                     await self.db.refresh(thread)
                 return thread
@@ -122,7 +122,7 @@ class ChatThreadService:
         timestamp: datetime | None = None,
     ) -> dict[str, str]:
         """Append a message and persist JSON history safely."""
-        resolved_timestamp = timestamp or datetime.now(timezone.utc)
+        resolved_timestamp = timestamp or datetime.now(UTC)
         message = {
             "role": role,
             "content": content,
@@ -142,7 +142,7 @@ class ChatThreadService:
             return
 
         thread.title = first_message[:50] + ("..." if len(first_message) > 50 else "")
-        thread.updated_at = datetime.now(timezone.utc)
+        thread.updated_at = datetime.now(UTC)
         await self.db.commit()
         await self.db.refresh(thread)
 
