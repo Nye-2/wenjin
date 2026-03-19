@@ -4,11 +4,14 @@ Migrated from AcademiaGPT v1 backend/services/auth.py
 """
 
 import hashlib
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.app_config import jwt_settings
 
@@ -113,6 +116,8 @@ def create_refresh_token(
 
     to_encode = {
         "sub": user_id,
+        "jti": uuid4().hex,
+        "iat": datetime.now(UTC),
         "exp": expire,
         "type": "refresh"
     }
@@ -169,7 +174,7 @@ def verify_access_token(token: str) -> TokenData | None:
         user_id=user_id,
         email=email,
         role=role,
-        exp=datetime.fromtimestamp(payload.get("exp", 0))
+        exp=_coerce_expiry(payload.get("exp")),
     )
 
 
@@ -183,3 +188,101 @@ def verify_refresh_token(token: str) -> str | None:
         return None
 
     return payload.get("sub")
+
+
+def _coerce_expiry(value: object) -> datetime | None:
+    """Convert a JWT exp value to a timezone-aware datetime."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, UTC)
+
+    return None
+
+
+async def _get_user_record(
+    db: AsyncSession,
+    user_id: str,
+):
+    """Load the concrete user record lazily to avoid circular imports."""
+    from src.database import User
+
+    return await db.get(User, user_id)
+
+
+async def persist_refresh_token(
+    db: AsyncSession,
+    *,
+    user,
+    refresh_token: str,
+) -> None:
+    """Persist the currently active refresh token hash for a user."""
+    payload = decode_token(refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        raise ValueError("Invalid refresh token payload")
+
+    user.refresh_token_hash = hash_token(refresh_token)
+    user.refresh_token_expires_at = _coerce_expiry(payload.get("exp"))
+    await db.commit()
+    await db.refresh(user)
+
+
+async def revoke_refresh_token(
+    db: AsyncSession,
+    *,
+    user,
+) -> None:
+    """Revoke the currently active refresh token for a user."""
+    user.refresh_token_hash = None
+    user.refresh_token_expires_at = None
+    await db.commit()
+    await db.refresh(user)
+
+
+async def create_and_persist_tokens(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    email: str,
+    role: str = "user",
+    user=None,
+) -> Token:
+    """Create JWTs and persist the active refresh token hash."""
+    tokens = create_tokens(user_id=user_id, email=email, role=role)
+    if user is None:
+        user = await _get_user_record(db, user_id)
+        if user is None:
+            raise ValueError("User not found")
+
+    await persist_refresh_token(db, user=user, refresh_token=tokens.refresh_token)
+    return tokens
+
+
+async def verify_refresh_token_recorded(
+    db: AsyncSession,
+    token: str,
+):
+    """Verify refresh token against its persisted hash and expiry."""
+    user_id = verify_refresh_token(token)
+    if not user_id:
+        return None
+
+    user = await _get_user_record(db, user_id)
+    if user is None:
+        return None
+
+    if not user.refresh_token_hash or user.refresh_token_hash != hash_token(token):
+        return None
+
+    expires_at = user.refresh_token_expires_at
+    if expires_at is None:
+        return None
+
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+
+    if expires_at <= datetime.now(UTC):
+        return None
+
+    return user

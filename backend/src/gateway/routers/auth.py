@@ -20,8 +20,8 @@ from src.gateway.auth_dependencies import (
 )
 from src.gateway.dependencies import get_db
 from src.services.auth import (
-    create_tokens,
-    verify_refresh_token,
+    create_and_persist_tokens,
+    verify_refresh_token_recorded,
 )
 from src.services.credit_service import CreditService
 from src.services.user_service import UserService
@@ -202,10 +202,12 @@ async def register(
         await db.refresh(user)
 
         # Generate tokens
-        tokens = create_tokens(
+        tokens = await create_and_persist_tokens(
+            db,
             user_id=str(user.id),
             email=user.email,
             role="admin" if user.is_superuser else "user",
+            user=user,
         )
 
         return TokenResponse(
@@ -257,10 +259,12 @@ async def login(
     await user_service.update_last_login(str(user.id))
 
     # Generate tokens
-    tokens = create_tokens(
+    tokens = await create_and_persist_tokens(
+        db,
         user_id=str(user.id),
         email=user.email,
         role="admin" if user.is_superuser else "user",
+        user=user,
     )
 
     return TokenResponse(
@@ -291,23 +295,12 @@ async def refresh_token(
         HTTPException: If refresh token is invalid
     """
     # Verify refresh token
-    user_id = verify_refresh_token(request.refresh_token)
-
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Get user
-    user_service = UserService(db)
-    user = await user_service.get_by_id(user_id)
+    user = await verify_refresh_token_recorded(db, request.refresh_token)
 
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
+            detail="Invalid or expired refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -319,10 +312,12 @@ async def refresh_token(
         )
 
     # Generate new tokens
-    tokens = create_tokens(
+    tokens = await create_and_persist_tokens(
+        db,
         user_id=str(user.id),
         email=user.email,
         role="admin" if user.is_superuser else "user",
+        user=user,
     )
 
     return TokenResponse(

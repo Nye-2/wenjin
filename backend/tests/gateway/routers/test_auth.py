@@ -280,6 +280,32 @@ class TestRefresh:
 
         assert response.status_code == 200
 
+    def test_refresh_rotates_refresh_token(self, client):
+        """Refreshing should invalidate the previous refresh token."""
+        register_response = client.post(
+            "/auth/register",
+            json={
+                "email": "rotate@example.com",
+                "password": "securepassword123",
+            },
+        )
+        old_refresh_token = register_response.json()["refresh_token"]
+
+        refresh_response = client.post(
+            "/auth/refresh",
+            json={"refresh_token": old_refresh_token},
+        )
+
+        assert refresh_response.status_code == 200
+        new_refresh_token = refresh_response.json()["refresh_token"]
+        assert new_refresh_token != old_refresh_token
+
+        old_token_response = client.post(
+            "/auth/refresh",
+            json={"refresh_token": old_refresh_token},
+        )
+        assert old_token_response.status_code == 401
+
 
 class TestGetMe:
     """Test current user endpoint."""

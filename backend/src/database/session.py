@@ -1,5 +1,7 @@
 """Database session and connection management."""
 
+import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -13,6 +15,8 @@ from sqlalchemy.ext.asyncio import (
 from src.config import settings
 
 from .base import Base
+
+logger = logging.getLogger(__name__)
 
 # Create async engine
 engine = create_async_engine(
@@ -55,14 +59,21 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     """Initialize database tables.
 
-    Creates all tables defined in the models.
-    Should be called once at application startup.
+    Initializes database prerequisites needed at application startup.
+
+    Schema creation is intentionally delegated to Alembic migrations. Set
+    ``ACADEMIAGPT_DB_AUTO_CREATE=true`` only for ephemeral local environments
+    that still rely on metadata-based table creation.
     """
     async with engine.begin() as conn:
         if conn.dialect.name == "postgresql":
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        # Create all tables
-        await conn.run_sync(Base.metadata.create_all)
+        if os.getenv("ACADEMIAGPT_DB_AUTO_CREATE", "").lower() in {"1", "true", "yes"}:
+            logger.warning(
+                "ACADEMIAGPT_DB_AUTO_CREATE is enabled; creating tables from metadata. "
+                "Prefer Alembic migrations for persistent environments."
+            )
+            await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db() -> None:

@@ -59,6 +59,14 @@ class User(Base, UUIDMixin, TimestampMixin):
         server_default="0",
         nullable=False,
     )
+    refresh_token_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    refresh_token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     last_login: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
