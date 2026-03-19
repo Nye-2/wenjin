@@ -1,9 +1,10 @@
 """Tests for citation formatters."""
 
+
 import pytest
-from abc import ABC
-from src.academic.citation.formatters.base import CitationFormatter
+
 from src.academic.citation.formatters.apa import APAFormatter
+from src.academic.citation.formatters.base import CitationFormatter
 
 
 class TestCitationFormatterBase:
@@ -98,9 +99,9 @@ class TestAPAFormatter:
         assert "n.d." in result
 
 
-from src.academic.citation.formatters.mla import MLAFormatter
 from src.academic.citation.formatters.chicago import ChicagoFormatter
 from src.academic.citation.formatters.ieee import IEEEFormatter
+from src.academic.citation.formatters.mla import MLAFormatter
 
 
 class TestMLAFormatter:

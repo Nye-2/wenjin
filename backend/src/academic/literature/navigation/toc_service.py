@@ -1,12 +1,14 @@
 # src/academic/literature/navigation/toc_service.py
 """TOC navigation service."""
 
-import re
 import logging
+import re
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Paper, PaperExtraction
+
 from .models import PaperTOC, TOCEntry
 
 logger = logging.getLogger(__name__)

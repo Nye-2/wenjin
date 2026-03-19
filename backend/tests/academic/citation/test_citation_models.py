@@ -1,6 +1,5 @@
 """Tests for Citation model."""
 
-import pytest
 from src.database.models.citation import Citation, CitationType
 
 

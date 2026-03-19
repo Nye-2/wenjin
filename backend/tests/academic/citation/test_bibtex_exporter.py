@@ -1,6 +1,5 @@
 """Tests for BibTeX exporter."""
 
-import pytest
 
 
 def test_generate_citation_key_simple():

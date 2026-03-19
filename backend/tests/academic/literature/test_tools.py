@@ -1,11 +1,11 @@
 """Tests for literature navigation tools."""
 
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.academic.literature import tools as literature_tools
-from src.academic.literature.navigation.models import PaperTOC, TOCEntry, SectionContent
+from src.academic.literature.navigation.models import PaperTOC, SectionContent, TOCEntry
 
 
 class TestListPapersFunction:
@@ -243,7 +243,7 @@ class TestSearchExternalTool:
     async def test_search_external_all_sources(self):
         """Test searching all sources."""
         mock_results = [
-            MagicMock(model_dump=lambda: {"title": f"Paper {i}", "source": "test"})
+            MagicMock(model_dump=lambda i=i: {"title": f"Paper {i}", "source": "test"})
             for i in range(3)
         ]
 

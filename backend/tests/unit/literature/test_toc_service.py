@@ -1,11 +1,12 @@
 # tests/unit/literature/test_toc_service.py
 """Tests for TocService."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.academic.literature.navigation.models import PaperTOC, TOCEntry
+from src.academic.literature.navigation.models import TOCEntry
 from src.academic.literature.navigation.toc_service import TocService
 
 

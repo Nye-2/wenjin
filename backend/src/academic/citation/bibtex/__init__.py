@@ -1,7 +1,7 @@
 """BibTeX support package."""
 
-from .parser import BibTeXParser
 from .exporter import BibTeXExporter, generate_citation_key
+from .parser import BibTeXParser
 
 __all__ = [
     "BibTeXParser",

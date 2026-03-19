@@ -1,6 +1,7 @@
 """Tests for BibTeX parser and exporter."""
 
 import pytest
+
 from src.academic.citation.bibtex.parser import BibTeXParser
 
 

@@ -1,8 +1,9 @@
 # tests/unit/literature/test_section_loader.py
 """Tests for SectionLoader."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from src.academic.literature.navigation.models import PaperTOC, TOCEntry
 from src.academic.literature.navigation.section_loader import SectionLoader

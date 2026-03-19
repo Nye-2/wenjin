@@ -1,7 +1,6 @@
 # tests/unit/literature/external/test_base.py
 """Tests for external database base classes."""
 
-import pytest
 from src.academic.literature.external.base import PaperSearchResult
 
 

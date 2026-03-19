@@ -1,6 +1,5 @@
 """Tests for Paper citation relationships."""
 
-import pytest
 from src.database import Paper
 
 

@@ -1,10 +1,10 @@
 """Citation formatters for various academic styles."""
 
-from .base import CitationFormatter
 from .apa import APAFormatter
-from .mla import MLAFormatter
+from .base import CitationFormatter
 from .chicago import ChicagoFormatter
 from .ieee import IEEEFormatter
+from .mla import MLAFormatter
 
 __all__ = [
     "CitationFormatter",

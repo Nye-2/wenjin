@@ -2,8 +2,8 @@
 """Literature module for TOC-based paper navigation."""
 
 from .extraction.pdf_extractor import PDFExtractor
-from .navigation import PaperTOC, SectionContent, TOCEntry, TocService, SectionLoader
-from .tools import list_papers, get_section, search_external, get_paper_by_doi
+from .navigation import PaperTOC, SectionContent, SectionLoader, TOCEntry, TocService
+from .tools import get_paper_by_doi, get_section, list_papers, search_external
 
 __all__ = [
     # Extraction

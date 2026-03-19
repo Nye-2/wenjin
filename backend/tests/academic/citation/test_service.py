@@ -1,12 +1,12 @@
 """Tests for CitationService."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.academic.citation.service import CitationService
-from src.database import Citation, CitationType
+from src.database import Citation
 
 
 class TestCitationServiceInit:
@@ -47,7 +47,7 @@ class TestAddCitation:
         self, service, mock_db_session, sample_ids
     ):
         """Test that add_citation creates a Citation object."""
-        result = await service.add_citation(**sample_ids)
+        await service.add_citation(**sample_ids)
 
         mock_db_session.add.assert_called_once()
         added_citation = mock_db_session.add.call_args[0][0]
@@ -60,7 +60,7 @@ class TestAddCitation:
         self, service, mock_db_session, sample_ids
     ):
         """Test add_citation with optional context."""
-        result = await service.add_citation(
+        await service.add_citation(
             **sample_ids,
             citation_context="As shown by Smith et al.",
             section="Related Work",
