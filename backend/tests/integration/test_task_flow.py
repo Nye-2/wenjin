@@ -77,7 +77,7 @@ class TestTaskFlow:
 
         # Submit task
         response = await client.post(
-            "/api/tasks/",
+            "/api/tasks",
             json={
                 "task_type": "paper_processing",
                 "priority": 5,
@@ -110,7 +110,7 @@ class TestTaskFlow:
         app.dependency_overrides[get_task_service] = override_get_task_service
 
         response = await client.post(
-            "/api/tasks/",
+            "/api/tasks",
             json={
                 "task_type": "deep_research",
                 "payload": {"query": "machine learning"},
@@ -135,7 +135,7 @@ class TestTaskFlow:
         app.dependency_overrides[get_task_service] = override_get_task_service
 
         response = await client.post(
-            "/api/tasks/",
+            "/api/tasks",
             json={
                 "task_type": "invalid_type",
                 "payload": {},
@@ -169,7 +169,7 @@ class TestTaskFlow:
         app.dependency_overrides[get_task_service] = override_get_task_service
 
         # List tasks
-        response = await client.get("/api/tasks/")
+        response = await client.get("/api/tasks")
         assert response.status_code == 200
         data = response.json()
         assert "tasks" in data
@@ -278,7 +278,7 @@ class TestTaskFlow:
         app.dependency_overrides[get_task_service] = override_get_task_service
 
         # Filter by pending status
-        response = await client.get("/api/tasks/?status=pending")
+        response = await client.get("/api/tasks?status=pending")
         assert response.status_code == 200
         data = response.json()
         for task in data["tasks"]:
@@ -310,7 +310,7 @@ class TestTaskFlow:
         app.dependency_overrides[get_task_service] = override_get_task_service
 
         # Filter by task type
-        response = await client.get("/api/tasks/?task_type=literature_search")
+        response = await client.get("/api/tasks?task_type=literature_search")
         assert response.status_code == 200
         data = response.json()
         for task in data["tasks"]:
@@ -371,7 +371,7 @@ class TestTaskFlowEdgeCases:
         app.dependency_overrides[get_task_service] = override_get_task_service
 
         # List tasks with limit
-        response = await client.get("/api/tasks/?limit=5")
+        response = await client.get("/api/tasks?limit=5")
         assert response.status_code == 200
         data = response.json()
         assert "tasks" in data
@@ -393,7 +393,7 @@ class TestTaskFlowEdgeCases:
         app.dependency_overrides[get_task_service] = override_get_task_service
 
         response = await client.post(
-            "/api/tasks/",
+            "/api/tasks",
             json={
                 "task_type": "paper_processing",
                 "payload": {"query": "test"},
@@ -422,7 +422,7 @@ class TestTaskFlowEdgeCases:
 
         # Priority out of range (should be 1-10)
         response = await client.post(
-            "/api/tasks/",
+            "/api/tasks",
             json={
                 "task_type": "deep_research",
                 "priority": 15,
@@ -446,7 +446,7 @@ class TestTaskFlowEdgeCases:
         app.dependency_overrides[get_task_service] = override_get_task_service
 
         response = await client.post(
-            "/api/tasks/",
+            "/api/tasks",
             json={
                 "task_type": "deep_research",
             },

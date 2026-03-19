@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.reflection.resolvers import resolve_env_variables
 
@@ -26,14 +26,20 @@ class ModelConfig(BaseModel):
 
 class ToolConfig(BaseModel):
     """Tool configuration."""
-    name: str
+    name: str = ""
     use: str  # e.g., "src.academic.tools.semantic_scholar:search_tool"
     group: str = ""
+
+    def model_post_init(self, __context: object) -> None:
+        """Derive name from ``use`` path when not explicitly set."""
+        if not self.name and self.use:
+            # "src.tools.builtins.bash:bash_tool" → "bash_tool"
+            self.name = self.use.rsplit(":", 1)[-1] if ":" in self.use else self.use
 
 
 class ToolGroupConfig(BaseModel):
     """Tool group configuration."""
-    name: str
+    name: str = ""
     description: str = ""
 
 
@@ -124,6 +130,14 @@ class AppConfig(BaseModel):
     default_model: str = "default"
     tools: list[ToolConfig] = Field(default_factory=list)
     tool_groups: list[ToolGroupConfig] = Field(default_factory=list)
+
+    @field_validator("tool_groups", mode="before")
+    @classmethod
+    def _coerce_tool_groups(cls, v: object) -> list[dict]:
+        """Accept ``tool_groups`` as either a list or a name→attrs dict."""
+        if isinstance(v, dict):
+            return [{"name": k, **(val if isinstance(val, dict) else {})} for k, val in v.items()]
+        return v  # type: ignore[return-value]
     subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     sandbox: SandboxConfig | None = None

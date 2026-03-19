@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, FileText } from "lucide-react";
@@ -14,19 +14,25 @@ import {
 } from "@/components/workspace/WorkspaceResultPanel";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import {
+  findLatestArtifact,
+  getArtifactContentRecord,
+  readNamedSections,
+} from "@/lib/artifact-utils";
 
 export default function PatentOutlinePage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts } = useWorkspaceStore();
 
   const [innovationDescription, setInnovationDescription] = useState("");
   const [technicalField, setTechnicalField] = useState("");
   const [applicationScenario, setApplicationScenario] = useState("");
   const [implementationMethod, setImplementationMethod] = useState("");
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "patent_outline",
   });
@@ -59,25 +65,82 @@ export default function PatentOutlinePage() {
     });
   };
 
-  const resultViewModel: WorkspaceResultViewModel = {
-    summary:
-      "本工作区用于生成专利说明书框架与权利要求草案，支持后续检索和新颖性风险评估。",
+  const latestPatentArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["patent_outline"]),
+    [artifacts]
+  );
+  const latestPatentResult = useMemo(
+    () => getArtifactContentRecord(latestPatentArtifact) ?? latestTaskResult,
+    [latestPatentArtifact, latestTaskResult]
+  );
+  const latestPatentSections = useMemo(
+    () =>
+      Array.isArray(latestPatentResult?.sections)
+        ? latestPatentResult.sections
+        : [],
+    [latestPatentResult]
+  );
+  const latestPatentSectionTitles = useMemo(
+    () => readNamedSections(latestPatentSections, 4),
+    [latestPatentSections]
+  );
+  const claimsDraft =
+    latestPatentResult?.claims_draft &&
+    typeof latestPatentResult.claims_draft === "object"
+      ? (latestPatentResult.claims_draft as Record<string, unknown>)
+      : null;
+  const independentClaims = Array.isArray(claimsDraft?.independent_claims)
+    ? claimsDraft.independent_claims
+    : [];
+  const dependentClaims = Array.isArray(claimsDraft?.dependent_claims)
+    ? claimsDraft.dependent_claims
+    : [];
+  const evidencePoints = Array.isArray(latestPatentResult?.evidence_points_needed)
+    ? latestPatentResult.evidence_points_needed
+    : [];
+
+  const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestPatentResult
+      ? "最近一次已生成专利框架与权利要求草案，可直接进入现有技术检索继续迭代。"
+      : "本工作区用于生成专利说明书框架与权利要求草案，支持后续检索和新颖性风险评估。",
     sections: [
       {
         title: "当前创新点输入",
-        content: `创新描述：${innovationDescription || "未填写"}；技术领域：${technicalField || "未填写"}`,
+        content: describeFields([
+          ["创新描述", innovationDescription],
+          ["技术领域", technicalField],
+        ]),
       },
       {
         title: "方案上下文",
-        content: `应用场景：${applicationScenario || "未填写"}；实施方式：${implementationMethod || "未填写"}`,
+        content: describeFields([
+          ["应用场景", applicationScenario],
+          ["实施方式", implementationMethod],
+        ]),
       },
       {
         title: "任务状态",
-        content: error
-          ? `执行失败：${error}`
-          : status
-            ? `执行反馈：${status}`
-            : "尚未开始生成专利框架。",
+        content: describeTaskStatus({
+          error,
+          status,
+          idleMessage: "尚未开始生成专利框架。",
+        }),
+      },
+      {
+        title: "最近产出",
+        content: latestPatentResult
+          ? [
+              `章节数：${latestPatentSections.length}`,
+              `独立权利要求：${independentClaims.length}`,
+              `从属权利要求：${dependentClaims.length}`,
+              evidencePoints.length > 0 ? `待补证据点：${evidencePoints.length}` : null,
+              latestPatentSectionTitles.length > 0
+                ? `核心分区：${latestPatentSectionTitles.join("、")}`
+                : null,
+            ]
+              .filter((item): item is string => Boolean(item))
+              .join("；")
+          : "执行后会在这里展示最近一次生成的专利框架摘要。",
       },
     ],
     nextActions: [
@@ -86,7 +149,7 @@ export default function PatentOutlinePage() {
       "进入 prior-art-search 评估新颖性风险并迭代方案。",
     ],
     outputLanguage: "zh",
-  };
+  });
 
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">

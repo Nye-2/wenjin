@@ -4,131 +4,54 @@ Note: Workspace CRUD operations are handled in workspaces.py.
 This router handles paper and artifact operations within workspaces.
 """
 
-from datetime import datetime
+from fastapi import APIRouter, Depends, File, UploadFile
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.database import User, Workspace
-from src.gateway.routers.auth import get_current_user
+from src.application.errors import ApplicationError
+from src.application.handlers.academic_compat_handler import AcademicCompatHandler
+from src.database import User
+from src.gateway.access_control import (
+    owner_check_session_from_service as _owner_check_session_from_service,
+)
+from src.gateway.access_control import (
+    require_workspace_owner_by_session as _require_workspace_owner,
+)
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.contracts.artifact import (
+    ArtifactResponse,
+    ArtifactsListResponse,
+    artifact_to_response,
+    artifact_to_responses,
+)
+from src.gateway.contracts.paper import (
+    PaperSummaryResponse as PaperResponse,
+)
+from src.gateway.contracts.paper import (
+    paper_to_summary_response,
+)
+from src.gateway.dependencies import get_artifact_service, get_db, get_paper_service
+from src.gateway.error_mapping import to_http_exception
+from src.gateway.resource_access import (
+    ensure_workspace_owner_for_service as _shared_ensure_workspace_owner_for_service,
+)
+from src.gateway.resource_access import (
+    get_workspace_artifact_or_404 as _shared_get_workspace_artifact_or_404,
+)
+from src.gateway.validators.artifact import ArtifactCreatePayloadValidator as ArtifactCreate
+from src.gateway.validators.paper import PaperCreatePayloadValidator as PaperCreate
 
 router = APIRouter(tags=["academic"])
+__all__ = ["get_artifact_service", "get_db", "get_paper_service", "router"]
 
 
-# ============ Request/Response Models ============
-
-class PaperCreate(BaseModel):
-    """Paper creation request."""
-    doi: str | None = None
-    title: str
-    authors: list[dict] | None = None
-    year: int | None = None
-    venue: str | None = None
-    abstract: str | None = None
-
-
-class PaperResponse(BaseModel):
-    """Paper response."""
-    id: str
-    doi: str | None
-    title: str
-    authors: list[dict]
-    year: int | None
-    venue: str | None
-    abstract: str | None
-    source: str
-    citation_count: int | None
-    reference_count: int | None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ArtifactCreate(BaseModel):
-    """Artifact creation request."""
-    type: str
-    title: str | None = None
-    content: dict
-    created_by_skill: str | None = None
-    parent_artifact_id: str | None = None
-
-
-class ArtifactResponse(BaseModel):
-    """Artifact response."""
-    id: str
-    workspace_id: str
-    type: str
-    title: str | None
-    content: dict
-    created_by_skill: str | None
-    parent_artifact_id: str | None
-    version: int
-    status: str
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ArtifactsListResponse(BaseModel):
-    """List of artifacts."""
-    artifacts: list[ArtifactResponse]
-    count: int
-
-
-# ============ Helper Functions ============
-
-def orm_to_dict(obj) -> dict:
-    """Convert SQLAlchemy ORM object to dict for Pydantic."""
-    return {
-        column.name: getattr(obj, column.name)
-        for column in obj.__table__.columns
-    }
-
-
-def _owner_check_session_from_service(service) -> AsyncSession | None:
-    """Extract SQLAlchemy session from service for owner checks."""
-    db = getattr(service, "db", None)
-    return db if isinstance(db, AsyncSession) else None
-
-
-async def _require_workspace_owner(
-    session: AsyncSession,
-    workspace_id: str,
-    user_id: str,
-) -> None:
-    """Ensure workspace exists and is owned by user."""
-    result = await session.execute(
-        select(Workspace.user_id).where(Workspace.id == workspace_id)
+async def get_academic_compat_handler(
+    paper_service=Depends(get_paper_service),
+    artifact_service=Depends(get_artifact_service),
+) -> AcademicCompatHandler:
+    """Get deprecated academic compatibility handler."""
+    return AcademicCompatHandler(
+        paper_service=paper_service,
+        artifact_service=artifact_service,
     )
-    owner_id = result.scalar_one_or_none()
-    if owner_id is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    if str(owner_id) != user_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-
-# ============ Dependency Injection ============
-
-async def get_db():
-    """Get database session."""
-    from src.database import get_db_session
-
-    async with get_db_session() as db:
-        yield db
-
-
-async def get_paper_service(db = Depends(get_db)):
-    """Get paper service instance."""
-    from src.academic.services import PaperService
-    return PaperService(db)
-
-
-async def get_artifact_service(db = Depends(get_db)):
-    """Get artifact service instance."""
-    from src.academic.services import ArtifactService
-    return ArtifactService(db)
 
 
 # ============ Paper Endpoints ============
@@ -137,18 +60,14 @@ async def get_artifact_service(db = Depends(get_db)):
 async def create_paper(
     request: PaperCreate,
     current_user: User = Depends(get_current_user),
-    paper_service = Depends(get_paper_service),
+    handler: AcademicCompatHandler = Depends(get_academic_compat_handler),
 ):
     """Create a new paper."""
-    paper = await paper_service.create(
-        doi=request.doi,
-        title=request.title,
-        authors=request.authors,
-        year=request.year,
-        venue=request.venue,
-        abstract=request.abstract,
-    )
-    return PaperResponse(**orm_to_dict(paper))
+    try:
+        paper = await handler.create_paper(request)
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
+    return paper_to_summary_response(paper)
 
 
 @router.post("/papers/upload")
@@ -156,41 +75,17 @@ async def upload_paper(
     file: UploadFile = File(...),
     workspace_id: str | None = None,
     current_user: User = Depends(get_current_user),
-    paper_service=Depends(get_paper_service),
+    handler: AcademicCompatHandler = Depends(get_academic_compat_handler),
 ):
     """Upload a new paper (PDF).
 
     Validates the file is a PDF, saves metadata as a paper record,
     and returns structured response with paper_id.
     """
-    # Validate content type
-    if file.content_type not in ("application/pdf", "application/x-pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
-
-    # Read and validate non-empty
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
-    size_bytes = len(content)
-    filename = file.filename or "untitled.pdf"
-
-    # Create paper record with minimal metadata extracted from filename
-    title = filename.rsplit(".", 1)[0] if "." in filename else filename
-    paper = await paper_service.create(
-        title=title,
-        authors=[],
-        source="upload",
-    )
-
-    return {
-        "success": True,
-        "paper_id": paper.id,
-        "filename": filename,
-        "content_type": file.content_type,
-        "size_bytes": size_bytes,
-        "workspace_id": workspace_id,
-    }
+    try:
+        return await handler.upload_paper(file=file, workspace_id=workspace_id)
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.get("/papers/search")
@@ -198,15 +93,13 @@ async def search_papers(
     query: str,
     limit: int = 10,
     current_user: User = Depends(get_current_user),
+    handler: AcademicCompatHandler = Depends(get_academic_compat_handler),
 ):
     """Search papers in Semantic Scholar."""
-    # Use the semantic scholar tool
-    from src.academic.tools.semantic_scholar import semantic_scholar_search_tool
-    result = await semantic_scholar_search_tool.ainvoke({
-        "query": query,
-        "limit": limit,
-    })
-    return {"result": result}
+    try:
+        return await handler.search_papers(query=query, limit=limit)
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
 
 
 # ============ Artifact Endpoints ============
@@ -217,22 +110,26 @@ async def list_artifacts(
     artifact_type: str | None = None,
     current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
+    handler: AcademicCompatHandler = Depends(get_academic_compat_handler),
 ):
     """List artifacts in a workspace."""
-    owner_session = _owner_check_session_from_service(artifact_service)
-    if owner_session is not None:
-        await _require_workspace_owner(
-            owner_session,
-            workspace_id=workspace_id,
-            user_id=str(current_user.id),
-        )
-
-    artifacts = await artifact_service.list_by_workspace(
+    await _shared_ensure_workspace_owner_for_service(
+        artifact_service,
         workspace_id=workspace_id,
-        type=artifact_type,
+        user_id=str(current_user.id),
+        owner_session_resolver=_owner_check_session_from_service,
+        require_workspace_owner=_require_workspace_owner,
     )
+
+    try:
+        artifacts = await handler.list_artifacts(
+            workspace_id=workspace_id,
+            artifact_type=artifact_type,
+        )
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
     return ArtifactsListResponse(
-        artifacts=[ArtifactResponse(**orm_to_dict(a)) for a in artifacts],
+        artifacts=artifact_to_responses(artifacts),
         count=len(artifacts),
     )
 
@@ -243,25 +140,25 @@ async def create_artifact(
     request: ArtifactCreate,
     current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
+    handler: AcademicCompatHandler = Depends(get_academic_compat_handler),
 ):
     """Create a new artifact."""
-    owner_session = _owner_check_session_from_service(artifact_service)
-    if owner_session is not None:
-        await _require_workspace_owner(
-            owner_session,
-            workspace_id=workspace_id,
-            user_id=str(current_user.id),
-        )
-
-    artifact = await artifact_service.create(
+    await _shared_ensure_workspace_owner_for_service(
+        artifact_service,
         workspace_id=workspace_id,
-        type=request.type,
-        title=request.title,
-        content=request.content,
-        created_by_skill=request.created_by_skill,
-        parent_artifact_id=request.parent_artifact_id,
+        user_id=str(current_user.id),
+        owner_session_resolver=_owner_check_session_from_service,
+        require_workspace_owner=_require_workspace_owner,
     )
-    return ArtifactResponse(**orm_to_dict(artifact))
+
+    try:
+        artifact = await handler.create_artifact(
+            workspace_id=workspace_id,
+            request=request,
+        )
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
+    return artifact_to_response(artifact)
 
 
 @router.get("/workspaces/{workspace_id}/artifacts/{artifact_id}", response_model=ArtifactResponse)
@@ -270,20 +167,25 @@ async def get_artifact(
     artifact_id: str,
     current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
+    handler: AcademicCompatHandler = Depends(get_academic_compat_handler),
 ):
     """Get artifact details."""
-    owner_session = _owner_check_session_from_service(artifact_service)
-    if owner_session is not None:
-        await _require_workspace_owner(
-            owner_session,
-            workspace_id=workspace_id,
-            user_id=str(current_user.id),
-        )
-
-    artifact = await artifact_service.get(artifact_id)
-    if not artifact or str(artifact.workspace_id) != workspace_id:
-        raise HTTPException(status_code=404, detail="Artifact not found")
-    return ArtifactResponse(**orm_to_dict(artifact))
+    await _shared_ensure_workspace_owner_for_service(
+        artifact_service,
+        workspace_id=workspace_id,
+        user_id=str(current_user.id),
+        owner_session_resolver=_owner_check_session_from_service,
+        require_workspace_owner=_require_workspace_owner,
+    )
+    artifact = await _shared_get_workspace_artifact_or_404(
+        artifact_service,
+        artifact_id=artifact_id,
+        workspace_id=workspace_id,
+        user_id=str(current_user.id),
+        owner_session_resolver=_owner_check_session_from_service,
+        require_workspace_owner=_require_workspace_owner,
+    )
+    return artifact_to_response(artifact)
 
 
 @router.get("/workspaces/{workspace_id}/artifacts/{artifact_id}/lineage")
@@ -292,21 +194,29 @@ async def get_artifact_lineage(
     artifact_id: str,
     current_user: User = Depends(get_current_user),
     artifact_service = Depends(get_artifact_service),
+    handler: AcademicCompatHandler = Depends(get_academic_compat_handler),
 ):
     """Get artifact lineage (parent chain)."""
-    owner_session = _owner_check_session_from_service(artifact_service)
-    if owner_session is not None:
-        await _require_workspace_owner(
-            owner_session,
-            workspace_id=workspace_id,
-            user_id=str(current_user.id),
-        )
+    await _shared_ensure_workspace_owner_for_service(
+        artifact_service,
+        workspace_id=workspace_id,
+        user_id=str(current_user.id),
+        owner_session_resolver=_owner_check_session_from_service,
+        require_workspace_owner=_require_workspace_owner,
+    )
+    await _shared_get_workspace_artifact_or_404(
+        artifact_service,
+        artifact_id=artifact_id,
+        workspace_id=workspace_id,
+        user_id=str(current_user.id),
+        owner_session_resolver=_owner_check_session_from_service,
+        require_workspace_owner=_require_workspace_owner,
+    )
 
-    artifact = await artifact_service.get(artifact_id)
-    if not artifact or str(artifact.workspace_id) != workspace_id:
-        raise HTTPException(status_code=404, detail="Artifact not found")
-
-    lineage = await artifact_service.get_lineage(artifact_id)
+    try:
+        lineage = await handler.get_artifact_lineage(artifact_id)
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
     return {
-        "lineage": [ArtifactResponse(**orm_to_dict(a)) for a in lineage],
+        "lineage": artifact_to_responses(lineage),
     }

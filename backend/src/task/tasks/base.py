@@ -195,17 +195,12 @@ async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
         ValueError: If task_type is unknown
     """
     from src.task.handlers.workspace_feature_handler import (
-        execute_thesis_generation,
         execute_workspace_feature,
     )
     from src.task.registry import is_valid_task_type
 
     if not is_valid_task_type(task_type):
         raise ValueError(f"Unknown task type: {task_type}")
-
-    if task_type == "thesis_generation":
-        logger.info("Dispatching thesis_generation task to thesis workflow handler")
-        return await execute_thesis_generation(payload, progress)
 
     if task_type == "workspace_feature":
         logger.info("Dispatching workspace_feature task to workspace feature handler")
@@ -249,15 +244,15 @@ async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
         logger.info(f"Dispatching task type '{task_type}' to skill '{skill_name}'")
         return await handler.execute_skill(task_type, payload, progress)
     else:
-        # Fallback: placeholder implementation for task types without skill mapping
-        logger.info(f"No skill mapping for task type '{task_type}', using placeholder")
+        logger.info(
+            "No skill mapping for task type '%s', using generic fallback executor",
+            task_type,
+        )
         return await _execute_placeholder(task_type, payload, progress)
 
 
 async def _execute_placeholder(task_type: str, payload: dict, progress) -> dict:
-    """Placeholder execution for task types without skill implementations.
-
-    This should be replaced with actual implementations or skill mappings.
+    """Generic fallback execution for task types without skill implementations.
 
     Args:
         task_type: Type of task

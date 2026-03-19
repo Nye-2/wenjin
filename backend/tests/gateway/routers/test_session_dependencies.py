@@ -1,4 +1,4 @@
-"""Regression tests for router session dependency wiring."""
+"""Regression tests for shared DB dependency wiring."""
 
 from unittest.mock import AsyncMock
 
@@ -19,36 +19,19 @@ class _DummySessionContext:
 
 
 @pytest.mark.asyncio
-async def test_papers_get_session_supports_async_context_manager(monkeypatch):
-    """papers.get_session should consume get_db_session() as a context manager."""
-    from src.gateway.routers import papers
+async def test_gateway_get_db_supports_async_context_manager(monkeypatch):
+    """gateway.dependencies.get_db should consume get_db_session() as a context manager."""
+    from src.gateway import dependencies
+    from src.gateway.deps import core
 
     session = AsyncMock()
     monkeypatch.setattr(
-        papers,
+        core,
         "get_db_session",
         lambda: _DummySessionContext(session),
     )
 
-    dependency_gen = papers.get_session()
-    yielded = await anext(dependency_gen)
-    assert yielded is session
-    await dependency_gen.aclose()
-
-
-@pytest.mark.asyncio
-async def test_artifacts_get_session_supports_async_context_manager(monkeypatch):
-    """artifacts.get_session should consume get_db_session() as a context manager."""
-    from src.gateway.routers import artifacts
-
-    session = AsyncMock()
-    monkeypatch.setattr(
-        artifacts,
-        "get_db_session",
-        lambda: _DummySessionContext(session),
-    )
-
-    dependency_gen = artifacts.get_session()
+    dependency_gen = dependencies.get_db()
     yielded = await anext(dependency_gen)
     assert yielded is session
     await dependency_gen.aclose()

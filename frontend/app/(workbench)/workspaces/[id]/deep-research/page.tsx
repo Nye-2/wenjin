@@ -21,7 +21,6 @@ export default function DeepResearchPage() {
   const { run, isRunning, status, error } = useFeatureTaskRunner({
     workspaceId,
     featureId: "deep_research",
-    skipPolling: true,
   });
   const {
     models: availableModels,

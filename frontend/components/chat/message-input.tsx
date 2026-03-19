@@ -2,8 +2,7 @@
 
 import { useRef, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Paperclip, Square } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Send, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface MessageInputProps {
@@ -50,18 +49,6 @@ export function MessageInput({
   return (
     <div className="p-4 border-t border-[var(--border-default)] bg-[var(--bg-elevated)] backdrop-blur-xl">
       <form onSubmit={handleSubmit} className="flex gap-3 items-end">
-        {/* Attachment button (future feature) */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="flex-shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
-          title="Attach file (coming soon)"
-          disabled
-        >
-          <Paperclip className="h-5 w-5" />
-        </Button>
-
         {/* Text input */}
         <div className="flex-1 relative">
           <textarea

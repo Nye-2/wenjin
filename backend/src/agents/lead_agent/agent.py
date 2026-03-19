@@ -167,56 +167,19 @@ def get_available_tools(
         pass  # Academic tools not yet implemented
 
     # Literature navigation tools (TOC-driven)
+    # NOTE: These tools require AsyncSession injection (InjectedToolArg) which
+    # is not available in the react-agent context. Only include tools whose
+    # schemas can be serialized; skip DB-dependent tools to avoid
+    # PydanticInvalidForJsonSchema errors.
     try:
-        from src.academic.literature.tools import (
-            list_papers,
-            get_section,
-            search_external,
-            get_paper_by_doi,
-            # Workspace/paper management tools
-            create_workspace,
-            get_workspace,
-            list_workspaces,
-            add_paper_to_workspace,
-            remove_paper_from_workspace,
-            # External import tool
-            import_paper,
-        )
-        tools.extend([
-            list_papers,
-            get_section,
-            search_external,
-            get_paper_by_doi,
-            create_workspace,
-            get_workspace,
-            list_workspaces,
-            add_paper_to_workspace,
-            remove_paper_from_workspace,
-            import_paper,
-        ])
-    except ImportError:
-        pass  # Literature tools not yet implemented
+        from src.academic.literature.tools import search_external
+        tools.append(search_external)
+    except (ImportError, Exception):
+        pass
 
-    # Citation management tools
-    try:
-        from src.academic.citation.tools import (
-            format_citation,
-            format_bibliography,
-            export_bibtex,
-            import_bibtex,
-            get_citation_graph,
-            add_citation,
-        )
-        tools.extend([
-            format_citation,
-            format_bibliography,
-            export_bibtex,
-            import_bibtex,
-            get_citation_graph,
-            add_citation,
-        ])
-    except ImportError:
-        pass  # Citation tools not yet implemented
+    # Citation management tools (skip DB-dependent ones)
+    # format_citation and format_bibliography also require AsyncSession injection;
+    # they cannot be used in the react-agent context until DB injection is wired.
 
     # Subagent delegation tool
     if subagent_enabled:
@@ -467,20 +430,16 @@ def make_lead_agent(config: RunnableConfig, middlewares: list | None = None) -> 
     if middlewares is None:
         middlewares = build_pipeline(config)
 
-    # Create agent with custom state modifier
-    def state_modifier(state):
-        """Modify state before passing to model."""
-        # Apply middlewares synchronously (will be async in actual use)
-        return {
-            **state,
-            "system_prompt": apply_prompt_template(ThreadState(**state), config),
-        }
+    # Build system prompt for the agent
+    def prompt_fn(state):
+        """Generate system prompt from state and config."""
+        return apply_prompt_template(ThreadState(**state), config)
 
     # Create react agent
     agent = create_react_agent(
         model,
         tools,
-        state_modifier=state_modifier,
+        prompt=prompt_fn,
         checkpointer=MemorySaver(),
     )
 

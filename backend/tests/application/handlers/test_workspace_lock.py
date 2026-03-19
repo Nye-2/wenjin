@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.application.handlers.feature_execution_handler import FeatureExecutionHandler
+from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
 
 
 def _make_handler(*, task_service=None, credit_service=None):
@@ -86,7 +87,8 @@ class TestWorkspaceLockIntegration:
             )
 
         assert lock_acquired
-        assert result["task_id"] == "task-123"
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "task-123"
 
     @pytest.mark.asyncio
     async def test_submit_works_without_redis(self):
@@ -104,7 +106,8 @@ class TestWorkspaceLockIntegration:
                 redis_client=None,
             )
 
-        assert result["task_id"] == "task-123"
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "task-123"
 
     @pytest.mark.asyncio
     async def test_lock_failure_returns_warning(self):
@@ -131,8 +134,8 @@ class TestWorkspaceLockIntegration:
                 redis_client=redis_client,
             )
 
-        assert result["warning"] == "workspace_locked"
-        assert result["task_id"] is None
+        assert isinstance(result, FeatureExecutionAdvisory)
+        assert result.code == "workspace_locked"
 
     @pytest.mark.asyncio
     async def test_lock_backend_error_falls_back_to_unlocked_submit(self):
@@ -159,5 +162,5 @@ class TestWorkspaceLockIntegration:
                 redis_client=redis_client,
             )
 
-        assert result["warning"] is None
-        assert result["task_id"] == "task-123"
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "task-123"

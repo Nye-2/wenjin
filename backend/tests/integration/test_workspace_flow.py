@@ -28,7 +28,7 @@ class TestWorkspaceFlow:
         """Test complete CRUD flow for workspaces."""
         # 1. Create workspace
         response = await authenticated_client.post(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": str(test_user.id)},
             json={
                 "name": "My Research Project",
@@ -49,7 +49,7 @@ class TestWorkspaceFlow:
 
         # 2. List workspaces - should see it
         response = await authenticated_client.get(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": str(test_user.id)},
         )
         assert response.status_code == 200
@@ -103,7 +103,7 @@ class TestWorkspaceFlow:
 
         for ws_type in valid_types:
             response = await authenticated_client.post(
-                "/api/workspaces/",
+                "/api/workspaces",
                 params={"user_id": str(test_user.id)},
                 json={
                     "name": f"Test {ws_type} Workspace",
@@ -120,7 +120,7 @@ class TestWorkspaceFlow:
     ):
         """Test that creating workspace with invalid type fails."""
         response = await authenticated_client.post(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": str(test_user.id)},
             json={
                 "name": "Invalid Type Workspace",
@@ -137,7 +137,7 @@ class TestWorkspaceFlow:
     ):
         """Test that creating workspace without name fails."""
         response = await authenticated_client.post(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": str(test_user.id)},
             json={
                 "type": "sci",
@@ -169,7 +169,7 @@ class TestWorkspaceFlow:
 
         # List workspaces
         response = await auth_client.get(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": user_id},
         )
         assert response.status_code == 200
@@ -212,7 +212,7 @@ class TestWorkspaceFlow:
 
         # Create workspace for first user
         await auth_client.post(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": str(test_user.id)},
             json={
                 "name": "First User Workspace",
@@ -222,7 +222,7 @@ class TestWorkspaceFlow:
 
         # Create workspace for second user (using first user's client - shouldn't matter)
         await auth_client.post(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": str(other_user.id)},
             json={
                 "name": "Other User Workspace",
@@ -232,7 +232,7 @@ class TestWorkspaceFlow:
 
         # List workspaces for first user
         response = await auth_client.get(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": str(test_user.id)},
         )
         workspaces = response.json()
@@ -302,7 +302,7 @@ class TestWorkspaceFlow:
     ):
         """Test that workspace response has all expected fields."""
         response = await authenticated_client.post(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": str(test_user.id)},
             json={
                 "name": "Format Test Workspace",
@@ -431,7 +431,7 @@ class TestWorkspacePaperAssociation:
         """Test listing papers in workspace with no papers."""
         # Create empty workspace
         response = await authenticated_client.post(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": str(test_user.id)},
             json={
                 "name": "Empty Workspace",

@@ -19,6 +19,7 @@ from src.academic.services import ArtifactService
 from src.artifacts import ArtifactType
 from src.database import Artifact, get_db_session
 from src.execution.types import ExecutionType
+from src.execution.public_paths import sandbox_path_to_public_url
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
 from src.services.literature_service import LiteratureService
@@ -233,6 +234,10 @@ async def build_figure_payload(
     )
 
     if result.success:
+        file_url = sandbox_path_to_public_url(
+            result.figure_path,
+            thread_id=thread_id,
+        )
         payload: dict[str, Any] = {
             "figure_type": normalized_type,
             "description": description,
@@ -242,6 +247,7 @@ async def build_figure_payload(
             "generated_at": _utc_now_iso(),
             "render_data": {
                 "file_path": result.figure_path,
+                "file_url": file_url,
                 "format": result.format,
             },
             "upgrade": {
@@ -628,6 +634,10 @@ async def build_compile_payload(
     )
 
     compile_status = "success" if compile_result.success else "failed"
+    pdf_url = sandbox_path_to_public_url(
+        compile_result.pdf_path,
+        thread_id=thread_id,
+    )
     return {
         "schema_version": THESIS_SCHEMA_VERSION,
         "template": template,
@@ -639,6 +649,7 @@ async def build_compile_payload(
         "bib_content": bib_content,
         "compile_status": compile_status,
         "pdf_path": compile_result.pdf_path,
+        "pdf_url": pdf_url,
         "page_count": compile_result.page_count,
         "compile_error": compile_result.error,
         "compile_logs": _truncate(compile_result.logs or "", max_len=3000),

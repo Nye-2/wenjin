@@ -11,15 +11,13 @@ This module tests the papers endpoints including:
 - Paper search
 """
 
-from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.extraction_service import ExtractionService
 from src.academic.services.paper_service import PaperService
@@ -27,7 +25,7 @@ from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.papers import (
     get_extraction_service,
     get_paper_service,
-    get_session,
+    get_workspace_service,
     paper_to_response,
     router,
     section_to_response,
@@ -45,6 +43,16 @@ def create_mock_user():
     user.email = "test@test.com"
     user.is_active = True
     return user
+
+
+def create_mock_workspace(
+    workspace_id: str = "ws-1",
+    user_id: str = MOCK_USER_ID,
+):
+    workspace = MagicMock()
+    workspace.id = workspace_id
+    workspace.user_id = user_id
+    return workspace
 
 
 def create_mock_paper(
@@ -77,8 +85,8 @@ def create_mock_paper(
     paper.toc = toc
     paper.citation_count = citation_count
     paper.reference_count = reference_count
-    paper.created_at = datetime.utcnow()
-    paper.updated_at = datetime.utcnow()
+    paper.created_at = datetime.now(UTC)
+    paper.updated_at = datetime.now(UTC)
     return paper
 
 
@@ -159,17 +167,30 @@ class MockDBSession:
 
 
 @pytest.fixture
-def mock_db():
-    """Create mock database session."""
-    return MockDBSession()
-
-
-@pytest.fixture
 def mock_paper_service():
     """Create mock paper service."""
     service = MagicMock(spec=PaperService)
     service.create = AsyncMock()
     service.get = AsyncMock()
+
+    async def update_side_effect(*args, **kwargs):
+        paper = service.get.return_value
+        if paper is None:
+            return None
+        for key, value in kwargs.items():
+            if hasattr(paper, key) and value is not None:
+                setattr(paper, key, value)
+        return paper
+
+    service.update = AsyncMock(side_effect=update_side_effect)
+    service.delete = AsyncMock(return_value=False)
+    service.list_workspace_papers = AsyncMock(return_value=[])
+    service.list_visible_to_user = AsyncMock(return_value=[])
+    service.search = AsyncMock(return_value=[])
+    service.search_visible_to_user = AsyncMock(return_value=[])
+    service.list_sections = AsyncMock(return_value=[])
+    service.is_in_workspace = AsyncMock(return_value=True)
+    service.is_accessible_by_user = AsyncMock(return_value=True)
     return service
 
 
@@ -183,13 +204,17 @@ def mock_extraction_service():
 
 
 @pytest.fixture
-def app(mock_db, mock_paper_service, mock_extraction_service):
+def mock_workspace_service():
+    """Create mock workspace service."""
+    service = AsyncMock()
+    service.get = AsyncMock(return_value=create_mock_workspace())
+    return service
+
+
+@pytest.fixture
+def app(mock_paper_service, mock_extraction_service, mock_workspace_service):
     """Create FastAPI app with papers router and dependency overrides."""
     app = FastAPI()
-
-    # Create async generator functions for dependency overrides
-    async def get_session_override() -> AsyncGenerator[AsyncSession, None]:
-        yield mock_db
 
     async def get_paper_service_override() -> PaperService:
         return mock_paper_service
@@ -197,13 +222,16 @@ def app(mock_db, mock_paper_service, mock_extraction_service):
     async def get_extraction_service_override() -> ExtractionService:
         return mock_extraction_service
 
+    async def get_workspace_service_override():
+        return mock_workspace_service
+
     async def get_current_user_override():
         return create_mock_user()
 
     # Set up dependency overrides
-    app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_paper_service] = get_paper_service_override
     app.dependency_overrides[get_extraction_service] = get_extraction_service_override
+    app.dependency_overrides[get_workspace_service] = get_workspace_service_override
     app.dependency_overrides[get_current_user] = get_current_user_override
 
     app.include_router(router)
@@ -231,7 +259,7 @@ class TestCreatePaper:
         mock_paper_service.create.return_value = mock_paper
 
         response = client.post(
-            "/papers/",
+            "/papers",
             json={
                 "title": "New Paper",
                 "authors": [{"name": "Author One"}],
@@ -254,7 +282,7 @@ class TestCreatePaper:
         mock_paper_service.create.return_value = mock_paper
 
         response = client.post(
-            "/papers/",
+            "/papers",
             json={
                 "title": "Paper with DOI",
                 "doi": "10.5678/test.1234",
@@ -272,7 +300,7 @@ class TestCreatePaper:
         mock_paper_service.create.return_value = mock_paper
 
         response = client.post(
-            "/papers/",
+            "/papers",
             json={
                 "title": "Minimal Paper",
             },
@@ -287,7 +315,7 @@ class TestCreatePaper:
     def test_create_paper_missing_title_fails(self, client):
         """Test that paper creation without title fails."""
         response = client.post(
-            "/papers/",
+            "/papers",
             json={
                 "year": 2024,
             },
@@ -299,51 +327,43 @@ class TestCreatePaper:
 class TestListPapers:
     """Test paper listing endpoint."""
 
-    def test_list_papers_empty(self, client, mock_db):
+    def test_list_papers_empty(self, client, mock_paper_service):
         """Test listing papers when none exist."""
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute_result = mock_result
+        mock_paper_service.list_visible_to_user.return_value = []
 
-        response = client.get("/papers/")
+        response = client.get("/papers")
 
         assert response.status_code == 200
         assert response.json() == []
 
-    def test_list_papers_with_data(self, client, sample_paper, mock_db):
+    def test_list_papers_with_data(self, client, sample_paper, mock_paper_service):
         """Test listing papers with data."""
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [sample_paper]
-        mock_db.execute_result = mock_result
+        mock_paper_service.list_visible_to_user.return_value = [sample_paper]
 
-        response = client.get("/papers/")
+        response = client.get("/papers")
 
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 1
         assert data[0]["title"] == "Test Paper Title"
 
-    def test_list_papers_with_limit(self, client, mock_db):
+    def test_list_papers_with_limit(self, client, mock_paper_service):
         """Test listing papers with limit."""
         papers = [create_mock_paper(title=f"Paper {i}") for i in range(3)]
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = papers[:2]
-        mock_db.execute_result = mock_result
+        mock_paper_service.list_visible_to_user.return_value = papers[:2]
 
-        response = client.get("/papers/?limit=2")
+        response = client.get("/papers?limit=2")
 
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 2
 
-    def test_list_papers_by_workspace(self, client, sample_paper, mock_db):
+    def test_list_papers_by_workspace(self, client, sample_paper, mock_paper_service):
         """Test listing papers filtered by workspace."""
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [sample_paper]
-        mock_db.execute_result = mock_result
+        mock_paper_service.list_workspace_papers.return_value = [sample_paper]
 
         workspace_id = str(uuid4())
-        response = client.get(f"/papers/?workspace_id={workspace_id}")
+        response = client.get(f"/papers?workspace_id={workspace_id}")
 
         assert response.status_code == 200
         data = response.json()
@@ -379,9 +399,10 @@ class TestGetPaper:
 class TestUpdatePaper:
     """Test paper update endpoint."""
 
-    def test_update_paper_title(self, client, sample_paper, mock_paper_service, mock_db):
+    def test_update_paper_title(self, client, sample_paper, mock_paper_service):
         """Test updating paper title."""
         mock_paper_service.get.return_value = sample_paper
+        mock_paper_service.update.return_value = sample_paper
 
         response = client.put(
             f"/papers/{sample_paper.id}",
@@ -392,9 +413,10 @@ class TestUpdatePaper:
         # Verify the title was set on the mock
         assert sample_paper.title == "Updated Title"
 
-    def test_update_paper_multiple_fields(self, client, sample_paper, mock_paper_service, mock_db):
+    def test_update_paper_multiple_fields(self, client, sample_paper, mock_paper_service):
         """Test updating multiple paper fields."""
         mock_paper_service.get.return_value = sample_paper
+        mock_paper_service.update.return_value = sample_paper
 
         response = client.put(
             f"/papers/{sample_paper.id}",
@@ -422,9 +444,10 @@ class TestUpdatePaper:
 
         assert response.status_code == 404
 
-    def test_update_paper_partial(self, client, sample_paper, mock_paper_service, mock_db):
+    def test_update_paper_partial(self, client, sample_paper, mock_paper_service):
         """Test partial paper update."""
         mock_paper_service.get.return_value = sample_paper
+        mock_paper_service.update.return_value = sample_paper
 
         response = client.put(
             f"/papers/{sample_paper.id}",
@@ -438,9 +461,10 @@ class TestUpdatePaper:
 class TestDeletePaper:
     """Test paper deletion endpoint."""
 
-    def test_delete_paper_success(self, client, sample_paper, mock_paper_service, mock_db):
+    def test_delete_paper_success(self, client, sample_paper, mock_paper_service):
         """Test successful paper deletion."""
         mock_paper_service.get.return_value = sample_paper
+        mock_paper_service.delete.return_value = True
 
         response = client.delete(f"/papers/{sample_paper.id}")
 
@@ -530,42 +554,29 @@ class TestExtractPaper:
 class TestGetPaperSections:
     """Test paper sections retrieval endpoint."""
 
-    def test_get_sections_empty(self, client, sample_paper, mock_db):
+    def test_get_sections_empty(self, client, sample_paper, mock_paper_service):
         """Test getting sections when none exist."""
-        mock_paper_result = MagicMock()
-        mock_paper_result.scalar_one_or_none.return_value = sample_paper
-
-        mock_sections_result = MagicMock()
-        mock_sections_result.scalars.return_value.all.return_value = []
-
-        mock_db.execute_side_effect = [mock_paper_result, mock_sections_result]
+        mock_paper_service.get.return_value = sample_paper
+        mock_paper_service.list_sections.return_value = []
 
         response = client.get(f"/papers/{sample_paper.id}/sections")
 
         assert response.status_code == 200
         assert response.json() == []
 
-    def test_get_sections_not_found(self, client, mock_db):
+    def test_get_sections_not_found(self, client, mock_paper_service):
         """Test getting sections for non-existent paper."""
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_db.execute_side_effect = [mock_result]
+        mock_paper_service.get.return_value = None
 
         response = client.get("/papers/nonexistent-id/sections")
 
         assert response.status_code == 404
 
-    def test_get_sections_with_data(self, client, sample_paper, mock_db):
+    def test_get_sections_with_data(self, client, sample_paper, mock_paper_service):
         """Test getting sections with data."""
         mock_section = create_mock_section(paper_id=sample_paper.id)
-
-        mock_paper_result = MagicMock()
-        mock_paper_result.scalar_one_or_none.return_value = sample_paper
-
-        mock_sections_result = MagicMock()
-        mock_sections_result.scalars.return_value.all.return_value = [mock_section]
-
-        mock_db.execute_side_effect = [mock_paper_result, mock_sections_result]
+        mock_paper_service.get.return_value = sample_paper
+        mock_paper_service.list_sections.return_value = [mock_section]
 
         response = client.get(f"/papers/{sample_paper.id}/sections")
 
@@ -575,18 +586,12 @@ class TestGetPaperSections:
         assert data[0]["section_title"] == "Introduction"
         assert data[0]["section_path"] == "1"
 
-    def test_get_sections_with_workspace_filter(self, client, sample_paper, mock_db):
+    def test_get_sections_with_workspace_filter(self, client, sample_paper, mock_paper_service):
         """Test getting sections filtered by workspace."""
         workspace_id = str(uuid4())
         mock_section = create_mock_section(paper_id=sample_paper.id, workspace_id=workspace_id)
-
-        mock_paper_result = MagicMock()
-        mock_paper_result.scalar_one_or_none.return_value = sample_paper
-
-        mock_sections_result = MagicMock()
-        mock_sections_result.scalars.return_value.all.return_value = [mock_section]
-
-        mock_db.execute_side_effect = [mock_paper_result, mock_sections_result]
+        mock_paper_service.get.return_value = sample_paper
+        mock_paper_service.list_sections.return_value = [mock_section]
 
         response = client.get(
             f"/papers/{sample_paper.id}/sections",
@@ -601,11 +606,9 @@ class TestGetPaperSections:
 class TestSearchPapers:
     """Test paper search endpoint."""
 
-    def test_search_papers_global(self, client, sample_paper, mock_db):
+    def test_search_papers_global(self, client, sample_paper, mock_paper_service):
         """Test global paper search."""
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [sample_paper]
-        mock_db.execute_result = mock_result
+        mock_paper_service.search_visible_to_user.return_value = [sample_paper]
 
         response = client.post(
             "/papers/search",
@@ -617,11 +620,9 @@ class TestSearchPapers:
         assert data["query"] == "Test"
         assert data["count"] >= 1
 
-    def test_search_papers_in_workspace(self, client, sample_paper, mock_db):
+    def test_search_papers_in_workspace(self, client, sample_paper, mock_paper_service):
         """Test paper search within workspace."""
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [sample_paper]
-        mock_db.execute_result = mock_result
+        mock_paper_service.search.return_value = [sample_paper]
 
         workspace_id = str(uuid4())
         response = client.post(
@@ -636,11 +637,9 @@ class TestSearchPapers:
         data = response.json()
         assert data["count"] >= 1
 
-    def test_search_papers_no_results(self, client, mock_db):
+    def test_search_papers_no_results(self, client, mock_paper_service):
         """Test search with no results."""
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute_result = mock_result
+        mock_paper_service.search_visible_to_user.return_value = []
 
         response = client.post(
             "/papers/search",
@@ -652,11 +651,9 @@ class TestSearchPapers:
         assert data["count"] == 0
         assert data["papers"] == []
 
-    def test_search_papers_by_abstract(self, client, sample_paper, mock_db):
+    def test_search_papers_by_abstract(self, client, sample_paper, mock_paper_service):
         """Test search matching abstract content."""
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [sample_paper]
-        mock_db.execute_result = mock_result
+        mock_paper_service.search_visible_to_user.return_value = [sample_paper]
 
         response = client.post(
             "/papers/search",
@@ -676,11 +673,9 @@ class TestSearchPapers:
 
         assert response.status_code == 422  # Validation error
 
-    def test_search_papers_with_limit(self, client, sample_paper, mock_db):
+    def test_search_papers_with_limit(self, client, sample_paper, mock_paper_service):
         """Test search with custom limit."""
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [sample_paper]
-        mock_db.execute_result = mock_result
+        mock_paper_service.search_visible_to_user.return_value = [sample_paper]
 
         response = client.post(
             "/papers/search",

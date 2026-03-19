@@ -486,15 +486,3 @@ class LiteratureService:
             "created_at": literature.created_at.isoformat() if literature.created_at else None,
             "updated_at": literature.updated_at.isoformat() if literature.updated_at else None,
         }
-
-
-async def get_literature_service() -> LiteratureService:
-    """Get LiteratureService instance for dependency injection.
-
-    This is a placeholder that will be overridden in the router.
-    The actual implementation requires a database session.
-
-    Returns:
-        LiteratureService instance
-    """
-    raise NotImplementedError("This should be overridden via dependency_overrides")

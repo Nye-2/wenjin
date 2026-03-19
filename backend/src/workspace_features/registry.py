@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass, field
 
-
 CANONICAL_WORKSPACE_TYPES = (
     "sci",
     "thesis",
@@ -121,7 +120,7 @@ THESIS_FEATURES = (
         agent="thesis_writer",
         agent_label="ThesisWriter",
         handler_key="thesis.thesis_writing",
-        task_type="thesis_generation",
+        task_type="workspace_feature",
         panel="thesis_editor",
         color="blue",
         stages=(

@@ -9,6 +9,13 @@ import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import { extractArtifactFileUrl, isImageUrl, isPdfUrl } from "@/lib/public-assets";
+import { findLatestArtifact, getArtifactContentRecord, readString } from "@/lib/artifact-utils";
 import { cn } from "@/lib/utils";
 
 export default function FigureGenerationPage() {
@@ -20,7 +27,7 @@ export default function FigureGenerationPage() {
   const [description, setDescription] = useState("");
   const [chapterIndex, setChapterIndex] = useState("");
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "figure_generation",
     onSuccess: () => setDescription(""),
@@ -69,6 +76,63 @@ export default function FigureGenerationPage() {
       title: String(chapter.title || `第${index + 1}章`),
     }));
   }, [artifacts]);
+
+  const latestFigureArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["figure"]),
+    [artifacts]
+  );
+  const latestFigureResult = useMemo(
+    () => getArtifactContentRecord(latestFigureArtifact) ?? latestTaskResult,
+    [latestFigureArtifact, latestTaskResult]
+  );
+  const latestFigureUrl = extractArtifactFileUrl(latestFigureResult);
+  const latestFigureSource = readString(latestFigureResult?.source_code);
+  const latestFigurePrompt = readString(latestFigureResult?.prompt);
+  const latestFigureFormat =
+    latestFigureResult?.render_data &&
+    typeof latestFigureResult.render_data === "object"
+      ? readString((latestFigureResult.render_data as Record<string, unknown>).format)
+      : null;
+  const figureResultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestFigureResult
+      ? "最近一次图表产物已生成，可直接预览或下载。"
+      : "本工作区用于规划和生成论文图表，支持流程图、数据可视化与概念图。",
+    sections: [
+      {
+        title: "当前配置",
+        content: describeFields([
+          ["图表类型", figureType],
+          ["关联章节", chapterIndex || "未关联"],
+        ]),
+      },
+      {
+        title: "任务状态",
+        content: describeTaskStatus({
+          error,
+          status,
+          idleMessage: "尚未开始生成图表。",
+        }),
+      },
+      {
+        title: "最近产出",
+        content: latestFigureResult
+          ? [
+              describeFields([
+                ["策略", readString(latestFigureResult.strategy)],
+                ["格式", latestFigureFormat],
+              ]),
+              latestFigureUrl ? "已生成可访问文件。" : "当前仅生成了源代码/提示词。",
+            ].join("；")
+          : "执行后会在这里展示最近一次图表生成结果。",
+      },
+    ],
+    nextActions: [
+      "补充图表描述并选择关联章节后执行生成。",
+      "如果已有文件，先预览再决定是否重新生成。",
+      "如仅生成源代码，可在详情中复制并手动调整。",
+    ],
+    outputLanguage: "zh",
+  });
 
   const handleGenerateFigure = async () => {
     if (!description.trim()) return;
@@ -222,18 +286,84 @@ export default function FigureGenerationPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="space-y-6"
           >
-            <div className="text-center">
-              <ImageIcon className="w-16 h-16 text-cyan-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                图表预览
-              </h2>
-              <p className="text-[var(--text-secondary)]">
-                {workspace?.name
-                  ? `当前工作区：${workspace.name}`
-                  : "配置左侧参数后生成图表"}
-              </p>
+            <WorkspaceResultPanel viewModel={figureResultViewModel} />
+
+            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-[var(--text-primary)]">
+                    图表预览
+                  </h2>
+                  <p className="text-sm text-[var(--text-muted)]">
+                    {workspace?.name
+                      ? `当前工作区：${workspace.name}`
+                      : "配置左侧参数后生成图表"}
+                  </p>
+                </div>
+                {latestFigureUrl && (
+                  <div className="flex gap-2">
+                    <a
+                      href={latestFigureUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-lg bg-cyan-600 px-3 py-2 text-sm text-white"
+                    >
+                      打开文件
+                    </a>
+                    <a
+                      href={latestFigureUrl}
+                      download
+                      className="rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)]"
+                    >
+                      下载
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {latestFigureUrl && isImageUrl(latestFigureUrl) && (
+                <div className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={latestFigureUrl}
+                    alt={readString(latestFigureResult?.description) || "图表预览"}
+                    className="max-h-[520px] w-full object-contain"
+                  />
+                </div>
+              )}
+
+              {latestFigureUrl && isPdfUrl(latestFigureUrl) && (
+                <div className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-white">
+                  <iframe
+                    src={latestFigureUrl}
+                    title="Figure Preview"
+                    className="h-[520px] w-full"
+                  />
+                </div>
+              )}
+
+              {!latestFigureUrl && latestFigureSource && (
+                <pre className="overflow-x-auto rounded-lg bg-[var(--bg-elevated)] p-4 text-xs leading-6 text-[var(--text-secondary)]">
+                  {latestFigureSource}
+                </pre>
+              )}
+
+              {!latestFigureUrl && !latestFigureSource && latestFigurePrompt && (
+                <div className="rounded-lg bg-[var(--bg-elevated)] p-4 text-sm leading-6 text-[var(--text-secondary)]">
+                  {latestFigurePrompt}
+                </div>
+              )}
+
+              {!latestFigureUrl && !latestFigureSource && !latestFigurePrompt && (
+                <div className="text-center py-12">
+                  <ImageIcon className="mx-auto mb-4 h-12 w-12 text-cyan-500/60" />
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    暂无图表产出，执行生成后会在这里显示。
+                  </p>
+                </div>
+              )}
             </div>
           </motion.div>
         </div>

@@ -12,14 +12,17 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from src.academic.services.workspace_service import WorkspaceService
+from src.application.errors import ApplicationError
 from src.application.handlers.feature_execution_handler import (
     FeatureExecutionHandler,
     get_feature_execution_handler,
     resolve_workspace_type,
 )
+from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
 from src.database import User
-from src.gateway.routers.auth import get_current_user
-from src.gateway.routers.workspaces import get_workspace_service
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.dependencies import get_workspace_service
+from src.gateway.error_mapping import to_http_exception
 from src.workspace_features import list_workspace_features
 
 logger = logging.getLogger(__name__)
@@ -135,9 +138,33 @@ async def execute_feature(
         else None
     )
 
-    result = await handler.execute(
-        workspace_id, feature_id, request.params, request.thread_id,
-        idempotency_key=idempotency_key,
-        redis_client=runtime_redis,
-    )
-    return ExecuteResponse(**result)
+    try:
+        result = await handler.execute(
+            workspace_id, feature_id, request.params, request.thread_id,
+            idempotency_key=idempotency_key,
+            redis_client=runtime_redis,
+        )
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
+
+    if isinstance(result, FeatureTaskSubmission):
+        payload = {
+            "task_id": result.task_id,
+            "status": "pending",
+            "feature_id": result.feature_id,
+            "message": result.message,
+            "warning": None,
+            "detail": None,
+        }
+    elif isinstance(result, FeatureExecutionAdvisory):
+        payload = {
+            "task_id": None,
+            "status": "warning",
+            "feature_id": result.feature_id,
+            "message": result.message,
+            "warning": result.code,
+            "detail": result.context,
+        }
+    else:
+        payload = result
+    return ExecuteResponse(**payload)

@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, Search, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import { findLatestArtifact, getArtifactContentRecord, readStringList } from "@/lib/artifact-utils";
 import { cn } from "@/lib/utils";
 
 const TIME_RANGE_OPTIONS = [
@@ -23,7 +29,7 @@ export default function PriorArtSearchPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts } = useWorkspaceStore();
 
   const [keywords, setKeywords] = useState("");
   const [ipcCodes, setIpcCodes] = useState("");
@@ -36,7 +42,7 @@ export default function PriorArtSearchPage() {
   }, [workspace, keywords]);
   const [timeRange, setTimeRange] = useState<string>("近5年");
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "prior_art_search",
   });
@@ -49,6 +55,61 @@ export default function PriorArtSearchPage() {
   } = useModelSelection({
     purpose: "writing",
     persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
+
+  const latestPriorArtArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["prior_art_report"]),
+    [artifacts]
+  );
+  const latestPriorArtResult = useMemo(
+    () => getArtifactContentRecord(latestPriorArtArtifact) ?? latestTaskResult,
+    [latestPriorArtArtifact, latestTaskResult]
+  );
+  const comparisonTable = Array.isArray(latestPriorArtResult?.comparison_table)
+    ? latestPriorArtResult.comparison_table
+    : [];
+  const noveltyRisks = readStringList(latestPriorArtResult?.novelty_risks, 3);
+  const avoidanceSuggestions = readStringList(latestPriorArtResult?.avoidance_suggestions, 3);
+  const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestPriorArtResult
+      ? "最近一次现有技术检索分析已生成，可用于修订专利方案与权利要求。"
+      : "本工作区用于检索现有技术并输出新颖性风险分析。",
+    sections: [
+      {
+        title: "当前检索参数",
+        content: describeFields([
+          ["关键词", keywords],
+          ["IPC/CPC", ipcCodes],
+          ["时间范围", timeRange],
+        ]),
+      },
+      {
+        title: "任务状态",
+        content: describeTaskStatus({
+          error,
+          status,
+          idleMessage: "尚未开始检索分析。",
+        }),
+      },
+      {
+        title: "最近分析结果",
+        content: latestPriorArtResult
+          ? [
+              `对比项：${comparisonTable.length}`,
+              noveltyRisks.length > 0 ? `风险：${noveltyRisks.join("、")}` : null,
+              avoidanceSuggestions.length > 0 ? `规避建议：${avoidanceSuggestions.join("、")}` : null,
+            ]
+              .filter((item): item is string => Boolean(item))
+              .join("；")
+          : "执行后会在这里展示最近一次检索分析摘要。",
+      },
+    ],
+    nextActions: [
+      "先根据创新点设置关键词和 IPC/CPC。",
+      "根据风险点调整 patent-outline 中的方案表述。",
+      "在知识区查看完整对比表和建议。",
+    ],
+    outputLanguage: "zh",
   });
 
   const handleSearch = async () => {
@@ -209,41 +270,9 @@ export default function PriorArtSearchPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="h-full"
           >
-            <div className="text-center max-w-md">
-              <AlertTriangle className="w-16 h-16 text-amber-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                现有技术检索分析
-              </h2>
-              <p className="text-[var(--text-secondary)] mb-4">
-                配置检索条件后开始分析，系统将生成包含以下内容的报告：
-              </p>
-              <div className="text-left text-sm text-[var(--text-muted)] space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  现有技术对比清单
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  新颖性风险点分析
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  规避建议
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  权利要求调整建议
-                </div>
-              </div>
-              <div className="mt-6 p-4 bg-amber-500/10 rounded-lg text-left">
-                <p className="text-xs text-amber-700 dark:text-amber-300">
-                  <strong>提示：</strong>检索结果可作为专利框架页面的输入，
-                  帮助完善背景技术和权利要求书内容。
-                </p>
-              </div>
-            </div>
+            <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>
       </main>

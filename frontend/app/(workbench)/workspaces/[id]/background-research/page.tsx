@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, BookOpen, FileSearch } from "lucide-react";
+import { ArrowLeft, BookOpen } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import { findLatestArtifact, getArtifactContentRecord, readNamedSections, readStringList } from "@/lib/artifact-utils";
 import { cn } from "@/lib/utils";
 
 const TIME_RANGE_OPTIONS = [
@@ -23,13 +29,13 @@ export default function BackgroundResearchPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts } = useWorkspaceStore();
 
   const [keywords, setKeywords] = useState("");
   const [industryScope, setIndustryScope] = useState("相关领域");
   const [timeRange, setTimeRange] = useState("近5年");
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "background_research",
   });
@@ -42,6 +48,71 @@ export default function BackgroundResearchPage() {
   } = useModelSelection({
     purpose: "writing",
     persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
+
+  const latestResearchArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["background_research"]),
+    [artifacts]
+  );
+  const latestResearchResult = useMemo(
+    () => getArtifactContentRecord(latestResearchArtifact) ?? latestTaskResult,
+    [latestResearchArtifact, latestTaskResult]
+  );
+  const latestSections = Array.isArray(latestResearchResult?.sections)
+    ? latestResearchResult.sections
+    : [];
+  const latestSectionNames = readNamedSections(latestSections, 4);
+  const latestReferences = Array.isArray(latestResearchResult?.references)
+    ? latestResearchResult.references
+    : [];
+  const latestReferenceTitles = readStringList(
+    latestReferences.map((item: unknown) =>
+      item && typeof item === "object"
+        ? (item as Record<string, unknown>).title
+        : item
+    ),
+    3
+  );
+  const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestResearchResult
+      ? "最近一次背景调研已生成，可继续为申报书大纲提供支撑。"
+      : "本工作区用于调研项目背景、行业现状和可行技术方向。",
+    sections: [
+      {
+        title: "当前配置",
+        content: describeFields([
+          ["关键词", keywords],
+          ["行业范围", industryScope],
+          ["时间范围", timeRange],
+        ]),
+      },
+      {
+        title: "任务状态",
+        content: describeTaskStatus({
+          error,
+          status,
+          idleMessage: "尚未开始调研。",
+        }),
+      },
+      {
+        title: "最近调研结果",
+        content: latestResearchResult
+          ? [
+              `章节数：${latestSections.length}`,
+              latestSectionNames.length > 0 ? `核心章节：${latestSectionNames.join("、")}` : null,
+              latestReferenceTitles.length > 0 ? `参考文献：${latestReferenceTitles.join("、")}` : null,
+            ]
+              .filter((item): item is string => Boolean(item))
+              .join("；")
+          : "执行后会在这里展示最近一次调研摘要。",
+      },
+    ],
+    nextActions: [
+      "先完成背景调研，再进入 proposal-outline。",
+      "在知识区审阅完整调研报告并补充数据。",
+      "将关键结论写入申报书立项依据部分。",
+    ],
+    outputLanguage: "zh",
   });
 
   useEffect(() => {
@@ -183,20 +254,9 @@ export default function BackgroundResearchPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="h-full"
           >
-            <div className="text-center">
-              <FileSearch className="w-16 h-16 text-emerald-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                背景调研工作区
-              </h2>
-              <p className="text-[var(--text-secondary)]">
-                配置左侧参数后点击开始调研，生成的报告将作为产出物保存。
-              </p>
-              <p className="text-sm text-[var(--text-muted)] mt-2">
-                包含：现状综述、问题清单、可行技术方向、参考文献
-              </p>
-            </div>
+            <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>
       </main>

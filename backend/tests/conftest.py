@@ -1,11 +1,14 @@
 """Test configuration and fixtures."""
 
 import asyncio
+import os
 import subprocess
 from collections.abc import Generator
 
 import pytest
 import pytest_asyncio
+
+os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-pytest")
 
 
 @pytest.fixture(scope="session")
@@ -33,5 +36,4 @@ def docker_available():
 @pytest_asyncio.fixture
 async def mock_db_session():
     """Mock database session for tests."""
-    # TODO: Add actual mock implementation
     pass

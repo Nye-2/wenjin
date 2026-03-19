@@ -703,8 +703,3 @@ class DashboardService:
             }
             for artifact in artifacts
         ]
-
-
-async def get_dashboard_service() -> DashboardService:
-    """Get DashboardService instance for dependency injection."""
-    raise NotImplementedError("This should be overridden via dependency_overrides")

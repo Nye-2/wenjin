@@ -6,16 +6,21 @@ This module provides REST endpoints for:
 - Dashboard overview
 """
 
-from collections.abc import AsyncGenerator
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.paper_service import PaperService
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import Paper, User, Workspace, get_db_session
-from src.gateway.routers.auth import get_current_user
+from src.database import User, Workspace
+from src.gateway.access_control import require_workspace_owner
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.contracts.paper import (
+    PaperSummaryResponse as PaperResponse,
+)
+from src.gateway.contracts.paper import (
+    paper_to_summary_response as paper_to_response,
+)
+from src.gateway.dependencies import get_dashboard_service, get_paper_service, get_workspace_service
 from src.gateway.validators.workspace import (
     AddPaperToWorkspaceValidator,
     CreateWorkspaceValidator,
@@ -48,22 +53,6 @@ class WorkspacesListResponse(BaseModel):
     workspaces: list[WorkspaceResponse]
 
 
-class PaperResponse(BaseModel):
-    """Paper response."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    doi: str | None
-    title: str
-    authors: list[dict]
-    year: int | None
-    venue: str | None
-    abstract: str | None
-    source: str
-    citation_count: int | None
-    reference_count: int | None
-
-
 class PapersListResponse(BaseModel):
     """Workspace papers response."""
 
@@ -75,29 +64,6 @@ class PapersListResponse(BaseModel):
 CreateWorkspaceRequest = CreateWorkspaceValidator
 UpdateWorkspaceRequest = UpdateWorkspaceValidator
 AddPaperRequest = AddPaperToWorkspaceValidator
-
-
-# ============ Dependencies ============
-
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency to get database session."""
-    async with get_db_session() as session:
-        yield session
-
-
-async def get_workspace_service(db: AsyncSession = Depends(get_db)) -> WorkspaceService:
-    """Get workspace service instance."""
-    return WorkspaceService(db)
-
-
-async def get_paper_service(db: AsyncSession = Depends(get_db)) -> PaperService:
-    """Get paper service instance."""
-    return PaperService(db)
-
-
-async def get_dashboard_service(db: AsyncSession = Depends(get_db)) -> DashboardService:
-    """Get dashboard service instance."""
-    return DashboardService(db)
 
 
 def workspace_to_response(workspace: Workspace) -> WorkspaceResponse:
@@ -115,47 +81,9 @@ def workspace_to_response(workspace: Workspace) -> WorkspaceResponse:
     )
 
 
-def paper_to_response(paper: Paper) -> PaperResponse:
-    """Convert Paper ORM object to response model."""
-    return PaperResponse(
-        id=str(paper.id),
-        doi=paper.doi,
-        title=paper.title,
-        authors=paper.authors or [],
-        year=paper.year,
-        venue=paper.venue,
-        abstract=paper.abstract,
-        source=paper.source,
-        citation_count=paper.citation_count,
-        reference_count=paper.reference_count,
-    )
-
-
-async def require_workspace_owner(
-    workspace_id: str,
-    current_user: User,
-    workspace_service: WorkspaceService,
-) -> Workspace:
-    """Load workspace and ensure the current user is the owner."""
-    workspace = await workspace_service.get(workspace_id)
-    if not workspace:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workspace not found",
-        )
-
-    if str(workspace.user_id) != str(current_user.id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-
-    return workspace
-
-
 # ============ Endpoints ============
 
-@router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     request: CreateWorkspaceRequest,
     current_user: User = Depends(get_current_user),
@@ -191,7 +119,7 @@ async def create_workspace(
         ) from e
 
 
-@router.get("/", response_model=WorkspacesListResponse)
+@router.get("", response_model=WorkspacesListResponse)
 async def list_workspaces(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),

@@ -350,15 +350,14 @@ class TestToolDefinitions:
 class TestCitationToolsRegistration:
     """Tests for citation tools registration in lead agent."""
 
-    def test_citation_tools_in_available_tools(self):
-        """Test that citation tools are registered in get_available_tools."""
+    def test_citation_tools_excluded_from_agent_tools(self):
+        """Citation tools require AsyncSession injection and are excluded from the
+        react-agent tool set to avoid PydanticInvalidForJsonSchema errors."""
         from src.agents.lead_agent.agent import get_available_tools
 
         tools = get_available_tools()
         tool_names = [t.name for t in tools]
 
-        assert "format_citation" in tool_names
-        assert "format_bibliography" in tool_names
-        assert "export_bibtex" in tool_names
-        assert "import_bibtex" in tool_names
-        assert "add_citation" in tool_names
+        # DB-dependent tools should NOT be in agent tools
+        assert "format_citation" not in tool_names
+        assert "add_citation" not in tool_names

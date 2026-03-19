@@ -203,6 +203,21 @@ class TaskService:
             serialized.append(self._serialize_task_status(record, runtime_state))
         return serialized
 
+    async def list_task_records(
+        self,
+        user_id: str,
+        status: str | None = None,
+        task_type: str | None = None,
+        limit: int = 20,
+    ) -> list:
+        """List persisted task records for a user."""
+        return await self._store.list_user_tasks(
+            user_id=user_id,
+            status=status,
+            task_type=task_type,
+            limit=limit,
+        )
+
     async def cancel_task(self, task_id: str, user_id: str) -> bool:
         """Cancel a task.
 

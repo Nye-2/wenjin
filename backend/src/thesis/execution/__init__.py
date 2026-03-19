@@ -83,9 +83,10 @@ def get_execution_service() -> ExecutionServiceProtocol:
         try:
             import os
 
+            from src.execution.public_paths import get_default_sandbox_dir
             from src.execution.service import DockerExecutionService
 
-            sandbox_dir = os.environ.get("SANDBOX_DIR", "/tmp/academiagpt-sandbox")
+            sandbox_dir = os.environ.get("SANDBOX_DIR") or get_default_sandbox_dir()
             _execution_service = DockerExecutionService(sandbox_base_dir=sandbox_dir)
         except Exception as e:
             raise RuntimeError(

@@ -130,7 +130,7 @@ class TestCreateWorkspace:
         mock_workspace_service.create.return_value = mock_workspace
 
         response = client.post(
-            "/workspaces/",
+            "/workspaces",
             json={
                 "name": "Test Workspace",
                 "type": "sci",
@@ -152,7 +152,7 @@ class TestCreateWorkspace:
         mock_workspace_service.create.return_value = mock_workspace
 
         response = client.post(
-            "/workspaces/",
+            "/workspaces",
             json={
                 "name": "Test Workspace",
                 "type": "thesis",
@@ -171,7 +171,7 @@ class TestCreateWorkspace:
         are accepted. Pydantic returns a 422 validation error for invalid types.
         """
         response = client.post(
-            "/workspaces/",
+            "/workspaces",
             json={
                 "name": "Test Workspace",
                 "type": "invalid_type",
@@ -184,7 +184,7 @@ class TestCreateWorkspace:
     def test_create_workspace_missing_name(self, client, mock_workspace_service):
         """Test workspace creation without name fails."""
         response = client.post(
-            "/workspaces/",
+            "/workspaces",
             json={
                 "type": "sci",
             },
@@ -233,7 +233,7 @@ class TestListWorkspaces:
         ]
         mock_workspace_service.list_by_user.return_value = mock_workspaces
 
-        response = client.get("/workspaces/")
+        response = client.get("/workspaces")
 
         assert response.status_code == 200
         data = response.json()
@@ -248,7 +248,7 @@ class TestListWorkspaces:
         """Test listing workspaces when user has none."""
         mock_workspace_service.list_by_user.return_value = []
 
-        response = client.get("/workspaces/")
+        response = client.get("/workspaces")
 
         assert response.status_code == 200
         data = response.json()
@@ -849,7 +849,7 @@ class TestWorkspaceTypes:
         mock_workspace_service.create.return_value = mock_workspace
 
         response = client.post(
-            "/workspaces/",
+            "/workspaces",
             json={
                 "name": f"Test {workspace_type} Workspace",
                 "type": workspace_type,

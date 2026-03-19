@@ -1,10 +1,10 @@
 """Task type registry for configuration and validation."""
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Task status values."""
     PENDING = "pending"
     RUNNING = "running"
@@ -18,7 +18,7 @@ class TaskStatus(str, Enum):
         return {cls.SUCCESS, cls.FAILED, cls.CANCELLED}
 
 
-class TaskQueue(str, Enum):
+class TaskQueue(StrEnum):
     """Available task queues."""
     DEFAULT = "default"
     LONG_RUNNING = "long_running"
@@ -42,12 +42,6 @@ TASK_REGISTRY: dict[str, TaskTypeConfig] = {
         timeout=600,
         retry=2,
         description="Deep research: literature search, analysis, and summary",
-    ),
-    "thesis_generation": TaskTypeConfig(
-        queue=TaskQueue.LONG_RUNNING,
-        timeout=3600,
-        retry=1,
-        description="Thesis generation: full academic paper writing",
     ),
     "literature_search": TaskTypeConfig(
         queue=TaskQueue.DEFAULT,

@@ -23,23 +23,16 @@ class ArtifactStatus(StrEnum):
     ARCHIVED = "archived"
 
 
-class CreateArtifactValidator(BaseModel):
-    """Validator for artifact creation requests."""
+class ArtifactCreatePayloadValidator(BaseModel):
+    """Shared validator for artifact creation payload fields."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    workspace_id: str
     type: ArtifactType
     title: Annotated[str, Field(max_length=500)] | None = None
     content: dict[str, Any]
     created_by_skill: Annotated[str, Field(max_length=100)] | None = None
     parent_artifact_id: str | None = None
-
-    @field_validator("workspace_id")
-    @classmethod
-    def validate_workspace_id(cls, v: str) -> str:
-        """Validate workspace ID is a valid UUID."""
-        return validate_uuid(v)
 
     @field_validator("title")
     @classmethod
@@ -81,6 +74,18 @@ class CreateArtifactValidator(BaseModel):
         """Validate parent artifact ID if provided."""
         if v is None:
             return None
+        return validate_uuid(v)
+
+
+class CreateArtifactValidator(ArtifactCreatePayloadValidator):
+    """Validator for artifact creation requests."""
+
+    workspace_id: str
+
+    @field_validator("workspace_id")
+    @classmethod
+    def validate_workspace_id(cls, v: str) -> str:
+        """Validate workspace ID is a valid UUID."""
         return validate_uuid(v)
 
 

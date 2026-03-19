@@ -13,14 +13,19 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 
+from src.application.errors import (
+    AccessDeniedError,
+    InternalServiceError,
+    NotFoundError,
+)
 from src.application.handlers.feature_execution_handler import (
     LITERATURE_THRESHOLD,
     FeatureExecutionHandler,
     build_task_payload,
     resolve_workspace_type,
 )
+from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
 from src.services.credit_service import InsufficientCreditsError
 from src.task.service import ConcurrencyLimitError
 
@@ -150,10 +155,9 @@ class TestFeatureExecutionHandler:
         ws_service.get.return_value = None
         handler = _make_handler(workspace_service=ws_service)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await handler.execute("ws-1", "some_feature")
-        assert exc_info.value.status_code == 404
-        assert "Workspace not found" in exc_info.value.detail
+        assert "Workspace not found" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_raises_403_for_non_owner(self):
@@ -162,9 +166,9 @@ class TestFeatureExecutionHandler:
         ws_service.get.return_value = ws
         handler = _make_handler(workspace_service=ws_service)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(AccessDeniedError) as exc_info:
             await handler.execute("ws-1", "some_feature")
-        assert exc_info.value.status_code == 403
+        assert "Access denied" in exc_info.value.message
 
     @pytest.mark.asyncio
     @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
@@ -175,10 +179,9 @@ class TestFeatureExecutionHandler:
         ws_service.get.return_value = ws
         handler = _make_handler(workspace_service=ws_service)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await handler.execute("ws-1", "unknown_feature")
-        assert exc_info.value.status_code == 404
-        assert "unknown_feature" in exc_info.value.detail
+        assert "unknown_feature" in exc_info.value.message
 
     @pytest.mark.asyncio
     @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
@@ -201,11 +204,10 @@ class TestFeatureExecutionHandler:
         result = await handler.execute(
             "ws-1", "thesis_writing", {"action": "write_all"}
         )
-        assert result["status"] == "warning"
-        assert result["warning"] == "literature_insufficient"
-        assert result["task_id"] is None
-        assert result["detail"]["current"] == 3
-        assert result["detail"]["recommended"] == LITERATURE_THRESHOLD
+        assert isinstance(result, FeatureExecutionAdvisory)
+        assert result.code == "literature_insufficient"
+        assert result.context["current"] == 3
+        assert result.context["recommended"] == LITERATURE_THRESHOLD
 
     @pytest.mark.asyncio
     @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
@@ -240,7 +242,8 @@ class TestFeatureExecutionHandler:
         result = await handler.execute(
             "ws-1", "thesis_writing", {"action": "generate_outline"}
         )
-        assert result["task_id"] == "task-1"
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "task-1"
         lit_service.count_literature.assert_not_called()
 
     @pytest.mark.asyncio
@@ -266,8 +269,8 @@ class TestFeatureExecutionHandler:
         )
 
         result = await handler.execute("ws-1", "test_feature")
-        assert result["task_id"] == "existing-task-42"
-        assert result["status"] == "pending"
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "existing-task-42"
         credit_service.consume_for_feature.assert_not_called()
         task_service.submit_task.assert_not_called()
 
@@ -296,10 +299,10 @@ class TestFeatureExecutionHandler:
         )
 
         result = await handler.execute("ws-1", "test_feature")
-        assert result["status"] == "warning"
-        assert result["warning"] == "insufficient_credits"
-        assert result["detail"]["current"] == 10
-        assert result["detail"]["required"] == 30
+        assert isinstance(result, FeatureExecutionAdvisory)
+        assert result.code == "insufficient_credits"
+        assert result.context["current"] == 10
+        assert result.context["required"] == 30
         task_service.submit_task.assert_not_called()
 
     @pytest.mark.asyncio
@@ -328,10 +331,9 @@ class TestFeatureExecutionHandler:
         result = await handler.execute(
             "ws-1", "deep_research", {"query": "test"}, "thread-1"
         )
-        assert result["task_id"] == "new-task-789"
-        assert result["status"] == "pending"
-        assert result["feature_id"] == "deep_research"
-        assert result["warning"] is None
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "new-task-789"
+        assert result.feature_id == "deep_research"
         task_service.submit_task.assert_called_once()
 
     @pytest.mark.asyncio
@@ -363,7 +365,8 @@ class TestFeatureExecutionHandler:
         )
 
         result = await handler.execute("ws-1", "test_feature")
-        assert result["task_id"] == "task-999"
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "task-999"
         # Credit transaction should be linked
         assert tx.task_id == "task-999"
         credit_service.db.commit.assert_called_once()
@@ -401,9 +404,9 @@ class TestFeatureExecutionHandler:
             credit_service=credit_service,
         )
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(InternalServiceError) as exc_info:
             await handler.execute("ws-1", "test_feature")
-        assert exc_info.value.status_code == 500
+        assert "Failed to queue feature task" in exc_info.value.message
         credit_service.refund_failed_task.assert_called_once_with(
             user_id="user-1",
             original_transaction_id="tx-1",
@@ -434,7 +437,7 @@ class TestFeatureExecutionHandler:
             credit_service=credit_service,
         )
 
-        with pytest.raises(HTTPException):
+        with pytest.raises(InternalServiceError):
             await handler.execute("ws-1", "test_feature")
         credit_service.refund_failed_task.assert_not_called()
 
@@ -470,11 +473,10 @@ class TestFeatureExecutionHandler:
         )
 
         result = await handler.execute("ws-1", "test_feature")
-        assert result["status"] == "warning"
-        assert result["warning"] == "concurrency_limit"
-        assert result["detail"]["current"] == 3
-        assert result["detail"]["limit"] == 3
-        assert result["task_id"] is None
+        assert isinstance(result, FeatureExecutionAdvisory)
+        assert result.code == "concurrency_limit"
+        assert result.context["current"] == 3
+        assert result.context["limit"] == 3
         credit_service.refund_failed_task.assert_called_once()
 
 
@@ -515,8 +517,8 @@ class TestIdempotencyKey:
             idempotency_key="key-123",
             redis_client=redis_client,
         )
-        assert result["task_id"] == "cached-task-42"
-        assert result["status"] == "pending"
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "cached-task-42"
         # Should NOT bill or submit new task
         credit_service.consume_for_feature.assert_not_called()
         task_service.submit_task.assert_not_called()
@@ -560,7 +562,8 @@ class TestIdempotencyKey:
             idempotency_key="key-new",
             redis_client=redis_client,
         )
-        assert result["task_id"] == "new-task-999"
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "new-task-999"
         # Verify the key was stored
         redis_client.client.set.assert_called_once()
         call_args = redis_client.client.set.call_args
@@ -594,4 +597,5 @@ class TestIdempotencyKey:
         )
 
         result = await handler.execute("ws-1", "test_feature")
-        assert result["task_id"] == "new-task-1"
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "new-task-1"

@@ -435,7 +435,7 @@ async def test_app(test_engine, test_session):
 
     # ============ Workspace Routes ============
 
-    @app.post("/api/workspaces/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
+    @app.post("/api/workspaces", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
     async def create_workspace(request: CreateWorkspaceRequest, user_id: str):
         valid_types = [
             "sci",
@@ -468,7 +468,7 @@ async def test_app(test_engine, test_session):
             config=workspace.config or {},
         )
 
-    @app.get("/api/workspaces/", response_model=list[WorkspaceResponse])
+    @app.get("/api/workspaces", response_model=list[WorkspaceResponse])
     async def list_workspaces(user_id: str):
         result = await test_session.execute(
             select(FixtureWorkspace).where(FixtureWorkspace.user_id == user_id).order_by(FixtureWorkspace.updated_at.desc())
@@ -610,7 +610,7 @@ async def test_app(test_engine, test_session):
 
     # ============ Paper Routes ============
 
-    @app.post("/api/papers/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
+    @app.post("/api/papers", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
     async def create_paper(request: CreatePaperRequest):
         paper = FixturePaper(
             doi=request.doi,
@@ -644,7 +644,7 @@ async def test_app(test_engine, test_session):
             reference_count=paper.reference_count,
         )
 
-    @app.get("/api/papers/", response_model=list[PaperResponse])
+    @app.get("/api/papers", response_model=list[PaperResponse])
     async def list_papers(workspace_id: str | None = None, limit: int = 20):
         if workspace_id:
             query = (

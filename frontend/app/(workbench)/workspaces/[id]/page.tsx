@@ -109,9 +109,9 @@ export default function WorkbenchPage() {
   const router = useRouter();
   const workspaceId = params.id as string;
 
-  const { workspace, isWorkspaceLoading, error, loadWorkspace, clearWorkspace, artifacts, fetchArtifacts } =
+  const { workspace, isWorkspaceLoading, error, artifacts } =
     useWorkspaceStore();
-  const { features, fetchFeatures, clearFeatures } = useFeaturesStore();
+  const { features } = useFeaturesStore();
   const { modules, fetchDashboard, reset: resetDashboard } = useDashboardStore();
 
   const moduleStatusCounts = useMemo(() => {
@@ -133,20 +133,15 @@ export default function WorkbenchPage() {
 
   useEffect(() => {
     if (workspaceId) {
-      loadWorkspace(workspaceId);
-      fetchFeatures(workspaceId);
       fetchDashboard(workspaceId);
-      fetchArtifacts(workspaceId);
     }
 
     return () => {
-      clearWorkspace();
-      clearFeatures();
       resetDashboard();
     };
-  }, [workspaceId, loadWorkspace, clearWorkspace, fetchFeatures, clearFeatures, fetchDashboard, resetDashboard, fetchArtifacts]);
+  }, [workspaceId, fetchDashboard, resetDashboard]);
 
-  if (isWorkspaceLoading) {
+  if (isWorkspaceLoading || (!workspace && !error)) {
     return (
       <div className="h-screen flex items-center justify-center bg-[var(--bg-base)]">
         <motion.div

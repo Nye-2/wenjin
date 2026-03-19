@@ -6,13 +6,12 @@ This service provides paper management functionality including:
 - Workspace-paper association management
 """
 
-
 from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Paper, PaperExtraction, WorkspacePaper
+from src.database import Paper, PaperExtraction, PaperSection, Workspace, WorkspacePaper
 
 
 class PaperService:
@@ -41,8 +40,12 @@ class PaperService:
         year: int | None = None,
         venue: str | None = None,
         abstract: str | None = None,
+        file_path: str | None = None,
         source: str = "manual_upload",
         source_url: str | None = None,
+        external_ids: dict[str, Any] | None = None,
+        citation_count: int | None = None,
+        reference_count: int | None = None,
     ) -> Paper:
         """Create a new paper.
 
@@ -53,8 +56,12 @@ class PaperService:
             year: Publication year (optional)
             venue: Publication venue (optional)
             abstract: Paper abstract (optional)
+            file_path: Optional uploaded PDF path
             source: Source of paper data (default: "manual_upload")
             source_url: External source URL (optional)
+            external_ids: Optional external identifiers payload
+            citation_count: Optional citation count
+            reference_count: Optional reference count
 
         Returns:
             Created paper object
@@ -75,8 +82,12 @@ class PaperService:
             year=year,
             venue=venue,
             abstract=abstract,
+            file_path=file_path,
             source=source,
             source_url=source_url,
+            external_ids=external_ids or {},
+            citation_count=citation_count,
+            reference_count=reference_count,
         )
         self.db.add(paper)
         await self.db.commit()
@@ -298,6 +309,100 @@ class PaperService:
             )
             .limit(limit)
         )
+        return list(result.scalars().all())
+
+    async def is_accessible_by_user(
+        self,
+        paper_id: str,
+        user_id: str,
+    ) -> bool:
+        """Check whether a user owns a workspace containing this paper."""
+        result = await self.db.execute(
+            select(WorkspacePaper.paper_id)
+            .join(Workspace, Workspace.id == WorkspacePaper.workspace_id)
+            .where(
+                WorkspacePaper.paper_id == paper_id,
+                Workspace.user_id == user_id,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def is_in_workspace(
+        self,
+        paper_id: str,
+        workspace_id: str,
+    ) -> bool:
+        """Check whether a paper is associated with a workspace."""
+        result = await self.db.execute(
+            select(WorkspacePaper.paper_id)
+            .where(
+                WorkspacePaper.paper_id == paper_id,
+                WorkspacePaper.workspace_id == workspace_id,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def list_visible_to_user(
+        self,
+        user_id: str,
+        limit: int = 20,
+    ) -> list[Paper]:
+        """List papers visible to a user through owned workspaces."""
+        result = await self.db.execute(
+            select(Paper)
+            .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
+            .join(Workspace, Workspace.id == WorkspacePaper.workspace_id)
+            .where(Workspace.user_id == user_id)
+            .order_by(Paper.created_at.desc())
+            .distinct()
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def search_visible_to_user(
+        self,
+        user_id: str,
+        query: str,
+        limit: int = 20,
+    ) -> list[Paper]:
+        """Search papers visible to a user through owned workspaces."""
+        escaped_query = query.replace("%", "\\%").replace("_", "\\_")
+        result = await self.db.execute(
+            select(Paper)
+            .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
+            .join(Workspace, Workspace.id == WorkspacePaper.workspace_id)
+            .where(Workspace.user_id == user_id)
+            .where(
+                or_(
+                    Paper.title.ilike(f"%{escaped_query}%", escape="\\"),
+                    Paper.abstract.ilike(f"%{escaped_query}%", escape="\\"),
+                )
+            )
+            .distinct()
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def list_sections(
+        self,
+        paper_id: str,
+        workspace_id: str | None = None,
+        user_id: str | None = None,
+    ) -> list[PaperSection]:
+        """List paper sections, optionally filtered by workspace or user visibility."""
+        query = select(PaperSection).where(PaperSection.paper_id == paper_id)
+        if workspace_id:
+            query = query.where(PaperSection.workspace_id == workspace_id)
+        elif user_id:
+            query = (
+                query.join(Workspace, Workspace.id == PaperSection.workspace_id)
+                .where(Workspace.user_id == user_id)
+            )
+
+        query = query.order_by(PaperSection.page_start)
+        result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def store_extraction(

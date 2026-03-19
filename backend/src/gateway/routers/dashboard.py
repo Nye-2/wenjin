@@ -1,14 +1,18 @@
 """User/Admin dashboard router."""
 
-from collections.abc import AsyncGenerator
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import AdminActionType, User, get_db_session
-from src.gateway.routers.auth import get_current_user
+from src.database import AdminActionType, User
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.dependencies import (
+    get_admin_dashboard_service,
+    get_credit_service,
+    get_release_gate_service,
+    get_user_dashboard_service,
+)
 from src.services.admin_dashboard_service import AdminDashboardService
 from src.services.credit_service import CreditService
 from src.services.release_gate_service import ReleaseGateService
@@ -43,36 +47,6 @@ class UpdateUserRoleRequest(BaseModel):
     """Admin update user role request."""
 
     role: str = Field(pattern="^(user|admin)$")
-
-
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency to get database session."""
-    async with get_db_session() as session:
-        yield session
-
-
-async def get_credit_service(db: AsyncSession = Depends(get_db)) -> CreditService:
-    """Get CreditService instance."""
-    return CreditService(db)
-
-
-async def get_user_dashboard_service(
-    db: AsyncSession = Depends(get_db),
-) -> UserDashboardService:
-    """Get UserDashboardService instance."""
-    return UserDashboardService(db)
-
-
-async def get_admin_dashboard_service(
-    db: AsyncSession = Depends(get_db),
-) -> AdminDashboardService:
-    """Get AdminDashboardService instance."""
-    return AdminDashboardService(db)
-
-
-async def get_release_gate_service() -> ReleaseGateService:
-    """Get ReleaseGateService instance."""
-    return ReleaseGateService()
 
 
 def _require_admin(current_user: User) -> None:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, FileText, Settings } from "lucide-react";
@@ -15,6 +15,12 @@ import {
 } from "@/components/workspace/WorkspaceResultPanel";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import {
+  findLatestArtifact,
+  getArtifactContentRecord,
+  readString,
+} from "@/lib/artifact-utils";
 
 interface CopyrightMaterialsProfile {
   software_name?: string;
@@ -33,7 +39,7 @@ export default function TechnicalDescriptionPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts } = useWorkspaceStore();
 
   // Form fields
   const [softwareName, setSoftwareName] = useState("");
@@ -47,7 +53,7 @@ export default function TechnicalDescriptionPage() {
   // UI state
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(true);
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "technical_description",
   });
@@ -118,27 +124,88 @@ export default function TechnicalDescriptionPage() {
     });
   };
 
-  const resultViewModel: WorkspaceResultViewModel = {
-    summary:
-      "本工作区用于生成软著技术说明书主文档，系统会根据软件参数产出结构化说明内容。",
+  const latestTechnicalArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["technical_description"]),
+    [artifacts]
+  );
+  const latestTechnicalResult = useMemo(
+    () => getArtifactContentRecord(latestTechnicalArtifact) ?? latestTaskResult,
+    [latestTechnicalArtifact, latestTaskResult]
+  );
+  const latestSoftwareProfile =
+    latestTechnicalResult?.software_profile &&
+    typeof latestTechnicalResult.software_profile === "object"
+      ? (latestTechnicalResult.software_profile as Record<string, unknown>)
+      : null;
+  const latestSections =
+    latestTechnicalResult?.sections &&
+    typeof latestTechnicalResult.sections === "object"
+      ? (latestTechnicalResult.sections as Record<string, unknown>)
+      : null;
+  const latestSectionNames = latestSections
+    ? Object.entries(latestSections)
+        .map(([key, value]) => {
+          if (!value || typeof value !== "object") {
+            return readString(key);
+          }
+          const sectionTitle = readString((value as Record<string, unknown>).title);
+          return sectionTitle ?? readString(key);
+        })
+        .filter((item): item is string => Boolean(item))
+        .slice(0, 4)
+    : [];
+
+  const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestTechnicalResult
+      ? "最近一次技术说明书已经生成，可直接在知识区查看完整章节并继续修订。"
+      : "本工作区用于生成软著技术说明书主文档，系统会根据软件参数产出结构化说明内容。",
     sections: [
       {
         title: "当前软件信息",
-        content: `软件：${softwareName || "未填写"}；版本：${version || "未填写"}；部署：${deploymentArchitecture || "未填写"}`,
+        content: describeFields([
+          ["软件", softwareName],
+          ["版本", version],
+          ["部署", deploymentArchitecture],
+        ]),
       },
       {
         title: "配置完整度",
-        content: `核心模块：${coreModules || "未填写"}；数据库/中间件：${databaseMiddleware || "未填写"}；接口协议：${interfaceProtocols || "未填写"}`,
+        content: describeFields([
+          ["核心模块", coreModules],
+          ["数据库/中间件", databaseMiddleware],
+          ["接口协议", interfaceProtocols],
+        ]),
       },
       {
         title: "任务状态",
-        content: isLoadingDefaults
-          ? "正在读取历史材料默认值..."
-          : error
-            ? `执行失败：${error}`
-            : status
-              ? `执行反馈：${status}`
-              : "尚未开始生成技术说明书。",
+        content: describeTaskStatus({
+          isLoading: isLoadingDefaults,
+          loadingMessage: "正在读取历史材料默认值...",
+          error,
+          status,
+          idleMessage: "尚未开始生成技术说明书。",
+        }),
+      },
+      {
+        title: "最近产出",
+        content: latestTechnicalResult
+          ? [
+              latestSoftwareProfile
+                ? describeFields([
+                    ["软件", readString(latestSoftwareProfile.software_name) || softwareName],
+                    ["版本", readString(latestSoftwareProfile.version) || version],
+                  ])
+                : null,
+              latestSections
+                ? `章节数：${Object.keys(latestSections).length}`
+                : null,
+              latestSectionNames.length > 0
+                ? `核心章节：${latestSectionNames.join("、")}`
+                : null,
+            ]
+              .filter((item): item is string => Boolean(item))
+              .join("；")
+          : "执行后会在这里展示最近一次生成的说明书章节摘要。",
       },
     ],
     nextActions: [
@@ -147,7 +214,7 @@ export default function TechnicalDescriptionPage() {
       "与材料清单联动完成软著申请包准备。",
     ],
     outputLanguage: "zh",
-  };
+  });
 
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">

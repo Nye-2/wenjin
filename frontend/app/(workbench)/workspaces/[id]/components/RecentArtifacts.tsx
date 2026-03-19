@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   FileText,
@@ -13,6 +14,7 @@ import {
   Target,
 } from "lucide-react";
 import type { Artifact } from "@/stores/workspace";
+import { ArtifactDetailDialog } from "@/components/workspace/ArtifactDetailDialog";
 
 const artifactIcons: Record<string, React.ElementType> = {
   hypothesis: Lightbulb,
@@ -51,6 +53,8 @@ interface RecentArtifactsProps {
 }
 
 export function RecentArtifacts({ artifacts }: RecentArtifactsProps) {
+  const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+
   if (artifacts.length === 0) {
     return (
       <div className="text-center py-8 text-[var(--text-muted)]">
@@ -76,33 +80,47 @@ export function RecentArtifacts({ artifacts }: RecentArtifactsProps) {
   };
 
   return (
-    <div className="space-y-2">
-      {artifacts.slice(0, 5).map((artifact, index) => {
-        const Icon = artifactIcons[artifact.type] || artifactIcons.default;
-        const colorClass = artifactColors[artifact.type] || artifactColors.default;
+    <>
+      <div className="space-y-2">
+        {artifacts.slice(0, 5).map((artifact, index) => {
+          const Icon = artifactIcons[artifact.type] || artifactIcons.default;
+          const colorClass = artifactColors[artifact.type] || artifactColors.default;
 
-        return (
-          <motion.div
-            key={artifact.id}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.05 }}
-            className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-muted)] transition-colors cursor-pointer border border-[var(--border-default)]"
-          >
-            <div className={`p-2 rounded-lg bg-[var(--bg-elevated)]`}>
-              <Icon className={`w-4 h-4 ${colorClass}`} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-[var(--text-primary)] truncate">
-                {artifact.title || `未命名 ${artifact.type}`}
-              </p>
-              <p className="text-xs text-[var(--text-muted)]">
-                {artifact.type.replace(/_/g, " ")} · {formatTime(artifact.created_at)}
-              </p>
-            </div>
-          </motion.div>
-        );
-      })}
-    </div>
+          return (
+            <motion.button
+              type="button"
+              key={artifact.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.05 }}
+              onClick={() => setSelectedArtifact(artifact)}
+              className="flex w-full items-center gap-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 text-left transition-colors hover:bg-[var(--bg-muted)]"
+            >
+              <div className={`p-2 rounded-lg bg-[var(--bg-elevated)]`}>
+                <Icon className={`w-4 h-4 ${colorClass}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+                  {artifact.title || `未命名 ${artifact.type}`}
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  {artifact.type.replace(/_/g, " ")} · {formatTime(artifact.created_at)}
+                </p>
+              </div>
+            </motion.button>
+          );
+        })}
+      </div>
+
+      <ArtifactDetailDialog
+        artifact={selectedArtifact}
+        open={selectedArtifact !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedArtifact(null);
+          }
+        }}
+      />
+    </>
   );
 }

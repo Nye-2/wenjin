@@ -34,7 +34,6 @@ FEATURE_COSTS: dict[str, int | dict[str, int]] = {
 BILLABLE_TASK_TYPES: frozenset[str] = frozenset({
     "workspace_feature",
     "deep_research",
-    "thesis_generation",
     "literature_search",
 })
 

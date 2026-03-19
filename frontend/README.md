@@ -4,12 +4,12 @@ Next.js frontend for AcademiaGPT v2 - an Academic AI Assistant.
 
 ## Tech Stack
 
-- Next.js 15 (App Router)
+- Next.js 16 (App Router)
+- React 19
 - TypeScript
 - TailwindCSS
-- Zustand (State Management)
-
-- React Query (API Client)
+- Zustand
+- Axios
 
 ## Features
 - Workspace management interface
@@ -23,6 +23,9 @@ Next.js frontend for AcademiaGPT v2 - an Academic AI Assistant.
 ```bash
 # Install dependencies
 npm install
+
+# Copy env template
+cp .env.example .env.local
 
 # Start development server
 npm run dev
@@ -63,8 +66,9 @@ frontend/
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `NEXT_PUBLIC_API_URL` | Backend API base (e.g. `/api` or `http://localhost:8001`) | Recommended |
+| `NEXT_PUBLIC_API_URL` | Backend API base (e.g. `/api` or `http://localhost:8001/api`) | Recommended |
 | `NEXT_PUBLIC_BACKEND_BASE_URL` | Legacy alias for `NEXT_PUBLIC_API_URL` | Optional |
+| `NEXT_PUBLIC_LANGGRAPH_BASE_URL` | LangGraph proxy base | Optional |
 
 ## License
 

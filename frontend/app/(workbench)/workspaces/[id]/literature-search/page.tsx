@@ -1,21 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, Search, BookMarked } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import {
+  findLatestArtifact,
+  getArtifactContentRecord,
+  readString,
+  readStringList,
+} from "@/lib/artifact-utils";
 import { cn } from "@/lib/utils";
 
 export default function LiteratureSearchPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts } = useWorkspaceStore();
 
   const [query, setQuery] = useState("");
   const [discipline, setDiscipline] = useState("");
@@ -30,7 +41,7 @@ export default function LiteratureSearchPage() {
     }
   }, [workspace, query, discipline]);
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "literature_search",
   });
@@ -43,6 +54,71 @@ export default function LiteratureSearchPage() {
   } = useModelSelection({
     purpose: "writing",
     persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
+
+  const latestSearchArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["literature_search_results"]),
+    [artifacts]
+  );
+  const latestSearchResult = useMemo(
+    () => getArtifactContentRecord(latestSearchArtifact) ?? latestTaskResult,
+    [latestSearchArtifact, latestTaskResult]
+  );
+  const latestSearchPapers = Array.isArray(latestSearchResult?.papers)
+    ? latestSearchResult.papers
+    : [];
+  const latestTopHits = Array.isArray(latestSearchResult?.top_hits)
+    ? latestSearchResult.top_hits
+    : [];
+  const latestSearchSummary = readString(latestSearchResult?.summary);
+  const topTitles = readStringList(
+    latestTopHits.map((item: unknown) =>
+      item && typeof item === "object"
+        ? (item as Record<string, unknown>).title
+        : item
+    ),
+    3
+  );
+  const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestSearchResult
+      ? "最近一次文献检索结果已生成，可继续进入论文分析或写作。"
+      : "本工作区用于生成结构化文献检索结果与推荐命中。",
+    sections: [
+      {
+        title: "当前检索参数",
+        content: describeFields([
+          ["关键词", query],
+          ["学科", discipline],
+        ]),
+      },
+      {
+        title: "任务状态",
+        content: describeTaskStatus({
+          error,
+          status,
+          idleMessage: "尚未开始检索。",
+        }),
+      },
+      {
+        title: "最近检索结果",
+        content: latestSearchResult
+          ? [
+              `候选文献：${latestSearchPapers.length}`,
+              `推荐命中：${latestTopHits.length}`,
+              topTitles.length > 0 ? `Top Hits：${topTitles.join("、")}` : null,
+              latestSearchSummary ? `摘要：${latestSearchSummary.slice(0, 100)}${latestSearchSummary.length > 100 ? "..." : ""}` : null,
+            ]
+              .filter((item): item is string => Boolean(item))
+              .join("；")
+          : "执行后会在这里展示最近一次检索摘要。",
+      },
+    ],
+    nextActions: [
+      "先检索主题文献，再进入论文分析模块做结构化解析。",
+      "将高相关结果作为写作上下文输入。",
+      "在知识区打开完整检索 artifact 查看全部结果。",
+    ],
+    outputLanguage: "en",
   });
 
   const handleSearch = async () => {
@@ -145,14 +221,9 @@ export default function LiteratureSearchPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="h-full"
           >
-            <div className="text-center max-w-xl">
-              <BookMarked className="w-16 h-16 text-emerald-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">SCI 文献检索工作区</h2>
-              <p className="text-[var(--text-secondary)]">执行后将生成 `literature_search_results` artifact，并在知识区可见。</p>
-              <p className="text-sm text-[var(--text-muted)] mt-2">建议先检索，再进入论文分析模块进行深度结构化解析。</p>
-            </div>
+            <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>
       </main>

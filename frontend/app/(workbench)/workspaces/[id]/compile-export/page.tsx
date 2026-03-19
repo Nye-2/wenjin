@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, FileText, FileDown } from "lucide-react";
@@ -9,19 +9,26 @@ import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import { extractArtifactFileUrl, isPdfUrl } from "@/lib/public-assets";
+import { getArtifactContentRecord, readString } from "@/lib/artifact-utils";
 import { cn } from "@/lib/utils";
 
 export default function CompileExportPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  useWorkspaceStore();
+  const { artifacts } = useWorkspaceStore();
 
   const [template, setTemplate] = useState("default");
   const [compiler, setCompiler] = useState("xelatex");
   const [bibStyle, setBibStyle] = useState("gbt7714");
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "compile_export",
   });
@@ -36,6 +43,78 @@ export default function CompileExportPage() {
     persistenceKey: `workspace:${workspaceId}:model:writing`,
   });
 
+  const latestCompileArtifact = useMemo(
+    () =>
+      [...artifacts]
+        .filter((artifact) => {
+          const content = getArtifactContentRecord(artifact);
+          return Boolean(content?.compile_status || content?.pdf_path || content?.pdf_url);
+        })
+        .sort(
+          (left, right) =>
+            new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+        )[0] ?? null,
+    [artifacts]
+  );
+  const latestCompileResult = useMemo(
+    () => getArtifactContentRecord(latestCompileArtifact) ?? latestTaskResult,
+    [latestCompileArtifact, latestTaskResult]
+  );
+  const latestCompileUrl = extractArtifactFileUrl(latestCompileResult);
+  const latestCompileStatus = readString(latestCompileResult?.compile_status);
+  const latestCompileError = readString(latestCompileResult?.compile_error);
+  const latestCompileLogs = readString(latestCompileResult?.compile_logs);
+  const latestCompilePageCount =
+    typeof latestCompileResult?.page_count === "number"
+      ? latestCompileResult.page_count
+      : null;
+  const latestLatexContent = readString(latestCompileResult?.latex_content);
+  const latestBibContent = readString(latestCompileResult?.bib_content);
+  const compileResultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestCompileResult
+      ? "最近一次编译结果已生成，可直接预览 PDF 或查看编译日志。"
+      : "本工作区用于拼装章节、图表和文献，并编译导出论文 PDF。",
+    sections: [
+      {
+        title: "当前配置",
+        content: describeFields([
+          ["模板", template],
+          ["编译器", compiler],
+          ["参考文献格式", bibStyle],
+        ]),
+      },
+      {
+        title: "任务状态",
+        content: describeTaskStatus({
+          error,
+          status,
+          idleMessage: "尚未开始编译。",
+        }),
+      },
+      {
+        title: "最近编译",
+        content: latestCompileResult
+          ? [
+              describeFields([
+                ["状态", latestCompileStatus],
+                ["页数", latestCompilePageCount],
+              ]),
+              latestCompileUrl ? "已生成可访问 PDF。" : null,
+              latestCompileError ? `错误：${latestCompileError}` : null,
+            ]
+              .filter((item): item is string => Boolean(item))
+              .join("；")
+          : "执行后会在这里展示最近一次编译结果。",
+      },
+    ],
+    nextActions: [
+      "确认章节、图表和文献已准备完成后开始编译。",
+      "若编译失败，先查看日志定位 LaTeX 错误。",
+      "编译成功后直接打开或下载 PDF。",
+    ],
+    outputLanguage: "zh",
+  });
+
   const handleCompile = async () => {
     await run({
       template,
@@ -43,6 +122,16 @@ export default function CompileExportPage() {
       bibliography_style: bibStyle,
       model_id: selectedModel || undefined,
     });
+  };
+
+  const downloadTextFile = (filename: string, content: string) => {
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
   };
 
   return (
@@ -178,9 +267,41 @@ export default function CompileExportPage() {
             <h3 className="text-sm font-medium text-[var(--text-primary)] mb-3">
               导出格式
             </h3>
-            <p className="text-xs text-[var(--text-muted)]">
-              多格式导出功能即将推出，敬请期待
-            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  if (latestCompileUrl) {
+                    window.open(latestCompileUrl, "_blank", "noopener,noreferrer");
+                  }
+                }}
+                disabled={!latestCompileUrl}
+                className="w-full rounded-lg border border-[var(--border-default)] px-3 py-2 text-left text-sm text-[var(--text-secondary)] disabled:opacity-40"
+              >
+                导出 PDF
+              </button>
+              <button
+                onClick={() => {
+                  if (latestLatexContent) {
+                    downloadTextFile("thesis.tex", latestLatexContent);
+                  }
+                }}
+                disabled={!latestLatexContent}
+                className="w-full rounded-lg border border-[var(--border-default)] px-3 py-2 text-left text-sm text-[var(--text-secondary)] disabled:opacity-40"
+              >
+                导出 LaTeX 源码
+              </button>
+              <button
+                onClick={() => {
+                  if (latestBibContent) {
+                    downloadTextFile("references.bib", latestBibContent);
+                  }
+                }}
+                disabled={!latestBibContent}
+                className="w-full rounded-lg border border-[var(--border-default)] px-3 py-2 text-left text-sm text-[var(--text-secondary)] disabled:opacity-40"
+              >
+                导出 BibTeX
+              </button>
+            </div>
           </div>
         </aside>
 
@@ -189,17 +310,74 @@ export default function CompileExportPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="space-y-6"
           >
-            <div className="text-center">
-              <FileText className="w-16 h-16 text-rose-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                PDF 预览
-              </h2>
-              <p className="text-[var(--text-secondary)]">
-                编译完成后，可在知识区或最近产出中打开编译稿。
-              </p>
+            <WorkspaceResultPanel viewModel={compileResultViewModel} />
+
+            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-[var(--text-primary)]">
+                    PDF 预览
+                  </h2>
+                  <p className="text-sm text-[var(--text-muted)]">
+                    编译完成后，这里会展示最近一次 PDF 结果。
+                  </p>
+                </div>
+                {latestCompileUrl && (
+                  <div className="flex gap-2">
+                    <a
+                      href={latestCompileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-lg bg-rose-600 px-3 py-2 text-sm text-white"
+                    >
+                      打开 PDF
+                    </a>
+                    <a
+                      href={latestCompileUrl}
+                      download
+                      className="rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)]"
+                    >
+                      下载
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {latestCompileUrl && isPdfUrl(latestCompileUrl) ? (
+                <div className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-white">
+                  <iframe
+                    src={latestCompileUrl}
+                    title="Compile Preview"
+                    className="h-[640px] w-full"
+                  />
+                </div>
+              ) : (
+                <div className="text-center py-10">
+                  <FileText className="mx-auto mb-4 h-12 w-12 text-rose-500/60" />
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    暂无可预览 PDF，执行编译后会在这里显示。
+                  </p>
+                </div>
+              )}
             </div>
+
+            {latestCompileLogs && (
+              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+                <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">
+                  最近编译日志
+                </h3>
+                <pre className="overflow-x-auto rounded-lg bg-[var(--bg-elevated)] p-4 text-xs leading-6 text-[var(--text-secondary)]">
+                  {latestCompileLogs}
+                </pre>
+              </div>
+            )}
+            {latestCompileError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+                {latestCompileError}
+              </div>
+            )}
           </motion.div>
         </div>
       </main>

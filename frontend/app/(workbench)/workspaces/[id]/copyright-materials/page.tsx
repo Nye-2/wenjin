@@ -1,19 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, ClipboardList, FolderCheck } from "lucide-react";
+import { ArrowLeft, ClipboardList } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import { findLatestArtifact, getArtifactContentRecord, readString } from "@/lib/artifact-utils";
 import { cn } from "@/lib/utils";
 
 export default function CopyrightMaterialsPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts } = useWorkspaceStore();
 
   const [softwareName, setSoftwareName] = useState("");
   const [version, setVersion] = useState("V1.0");
@@ -30,9 +36,75 @@ export default function CopyrightMaterialsPage() {
   const [targetPlatforms, setTargetPlatforms] = useState("");
   const [sourceModules, setSourceModules] = useState("");
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "copyright_materials",
+  });
+
+  const latestMaterialsArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["copyright_materials"]),
+    [artifacts]
+  );
+  const latestMaterialsResult = useMemo(
+    () => getArtifactContentRecord(latestMaterialsArtifact) ?? latestTaskResult,
+    [latestMaterialsArtifact, latestTaskResult]
+  );
+  const softwareProfile =
+    latestMaterialsResult?.software_profile &&
+    typeof latestMaterialsResult.software_profile === "object"
+      ? (latestMaterialsResult.software_profile as Record<string, unknown>)
+      : null;
+  const requiredMaterials = Array.isArray(latestMaterialsResult?.required_materials)
+    ? latestMaterialsResult.required_materials
+    : [];
+  const reviewChecklist = Array.isArray(latestMaterialsResult?.review_checklist)
+    ? latestMaterialsResult.review_checklist
+    : [];
+  const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestMaterialsResult
+      ? "最近一次软著材料清单已生成，可继续补技术说明书和提交材料。"
+      : "本工作区用于生成软著登记所需材料清单与核对项。",
+    sections: [
+      {
+        title: "当前配置",
+        content: describeFields([
+          ["软件名称", softwareName],
+          ["版本", version],
+          ["申请主体", applicantName],
+        ]),
+      },
+      {
+        title: "任务状态",
+        content: describeTaskStatus({
+          error,
+          status,
+          idleMessage: "尚未开始生成材料清单。",
+        }),
+      },
+      {
+        title: "最近清单结果",
+        content: latestMaterialsResult
+          ? [
+              softwareProfile
+                ? describeFields([
+                    ["软件", readString(softwareProfile.software_name)],
+                    ["版本", readString(softwareProfile.version)],
+                  ])
+                : null,
+              `必备材料：${requiredMaterials.length}`,
+              `核对项：${reviewChecklist.length}`,
+            ]
+              .filter((item): item is string => Boolean(item))
+              .join("；")
+          : "执行后会在这里展示最近一次清单摘要。",
+      },
+    ],
+    nextActions: [
+      "确认软件基本信息后生成材料清单。",
+      "补齐源代码页与主体证明材料。",
+      "联动 technical-description 完成说明书主文档。",
+    ],
+    outputLanguage: "zh",
   });
 
   const handleGenerate = async () => {
@@ -203,17 +275,9 @@ export default function CopyrightMaterialsPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="h-full"
           >
-            <div className="text-center max-w-md">
-              <FolderCheck className="w-16 h-16 text-violet-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                软著材料清单生成
-              </h2>
-              <p className="text-[var(--text-secondary)] mb-4">
-                系统将输出申请表、源代码页、说明书、权属证明和核对清单，帮助你快速完成提交前准备。
-              </p>
-            </div>
+            <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>
       </main>

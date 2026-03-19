@@ -10,6 +10,7 @@ from typing import Any
 from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_writing_model
+from src.workspace_features.services.thesis_feature_service import build_compile_payload
 
 logger = logging.getLogger(__name__)
 
@@ -293,15 +294,15 @@ async def compile_export_graph(
         1. review_consistency — LLM checks thesis consistency across chapters
         2. generate_abstract_keywords — LLM generates abstract and keywords
 
-    This sub-graph does NOT perform the actual LaTeX compilation.  It produces
-    a consistency review and auto-generated abstract/keywords that the
-    existing compile handler can consume.
+    After the review/summary preprocessing, it assembles and compiles the
+    thesis into a real PDF draft artifact.
     """
     workspace_id = str(payload.get("workspace_id", ""))
     workspace_name = str(
         payload.get("workspace_name", payload.get("params", {}).get("topic", ""))
     )
     workspace_description = str(payload.get("workspace_description", ""))
+    thread_id = payload.get("thread_id")
     memory_context = initial_state.get("knowledge_context")
     params = payload.get("params", {})
     requested_model = _read_optional_str(params.get("model_id"))
@@ -333,11 +334,34 @@ async def compile_export_graph(
     abstract_ok = abstract_keywords is not None
     generation_mode = _determine_generation_mode(consistency_ok, abstract_ok)
 
+    compile_payload = await build_compile_payload(
+        workspace_id=workspace_id,
+        workspace_name=workspace_name,
+        workspace_description=workspace_description,
+        thread_id=str(thread_id) if thread_id else None,
+        template=str(params.get("template") or "default"),
+        compiler=str(params.get("compiler") or "xelatex"),
+        bibliography_style=str(params.get("bibliography_style") or "gbt7714"),
+    )
+
     return {
         "workspace_id": workspace_id,
         "workspace_name": workspace_name,
         "consistency_review": consistency_review,
         "abstract_keywords": abstract_keywords,
+        "compile_status": compile_payload.get("compile_status"),
+        "pdf_path": compile_payload.get("pdf_path"),
+        "pdf_url": compile_payload.get("pdf_url"),
+        "page_count": compile_payload.get("page_count"),
+        "compile_error": compile_payload.get("compile_error"),
+        "compile_logs": compile_payload.get("compile_logs"),
+        "latex_content": compile_payload.get("latex_content"),
+        "bib_content": compile_payload.get("bib_content"),
+        "source_summary": compile_payload.get("source_summary"),
+        "template": compile_payload.get("template"),
+        "compiler": compile_payload.get("compiler"),
+        "bibliography_style": compile_payload.get("bibliography_style"),
+        "paper_title": compile_payload.get("paper_title"),
         "model_id": model_id,
         "chapter_count": len(chapter_summaries),
         "literature_count": literature_count,

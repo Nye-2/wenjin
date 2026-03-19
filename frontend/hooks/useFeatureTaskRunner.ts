@@ -13,12 +13,15 @@ export interface UseFeatureTaskRunnerOptions {
 }
 
 export interface UseFeatureTaskRunnerReturn {
-  run: (params: Record<string, unknown>, threadId?: string) => Promise<void>;
+  run: (params: Record<string, unknown>, threadId?: string) => Promise<TaskStatus | null>;
   isRunning: boolean;
   status: string | null;
   error: string | null;
+  task: TaskStatus | null;
+  result: Record<string, unknown> | null;
   clearError: () => void;
   clearStatus: () => void;
+  clearTask: () => void;
 }
 
 type RefreshTarget = "artifacts" | "papers" | "workspace";
@@ -50,6 +53,20 @@ function _resolveRefreshTargets(task: TaskStatus): RefreshTarget[] {
   return [...new Set(normalized)];
 }
 
+function _resolveTaskResult(task: TaskStatus | null): Record<string, unknown> | null {
+  if (!task?.result || typeof task.result !== "object") {
+    return null;
+  }
+
+  const result = task.result as Record<string, unknown>;
+  const nested = result.data;
+  if (nested && typeof nested === "object") {
+    return nested as Record<string, unknown>;
+  }
+
+  return result;
+}
+
 export function useFeatureTaskRunner({
   workspaceId,
   featureId,
@@ -61,6 +78,8 @@ export function useFeatureTaskRunner({
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [task, setTask] = useState<TaskStatus | null>(null);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const runningRef = useRef(false);
 
   // Hold callbacks in refs so `run` never re-creates due to callback identity changes
@@ -73,13 +92,18 @@ export function useFeatureTaskRunner({
 
   const clearError = useCallback(() => setError(null), []);
   const clearStatus = useCallback(() => setStatus(null), []);
+  const clearTask = useCallback(() => {
+    setTask(null);
+    setResult(null);
+  }, []);
 
   const run = useCallback(
     async (params: Record<string, unknown>, threadId?: string) => {
-      if (runningRef.current) return;
+      if (runningRef.current) return null;
       runningRef.current = true;
       setError(null);
       setStatus(null);
+      clearTask();
       setIsRunning(true);
 
       try {
@@ -98,7 +122,7 @@ export function useFeatureTaskRunner({
               resp.message || "任务已提交，稍后可在工作台查看结果。"
             );
           }
-          return;
+          return null;
         }
 
         if (resp.status === "warning" && !resp.task_id) {
@@ -106,14 +130,14 @@ export function useFeatureTaskRunner({
           if (onErrorRef.current) {
             await onErrorRef.current();
           }
-          return;
+          return null;
         }
         if (!resp.task_id) {
           setError("任务创建失败，请稍后重试");
           if (onErrorRef.current) {
             await onErrorRef.current();
           }
-          return;
+          return null;
         }
 
         setStatus("任务已提交，正在处理中...");
@@ -130,8 +154,11 @@ export function useFeatureTaskRunner({
           if (onErrorRef.current) {
             await onErrorRef.current();
           }
-          return;
+          return null;
         }
+
+        setTask(task);
+        setResult(_resolveTaskResult(task));
 
         if (task.status === "success") {
           if (refreshOnSuccess) {
@@ -156,11 +183,13 @@ export function useFeatureTaskRunner({
           if (onSuccessRef.current) {
             await onSuccessRef.current(task);
           }
+          return task;
         } else {
           setError(task.error || task.message || "任务执行失败");
           if (onErrorRef.current) {
             await onErrorRef.current();
           }
+          return task;
         }
       } catch (e: unknown) {
         setError(
@@ -169,6 +198,7 @@ export function useFeatureTaskRunner({
         if (onErrorRef.current) {
           await onErrorRef.current();
         }
+        return null;
       } finally {
         setIsRunning(false);
         runningRef.current = false;
@@ -182,8 +212,19 @@ export function useFeatureTaskRunner({
       fetchArtifacts,
       fetchPapers,
       loadWorkspace,
+      clearTask,
     ]
   );
 
-  return { run, isRunning, status, error, clearError, clearStatus };
+  return {
+    run,
+    isRunning,
+    status,
+    error,
+    task,
+    result,
+    clearError,
+    clearStatus,
+    clearTask,
+  };
 }

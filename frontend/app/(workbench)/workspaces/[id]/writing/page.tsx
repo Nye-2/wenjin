@@ -14,6 +14,13 @@ import {
 } from "@/components/workspace/WorkspaceResultPanel";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import {
+  findLatestArtifact,
+  getArtifactContentRecord,
+  readString,
+  readStringList,
+} from "@/lib/artifact-utils";
 
 const SECTION_OPTIONS = [
   { value: "abstract", label: "摘要" },
@@ -30,7 +37,7 @@ export default function SciWritingPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts } = useWorkspaceStore();
 
   const [paperTitle, setPaperTitle] = useState("");
   const [sectionType, setSectionType] = useState("introduction");
@@ -44,7 +51,7 @@ export default function SciWritingPage() {
   const [targetWords, setTargetWords] = useState(1200);
   const [contextArtifactIds, setContextArtifactIds] = useState("");
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "writing",
   });
@@ -71,13 +78,36 @@ export default function SciWritingPage() {
       .filter(Boolean);
   };
 
+  const latestDraftArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["paper_draft"]),
+    [artifacts]
+  );
+  const latestDraftResult = useMemo(
+    () => getArtifactContentRecord(latestDraftArtifact) ?? latestTaskResult,
+    [latestDraftArtifact, latestTaskResult]
+  );
+  const latestDraftContent = readString(latestDraftResult?.content);
+  const latestDraftSectionTitle =
+    readString(latestDraftResult?.section_title) ?? sectionHint;
+  const latestDraftReferences = readStringList(latestDraftResult?.references, 3);
+  const latestDraftWordCount =
+    typeof latestDraftResult?.word_count === "number"
+      ? latestDraftResult.word_count
+      : null;
+
   const resultViewModel: WorkspaceResultViewModel = useMemo(
-    () => ({
-      summary: `当前为 SCI ${sectionHint}写作工作区。执行后将生成可编辑的 paper_draft 产出，并沉淀到知识区。`,
+    () => createWorkspaceResultViewModel({
+      summary: latestDraftResult
+        ? `最近一次已生成 ${latestDraftSectionTitle} 草稿，可继续在知识区查看完整内容并迭代写作。`
+        : `当前为 SCI ${sectionHint}写作工作区。执行后将生成可编辑的 paper_draft 产出，并沉淀到知识区。`,
       sections: [
         {
           title: "本次写作参数",
-          content: `标题：${paperTitle || "未填写"}；章节：${sectionHint}；目标字数：${targetWords}`,
+          content: describeFields([
+            ["标题", paperTitle],
+            ["章节", sectionHint],
+            ["目标字数", targetWords],
+          ]),
         },
         {
           title: "上下文注入",
@@ -88,11 +118,30 @@ export default function SciWritingPage() {
         },
         {
           title: "任务状态",
-          content: error
-            ? `执行失败：${error}`
-            : status
-              ? `执行反馈：${status}`
-              : "尚未开始执行写作任务。",
+          content: describeTaskStatus({
+            error,
+            status,
+            idleMessage: "尚未开始执行写作任务。",
+          }),
+        },
+        {
+          title: "最近草稿",
+          content: latestDraftResult
+            ? [
+                describeFields([
+                  ["章节", latestDraftSectionTitle],
+                  ["字数", latestDraftWordCount],
+                ]),
+                latestDraftReferences.length > 0
+                  ? `参考文献：${latestDraftReferences.join("、")}`
+                  : null,
+                latestDraftContent
+                  ? `内容片段：${latestDraftContent.slice(0, 120)}${latestDraftContent.length > 120 ? "..." : ""}`
+                  : null,
+              ]
+                .filter((item): item is string => Boolean(item))
+                .join("；")
+            : "执行后会在这里展示最近一次生成的草稿摘要。",
         },
       ],
       nextActions: [
@@ -102,7 +151,19 @@ export default function SciWritingPage() {
       ],
       outputLanguage: "en",
     }),
-    [sectionHint, paperTitle, targetWords, contextArtifactIds, status, error]
+    [
+      sectionHint,
+      paperTitle,
+      targetWords,
+      contextArtifactIds,
+      status,
+      error,
+      latestDraftResult,
+      latestDraftSectionTitle,
+      latestDraftWordCount,
+      latestDraftReferences,
+      latestDraftContent,
+    ]
   );
 
   const handleWrite = async () => {

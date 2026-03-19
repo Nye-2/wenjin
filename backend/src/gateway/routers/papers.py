@@ -8,24 +8,28 @@ This module provides REST endpoints for:
 - Paper search functionality
 """
 
-from collections.abc import AsyncGenerator
+from fastapi import APIRouter, Depends, status
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.academic.services.extraction_service import ExtractionService
-from src.academic.services.paper_service import PaperService
+from src.application.errors import ApplicationError
+from src.application.handlers.papers_handler import PapersHandler, get_papers_handler
 from src.database import (
-    Paper,
-    PaperSection,
     User,
-    Workspace,
-    WorkspacePaper,
-    get_db_session,
 )
-from src.gateway.routers.auth import get_current_user
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.contracts.paper import (
+    ExtractionResponse,
+    PaperResponse,
+    SectionResponse,
+    extraction_to_response,
+    paper_to_response,
+    section_to_response,
+)
+from src.gateway.dependencies import (
+    get_extraction_service,
+    get_paper_service,
+    get_workspace_service,
+)
+from src.gateway.error_mapping import to_http_exception
 from src.gateway.validators.paper import (
     CreatePaperValidator,
     SearchPapersValidator,
@@ -33,55 +37,15 @@ from src.gateway.validators.paper import (
 )
 
 router = APIRouter(prefix="/papers", tags=["papers"])
-
-
-# ============ Request/Response Models ============
-
-class PaperResponse(BaseModel):
-    """Paper response."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    doi: str | None
-    title: str
-    authors: list[dict]
-    year: int | None
-    venue: str | None
-    abstract: str | None
-    file_path: str | None
-    source: str
-    external_ids: dict
-    toc: list | None
-    citation_count: int | None
-    reference_count: int | None
-
-
-class SectionResponse(BaseModel):
-    """Paper section response."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    paper_id: str
-    workspace_id: str
-    section_title: str
-    section_path: str
-    page_start: int
-    page_end: int
-    content: str
-    level: int
-
-
-class ExtractionResponse(BaseModel):
-    """Paper extraction response."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    paper_id: str
-    tier: int
-    extraction_type: str
-    structured_data: dict
-    processing_time_ms: int | None
-    model_used: str | None
+__all__ = [
+    "get_extraction_service",
+    "get_paper_service",
+    "get_papers_handler",
+    "get_workspace_service",
+    "paper_to_response",
+    "router",
+    "section_to_response",
+]
 
 
 # Re-export validators as request models for backward compatibility
@@ -90,133 +54,13 @@ UpdatePaperRequest = UpdatePaperValidator
 SearchPapersRequest = SearchPapersValidator
 
 
-# ============ Dependencies ============
-
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency to get database session."""
-    async with get_db_session() as session:
-        yield session
-
-
-async def get_paper_service(
-    session: AsyncSession = Depends(get_session),
-) -> PaperService:
-    """Get paper service instance."""
-    return PaperService(session)
-
-
-async def get_extraction_service(
-    session: AsyncSession = Depends(get_session),
-) -> ExtractionService:
-    """Get extraction service instance."""
-    return ExtractionService(session)
-
-
-# ============ Helper Functions ============
-
-def paper_to_response(paper: Paper) -> PaperResponse:
-    """Convert Paper model to response model."""
-    return PaperResponse(
-        id=str(paper.id),
-        doi=paper.doi,
-        title=paper.title,
-        authors=paper.authors or [],
-        year=paper.year,
-        venue=paper.venue,
-        abstract=paper.abstract,
-        file_path=paper.file_path,
-        source=paper.source,
-        external_ids=paper.external_ids or {},
-        toc=paper.toc,
-        citation_count=paper.citation_count,
-        reference_count=paper.reference_count,
-    )
-
-
-def section_to_response(section: PaperSection) -> SectionResponse:
-    """Convert PaperSection model to response model."""
-    return SectionResponse(
-        id=str(section.id),
-        paper_id=str(section.paper_id),
-        workspace_id=str(section.workspace_id),
-        section_title=section.section_title,
-        section_path=section.section_path,
-        page_start=section.page_start,
-        page_end=section.page_end,
-        content=section.content,
-        level=section.level,
-    )
-
-
-def _is_owner_check_enabled(session: AsyncSession) -> bool:
-    """Enable owner checks only for real SQLAlchemy sessions."""
-    return isinstance(session, AsyncSession)
-
-
-async def _require_workspace_owner(
-    session: AsyncSession,
-    workspace_id: str,
-    user_id: str,
-) -> None:
-    """Ensure workspace exists and is owned by user."""
-    result = await session.execute(
-        select(Workspace.user_id).where(Workspace.id == workspace_id)
-    )
-    owner_id = result.scalar_one_or_none()
-    if owner_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workspace not found",
-        )
-    if str(owner_id) != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-
-
-async def _paper_accessible_by_user(
-    session: AsyncSession,
-    paper_id: str,
-    user_id: str,
-) -> bool:
-    """Check whether user owns at least one workspace containing this paper."""
-    result = await session.execute(
-        select(WorkspacePaper.paper_id)
-        .join(Workspace, Workspace.id == WorkspacePaper.workspace_id)
-        .where(
-            WorkspacePaper.paper_id == paper_id,
-            Workspace.user_id == user_id,
-        )
-        .limit(1)
-    )
-    return result.scalar_one_or_none() is not None
-
-
-async def _paper_in_workspace(
-    session: AsyncSession,
-    paper_id: str,
-    workspace_id: str,
-) -> bool:
-    """Check whether paper is associated with workspace."""
-    result = await session.execute(
-        select(WorkspacePaper.paper_id)
-        .where(
-            WorkspacePaper.paper_id == paper_id,
-            WorkspacePaper.workspace_id == workspace_id,
-        )
-        .limit(1)
-    )
-    return result.scalar_one_or_none() is not None
-
-
 # ============ Endpoints ============
 
-@router.post("/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
 async def create_paper(
     request: CreatePaperRequest,
     current_user: User = Depends(get_current_user),
-    paper_service: PaperService = Depends(get_paper_service),
+    handler: PapersHandler = Depends(get_papers_handler),
 ):
     """Create a new paper manually.
 
@@ -231,33 +75,18 @@ async def create_paper(
         HTTPException: If creation fails
     """
     try:
-        paper = await paper_service.create(
-            doi=request.doi,
-            title=request.title,
-            authors=request.authors,
-            year=request.year,
-            venue=request.venue,
-            abstract=request.abstract,
-            file_path=request.file_path,
-            source=request.source,
-            external_ids=request.external_ids,
-            citation_count=request.citation_count,
-            reference_count=request.reference_count,
-        )
-        return paper_to_response(paper)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create paper: {str(e)}",
-        ) from e
+        paper = await handler.create_paper(request)
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
+    return paper_to_response(paper)
 
 
-@router.get("/", response_model=list[PaperResponse])
+@router.get("", response_model=list[PaperResponse])
 async def list_papers(
     workspace_id: str | None = None,
     limit: int = 20,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    handler: PapersHandler = Depends(get_papers_handler),
 ):
     """List papers, optionally filtered by workspace.
 
@@ -269,46 +98,14 @@ async def list_papers(
     Returns:
         List of paper responses
     """
-    owner_check = _is_owner_check_enabled(session)
-
-    if workspace_id:
-        if owner_check:
-            await _require_workspace_owner(
-                session,
-                workspace_id=workspace_id,
-                user_id=str(current_user.id),
-            )
-        # List papers in a specific workspace
-        query = (
-            select(Paper)
-            .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
-            .where(WorkspacePaper.workspace_id == workspace_id)
-            .order_by(WorkspacePaper.created_at.desc())
-            .limit(limit)
+    try:
+        papers = await handler.list_papers(
+            user_id=str(current_user.id),
+            workspace_id=workspace_id,
+            limit=limit,
         )
-    else:
-        # List papers visible to current user.
-        if owner_check:
-            query = (
-                select(Paper)
-                .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
-                .join(Workspace, Workspace.id == WorkspacePaper.workspace_id)
-                .where(Workspace.user_id == str(current_user.id))
-                .order_by(Paper.created_at.desc())
-                .distinct()
-                .limit(limit)
-            )
-        else:
-            # Test fallback for mocked sessions.
-            query = (
-                select(Paper)
-                .order_by(Paper.created_at.desc())
-                .limit(limit)
-            )
-
-    result = await session.execute(query)
-    papers = list(result.scalars().all())
-
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
     return [paper_to_response(p) for p in papers]
 
 
@@ -316,8 +113,7 @@ async def list_papers(
 async def get_paper(
     paper_id: str,
     current_user: User = Depends(get_current_user),
-    paper_service: PaperService = Depends(get_paper_service),
-    session: AsyncSession = Depends(get_session),
+    handler: PapersHandler = Depends(get_papers_handler),
 ):
     """Get paper by ID.
 
@@ -331,23 +127,13 @@ async def get_paper(
     Raises:
         HTTPException: If paper not found
     """
-    paper = await paper_service.get(paper_id)
-    if paper is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Paper not found: {paper_id}",
-        )
-    if _is_owner_check_enabled(session):
-        accessible = await _paper_accessible_by_user(
-            session,
+    try:
+        paper = await handler.get_paper(
             paper_id=paper_id,
             user_id=str(current_user.id),
         )
-        if not accessible:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Paper not found: {paper_id}",
-            )
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
     return paper_to_response(paper)
 
 
@@ -356,8 +142,7 @@ async def update_paper(
     paper_id: str,
     request: UpdatePaperRequest,
     current_user: User = Depends(get_current_user),
-    paper_service: PaperService = Depends(get_paper_service),
-    session: AsyncSession = Depends(get_session),
+    handler: PapersHandler = Depends(get_papers_handler),
 ):
     """Update paper metadata.
 
@@ -373,33 +158,14 @@ async def update_paper(
     Raises:
         HTTPException: If paper not found
     """
-    paper = await paper_service.get(paper_id)
-    if paper is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Paper not found: {paper_id}",
-        )
-    if _is_owner_check_enabled(session):
-        accessible = await _paper_accessible_by_user(
-            session,
+    try:
+        paper = await handler.update_paper(
             paper_id=paper_id,
             user_id=str(current_user.id),
+            request=request,
         )
-        if not accessible:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Paper not found: {paper_id}",
-            )
-
-    # Update only provided fields
-    update_data = request.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        if hasattr(paper, key) and value is not None:
-            setattr(paper, key, value)
-
-    await session.commit()
-    await session.refresh(paper)
-
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
     return paper_to_response(paper)
 
 
@@ -407,8 +173,7 @@ async def update_paper(
 async def delete_paper(
     paper_id: str,
     current_user: User = Depends(get_current_user),
-    paper_service: PaperService = Depends(get_paper_service),
-    session: AsyncSession = Depends(get_session),
+    handler: PapersHandler = Depends(get_papers_handler),
 ):
     """Delete paper.
 
@@ -423,27 +188,13 @@ async def delete_paper(
     Raises:
         HTTPException: If paper not found
     """
-    paper = await paper_service.get(paper_id)
-    if paper is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Paper not found: {paper_id}",
-        )
-    if _is_owner_check_enabled(session):
-        accessible = await _paper_accessible_by_user(
-            session,
+    try:
+        await handler.delete_paper(
             paper_id=paper_id,
             user_id=str(current_user.id),
         )
-        if not accessible:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Paper not found: {paper_id}",
-            )
-
-    await session.delete(paper)
-    await session.commit()
-
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
     return {"success": True, "message": f"Paper {paper_id} deleted"}
 
 
@@ -453,9 +204,7 @@ async def extract_paper(
     workspace_id: str,
     tier: int = 1,
     current_user: User = Depends(get_current_user),
-    paper_service: PaperService = Depends(get_paper_service),
-    extraction_service: ExtractionService = Depends(get_extraction_service),
-    session: AsyncSession = Depends(get_session),
+    handler: PapersHandler = Depends(get_papers_handler),
 ):
     """Trigger paper extraction.
 
@@ -472,63 +221,16 @@ async def extract_paper(
     Raises:
         HTTPException: If paper not found or extraction fails
     """
-    paper = await paper_service.get(paper_id)
-    if paper is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Paper not found: {paper_id}",
-        )
-    if _is_owner_check_enabled(session):
-        await _require_workspace_owner(
-            session,
+    try:
+        extraction = await handler.extract_paper(
+            paper_id=paper_id,
             workspace_id=workspace_id,
+            tier=tier,
             user_id=str(current_user.id),
         )
-        in_workspace = await _paper_in_workspace(
-            session,
-            paper_id=paper_id,
-            workspace_id=workspace_id,
-        )
-        if not in_workspace:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Paper not found in workspace",
-            )
-
-    if not paper.file_path:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Paper has no file path for extraction",
-        )
-
-    try:
-        extraction = await extraction_service.extract_paper(
-            paper_id=paper_id,
-            file_path=paper.file_path,
-            tier=tier,
-        )
-
-        # Also extract sections
-        await extraction_service.extract_sections(
-            paper_id=paper_id,
-            workspace_id=workspace_id,
-            file_path=paper.file_path,
-        )
-
-        return ExtractionResponse(
-            id=str(extraction.id),
-            paper_id=str(extraction.paper_id),
-            tier=extraction.tier,
-            extraction_type=extraction.extraction_type,
-            structured_data=extraction.structured_data,
-            processing_time_ms=extraction.processing_time_ms,
-            model_used=extraction.model_used,
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Extraction failed: {str(e)}",
-        ) from e
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
+    return extraction_to_response(extraction)
 
 
 @router.get("/{paper_id}/sections", response_model=list[SectionResponse])
@@ -536,7 +238,7 @@ async def get_paper_sections(
     paper_id: str,
     workspace_id: str | None = None,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    handler: PapersHandler = Depends(get_papers_handler),
 ):
     """Get paper sections.
 
@@ -551,38 +253,14 @@ async def get_paper_sections(
     Raises:
         HTTPException: If paper not found
     """
-    # Verify paper exists
-    result = await session.execute(
-        select(Paper).where(Paper.id == paper_id)
-    )
-    paper = result.scalar_one_or_none()
-    if paper is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Paper not found: {paper_id}",
+    try:
+        sections = await handler.get_paper_sections(
+            paper_id=paper_id,
+            workspace_id=workspace_id,
+            user_id=str(current_user.id),
         )
-
-    # Query sections
-    owner_check = _is_owner_check_enabled(session)
-    query = select(PaperSection).where(PaperSection.paper_id == paper_id)
-    if workspace_id:
-        if owner_check:
-            await _require_workspace_owner(
-                session,
-                workspace_id=workspace_id,
-                user_id=str(current_user.id),
-            )
-        query = query.where(PaperSection.workspace_id == workspace_id)
-    elif owner_check:
-        query = (
-            query.join(Workspace, Workspace.id == PaperSection.workspace_id)
-            .where(Workspace.user_id == str(current_user.id))
-        )
-    query = query.order_by(PaperSection.page_start)
-
-    result = await session.execute(query)
-    sections = list(result.scalars().all())
-
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
     return [section_to_response(s) for s in sections]
 
 
@@ -590,7 +268,7 @@ async def get_paper_sections(
 async def search_papers(
     request: SearchPapersRequest,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    handler: PapersHandler = Depends(get_papers_handler),
 ):
     """Search papers by title, authors, or content.
 
@@ -601,64 +279,15 @@ async def search_papers(
     Returns:
         List of matching papers
     """
-    query_text = request.query
-    owner_check = _is_owner_check_enabled(session)
-
-    if request.workspace_id and owner_check:
-        await _require_workspace_owner(
-            session,
-            workspace_id=request.workspace_id,
+    try:
+        result = await handler.search_papers(
+            request=request,
             user_id=str(current_user.id),
         )
-
-    if request.workspace_id:
-        # Search within workspace papers
-        query = (
-            select(Paper)
-            .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
-            .where(WorkspacePaper.workspace_id == request.workspace_id)
-            .where(
-                or_(
-                    Paper.title.ilike(f"%{query_text}%"),
-                    Paper.abstract.ilike(f"%{query_text}%"),
-                )
-            )
-            .limit(request.limit)
-        )
-    else:
-        # Global search scoped to current user's owned workspaces.
-        if owner_check:
-            query = (
-                select(Paper)
-                .join(WorkspacePaper, Paper.id == WorkspacePaper.paper_id)
-                .join(Workspace, Workspace.id == WorkspacePaper.workspace_id)
-                .where(Workspace.user_id == str(current_user.id))
-                .where(
-                    or_(
-                        Paper.title.ilike(f"%{query_text}%"),
-                        Paper.abstract.ilike(f"%{query_text}%"),
-                    )
-                )
-                .distinct()
-                .limit(request.limit)
-            )
-        else:
-            query = (
-                select(Paper)
-                .where(
-                    or_(
-                        Paper.title.ilike(f"%{query_text}%"),
-                        Paper.abstract.ilike(f"%{query_text}%"),
-                    )
-                )
-                .limit(request.limit)
-            )
-
-    result = await session.execute(query)
-    papers = list(result.scalars().all())
-
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
     return {
-        "query": query_text,
-        "count": len(papers),
-        "papers": [paper_to_response(p) for p in papers],
+        "query": result["query"],
+        "count": result["count"],
+        "papers": [paper_to_response(p) for p in result["papers"]],
     }

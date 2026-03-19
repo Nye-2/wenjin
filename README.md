@@ -25,13 +25,15 @@ Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
 - Workspaces Router - CRUD operations, paper management
 - Papers Router - Upload, search, extraction, sections
 - Artifacts Router - CRUD operations, lineage tracking
+- Features Router - Workspace feature discovery and execution
+- Tasks Router - Task status and progress streaming
 - Health Check Endpoint - System health monitoring
 
 ### Quality Assurance
 - API Integration Tests - Comprehensive endpoint testing
 - Input Validation - Request validation using Pydantic
 - Error Handling - Centralized error handling middleware
-- **790+ Tests Passing** - Comprehensive test coverage
+- Backend pytest suites plus frontend type/lint checks
 
 ## Tech Stack
 
@@ -44,19 +46,20 @@ Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
 - LangGraph / LangChain
 
 ### Frontend
-- Next.js 15
+- Next.js 16
+- React 19
 - TypeScript
 - TailwindCSS
 - Zustand
-- React Query
+- Axios
 
 ## Quick Start
 
 ### Prerequisites
 - Docker and Docker Compose
-- PostgreSQL 15+ with pgvector
+- PostgreSQL 16+ with pgvector
 - Redis 7.0+
-- OpenAI API key
+- At least one configured LLM provider
 
 ### Using Docker Compose
 
@@ -65,15 +68,15 @@ Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
 git clone <repository-url>
 cd academiagpt-v2
 
-# Copy environment files
-cp .env.example .env
-# Edit .env with your API keys
+# Copy backend environment file
+cp backend/.env.example backend/.env
+# Edit backend/.env with your model/provider settings
 
 # Start all services
 docker-compose up -d
 
 # Run database migrations
-docker-compose exec backend uv run alembic upgrade head
+docker-compose exec gateway uv run alembic upgrade head
 ```
 
 ### Manual Setup
@@ -165,6 +168,11 @@ uv run pytest
 
 # Run with coverage
 uv run pytest --cov=src --cov-report=term-missing
+
+# Frontend static checks
+cd ../frontend
+npx tsc --noEmit
+npm run lint
 ```
 
 ## Deployment

@@ -14,14 +14,27 @@ Responsibilities:
 import logging
 from typing import Any
 
-from fastapi import Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends
 
 from src.academic.services.workspace_service import WorkspaceService
+from src.application.errors import (
+    AccessDeniedError,
+    InternalServiceError,
+    NotFoundError,
+)
+from src.application.results import (
+    FeatureExecutionAdvisory,
+    FeatureExecutionOutcome,
+    FeatureTaskSubmission,
+)
 from src.database import User
-from src.gateway.routers.auth import get_current_user
-from src.gateway.routers.tasks import get_task_service
-from src.gateway.routers.workspaces import get_db, get_workspace_service
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.dependencies import (
+    get_credit_service,
+    get_literature_service,
+    get_task_service,
+    get_workspace_service,
+)
 from src.services.credit_service import CreditService, InsufficientCreditsError
 from src.services.literature_service import LiteratureService
 from src.task.service import ConcurrencyLimitError, TaskService
@@ -102,7 +115,7 @@ class FeatureExecutionHandler:
         *,
         idempotency_key: str | None = None,
         redis_client: Any | None = None,
-    ) -> dict[str, Any]:
+    ) -> FeatureExecutionOutcome:
         """Execute a workspace feature.
 
         Args:
@@ -124,29 +137,26 @@ class FeatureExecutionHandler:
                     idempotency_key,
                     cached_task_id,
                 )
-                return {
-                    "task_id": cached_task_id,
-                    "status": "pending",
-                    "feature_id": feature_id,
-                    "message": "请求已处理（幂等重放）",
-                    "warning": None,
-                    "detail": None,
-                }
+                return FeatureTaskSubmission(
+                    task_id=cached_task_id,
+                    feature_id=feature_id,
+                    message="请求已处理（幂等重放）",
+                    reused_existing_task=True,
+                )
 
         # 1. Verify workspace exists and user owns it
         workspace = await self.workspace_service.get(workspace_id)
         if not workspace:
-            raise HTTPException(status_code=404, detail="Workspace not found")
+            raise NotFoundError("Workspace not found")
         if str(workspace.user_id) != str(self.user.id):
-            raise HTTPException(status_code=403, detail="Access denied")
+            raise AccessDeniedError("Access denied")
 
         # 2. Resolve workspace type and feature
         workspace_type = resolve_workspace_type(workspace)
         feature = get_workspace_feature(workspace_type, feature_id)
         if not feature:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Feature '{feature_id}' not found for workspace type '{workspace_type}'",
+            raise NotFoundError(
+                f"Feature '{feature_id}' not found for workspace type '{workspace_type}'"
             )
 
         # 3. Literature threshold check (thesis writing only)
@@ -155,17 +165,15 @@ class FeatureExecutionHandler:
             if action in ("write_chapter", "write_all"):
                 lit_stats = await self.literature_service.count_literature(workspace_id)
                 if lit_stats["total"] < LITERATURE_THRESHOLD:
-                    return {
-                        "task_id": None,
-                        "status": "warning",
-                        "feature_id": feature_id,
-                        "message": "文献数量不足，建议先补充文献",
-                        "warning": "literature_insufficient",
-                        "detail": {
+                    return FeatureExecutionAdvisory(
+                        feature_id=feature_id,
+                        message="文献数量不足，建议先补充文献",
+                        code="literature_insufficient",
+                        context={
                             "current": lit_stats["total"],
                             "recommended": LITERATURE_THRESHOLD,
                         },
-                    }
+                    )
 
         # 4. Idempotency: reuse existing active task
         action = params.get("action")
@@ -183,14 +191,12 @@ class FeatureExecutionHandler:
                 workspace_id,
                 feature_id,
             )
-            return {
-                "task_id": existing_task_id,
-                "status": "pending",
-                "feature_id": feature_id,
-                "message": f"已有进行中的 {feature.name} 任务",
-                "warning": None,
-                "detail": None,
-            }
+            return FeatureTaskSubmission(
+                task_id=existing_task_id,
+                feature_id=feature_id,
+                message=f"已有进行中的 {feature.name} 任务",
+                reused_existing_task=True,
+            )
 
         # 5. Credit billing
         credit_transaction = None
@@ -208,21 +214,19 @@ class FeatureExecutionHandler:
                 },
             )
         except InsufficientCreditsError as exc:
-            return {
-                "task_id": None,
-                "status": "warning",
-                "feature_id": feature_id,
-                "message": (
+            return FeatureExecutionAdvisory(
+                feature_id=feature_id,
+                message=(
                     f"积分不足：当前 {exc.current_balance}，"
                     f"执行 {feature.name} 需要 {exc.required}"
                 ),
-                "warning": "insufficient_credits",
-                "detail": {
+                code="insufficient_credits",
+                context={
                     "current": exc.current_balance,
                     "required": exc.required,
                     "feature_id": feature_id,
                 },
-            }
+            )
 
         # 6-9. Submit task (with distributed lock if Redis available)
         return await self._submit_with_lock(
@@ -251,7 +255,7 @@ class FeatureExecutionHandler:
         credit_transaction: Any | None,
         idempotency_key: str | None,
         redis_client: Any | None,
-    ) -> dict[str, Any]:
+    ) -> FeatureExecutionOutcome:
         """Submit task, optionally guarded by distributed workspace lock.
 
         Re-checks for active tasks inside the lock to prevent the race
@@ -277,14 +281,12 @@ class FeatureExecutionHandler:
                         original_transaction_id=str(credit_transaction.id),
                         reason="分布式锁内发现重复任务退款",
                     )
-                return {
-                    "task_id": existing_task_id,
-                    "status": "pending",
-                    "feature_id": feature_id,
-                    "message": f"已有进行中的 {feature.name} 任务",
-                    "warning": None,
-                    "detail": None,
-                }
+                return FeatureTaskSubmission(
+                    task_id=existing_task_id,
+                    feature_id=feature_id,
+                    message=f"已有进行中的 {feature.name} 任务",
+                    reused_existing_task=True,
+                )
 
             # Build task payload
             task_payload = build_task_payload(
@@ -318,17 +320,15 @@ class FeatureExecutionHandler:
                         original_transaction_id=str(credit_transaction.id),
                         reason="并发任务上限退款",
                     )
-                return {
-                    "task_id": None,
-                    "status": "warning",
-                    "feature_id": feature_id,
-                    "message": f"并发任务数已达上限（{exc.limit}），请等待现有任务完成",
-                    "warning": "concurrency_limit",
-                    "detail": {
+                return FeatureExecutionAdvisory(
+                    feature_id=feature_id,
+                    message=f"并发任务数已达上限（{exc.limit}），请等待现有任务完成",
+                    code="concurrency_limit",
+                    context={
                         "current": exc.current,
                         "limit": exc.limit,
                     },
-                }
+                )
             except Exception as exc:
                 logger.exception(
                     "[Features] Failed to queue task for feature %s in workspace %s",
@@ -341,9 +341,7 @@ class FeatureExecutionHandler:
                         original_transaction_id=str(credit_transaction.id),
                         reason="任务排队失败退款",
                     )
-                raise HTTPException(
-                    status_code=500, detail="Failed to queue feature task"
-                ) from exc
+                raise InternalServiceError("Failed to queue feature task") from exc
 
             # Link credit transaction to task
             if credit_transaction is not None:
@@ -364,14 +362,11 @@ class FeatureExecutionHandler:
                 workspace_id,
             )
 
-            return {
-                "task_id": task_id,
-                "status": "pending",
-                "feature_id": feature_id,
-                "message": f"Queued {feature.name}",
-                "warning": None,
-                "detail": None,
-            }
+            return FeatureTaskSubmission(
+                task_id=task_id,
+                feature_id=feature_id,
+                message=f"Queued {feature.name}",
+            )
 
         # Try to use distributed lock; fall back to unlocked if Redis unavailable
         if redis_client:
@@ -392,14 +387,11 @@ class FeatureExecutionHandler:
                             original_transaction_id=str(credit_transaction.id),
                             reason="工作区锁竞争退款",
                         )
-                    return {
-                        "task_id": None,
-                        "status": "warning",
-                        "feature_id": feature_id,
-                        "message": "该工作区正在处理另一个提交，请稍后重试",
-                        "warning": "workspace_locked",
-                        "detail": None,
-                    }
+                    return FeatureExecutionAdvisory(
+                        feature_id=feature_id,
+                        message="该工作区正在处理另一个提交，请稍后重试",
+                        code="workspace_locked",
+                    )
 
                 logger.warning(
                     "[Features] Workspace lock unavailable for %s, proceeding without lock: %s",
@@ -409,23 +401,6 @@ class FeatureExecutionHandler:
                 return await _do_submit()
         else:
             return await _do_submit()
-
-
-# ============ FastAPI Dependency Factories ============
-
-
-async def get_literature_service(
-    db: AsyncSession = Depends(get_db),
-) -> LiteratureService:
-    """Get literature service bound to the request database session."""
-    return LiteratureService(db)
-
-
-async def get_credit_service(
-    db: AsyncSession = Depends(get_db),
-) -> CreditService:
-    """Get credit service bound to the request database session."""
-    return CreditService(db)
 
 
 async def get_feature_execution_handler(

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
 from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_writing_model
+from src.execution.public_paths import sandbox_path_to_public_url
+from src.thesis.execution.figure_tool import generate_figure
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +309,9 @@ async def figure_generation_graph(
             chapter_index = None
 
     chapter_context = str(params.get("chapter_context", "")).strip() or None
+    thread_id = payload.get("thread_id")
+    workspace_id = str(payload.get("workspace_id", ""))
+    workspace_name = str(payload.get("workspace_name", ""))
     memory_context = initial_state.get("knowledge_context")
     requested_model = _read_optional_str(params.get("model_id"))
     model_id = _resolve_writing_model(requested_model)
@@ -344,6 +350,33 @@ async def figure_generation_graph(
         generated_code = _build_fallback_source(strategy, description)
 
     generation_mode = "llm" if code_gen_ok else "template_fallback"
+    execution_ok = False
+    execution_error: str | None = None
+    file_path: str | None = None
+    file_url: str | None = None
+    file_format: str | None = None
+
+    if generated_code:
+        raw_figure_id = f"{workspace_name or 'figure'}-{int(datetime.now(tz=timezone.utc).timestamp())}"
+        figure_id = re.sub(r"[^a-zA-Z0-9_.-]+", "-", raw_figure_id).strip("-").lower()
+        if not figure_id:
+            figure_id = "figure"
+        execution = await generate_figure(
+            strategy=strategy,
+            content=generated_code,
+            workspace_id=workspace_id or None,
+            thread_id=str(thread_id) if thread_id else None,
+            figure_id=figure_id,
+            timeout=60,
+        )
+        execution_ok = execution.success
+        execution_error = execution.error
+        file_path = execution.figure_path
+        file_format = execution.format
+        file_url = sandbox_path_to_public_url(
+            execution.figure_path,
+            thread_id=str(thread_id) if thread_id else None,
+        )
 
     # Build result — source_code for mermaid/python, prompt for kling
     result: dict[str, Any] = {
@@ -354,13 +387,20 @@ async def figure_generation_graph(
         "source_code": generated_code if strategy != "kling" else None,
         "prompt": generated_code if strategy == "kling" else None,
         "figure_plan": figure_plan,
+        "render_data": {
+            "file_path": file_path,
+            "file_url": file_url,
+            "format": file_format,
+        },
         "model_id": model_id,
         "generation_mode": generation_mode,
         "pipeline_steps": {
             "figure_planning": planning_ok,
             "code_generation": code_gen_ok,
+            "figure_execution": execution_ok,
         },
-        "status": "generated_code",
+        "status": "generated" if execution_ok else "generated_code",
+        "execution_error": execution_error,
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
     }
 

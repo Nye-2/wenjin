@@ -10,7 +10,7 @@ This module tests the artifact endpoints including:
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -51,8 +51,8 @@ class MockArtifactService:
         artifact.parent_artifact_id = kwargs.get("parent_artifact_id")
         artifact.version = kwargs.get("version", 1)
         artifact.status = kwargs.get("status", "draft")
-        artifact.created_at = kwargs.get("created_at", datetime.utcnow())
-        artifact.updated_at = kwargs.get("updated_at", datetime.utcnow())
+        artifact.created_at = kwargs.get("created_at", datetime.now(UTC))
+        artifact.updated_at = kwargs.get("updated_at", datetime.now(UTC))
 
         # Add table mock for orm_to_dict
         artifact.__table__ = MagicMock()
@@ -113,7 +113,7 @@ class MockArtifactService:
             artifact.status = status
         if increment_version:
             artifact.version += 1
-        artifact.updated_at = datetime.utcnow()
+        artifact.updated_at = datetime.now(UTC)
         return artifact
 
     async def delete(self, artifact_id):
@@ -185,7 +185,7 @@ class TestCreateArtifact:
     def test_create_artifact_success(self, client):
         """Test successful artifact creation."""
         response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -208,7 +208,7 @@ class TestCreateArtifact:
     def test_create_artifact_minimal(self, client):
         """Test artifact creation with minimal fields."""
         response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "methodology",
@@ -227,7 +227,7 @@ class TestCreateArtifact:
         """Test artifact creation with parent artifact."""
         # First create a parent artifact
         parent_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -238,7 +238,7 @@ class TestCreateArtifact:
 
         # Create child artifact
         response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "abstract",
@@ -254,7 +254,7 @@ class TestCreateArtifact:
     def test_create_artifact_missing_required_fields(self, client):
         """Test artifact creation with missing required fields."""
         response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 # Missing type and content
@@ -271,7 +271,7 @@ class TestListArtifacts:
         """Test successful artifact listing."""
         # Create some artifacts
         client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -279,7 +279,7 @@ class TestListArtifacts:
             },
         )
         client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "methodology",
@@ -297,7 +297,7 @@ class TestListArtifacts:
         """Test artifact listing filtered by type."""
         # Create artifacts of different types
         client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -305,7 +305,7 @@ class TestListArtifacts:
             },
         )
         client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "methodology",
@@ -334,7 +334,7 @@ class TestListArtifacts:
         ws2 = "550e8400-e29b-41d4-a716-446655440098"
         # Create artifacts in different workspaces
         client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -342,7 +342,7 @@ class TestListArtifacts:
             },
         )
         client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": ws2,
                 "type": "research_idea",
@@ -365,7 +365,7 @@ class TestGetArtifact:
         """Test successful artifact retrieval."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -398,7 +398,7 @@ class TestUpdateArtifact:
         """Test updating artifact content."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -423,7 +423,7 @@ class TestUpdateArtifact:
         """Test updating artifact title."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -447,7 +447,7 @@ class TestUpdateArtifact:
         """Test updating artifact status."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -471,7 +471,7 @@ class TestUpdateArtifact:
         """Test updating multiple artifact fields."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -515,7 +515,7 @@ class TestDeleteArtifact:
         """Test successful artifact deletion."""
         # Create an artifact
         create_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -548,7 +548,7 @@ class TestGetArtifactLineage:
         """Test lineage for artifact without parent."""
         # Create a root artifact
         create_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -568,7 +568,7 @@ class TestGetArtifactLineage:
         """Test lineage for artifact with parent chain."""
         # Create grandparent
         gp_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",
@@ -579,7 +579,7 @@ class TestGetArtifactLineage:
 
         # Create parent
         p_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "methodology",
@@ -591,7 +591,7 @@ class TestGetArtifactLineage:
 
         # Create child
         c_response = client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "abstract",

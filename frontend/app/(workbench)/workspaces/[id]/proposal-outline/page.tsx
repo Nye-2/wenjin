@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, List } from "lucide-react";
@@ -14,6 +14,13 @@ import {
 } from "@/components/workspace/WorkspaceResultPanel";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import {
+  findLatestArtifact,
+  getArtifactContentRecord,
+  readNamedSections,
+  readString,
+} from "@/lib/artifact-utils";
 
 const PROPOSAL_TYPES = [
   { value: "national_natural_science", label: "国家自然科学基金" },
@@ -38,7 +45,7 @@ export default function ProposalOutlinePage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts } = useWorkspaceStore();
 
   const [topic, setTopic] = useState("");
   const [proposalType, setProposalType] = useState<ProposalTypeValue>("other");
@@ -51,7 +58,7 @@ export default function ProposalOutlinePage() {
   }, [workspace, topic]);
   const [periodMonths, setPeriodMonths] = useState<number>(24);
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "proposal_outline",
   });
@@ -76,26 +83,83 @@ export default function ProposalOutlinePage() {
     });
   };
 
-  const resultViewModel: WorkspaceResultViewModel = {
-    summary:
-      "本工作区用于生成研究项目申报书的大纲骨架，并沉淀为可复用产出。",
+  const latestProposalArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["proposal"]),
+    [artifacts]
+  );
+  const latestProposalResult = useMemo(
+    () => getArtifactContentRecord(latestProposalArtifact) ?? latestTaskResult,
+    [latestProposalArtifact, latestTaskResult]
+  );
+  const latestProposalSections = useMemo(
+    () =>
+      Array.isArray(latestProposalResult?.sections)
+        ? latestProposalResult.sections
+        : [],
+    [latestProposalResult]
+  );
+  const latestProposalMilestones = useMemo(
+    () =>
+      Array.isArray(latestProposalResult?.milestones)
+        ? latestProposalResult.milestones
+        : [],
+    [latestProposalResult]
+  );
+  const latestProposalRisks = useMemo(
+    () =>
+      Array.isArray(latestProposalResult?.risks)
+        ? latestProposalResult.risks
+        : [],
+    [latestProposalResult]
+  );
+  const latestProposalSectionTitles = useMemo(
+    () => readNamedSections(latestProposalSections, 4),
+    [latestProposalSections]
+  );
+  const latestProposalTypeLabel = readString(
+    latestProposalResult?.proposal_type_label
+  );
+  const latestProposalSummary = latestProposalResult
+    ? [
+        `章节数：${latestProposalSections.length}`,
+        latestProposalMilestones.length > 0
+          ? `里程碑：${latestProposalMilestones.length}`
+          : null,
+        latestProposalRisks.length > 0
+          ? `风险项：${latestProposalRisks.length}`
+          : null,
+        latestProposalSectionTitles.length > 0
+          ? `核心章节：${latestProposalSectionTitles.join("、")}`
+          : null,
+      ]
+        .filter((item): item is string => Boolean(item))
+        .join("；")
+    : "执行后会在这里展示最近一次生成的大纲结构。";
+
+  const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestProposalResult
+      ? `最近一次已生成${latestProposalTypeLabel || "申报书"}大纲，可继续补充背景调研、预算与里程碑细节。`
+      : "本工作区用于生成研究项目申报书的大纲骨架，并沉淀为可复用产出。",
     sections: [
       {
         title: "当前配置",
-        content: `主题：${topic || "未填写"}；类型：${proposalType}；周期：${periodMonths} 个月`,
+        content: describeFields([
+          ["主题", topic],
+          ["类型", proposalType],
+          ["周期", `${periodMonths} 个月`],
+        ]),
       },
       {
         title: "任务状态",
-        content: error
-          ? `执行失败：${error}`
-          : status
-            ? `执行反馈：${status}`
-            : "尚未开始执行生成。",
+        content: describeTaskStatus({
+          error,
+          status,
+          idleMessage: "尚未开始执行生成。",
+        }),
       },
       {
         title: "产出内容",
-        content:
-          "产出包含立项依据、研究目标、技术路线、计划进度、预算框架等核心分区。",
+        content: latestProposalSummary,
       },
     ],
     nextActions: [
@@ -104,7 +168,7 @@ export default function ProposalOutlinePage() {
       "根据预算与里程碑形成可提交版本。",
     ],
     outputLanguage: "zh",
-  };
+  });
 
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">

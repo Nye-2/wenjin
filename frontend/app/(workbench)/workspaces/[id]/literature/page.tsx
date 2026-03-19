@@ -1,28 +1,58 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, BookOpen, Plus, Search, Filter, Download } from "lucide-react";
+import { ArrowLeft, BookOpen, Plus, Search, Filter, Download, Star, Trash2 } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useLiteratureStore } from "@/stores/literature";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 export default function LiteraturePage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
   const { workspace, fetchArtifacts } = useWorkspaceStore();
-  const { items, total, coreCount, isLoading, fetchLiterature, importFromDeepResearch } =
+  const {
+    items,
+    total,
+    coreCount,
+    isLoading,
+    fetchLiterature,
+    importFromDeepResearch,
+    addLiterature,
+    toggleCore,
+    removeLiterature,
+  } =
     useLiteratureStore();
   const [searchQuery, setSearchQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "manual" | "deep_research">("all");
+  const [coreFilter, setCoreFilter] = useState<"all" | "core" | "non_core">("all");
   const [isImporting, setIsImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualAuthors, setManualAuthors] = useState("");
+  const [manualYear, setManualYear] = useState("");
+  const [manualVenue, setManualVenue] = useState("");
+  const [manualDoi, setManualDoi] = useState("");
+  const [manualAbstract, setManualAbstract] = useState("");
+  const [manualIsCore, setManualIsCore] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [isSubmittingManual, setIsSubmittingManual] = useState(false);
 
   const {
     run: runOrganize,
@@ -49,6 +79,33 @@ export default function LiteraturePage() {
       fetchLiterature(workspaceId);
     }
   }, [workspaceId, fetchLiterature]);
+
+  const filteredItems = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    return items.filter((item) => {
+      if (sourceFilter !== "all" && item.source !== sourceFilter) {
+        return false;
+      }
+      if (coreFilter === "core" && !item.is_core) {
+        return false;
+      }
+      if (coreFilter === "non_core" && item.is_core) {
+        return false;
+      }
+      if (!normalizedQuery) {
+        return true;
+      }
+      const haystack = [
+        item.title,
+        item.authors.join(" "),
+        item.venue || "",
+        item.doi || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedQuery);
+    });
+  }, [items, searchQuery, sourceFilter, coreFilter]);
 
   const handleOrganize = async () => {
     if (isOrganizing) return;
@@ -100,6 +157,57 @@ export default function LiteraturePage() {
     }
   };
 
+  const resetManualForm = () => {
+    setManualTitle("");
+    setManualAuthors("");
+    setManualYear("");
+    setManualVenue("");
+    setManualDoi("");
+    setManualAbstract("");
+    setManualIsCore(false);
+    setManualError(null);
+  };
+
+  const handleCreateManual = async () => {
+    if (!manualTitle.trim()) {
+      setManualError("标题不能为空");
+      return;
+    }
+    setManualError(null);
+    setIsSubmittingManual(true);
+    try {
+      const yearValue = Number(manualYear);
+      const authors = manualAuthors
+        .split(/[,，]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const created = await addLiterature(workspaceId, {
+        title: manualTitle.trim(),
+        authors,
+        year: Number.isFinite(yearValue) && yearValue > 0 ? yearValue : undefined,
+        venue: manualVenue.trim() || undefined,
+        doi: manualDoi.trim() || undefined,
+        abstract: manualAbstract.trim() || undefined,
+        source: "manual",
+        is_core: manualIsCore,
+      });
+
+      if (!created) {
+        setManualError("手动添加失败");
+        return;
+      }
+      if (manualIsCore) {
+        await toggleCore(workspaceId, created.id, true);
+      }
+      setIsCreateDialogOpen(false);
+      resetManualForm();
+    } catch (e: unknown) {
+      setManualError(e instanceof Error ? e.message : "手动添加失败");
+    } finally {
+      setIsSubmittingManual(false);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">
       {/* Header */}
@@ -137,9 +245,7 @@ export default function LiteraturePage() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              alert("手动添加文献功能即将推出，请使用「从 Deep Research 导入」");
-            }}
+            onClick={() => setIsCreateDialogOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-muted)] transition-colors"
           >
             <Plus className="w-4 h-4" />
@@ -197,14 +303,32 @@ export default function LiteraturePage() {
           />
         </div>
         <button
-          onClick={() => {
-            alert("筛选功能即将推出");
-          }}
-          className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg text-sm text-[var(--text-muted)] cursor-not-allowed"
-          title="筛选功能即将推出"
+          className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg text-sm text-[var(--text-muted)]"
         >
           <Filter className="w-4 h-4" />
-          筛选
+          <select
+            value={sourceFilter}
+            onChange={(event) => setSourceFilter(event.target.value as typeof sourceFilter)}
+            className="bg-transparent outline-none"
+          >
+            <option value="all">全部来源</option>
+            <option value="manual">手动</option>
+            <option value="deep_research">Deep Research</option>
+          </select>
+        </button>
+        <button
+          className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg text-sm text-[var(--text-muted)]"
+        >
+          <Star className="w-4 h-4" />
+          <select
+            value={coreFilter}
+            onChange={(event) => setCoreFilter(event.target.value as typeof coreFilter)}
+            className="bg-transparent outline-none"
+          >
+            <option value="all">全部文献</option>
+            <option value="core">仅核心</option>
+            <option value="non_core">非核心</option>
+          </select>
         </button>
         <ModelSelector
           id="literature-management-model"
@@ -250,7 +374,7 @@ export default function LiteraturePage() {
               className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full"
             />
           </div>
-        ) : items.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -266,7 +390,7 @@ export default function LiteraturePage() {
           </motion.div>
         ) : (
           <div className="space-y-3">
-            {items.map((lit, idx) => (
+            {filteredItems.map((lit, idx) => (
               <motion.div
                 key={lit.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -299,6 +423,23 @@ export default function LiteraturePage() {
                         分析
                       </button>
                     )}
+                    <button
+                      onClick={() => void toggleCore(workspaceId, lit.id, !lit.is_core)}
+                      className={cn(
+                        "rounded px-2 py-1 text-xs",
+                        lit.is_core
+                          ? "bg-amber-500/10 text-amber-600"
+                          : "bg-[var(--bg-elevated)] text-[var(--text-muted)]"
+                      )}
+                    >
+                      {lit.is_core ? "取消核心" : "设为核心"}
+                    </button>
+                    <button
+                      onClick={() => void removeLiterature(workspaceId, lit.id)}
+                      className="rounded px-2 py-1 text-xs bg-red-500/10 text-red-600"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                     {lit.is_core && (
                       <span className="px-2 py-1 text-xs bg-amber-500/10 text-amber-600 rounded">
                         核心
@@ -311,6 +452,117 @@ export default function LiteraturePage() {
           </div>
         )}
       </main>
+
+      <Dialog
+        open={isCreateDialogOpen}
+        onOpenChange={(open) => {
+          setIsCreateDialogOpen(open);
+          if (!open) {
+            resetManualForm();
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>手动添加文献</DialogTitle>
+            <DialogDescription>
+              补录未通过 Deep Research 导入的论文、报告或专利文献。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-xs text-[var(--text-muted)]">
+                标题
+              </label>
+              <input
+                value={manualTitle}
+                onChange={(event) => setManualTitle(event.target.value)}
+                className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-xs text-[var(--text-muted)]">
+                作者（逗号分隔）
+              </label>
+              <input
+                value={manualAuthors}
+                onChange={(event) => setManualAuthors(event.target.value)}
+                className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--text-muted)]">
+                年份
+              </label>
+              <input
+                value={manualYear}
+                onChange={(event) => setManualYear(event.target.value)}
+                className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--text-muted)]">
+                期刊 / 会议
+              </label>
+              <input
+                value={manualVenue}
+                onChange={(event) => setManualVenue(event.target.value)}
+                className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-xs text-[var(--text-muted)]">
+                DOI
+              </label>
+              <input
+                value={manualDoi}
+                onChange={(event) => setManualDoi(event.target.value)}
+                className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-xs text-[var(--text-muted)]">
+                摘要
+              </label>
+              <textarea
+                rows={4}
+                value={manualAbstract}
+                onChange={(event) => setManualAbstract(event.target.value)}
+                className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+              <input
+                type="checkbox"
+                checked={manualIsCore}
+                onChange={(event) => setManualIsCore(event.target.checked)}
+              />
+              标记为核心文献
+            </label>
+          </div>
+
+          {manualError && (
+            <p className="text-sm text-red-600">{manualError}</p>
+          )}
+
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => setIsCreateDialogOpen(false)}
+              className="rounded-lg border border-[var(--border-default)] px-4 py-2 text-sm text-[var(--text-secondary)]"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => void handleCreateManual()}
+              disabled={isSubmittingManual}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white disabled:opacity-60"
+            >
+              {isSubmittingManual ? "添加中..." : "确认添加"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

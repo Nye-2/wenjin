@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, Search, FileText } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import { findLatestArtifact, getArtifactContentRecord, readNamedSections } from "@/lib/artifact-utils";
 import { cn } from "@/lib/utils";
 
 const REPORT_TYPES = [
@@ -23,12 +29,12 @@ export default function OpeningResearchPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts } = useWorkspaceStore();
 
   const [topic, setTopic] = useState("");
   const [reportType, setReportType] = useState<ReportTypeValue>("opening_report");
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "opening_research",
   });
@@ -41,6 +47,60 @@ export default function OpeningResearchPage() {
   } = useModelSelection({
     purpose: "writing",
     persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
+
+  const latestOpeningArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["opening_report", "literature_review", "feasibility_analysis"]),
+    [artifacts]
+  );
+  const latestOpeningResult = useMemo(
+    () => getArtifactContentRecord(latestOpeningArtifact) ?? latestTaskResult,
+    [latestOpeningArtifact, latestTaskResult]
+  );
+  const latestSections = Array.isArray(latestOpeningResult?.sections)
+    ? latestOpeningResult.sections
+    : [];
+  const latestSectionNames = readNamedSections(latestSections, 4);
+  const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestOpeningResult
+      ? "最近一次开题调研结果已生成，可作为论文写作前的研究准备。"
+      : "本工作区用于生成开题报告、文献综述和可行性分析。",
+    sections: [
+      {
+        title: "当前配置",
+        content: describeFields([
+          ["主题", topic],
+          ["报告类型", reportType],
+        ]),
+      },
+      {
+        title: "任务状态",
+        content: describeTaskStatus({
+          error,
+          status,
+          idleMessage: "尚未开始生成报告。",
+        }),
+      },
+      {
+        title: "最近报告结果",
+        content: latestOpeningResult
+          ? [
+              `章节数：${latestSections.length}`,
+              latestSectionNames.length > 0 ? `核心章节：${latestSectionNames.join("、")}` : null,
+              latestOpeningResult.research_analysis ? "已包含研究现状分析。" : null,
+              latestOpeningResult.methodology_plan ? "已包含方法规划。" : null,
+            ]
+              .filter((item): item is string => Boolean(item))
+              .join("；")
+          : "执行后会在这里展示最近一次报告摘要。",
+      },
+    ],
+    nextActions: [
+      "根据课题阶段选择报告类型后执行生成。",
+      "将调研结论带入 thesis-writing 或 figure-generation。",
+      "在知识区查看完整报告章节。",
+    ],
+    outputLanguage: "zh",
   });
 
   useEffect(() => {
@@ -177,17 +237,9 @@ export default function OpeningResearchPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="h-full"
           >
-            <div className="text-center">
-              <FileText className="w-16 h-16 text-amber-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                开题调研工作区
-              </h2>
-              <p className="text-[var(--text-secondary)]">
-                配置左侧参数后点击生成报告，生成的报告将作为产出物保存。
-              </p>
-            </div>
+            <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>
       </main>

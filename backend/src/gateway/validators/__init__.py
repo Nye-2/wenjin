@@ -4,6 +4,7 @@ This module provides comprehensive input validation using Pydantic v2 patterns.
 """
 
 from .artifact import (
+    ArtifactCreatePayloadValidator,
     ArtifactStatus,
     ArtifactType,
     CreateArtifactValidator,
@@ -22,6 +23,7 @@ from .common import (
 from .paper import (
     AuthorValidator,
     CreatePaperValidator,
+    PaperCreatePayloadValidator,
     PaperSource,
     UpdatePaperValidator,
 )
@@ -49,12 +51,14 @@ __all__ = [
     "UpdateWorkspaceValidator",
     # Paper validators
     "PaperSource",
+    "PaperCreatePayloadValidator",
     "CreatePaperValidator",
     "UpdatePaperValidator",
     "AuthorValidator",
     # Artifact validators
     "ArtifactType",
     "ArtifactStatus",
+    "ArtifactCreatePayloadValidator",
     "CreateArtifactValidator",
     "UpdateArtifactValidator",
 ]

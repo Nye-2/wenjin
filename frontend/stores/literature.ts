@@ -74,11 +74,13 @@ export const useLiteratureStore = create<LiteratureState>((set) => ({
         abstract: data.abstract ?? undefined,
         citations: data.citations ?? undefined,
         source: data.source || "manual",
+        is_core: data.is_core ?? false,
       });
       // 直接更新列表而不是重新获取，避免无限循环
       set((state) => ({
         items: [lit, ...state.items],
         total: state.total + 1,
+        coreCount: lit.is_core ? state.coreCount + 1 : state.coreCount,
       }));
       return lit;
     } catch (e: unknown) {

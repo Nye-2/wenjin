@@ -5,37 +5,24 @@ unified async task infrastructure.
 """
 
 import logging
-from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.academic.cache.redis_client import redis_client
-from src.database import User, get_db_session
-from src.gateway.routers.auth import get_current_user
-from src.gateway.routers.tasks import get_task_service
-from src.services.credit_service import CreditService, InsufficientCreditsError
+from src.application.errors import ApplicationError
+from src.application.handlers.feature_execution_handler import get_feature_execution_handler
+from src.application.handlers.thesis_api_handler import ThesisApiHandler
+from src.application.results import ThesisCancelResult, ThesisPreviewResult, ThesisStatusResult
+from src.database import User
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.dependencies import get_task_service
+from src.gateway.error_mapping import to_http_exception
 from src.task.service import TaskService
-from src.task.store import TaskStore
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["thesis"])
-
-
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency to get database session."""
-    async with get_db_session() as session:
-        yield session
-
-
-async def get_credit_service(
-    db: AsyncSession = Depends(get_db),
-) -> CreditService:
-    """Get credit service bound to the request database session."""
-    return CreditService(db)
 
 
 class ThesisGenerateRequest(BaseModel):
@@ -86,39 +73,14 @@ class ThesisPreviewResponse(BaseModel):
     latex_content: str
     sections_completed: int
     sections_total: int
-
-
-def _map_task_status(status: str) -> str:
-    """Map generic task statuses to thesis API statuses."""
-    if status == "success":
-        return "completed"
-    return status
-
-
-def _merge_task_details(task_status: dict[str, Any]) -> dict[str, Any]:
-    """Merge runtime metadata with final task result."""
-    details: dict[str, Any] = {}
-    metadata = task_status.get("metadata")
-    result = task_status.get("result")
-    if isinstance(metadata, dict):
-        details.update(metadata)
-    if isinstance(result, dict):
-        details.update(result)
-    return details
-
-
-def _to_thesis_status_response(task_status: dict[str, Any]) -> ThesisStatusResponse:
-    """Convert a generic task status payload to thesis API response."""
-    details = _merge_task_details(task_status)
-    progress = float(task_status.get("progress", 0)) / 100
-    return ThesisStatusResponse(
-        task_id=task_status["task_id"],
-        status=_map_task_status(task_status["status"]),
-        progress=max(0.0, min(progress, 1.0)),
-        current_phase=details.get("current_phase"),
-        message=task_status.get("message"),
-        pdf_path=details.get("pdf_path"),
-        error=task_status.get("error"),
+async def get_thesis_api_handler(
+    task_service: TaskService = Depends(get_task_service),
+    feature_execution_handler=Depends(get_feature_execution_handler),
+) -> ThesisApiHandler:
+    """Get thesis API compatibility handler."""
+    return ThesisApiHandler(
+        task_service=task_service,
+        feature_execution_handler=feature_execution_handler,
     )
 
 
@@ -126,8 +88,8 @@ def _to_thesis_status_response(task_status: dict[str, Any]) -> ThesisStatusRespo
 async def generate_thesis(
     request: ThesisGenerateRequest,
     current_user: User = Depends(get_current_user),
-    task_service: TaskService = Depends(get_task_service),
-    credit_service: CreditService = Depends(get_credit_service),
+    handler: ThesisApiHandler = Depends(get_thesis_api_handler),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> ThesisStatusResponse:
     """Start thesis generation task.
 
@@ -144,72 +106,32 @@ async def generate_thesis(
     Returns:
         Initial task status
     """
-    task_payload = request.model_dump()
-    user_id = str(current_user.id)
-    credit_transaction = None
-    try:
-        credit_transaction = await credit_service.consume_for_feature(
-            user_id=user_id,
-            feature_id="thesis_writing",
-            action="write_all",
-            workspace_id=request.workspace_id,
-            description="论文写作 执行消耗",
-            metadata={"source": "thesis_api.generate"},
-        )
-    except InsufficientCreditsError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=(
-                f"积分不足：当前 {exc.current_balance}，执行论文写作需要 {exc.required}"
-            ),
-        ) from exc
+    from src.academic.cache.redis_client import redis_client
+    from src.config import redis_settings
 
-    if credit_transaction is not None:
-        task_payload["credit_transaction_id"] = str(credit_transaction.id)
-        task_payload["credit_cost"] = abs(int(credit_transaction.amount))
-
-    try:
-        task_id = await task_service.submit_task(
-            user_id=user_id,
-            task_type="thesis_generation",
-            payload=task_payload,
-        )
-    except Exception as exc:
-        logger.exception(
-            "[Thesis] Failed to queue thesis_generation for workspace %s",
-            request.workspace_id,
-        )
-        if credit_transaction is not None:
-            await credit_service.refund_failed_task(
-                user_id=user_id,
-                original_transaction_id=str(credit_transaction.id),
-                reason="论文任务排队失败退款",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to queue thesis generation task",
-        ) from exc
-
-    if credit_transaction is not None:
-        credit_transaction.task_id = task_id
-        await credit_service.db.commit()
-
-    logger.info("[Thesis] Submitted unified task %s for workspace %s", task_id, request.workspace_id)
-
-    return ThesisStatusResponse(
-        task_id=task_id,
-        status="pending",
-        progress=0.0,
-        current_phase="init",
-        message="Task submitted",
+    runtime_redis = (
+        redis_client
+        if redis_settings.enabled and redis_client._client is not None
+        else None
     )
+
+    try:
+        result = await handler.generate(
+            request,
+            idempotency_key=idempotency_key,
+            redis_client=runtime_redis,
+        )
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
+    payload = result.to_dict() if isinstance(result, ThesisStatusResult) else result
+    return ThesisStatusResponse(**payload)
 
 
 @router.get("/status/{task_id}", response_model=ThesisStatusResponse)
 async def get_status(
     task_id: str,
     current_user: User = Depends(get_current_user),
-    task_service: TaskService = Depends(get_task_service),
+    handler: ThesisApiHandler = Depends(get_thesis_api_handler),
 ) -> ThesisStatusResponse:
     """Get thesis generation task status.
 
@@ -222,18 +144,19 @@ async def get_status(
     Raises:
         HTTPException: 404 if task not found
     """
-    task_status = await task_service.get_task_status(task_id, str(current_user.id))
-    if not task_status:
-        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
-
-    return _to_thesis_status_response(task_status)
+    try:
+        result = await handler.get_status(task_id, str(current_user.id))
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
+    payload = result.to_dict() if isinstance(result, ThesisStatusResult) else result
+    return ThesisStatusResponse(**payload)
 
 
 @router.delete("/cancel/{task_id}")
 async def cancel_task(
     task_id: str,
     current_user: User = Depends(get_current_user),
-    task_service: TaskService = Depends(get_task_service),
+    handler: ThesisApiHandler = Depends(get_thesis_api_handler),
 ) -> dict[str, str]:
     """Cancel a running thesis generation task.
 
@@ -246,24 +169,18 @@ async def cancel_task(
     Raises:
         HTTPException: 404 if task not found, 400 if task cannot be cancelled
     """
-    success = await task_service.cancel_task(task_id, str(current_user.id))
-    if not success:
-        raise HTTPException(status_code=404, detail="Task not found or cannot be cancelled")
-
-    logger.info(f"[Thesis] Cancelled task {task_id}")
-
-    return {
-        "task_id": task_id,
-        "status": "cancelled",
-        "message": "Task cancelled",
-    }
+    try:
+        result = await handler.cancel(task_id, str(current_user.id))
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
+    return result.to_dict() if isinstance(result, ThesisCancelResult) else result
 
 
 @router.get("/preview/{task_id}", response_model=ThesisPreviewResponse)
 async def get_preview(
     task_id: str,
     current_user: User = Depends(get_current_user),
-    task_service: TaskService = Depends(get_task_service),
+    handler: ThesisApiHandler = Depends(get_thesis_api_handler),
 ) -> ThesisPreviewResponse:
     """Get thesis preview content.
 
@@ -278,25 +195,19 @@ async def get_preview(
     Raises:
         HTTPException: 404 if task not found
     """
-    task_status = await task_service.get_task_status(task_id, str(current_user.id))
-    if not task_status:
-        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
-
-    details = _merge_task_details(task_status)
-
-    return ThesisPreviewResponse(
-        task_id=task_id,
-        latex_content=details.get("latex_content", ""),
-        sections_completed=details.get("sections_completed", 0),
-        sections_total=details.get("sections_total", 0),
-    )
+    try:
+        result = await handler.get_preview(task_id, str(current_user.id))
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
+    payload = result.to_dict() if isinstance(result, ThesisPreviewResult) else result
+    return ThesisPreviewResponse(**payload)
 
 
 @router.get("/list")
 async def list_tasks(
     workspace_id: str | None = None,
     current_user: User = Depends(get_current_user),
-    task_service: TaskService = Depends(get_task_service),
+    handler: ThesisApiHandler = Depends(get_thesis_api_handler),
 ) -> list[dict[str, Any]]:
     """List all thesis generation tasks.
 
@@ -306,23 +217,11 @@ async def list_tasks(
     Returns:
         List of tasks
     """
-    async with get_db_session() as db:
-        store = TaskStore(redis_client, db)
-        records = await store.list_user_tasks(
+    try:
+        results = await handler.list_tasks(
             user_id=str(current_user.id),
-            task_type="thesis_generation",
-            limit=100,
+            workspace_id=workspace_id,
         )
-
-    filtered_records = [
-        record for record in records
-        if workspace_id is None or (record.payload or {}).get("workspace_id") == workspace_id
-    ]
-
-    results: list[dict[str, Any]] = []
-    for record in filtered_records:
-        status = await task_service.get_task_status(record.id, str(current_user.id))
-        if status:
-            thesis_status = _to_thesis_status_response(status)
-            results.append(thesis_status.model_dump())
-    return results
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
+    return [result.to_dict() if isinstance(result, ThesisStatusResult) else result for result in results]

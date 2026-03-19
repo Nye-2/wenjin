@@ -10,11 +10,10 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import ChatThread, User
-from src.gateway.routers.auth import get_current_user
-from src.gateway.routers.workspaces import get_db
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.dependencies import get_chat_thread_service
 from src.models import route_chat_model
 from src.services import ChatThreadAccessError, ChatThreadService
 
@@ -68,13 +67,6 @@ class ThreadResponse(BaseModel):
     messages: list[ChatMessage]
     created_at: datetime
     updated_at: datetime
-
-
-async def get_chat_thread_service(
-    db: AsyncSession = Depends(get_db),
-) -> ChatThreadService:
-    """Get chat thread service instance."""
-    return ChatThreadService(db)
 
 
 def _resolve_workspace_id(request: ChatRequest, thread: ChatThread) -> str | None:

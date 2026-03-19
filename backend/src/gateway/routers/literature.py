@@ -6,15 +6,14 @@ This module provides REST endpoints for:
 - Literature count
 """
 
-from collections.abc import AsyncGenerator
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User, get_db_session
-from src.gateway.routers.auth import get_current_user
+from src.database import User
+from src.gateway.access_control import require_workspace_owner
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.dependencies import get_literature_service, get_workspace_service
 from src.services.literature_service import LiteratureService
 
 router = APIRouter(prefix="/workspaces", tags=["literature"])
@@ -102,47 +101,6 @@ class BatchImportResponse(BaseModel):
     """Response model for batch import."""
 
     imported: int
-
-
-# ============ Dependencies ============
-
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency to get database session."""
-    async with get_db_session() as session:
-        yield session
-
-
-async def get_literature_service(
-    db: AsyncSession = Depends(get_db),
-) -> LiteratureService:
-    """Get literature service instance."""
-    return LiteratureService(db)
-
-
-async def get_workspace_service(
-    db: AsyncSession = Depends(get_db),
-) -> WorkspaceService:
-    """Get workspace service instance."""
-    return WorkspaceService(db)
-
-
-async def require_workspace_owner(
-    workspace_id: str,
-    current_user: User,
-    workspace_service: WorkspaceService,
-) -> None:
-    """Ensure workspace exists and belongs to current user."""
-    workspace = await workspace_service.get(workspace_id)
-    if workspace is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workspace not found",
-        )
-    if str(workspace.user_id) != str(current_user.id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
 
 
 # ============ Endpoints ============

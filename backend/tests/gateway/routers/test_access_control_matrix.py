@@ -9,14 +9,12 @@ Owner isolation (403 cross-user) will be tested in Phase 2 when
 ``require_workspace_owner`` is integrated into routers.
 """
 
-from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.gateway.middleware.error_handler import register_error_handlers
 
@@ -34,23 +32,18 @@ class TestPapersAuth:
     @pytest.fixture
     def unauthenticated_client(self):
         """Client with NO auth override — exercises real get_current_user."""
-        from src.gateway.routers.papers import get_paper_service, get_session, router
+        from src.gateway.routers.papers import get_paper_service, router
 
         app = FastAPI()
         register_error_handlers(app)
 
-        mock_db = AsyncMock(spec=AsyncSession)
         mock_service = AsyncMock()
         mock_service.get = AsyncMock(return_value=None)
         mock_service.create = AsyncMock()
 
-        async def override_session() -> AsyncGenerator[AsyncSession, None]:
-            yield mock_db
-
         async def override_service():
             return mock_service
 
-        app.dependency_overrides[get_session] = override_session
         app.dependency_overrides[get_paper_service] = override_service
         app.include_router(router)
         return TestClient(app)
@@ -58,14 +51,14 @@ class TestPapersAuth:
     def test_create_paper_requires_auth(self, unauthenticated_client):
         """POST /papers/ without token should return 401."""
         response = unauthenticated_client.post(
-            "/papers/",
+            "/papers",
             json={"title": "Unauthorized Paper"},
         )
         assert response.status_code == 401
 
     def test_list_papers_requires_auth(self, unauthenticated_client):
         """GET /papers/ without token should return 401."""
-        response = unauthenticated_client.get("/papers/")
+        response = unauthenticated_client.get("/papers")
         assert response.status_code == 401
 
     def test_get_paper_requires_auth(self, unauthenticated_client):
@@ -134,7 +127,7 @@ class TestArtifactsAuth:
     def test_create_artifact_requires_auth(self, unauthenticated_client):
         """POST /artifacts/ without token should return 401."""
         response = unauthenticated_client.post(
-            "/artifacts/",
+            "/artifacts",
             json={
                 "workspace_id": WORKSPACE_ID,
                 "type": "research_idea",

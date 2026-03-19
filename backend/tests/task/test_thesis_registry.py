@@ -32,10 +32,10 @@ class TestThesisRegistryUpdate:
         assert f.task_type == "deep_research"
         assert f.handler_key == "thesis.deep_research"
 
-    def test_thesis_writing_uses_thesis_generation_task_type(self):
+    def test_thesis_writing_uses_workspace_feature_task_type(self):
         f = get_workspace_feature("thesis", "thesis_writing")
         assert f is not None
-        assert f.task_type == "thesis_generation"
+        assert f.task_type == "workspace_feature"
         assert f.handler_key == "thesis.thesis_writing"
 
     def test_literature_management_has_no_panel(self):

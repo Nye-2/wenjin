@@ -61,8 +61,8 @@ class AuthorValidator(BaseModel):
         return v.lower().strip()
 
 
-class CreatePaperValidator(BaseModel):
-    """Validator for paper creation requests."""
+class PaperCreatePayloadValidator(BaseModel):
+    """Shared validator for paper creation payload fields."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -72,11 +72,6 @@ class CreatePaperValidator(BaseModel):
     year: int | None = Field(None, ge=1800, le=2100)
     venue: Annotated[str, Field(max_length=500)] | None = None
     abstract: Annotated[str, Field(max_length=50000)] | None = None
-    file_path: Annotated[str, Field(max_length=1000)] | None = None
-    source: PaperSource = PaperSource.MANUAL_UPLOAD
-    external_ids: dict[str, str] | None = None
-    citation_count: int | None = Field(None, ge=0)
-    reference_count: int | None = Field(None, ge=0)
 
     @field_validator("title")
     @classmethod
@@ -133,6 +128,16 @@ class CreatePaperValidator(BaseModel):
         if v is None:
             return None
         return sanitize_html(sanitize_string(v, max_length=50000))
+
+
+class CreatePaperValidator(PaperCreatePayloadValidator):
+    """Validator for paper creation requests."""
+
+    file_path: Annotated[str, Field(max_length=1000)] | None = None
+    source: PaperSource = PaperSource.MANUAL_UPLOAD
+    external_ids: dict[str, str] | None = None
+    citation_count: int | None = Field(None, ge=0)
+    reference_count: int | None = Field(None, ge=0)
 
     @field_validator("file_path")
     @classmethod

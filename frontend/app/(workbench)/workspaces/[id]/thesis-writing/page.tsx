@@ -15,6 +15,7 @@ import {
 } from "@/components/workspace/WorkspaceResultPanel";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import { cn } from "@/lib/utils";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
 import type { TaskStatus } from "@/lib/api";
 
 function resolveFeatureResult(
@@ -212,13 +213,16 @@ export default function ThesisWritingPage() {
   const selectedOutlineChapter =
     outline?.chapters[currentChapterIndex] ?? null;
 
-  const step1ResultViewModel: WorkspaceResultViewModel = {
+  const step1ResultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
     summary:
       "本工作区用于生成中文论文大纲并逐章写作，最终可进入图表生成与编译导出流程。",
     sections: [
       {
         title: "当前配置",
-        content: `论文主题：${titleInput || "未填写"}；目标字数：${targetWords}`,
+        content: describeFields([
+          ["论文主题", titleInput],
+          ["目标字数", targetWords],
+        ]),
       },
       {
         title: "流程阶段",
@@ -227,22 +231,22 @@ export default function ThesisWritingPage() {
             ? "当前阶段：大纲规划"
             : `当前阶段：正文写作（${selectedChapter?.title || "未选择章节"}）`,
       },
-      {
-        title: "任务状态",
-        content: error
-          ? `执行失败：${error}`
-          : status
-            ? `执行反馈：${status}`
-            : "尚未开始执行。",
-      },
-    ],
+        {
+          title: "任务状态",
+          content: describeTaskStatus({
+            error,
+            status,
+            idleMessage: "尚未开始执行。",
+          }),
+        },
+      ],
     nextActions: [
       "在 Step 1 先生成完整大纲。",
       "切换到 Step 2 按章节逐步写作并检查字数进度。",
       "完成正文后进入图表生成与编译导出。",
     ],
     outputLanguage: "zh",
-  };
+  });
 
   const handleGenerateOutline = async () => {
     if (!titleInput.trim()) return;

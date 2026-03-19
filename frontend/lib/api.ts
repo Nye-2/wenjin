@@ -863,6 +863,7 @@ export async function createLiterature(
     abstract?: string;
     citations?: number;
     source?: string;
+    is_core?: boolean;
   }
 ): Promise<Literature> {
   const response = await apiClient.post(

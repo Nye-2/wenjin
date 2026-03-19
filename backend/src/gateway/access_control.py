@@ -1,35 +1,22 @@
-"""Centralized access control helpers for owner isolation.
+"""Centralized access control helpers for owner isolation."""
 
-Provides reusable dependency functions for verifying workspace ownership
-and resource access across routers.
-"""
+from typing import Any
 
 from fastapi import Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User, get_db_session
-from src.gateway.routers.auth import get_current_user
-
-
-async def _get_db() -> AsyncSession:  # type: ignore[misc]
-    """Dependency to get database session."""
-    async with get_db_session() as session:
-        yield session
-
-
-async def _get_workspace_service(
-    db: AsyncSession = Depends(_get_db),
-) -> WorkspaceService:
-    """Get workspace service instance."""
-    return WorkspaceService(db)
+from src.database import User, Workspace
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.dependencies import get_workspace_service
 
 
 async def require_workspace_owner(
     workspace_id: str,
     current_user: User = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(_get_workspace_service),
-) -> User:
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+) -> Workspace:
     """Verify that the current user owns the specified workspace.
 
     Args:
@@ -38,7 +25,7 @@ async def require_workspace_owner(
         workspace_service: Workspace service (injected).
 
     Returns:
-        The authenticated User object (for downstream use).
+        The owned workspace object for downstream use.
 
     Raises:
         HTTPException 404: If workspace does not exist.
@@ -55,4 +42,33 @@ async def require_workspace_owner(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
         )
-    return current_user
+    return workspace
+
+
+def owner_check_session_from_service(service: Any) -> AsyncSession | None:
+    """Extract a SQLAlchemy session from a service for manual owner checks."""
+    db = getattr(service, "db", None)
+    return db if isinstance(db, AsyncSession) else None
+
+
+async def require_workspace_owner_by_session(
+    session: AsyncSession,
+    workspace_id: str,
+    user_id: str,
+) -> Workspace:
+    """Verify workspace ownership using an existing database session."""
+    result = await session.execute(
+        select(Workspace).where(Workspace.id == workspace_id)
+    )
+    workspace = result.scalar_one_or_none()
+    if workspace is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found",
+        )
+    if str(workspace.user_id) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    return workspace

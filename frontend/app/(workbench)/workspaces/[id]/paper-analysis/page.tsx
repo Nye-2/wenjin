@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, FlaskConical, FileText } from "lucide-react";
+import { ArrowLeft, FlaskConical } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
+import {
+  WorkspaceResultPanel,
+  type WorkspaceResultViewModel,
+} from "@/components/workspace/WorkspaceResultPanel";
+import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
+import { findLatestArtifact, getArtifactContentRecord, readString, readStringList } from "@/lib/artifact-utils";
 import { cn } from "@/lib/utils";
 
 export default function PaperAnalysisPage() {
@@ -16,7 +22,7 @@ export default function PaperAnalysisPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const { workspace, artifacts } = useWorkspaceStore();
 
   const [paperId, setPaperId] = useState(
     () => searchParams.get("paper_id") || ""
@@ -35,7 +41,7 @@ export default function PaperAnalysisPage() {
     }
   }, [workspace, paperTitle]);
 
-  const { run, isRunning, status, error } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
     workspaceId,
     featureId: "paper_analysis",
   });
@@ -48,6 +54,64 @@ export default function PaperAnalysisPage() {
   } = useModelSelection({
     purpose: "writing",
     persistenceKey: `workspace:${workspaceId}:model:writing`,
+  });
+
+  const latestAnalysisArtifact = useMemo(
+    () => findLatestArtifact(artifacts, ["paper_analysis"]),
+    [artifacts]
+  );
+  const latestAnalysisResult = useMemo(
+    () => getArtifactContentRecord(latestAnalysisArtifact) ?? latestTaskResult,
+    [latestAnalysisArtifact, latestTaskResult]
+  );
+  const latestSections =
+    latestAnalysisResult?.sections && typeof latestAnalysisResult.sections === "object"
+      ? (latestAnalysisResult.sections as Record<string, unknown>)
+      : null;
+  const latestRecommendations = readStringList(latestAnalysisResult?.recommendations, 3);
+  const latestSummary = readString(latestAnalysisResult?.summary);
+  const latestSectionNames = latestSections
+    ? Object.keys(latestSections).slice(0, 4)
+    : [];
+  const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
+    summary: latestAnalysisResult
+      ? "最近一次论文结构化分析已生成，可继续作为写作上下文使用。"
+      : "本工作区用于生成方法、实验、结论和创新点的结构化分析。",
+    sections: [
+      {
+        title: "当前分析参数",
+        content: describeFields([
+          ["Paper ID", paperId],
+          ["标题", paperTitle],
+        ]),
+      },
+      {
+        title: "任务状态",
+        content: describeTaskStatus({
+          error,
+          status,
+          idleMessage: "尚未开始分析。",
+        }),
+      },
+      {
+        title: "最近分析结果",
+        content: latestAnalysisResult
+          ? [
+              latestSectionNames.length > 0 ? `分析分区：${latestSectionNames.join("、")}` : null,
+              latestRecommendations.length > 0 ? `建议：${latestRecommendations.join("、")}` : null,
+              latestSummary ? `摘要：${latestSummary.slice(0, 120)}${latestSummary.length > 120 ? "..." : ""}` : null,
+            ]
+              .filter((item): item is string => Boolean(item))
+              .join("；")
+          : "执行后会在这里展示最近一次分析摘要。",
+      },
+    ],
+    nextActions: [
+      "输入论文标题或 Paper ID 后开始分析。",
+      "将分析结果作为后续 SCI 写作上下文。",
+      "在知识区查看完整分析 artifact。",
+    ],
+    outputLanguage: "en",
   });
 
   const handleAnalyze = async () => {
@@ -162,14 +226,9 @@ export default function PaperAnalysisPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex items-center justify-center"
+            className="h-full"
           >
-            <div className="text-center max-w-xl">
-              <FileText className="w-16 h-16 text-fuchsia-500 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">SCI 论文分析工作区</h2>
-              <p className="text-[var(--text-secondary)]">执行后将生成 `paper_analysis` artifact，并可在知识区继续迭代。</p>
-              <p className="text-sm text-[var(--text-muted)] mt-2">支持从文献列表跳转时通过 URL 参数自动带入论文信息。</p>
-            </div>
+            <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>
       </main>

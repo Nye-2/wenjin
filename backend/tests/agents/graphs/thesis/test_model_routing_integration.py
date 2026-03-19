@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -122,14 +123,26 @@ async def test_figure_generation_graph_propagates_model_id():
         "_generate_figure_code",
         new_callable=AsyncMock,
         return_value="print('ok')",
-    ) as gen_code:
+    ) as gen_code, patch.object(
+        figure_generation,
+        "generate_figure",
+        new_callable=AsyncMock,
+        return_value=SimpleNamespace(
+            success=True,
+            figure_path="/mnt/user-data/execution/mermaid/test.svg",
+            format="svg",
+            error=None,
+        ),
+    ) as execute_figure:
         result = await figure_generation.figure_generation_graph({}, payload)
 
     resolve_model.assert_called_once_with("picked-model")
     assert plan_figure.await_args.kwargs["model_id"] == "resolved-writing-model"
     assert gen_code.await_args.kwargs["model_id"] == "resolved-writing-model"
+    assert execute_figure.await_args.kwargs["strategy"] == "python"
     assert result["model_id"] == "resolved-writing-model"
     assert result["strategy"] == "python"
+    assert result["render_data"]["file_path"] == "/mnt/user-data/execution/mermaid/test.svg"
 
 
 @pytest.mark.asyncio
@@ -170,12 +183,34 @@ async def test_compile_export_graph_propagates_model_id():
             "keywords_en": ["k2"],
         },
     ) as gen_abstract:
-        result = await compile_export.compile_export_graph({}, payload)
+        with patch.object(
+            compile_export,
+            "build_compile_payload",
+            new_callable=AsyncMock,
+            return_value={
+                "compile_status": "success",
+                "pdf_path": "/mnt/user-data/execution/latex_compile/test.pdf",
+                "pdf_url": "/uploads/sandboxes/default/execution/latex_compile/test.pdf",
+                "page_count": 12,
+                "compile_error": None,
+                "compile_logs": "ok",
+                "latex_content": "\\documentclass{article}",
+                "bib_content": "",
+                "source_summary": {"chapter_count": 1},
+                "template": "default",
+                "compiler": "xelatex",
+                "bibliography_style": "gbt7714",
+                "paper_title": "topic",
+            },
+        ) as build_compile:
+            result = await compile_export.compile_export_graph({}, payload)
 
     resolve_model.assert_called_once_with("picked-model")
     assert review_consistency.await_args.kwargs["model_id"] == "resolved-writing-model"
     assert gen_abstract.await_args.kwargs["model_id"] == "resolved-writing-model"
+    assert build_compile.await_args.kwargs["workspace_id"] == "ws-1"
     assert result["model_id"] == "resolved-writing-model"
+    assert result["compile_status"] == "success"
 
 
 @pytest.mark.asyncio

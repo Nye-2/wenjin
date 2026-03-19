@@ -26,7 +26,7 @@ class TestPaperFlow:
     async def test_create_paper(self, authenticated_client: AsyncClient):
         """Test creating a new paper."""
         response = await authenticated_client.post(
-            "/api/papers/",
+            "/api/papers",
             json={
                 "title": "Attention Is All You Need",
                 "authors": [
@@ -52,7 +52,7 @@ class TestPaperFlow:
     async def test_create_paper_minimal(self, authenticated_client: AsyncClient):
         """Test creating a paper with minimal required fields."""
         response = await authenticated_client.post(
-            "/api/papers/",
+            "/api/papers",
             json={
                 "title": "Minimal Paper",
             },
@@ -67,7 +67,7 @@ class TestPaperFlow:
     async def test_create_paper_missing_title_fails(self, authenticated_client: AsyncClient):
         """Test that creating paper without title fails."""
         response = await authenticated_client.post(
-            "/api/papers/",
+            "/api/papers",
             json={
                 "year": 2024,
             },
@@ -101,7 +101,7 @@ class TestPaperFlow:
         self, authenticated_client: AsyncClient, test_paper: FixturePaper
     ):
         """Test listing papers."""
-        response = await authenticated_client.get("/api/papers/")
+        response = await authenticated_client.get("/api/papers")
         assert response.status_code == 200
         papers = response.json()
         assert isinstance(papers, list)
@@ -117,11 +117,11 @@ class TestPaperFlow:
         # Create multiple papers
         for i in range(5):
             await authenticated_client.post(
-                "/api/papers/",
+                "/api/papers",
                 json={"title": f"Paper {i}"},
             )
 
-        response = await authenticated_client.get("/api/papers/?limit=3")
+        response = await authenticated_client.get("/api/papers?limit=3")
         assert response.status_code == 200
         papers = response.json()
         assert len(papers) <= 3
@@ -163,7 +163,7 @@ class TestPaperFlow:
         """Test deleting a paper."""
         # Create a paper to delete
         response = await authenticated_client.post(
-            "/api/papers/",
+            "/api/papers",
             json={"title": "Paper to Delete"},
         )
         paper_id = response.json()["id"]
@@ -273,7 +273,7 @@ class TestPaperFlow:
     ):
         """Test that paper response has all expected fields."""
         response = await authenticated_client.post(
-            "/api/papers/",
+            "/api/papers",
             json={
                 "title": "Format Test Paper",
                 "authors": [{"name": "Test Author"}],
@@ -322,7 +322,7 @@ class TestPaperWorkspaceAssociation:
         )
 
         response = await authenticated_client.get(
-            f"/api/papers/?workspace_id={test_workspace.id}"
+            f"/api/papers?workspace_id={test_workspace.id}"
         )
         assert response.status_code == 200
         papers = response.json()
@@ -340,7 +340,7 @@ class TestPaperWorkspaceAssociation:
         """Test that the same paper can be added to multiple workspaces."""
         # Create another workspace
         response = await authenticated_client.post(
-            "/api/workspaces/",
+            "/api/workspaces",
             params={"user_id": str(test_user.id)},
             json={
                 "name": "Second Workspace",
@@ -385,7 +385,7 @@ class TestPaperDOIHandling:
     async def test_create_paper_with_doi(self, authenticated_client: AsyncClient):
         """Test creating a paper with DOI."""
         response = await authenticated_client.post(
-            "/api/papers/",
+            "/api/papers",
             json={
                 "title": "DOI Test Paper",
                 "doi": "10.1234/unique.doi.2024",
@@ -399,7 +399,7 @@ class TestPaperDOIHandling:
     async def test_create_paper_without_doi(self, authenticated_client: AsyncClient):
         """Test creating a paper without DOI."""
         response = await authenticated_client.post(
-            "/api/papers/",
+            "/api/papers",
             json={
                 "title": "No DOI Paper",
             },
@@ -435,7 +435,7 @@ class TestPaperSearchFeatures:
         """Test search with special characters."""
         # Create paper with special characters
         await authenticated_client.post(
-            "/api/papers/",
+            "/api/papers",
             json={
                 "title": "Machine Learning: A Review (2024)",
                 "abstract": "Testing special characters: @#$%^&*()",
@@ -461,7 +461,7 @@ class TestPaperSearchFeatures:
         # Create multiple papers with same keyword
         for i in range(15):
             await authenticated_client.post(
-                "/api/papers/",
+                "/api/papers",
                 json={
                     "title": f"Machine Learning Paper {i}",
                 },

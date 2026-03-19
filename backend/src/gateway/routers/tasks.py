@@ -5,10 +5,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.database import User
-from src.gateway.routers.auth import get_current_user
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.dependencies import get_task_service
 from src.services.feature_credit_policy import BILLABLE_TASK_TYPES
 from src.task.service import TaskService
-from src.task.store import TaskStore
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -56,19 +56,9 @@ async def get_current_user_id(current_user: User = Depends(get_current_user)) ->
     return str(current_user.id)
 
 
-async def get_task_service() -> TaskService:
-    """Get TaskService instance."""
-    from src.academic.cache.redis_client import redis_client
-    from src.database import get_db_session
-
-    async with get_db_session() as db:
-        store = TaskStore(redis_client, db)
-        yield TaskService(store)
-
-
 # === Endpoints ===
 
-@router.post("/", response_model=TaskSubmitResponse, status_code=201)
+@router.post("", response_model=TaskSubmitResponse, status_code=201)
 async def submit_task(
     request: TaskSubmitRequest,
     user_id: str = Depends(get_current_user_id),
@@ -93,7 +83,7 @@ async def submit_task(
         )
         return TaskSubmitResponse(task_id=task_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/{task_id}", response_model=TaskStatusResponse)
@@ -133,7 +123,7 @@ async def stream_task_progress(
     )
 
 
-@router.get("/", response_model=TaskListResponse)
+@router.get("", response_model=TaskListResponse)
 async def list_tasks(
     status: str | None = Query(None, description="Filter by status"),
     task_type: str | None = Query(None, description="Filter by task type"),

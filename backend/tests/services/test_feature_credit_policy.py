@@ -1,10 +1,8 @@
 """Tests for feature_credit_policy – the single source of truth for billing rules."""
 
-import pytest
-
 from src.services.feature_credit_policy import (
-    FEATURE_COSTS,
     BILLABLE_TASK_TYPES,
+    FEATURE_COSTS,
     get_feature_cost,
 )
 
@@ -28,7 +26,6 @@ class TestBillableTaskTypes:
     def test_contains_core_types(self):
         assert "workspace_feature" in BILLABLE_TASK_TYPES
         assert "deep_research" in BILLABLE_TASK_TYPES
-        assert "thesis_generation" in BILLABLE_TASK_TYPES
         assert "literature_search" in BILLABLE_TASK_TYPES
 
     def test_is_frozen_set(self):
