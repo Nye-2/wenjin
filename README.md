@@ -73,10 +73,10 @@ cp backend/.env.example backend/.env
 # Edit backend/.env with your model/provider settings
 
 # Start all services
-docker-compose up -d
+docker compose up -d --build
 
-# Run database migrations
-docker-compose exec gateway uv run alembic upgrade head
+# Optional: verify one-shot migration container completed
+docker compose logs -f migrate
 ```
 
 ### Manual Setup
@@ -120,8 +120,9 @@ academiagpt-v2/
 │   ├── lib/              # Utilities and API client
 │   └── stores/           # Zustand stores
 ├── docs/
-│   ├── deployment.md     # Deployment guide
-│   └── plans/            # Implementation plans
+│   ├── architecture/     # Architecture decision and API maps
+│   ├── infrastructure/   # Deployment and operations runbooks
+│   └── product/          # Product capability and contract docs
 ├── docker-compose.yml    # Docker Compose configuration
 └── nginx.conf            # Nginx configuration
 ```
@@ -177,7 +178,7 @@ npm run lint
 
 ## Deployment
 
-See [docs/deployment.md](docs/deployment.md) for detailed deployment instructions.
+See [docs/infrastructure/deployment-runbook.md](docs/infrastructure/deployment-runbook.md) for detailed deployment instructions.
 
 ## License
 
