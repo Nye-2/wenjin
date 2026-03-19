@@ -82,8 +82,7 @@ src/
 ├── academic/         # Academic services and tools
 │   ├── services/       # Business logic services
 │   ├── tools/          # Academic tools (search, extraction)
-│   ├── cache/          # Redis caching
-│   └── database/       # Legacy compatibility re-exports
+│   └── cache/          # Redis caching
 ├── database/         # SQLAlchemy models
 │   ├── models/        # ORM models
 │   └── session.py     # Database session
@@ -164,6 +163,12 @@ Each workspace type has its own graph directory:
 - `DELETE /api/threads/{id}` - Delete thread
 - `POST /api/chat` - Send message (non-streaming)
 - `POST /api/chat/stream` - Send message (streaming)
+
+### Subagents
+- `POST /api/subagents/threads/{thread_id}/spawn` - Spawn subagent task
+- `GET /api/subagents/threads/{thread_id}/tasks/{task_id}/status` - Get subagent task status
+- `POST /api/subagents/threads/{thread_id}/tasks/{task_id}/cancel` - Cancel subagent task
+- `GET /api/subagents/events` - Subscribe to subagent SSE events
 
 ## Testing
 

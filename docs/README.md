@@ -1,4 +1,4 @@
-# AcademiaGPT-V2 Documentation
+# AcademiaGPT v2 Documentation
 
 更新时间: 2026-03-19
 

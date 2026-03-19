@@ -158,12 +158,20 @@ academiagpt-v2/
 - `GET /api/artifacts` - List artifacts
 - `POST /api/artifacts` - Create artifact
 - `GET /api/artifacts/{id}` - Get artifact
+- `PUT /api/artifacts/{id}` - Update artifact
+- `DELETE /api/artifacts/{id}` - Delete artifact
 - `GET /api/artifacts/{id}/lineage` - Get artifact lineage
 
 ### Chat
 - `POST /api/threads` - Create chat thread
 - `POST /api/chat` - Send message
 - `POST /api/chat/stream` - Streaming chat
+
+### Subagents
+- `POST /api/subagents/threads/{thread_id}/spawn` - Spawn subagent task
+- `GET /api/subagents/threads/{thread_id}/tasks/{task_id}/status` - Get subagent task status
+- `POST /api/subagents/threads/{thread_id}/tasks/{task_id}/cancel` - Cancel subagent task
+- `GET /api/subagents/events` - Subscribe to subagent SSE events
 
 ## Testing
 

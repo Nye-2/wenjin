@@ -1,6 +1,6 @@
 """Academic module for literature management, knowledge storage, and citation handling."""
 
-from .database.models import (
+from src.database import (
     Artifact,
     GenerationRecord,
     Paper,

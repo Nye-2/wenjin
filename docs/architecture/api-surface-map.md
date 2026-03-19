@@ -1,7 +1,7 @@
 # API Surface Map
 
 Generated: 2026-03-19
-Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gateway/routers/` + `backend/src/thesis/api.py`
+Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gateway/routers/` + `backend/src/api/subagents.py` + `backend/src/thesis/api.py`
 
 ## Global Endpoints
 
@@ -16,11 +16,12 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 | Auth | `/api/auth/*` | Mixed | 注册、登录、刷新 token、邮箱验证码、当前用户 |
 | Models | `/api/models*` | Bearer | 前端可选模型列表与详情 |
 | Chat | `/api/threads*`, `/api/chat*` | Bearer | 会话管理 + 流式聊天 |
+| Subagents | `/api/subagents*` | Bearer | 子代理任务创建、状态、取消、SSE 事件 |
 | Workspaces | `/api/workspaces*` | Bearer | workspace CRUD、workspace 论文关联、workspace dashboard |
 | Features | `/api/workspaces/{workspace_id}/features*` | Bearer | 动态 feature 列表 + feature 执行 |
 | Literature | `/api/workspaces/{workspace_id}/literature*` | Bearer | 文献 CRUD、批量导入、数量统计 |
 | Papers | `/api/papers*` | Bearer | 论文 CRUD、提取、检索、章节 |
-| Artifacts | `/api/artifacts*` | Bearer | 成果 CRUD、lineage |
+| Artifacts | `/api/artifacts*` | Bearer | 成果 CRUD、lineage；列表接口需传 `workspace_id` |
 | Tasks | `/api/tasks*` | Bearer | 任务提交、状态、SSE 进度、取消 |
 | Dashboard | `/api/dashboard/*` | Bearer | 用户看板 + 管理员看板/积分/发布门禁 |
 
