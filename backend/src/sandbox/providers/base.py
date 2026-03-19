@@ -1,7 +1,6 @@
 """Sandbox provider abstract base class."""
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from src.sandbox.base import Sandbox
 
@@ -28,7 +27,7 @@ class SandboxProvider(ABC):
         pass
 
     @abstractmethod
-    def get(self, sandbox_id: str) -> Optional[Sandbox]:
+    def get(self, sandbox_id: str) -> Sandbox | None:
         """Get existing sandbox by ID.
 
         Args:

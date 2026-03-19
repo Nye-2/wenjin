@@ -1,13 +1,12 @@
 """Tests for sandbox configuration."""
 
-import pytest
 from src.sandbox.config import (
-    SandboxSettings,
-    LocalSandboxConfig,
-    DockerSandboxConfig,
     AcademicToolsConfig,
-    LaTeXConfig,
     CodeExecutionConfig,
+    DockerSandboxConfig,
+    LaTeXConfig,
+    LocalSandboxConfig,
+    SandboxSettings,
 )
 
 

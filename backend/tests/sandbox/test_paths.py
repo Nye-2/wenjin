@@ -1,7 +1,6 @@
 # tests/sandbox/test_paths.py
 """Tests for virtual path mapping."""
 
-import pytest
 from src.sandbox.paths import VirtualPathMapper
 
 

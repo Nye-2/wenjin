@@ -2,10 +2,10 @@
 
 import pytest
 
-from src.agents.middlewares.thread_data import ThreadDataMiddleware
-from src.agents.middlewares.uploads import UploadsMiddleware
 from src.agents.middlewares.dangling_tool_call import DanglingToolCallMiddleware
+from src.agents.middlewares.thread_data import ThreadDataMiddleware
 from src.agents.middlewares.title import TitleMiddleware
+from src.agents.middlewares.uploads import UploadsMiddleware
 
 
 class TestThreadDataMiddleware:

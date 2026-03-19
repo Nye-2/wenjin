@@ -3,6 +3,7 @@
 import subprocess
 import sys
 
+
 def run_all_tests():
     """Run pytest on all sandbox tests."""
     result = subprocess.run(

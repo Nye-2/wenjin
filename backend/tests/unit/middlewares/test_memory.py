@@ -1,9 +1,9 @@
 """Tests for MemoryMiddleware."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
-from langchain_core.messages import HumanMessage, AIMessage
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 class TestMemoryMiddleware:

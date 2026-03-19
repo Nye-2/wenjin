@@ -5,7 +5,6 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Optional
 
 from src.sandbox.base import CommandResult, FileInfo, Sandbox
 from src.sandbox.providers.base import SandboxProvider
@@ -187,7 +186,7 @@ class LocalSandbox(Sandbox):
                     timed_out=False,
                 )
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 return CommandResult(
@@ -208,7 +207,7 @@ class LocalSandbox(Sandbox):
         """Read file contents."""
         resolved = self._resolve_path(path)
         try:
-            with open(resolved, "r", encoding="utf-8") as f:
+            with open(resolved, encoding="utf-8") as f:
                 return f.read()
         except FileNotFoundError:
             raise FileNotFoundError(f"File not found: {path}") from None
@@ -333,11 +332,11 @@ class LocalSandboxProvider(SandboxProvider):
             logger.info(f"Created sandbox for thread: {thread_id}")
             return sandbox
 
-    def get(self, sandbox_id: str) -> Optional[LocalSandbox]:
+    def get(self, sandbox_id: str) -> LocalSandbox | None:
         """Get existing sandbox."""
         return self._sandboxes.get(sandbox_id)
 
-    async def release(self, sandbox: Sandbox, cleanup: Optional[bool] = None) -> None:
+    async def release(self, sandbox: Sandbox, cleanup: bool | None = None) -> None:
         """Release sandbox resources.
 
         Args:

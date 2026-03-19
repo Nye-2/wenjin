@@ -1,7 +1,8 @@
 """Tests for sandbox execution environment."""
 
 import pytest
-from src.sandbox.executor import SandboxExecutor, SandboxConfig, ExecutionResult
+
+from src.sandbox.executor import ExecutionResult, SandboxConfig, SandboxExecutor
 
 
 class TestSandboxConfig:

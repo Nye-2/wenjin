@@ -3,18 +3,19 @@
 import logging
 from typing import Any
 
-from .base import Middleware
-from src.execution.types import (
-    ExecutionRequest,
-    ExecutionResult,
-    ExecutionType,
-)
-from src.agents.thread_state import ThreadState
 from langchain_core.runnables import RunnableConfig
-from src.database.models.paper import Paper
-from src.academic.citation.bibtex.exporter import BibTeXExporter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.academic.citation.bibtex.exporter import BibTeXExporter
+from src.agents.thread_state import ThreadState
+from src.database.models.paper import Paper
+from src.execution.types import (
+    ExecutionRequest,
+    ExecutionType,
+)
+
+from .base import Middleware
 
 logger = logging.getLogger(__name__)
 

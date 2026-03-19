@@ -1,11 +1,10 @@
 """Tests for LocalSandbox implementation."""
 
-import os
 import tempfile
 from pathlib import Path
 
 import pytest
-from src.sandbox.base import FileInfo
+
 from src.sandbox.providers.local import (
     LocalSandbox,
     LocalSandboxProvider,
@@ -141,7 +140,7 @@ class TestLocalSandboxProvider:
     @pytest.mark.asyncio
     async def test_get_existing_sandbox(self, provider):
         """Should get existing sandbox by ID."""
-        sandbox1 = await provider.acquire("thread-789")
+        await provider.acquire("thread-789")
         sandbox2 = provider.get("thread-789")
         assert sandbox2 is not None
         assert sandbox2.sandbox_id == "thread-789"

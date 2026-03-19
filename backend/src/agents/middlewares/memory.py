@@ -10,8 +10,8 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from src.agents.middlewares.base import Middleware
 from src.agents.memory.queue import MemoryQueue
+from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
 
 logger = logging.getLogger(__name__)

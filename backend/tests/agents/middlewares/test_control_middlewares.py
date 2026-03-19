@@ -3,8 +3,8 @@
 import pytest
 from langchain_core.messages import AIMessage
 
-from src.agents.middlewares.subagent_limit import SubagentLimitMiddleware
 from src.agents.middlewares.clarification import ClarificationMiddleware
+from src.agents.middlewares.subagent_limit import SubagentLimitMiddleware
 
 
 class TestSubagentLimitMiddleware:

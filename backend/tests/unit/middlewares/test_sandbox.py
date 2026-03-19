@@ -1,7 +1,8 @@
 """Tests for SandboxMiddleware."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from src.agents.middlewares.sandbox import SandboxMiddleware
 from src.sandbox import Sandbox

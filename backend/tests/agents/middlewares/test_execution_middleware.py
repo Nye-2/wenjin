@@ -1,7 +1,9 @@
 """Tests for ExecutionMiddleware."""
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+
 from src.agents.middlewares.execution import ExecutionMiddleware
 from src.execution.types import ExecutionResult, ExecutionStatus, ExecutionType
 
@@ -54,7 +56,7 @@ class TestExecutionMiddleware:
         config = {"configurable": {"thread_id": "thread-1", "workspace_id": "ws-1"}}
 
         # before_tool should process and return modified args
-        result = await middleware.before_tool(
+        await middleware.before_tool(
             state=state,
             config=config,
             tool_name="compile_latex_tool",

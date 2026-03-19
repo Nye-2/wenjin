@@ -1,6 +1,5 @@
 """Tests for thesis execution tool integration."""
 
-import pytest
 from src.agents.middlewares.execution import ExecutionMiddleware
 from src.execution.types import ExecutionType
 

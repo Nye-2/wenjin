@@ -1,14 +1,14 @@
 """Tests for ExecutionMiddleware citation handling."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 @pytest.mark.asyncio
 async def test_generate_bibliography_from_citations():
     """Test that citation_ids are processed to generate bibliography."""
     from src.agents.middlewares.execution import ExecutionMiddleware
-    from src.execution.types import ExecutionType
 
     # Mock execution service
     mock_service = MagicMock()

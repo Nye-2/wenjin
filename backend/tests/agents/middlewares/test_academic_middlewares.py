@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.agents.middlewares.workspace_context import WorkspaceContextMiddleware
-from src.agents.middlewares.discipline_context import DisciplineContextMiddleware
 from src.agents.middlewares.citation_context import CitationContextMiddleware
+from src.agents.middlewares.discipline_context import DisciplineContextMiddleware
+from src.agents.middlewares.workspace_context import WorkspaceContextMiddleware
 
 
 class TestWorkspaceContextWithDictState:

@@ -1,7 +1,6 @@
 # tests/sandbox/test_exceptions.py
 """Tests for sandbox exceptions."""
 
-import pytest
 from src.sandbox.exceptions import (
     SandboxError,
     SandboxNotFoundError,

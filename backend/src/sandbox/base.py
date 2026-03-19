@@ -2,7 +2,6 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -41,7 +40,7 @@ class FileInfo:
     name: str
     path: str
     is_dir: bool
-    size: Optional[int] = None
+    size: int | None = None
 
 
 class Sandbox(ABC):

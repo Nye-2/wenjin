@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware

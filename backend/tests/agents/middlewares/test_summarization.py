@@ -1,7 +1,7 @@
 """Tests for SummarizationMiddleware."""
 
 import pytest
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.middlewares.summarization import SummarizationMiddleware
 

@@ -6,10 +6,9 @@ with restrictions on file system access, network access, and system calls.
 
 import asyncio
 import io
-import sys
 import traceback
 from contextlib import redirect_stdout
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -289,8 +288,8 @@ class SandboxExecutor:
         Returns:
             ExecutionResult containing success status, output, and any errors.
         """
-        import time
         import concurrent.futures
+        import time
 
         start_time = time.time()
 
@@ -349,7 +348,7 @@ class SandboxExecutor:
                 execution_time=execution_time,
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             execution_time = time.time() - start_time
             return ExecutionResult(
                 success=False,
