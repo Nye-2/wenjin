@@ -249,6 +249,7 @@ async def test_app(test_engine, test_session):
         model_config = ConfigDict(from_attributes=True)
 
     class CreatePaperRequest(BaseModel):
+        workspace_id: str
         doi: str | None = None
         title: str
         authors: list | None = None
@@ -626,6 +627,17 @@ async def test_app(test_engine, test_session):
             reference_count=request.reference_count,
         )
         test_session.add(paper)
+        await test_session.flush()
+
+        workspace_paper = FixtureWorkspacePaper(
+            workspace_id=request.workspace_id,
+            paper_id=str(paper.id),
+            notes=None,
+            tags=[],
+            is_primary=False,
+            read_status="unread",
+        )
+        test_session.add(workspace_paper)
         await test_session.commit()
         await test_session.refresh(paper)
         return PaperResponse(

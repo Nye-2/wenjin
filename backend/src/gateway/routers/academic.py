@@ -74,7 +74,7 @@ async def create_paper(
 @router.post("/papers/upload")
 async def upload_paper(
     file: UploadFile = File(...),
-    workspace_id: str | None = Form(None),
+    workspace_id: str = Form(...),
     current_user: User = Depends(get_current_user),
     workspace_service=Depends(get_workspace_service),
     handler: AcademicCompatHandler = Depends(get_academic_compat_handler),
@@ -84,12 +84,11 @@ async def upload_paper(
     Validates the file is a PDF, saves metadata as a paper record,
     and returns structured response with paper_id.
     """
-    if workspace_id:
-        await require_workspace_owner(
-            workspace_id=workspace_id,
-            current_user=current_user,
-            workspace_service=workspace_service,
-        )
+    await require_workspace_owner(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
 
     try:
         return await handler.upload_paper(file=file, workspace_id=workspace_id)

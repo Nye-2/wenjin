@@ -36,7 +36,7 @@ def app():
         yield object()
 
     mock_svc = AsyncMock()
-    mock_svc.create = AsyncMock(return_value=type(
+    mock_svc.create_in_workspace = AsyncMock(return_value=type(
         "Paper",
         (),
         {
@@ -53,7 +53,6 @@ def app():
             "reference_count": None,
         },
     )())
-    mock_svc.add_to_workspace = AsyncMock()
 
     mock_workspace_service = AsyncMock()
     mock_workspace_service.get = AsyncMock(return_value=type(
@@ -103,9 +102,11 @@ class TestUploadPaperEndpoint:
         assert body["filename"] == "test.pdf"
         assert "paper_id" in body
         assert "size_bytes" in body
-        client.app.state.mock_paper_service.add_to_workspace.assert_awaited_once_with(
-            paper_id="p-123",
+        client.app.state.mock_paper_service.create_in_workspace.assert_awaited_once_with(
             workspace_id="ws-1",
+            title="test",
+            authors=[],
+            source="upload",
         )
 
     def test_upload_rejects_non_pdf(self, client):
@@ -113,6 +114,7 @@ class TestUploadPaperEndpoint:
         resp = client.post(
             "/api/papers/upload",
             files={"file": ("image.png", io.BytesIO(b"\x89PNG"), "image/png")},
+            data={"workspace_id": "ws-1"},
         )
         assert resp.status_code == 400
 
@@ -121,15 +123,15 @@ class TestUploadPaperEndpoint:
         resp = client.post(
             "/api/papers/upload",
             files={"file": ("empty.pdf", io.BytesIO(b""), "application/pdf")},
+            data={"workspace_id": "ws-1"},
         )
         assert resp.status_code == 400
 
-    def test_upload_without_workspace_id_still_succeeds(self, client):
-        """Upload without workspace_id should still save the paper."""
+    def test_upload_without_workspace_id_fails(self, client):
+        """Upload should require a workspace target."""
         pdf_bytes = b"%PDF-1.4 fake content"
         resp = client.post(
             "/api/papers/upload",
             files={"file": ("paper.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
         )
-        assert resp.status_code == 200
-        assert resp.json()["success"] is True
+        assert resp.status_code == 422

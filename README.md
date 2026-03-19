@@ -148,8 +148,9 @@ academiagpt-v2/
 - `DELETE /api/workspaces/{id}` - Delete workspace
 
 ### Papers
-- `GET /api/papers` - List papers
-- `POST /api/papers` - Create paper
+- `GET /api/papers` - List papers visible in owned workspaces
+- `POST /api/papers` - Create paper in a workspace (`workspace_id` required)
+- `POST /api/papers/upload` - Upload PDF into a workspace (`workspace_id` required)
 - `GET /api/papers/{id}` - Get paper details
 - `POST /api/papers/{id}/extract` - Trigger extraction
 - `POST /api/papers/search` - Search papers

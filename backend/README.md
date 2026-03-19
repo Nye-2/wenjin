@@ -140,8 +140,9 @@ Each workspace type has its own graph directory:
 - `GET /api/workspaces/{id}/papers` - List workspace papers
 
 ### Papers
-- `GET /api/papers` - List papers
-- `POST /api/papers` - Create paper
+- `GET /api/papers` - List papers visible in owned workspaces
+- `POST /api/papers` - Create paper in a workspace (`workspace_id` required)
+- `POST /api/papers/upload` - Upload PDF into a workspace (`workspace_id` required)
 - `GET /api/papers/{id}` - Get paper
 - `PUT /api/papers/{id}` - Update paper
 - `DELETE /api/papers/{id}` - Delete paper

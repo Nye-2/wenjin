@@ -36,7 +36,7 @@ class AcademicCompatHandler:
         self,
         *,
         file: UploadFile,
-        workspace_id: str | None,
+        workspace_id: str,
     ) -> dict[str, object]:
         """Upload a paper PDF and create a minimal paper record."""
         if file.content_type not in ("application/pdf", "application/x-pdf"):
@@ -50,17 +50,12 @@ class AcademicCompatHandler:
         filename = file.filename or "untitled.pdf"
         title = filename.rsplit(".", 1)[0] if "." in filename else filename
 
-        paper = await self.paper_service.create(
+        paper = await self.paper_service.create_in_workspace(
+            workspace_id=workspace_id,
             title=title,
             authors=[],
             source="upload",
         )
-
-        if workspace_id:
-            await self.paper_service.add_to_workspace(
-                paper_id=str(paper.id),
-                workspace_id=workspace_id,
-            )
 
         return {
             "success": True,

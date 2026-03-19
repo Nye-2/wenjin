@@ -363,9 +363,12 @@ class TestAuthorValidator:
 class TestCreatePaperValidator:
     """Tests for CreatePaperValidator."""
 
+    WORKSPACE_ID = "550e8400-e29b-41d4-a716-446655440000"
+
     def test_valid_paper(self):
         """Test valid paper creation."""
         paper = CreatePaperValidator(
+            workspace_id=self.WORKSPACE_ID,
             title="Attention Is All You Need",
             authors=[{"name": "Vaswani et al."}],
             year=2017,
@@ -377,6 +380,7 @@ class TestCreatePaperValidator:
     def test_title_sanitization(self):
         """Test title is sanitized."""
         paper = CreatePaperValidator(
+            workspace_id=self.WORKSPACE_ID,
             title="  <b>Test Paper</b>  ",
         )
         assert paper.title == "Test Paper"
@@ -384,6 +388,7 @@ class TestCreatePaperValidator:
     def test_doi_validation(self):
         """Test DOI format validation."""
         paper = CreatePaperValidator(
+            workspace_id=self.WORKSPACE_ID,
             title="Test",
             doi="10.1234/test.5678",
         )
@@ -392,24 +397,37 @@ class TestCreatePaperValidator:
     def test_invalid_doi(self):
         """Test invalid DOI raises error."""
         with pytest.raises(ValidationError):
-            CreatePaperValidator(title="Test", doi="not-a-doi")
+            CreatePaperValidator(
+                workspace_id=self.WORKSPACE_ID,
+                title="Test",
+                doi="not-a-doi",
+            )
 
     def test_year_range(self):
         """Test year must be in valid range."""
         with pytest.raises(ValidationError):
-            CreatePaperValidator(title="Test", year=1700)
+            CreatePaperValidator(
+                workspace_id=self.WORKSPACE_ID,
+                title="Test",
+                year=1700,
+            )
 
         with pytest.raises(ValidationError):
-            CreatePaperValidator(title="Test", year=2200)
+            CreatePaperValidator(
+                workspace_id=self.WORKSPACE_ID,
+                title="Test",
+                year=2200,
+            )
 
     def test_empty_title_raises_error(self):
         """Test empty title raises error."""
         with pytest.raises(ValidationError):
-            CreatePaperValidator(title="")
+            CreatePaperValidator(workspace_id=self.WORKSPACE_ID, title="")
 
     def test_author_validation(self):
         """Test authors are validated."""
         paper = CreatePaperValidator(
+            workspace_id=self.WORKSPACE_ID,
             title="Test",
             authors=[
                 {"name": "John Doe", "email": "john@example.com"},
@@ -422,6 +440,7 @@ class TestCreatePaperValidator:
         """Test author without name raises error."""
         with pytest.raises(ValidationError):
             CreatePaperValidator(
+                workspace_id=self.WORKSPACE_ID,
                 title="Test",
                 authors=[{"affiliation": "MIT"}],
             )

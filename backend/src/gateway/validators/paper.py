@@ -133,7 +133,7 @@ class PaperCreatePayloadValidator(BaseModel):
 class CreatePaperValidator(PaperCreatePayloadValidator):
     """Validator for paper creation requests."""
 
-    workspace_id: str | None = None
+    workspace_id: str
     file_path: Annotated[str, Field(max_length=1000)] | None = None
     source: PaperSource = PaperSource.MANUAL_UPLOAD
     external_ids: dict[str, str] | None = None
@@ -142,10 +142,8 @@ class CreatePaperValidator(PaperCreatePayloadValidator):
 
     @field_validator("workspace_id")
     @classmethod
-    def validate_workspace_id(cls, v: str | None) -> str | None:
-        """Validate workspace ID if provided."""
-        if v is None:
-            return None
+    def validate_workspace_id(cls, v: str) -> str:
+        """Validate workspace ID."""
         return validate_uuid(v)
 
     @field_validator("file_path")

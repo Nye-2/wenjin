@@ -34,6 +34,7 @@ from src.gateway.routers.papers import (
 # ============ Auth Mock ============
 
 MOCK_USER_ID = "test-user-001"
+MOCK_WORKSPACE_ID = "550e8400-e29b-41d4-a716-446655440000"
 
 
 def create_mock_user():
@@ -46,7 +47,7 @@ def create_mock_user():
 
 
 def create_mock_workspace(
-    workspace_id: str = "ws-1",
+    workspace_id: str = MOCK_WORKSPACE_ID,
     user_id: str = MOCK_USER_ID,
 ):
     workspace = MagicMock()
@@ -171,6 +172,7 @@ def mock_paper_service():
     """Create mock paper service."""
     service = MagicMock(spec=PaperService)
     service.create = AsyncMock()
+    service.create_in_workspace = AsyncMock()
     service.get = AsyncMock()
 
     async def update_side_effect(*args, **kwargs):
@@ -257,11 +259,12 @@ class TestCreatePaper:
     def test_create_paper_success(self, client, mock_paper_service):
         """Test successful paper creation."""
         mock_paper = create_mock_paper(title="New Paper")
-        mock_paper_service.create.return_value = mock_paper
+        mock_paper_service.create_in_workspace.return_value = mock_paper
 
         response = client.post(
             "/papers",
             json={
+                "workspace_id": MOCK_WORKSPACE_ID,
                 "title": "New Paper",
                 "authors": [{"name": "Author One"}],
                 "year": 2024,
@@ -280,11 +283,12 @@ class TestCreatePaper:
     def test_create_paper_with_doi(self, client, mock_paper_service):
         """Test paper creation with DOI."""
         mock_paper = create_mock_paper(title="Paper with DOI", doi="10.5678/test.1234")
-        mock_paper_service.create.return_value = mock_paper
+        mock_paper_service.create_in_workspace.return_value = mock_paper
 
         response = client.post(
             "/papers",
             json={
+                "workspace_id": MOCK_WORKSPACE_ID,
                 "title": "Paper with DOI",
                 "doi": "10.5678/test.1234",
                 "year": 2023,
@@ -298,11 +302,12 @@ class TestCreatePaper:
     def test_create_paper_minimal(self, client, mock_paper_service):
         """Test paper creation with minimal data (only title)."""
         mock_paper = create_mock_paper(title="Minimal Paper")
-        mock_paper_service.create.return_value = mock_paper
+        mock_paper_service.create_in_workspace.return_value = mock_paper
 
         response = client.post(
             "/papers",
             json={
+                "workspace_id": MOCK_WORKSPACE_ID,
                 "title": "Minimal Paper",
             },
         )
@@ -311,12 +316,12 @@ class TestCreatePaper:
         data = response.json()
         assert data["title"] == "Minimal Paper"
         # Verify the service was called with the correct parameters
-        mock_paper_service.create.assert_called_once()
+        mock_paper_service.create_in_workspace.assert_called_once()
 
     def test_create_paper_with_workspace_adds_association(self, client, mock_paper_service):
         """Creating with workspace_id should attach the paper to that workspace."""
         mock_paper = create_mock_paper(title="Workspace Linked Paper")
-        mock_paper_service.create.return_value = mock_paper
+        mock_paper_service.create_in_workspace.return_value = mock_paper
         workspace_id = str(uuid4())
 
         response = client.post(
@@ -328,9 +333,19 @@ class TestCreatePaper:
         )
 
         assert response.status_code == 201
-        mock_paper_service.add_to_workspace.assert_awaited_once_with(
-            paper_id=mock_paper.id,
+        mock_paper_service.create_in_workspace.assert_awaited_once_with(
             workspace_id=workspace_id,
+            doi=None,
+            title="Workspace Linked Paper",
+            authors=[],
+            year=None,
+            venue=None,
+            abstract=None,
+            file_path=None,
+            source="manual_upload",
+            external_ids=None,
+            citation_count=None,
+            reference_count=None,
         )
 
     def test_create_paper_missing_title_fails(self, client):
@@ -338,11 +353,21 @@ class TestCreatePaper:
         response = client.post(
             "/papers",
             json={
+                "workspace_id": MOCK_WORKSPACE_ID,
                 "year": 2024,
             },
         )
 
         assert response.status_code == 422  # Validation error
+
+    def test_create_paper_missing_workspace_id_fails(self, client):
+        """Paper creation should require a workspace target."""
+        response = client.post(
+            "/papers",
+            json={"title": "No Workspace"},
+        )
+
+        assert response.status_code == 422
 
 
 class TestListPapers:

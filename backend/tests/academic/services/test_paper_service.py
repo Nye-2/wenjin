@@ -114,6 +114,21 @@ class TestCreatePaper:
         added_paper = mock_db_session.add.call_args[0][0]
         assert added_paper.source == "manual_upload"
 
+    @pytest.mark.asyncio
+    async def test_create_in_workspace_is_atomic(self, service, mock_db_session):
+        """Creating in workspace should commit once after paper + association are staged."""
+        mock_db_session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
+
+        paper = await service.create_in_workspace(
+            workspace_id=str(uuid.uuid4()),
+            title="Atomic Paper",
+            authors=[],
+        )
+
+        assert paper is not None
+        assert mock_db_session.add.call_count == 2
+        mock_db_session.commit.assert_called_once()
+
 
 class TestGetPaper:
     """Tests for get method."""

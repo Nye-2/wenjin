@@ -46,6 +46,7 @@ class PaperService:
         external_ids: dict[str, Any] | None = None,
         citation_count: int | None = None,
         reference_count: int | None = None,
+        auto_commit: bool = True,
     ) -> Paper:
         """Create a new paper.
 
@@ -90,8 +91,11 @@ class PaperService:
             reference_count=reference_count,
         )
         self.db.add(paper)
-        await self.db.commit()
-        await self.db.refresh(paper)
+        if auto_commit:
+            await self.db.commit()
+            await self.db.refresh(paper)
+        else:
+            await self.db.flush()
         return paper
 
     async def get(self, paper_id: str) -> Paper | None:
@@ -214,6 +218,7 @@ class PaperService:
         notes: str | None = None,
         tags: list[str] | None = None,
         is_primary: bool = False,
+        auto_commit: bool = True,
     ) -> WorkspacePaper:
         """Add paper to workspace with metadata.
 
@@ -249,9 +254,62 @@ class PaperService:
             is_primary=is_primary,
         )
         self.db.add(workspace_paper)
-        await self.db.commit()
-        await self.db.refresh(workspace_paper)
+        if auto_commit:
+            await self.db.commit()
+            await self.db.refresh(workspace_paper)
+        else:
+            await self.db.flush()
         return workspace_paper
+
+    async def create_in_workspace(
+        self,
+        *,
+        workspace_id: str,
+        title: str,
+        authors: list[dict[str, Any]],
+        doi: str | None = None,
+        year: int | None = None,
+        venue: str | None = None,
+        abstract: str | None = None,
+        file_path: str | None = None,
+        source: str = "manual_upload",
+        source_url: str | None = None,
+        external_ids: dict[str, Any] | None = None,
+        citation_count: int | None = None,
+        reference_count: int | None = None,
+        notes: str | None = None,
+        tags: list[str] | None = None,
+        is_primary: bool = False,
+    ) -> Paper:
+        """Create a paper and attach it to a workspace atomically."""
+        paper = await self.create(
+            title=title,
+            authors=authors,
+            doi=doi,
+            year=year,
+            venue=venue,
+            abstract=abstract,
+            file_path=file_path,
+            source=source,
+            source_url=source_url,
+            external_ids=external_ids,
+            citation_count=citation_count,
+            reference_count=reference_count,
+            auto_commit=False,
+        )
+
+        await self.add_to_workspace(
+            paper_id=str(paper.id),
+            workspace_id=workspace_id,
+            notes=notes,
+            tags=tags,
+            is_primary=is_primary,
+            auto_commit=False,
+        )
+
+        await self.db.commit()
+        await self.db.refresh(paper)
+        return paper
 
     async def list_workspace_papers(
         self,

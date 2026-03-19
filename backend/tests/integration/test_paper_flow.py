@@ -23,11 +23,16 @@ class TestPaperFlow:
     """Tests for complete paper flow."""
 
     @pytest.mark.asyncio
-    async def test_create_paper(self, authenticated_client: AsyncClient):
+    async def test_create_paper(
+        self,
+        authenticated_client: AsyncClient,
+        test_workspace: FixtureWorkspace,
+    ):
         """Test creating a new paper."""
         response = await authenticated_client.post(
             "/api/papers",
             json={
+                "workspace_id": str(test_workspace.id),
                 "title": "Attention Is All You Need",
                 "authors": [
                     {"name": "Ashish Vaswani", "affiliation": "Google Brain"},
@@ -49,11 +54,16 @@ class TestPaperFlow:
         assert "id" in paper
 
     @pytest.mark.asyncio
-    async def test_create_paper_minimal(self, authenticated_client: AsyncClient):
+    async def test_create_paper_minimal(
+        self,
+        authenticated_client: AsyncClient,
+        test_workspace: FixtureWorkspace,
+    ):
         """Test creating a paper with minimal required fields."""
         response = await authenticated_client.post(
             "/api/papers",
             json={
+                "workspace_id": str(test_workspace.id),
                 "title": "Minimal Paper",
             },
         )
@@ -64,15 +74,29 @@ class TestPaperFlow:
         assert paper["authors"] == []  # Default empty list
 
     @pytest.mark.asyncio
-    async def test_create_paper_missing_title_fails(self, authenticated_client: AsyncClient):
+    async def test_create_paper_missing_title_fails(
+        self,
+        authenticated_client: AsyncClient,
+        test_workspace: FixtureWorkspace,
+    ):
         """Test that creating paper without title fails."""
         response = await authenticated_client.post(
             "/api/papers",
             json={
+                "workspace_id": str(test_workspace.id),
                 "year": 2024,
             },
         )
         assert response.status_code == 422  # Validation error
+
+    @pytest.mark.asyncio
+    async def test_create_paper_missing_workspace_id_fails(self, authenticated_client: AsyncClient):
+        """Test that creating paper without workspace_id fails."""
+        response = await authenticated_client.post(
+            "/api/papers",
+            json={"title": "No Workspace"},
+        )
+        assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_get_paper_by_id(
@@ -111,14 +135,19 @@ class TestPaperFlow:
 
     @pytest.mark.asyncio
     async def test_list_papers_with_limit(
-        self, authenticated_client: AsyncClient
+        self,
+        authenticated_client: AsyncClient,
+        test_workspace: FixtureWorkspace,
     ):
         """Test listing papers with limit."""
         # Create multiple papers
         for i in range(5):
             await authenticated_client.post(
                 "/api/papers",
-                json={"title": f"Paper {i}"},
+                json={
+                    "workspace_id": str(test_workspace.id),
+                    "title": f"Paper {i}",
+                },
             )
 
         response = await authenticated_client.get("/api/papers?limit=3")
@@ -158,13 +187,19 @@ class TestPaperFlow:
 
     @pytest.mark.asyncio
     async def test_delete_paper(
-        self, authenticated_client: AsyncClient, test_session
+        self,
+        authenticated_client: AsyncClient,
+        test_session,
+        test_workspace: FixtureWorkspace,
     ):
         """Test deleting a paper."""
         # Create a paper to delete
         response = await authenticated_client.post(
             "/api/papers",
-            json={"title": "Paper to Delete"},
+            json={
+                "workspace_id": str(test_workspace.id),
+                "title": "Paper to Delete",
+            },
         )
         paper_id = response.json()["id"]
 
@@ -269,12 +304,15 @@ class TestPaperFlow:
 
     @pytest.mark.asyncio
     async def test_paper_response_format(
-        self, authenticated_client: AsyncClient
+        self,
+        authenticated_client: AsyncClient,
+        test_workspace: FixtureWorkspace,
     ):
         """Test that paper response has all expected fields."""
         response = await authenticated_client.post(
             "/api/papers",
             json={
+                "workspace_id": str(test_workspace.id),
                 "title": "Format Test Paper",
                 "authors": [{"name": "Test Author"}],
                 "year": 2024,
@@ -382,11 +420,16 @@ class TestPaperDOIHandling:
     """Tests for DOI handling."""
 
     @pytest.mark.asyncio
-    async def test_create_paper_with_doi(self, authenticated_client: AsyncClient):
+    async def test_create_paper_with_doi(
+        self,
+        authenticated_client: AsyncClient,
+        test_workspace: FixtureWorkspace,
+    ):
         """Test creating a paper with DOI."""
         response = await authenticated_client.post(
             "/api/papers",
             json={
+                "workspace_id": str(test_workspace.id),
                 "title": "DOI Test Paper",
                 "doi": "10.1234/unique.doi.2024",
             },
@@ -396,11 +439,16 @@ class TestPaperDOIHandling:
         assert paper["doi"] == "10.1234/unique.doi.2024"
 
     @pytest.mark.asyncio
-    async def test_create_paper_without_doi(self, authenticated_client: AsyncClient):
+    async def test_create_paper_without_doi(
+        self,
+        authenticated_client: AsyncClient,
+        test_workspace: FixtureWorkspace,
+    ):
         """Test creating a paper without DOI."""
         response = await authenticated_client.post(
             "/api/papers",
             json={
+                "workspace_id": str(test_workspace.id),
                 "title": "No DOI Paper",
             },
         )
@@ -430,13 +478,16 @@ class TestPaperSearchFeatures:
 
     @pytest.mark.asyncio
     async def test_search_with_special_characters(
-        self, authenticated_client: AsyncClient
+        self,
+        authenticated_client: AsyncClient,
+        test_workspace: FixtureWorkspace,
     ):
         """Test search with special characters."""
         # Create paper with special characters
         await authenticated_client.post(
             "/api/papers",
             json={
+                "workspace_id": str(test_workspace.id),
                 "title": "Machine Learning: A Review (2024)",
                 "abstract": "Testing special characters: @#$%^&*()",
             },
@@ -455,7 +506,9 @@ class TestPaperSearchFeatures:
 
     @pytest.mark.asyncio
     async def test_search_respects_limit(
-        self, authenticated_client: AsyncClient
+        self,
+        authenticated_client: AsyncClient,
+        test_workspace: FixtureWorkspace,
     ):
         """Test that search respects the limit parameter."""
         # Create multiple papers with same keyword
@@ -463,6 +516,7 @@ class TestPaperSearchFeatures:
             await authenticated_client.post(
                 "/api/papers",
                 json={
+                    "workspace_id": str(test_workspace.id),
                     "title": f"Machine Learning Paper {i}",
                 },
             )

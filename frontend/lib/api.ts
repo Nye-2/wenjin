@@ -354,7 +354,7 @@ export async function listWorkspacePapers(
 }
 
 export async function createPaper(data: {
-  workspace_id?: string;
+  workspace_id: string;
   doi?: string;
   title: string;
   authors?: Array<{ name: string }>;
@@ -368,10 +368,13 @@ export async function createPaper(data: {
 
 export async function searchPapers(
   query: string,
+  workspaceId?: string,
   limit: number = 10
-): Promise<{ result: string }> {
-  const response = await apiClient.get('/papers/search', {
-    params: { query, limit },
+): Promise<{ query: string; count: number; papers: Paper[] }> {
+  const response = await apiClient.post('/papers/search', {
+    query,
+    workspace_id: workspaceId,
+    limit,
   });
   return response.data;
 }
