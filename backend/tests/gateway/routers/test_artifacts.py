@@ -291,7 +291,8 @@ class TestListArtifacts:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
+        assert data["count"] == 2
+        assert len(data["artifacts"]) == 2
 
     def test_list_artifacts_by_type(self, client):
         """Test artifact listing filtered by type."""
@@ -317,8 +318,9 @@ class TestListArtifacts:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["type"] == "research_idea"
+        assert data["count"] == 1
+        assert len(data["artifacts"]) == 1
+        assert data["artifacts"][0]["type"] == "research_idea"
 
     def test_list_artifacts_empty(self, client):
         """Test artifact listing with no artifacts."""
@@ -327,7 +329,8 @@ class TestListArtifacts:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 0
+        assert data["count"] == 0
+        assert data["artifacts"] == []
 
     def test_list_artifacts_different_workspaces(self, client):
         """Test artifact listing isolates workspaces."""
@@ -354,8 +357,9 @@ class TestListArtifacts:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["workspace_id"] == WORKSPACE_ID
+        assert data["count"] == 1
+        assert len(data["artifacts"]) == 1
+        assert data["artifacts"][0]["workspace_id"] == WORKSPACE_ID
 
 
 class TestGetArtifact:

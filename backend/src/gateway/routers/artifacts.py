@@ -21,6 +21,7 @@ from src.gateway.access_control import (
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.artifact import (
     ArtifactResponse,
+    ArtifactsListResponse,
     artifact_to_response,
 )
 from src.gateway.deps import get_artifact_service
@@ -84,7 +85,7 @@ async def create_artifact(
     return artifact_to_response(artifact)
 
 
-@router.get("", response_model=list[ArtifactResponse])
+@router.get("", response_model=ArtifactsListResponse)
 async def list_artifacts(
     workspace_id: str,
     type: str | None = None,
@@ -99,7 +100,7 @@ async def list_artifacts(
         artifact_service: Injected artifact service
 
     Returns:
-        List of ArtifactResponse objects
+        Structured artifact list response with total count
     """
     await _ensure_workspace_owner_for_artifact_service(
         artifact_service,
@@ -113,7 +114,10 @@ async def list_artifacts(
         workspace_id=workspace_id,
         type=type,
     )
-    return [artifact_to_response(a) for a in artifacts]
+    return ArtifactsListResponse(
+        artifacts=[artifact_to_response(a) for a in artifacts],
+        count=len(artifacts),
+    )
 
 
 @router.get("/{artifact_id}", response_model=ArtifactResponse)

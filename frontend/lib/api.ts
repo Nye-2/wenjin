@@ -390,8 +390,7 @@ export async function listArtifacts(
     params.type = type;
   }
   const response = await apiClient.get('/artifacts/', { params });
-  const artifacts = Array.isArray(response.data) ? response.data : [];
-  return { artifacts, count: artifacts.length };
+  return response.data;
 }
 
 export async function createArtifact(data: {
