@@ -1,11 +1,12 @@
-"""Database package initialization."""
+"""Compatibility re-exports for legacy academic database imports."""
 
-from .models import (
+from src.database import (
     Artifact,
     GenerationRecord,
     Paper,
     PaperChunk,
     PaperExtraction,
+    PaperSection,
     UserKnowledge,
     Workspace,
     WorkspacePaper,
@@ -17,6 +18,7 @@ __all__ = [
     "WorkspacePaper",
     "PaperExtraction",
     "PaperChunk",
+    "PaperSection",
     "Artifact",
     "UserKnowledge",
     "GenerationRecord",

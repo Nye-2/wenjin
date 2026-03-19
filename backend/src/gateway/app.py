@@ -120,11 +120,13 @@ async def health_check():
 
 
 # Include routers (imported after app creation to avoid circular imports)
+from src.api.subagents import router as subagents_router  # noqa: E402
 from src.thesis.api import router as thesis_router  # noqa: E402
 
 from .routers import academic, artifacts, auth, chat, dashboard, features, literature, models, papers, tasks, workspaces  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
+app.include_router(subagents_router, prefix="/api", tags=["subagents"])
 app.include_router(academic.router, prefix="/api", tags=["academic"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])

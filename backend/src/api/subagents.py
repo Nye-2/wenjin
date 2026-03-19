@@ -1,6 +1,7 @@
 """FastAPI routes for subagent operations."""
 
-from typing import Optional
+import logging
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,14 +16,16 @@ from src.subagents import (
 )
 
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/subagents", tags=["subagents"])
 
 
 class SpawnRequest(BaseModel):
     """Request to spawn a new subagent."""
     prompt: str
-    subagent_type: Optional[str] = None  # NEW: scout, writer, synthesizer, analyst
-    tools: Optional[list[str]] = None    # NEW: optional tool override
+    subagent_type: str | None = None  # NEW: scout, writer, synthesizer, analyst
+    tools: list[str] | None = None    # NEW: optional tool override
     max_turns: int = 10
     timeout: int = 900
     graph_template: str = "default"
@@ -39,7 +42,7 @@ class TaskStatusResponse(BaseModel):
     task_id: str
     thread_id: str
     status: SubagentStatus
-    result: Optional[SubagentResult] = None
+    result: SubagentResult | None = None
 
 
 class CancelResponse(BaseModel):
@@ -47,9 +50,41 @@ class CancelResponse(BaseModel):
     success: bool
 
 
+def _build_default_manager_config():
+    """Build a default subagent manager configuration lazily."""
+    from src.subagents.config import SubagentConfig
+
+    config = SubagentConfig.from_env()
+
+    try:
+        from src.config import get_default_model_id
+        from src.models.factory import create_chat_model
+
+        config.llm = create_chat_model(get_default_model_id())
+    except Exception as exc:
+        logger.warning("Failed to initialize default subagent model: %s", exc)
+        config.llm = None
+
+    try:
+        from src.agents.lead_agent.agent import get_available_tools
+
+        config.default_tools = get_available_tools(subagent_enabled=False)
+    except Exception as exc:
+        logger.warning("Failed to initialize default subagent tools: %s", exc)
+        config.default_tools = []
+
+    return config
+
+
 def get_manager() -> GlobalSubagentManager:
     """Get the GlobalSubagentManager instance."""
-    return GlobalSubagentManager.get_instance()
+    try:
+        return GlobalSubagentManager.get_instance()
+    except RuntimeError:
+        try:
+            return GlobalSubagentManager.initialize(_build_default_manager_config())
+        except RuntimeError:
+            return GlobalSubagentManager.get_instance()
 
 
 @router.post("/threads/{thread_id}/spawn", response_model=SpawnResponse)
@@ -71,8 +106,6 @@ async def spawn_subagent(
     Raises:
         HTTPException: If subagent_type is unknown or tools are invalid.
     """
-    from datetime import datetime
-
     # Import academic resolver components
     from src.subagents.academic import (
         AcademicAgentResolver,
@@ -84,6 +117,12 @@ async def spawn_subagent(
     # Resolve agent config if subagent_type specified
     system_prompt = None
     resolved_tools = None
+    if manager._llm is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Subagent manager is unavailable because no chat model is configured.",
+        )
+
     if request.subagent_type:
         resolver = AcademicAgentResolver(manager._tools)
         try:
@@ -98,7 +137,7 @@ async def spawn_subagent(
                     "message": str(e),
                     "valid_types": get_all_subagent_types(),
                 }
-            )
+            ) from e
         except InvalidToolError as e:
             raise HTTPException(
                 status_code=400,
@@ -107,13 +146,13 @@ async def spawn_subagent(
                     "message": str(e),
                     "available_tools": e.available_tools,
                 }
-            )
+            ) from e
 
     task = SubagentTask(
         task_id=str(uuid4()),
         thread_id=thread_id,
         prompt=request.prompt,
-        created_at=datetime.now(),
+        created_at=datetime.now(UTC),
         max_turns=min(request.max_turns, manager._config.max_turns_limit),
         timeout=min(request.timeout, manager._config.max_timeout),
         graph_template=request.graph_template,
@@ -186,7 +225,7 @@ async def cancel_task(
 
 @router.get("/events")
 async def subscribe_events(
-    thread_id: Optional[str] = None,
+    thread_id: str | None = None,
     manager: GlobalSubagentManager = Depends(get_manager),
 ) -> StreamingResponse:
     """Subscribe to subagent event stream.

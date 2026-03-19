@@ -1,7 +1,6 @@
 """Unified config.yaml loader for AcademiaGPT v2."""
 
 import os
-from functools import lru_cache
 from pathlib import Path
 
 import yaml
