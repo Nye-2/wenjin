@@ -1,6 +1,7 @@
 """Global subagent manager and thread context."""
 
 import asyncio
+import json
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -17,12 +18,17 @@ from .models import SubagentResult, SubagentStatus, SubagentTask
 logger = logging.getLogger(__name__)
 
 
+class SubagentAccessError(PermissionError):
+    """Raised when a user tries to access another user's subagent thread."""
+
+
 @dataclass
 class ThreadContext:
     """Context for a single conversation thread."""
 
     thread_id: str
     max_concurrent: int
+    owner_user_id: str | None = None
     _tasks: dict[str, asyncio.Task] = field(default_factory=dict)
     _results: dict[str, SubagentResult] = field(default_factory=dict)
 
@@ -127,8 +133,9 @@ class GlobalSubagentManager:
             The task ID.
         """
         logger.info(f"Spawning subagent task {task.task_id} for thread {task.thread_id}")
+        owner_user_id = self._get_task_owner_user_id(task)
         async with self._lock:
-            ctx = self._get_or_create_context(task.thread_id)
+            ctx = self._get_or_create_context(task.thread_id, owner_user_id)
 
         async def run_with_limiter():
             async with self._limiter.acquire(task.thread_id):
@@ -253,7 +260,12 @@ class GlobalSubagentManager:
                 duration_seconds=(datetime.now() - start_time).total_seconds(),
             )
 
-    async def cancel(self, thread_id: str, task_id: str) -> bool:
+    async def cancel(
+        self,
+        thread_id: str,
+        task_id: str,
+        user_id: str | None = None,
+    ) -> bool:
         """Cancel a running task.
 
         Args:
@@ -265,7 +277,7 @@ class GlobalSubagentManager:
         """
         logger.info(f"Attempting to cancel task {task_id} in thread {thread_id}")
         async with self._lock:
-            ctx = self._threads.get(thread_id)
+            ctx = self._get_accessible_context(thread_id, user_id)
             if not ctx or task_id not in ctx._tasks:
                 logger.warning(f"Task {task_id} not found for cancellation")
                 return False
@@ -277,7 +289,12 @@ class GlobalSubagentManager:
             logger.debug(f"Task {task_id} already done, cannot cancel")
             return False
 
-    async def get_status(self, thread_id: str, task_id: str) -> Optional[SubagentStatus]:
+    async def get_status(
+        self,
+        thread_id: str,
+        task_id: str,
+        user_id: str | None = None,
+    ) -> Optional[SubagentStatus]:
         """Get the status of a task.
 
         Args:
@@ -288,12 +305,17 @@ class GlobalSubagentManager:
             Task status or None if not found.
         """
         async with self._lock:
-            ctx = self._threads.get(thread_id)
+            ctx = self._get_accessible_context(thread_id, user_id)
             if not ctx:
                 return None
             return ctx.get_task_status(task_id)
 
-    async def get_result(self, thread_id: str, task_id: str) -> Optional[SubagentResult]:
+    async def get_result(
+        self,
+        thread_id: str,
+        task_id: str,
+        user_id: str | None = None,
+    ) -> Optional[SubagentResult]:
         """Get the result of a completed task.
 
         Args:
@@ -304,12 +326,16 @@ class GlobalSubagentManager:
             Task result or None if not found.
         """
         async with self._lock:
-            ctx = self._threads.get(thread_id)
+            ctx = self._get_accessible_context(thread_id, user_id)
             if not ctx:
                 return None
             return ctx.get_result(task_id)
 
-    async def subscribe_events(self, thread_id: Optional[str] = None):
+    async def subscribe_events(
+        self,
+        thread_id: Optional[str] = None,
+        user_id: str | None = None,
+    ):
         """Subscribe to event stream.
 
         Args:
@@ -318,8 +344,27 @@ class GlobalSubagentManager:
         Yields:
             SSE-formatted event strings.
         """
+        if thread_id is not None:
+            async with self._lock:
+                ctx = self._get_accessible_context(thread_id, user_id)
+                if ctx is None:
+                    raise SubagentAccessError("Thread not found")
+
         async for event_str in self._event_stream.subscribe(thread_id):
+            if thread_id is None and user_id is not None:
+                event_thread_id = self._extract_thread_id_from_sse(event_str)
+                if event_thread_id is None:
+                    continue
+                async with self._lock:
+                    ctx = self._get_accessible_context(event_thread_id, user_id)
+                    if ctx is None:
+                        continue
             yield event_str
+
+    async def check_thread_access(self, thread_id: str, user_id: str | None) -> bool:
+        """Check whether a user can access a given thread."""
+        async with self._lock:
+            return self._get_accessible_context(thread_id, user_id) is not None
 
     async def cleanup_thread(self, thread_id: str) -> None:
         """Clean up a thread and cancel its tasks.
@@ -344,7 +389,11 @@ class GlobalSubagentManager:
                 f"Cleaned up thread {thread_id}, cancelled {cancelled_count} tasks"
             )
 
-    def _get_or_create_context(self, thread_id: str) -> ThreadContext:
+    def _get_or_create_context(
+        self,
+        thread_id: str,
+        owner_user_id: str | None = None,
+    ) -> ThreadContext:
         """Get or create a thread context.
 
         Args:
@@ -357,5 +406,46 @@ class GlobalSubagentManager:
             self._threads[thread_id] = ThreadContext(
                 thread_id=thread_id,
                 max_concurrent=self._config.per_thread_max_concurrent,
+                owner_user_id=owner_user_id,
             )
-        return self._threads[thread_id]
+            return self._threads[thread_id]
+
+        ctx = self._threads[thread_id]
+        if owner_user_id and ctx.owner_user_id and ctx.owner_user_id != owner_user_id:
+            raise SubagentAccessError("Thread not found")
+        if owner_user_id and ctx.owner_user_id is None:
+            ctx.owner_user_id = owner_user_id
+        return ctx
+
+    def _get_accessible_context(
+        self,
+        thread_id: str,
+        user_id: str | None,
+    ) -> ThreadContext | None:
+        """Get a thread context if the user is allowed to access it."""
+        ctx = self._threads.get(thread_id)
+        if ctx is None:
+            return None
+        if user_id and ctx.owner_user_id and ctx.owner_user_id != user_id:
+            return None
+        return ctx
+
+    @staticmethod
+    def _get_task_owner_user_id(task: SubagentTask) -> str | None:
+        """Extract owner user id from task metadata."""
+        user_id = task.metadata.get("user_id")
+        return str(user_id) if user_id is not None else None
+
+    @staticmethod
+    def _extract_thread_id_from_sse(event_str: str) -> str | None:
+        """Extract thread_id from an SSE event payload."""
+        for line in event_str.splitlines():
+            if not line.startswith("data: "):
+                continue
+            try:
+                payload = json.loads(line[6:])
+            except json.JSONDecodeError:
+                return None
+            thread_id = payload.get("thread_id")
+            return str(thread_id) if thread_id is not None else None
+        return None

@@ -32,6 +32,7 @@ def mock_manager():
     """Create mock manager."""
     manager = MagicMock()
     manager._config = MagicMock()
+    manager._llm = object()
     manager._config.max_turns_limit = 50
     manager._config.max_timeout = 3600
     manager.spawn = AsyncMock(return_value="task-123")
@@ -45,6 +46,8 @@ def mock_manager():
         duration_seconds=10.5,
     ))
     manager.cancel = AsyncMock(return_value=True)
+    manager.check_thread_access = AsyncMock(return_value=True)
+    manager.subscribe_events = MagicMock(return_value=iter(()))
     return manager
 
 
@@ -71,6 +74,8 @@ class TestSpawnEndpoint:
         assert "task_id" in data
         assert data["status"] == "pending"
         uuid.UUID(data["task_id"])
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.metadata["user_id"] == "user-123"
         app.dependency_overrides = {}
 
     def test_spawn_requires_auth(self, app, mock_manager):
@@ -96,6 +101,7 @@ class TestStatusEndpoint:
         data = response.json()
         assert data["status"] == "completed"
         assert data["result"]["output"] == "Done"
+        assert mock_manager.get_status.await_args.kwargs["user_id"] == "user-123"
         app.dependency_overrides = {}
 
     def test_get_status_not_found(self, client, mock_manager, app):
@@ -134,6 +140,16 @@ class TestEventsEndpoint:
         app.dependency_overrides[get_manager] = lambda: mock_manager
         response = client.get("/subagents/events")
         assert response.status_code in [200, 500]
+        app.dependency_overrides = {}
+
+    def test_events_endpoint_rejects_foreign_thread(self, client, app, mock_manager):
+        """Thread-scoped event subscriptions should enforce ownership."""
+        mock_manager.check_thread_access = AsyncMock(return_value=False)
+        app.dependency_overrides[get_manager] = lambda: mock_manager
+
+        response = client.get("/subagents/events", params={"thread_id": "thread-123"})
+
+        assert response.status_code == 404
         app.dependency_overrides = {}
 
 

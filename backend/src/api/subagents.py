@@ -16,6 +16,7 @@ from src.subagents import (
     SubagentStatus,
     SubagentResult,
 )
+from src.subagents.manager import SubagentAccessError
 
 
 logger = logging.getLogger(__name__)
@@ -166,7 +167,10 @@ async def spawn_subagent(
             "user_id": str(current_user.id),
         }
     )
-    await manager.spawn(task)
+    try:
+        await manager.spawn(task)
+    except SubagentAccessError as exc:
+        raise HTTPException(status_code=404, detail="Thread not found") from exc
     return SpawnResponse(task_id=task.task_id, status="pending")
 
 
@@ -193,10 +197,10 @@ async def get_task_status(
     Raises:
         HTTPException: If task not found.
     """
-    status = await manager.get_status(thread_id, task_id)
+    status = await manager.get_status(thread_id, task_id, user_id=str(_current_user.id))
     if status is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    result = await manager.get_result(thread_id, task_id)
+    result = await manager.get_result(thread_id, task_id, user_id=str(_current_user.id))
     return TaskStatusResponse(
         task_id=task_id,
         thread_id=thread_id,
@@ -225,7 +229,7 @@ async def cancel_task(
     Returns:
         CancelResponse with success status.
     """
-    success = await manager.cancel(thread_id, task_id)
+    success = await manager.cancel(thread_id, task_id, user_id=str(_current_user.id))
     return CancelResponse(success=success)
 
 
@@ -244,8 +248,13 @@ async def subscribe_events(
     Returns:
         StreamingResponse with SSE event stream.
     """
+    if thread_id is not None:
+        has_access = await manager.check_thread_access(thread_id, user_id=str(_current_user.id))
+        if not has_access:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
     return StreamingResponse(
-        manager.subscribe_events(thread_id),
+        manager.subscribe_events(thread_id, user_id=str(_current_user.id)),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

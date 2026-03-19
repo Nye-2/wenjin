@@ -5,8 +5,17 @@ import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, AsyncMock
 
-from src.subagents.manager import ThreadContext, GlobalSubagentManager
-from src.subagents.models import SubagentTask, SubagentResult, SubagentStatus
+from src.subagents.manager import (
+    GlobalSubagentManager,
+    SubagentAccessError,
+    ThreadContext,
+)
+from src.subagents.models import (
+    SubagentEvent,
+    SubagentResult,
+    SubagentStatus,
+    SubagentTask,
+)
 
 
 class TestThreadContext:
@@ -14,6 +23,14 @@ class TestThreadContext:
         ctx = ThreadContext(thread_id="thread-1", max_concurrent=3)
         assert ctx.thread_id == "thread-1"
         assert ctx.total_tasks == 0
+
+    def test_create_context_with_owner(self):
+        ctx = ThreadContext(
+            thread_id="thread-1",
+            max_concurrent=3,
+            owner_user_id="user-1",
+        )
+        assert ctx.owner_user_id == "user-1"
 
     def test_store_and_get_result(self):
         ctx = ThreadContext(thread_id="thread-1", max_concurrent=3)
@@ -242,3 +259,109 @@ class TestGlobalSubagentManager:
 
             # Check all threads were created
             assert len(manager._threads) == 3
+
+    @pytest.mark.asyncio
+    async def test_thread_access_isolated_by_user(self, manager):
+        """Users should not access another user's thread context."""
+        task = SubagentTask(
+            task_id="owned-task",
+            thread_id="owned-thread",
+            prompt="Test",
+            created_at=datetime.now(),
+            timeout=60,
+            metadata={"user_id": "user-1"},
+        )
+
+        from unittest.mock import patch, MagicMock
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(return_value={
+            "messages": [MagicMock(content="Done")]
+        })
+
+        with patch.object(manager._graph_registry, 'get', return_value=mock_graph):
+            await manager.spawn(task)
+            await asyncio.sleep(0.1)
+
+            own_status = await manager.get_status(
+                "owned-thread",
+                "owned-task",
+                user_id="user-1",
+            )
+            foreign_status = await manager.get_status(
+                "owned-thread",
+                "owned-task",
+                user_id="user-2",
+            )
+
+            assert own_status == SubagentStatus.COMPLETED
+            assert foreign_status is None
+
+    @pytest.mark.asyncio
+    async def test_spawn_rejects_reusing_thread_id_across_users(self, manager):
+        """A thread id owned by one user cannot be reused by another."""
+        first_task = SubagentTask(
+            task_id="task-1",
+            thread_id="shared-thread",
+            prompt="First",
+            created_at=datetime.now(),
+            timeout=60,
+            metadata={"user_id": "user-1"},
+        )
+        second_task = SubagentTask(
+            task_id="task-2",
+            thread_id="shared-thread",
+            prompt="Second",
+            created_at=datetime.now(),
+            timeout=60,
+            metadata={"user_id": "user-2"},
+        )
+
+        from unittest.mock import patch, MagicMock
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(return_value={
+            "messages": [MagicMock(content="Done")]
+        })
+
+        with patch.object(manager._graph_registry, 'get', return_value=mock_graph):
+            await manager.spawn(first_task)
+            with pytest.raises(SubagentAccessError, match="Thread not found"):
+                await manager.spawn(second_task)
+
+    @pytest.mark.asyncio
+    async def test_global_event_subscription_filters_by_owner(self, manager):
+        """Global event subscriptions should only receive events for owned threads."""
+        manager._get_or_create_context("thread-1", owner_user_id="user-1")
+        manager._get_or_create_context("thread-2", owner_user_id="user-2")
+
+        received: list[str] = []
+
+        async def collect():
+            async for sse in manager.subscribe_events(user_id="user-1"):
+                received.append(sse)
+                if len(received) >= 1:
+                    break
+
+        task = asyncio.create_task(collect())
+        await asyncio.sleep(0.05)
+
+        await manager._event_stream.publish(SubagentEvent(
+            event_type="started",
+            task_id="task-2",
+            thread_id="thread-2",
+            data={"msg": "foreign"},
+            timestamp=datetime.now(),
+        ))
+        await manager._event_stream.publish(SubagentEvent(
+            event_type="started",
+            task_id="task-1",
+            thread_id="thread-1",
+            data={"msg": "owned"},
+            timestamp=datetime.now(),
+        ))
+        await manager._event_stream.close()
+
+        await task
+        assert len(received) == 1
+        assert "owned" in received[0]
