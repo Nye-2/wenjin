@@ -36,6 +36,8 @@ interface ChatState {
   ) => Promise<void>;
   addMessage: (message: Message) => void;
   loadLatestThread: (workspaceId: string) => Promise<void>;
+  loadThread: (threadId: string) => Promise<void>;
+  startNewThread: () => void;
   setCurrentSkill: (skill: string | null) => void;
   clearMessages: () => void;
   setThreadId: (threadId: string | null) => void;
@@ -192,6 +194,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
         error: error instanceof Error ? error.message : 'Failed to load chat thread',
       });
     }
+  },
+
+  loadThread: async (threadId: string) => {
+    try {
+      const detail = await getThread(threadId);
+      const messages = detail.messages
+        .filter(
+          (message): message is typeof message & { role: 'user' | 'assistant' } =>
+            message.role === 'user' || message.role === 'assistant'
+        )
+        .map((message, index) => ({
+          id: `${detail.id}:${index}`,
+          role: message.role,
+          content: message.content,
+          created_at: message.timestamp ?? detail.updated_at,
+        }));
+
+      set((state) => ({
+        messages,
+        currentSkill: detail.skill ?? null,
+        threadId: detail.id,
+        threads: state.threads.some((thread) => thread.id === detail.id)
+          ? state.threads
+          : [detail, ...state.threads],
+        error: null,
+      }));
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to load chat thread',
+      });
+    }
+  },
+
+  startNewThread: () => {
+    set({
+      messages: [],
+      currentSkill: null,
+      threadId: null,
+      error: null,
+    });
   },
 
   setCurrentSkill: (skill: string | null) => {

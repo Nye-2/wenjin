@@ -8,7 +8,7 @@ This module provides REST endpoints for:
 - Paper search functionality
 """
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 
 from src.application.errors import ApplicationError
 from src.application.handlers.papers_handler import PapersHandler, get_papers_handler
@@ -82,6 +82,24 @@ async def create_paper(
     except ApplicationError as exc:
         raise to_http_exception(exc) from exc
     return paper_to_response(paper)
+
+
+@router.post("/upload")
+async def upload_paper(
+    file: UploadFile = File(...),
+    workspace_id: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    handler: PapersHandler = Depends(get_papers_handler),
+):
+    """Upload a paper PDF into a workspace."""
+    try:
+        return await handler.upload_paper(
+            workspace_id=workspace_id,
+            user_id=str(current_user.id),
+            file=file,
+        )
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.get("", response_model=list[PaperResponse])

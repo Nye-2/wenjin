@@ -248,6 +248,13 @@ export interface ThreadSummary {
   updated_at: string;
 }
 
+export interface ThreadAgentStatus {
+  thread_id: string;
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  current_skill?: string | null;
+  subagent_count?: number;
+}
+
 export interface ChatRequest {
   message: string;
   workspace_id?: string;
@@ -455,6 +462,11 @@ export async function listThreads(
 
 export async function deleteThread(threadId: string): Promise<void> {
   await apiClient.delete(`/threads/${threadId}`);
+}
+
+export async function getThreadAgentStatus(threadId: string): Promise<ThreadAgentStatus> {
+  const response = await apiClient.get(`/threads/${threadId}/agent-status`);
+  return response.data;
 }
 
 export async function sendMessage(data: ChatRequest): Promise<{

@@ -73,6 +73,15 @@ class ThreadResponse(BaseModel):
     updated_at: datetime
 
 
+class ThreadAgentStatusResponse(BaseModel):
+    """Execution status for a chat thread."""
+
+    thread_id: str
+    status: str
+    current_skill: str | None = None
+    subagent_count: int = 0
+
+
 def _resolve_workspace_id(request: ChatRequest, thread: ChatThread) -> str | None:
     """Resolve workspace context from request or existing thread."""
     return request.workspace_id or thread.workspace_id
@@ -101,6 +110,23 @@ def _thread_messages_to_response(messages: list[dict]) -> list[ChatMessage]:
         )
         for message in messages
     ]
+
+
+async def _set_thread_agent_status(
+    thread_id: str,
+    *,
+    status: str,
+    skill: str | None,
+) -> None:
+    """Best-effort agent status update for thread-scoped UI polling."""
+    try:
+        from src.academic.cache.redis_client import redis_client
+        from src.config import redis_settings
+
+        if redis_settings.enabled and redis_client._client is not None:
+            await redis_client.set_agent_status(thread_id, status, skill=skill, subagent_count=0)
+    except Exception:
+        logger.debug("Failed to update agent status for thread %s", thread_id, exc_info=True)
 
 
 async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> str:
@@ -232,15 +258,21 @@ async def chat(
     """Send a message and get a response (non-streaming)."""
     thread = await _get_or_create_owned_thread(request, current_user, chat_thread_service)
     await chat_thread_service.add_message(thread, role="user", content=request.message)
+    await _set_thread_agent_status(thread.id, status="running", skill=thread.skill)
 
-    response_content = await _generate_chat_response(request, thread)
+    try:
+        response_content = await _generate_chat_response(request, thread)
 
-    assistant_message = await chat_thread_service.add_message(
-        thread,
-        role="assistant",
-        content=response_content,
-    )
-    await chat_thread_service.set_title_if_empty(thread, request.message)
+        assistant_message = await chat_thread_service.add_message(
+            thread,
+            role="assistant",
+            content=response_content,
+        )
+        await chat_thread_service.set_title_if_empty(thread, request.message)
+        await _set_thread_agent_status(thread.id, status="completed", skill=thread.skill)
+    except Exception:
+        await _set_thread_agent_status(thread.id, status="failed", skill=thread.skill)
+        raise
 
     return ChatResponse(
         thread_id=thread.id,
@@ -261,6 +293,7 @@ async def chat_stream(
     async def generate() -> AsyncGenerator[str, None]:
         thread = await _get_or_create_owned_thread(request, current_user, chat_thread_service)
         await chat_thread_service.add_message(thread, role="user", content=request.message)
+        await _set_thread_agent_status(thread.id, status="running", skill=thread.skill)
 
         yield f"data: {json.dumps({'type': 'thread_id', 'thread_id': thread.id, 'skill': thread.skill})}\n\n"
 
@@ -277,10 +310,12 @@ async def chat_stream(
                 content=response_content,
             )
             await chat_thread_service.set_title_if_empty(thread, request.message)
+            await _set_thread_agent_status(thread.id, status="completed", skill=thread.skill)
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         except Exception as exc:
             logger.exception("Streaming chat failed")
+            await _set_thread_agent_status(thread.id, status="failed", skill=thread.skill)
             yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
 
     return StreamingResponse(
@@ -323,3 +358,36 @@ async def list_threads(
         ],
         "count": len(threads),
     }
+
+
+@router.get("/threads/{thread_id}/agent-status", response_model=ThreadAgentStatusResponse)
+async def get_thread_agent_status(
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+):
+    """Get the latest agent execution status for a thread."""
+    thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    from src.academic.cache.redis_client import redis_client
+    from src.config import redis_settings
+
+    payload = {
+        "thread_id": thread_id,
+        "status": "idle",
+        "current_skill": thread.skill,
+        "subagent_count": 0,
+    }
+    if redis_settings.enabled and redis_client._client is not None:
+        status = await redis_client.get_agent_status(thread_id)
+        if status:
+            payload["status"] = status.get("status", "idle")
+            payload["current_skill"] = status.get("current_skill") or thread.skill
+            try:
+                payload["subagent_count"] = int(status.get("subagent_count", 0) or 0)
+            except (TypeError, ValueError):
+                payload["subagent_count"] = 0
+
+    return ThreadAgentStatusResponse(**payload)

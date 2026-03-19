@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import Depends
+from fastapi import UploadFile
 
 from src.academic.services.extraction_service import ExtractionService
 from src.academic.services.paper_service import PaperService
@@ -66,6 +67,49 @@ class PapersHandler:
             )
         except Exception as exc:
             raise BadRequestError(f"Failed to create paper: {str(exc)}") from exc
+
+    async def upload_paper(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        file: UploadFile,
+    ) -> dict[str, object]:
+        """Upload a PDF and create its initial paper record inside a workspace."""
+        await self._require_owned_workspace(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
+        if file.content_type not in ("application/pdf", "application/x-pdf"):
+            raise BadRequestError("Only PDF files are accepted")
+
+        content = await file.read()
+        if not content:
+            raise BadRequestError("Uploaded file is empty")
+
+        size_bytes = len(content)
+        filename = file.filename or "untitled.pdf"
+        title = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+        try:
+            paper = await self.paper_service.create_in_workspace(
+                workspace_id=workspace_id,
+                title=title,
+                authors=[],
+                source="upload",
+            )
+        except Exception as exc:
+            raise BadRequestError(f"Failed to upload paper: {str(exc)}") from exc
+
+        return {
+            "success": True,
+            "paper_id": str(paper.id),
+            "filename": filename,
+            "content_type": file.content_type,
+            "size_bytes": size_bytes,
+            "workspace_id": workspace_id,
+        }
 
     async def list_papers(
         self,

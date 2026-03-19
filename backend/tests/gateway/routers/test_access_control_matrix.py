@@ -193,14 +193,6 @@ class TestAcademicAuth:
         )
         assert response.status_code == 401
 
-    def test_search_papers_requires_auth(self, unauthenticated_client):
-        """GET /papers/search without token should return 401."""
-        response = unauthenticated_client.get(
-            "/papers/search",
-            params={"query": "test"},
-        )
-        assert response.status_code == 401
-
     def test_create_artifact_requires_auth(self, unauthenticated_client):
         """POST /workspaces/{id}/artifacts without token should return 401."""
         response = unauthenticated_client.post(

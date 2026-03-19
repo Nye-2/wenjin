@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, User, Bot, Sparkles } from "lucide-react";
+import { Send, User, Bot, Sparkles, History, Plus } from "lucide-react";
 import { executeWorkspaceFeature, getTaskStatus } from "@/lib/api";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import { useChatStore, Message } from "@/stores/chat";
@@ -76,7 +76,11 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     messages,
     isStreaming,
     currentSkill,
+    threadId,
+    threads,
+    loadThread,
     sendMessage,
+    startNewThread,
     setCurrentSkill,
   } = useChatStore();
   const { workspace, fetchArtifacts, fetchPapers, loadWorkspace } = useWorkspaceStore();
@@ -93,6 +97,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   const { getFeatureById } = useFeaturesStore();
   const [inputValue, setInputValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const {
     models: availableModels,
     selectedModel,
@@ -290,6 +295,17 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     }
   };
 
+  const handleSelectThread = async (selectedThreadId: string) => {
+    setIsHistoryOpen(false);
+    await loadThread(selectedThreadId);
+  };
+
+  const handleStartNewThread = () => {
+    setIsHistoryOpen(false);
+    setActionError(null);
+    startNewThread();
+  };
+
   return (
     <div className="flex-1 h-full flex flex-col">
       {/* Header */}
@@ -304,12 +320,79 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
               AI-powered academic assistant
             </p>
           </div>
-          {currentSkill && (
-            <span className="px-3 py-1 rounded-full text-xs font-medium bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]">
-              {currentSkill.replace("-", " ")}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {currentSkill && (
+              <span className="px-3 py-1 rounded-full text-xs font-medium bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]">
+                {currentSkill.replace("-", " ")}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleStartNewThread}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-muted)]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              新会话
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsHistoryOpen((open) => !open)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-muted)]"
+            >
+              <History className="h-3.5 w-3.5" />
+              历史会话
+            </button>
+          </div>
         </div>
+        <AnimatePresence>
+          {isHistoryOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="mt-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2"
+            >
+              {threads.length === 0 ? (
+                <p className="px-2 py-3 text-xs text-[var(--text-muted)]">
+                  当前工作区还没有历史会话。
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {threads.map((thread) => {
+                    const isActive = thread.id === threadId;
+                    const label =
+                      thread.title?.trim() ||
+                      `${thread.skill ? thread.skill.replace("-", " ") : "未命名会话"}`;
+                    return (
+                      <button
+                        key={thread.id}
+                        type="button"
+                        onClick={() => void handleSelectThread(thread.id)}
+                        className={cn(
+                          "flex w-full items-start justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+                          isActive
+                            ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
+                            : "hover:bg-[var(--bg-muted)] text-[var(--text-primary)]"
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{label}</p>
+                          <p className="text-[11px] text-[var(--text-muted)]">
+                            {thread.skill ? thread.skill.replace("-", " ") : "未设置能力"} ·{" "}
+                            {thread.message_count ?? 0} 条消息
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
+                          {new Date(thread.updated_at).toLocaleDateString()}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Messages */}

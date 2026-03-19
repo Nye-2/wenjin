@@ -4,8 +4,10 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Loader2, X, ChevronDown, ChevronUp, Bot } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getThreadAgentStatus, type ThreadAgentStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useChatStore } from "@/stores/chat";
 import { useTaskStore } from "@/stores/task";
 
 type StageStatus = "completed" | "running" | "pending";
@@ -72,7 +74,40 @@ function StageConnector({ isCompleted }: StageConnectorProps) {
 export function AgentStatusBar() {
   const { currentTask, recentCompleted, cancelTask, clearRecentCompleted } =
     useTaskStore();
+  const { threadId, currentSkill, isStreaming } = useChatStore();
   const [isExpanded, setIsExpanded] = useState(true);
+  const [threadStatus, setThreadStatus] = useState<ThreadAgentStatus | null>(null);
+
+  useEffect(() => {
+    if (!threadId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshStatus = async () => {
+      try {
+        const status = await getThreadAgentStatus(threadId);
+        if (!cancelled) {
+          setThreadStatus(status);
+        }
+      } catch {
+        if (!cancelled) {
+          setThreadStatus(null);
+        }
+      }
+    };
+
+    void refreshStatus();
+    const interval = window.setInterval(() => {
+      void refreshStatus();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [threadId]);
 
   // 完成状态提示
   if (recentCompleted) {
@@ -103,7 +138,57 @@ export function AgentStatusBar() {
 
   // 空闲状态
   if (!currentTask) {
-    return null;
+    const visibleThreadStatus = threadId ? threadStatus : null;
+    const effectiveStatus =
+      isStreaming
+        ? "running"
+        : visibleThreadStatus?.status && visibleThreadStatus.status !== "idle"
+          ? visibleThreadStatus.status
+          : null;
+    if (!effectiveStatus) {
+      return null;
+    }
+
+    const skillLabel =
+      visibleThreadStatus?.current_skill || currentSkill
+        ? (visibleThreadStatus?.current_skill || currentSkill || "chat").replace(/-/g, " ")
+        : "chat";
+
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        className="rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-default)] px-4 py-3"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-7 h-7 rounded-lg bg-[var(--accent-primary)]/10 flex items-center justify-center">
+            {effectiveStatus === "running" ? (
+              <Loader2 className="w-4 h-4 animate-spin text-[var(--accent-primary)]" />
+            ) : effectiveStatus === "completed" ? (
+              <Check className="w-4 h-4 text-emerald-500" />
+            ) : (
+              <Bot className="w-4 h-4 text-red-500" />
+            )}
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              {skillLabel}
+            </p>
+            <p className="text-xs text-[var(--text-muted)]">
+              {effectiveStatus === "running"
+                ? "对话处理中"
+                : effectiveStatus === "completed"
+                  ? "对话已完成"
+                  : "对话执行失败"}
+              {(visibleThreadStatus?.subagent_count ?? 0) > 0
+                ? ` · ${visibleThreadStatus?.subagent_count} 个子代理`
+                : ""}
+            </p>
+          </div>
+        </div>
+      </motion.div>
+    );
   }
 
   const { agentLabel, thinking, stages } = currentTask;

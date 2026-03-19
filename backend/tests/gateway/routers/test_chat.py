@@ -223,6 +223,21 @@ class TestChatThreads:
         assert data["count"] == 1
         assert data["threads"][0]["title"] == "Owner thread"
 
+    def test_list_threads_includes_persisted_skill(self):
+        """Thread summaries expose the persisted session skill."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        client.post(
+            "/threads",
+            json={"title": "Skill thread", "skill": "deep-research"},
+        )
+
+        response = client.get("/threads")
+
+        assert response.status_code == 200
+        assert response.json()["threads"][0]["skill"] == "deep-research"
+
 
 class TestChatMessages:
     """Chat message flow tests."""
@@ -337,3 +352,22 @@ class TestChatMessages:
             "user",
             "assistant",
         ]
+
+    def test_thread_agent_status_defaults_to_idle(self):
+        """Threads expose a default idle execution status for unified UI polling."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        create_response = client.post(
+            "/threads",
+            json={"workspace_id": "ws-1", "skill": "deep-research"},
+        )
+        thread_id = create_response.json()["id"]
+
+        response = client.get(f"/threads/{thread_id}/agent-status")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["thread_id"] == thread_id
+        assert payload["status"] == "idle"
+        assert payload["current_skill"] == "deep-research"

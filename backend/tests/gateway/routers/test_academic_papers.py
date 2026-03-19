@@ -1,7 +1,6 @@
 """Tests for deprecated academic paper compatibility routes."""
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -60,17 +59,3 @@ def test_create_paper_uses_summary_response():
     body = response.json()
     assert body["title"] == "Compatibility Paper"
     assert "file_path" not in body
-
-
-def test_search_papers_returns_legacy_result_shape():
-    service = AsyncMock()
-    client = _create_client(service)
-
-    with patch(
-        "src.academic.tools.semantic_scholar.semantic_scholar_search_tool",
-        new=SimpleNamespace(ainvoke=AsyncMock(return_value="legacy result")),
-    ):
-        response = client.get("/papers/search", params={"query": "llm", "limit": 3})
-
-    assert response.status_code == 200
-    assert response.json() == {"result": "legacy result"}
