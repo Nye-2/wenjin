@@ -108,6 +108,9 @@ class WorkspaceActivityService:
             "metadata": {
                 "task_type": record.task_type,
                 "progress": record.progress,
+                "message": record.message,
+                "error": record.error,
+                "result": record.result,
                 "action": (payload.get("params") or {}).get("action")
                 if isinstance(payload.get("params"), dict)
                 else None,
@@ -263,6 +266,8 @@ class WorkspaceActivityService:
                         "subagent_type": subagent_type,
                         "metadata": {
                             "prompt": task.get("prompt"),
+                            "output_preview": task.get("output_preview"),
+                            "error": task.get("error"),
                         },
                     }
                 )
