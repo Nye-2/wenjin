@@ -37,6 +37,7 @@ class ChatRequest(BaseModel):
     workspace_id: str | None = None
     thread_id: str | None = None
     model: str | None = None
+    skill: str | None = None
     thinking_enabled: bool = False
     stream: bool = True
 
@@ -116,6 +117,7 @@ async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> s
                 "thread_id": thread.id,
                 "workspace_id": workspace_id,
                 "model_name": effective_model,
+                "selected_skill": request.skill,
                 "thinking_enabled": request.thinking_enabled,
             }
         }
@@ -125,6 +127,7 @@ async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> s
             {
                 "messages": _build_langchain_messages(thread),
                 "workspace_id": workspace_id,
+                "current_skill": request.skill,
             },
             config=config,
         )

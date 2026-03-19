@@ -2,8 +2,122 @@
  * API Client for AcademiaGPT Backend
  */
 
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, {
+  AxiosError,
+  AxiosInstance,
+  InternalAxiosRequestConfig,
+} from 'axios';
 import { API_BASE_URL, API_SERVER_BASE_URL } from '@/lib/api-base';
+import { useAuthStore } from '@/stores/auth';
+
+const AUTH_STORAGE_KEY = 'auth-storage';
+const AUTH_ENDPOINT_MARKERS = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/refresh',
+];
+
+type RetriableRequestConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+};
+
+function readPersistedAccessToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const authStorage = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!authStorage) {
+      return null;
+    }
+    const parsed = JSON.parse(authStorage);
+    return parsed?.state?.accessToken ?? null;
+  } catch (error) {
+    console.error('Failed to parse auth token:', error);
+    return null;
+  }
+}
+
+function getAccessToken(): string | null {
+  return useAuthStore.getState().accessToken ?? readPersistedAccessToken();
+}
+
+function isAuthRequest(url?: string): boolean {
+  if (!url) {
+    return false;
+  }
+  return AUTH_ENDPOINT_MARKERS.some((marker) => url.includes(marker));
+}
+
+function withAuthorizationHeader(
+  headers: HeadersInit | undefined,
+  token: string | null
+): Headers {
+  const resolved = new Headers(headers);
+  if (token) {
+    resolved.set('Authorization', `Bearer ${token}`);
+  } else {
+    resolved.delete('Authorization');
+  }
+  return resolved;
+}
+
+let refreshPromise: Promise<boolean> | null = null;
+
+async function refreshSession(): Promise<boolean> {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if (!refreshPromise) {
+    const { refreshToken, refreshTokens, logout } = useAuthStore.getState();
+    if (!refreshToken) {
+      return false;
+    }
+
+    refreshPromise = refreshTokens()
+      .then((refreshed) => {
+        if (!refreshed) {
+          logout();
+        }
+        return refreshed;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+}
+
+export async function authorizedFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  options: { retryOn401?: boolean } = {}
+): Promise<Response> {
+  const { retryOn401 = true } = options;
+  const requestInit: RequestInit = {
+    ...init,
+    headers: withAuthorizationHeader(init.headers, getAccessToken()),
+  };
+
+  let response = await fetch(input, requestInit);
+  if (!retryOn401 || response.status !== 401 || typeof window === 'undefined') {
+    return response;
+  }
+
+  const refreshed = await refreshSession();
+  if (!refreshed) {
+    return response;
+  }
+
+  response = await fetch(input, {
+    ...init,
+    headers: withAuthorizationHeader(init.headers, getAccessToken()),
+  });
+  return response;
+}
 
 // Create axios instance
 const apiClient: AxiosInstance = axios.create({
@@ -18,19 +132,9 @@ const apiClient: AxiosInstance = axios.create({
 apiClient.interceptors.request.use(
   (config) => {
     // Add auth token if available
-    if (typeof window !== 'undefined') {
-      try {
-        const authStorage = localStorage.getItem('auth-storage');
-        if (authStorage) {
-          const parsed = JSON.parse(authStorage);
-          const token = parsed?.state?.accessToken;
-          if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
-          }
-        }
-      } catch (error) {
-        console.error('Failed to parse auth token:', error);
-      }
+    const token = getAccessToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
@@ -40,7 +144,28 @@ apiClient.interceptors.request.use(
 // Response interceptor
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
+    const originalRequest = error.config as RetriableRequestConfig | undefined;
+
+    if (
+      typeof window !== 'undefined' &&
+      error.response?.status === 401 &&
+      originalRequest &&
+      !originalRequest._retry &&
+      !isAuthRequest(originalRequest.url)
+    ) {
+      originalRequest._retry = true;
+      const refreshed = await refreshSession();
+      if (refreshed) {
+        const token = getAccessToken();
+        if (token) {
+          originalRequest.headers = originalRequest.headers ?? {};
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+        }
+        return apiClient(originalRequest);
+      }
+    }
+
     console.error('API Error:', error.response?.data || error.message);
     return Promise.reject(error);
   }
@@ -116,6 +241,7 @@ export interface ChatRequest {
   workspace_id?: string;
   thread_id?: string;
   model?: string;
+  skill?: string;
   thinking_enabled?: boolean;
   stream?: boolean;
 }
@@ -324,31 +450,17 @@ export function streamChat(
   onDone?: () => void
 ): () => void {
   const controller = new AbortController();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
-  if (typeof window !== 'undefined') {
-    try {
-      const authStorage = localStorage.getItem('auth-storage');
-      if (authStorage) {
-        const parsed = JSON.parse(authStorage);
-        const token = parsed?.state?.accessToken;
-        if (token) {
-          headers.Authorization = `Bearer ${token}`;
-        }
-      }
-    } catch (error) {
-      console.error('Failed to parse auth token:', error);
+  authorizedFetch(
+    `${API_BASE_URL}/chat/stream`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ...data, stream: true }),
+      signal: controller.signal,
     }
-  }
-
-  fetch(`${API_BASE_URL}/chat/stream`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ ...data, stream: true }),
-    signal: controller.signal,
-  })
+  )
     .then(async (response) => {
       if (!response.ok) {
         let message = `Request failed (${response.status})`;

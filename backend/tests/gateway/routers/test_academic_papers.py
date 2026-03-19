@@ -52,7 +52,7 @@ def test_create_paper_uses_summary_response():
     client = _create_client(service)
 
     response = client.post(
-        "/papers",
+        "/academic/papers",
         json={"title": "Compatibility Paper", "authors": [{"name": "Tester"}]},
     )
 

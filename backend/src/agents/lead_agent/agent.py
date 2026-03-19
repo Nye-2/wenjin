@@ -108,6 +108,18 @@ You have access to specialized tools and subagents for:
         if "structure" in discipline_norms:
             base_prompt += f"\n- Paper Structure: {' → '.join(discipline_norms['structure'])}"
 
+    configurable = config.get("configurable", {})
+    selected_skill = (
+        configurable.get("selected_skill")
+        or state.get("current_skill")
+    )
+    if selected_skill:
+        base_prompt += (
+            "\n\n## Preferred Skill"
+            f"\nThe user selected `{selected_skill}` for this turn."
+            "\nUse it as the default approach unless the request clearly requires a different toolchain."
+        )
+
     # Add available skills
     base_prompt += "\n\n## Available Skills\nUse these skills for specific academic tasks:\n- deep-research: Comprehensive literature analysis and idea generation\n- framework-designer: Generate paper abstract and outline\n- fullpaper-writer: Complete paper writing\n- literature-review: Generate literature review\n- proposal-writer: Write research proposals\n- experiment-designer: Design experiments\n- peer-reviewer: Review and critique papers\n- journal-recommender: Recommend journals for submission"
 

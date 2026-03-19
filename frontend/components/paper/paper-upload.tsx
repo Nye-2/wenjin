@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { Upload, File, X, Loader2, CheckCircle } from 'lucide-react';
 import { API_BASE_URL } from '@/lib/api-base';
+import { authorizedFetch } from '@/lib/api';
 
 interface PaperUploadProps {
   workspaceId: string;
@@ -27,22 +28,6 @@ interface UploadingFile {
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
-}
-
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  try {
-    const authStorage = localStorage.getItem('auth-storage');
-    if (!authStorage) {
-      return null;
-    }
-    const parsed = JSON.parse(authStorage);
-    return parsed?.state?.accessToken ?? null;
-  } catch {
-    return null;
-  }
 }
 
 export function PaperUpload({
@@ -84,10 +69,8 @@ export function PaperUpload({
     formData.append('workspace_id', workspaceId);
 
     try {
-      const token = getAuthToken();
-      const response = await fetch(`${API_BASE_URL}/papers/upload`, {
+      const response = await authorizedFetch(`${API_BASE_URL}/papers/upload`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: formData,
       });
 

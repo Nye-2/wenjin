@@ -87,6 +87,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         workspace_id: options?.workspaceId,
         thread_id: threadId || undefined,
         model: options?.model,
+        skill: skillToUse || undefined,
       },
       // onMessage - receive content chunks
       (chunk) => {

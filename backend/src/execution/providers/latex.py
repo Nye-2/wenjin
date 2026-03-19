@@ -4,6 +4,7 @@ This module provides Docker-based LaTeX compilation with security validation.
 """
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,6 +17,8 @@ if TYPE_CHECKING:
     from ..docker.client import DockerClient
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_LATEX_DOCKER_IMAGE = "academiagpt/texlive:2024"
 
 
 class LaTeXProvider(ExecutionProvider):
@@ -30,7 +33,7 @@ class LaTeXProvider(ExecutionProvider):
     """
 
     _execution_type = "latex_compile"
-    _docker_image = "academiagpt/texlive:2024"
+    _docker_image = DEFAULT_LATEX_DOCKER_IMAGE
 
     @property
     def execution_type(self) -> str:
@@ -40,7 +43,7 @@ class LaTeXProvider(ExecutionProvider):
     @property
     def docker_image(self) -> str | None:
         """Docker image name."""
-        return self._docker_image
+        return os.getenv("ACADEMIAGPT_TEXLIVE_IMAGE", self._docker_image)
 
     def build_command(self, content: str, options: dict) -> list[str]:
         """Build Docker command for LaTeX compilation.

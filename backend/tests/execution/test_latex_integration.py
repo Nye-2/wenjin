@@ -1,9 +1,11 @@
 """Integration tests for LaTeX execution."""
 
-import pytest
+import os
 import subprocess
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from src.execution import (
     DockerExecutionService,
@@ -11,6 +13,9 @@ from src.execution import (
     ExecutionType,
     ExecutionStatus,
 )
+
+_DEFAULT_LATEX_IMAGE = "academiagpt/texlive:2024"
+_LATEX_IMAGE = os.getenv("ACADEMIAGPT_TEXLIVE_IMAGE", _DEFAULT_LATEX_IMAGE)
 
 
 def check_docker_available():
@@ -26,8 +31,47 @@ def check_docker_available():
         return False
 
 
-# Pre-compute docker availability for skipif decorator
-_DOCKER_AVAILABLE = check_docker_available()
+def check_latex_runtime_available() -> bool:
+    """Check whether the LaTeX runtime is locally available without network pulls."""
+    if not check_docker_available():
+        return False
+
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", _LATEX_IMAGE],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return True
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+    if _LATEX_IMAGE != _DEFAULT_LATEX_IMAGE:
+        return False
+
+    candidates: list[Path] = []
+
+    env_specific = os.getenv("ACADEMIAGPT_TEXLIVE_IMAGE_TAR")
+    if env_specific:
+        candidates.append(Path(env_specific).expanduser())
+
+    env_generic = os.getenv("DOCKER_IMAGE_TAR_PATH")
+    if env_generic:
+        candidates.append(Path(env_generic).expanduser())
+
+    backend_root = Path(__file__).resolve().parents[2]
+    candidates.append(
+        backend_root / "docker" / "images" / "texlive" / "academiagpt-texlive-2024.tar"
+    )
+    candidates.append(
+        Path("/opt/academiagpt/images/texlive/academiagpt-texlive-2024.tar")
+    )
+
+    return any(path.is_file() for path in candidates)
+
+
+_LATEX_RUNTIME_AVAILABLE = check_latex_runtime_available()
 
 
 class TestLaTeXIntegration:
@@ -65,7 +109,10 @@ Hello, World!
 """
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif("not _DOCKER_AVAILABLE", reason="Docker not available")
+    @pytest.mark.skipif(
+        "not _LATEX_RUNTIME_AVAILABLE",
+        reason="LaTeX runtime image/archive not available locally",
+    )
     @pytest.mark.integration
     async def test_compile_simple_latex(self, service, simple_latex):
         """Should compile simple LaTeX document."""
@@ -85,7 +132,10 @@ Hello, World!
         assert result.metadata.get("file_size", 0) > 0
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif("not _DOCKER_AVAILABLE", reason="Docker not available")
+    @pytest.mark.skipif(
+        "not _LATEX_RUNTIME_AVAILABLE",
+        reason="LaTeX runtime image/archive not available locally",
+    )
     @pytest.mark.integration
     async def test_compile_chinese_latex(self, service, chinese_latex):
         """Should compile Chinese LaTeX document with xelatex."""
@@ -103,7 +153,10 @@ Hello, World!
         assert result.sandbox_path is not None
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif("not _DOCKER_AVAILABLE", reason="Docker not available")
+    @pytest.mark.skipif(
+        "not _LATEX_RUNTIME_AVAILABLE",
+        reason="LaTeX runtime image/archive not available locally",
+    )
     @pytest.mark.integration
     async def test_compile_invalid_latex(self, service):
         """Should fail for invalid LaTeX."""

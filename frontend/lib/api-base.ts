@@ -7,10 +7,12 @@
  * 3) /api (same-origin proxy default)
  */
 
+const DEFAULT_DEV_API_BASE = "http://localhost:8001/api";
+
 const RAW_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ??
   process.env.NEXT_PUBLIC_BACKEND_BASE_URL ??
-  "/api";
+  (process.env.NODE_ENV === "development" ? DEFAULT_DEV_API_BASE : "/api");
 
 const ABSOLUTE_URL_PATTERN = /^https?:\/\//i;
 

@@ -72,6 +72,9 @@ cd academiagpt-v2
 cp backend/.env.example backend/.env
 # Edit backend/.env with your model/provider settings
 
+# (Optional, for mainland China network) use Docker mirror env
+cp .env.docker-cn.example .env
+
 # Start all services
 docker compose up -d --build
 

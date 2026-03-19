@@ -1,10 +1,15 @@
 # AcademiaGPT v2 - Frontend Dockerfile
 # Next.js 16 with standalone output
 
+ARG NODE_IMAGE=node:20-alpine
+ARG NPM_REGISTRY=https://registry.npmjs.org
+
 # ============================================
 # Dependencies Stage
 # ============================================
-FROM node:20-alpine AS deps
+FROM ${NODE_IMAGE} AS deps
+
+ARG NPM_REGISTRY
 
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine
 # for compatible version of libc6-compat
@@ -16,12 +21,13 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install all dependencies for build (dev deps are required by next build)
+RUN npm config set registry "${NPM_REGISTRY}"
 RUN npm ci
 
 # ============================================
 # Builder Stage
 # ============================================
-FROM node:20-alpine AS builder
+FROM ${NODE_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -43,7 +49,7 @@ RUN npm run build
 # ============================================
 # Runner Stage - Production
 # ============================================
-FROM node:20-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 
 WORKDIR /app
 

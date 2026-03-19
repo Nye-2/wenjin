@@ -247,6 +247,28 @@ class TestChatMessages:
             "assistant",
         ]
 
+    def test_chat_accepts_selected_skill(self):
+        """Chat requests preserve the selected skill through request parsing."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        with patch(
+            "src.gateway.routers.chat._generate_chat_response",
+            AsyncMock(return_value="assistant reply"),
+        ) as mock_generate:
+            response = client.post(
+                "/chat",
+                json={
+                    "message": "Hello",
+                    "workspace_id": "ws-1",
+                    "skill": "deep-research",
+                },
+            )
+
+        assert response.status_code == 200
+        request = mock_generate.await_args.args[0]
+        assert request.skill == "deep-research"
+
     def test_chat_stream_returns_thread_id_and_persists_messages(self):
         """Streaming chat keeps the same persistence and SSE contract."""
         service = FakeChatThreadService()

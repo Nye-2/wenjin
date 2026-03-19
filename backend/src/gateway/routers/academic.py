@@ -56,13 +56,13 @@ async def get_academic_compat_handler(
 
 # ============ Paper Endpoints ============
 
-@router.post("/papers", response_model=PaperResponse, status_code=201)
+@router.post("/academic/papers", response_model=PaperResponse, status_code=201)
 async def create_paper(
     request: PaperCreate,
     current_user: User = Depends(get_current_user),
     handler: AcademicCompatHandler = Depends(get_academic_compat_handler),
 ):
-    """Create a new paper."""
+    """Create a new paper via the deprecated academic compatibility surface."""
     try:
         paper = await handler.create_paper(request)
     except ApplicationError as exc:

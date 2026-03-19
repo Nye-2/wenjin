@@ -2,11 +2,15 @@
 __pycache__/
 *.py[cod]
 *.pyo
-# .env is tracked for easy deployment (private repo)
+
+# Local env files
+/backend/.env
+/frontend/.env.local
 
 # Node
 node_modules/
 .next/
+*.tsbuildinfo
 
 # IDE
 .idea/

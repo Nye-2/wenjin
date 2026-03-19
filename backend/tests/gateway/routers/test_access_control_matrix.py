@@ -188,9 +188,9 @@ class TestAcademicAuth:
         return TestClient(app)
 
     def test_create_paper_requires_auth(self, unauthenticated_client):
-        """POST /papers without token should return 401."""
+        """POST /academic/papers without token should return 401."""
         response = unauthenticated_client.post(
-            "/papers",
+            "/academic/papers",
             json={"title": "Unauthorized Paper"},
         )
         assert response.status_code == 401

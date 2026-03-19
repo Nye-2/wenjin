@@ -1,10 +1,15 @@
 # AcademiaGPT v2 - Backend Dockerfile
 # Multi-stage build for Gateway and LangGraph services
 
+ARG PYTHON_IMAGE=python:3.12-slim
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
 # ============================================
 # Base Stage - Common dependencies
 # ============================================
-FROM python:3.12-slim AS base
+FROM ${PYTHON_IMAGE} AS base
+
+ARG PIP_INDEX_URL
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,8 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv package manager
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Install uv package manager without depending on GHCR
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    UV_INDEX_URL=${PIP_INDEX_URL}
+RUN python -m pip install --no-cache-dir --upgrade pip uv
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -29,6 +36,8 @@ WORKDIR /app
 # Builder Stage - Install dependencies
 # ============================================
 FROM base AS builder
+
+ARG PIP_INDEX_URL
 
 # Copy dependency files
 COPY pyproject.toml uv.lock ./
