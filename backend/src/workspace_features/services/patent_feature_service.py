@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from src.models.factory import create_chat_model
@@ -24,7 +24,7 @@ PATENT_OUTPUT_LANGUAGE = "zh"
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(tz=timezone.utc).isoformat()
+    return datetime.now(tz=UTC).isoformat()
 
 
 def _truncate(value: str, max_len: int = 500) -> str:

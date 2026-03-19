@@ -10,7 +10,7 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +68,12 @@ class TaskStorage(ABC):
         pass
 
     @abstractmethod
-    def get_task(self, task_id: str) -> Optional[ThesisTask]:
+    def get_task(self, task_id: str) -> ThesisTask | None:
         """Get task by ID."""
         pass
 
     @abstractmethod
-    def update_task(self, task_id: str, updates: dict[str, Any]) -> Optional[ThesisTask]:
+    def update_task(self, task_id: str, updates: dict[str, Any]) -> ThesisTask | None:
         """Update task with given fields."""
         pass
 
@@ -83,7 +83,7 @@ class TaskStorage(ABC):
         pass
 
     @abstractmethod
-    def list_tasks(self, workspace_id: Optional[str] = None) -> list[ThesisTask]:
+    def list_tasks(self, workspace_id: str | None = None) -> list[ThesisTask]:
         """List all tasks, optionally filtered by workspace."""
         pass
 
@@ -105,12 +105,12 @@ class InMemoryTaskStorage(TaskStorage):
             self._tasks[task.task_id] = task
             logger.debug(f"Created task {task.task_id}")
 
-    def get_task(self, task_id: str) -> Optional[ThesisTask]:
+    def get_task(self, task_id: str) -> ThesisTask | None:
         """Get task by ID."""
         with self._lock:
             return self._tasks.get(task_id)
 
-    def update_task(self, task_id: str, updates: dict[str, Any]) -> Optional[ThesisTask]:
+    def update_task(self, task_id: str, updates: dict[str, Any]) -> ThesisTask | None:
         """Update task with given fields atomically."""
         with self._lock:
             task = self._tasks.get(task_id)
@@ -134,7 +134,7 @@ class InMemoryTaskStorage(TaskStorage):
                 return True
             return False
 
-    def list_tasks(self, workspace_id: Optional[str] = None) -> list[ThesisTask]:
+    def list_tasks(self, workspace_id: str | None = None) -> list[ThesisTask]:
         """List all tasks, optionally filtered by workspace."""
         with self._lock:
             tasks = list(self._tasks.values())
@@ -170,7 +170,7 @@ class InMemoryTaskStorage(TaskStorage):
 
 
 # Global storage instance
-_storage: Optional[TaskStorage] = None
+_storage: TaskStorage | None = None
 
 
 def get_storage() -> TaskStorage:

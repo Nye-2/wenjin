@@ -15,14 +15,14 @@ import asyncio
 import os
 import subprocess
 import sys
-from enum import Enum
+from enum import StrEnum
 
 import asyncpg
 
 LEGACY_STAMP_REVISION = "007_chat_thread_model_default"
 
 
-class MigrationBootstrapMode(str, Enum):
+class MigrationBootstrapMode(StrEnum):
     """How migrations should be bootstrapped for the current database state."""
 
     UPGRADE_ONLY = "upgrade_only"

@@ -1,10 +1,11 @@
 """Tests for DockerExecutionService."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock
+
 from src.execution.service import DockerExecutionService
-from src.execution.types import ExecutionRequest, ExecutionType, ExecutionStatus
+from src.execution.types import ExecutionRequest, ExecutionType
 
 
 class TestDockerExecutionService:

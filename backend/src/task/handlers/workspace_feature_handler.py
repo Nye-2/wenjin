@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from src.academic.services import ArtifactService
@@ -329,7 +329,7 @@ async def _try_langgraph_execution(
             "data": result,
             "artifacts": artifacts,
             "refresh_targets": ["artifacts"],
-            "generated_at": result.get("generated_at", datetime.now(tz=timezone.utc).isoformat()),
+            "generated_at": result.get("generated_at", datetime.now(tz=UTC).isoformat()),
         }
         await progress.update(100, "LangGraph 增强处理完成")
         return wrapped

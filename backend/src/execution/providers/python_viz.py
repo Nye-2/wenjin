@@ -36,9 +36,6 @@ class PythonVizProvider(ExecutionProvider):
         Returns:
             Command list for Docker execution.
         """
-        output_format = options.get("format", "png")
-        output_path = f"/workspace/output/chart.{output_format}"
-
         # Wrap code with matplotlib setup and save
         wrapped_code = f'''
 import matplotlib

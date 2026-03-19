@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
 
 from src.task.registry import TaskStatus
 
@@ -28,8 +27,8 @@ async def create_task_sse_stream(task_id: str) -> AsyncGenerator[str, None]:
 
     try:
         # Send initial status
-        from src.task.store import TaskStore
         from src.database import get_db_session
+        from src.task.store import TaskStore
 
         async with get_db_session() as db:
             store = TaskStore(redis_client, db)

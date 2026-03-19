@@ -8,10 +8,10 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from src.thesis.config import thesis_settings
 from src.thesis.task_storage import get_storage
 from src.thesis.workflow.graph import thesis_graph
-from src.thesis.workflow.state import ThesisWorkflowState, SectionPlan
-from src.thesis.config import thesis_settings
+from src.thesis.workflow.state import SectionPlan, ThesisWorkflowState
 
 logger = logging.getLogger(__name__)
 StatusUpdateCallback = Callable[[dict[str, Any]], Awaitable[None]]

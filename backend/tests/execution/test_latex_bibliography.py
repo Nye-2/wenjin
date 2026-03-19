@@ -1,6 +1,5 @@
 """Tests for LaTeX provider bibliography handling."""
 
-import pytest
 from src.execution.providers.latex import LaTeXProvider
 
 

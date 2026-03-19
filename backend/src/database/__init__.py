@@ -36,10 +36,10 @@ from .models import (
     UserKnowledge,
     # Workspace
     Workspace,
-    WorkspacePaper,
-    WorkspaceType,
     # Workspace Literature
     WorkspaceLiterature,
+    WorkspacePaper,
+    WorkspaceType,
 )
 from .session import (
     async_session_factory,

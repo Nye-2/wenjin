@@ -7,12 +7,12 @@ progress tracking.
 
 import asyncio
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from src.skills.base import SkillInput, SkillOutput
 from src.skills.executor import SkillExecutor, SkillNotFoundError
 from src.task.progress import ProgressTracker
-from src.task.registry import TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +66,9 @@ class SkillTaskHandler:
         try:
             # Import and register skill implementations
             from src.skills.implementations.deep_research import DeepResearchSkillV2
-            from src.skills.implementations.literature_review import LiteratureReviewSkill
             from src.skills.implementations.framework_designer import FrameworkDesignerSkill
             from src.skills.implementations.fullpaper_writer import FullPaperWriterSkill
+            from src.skills.implementations.literature_review import LiteratureReviewSkill
 
             # Register skills
             self._executor.register_skill(DeepResearchSkillV2())

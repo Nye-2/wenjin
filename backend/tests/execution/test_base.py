@@ -1,8 +1,8 @@
 """Tests for execution base interfaces."""
 
 import pytest
-from src.execution.base import ExecutionService, ExecutionProvider
-from src.execution.types import ExecutionRequest, ExecutionResult, ExecutionType, ExecutionStatus
+
+from src.execution.base import ExecutionProvider, ExecutionService
 
 
 class TestExecutionServiceInterface:

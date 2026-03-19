@@ -1,10 +1,10 @@
 """Tests for MermaidProvider."""
 
-import pytest
 from pathlib import Path
 
+import pytest
+
 from src.execution.providers.mermaid import MermaidProvider
-from src.execution.types import ProviderResult
 
 
 class TestMermaidProviderContract:

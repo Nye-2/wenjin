@@ -31,7 +31,6 @@ from src.gateway.routers import features
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.tasks import get_task_service
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

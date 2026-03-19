@@ -8,22 +8,22 @@ This module defines the StateGraph that orchestrates all 6 nodes:
 """
 
 import logging
-from typing import Any, Literal
+from typing import Literal
 
-from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.constants import END
+from langgraph.graph import StateGraph
 
-from src.thesis.workflow.state import ThesisWorkflowState
 from src.thesis.workflow.nodes import (
+    assemble_latex_node,
+    compile_latex_node,
+    figure_generator_node,
+    figure_planner_node,
     literature_search_node,
     section_writer_node,
-    assemble_latex_node,
-    figure_planner_node,
-    figure_generator_node,
-    compile_latex_node,
 )
 from src.thesis.workflow.nodes.base import get_attr
+from src.thesis.workflow.state import ThesisWorkflowState
 
 logger = logging.getLogger(__name__)
 

@@ -4,8 +4,9 @@
 import logging
 from typing import Any
 
-from src.thesis.workflow.state import ThesisWorkflowState, SectionContent, SectionPlan
-from .base import calculate_progress, log_node_start, log_node_end
+from src.thesis.workflow.state import SectionContent, ThesisWorkflowState
+
+from .base import calculate_progress, log_node_end, log_node_start
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ def _generate_section_content(
     lines = [
         f"# {section_title}",
         "",
-        f"## 研究背景",
+        "## 研究背景",
         f"围绕《{paper_title}》展开本章论证，明确研究场景与问题边界。",
         "",
         "## 核心内容",

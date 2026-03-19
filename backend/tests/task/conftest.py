@@ -9,7 +9,7 @@ This module provides:
 import asyncio
 from collections.abc import AsyncGenerator, Generator
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
-
 
 # ============ Test Database Models (SQLite-compatible) ============
 

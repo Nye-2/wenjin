@@ -1,7 +1,7 @@
 """Cross-layer consistency tests for workspace feature frontend routes."""
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 from src.workspace_features import iter_workspace_features
 

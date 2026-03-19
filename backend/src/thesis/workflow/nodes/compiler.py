@@ -8,9 +8,10 @@ import logging
 from typing import Any
 
 from src.thesis.config import thesis_settings
-from src.thesis.workflow.state import ThesisWorkflowState
 from src.thesis.execution.latex_tool import compile_latex
-from .base import log_node_start, log_node_end
+from src.thesis.workflow.state import ThesisWorkflowState
+
+from .base import log_node_end, log_node_start
 
 logger = logging.getLogger(__name__)
 

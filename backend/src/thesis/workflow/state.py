@@ -2,6 +2,7 @@
 
 import enum
 from typing import Annotated, Any, NotRequired, TypedDict
+
 from pydantic import BaseModel, Field
 
 

@@ -13,6 +13,9 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 
+__all__ = ["Artifact", "ArtifactType"]
+
+
 class Artifact(Base, UUIDMixin, TimestampMixin):
     """Artifact model for academic outputs.
 

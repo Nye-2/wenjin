@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 # Forward declarations (will be implemented in separate modules)
 # These imports will work once latex_tool.py and figure_tool.py are created
 try:
-    from .latex_tool import compile_latex, CompileLatexResult
-    from .figure_tool import generate_figure, GenerateFigureResult
+    from .figure_tool import GenerateFigureResult, generate_figure
+    from .latex_tool import CompileLatexResult, compile_latex
 except ImportError:
     # Allow module to load before submodules are created
     compile_latex = None  # type: ignore

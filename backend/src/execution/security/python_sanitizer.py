@@ -7,7 +7,6 @@ code execution.
 
 import ast
 
-
 # Allowed modules for safe execution
 # Note: Only use real module names, not import aliases (e.g., 'numpy' not 'np')
 ALLOWED_MODULES: set[str] = {

@@ -1,6 +1,5 @@
 """Tests for security sanitizers."""
 
-import pytest
 from src.execution.security.latex_sanitizer import sanitize_latex
 from src.execution.security.python_sanitizer import sanitize_python
 

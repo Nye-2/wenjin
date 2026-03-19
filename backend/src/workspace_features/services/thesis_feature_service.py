@@ -12,20 +12,20 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from src.academic.services import ArtifactService
 from src.artifacts import ArtifactType
 from src.database import Artifact, get_db_session
-from src.execution.types import ExecutionType
 from src.execution.public_paths import sandbox_path_to_public_url
+from src.execution.types import ExecutionType
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
 from src.services.literature_service import LiteratureService
+from src.thesis.execution import get_execution_service
 from src.thesis.execution.figure_tool import generate_figure
 from src.thesis.execution.latex_tool import compile_latex
-from src.thesis.execution import get_execution_service
 from src.thesis.workflow.latex_template import get_template
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ _STRATEGY_TO_EXECUTION_TYPE: dict[str, ExecutionType] = {
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(tz=timezone.utc).isoformat()
+    return datetime.now(tz=UTC).isoformat()
 
 
 def resolve_thesis_output_language(template: str | None = None) -> str:
@@ -554,7 +554,8 @@ def _build_bibtex(literature: list[dict[str, Any]]) -> str:
             fields.append(f"  journal = {{{venue}}}")
         if doi:
             fields.append(f"  doi = {{{doi}}}")
-        entry = "@article{ref%d,\n%s\n}" % (idx, ",\n".join(fields))
+        joined_fields = ",\n".join(fields)
+        entry = f"@article{{ref{idx},\n{joined_fields}\n}}"
         entries.append(entry)
 
     return "\n\n".join(entries)

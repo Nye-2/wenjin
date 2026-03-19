@@ -12,32 +12,29 @@ Integration points:
 - SubagentRegistry: Provides thesis_writer, librarian, figure_planner
 """
 
-from .workflow.state import (
-    SectionPlan,
-    SectionContent,
-    ThesisWorkflowState,
-    merge_sections,
-    merge_references,
-    merge_errors,
-)
-
-from .workflow.nodes import (
-    section_writer_node,
-    get_next_section_index,
-    literature_search_node,
-    check_literature_sufficiency,
-    assemble_latex_node,
-    generate_bibtex,
-)
-
 from .config import (
     ThesisSettings,
     thesis_settings,
 )
-
 from .workflow.graph import (
-    thesis_graph,
     build_thesis_graph,
+    thesis_graph,
+)
+from .workflow.nodes import (
+    assemble_latex_node,
+    check_literature_sufficiency,
+    generate_bibtex,
+    get_next_section_index,
+    literature_search_node,
+    section_writer_node,
+)
+from .workflow.state import (
+    SectionContent,
+    SectionPlan,
+    ThesisWorkflowState,
+    merge_errors,
+    merge_references,
+    merge_sections,
 )
 
 __all__ = [

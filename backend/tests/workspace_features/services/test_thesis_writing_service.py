@@ -1,10 +1,9 @@
 """Tests for thesis_writing_service – outline and chapter payload builders."""
 
-import pytest
 
 from src.workspace_features.services.thesis_writing_service import (
-    build_outline_payload,
     build_chapter_payload,
+    build_outline_payload,
 )
 
 

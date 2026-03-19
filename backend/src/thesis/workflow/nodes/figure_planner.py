@@ -10,7 +10,8 @@ import re
 from typing import Any
 
 from src.thesis.workflow.state import ThesisWorkflowState
-from .base import log_node_start, log_node_end, get_attr
+
+from .base import get_attr, log_node_end, log_node_start
 
 logger = logging.getLogger(__name__)
 

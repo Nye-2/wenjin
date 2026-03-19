@@ -8,9 +8,10 @@ Supports three strategies: mermaid (diagrams), python (plots), kling (AI images)
 import logging
 from typing import Any
 
-from src.thesis.workflow.state import ThesisWorkflowState
 from src.thesis.execution.figure_tool import generate_figure
-from .base import log_node_start, log_node_end, get_attr
+from src.thesis.workflow.state import ThesisWorkflowState
+
+from .base import get_attr, log_node_end, log_node_start
 
 logger = logging.getLogger(__name__)
 

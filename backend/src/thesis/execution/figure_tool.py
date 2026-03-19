@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from src.execution.types import ExecutionRequest, ExecutionStatus, ExecutionType
@@ -22,7 +22,7 @@ from src.thesis.execution import get_execution_service
 logger = logging.getLogger(__name__)
 
 
-class FigureStrategy(str, Enum):
+class FigureStrategy(StrEnum):
     """Figure generation strategy."""
 
     MERMAID = "mermaid"

@@ -10,8 +10,8 @@ import pytest
 from src.execution import (
     DockerExecutionService,
     ExecutionRequest,
-    ExecutionType,
     ExecutionStatus,
+    ExecutionType,
 )
 
 _DEFAULT_LATEX_IMAGE = "academiagpt/texlive:2024"
