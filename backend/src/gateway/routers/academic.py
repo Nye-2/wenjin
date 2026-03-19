@@ -4,7 +4,7 @@ Note: Workspace CRUD operations are handled in workspaces.py.
 This router handles paper and artifact operations within workspaces.
 """
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from src.application.errors import ApplicationError
 from src.application.handlers.academic_compat_handler import AcademicCompatHandler
@@ -13,6 +13,7 @@ from src.gateway.access_control import (
     owner_check_session_from_service as _owner_check_session_from_service,
 )
 from src.gateway.access_control import (
+    require_workspace_owner,
     require_workspace_owner_by_session as _require_workspace_owner,
 )
 from src.gateway.auth_dependencies import get_current_user
@@ -28,7 +29,7 @@ from src.gateway.contracts.paper import (
 from src.gateway.contracts.paper import (
     paper_to_summary_response,
 )
-from src.gateway.dependencies import get_artifact_service, get_db, get_paper_service
+from src.gateway.dependencies import get_artifact_service, get_db, get_paper_service, get_workspace_service
 from src.gateway.error_mapping import to_http_exception
 from src.gateway.resource_access import (
     ensure_workspace_owner_for_service as _shared_ensure_workspace_owner_for_service,
@@ -73,8 +74,9 @@ async def create_paper(
 @router.post("/papers/upload")
 async def upload_paper(
     file: UploadFile = File(...),
-    workspace_id: str | None = None,
+    workspace_id: str | None = Form(None),
     current_user: User = Depends(get_current_user),
+    workspace_service=Depends(get_workspace_service),
     handler: AcademicCompatHandler = Depends(get_academic_compat_handler),
 ):
     """Upload a new paper (PDF).
@@ -82,6 +84,13 @@ async def upload_paper(
     Validates the file is a PDF, saves metadata as a paper record,
     and returns structured response with paper_id.
     """
+    if workspace_id:
+        await require_workspace_owner(
+            workspace_id=workspace_id,
+            current_user=current_user,
+            workspace_service=workspace_service,
+        )
+
     try:
         return await handler.upload_paper(file=file, workspace_id=workspace_id)
     except ApplicationError as exc:

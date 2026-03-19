@@ -7,7 +7,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.gateway.routers.academic import get_db, get_paper_service, router
+from src.gateway.routers.academic import (
+    get_db,
+    get_paper_service,
+    get_workspace_service,
+    router,
+)
 from src.gateway.routers.auth import get_current_user
 
 
@@ -48,15 +53,32 @@ def app():
             "reference_count": None,
         },
     )())
+    mock_svc.add_to_workspace = AsyncMock()
+
+    mock_workspace_service = AsyncMock()
+    mock_workspace_service.get = AsyncMock(return_value=type(
+        "Workspace",
+        (),
+        {
+            "id": "ws-1",
+            "user_id": "test-user-001",
+        },
+    )())
 
     async def mock_paper_service(db=None):
         return mock_svc
 
+    async def mock_workspace_service_dep():
+        return mock_workspace_service
+
     async def mock_get_current_user():
         return _create_mock_user()
 
+    app.state.mock_paper_service = mock_svc
+    app.state.mock_workspace_service = mock_workspace_service
     app.dependency_overrides[get_db] = mock_db
     app.dependency_overrides[get_paper_service] = mock_paper_service
+    app.dependency_overrides[get_workspace_service] = mock_workspace_service_dep
     app.dependency_overrides[get_current_user] = mock_get_current_user
     return app
 
@@ -81,6 +103,10 @@ class TestUploadPaperEndpoint:
         assert body["filename"] == "test.pdf"
         assert "paper_id" in body
         assert "size_bytes" in body
+        client.app.state.mock_paper_service.add_to_workspace.assert_awaited_once_with(
+            paper_id="p-123",
+            workspace_id="ws-1",
+        )
 
     def test_upload_rejects_non_pdf(self, client):
         """Upload should reject non-PDF files."""

@@ -354,6 +354,7 @@ export async function listWorkspacePapers(
 }
 
 export async function createPaper(data: {
+  workspace_id?: string;
   doi?: string;
   title: string;
   authors?: Array<{ name: string }>;

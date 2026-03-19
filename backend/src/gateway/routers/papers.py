@@ -75,7 +75,10 @@ async def create_paper(
         HTTPException: If creation fails
     """
     try:
-        paper = await handler.create_paper(request)
+        paper = await handler.create_paper(
+            request,
+            user_id=str(current_user.id),
+        )
     except ApplicationError as exc:
         raise to_http_exception(exc) from exc
     return paper_to_response(paper)

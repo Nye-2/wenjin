@@ -189,6 +189,7 @@ def mock_paper_service():
     service.search = AsyncMock(return_value=[])
     service.search_visible_to_user = AsyncMock(return_value=[])
     service.list_sections = AsyncMock(return_value=[])
+    service.add_to_workspace = AsyncMock()
     service.is_in_workspace = AsyncMock(return_value=True)
     service.is_accessible_by_user = AsyncMock(return_value=True)
     return service
@@ -311,6 +312,26 @@ class TestCreatePaper:
         assert data["title"] == "Minimal Paper"
         # Verify the service was called with the correct parameters
         mock_paper_service.create.assert_called_once()
+
+    def test_create_paper_with_workspace_adds_association(self, client, mock_paper_service):
+        """Creating with workspace_id should attach the paper to that workspace."""
+        mock_paper = create_mock_paper(title="Workspace Linked Paper")
+        mock_paper_service.create.return_value = mock_paper
+        workspace_id = str(uuid4())
+
+        response = client.post(
+            "/papers",
+            json={
+                "title": "Workspace Linked Paper",
+                "workspace_id": workspace_id,
+            },
+        )
+
+        assert response.status_code == 201
+        mock_paper_service.add_to_workspace.assert_awaited_once_with(
+            paper_id=mock_paper.id,
+            workspace_id=workspace_id,
+        )
 
     def test_create_paper_missing_title_fails(self, client):
         """Test that paper creation without title fails."""

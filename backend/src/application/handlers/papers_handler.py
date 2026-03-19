@@ -37,10 +37,15 @@ class PapersHandler:
         self.extraction_service = extraction_service
         self.workspace_service = workspace_service
 
-    async def create_paper(self, request: Any) -> Paper:
+    async def create_paper(
+        self,
+        request: Any,
+        *,
+        user_id: str,
+    ) -> Paper:
         """Create a paper from request payload."""
         try:
-            return await self.paper_service.create(
+            paper = await self.paper_service.create(
                 doi=request.doi,
                 title=request.title,
                 authors=request.authors,
@@ -53,6 +58,17 @@ class PapersHandler:
                 citation_count=request.citation_count,
                 reference_count=request.reference_count,
             )
+            workspace_id = getattr(request, "workspace_id", None)
+            if workspace_id:
+                await self._require_owned_workspace(
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                )
+                await self.paper_service.add_to_workspace(
+                    paper_id=str(paper.id),
+                    workspace_id=workspace_id,
+                )
+            return paper
         except Exception as exc:
             raise BadRequestError(f"Failed to create paper: {str(exc)}") from exc
 

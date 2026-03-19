@@ -56,6 +56,12 @@ class AcademicCompatHandler:
             source="upload",
         )
 
+        if workspace_id:
+            await self.paper_service.add_to_workspace(
+                paper_id=str(paper.id),
+                workspace_id=workspace_id,
+            )
+
         return {
             "success": True,
             "paper_id": paper.id,
