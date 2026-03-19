@@ -5,6 +5,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Loader2, Eye, EyeOff } from "lucide-react";
 import { useI18n } from "@/components/i18n-provider";
 import { useAuthStore } from "@/stores/auth";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -32,22 +36,21 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
 
   const resetForm = useCallback(() => {
     setFormData({ email: "", password: "", confirmPassword: "", name: "", verificationCode: "" });
+    setShowPassword(false);
     setPasswordError("");
     setVerificationError("");
     setCountdown(0);
     clearError();
   }, [clearError]);
 
-  // Close modal when authenticated
   useEffect(() => {
     if (isAuthenticated && isOpen) {
       onClose();
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to auth state change
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset local form when auth completes
       resetForm();
     }
   }, [isAuthenticated, isOpen, onClose, resetForm]);
 
-  // Close on ESC key
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen) {
@@ -58,18 +61,20 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
     return () => window.removeEventListener("keydown", handleEsc);
   }, [isOpen, onClose]);
 
-  // Reset mode when modal opens
   useEffect(() => {
     if (isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing mode prop on modal open
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mode with incoming trigger when modal opens
       setMode(initialMode);
+      setShowPassword(false);
+      setPasswordError("");
+      setVerificationError("");
+      clearError();
     }
-  }, [isOpen, initialMode]);
+  }, [isOpen, initialMode, clearError]);
 
-  // Countdown timer
   useEffect(() => {
     if (countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      const timer = setTimeout(() => setCountdown((prev) => prev - 1), 1000);
       return () => clearTimeout(timer);
     }
   }, [countdown]);
@@ -77,7 +82,6 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
   const handleSendCode = useCallback(async () => {
     if (!formData.email || countdown > 0) return;
 
-    // Simple email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) {
       setVerificationError(t("auth.register.invalidEmail"));
@@ -90,7 +94,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
     const result = await sendVerificationCode(formData.email, "register");
 
     if (result.success) {
-      setCountdown(60); // 60 seconds countdown
+      setCountdown(60);
     } else {
       setVerificationError(result.message);
     }
@@ -109,38 +113,47 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
         onClose();
         resetForm();
       }
-    } else {
-      // Validate password match
-      if (formData.password !== formData.confirmPassword) {
-        setPasswordError(t("auth.register.passwordMismatch"));
-        return;
-      }
-      if (formData.password.length < 8) {
-        setPasswordError(t("auth.register.passwordTooShort"));
-        return;
-      }
-      // Validate verification code
-      if (!formData.verificationCode || formData.verificationCode.length < 4) {
-        setVerificationError(t("auth.register.verificationCodeRequired"));
-        return;
-      }
-      const success = await register(
-        formData.email,
-        formData.password,
-        formData.name || formData.email.split("@")[0],
-        formData.verificationCode
-      );
-      if (success) {
-        onClose();
-        resetForm();
-      }
+      return;
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      setPasswordError(t("auth.register.passwordMismatch"));
+      return;
+    }
+
+    if (formData.password.length < 8) {
+      setPasswordError(t("auth.register.passwordTooShort"));
+      return;
+    }
+
+    if (!formData.verificationCode || formData.verificationCode.length < 4) {
+      setVerificationError(t("auth.register.verificationCodeRequired"));
+      return;
+    }
+
+    const success = await register(
+      formData.email,
+      formData.password,
+      formData.name || formData.email.split("@")[0],
+      formData.verificationCode
+    );
+
+    if (success) {
+      onClose();
+      resetForm();
     }
   };
 
-  const switchMode = () => {
-    setMode(mode === "login" ? "register" : "login");
+  const changeMode = (nextMode: "login" | "register") => {
+    setMode(nextMode);
+    setShowPassword(false);
     setPasswordError("");
+    setVerificationError("");
     clearError();
+  };
+
+  const switchMode = () => {
+    changeMode(mode === "login" ? "register" : "login");
   };
 
   return (
@@ -150,189 +163,209 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
           onClick={onClose}
         >
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
+          <motion.section
+            initial={{ y: 12, opacity: 0, scale: 0.985 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 12, opacity: 0, scale: 0.985 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="auth-modal-title"
+            className="w-full max-w-lg overflow-hidden rounded-3xl border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-[var(--glass-shadow-elevated)]"
           >
-            <div className="bg-[var(--bg-elevated)] rounded-2xl border border-[var(--border-default)] shadow-2xl overflow-hidden">
-              {/* Header */}
-              <div className="flex items-center justify-between p-6 border-b border-[var(--border-default)]">
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)]">
+            <header className="space-y-4 border-b border-[var(--border-subtle)] px-6 py-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <h2 id="auth-modal-title" className="text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
                     {mode === "login" ? t("auth.login.button") : t("auth.register.button")}
                   </h2>
-                  <p className="text-sm text-[var(--text-secondary)] mt-1">
+                  <p className="text-sm text-[var(--text-secondary)]">
                     {mode === "login" ? t("auth.login.subtitle") : t("auth.register.subtitle")}
                   </p>
                 </div>
+
                 <button
+                  type="button"
                   onClick={onClose}
-                  className="p-2 rounded-lg hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  aria-label="Close"
+                  className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)]"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="h-5 w-5" />
                 </button>
               </div>
 
-              {/* Form */}
-              <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                {/* Error Banner */}
-                {(error || passwordError) && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-600 text-sm"
-                  >
-                    {passwordError || error}
-                  </motion.div>
-                )}
+              <div className="inline-flex w-fit items-center rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] p-1">
+                <button
+                  type="button"
+                  onClick={() => changeMode("login")}
+                  className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    mode === "login"
+                      ? "bg-white text-[var(--text-primary)] shadow-sm"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
+                >
+                  {t("auth.login.button")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeMode("register")}
+                  className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    mode === "register"
+                      ? "bg-white text-[var(--text-primary)] shadow-sm"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
+                >
+                  {t("auth.register.button")}
+                </button>
+              </div>
+            </header>
 
-                {/* Email */}
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
-                    {t("auth.login.email")}
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder={t("auth.login.emailPlaceholder")}
-                    className="w-full px-4 py-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
+            <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
+              {(error || passwordError || verificationError) && (
+                <Alert variant="destructive">
+                  <AlertDescription>{passwordError || verificationError || error}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="auth-modal-email">
+                  {t("auth.login.email")} <span className="text-[var(--semantic-error)]">*</span>
+                </Label>
+                <Input
+                  id="auth-modal-email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+                  placeholder={t("auth.login.emailPlaceholder")}
+                />
+              </div>
+
+              {mode === "register" && (
+                <div className="space-y-2">
+                  <Label htmlFor="auth-modal-name">{t("auth.register.name")}</Label>
+                  <Input
+                    id="auth-modal-name"
+                    type="text"
+                    autoComplete="name"
+                    value={formData.name}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                    placeholder={t("auth.register.namePlaceholder")}
                   />
                 </div>
+              )}
 
-                {/* Name field (register only) */}
-                {mode === "register" && (
-                  <div>
-                    <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
-                      {t("auth.register.name")}
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder={t("auth.register.namePlaceholder")}
-                      className="w-full px-4 py-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
-                    />
-                  </div>
-                )}
-
-                {/* Password */}
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
-                    {t("auth.login.password")}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      value={formData.password}
-                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                      placeholder={t("auth.login.passwordPlaceholder")}
-                      className="w-full px-4 py-3 pr-12 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                    </button>
-                  </div>
+              <div className="space-y-2">
+                <Label htmlFor="auth-modal-password">
+                  {t("auth.login.password")} <span className="text-[var(--semantic-error)]">*</span>
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="auth-modal-password"
+                    type={showPassword ? "text" : "password"}
+                    required
+                    autoComplete={mode === "login" ? "current-password" : "new-password"}
+                    value={formData.password}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
+                    placeholder={t("auth.login.passwordPlaceholder")}
+                    className="pr-12"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
+              </div>
 
-                {/* Confirm Password (register only) */}
-                {mode === "register" && (
-                  <div>
-                    <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
-                      {t("auth.register.confirmPassword")}
-                    </label>
-                    <input
+              {mode === "register" && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="auth-modal-confirm-password">
+                      {t("auth.register.confirmPassword")} <span className="text-[var(--semantic-error)]">*</span>
+                    </Label>
+                    <Input
+                      id="auth-modal-confirm-password"
                       type="password"
                       required
+                      autoComplete="new-password"
                       value={formData.confirmPassword}
-                      onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, confirmPassword: e.target.value }))}
                       placeholder={t("auth.login.passwordPlaceholder")}
-                      className="w-full px-4 py-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all"
                     />
+                    <p className="text-xs text-[var(--text-muted)]">{t("auth.register.passwordTooShort")}</p>
                   </div>
-                )}
 
-                {/* Verification Code (register only) */}
-                {mode === "register" && (
-                  <div>
-                    <label className="block text-sm font-medium mb-2 text-[var(--text-primary)]">
-                      {t("auth.register.verificationCode")}
-                    </label>
+                  <div className="space-y-2">
+                    <Label htmlFor="auth-modal-code">
+                      {t("auth.register.verificationCode")} <span className="text-[var(--semantic-error)]">*</span>
+                    </Label>
                     <div className="flex gap-2">
-                      <input
+                      <Input
+                        id="auth-modal-code"
                         type="text"
                         required
-                        value={formData.verificationCode}
-                        onChange={(e) => setFormData({ ...formData, verificationCode: e.target.value.toUpperCase() })}
-                        placeholder={t("auth.register.verificationCodePlaceholder")}
                         maxLength={10}
-                        className="flex-1 px-4 py-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20 outline-none transition-all font-mono tracking-wider"
+                        value={formData.verificationCode}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, verificationCode: e.target.value.toUpperCase() }))
+                        }
+                        placeholder={t("auth.register.verificationCodePlaceholder")}
+                        className="flex-1 font-mono tracking-wider"
                       />
-                      <button
+                      <Button
                         type="button"
+                        variant="outline"
                         disabled={countdown > 0 || isSendingCode || !formData.email}
                         onClick={handleSendCode}
-                        className="shrink-0 px-4 py-3 rounded-xl bg-[var(--accent-primary)] text-white font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[var(--accent-primary)]/90 transition-all"
+                        className="h-11 shrink-0 px-4"
                       >
                         {isSendingCode ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <Loader2 className="h-4 w-4 animate-spin" />
                         ) : countdown > 0 ? (
                           `${countdown}s`
                         ) : (
                           t("auth.register.sendCode")
                         )}
-                      </button>
+                      </Button>
                     </div>
-                    {verificationError && (
-                      <p className="text-xs text-red-500 mt-1">{verificationError}</p>
-                    )}
                   </div>
+                </>
+              )}
+
+              <Button type="submit" disabled={isLoading} className="mt-2 h-11 w-full text-sm font-semibold">
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {mode === "login" ? t("auth.login.signingIn") : t("auth.register.creating")}
+                  </>
+                ) : mode === "login" ? (
+                  t("auth.login.button")
+                ) : (
+                  t("auth.register.button")
                 )}
+              </Button>
 
-                {/* Submit Button */}
-                <motion.button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full px-6 py-3.5 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#2563EB] hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all font-medium mt-6"
-                  whileHover={{ scale: isLoading ? 1 : 1.02 }}
-                  whileTap={{ scale: isLoading ? 1 : 0.98 }}
+              <p className="border-t border-[var(--border-subtle)] pt-4 text-center text-sm text-[var(--text-secondary)]">
+                {mode === "login" ? t("auth.login.noAccount") : t("auth.register.hasAccount")}{" "}
+                <button
+                  type="button"
+                  onClick={switchMode}
+                  className="font-semibold text-[var(--accent-primary)] transition-colors hover:text-[var(--accent-secondary)]"
                 >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      {mode === "login" ? t("auth.login.signingIn") : t("auth.register.creating")}
-                    </>
-                  ) : (
-                    mode === "login" ? t("auth.login.button") : t("auth.register.button")
-                  )}
-                </motion.button>
-
-                {/* Switch Mode */}
-                <p className="text-center text-sm text-[var(--text-secondary)] mt-4">
-                  {mode === "login" ? t("auth.login.noAccount") : t("auth.register.hasAccount")}{" "}
-                  <button
-                    type="button"
-                    onClick={switchMode}
-                    className="text-[var(--accent-primary)] hover:underline font-medium"
-                  >
-                    {mode === "login" ? t("auth.login.createOne") : t("auth.register.signIn")}
-                  </button>
-                </p>
-              </form>
-            </div>
-          </motion.div>
+                  {mode === "login" ? t("auth.login.createOne") : t("auth.register.signIn")}
+                </button>
+              </p>
+            </form>
+          </motion.section>
         </motion.div>
       )}
     </AnimatePresence>

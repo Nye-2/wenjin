@@ -177,6 +177,50 @@ a:hover {
   color: var(--accent-secondary);
 }
 
+/* Form Baseline */
+textarea {
+  width: 100%;
+  min-height: 3rem;
+  resize: vertical;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  padding: 0.625rem 0.875rem;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+textarea:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+textarea:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 4px rgba(30, 58, 138, 0.12);
+}
+
+textarea:disabled {
+  cursor: not-allowed;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-primary);
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-elevated) inset;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
 /* Smooth scroll */
 html {
   scroll-behavior: smooth;

@@ -12,8 +12,8 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
       role="alert"
       className={cn(
         "relative w-full rounded-lg border p-4",
-        variant === "default" && "border-slate-600 bg-slate-800/50 text-white",
-        variant === "destructive" && "border-red-800 bg-red-900/50 text-red-200",
+        variant === "default" && "border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)]",
+        variant === "destructive" && "border-[color:rgba(220,38,38,0.3)] bg-[color:rgba(220,38,38,0.08)] text-[var(--semantic-error)]",
         className
       )}
       {...props}
