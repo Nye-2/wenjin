@@ -29,6 +29,7 @@ class ThreadContext:
     max_concurrent: int
     owner_user_id: str | None = None
     _tasks: dict[str, asyncio.Task] = field(default_factory=dict)
+    _task_defs: dict[str, SubagentTask] = field(default_factory=dict)
     _results: dict[str, SubagentResult] = field(default_factory=dict)
     _active_task_ids: set[str] = field(default_factory=set)
 
@@ -40,6 +41,10 @@ class ThreadContext:
     def store_result(self, task_id: str, result: SubagentResult) -> None:
         """Store a task result."""
         self._results[task_id] = result
+
+    def store_task_definition(self, task: SubagentTask) -> None:
+        """Keep the submitted task definition for timeline and inspection use cases."""
+        self._task_defs[task.task_id] = task
 
     @property
     def active_task_count(self) -> int:
@@ -175,6 +180,7 @@ class GlobalSubagentManager:
 
         async_task = asyncio.create_task(run_with_limiter())
         ctx._tasks[task.task_id] = async_task
+        ctx.store_task_definition(task)
         ctx.mark_task_active(task.task_id)
         await self._sync_thread_agent_status(
             task.thread_id,
@@ -362,6 +368,42 @@ class GlobalSubagentManager:
                 return None
             return ctx.get_result(task_id)
 
+    async def list_thread_tasks(
+        self,
+        thread_id: str,
+        user_id: str | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """List recent subagent tasks for a thread."""
+        async with self._lock:
+            ctx = self._get_accessible_context(thread_id, user_id)
+            if not ctx:
+                return []
+
+            ordered_tasks = sorted(
+                ctx._task_defs.values(),
+                key=lambda task: task.created_at,
+                reverse=True,
+            )[:limit]
+
+            items: list[dict] = []
+            for task in ordered_tasks:
+                result = ctx.get_result(task.task_id)
+                status = ctx.get_task_status(task.task_id)
+                items.append(
+                    {
+                        "task_id": task.task_id,
+                        "thread_id": task.thread_id,
+                        "prompt": task.prompt,
+                        "created_at": task.created_at,
+                        "status": status.value if isinstance(status, SubagentStatus) else str(status or "pending"),
+                        "subagent_type": task.metadata.get("subagent_type"),
+                        "error": result.error if result else None,
+                        "output_preview": self._truncate_preview(result.output if result else None),
+                    }
+                )
+            return items
+
     async def subscribe_events(
         self,
         thread_id: str | None = None,
@@ -514,3 +556,13 @@ class GlobalSubagentManager:
         if status in {SubagentStatus.CANCELLED, SubagentStatus.FAILED, SubagentStatus.TIMED_OUT}:
             return "failed"
         return "running"
+
+    @staticmethod
+    def _truncate_preview(content: str | None, limit: int = 120) -> str | None:
+        """Collapse task output into a compact single-line preview."""
+        normalized = " ".join((content or "").split())
+        if not normalized:
+            return None
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[: limit - 3].rstrip() + "..."

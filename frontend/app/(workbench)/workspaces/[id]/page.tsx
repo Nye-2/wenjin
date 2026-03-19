@@ -412,7 +412,7 @@ export default function WorkbenchPage() {
             </section>
 
             {/* Embedded Knowledge / Chat / Literature Panels */}
-            <section className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1.5fr)_minmax(0,1fr)] gap-4">
+            <section className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1.45fr)_minmax(0,1fr)] gap-4">
               <div className="min-h-[360px]">
                 <LazyKnowledgePanel workspaceId={workspaceId} />
               </div>

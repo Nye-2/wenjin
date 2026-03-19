@@ -8,7 +8,7 @@ export const LazyKnowledgePanel = dynamic(
   ),
   {
     loading: () => (
-      <div className="w-64 p-4 border-r border-white/10 bg-white/30 dark:bg-slate-900/30">
+      <div className="h-full rounded-3xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-4">
         <MessageSkeleton />
         <MessageSkeleton />
       </div>

@@ -655,10 +655,41 @@ export interface DashboardData {
   }>;
 }
 
+export interface WorkspaceActivityItem {
+  id: string;
+  kind: 'feature_task' | 'chat_thread' | 'subagent_task' | 'artifact';
+  workspace_id?: string | null;
+  occurred_at: string;
+  title: string;
+  summary?: string | null;
+  status?: string | null;
+  thread_id?: string | null;
+  task_id?: string | null;
+  artifact_id?: string | null;
+  feature_id?: string | null;
+  subagent_type?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface WorkspaceActivityResponse {
+  items: WorkspaceActivityItem[];
+  count: number;
+}
+
 export async function getWorkspaceDashboard(
   workspaceId: string
 ): Promise<DashboardData> {
   const response = await apiClient.get(`/workspaces/${workspaceId}/dashboard`);
+  return response.data;
+}
+
+export async function getWorkspaceActivity(
+  workspaceId: string,
+  limit: number = 40
+): Promise<WorkspaceActivityResponse> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/activity`, {
+    params: { limit },
+  });
   return response.data;
 }
 

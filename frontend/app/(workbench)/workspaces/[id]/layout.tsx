@@ -14,7 +14,7 @@ interface WorkbenchLayoutProps {
 export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const params = useParams();
   const workspaceId = params.id as string;
-  const { loadWorkspace, fetchArtifacts, clearWorkspace } = useWorkspaceStore();
+  const { loadWorkspace, fetchArtifacts, fetchActivity, clearWorkspace } = useWorkspaceStore();
   const { fetchFeatures, clearFeatures } = useFeaturesStore();
   const { loadLatestThread, clearMessages } = useChatStore();
 
@@ -26,6 +26,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     void loadWorkspace(workspaceId);
     void fetchFeatures(workspaceId);
     void fetchArtifacts(workspaceId);
+    void fetchActivity(workspaceId);
     void loadLatestThread(workspaceId);
 
     return () => {
@@ -38,6 +39,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     loadWorkspace,
     fetchFeatures,
     fetchArtifacts,
+    fetchActivity,
     loadLatestThread,
     clearWorkspace,
     clearFeatures,

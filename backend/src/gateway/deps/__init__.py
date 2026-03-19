@@ -15,6 +15,7 @@ from src.gateway.deps.dashboard import (
     get_dashboard_service,
     get_release_gate_service,
     get_user_dashboard_service,
+    get_workspace_activity_service,
 )
 from src.gateway.deps.tasks import get_task_service
 
@@ -31,5 +32,6 @@ __all__ = [
     "get_release_gate_service",
     "get_task_service",
     "get_user_dashboard_service",
+    "get_workspace_activity_service",
     "get_workspace_service",
 ]

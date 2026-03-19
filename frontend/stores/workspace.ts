@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import {
   Workspace as ApiWorkspace,
+  WorkspaceActivityItem as ApiWorkspaceActivityItem,
   WorkspaceCreate,
   listWorkspaces,
   getWorkspace,
@@ -14,6 +15,7 @@ import {
   createArtifact,
   createWorkspace as apiCreateWorkspace,
   deleteWorkspace as apiDeleteWorkspace,
+  getWorkspaceActivity,
 } from '../lib/api';
 
 // ============ Types ============
@@ -37,6 +39,8 @@ export interface Paper {
   venue: string | null;
 }
 
+export type WorkspaceActivityItem = ApiWorkspaceActivityItem;
+
 // ============ Store State ============
 
 interface WorkspaceState {
@@ -44,10 +48,12 @@ interface WorkspaceState {
   workspace: Workspace | null;
   artifacts: Artifact[];
   papers: Paper[];
+  activities: WorkspaceActivityItem[];
   isWorkspacesLoading: boolean;
   isWorkspaceLoading: boolean;
   isPapersLoading: boolean;
   isArtifactsLoading: boolean;
+  isActivityLoading: boolean;
   isWorkspaceMutating: boolean;
   error: string | null;
 
@@ -62,6 +68,7 @@ interface WorkspaceState {
   clearWorkspace: () => void;
   fetchPapers: (workspaceId: string) => Promise<void>;
   fetchArtifacts: (workspaceId: string) => Promise<void>;
+  fetchActivity: (workspaceId: string, limit?: number) => Promise<void>;
   createArtifact: (data: {
     workspace_id: string;
     type: string;
@@ -76,10 +83,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspace: null,
   artifacts: [],
   papers: [],
+  activities: [],
   isWorkspacesLoading: false,
   isWorkspaceLoading: false,
   isPapersLoading: false,
   isArtifactsLoading: false,
+  isActivityLoading: false,
   isWorkspaceMutating: false,
   error: null,
 
@@ -169,9 +178,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       workspace: null,
       artifacts: [],
       papers: [],
+      activities: [],
       isWorkspaceLoading: false,
       isPapersLoading: false,
       isArtifactsLoading: false,
+      isActivityLoading: false,
     });
   },
 
@@ -216,6 +227,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({
         error: (error as Error).message,
         isArtifactsLoading: false,
+      });
+    }
+  },
+
+  fetchActivity: async (workspaceId: string, limit: number = 40) => {
+    set({ isActivityLoading: true, error: null });
+    try {
+      const response = await getWorkspaceActivity(workspaceId, limit);
+      set({
+        activities: response.items,
+        isActivityLoading: false,
+      });
+    } catch (error) {
+      set({
+        error: (error as Error).message,
+        isActivityLoading: false,
       });
     }
   },

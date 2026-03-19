@@ -413,3 +413,35 @@ class TestGlobalSubagentManager:
         await task
         assert len(received) == 1
         assert "owned" in received[0]
+
+    @pytest.mark.asyncio
+    async def test_list_thread_tasks_returns_recent_task_summaries(self, manager):
+        """Thread activity consumers should be able to inspect recent subagent tasks."""
+        task = SubagentTask(
+            task_id="task-1",
+            thread_id="thread-1",
+            prompt="Search for recent papers on retrieval augmentation",
+            created_at=datetime.now(),
+            timeout=60,
+            metadata={"user_id": "user-1", "subagent_type": "scout"},
+        )
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(return_value={
+            "messages": [MagicMock(content="Found three relevant papers.")]
+        })
+
+        with patch.object(manager._graph_registry, "get", return_value=mock_graph):
+            await manager.spawn(task)
+            await asyncio.sleep(0.1)
+
+            summaries = await manager.list_thread_tasks(
+                "thread-1",
+                user_id="user-1",
+            )
+
+        assert len(summaries) == 1
+        assert summaries[0]["task_id"] == "task-1"
+        assert summaries[0]["subagent_type"] == "scout"
+        assert summaries[0]["status"] == "completed"
+        assert "Found three relevant papers." in (summaries[0]["output_preview"] or "")
