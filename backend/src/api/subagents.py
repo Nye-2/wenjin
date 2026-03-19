@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from src.database import User
+from src.gateway.auth_dependencies import get_current_user
 from src.subagents import (
     GlobalSubagentManager,
     SubagentTask,
@@ -91,6 +93,7 @@ def get_manager() -> GlobalSubagentManager:
 async def spawn_subagent(
     thread_id: str,
     request: SpawnRequest,
+    current_user: User = Depends(get_current_user),
     manager: GlobalSubagentManager = Depends(get_manager),
 ) -> SpawnResponse:
     """Spawn a new subagent task.
@@ -160,6 +163,7 @@ async def spawn_subagent(
         metadata={
             "subagent_type": request.subagent_type,
             "system_prompt": system_prompt,
+            "user_id": str(current_user.id),
         }
     )
     await manager.spawn(task)
@@ -173,6 +177,7 @@ async def spawn_subagent(
 async def get_task_status(
     thread_id: str,
     task_id: str,
+    _current_user: User = Depends(get_current_user),
     manager: GlobalSubagentManager = Depends(get_manager),
 ) -> TaskStatusResponse:
     """Get the status of a subagent task.
@@ -207,6 +212,7 @@ async def get_task_status(
 async def cancel_task(
     thread_id: str,
     task_id: str,
+    _current_user: User = Depends(get_current_user),
     manager: GlobalSubagentManager = Depends(get_manager),
 ) -> CancelResponse:
     """Cancel a running subagent task.
@@ -226,6 +232,7 @@ async def cancel_task(
 @router.get("/events")
 async def subscribe_events(
     thread_id: str | None = None,
+    _current_user: User = Depends(get_current_user),
     manager: GlobalSubagentManager = Depends(get_manager),
 ) -> StreamingResponse:
     """Subscribe to subagent event stream.

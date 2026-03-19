@@ -1,12 +1,14 @@
 """Tests for subagent API routes."""
 
-import pytest
 from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock
-from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from src.api.subagents import router, get_manager
+from src.gateway.auth_dependencies import get_current_user
 from src.subagents.models import SubagentStatus, SubagentResult
 import uuid
 
@@ -46,6 +48,16 @@ def mock_manager():
     return manager
 
 
+@pytest.fixture(autouse=True)
+def override_auth(app):
+    """Subagent routes are protected and require an authenticated user."""
+    user = MagicMock()
+    user.id = "user-123"
+    app.dependency_overrides[get_current_user] = lambda: user
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
+
+
 class TestSpawnEndpoint:
     def test_spawn_success(self, client, mock_manager, app):
         """Test successful task spawn."""
@@ -60,6 +72,19 @@ class TestSpawnEndpoint:
         assert data["status"] == "pending"
         uuid.UUID(data["task_id"])
         app.dependency_overrides = {}
+
+    def test_spawn_requires_auth(self, app, mock_manager):
+        """Anonymous callers should not reach the subagent API."""
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides[get_manager] = lambda: mock_manager
+
+        client = TestClient(app)
+        response = client.post(
+            "/subagents/threads/thread-123/spawn",
+            json={"prompt": "Test prompt"},
+        )
+
+        assert response.status_code == 401
 
 
 class TestStatusEndpoint:
