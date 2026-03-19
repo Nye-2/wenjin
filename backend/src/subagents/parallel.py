@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass, field
+from typing import Awaitable, Callable
 from typing import Any
 
 from src.subagents.executor import SubagentExecutor, SubagentStatus
@@ -79,6 +80,7 @@ class ParallelExecutor:
         self,
         plan: PhasedPlan,
         context: dict[str, Any] | None = None,
+        phase_callback: Callable[[PhaseResult], Awaitable[None]] | None = None,
     ) -> list[PhaseResult]:
         """Execute a phased plan.
 
@@ -109,6 +111,9 @@ class ParallelExecutor:
             phase_result = await self._execute_phase(phase, context)
             results[phase.name] = phase_result
             completed_phases.add(phase.name)
+
+            if phase_callback is not None:
+                await phase_callback(phase_result)
 
             # Create and set event for this phase
             if phase.name not in self._phase_events:

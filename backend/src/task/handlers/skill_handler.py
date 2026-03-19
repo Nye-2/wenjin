@@ -6,6 +6,7 @@ progress tracking.
 """
 
 import asyncio
+import inspect
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -176,22 +177,67 @@ class SkillTaskHandler:
         try:
             await progress.update(10, f"Executing {skill_name}...")
 
-            # Run skill execution in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            output: SkillOutput = await loop.run_in_executor(
-                None,
-                self._executor.execute,
-                skill_name,
-                skill_input,
-                state,
-            )
+            skill = self._executor.get_skill(skill_name)
+            if skill is None:
+                raise SkillNotFoundError(skill_name)
+
+            async def report_runtime(update: dict[str, Any]) -> None:
+                """Bridge skill-specific runtime updates into the task protocol."""
+                current_phase = update.get("current_phase")
+                runtime = update.get("runtime")
+                metadata = None
+                if runtime is not None:
+                    metadata = {"runtime": runtime}
+
+                await progress.update(
+                    int(update.get("progress", 0)),
+                    str(update.get("message") or ""),
+                    current_step=str(current_phase) if current_phase else None,
+                    metadata=metadata,
+                    stage_transition=bool(update.get("stage_transition", False)),
+                )
+
+            execute_async = getattr(skill, "execute_async", None)
+            if execute_async and inspect.iscoroutinefunction(execute_async):
+                signature = inspect.signature(execute_async)
+                extra_kwargs: dict[str, Any] = {}
+                if "progress_callback" in signature.parameters:
+                    extra_kwargs["progress_callback"] = report_runtime
+                output = await execute_async(skill_input, state, **extra_kwargs)
+            else:
+                # Run sync skill execution in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                output = await loop.run_in_executor(
+                    None,
+                    self._executor.execute,
+                    skill_name,
+                    skill_input,
+                    state,
+                )
 
             # Report completion
+            completion_metadata = None
+            if output.metadata:
+                runtime = output.metadata.get("runtime")
+                if runtime is not None:
+                    completion_metadata = {"runtime": runtime}
+
             if output.success:
-                await progress.update(90, "Processing results...")
-                await progress.complete(output.content[:200] if output.content else "Task completed")
+                await progress.update(
+                    90,
+                    "Processing results...",
+                    metadata=completion_metadata,
+                    stage_transition=True,
+                )
+                await progress.complete(
+                    output.content[:200] if output.content else "Task completed",
+                    metadata=completion_metadata,
+                )
             else:
-                await progress.fail(output.error_message or "Skill execution failed")
+                await progress.fail(
+                    output.error_message or "Skill execution failed",
+                    metadata=completion_metadata,
+                )
 
             # Return result
             return {

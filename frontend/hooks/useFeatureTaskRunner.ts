@@ -5,6 +5,7 @@ import {
   subscribeTaskProgress,
   type TaskStatus,
 } from "@/lib/api";
+import { extractTaskRuntime, type TaskRuntimeState } from "@/lib/task-runtime";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 export interface UseFeatureTaskRunnerOptions {
@@ -23,6 +24,7 @@ export interface UseFeatureTaskRunnerReturn {
   error: string | null;
   task: TaskStatus | null;
   result: Record<string, unknown> | null;
+  runtime: TaskRuntimeState | null;
   clearError: () => void;
   clearStatus: () => void;
   clearTask: () => void;
@@ -84,6 +86,7 @@ export function useFeatureTaskRunner({
   const [error, setError] = useState<string | null>(null);
   const [task, setTask] = useState<TaskStatus | null>(null);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [runtime, setRuntime] = useState<TaskRuntimeState | null>(null);
   const runningRef = useRef(false);
   const taskStreamRef = useRef<(() => void) | null>(null);
 
@@ -100,6 +103,7 @@ export function useFeatureTaskRunner({
   const clearTask = useCallback(() => {
     setTask(null);
     setResult(null);
+    setRuntime(null);
   }, []);
 
   useEffect(() => {
@@ -161,6 +165,10 @@ export function useFeatureTaskRunner({
               if (event.message) {
                 setStatus(event.message);
               }
+              const nextRuntime = extractTaskRuntime(event.metadata);
+              if (nextRuntime) {
+                setRuntime(nextRuntime);
+              }
 
               if (
                 event.status === "success" ||
@@ -208,6 +216,14 @@ export function useFeatureTaskRunner({
 
         setTask(task);
         setResult(_resolveTaskResult(task));
+        const finalRuntime = extractTaskRuntime(
+          task.metadata && typeof task.metadata === "object"
+            ? (task.metadata as Record<string, unknown>)
+            : null
+        );
+        if (finalRuntime) {
+          setRuntime(finalRuntime);
+        }
 
         if (task.status === "success") {
           if (refreshOnSuccess) {
@@ -272,6 +288,7 @@ export function useFeatureTaskRunner({
     error,
     task,
     result,
+    runtime,
     clearError,
     clearStatus,
     clearTask,

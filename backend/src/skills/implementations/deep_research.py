@@ -13,6 +13,7 @@ The V2 implementation uses ParallelExecutor for phased subagent execution:
 """
 
 import asyncio
+import copy
 import re
 import uuid
 from collections import Counter
@@ -97,11 +98,215 @@ class DeepResearchSkillV2(BaseSkill):
     DEFAULT_SEARCH_LIMIT = 20
     MIN_PAPERS_FOR_ANALYSIS = 5
     KEYWORD_EXTRACTION_MIN_FREQ = 2
+    RUNTIME_PHASES = {
+        "discovery": {
+            "label": "文献发现",
+            "description": "并行检索相关论文并提炼趋势",
+            "start_progress": 12,
+            "end_progress": 40,
+        },
+        "gap_mining": {
+            "label": "空白挖掘",
+            "description": "从已有研究中归纳关键空白",
+            "start_progress": 48,
+            "end_progress": 68,
+        },
+        "synthesis": {
+            "label": "创意综合",
+            "description": "生成候选研究创意与方法方向",
+            "start_progress": 74,
+            "end_progress": 88,
+        },
+    }
 
     def __init__(self):
         """Initialize the skill with a ParallelExecutor."""
         super().__init__()
         self._executor = ParallelExecutor(max_concurrent=4)
+
+    def _create_runtime_state(
+        self,
+        query: str,
+        *,
+        search_limit: int,
+        year_range: str | None,
+    ) -> dict[str, Any]:
+        """Create the initial runtime state for long-running UI updates."""
+        return {
+            "title": "Deep Research",
+            "current_phase": "discovery",
+            "phases": [
+                {
+                    "id": phase_id,
+                    "label": phase["label"],
+                    "description": phase["description"],
+                    "status": "running" if phase_id == "discovery" else "pending",
+                    "progress": 0,
+                }
+                for phase_id, phase in self.RUNTIME_PHASES.items()
+            ],
+            "blocks": [
+                {
+                    "id": "overview",
+                    "kind": "metrics",
+                    "title": "执行配置",
+                    "entries": [
+                        {"label": "主题", "value": query},
+                        {"label": "检索上限", "value": str(search_limit)},
+                        {"label": "时间范围", "value": year_range or "不限"},
+                    ],
+                },
+                {
+                    "id": "activity",
+                    "kind": "activity",
+                    "title": "执行日志",
+                    "items": [],
+                },
+            ],
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+
+    @staticmethod
+    def _set_phase_state(
+        runtime: dict[str, Any],
+        phase_id: str,
+        *,
+        status: str,
+        progress: int,
+    ) -> None:
+        """Update a single runtime phase in place."""
+        for phase in runtime.get("phases", []):
+            if phase.get("id") == phase_id:
+                phase["status"] = status
+                phase["progress"] = progress
+                return
+
+    @staticmethod
+    def _upsert_runtime_block(runtime: dict[str, Any], block: dict[str, Any]) -> None:
+        """Insert or replace a runtime block by id."""
+        blocks = runtime.setdefault("blocks", [])
+        for index, existing in enumerate(blocks):
+            if existing.get("id") == block.get("id"):
+                blocks[index] = block
+                return
+        blocks.append(block)
+
+    @staticmethod
+    def _append_activity(
+        runtime: dict[str, Any],
+        *,
+        title: str,
+        description: str,
+        tone: str = "info",
+    ) -> None:
+        """Append a short activity log entry to the runtime state."""
+        blocks = runtime.setdefault("blocks", [])
+        activity_block = next(
+            (block for block in blocks if block.get("id") == "activity"),
+            None,
+        )
+        if activity_block is None:
+            activity_block = {
+                "id": "activity",
+                "kind": "activity",
+                "title": "执行日志",
+                "items": [],
+            }
+            blocks.append(activity_block)
+
+        items = activity_block.setdefault("items", [])
+        items.append(
+            {
+                "title": title,
+                "description": description,
+                "tone": tone,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+        if len(items) > 12:
+            del items[:-12]
+
+    @staticmethod
+    def _paper_runtime_item(paper: Paper) -> dict[str, Any]:
+        """Serialize a paper into a runtime list item."""
+        meta_parts = [str(part) for part in [paper.year, paper.venue] if part]
+        return {
+            "title": paper.title,
+            "description": (paper.abstract or "").strip()[:220] or "暂无摘要",
+            "meta": " · ".join(meta_parts) or "未标注来源",
+            "badge": (
+                f"{paper.citations} citations"
+                if paper.citations is not None
+                else None
+            ),
+        }
+
+    @staticmethod
+    def _trend_runtime_item(trend: ResearchTrend) -> dict[str, Any]:
+        """Serialize a trend into a runtime list item."""
+        return {
+            "title": trend.topic,
+            "description": trend.description,
+            "meta": f"{trend.paper_count} papers",
+            "badge": (
+                f"{trend.growth_rate:.1f}%"
+                if trend.growth_rate
+                else None
+            ),
+        }
+
+    @staticmethod
+    def _gap_runtime_item(gap: ResearchGap) -> dict[str, Any]:
+        """Serialize a research gap into a runtime list item."""
+        return {
+            "title": gap.description,
+            "description": gap.potential_impact,
+            "meta": (
+                f"{len(gap.supporting_evidence)} 条证据"
+                if gap.supporting_evidence
+                else "待补充证据"
+            ),
+            "badge": None,
+        }
+
+    @staticmethod
+    def _idea_runtime_item(idea: ResearchIdea) -> dict[str, Any]:
+        """Serialize a research idea into a runtime list item."""
+        return {
+            "title": idea.title,
+            "description": idea.description,
+            "meta": (
+                f"{len(idea.methodology_hints)} 个方法提示"
+                if idea.methodology_hints
+                else "待细化方法"
+            ),
+            "badge": f"{idea.novelty_score:.2f}",
+        }
+
+    async def _emit_runtime(
+        self,
+        progress_callback,
+        runtime: dict[str, Any],
+        *,
+        progress: int,
+        message: str,
+        current_phase: str,
+        stage_transition: bool = False,
+    ) -> None:
+        """Emit a runtime update through the unified task progress callback."""
+        if progress_callback is None:
+            return
+        runtime["current_phase"] = current_phase
+        runtime["updated_at"] = datetime.now(UTC).isoformat()
+        await progress_callback(
+            {
+                "progress": progress,
+                "message": message,
+                "current_phase": current_phase,
+                "runtime": copy.deepcopy(runtime),
+                "stage_transition": stage_transition,
+            }
+        )
 
     def execute(self, input: SkillInput, state: ThreadState) -> SkillOutput:
         """Execute the deep research skill synchronously.
@@ -137,7 +342,12 @@ class DeepResearchSkillV2(BaseSkill):
                 error_message=f"Deep research failed: {str(e)}",
             )
 
-    async def execute_async(self, input: SkillInput, state: ThreadState) -> SkillOutput:
+    async def execute_async(
+        self,
+        input: SkillInput,
+        state: ThreadState,
+        progress_callback=None,
+    ) -> SkillOutput:
         """Execute the deep research skill asynchronously with parallel subagents.
 
         Args:
@@ -151,6 +361,24 @@ class DeepResearchSkillV2(BaseSkill):
             # Get configuration from context
             search_limit = input.context.get("search_limit", self.DEFAULT_SEARCH_LIMIT)
             year_range = input.context.get("year_range", None)
+            runtime = self._create_runtime_state(
+                input.user_query,
+                search_limit=search_limit,
+                year_range=year_range,
+            )
+            self._append_activity(
+                runtime,
+                title="任务启动",
+                description="正在初始化 Deep Research 执行计划。",
+            )
+            await self._emit_runtime(
+                progress_callback,
+                runtime,
+                progress=self.RUNTIME_PHASES["discovery"]["start_progress"],
+                message="正在并行检索论文与研究趋势...",
+                current_phase="discovery",
+                stage_transition=True,
+            )
 
             # Create the execution plan
             plan = self._create_execution_plan(
@@ -167,7 +395,177 @@ class DeepResearchSkillV2(BaseSkill):
                 "year_range": year_range,
             }
 
-            phase_results = await self._executor.execute_plan(plan, context)
+            async def handle_phase_result(phase_result: PhaseResult) -> None:
+                if phase_result.phase_name == "discovery":
+                    papers = self._extract_papers([phase_result])
+                    trends = self._extract_trends([phase_result])
+                    self._set_phase_state(
+                        runtime,
+                        "discovery",
+                        status="completed",
+                        progress=100,
+                    )
+                    self._set_phase_state(
+                        runtime,
+                        "gap_mining",
+                        status="running",
+                        progress=0,
+                    )
+                    self._upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "papers",
+                            "kind": "list",
+                            "title": "候选论文",
+                            "description": f"已发现 {len(papers)} 篇相关论文",
+                            "items": [self._paper_runtime_item(paper) for paper in papers[:8]],
+                        },
+                    )
+                    self._upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "trends",
+                            "kind": "list",
+                            "title": "研究趋势",
+                            "description": f"已提取 {len(trends)} 个趋势信号",
+                            "items": [self._trend_runtime_item(trend) for trend in trends[:5]],
+                        },
+                    )
+                    self._upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "summary",
+                            "kind": "metrics",
+                            "title": "中间统计",
+                            "entries": [
+                                {"label": "论文", "value": str(len(papers))},
+                                {"label": "趋势", "value": str(len(trends))},
+                                {"label": "空白", "value": "0"},
+                                {"label": "创意", "value": "0"},
+                            ],
+                        },
+                    )
+                    self._append_activity(
+                        runtime,
+                        title="文献发现完成",
+                        description=f"已汇总 {len(papers)} 篇论文并提炼 {len(trends)} 个趋势。",
+                        tone="success",
+                    )
+                    await self._emit_runtime(
+                        progress_callback,
+                        runtime,
+                        progress=self.RUNTIME_PHASES["discovery"]["end_progress"],
+                        message=f"已发现 {len(papers)} 篇论文，开始挖掘研究空白...",
+                        current_phase="gap_mining",
+                        stage_transition=True,
+                    )
+
+                elif phase_result.phase_name == "gap_mining":
+                    gaps = self._extract_gaps([phase_result])
+                    self._set_phase_state(
+                        runtime,
+                        "gap_mining",
+                        status="completed",
+                        progress=100,
+                    )
+                    self._set_phase_state(
+                        runtime,
+                        "synthesis",
+                        status="running",
+                        progress=0,
+                    )
+                    summary_block = next(
+                        (
+                            block for block in runtime.get("blocks", [])
+                            if block.get("id") == "summary"
+                        ),
+                        None,
+                    )
+                    if summary_block:
+                        summary_block["entries"] = [
+                            {"label": "论文", "value": next((entry["value"] for entry in summary_block.get("entries", []) if entry.get("label") == "论文"), "0")},
+                            {"label": "趋势", "value": next((entry["value"] for entry in summary_block.get("entries", []) if entry.get("label") == "趋势"), "0")},
+                            {"label": "空白", "value": str(len(gaps))},
+                            {"label": "创意", "value": "0"},
+                        ]
+                    self._upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "gaps",
+                            "kind": "list",
+                            "title": "研究空白",
+                            "description": f"已识别 {len(gaps)} 个可行动的研究空白",
+                            "items": [self._gap_runtime_item(gap) for gap in gaps[:5]],
+                        },
+                    )
+                    self._append_activity(
+                        runtime,
+                        title="空白挖掘完成",
+                        description=f"已识别 {len(gaps)} 个关键研究空白，进入创意综合阶段。",
+                        tone="success",
+                    )
+                    await self._emit_runtime(
+                        progress_callback,
+                        runtime,
+                        progress=self.RUNTIME_PHASES["gap_mining"]["end_progress"],
+                        message=f"已识别 {len(gaps)} 个研究空白，开始生成研究创意...",
+                        current_phase="synthesis",
+                        stage_transition=True,
+                    )
+
+                elif phase_result.phase_name == "synthesis":
+                    ideas = self._extract_ideas([phase_result])
+                    self._set_phase_state(
+                        runtime,
+                        "synthesis",
+                        status="completed",
+                        progress=100,
+                    )
+                    summary_block = next(
+                        (
+                            block for block in runtime.get("blocks", [])
+                            if block.get("id") == "summary"
+                        ),
+                        None,
+                    )
+                    if summary_block:
+                        entries = {entry.get("label"): entry.get("value") for entry in summary_block.get("entries", [])}
+                        summary_block["entries"] = [
+                            {"label": "论文", "value": entries.get("论文", "0")},
+                            {"label": "趋势", "value": entries.get("趋势", "0")},
+                            {"label": "空白", "value": entries.get("空白", "0")},
+                            {"label": "创意", "value": str(len(ideas))},
+                        ]
+                    self._upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "ideas",
+                            "kind": "list",
+                            "title": "候选创意",
+                            "description": f"已生成 {len(ideas)} 个候选研究创意",
+                            "items": [self._idea_runtime_item(idea) for idea in ideas[:5]],
+                        },
+                    )
+                    self._append_activity(
+                        runtime,
+                        title="创意综合完成",
+                        description=f"已输出 {len(ideas)} 个研究创意，正在整理最终结果。",
+                        tone="success",
+                    )
+                    await self._emit_runtime(
+                        progress_callback,
+                        runtime,
+                        progress=self.RUNTIME_PHASES["synthesis"]["end_progress"],
+                        message=f"已生成 {len(ideas)} 个候选创意，正在整理研究报告...",
+                        current_phase="synthesis",
+                        stage_transition=True,
+                    )
+
+            phase_results = await self._executor.execute_plan(
+                plan,
+                context,
+                phase_callback=handle_phase_result,
+            )
 
             # Extract results from phases
             papers = self._extract_papers(phase_results)
@@ -178,12 +576,34 @@ class DeepResearchSkillV2(BaseSkill):
             # If no papers were found via subagents, fall back to direct search
             if not papers:
                 papers = self._search_papers(input.user_query, search_limit, year_range)
+                self._upsert_runtime_block(
+                    runtime,
+                    {
+                        "id": "papers",
+                        "kind": "list",
+                        "title": "候选论文",
+                        "description": f"兜底检索补充到 {len(papers)} 篇论文",
+                        "items": [self._paper_runtime_item(paper) for paper in papers[:8]],
+                    },
+                )
+                self._append_activity(
+                    runtime,
+                    title="兜底检索",
+                    description=f"子代理未返回论文，已通过直接检索补充 {len(papers)} 篇论文。",
+                    tone="warning",
+                )
 
             if not papers:
+                self._append_activity(
+                    runtime,
+                    title="未找到论文",
+                    description="当前主题未检索到足够相关的文献，请尝试放宽查询。",
+                    tone="warning",
+                )
                 return SkillOutput(
                     success=True,
                     content=f"No papers found for query: '{input.user_query}'. Try broadening your search.",
-                    metadata={"papers_found": 0},
+                    metadata={"papers_found": 0, "runtime": runtime},
                 )
 
             # Analyze patterns from papers
@@ -203,6 +623,24 @@ class DeepResearchSkillV2(BaseSkill):
                 patterns,
                 gaps,
                 ideas,
+            )
+            self._upsert_runtime_block(
+                runtime,
+                {
+                    "id": "artifacts",
+                    "kind": "metrics",
+                    "title": "最终产物",
+                    "entries": [
+                        {"label": "Artifact 数量", "value": str(len(artifacts))},
+                        {"label": "报告状态", "value": "已生成"},
+                    ],
+                },
+            )
+            self._append_activity(
+                runtime,
+                title="最终结果已生成",
+                description=f"已完成研究报告并生成 {len(artifacts)} 个结构化产物。",
+                tone="success",
             )
 
             # Build content report
@@ -232,14 +670,38 @@ class DeepResearchSkillV2(BaseSkill):
                     "trends_identified": len(trends),
                     "search_query": input.user_query,
                     "parallel_execution": True,
+                    "runtime": runtime,
                 },
             )
 
         except Exception as e:
+            if progress_callback is not None:
+                self._append_activity(
+                    runtime,
+                    title="执行失败",
+                    description=str(e),
+                    tone="danger",
+                )
+                if runtime.get("current_phase"):
+                    self._set_phase_state(
+                        runtime,
+                        runtime["current_phase"],
+                        status="failed",
+                        progress=100,
+                    )
+                await self._emit_runtime(
+                    progress_callback,
+                    runtime,
+                    progress=90,
+                    message=f"Deep Research 执行失败：{e}",
+                    current_phase=runtime.get("current_phase", "discovery"),
+                    stage_transition=True,
+                )
             return SkillOutput(
                 success=False,
                 content="",
                 error_message=f"Deep research failed: {str(e)}",
+                metadata={"runtime": runtime} if "runtime" in locals() else {},
             )
 
     def _create_execution_plan(

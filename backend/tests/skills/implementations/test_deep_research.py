@@ -24,6 +24,7 @@ from src.skills.implementations.deep_research import (
     ResearchPattern,
     ResearchTrend,
 )
+from src.subagents.parallel import PhaseResult
 
 # ============================================================================
 # Fixtures
@@ -913,6 +914,107 @@ class TestDeepResearchParallelExecution:
 
             assert output.success is True
             assert output.metadata.get("papers_analyzed", 0) == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_async_emits_runtime_blocks_via_progress_callback(self):
+        """Deep research should expose phase/block runtime updates for the UI."""
+        from unittest.mock import AsyncMock
+
+        skill = DeepResearchSkill()
+        progress_callback = AsyncMock()
+
+        discovery_phase = PhaseResult(
+            phase_name="discovery",
+            task_results=[
+                {
+                    "success": True,
+                    "result": {
+                        "papers": [
+                            {
+                                "title": "Adaptive Retrieval-Augmented Generation",
+                                "authors": ["A. Researcher"],
+                                "year": 2024,
+                                "venue": "ACL",
+                                "abstract": "Studies adaptive retrieval strategies for long-context QA.",
+                                "citations": 42,
+                                "url": "https://example.com/paper",
+                                "doi": "10.1234/example",
+                            }
+                        ],
+                        "trends": [
+                            {
+                                "topic": "retrieval orchestration",
+                                "description": "More systems coordinate multiple retrieval strategies.",
+                                "growth_rate": 12.5,
+                                "paper_count": 9,
+                            }
+                        ],
+                    },
+                }
+            ],
+        )
+        gap_phase = PhaseResult(
+            phase_name="gap_mining",
+            task_results=[
+                {
+                    "success": True,
+                    "result": {
+                        "gaps": [
+                            {
+                                "description": "Evaluation under shifting corpora",
+                                "supporting_evidence": ["Adaptive Retrieval-Augmented Generation"],
+                                "potential_impact": "Would improve real-world robustness.",
+                            }
+                        ],
+                    },
+                }
+            ],
+        )
+        synthesis_phase = PhaseResult(
+            phase_name="synthesis",
+            task_results=[
+                {
+                    "success": True,
+                    "result": {
+                        "ideas": [
+                            {
+                                "title": "Adaptive RAG under drift",
+                                "description": "A benchmark and controller for corpus drift.",
+                                "methodology_hints": ["Dynamic retrieval policies"],
+                                "related_papers": ["Adaptive Retrieval-Augmented Generation"],
+                                "novelty_score": 0.83,
+                            }
+                        ],
+                    },
+                }
+            ],
+        )
+
+        async def execute_plan(plan, context, phase_callback=None):
+            for phase in [discovery_phase, gap_phase, synthesis_phase]:
+                if phase_callback:
+                    await phase_callback(phase)
+            return [discovery_phase, gap_phase, synthesis_phase]
+
+        with patch.object(skill, "_executor") as mock_executor:
+            mock_executor.execute_plan = AsyncMock(side_effect=execute_plan)
+
+            output = await skill.execute_async(
+                SkillInput(
+                    workspace_id="test-ws",
+                    user_query="adaptive retrieval generation",
+                    context={},
+                ),
+                {"messages": [], "cited_papers": []},
+                progress_callback=progress_callback,
+            )
+
+        assert output.success is True
+        assert "runtime" in output.metadata
+        runtime = output.metadata["runtime"]
+        block_ids = {block["id"] for block in runtime["blocks"]}
+        assert {"overview", "activity", "papers", "trends", "gaps", "ideas", "artifacts", "summary"} <= block_ids
+        assert progress_callback.await_count >= 4
 
     def test_extract_papers_from_results(self, skill: DeepResearchSkill):
         """Should extract papers from phase results."""

@@ -70,6 +70,46 @@ class TestParallelExecutor:
             assert len(results) == 1
             assert results[0].phase_name == "discovery"
 
+    @pytest.mark.asyncio
+    async def test_execute_plan_invokes_phase_callback(self):
+        """Phase callback should receive each completed phase result in order."""
+        executor = ParallelExecutor()
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="discovery",
+                    tasks=[{"subagent_type": "scout", "prompt": "test search"}],
+                ),
+                ExecutionPhase(
+                    name="synthesis",
+                    tasks=[{"subagent_type": "synthesizer", "prompt": "test ideas"}],
+                    depends_on=["discovery"],
+                ),
+            ],
+        )
+
+        received: list[str] = []
+
+        async def phase_callback(result: PhaseResult) -> None:
+            received.append(result.phase_name)
+
+        with patch("src.subagents.parallel.SubagentExecutor") as mock_executor_class:
+            mock_executor = mock_executor_class.return_value
+            mock_result = MagicMock()
+            mock_result.status = SubagentStatus.COMPLETED
+            mock_result.result = {"ok": True}
+            mock_result.error = None
+            mock_executor.execute = MagicMock(return_value=mock_result)
+
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test"},
+                phase_callback=phase_callback,
+            )
+
+        assert len(results) == 2
+        assert received == ["discovery", "synthesis"]
+
 
 class TestExecutionPhase:
     def test_is_parallel(self):
