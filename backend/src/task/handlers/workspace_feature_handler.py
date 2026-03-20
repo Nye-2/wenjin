@@ -361,11 +361,119 @@ async def _try_langgraph_execution(
                 {"label": "时间范围", "value": str(params.get("time_range") or "近5年")},
             ],
         )
+    elif feature_id == "proposal_outline":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "主题", "value": str(params.get("topic") or payload.get("workspace_name") or "未命名项目")},
+                {"label": "类型", "value": str(params.get("proposal_type") or "other")},
+                {"label": "周期", "value": str(params.get("period_months") or 24)},
+            ],
+        )
+    elif feature_id == "patent_outline":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "创新点", "value": str(params.get("innovation_description") or payload.get("workspace_description") or "未提供")},
+                {"label": "技术领域", "value": str(params.get("technical_field") or "未提供")},
+                {"label": "应用场景", "value": str(params.get("application_scenario") or "未提供")},
+            ],
+        )
+    elif feature_id == "prior_art_search":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "关键词", "value": str(params.get("keywords") or payload.get("workspace_name") or "相关技术")},
+                {"label": "IPC", "value": str(params.get("ipc_codes") or "未提供")},
+                {"label": "时间范围", "value": str(params.get("time_range") or "近5年")},
+            ],
+        )
+    elif feature_id == "copyright_materials":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "软件名称", "value": str(params.get("software_name") or payload.get("workspace_name") or "待确认软件")},
+                {"label": "版本", "value": str(params.get("version") or "V1.0")},
+                {"label": "亮点", "value": str(params.get("highlights") or "未提供")},
+            ],
+        )
+    elif feature_id == "technical_description":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "软件名称", "value": str(params.get("software_name") or payload.get("workspace_name") or "待确认软件")},
+                {"label": "版本", "value": str(params.get("version") or "V1.0")},
+                {"label": "架构", "value": str(params.get("deployment_architecture") or "B/S架构")},
+            ],
+        )
+    elif feature_id == "figure_generation":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "图表类型", "value": str(params.get("fig_type") or "flowchart")},
+                {"label": "描述", "value": str(params.get("description") or "未提供")},
+                {"label": "章节", "value": str(params.get("chapter_index") or "未关联")},
+            ],
+        )
+    elif feature_id == "compile_export":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "模板", "value": str(params.get("template") or "default")},
+                {"label": "编译器", "value": str(params.get("compiler") or "xelatex")},
+                {"label": "参考样式", "value": str(params.get("bibliography_style") or "gbt7714")},
+            ],
+        )
+    elif feature_id == "literature_management":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "主题", "value": str(params.get("topic") or payload.get("workspace_name") or "研究主题")},
+                {"label": "工作区", "value": str(payload.get("workspace_name") or "未命名工作区")},
+            ],
+        )
+    elif feature_id == "thesis_writing":
+        thesis_action = str(params.get("action") or "").strip().lower()
+        runtime_key = (
+            "thesis_writing_chapter"
+            if thesis_action == "write_chapter"
+            else "thesis_writing_outline"
+        )
+        runtime = create_feature_runtime(
+            runtime_key,
+            [
+                {"label": "论文标题", "value": str(params.get("paper_title") or payload.get("workspace_name") or "未命名论文")},
+                {
+                    "label": "阶段",
+                    "value": "章节写作" if runtime_key == "thesis_writing_chapter" else "大纲生成",
+                },
+                {"label": "目标字数", "value": str(params.get("target_words") or 20000)},
+            ],
+        )
     else:
         runtime = None
 
     try:
         if runtime is not None:
+            initial_phase = str(runtime.get("current_phase") or "")
+            next_phase = {
+                "literature_search": "retrieve",
+                "paper_analysis": "analyze",
+                "writing": "draft",
+                "opening_research": "research_status",
+                "background_research": "scope",
+                "proposal_outline": "outline",
+                "patent_outline": "draft",
+                "prior_art_search": "analysis",
+                "copyright_materials": "materials",
+                "technical_description": "write",
+                "figure_generation": "render",
+                "compile_export": "compile",
+                "literature_management": "analyze",
+                "thesis_writing": "draft" if str(params.get("action") or "").strip().lower() == "write_chapter" else "outline",
+            }.get(feature_id)
+            if initial_phase and next_phase and initial_phase != next_phase:
+                advance_runtime_phase(runtime, initial_phase, next_phase)
             append_runtime_activity(
                 runtime,
                 title="任务启动",
@@ -402,7 +510,7 @@ async def _try_langgraph_execution(
             current_phase = runtime.get("current_phase")
             if current_phase:
                 advance_runtime_phase(runtime, str(current_phase), None)
-            if feature_id in {"literature_search", "paper_analysis", "writing", "opening_research", "background_research"}:
+            if feature_id in {"literature_search", "paper_analysis", "writing", "opening_research", "background_research", "proposal_outline", "patent_outline", "prior_art_search", "copyright_materials", "technical_description", "figure_generation", "compile_export", "literature_management", "thesis_writing"}:
                 append_runtime_activity(
                     runtime,
                     title="结果已整理",
@@ -504,6 +612,299 @@ async def _try_langgraph_execution(
                             ],
                         },
                     )
+                elif feature_id == "proposal_outline":
+                    sections = result.get("sections")
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "outline-sections",
+                            "kind": "list",
+                            "title": "大纲章节",
+                            "description": "申报书章节与摘要",
+                            "items": [
+                                {
+                                    "title": str(section.get("title") or "未命名章节"),
+                                    "description": str(section.get("content") or "")[:220],
+                                    "meta": str(section.get("source") or ""),
+                                }
+                                for section in (sections or [])[:6]
+                                if isinstance(section, dict)
+                            ],
+                        },
+                    )
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "milestones",
+                            "kind": "list",
+                            "title": "里程碑",
+                            "items": [
+                                {"title": str(item.get("name") or item), "description": str(item.get("description") or "")}
+                                for item in (result.get("milestones") or [])[:5]
+                                if isinstance(item, dict) or isinstance(item, str)
+                            ],
+                        },
+                    )
+                elif feature_id == "patent_outline":
+                    sections = result.get("sections")
+                    claims = result.get("claims_draft") or {}
+                    independent_claims = claims.get("independent_claims") if isinstance(claims, dict) else []
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "patent-sections",
+                            "kind": "list",
+                            "title": "说明书框架",
+                            "items": [
+                                {
+                                    "title": str(section.get("title") or "未命名章节"),
+                                    "description": str(section.get("content") or "")[:220],
+                                    "meta": str(section.get("source") or ""),
+                                }
+                                for section in (sections or [])[:6]
+                                if isinstance(section, dict)
+                            ],
+                        },
+                    )
+                    if isinstance(independent_claims, list):
+                        upsert_runtime_block(
+                            runtime,
+                            {
+                                "id": "claims",
+                                "kind": "list",
+                                "title": "独立权利要求",
+                                "items": [
+                                    {
+                                        "title": str(claim.get("title") or claim.get("claim") or f"权利要求 {index + 1}"),
+                                        "description": str(claim.get("content") or claim.get("claim") or "")[:220],
+                                        "meta": str(claim.get("source") or ""),
+                                    }
+                                    for index, claim in enumerate(independent_claims[:4])
+                                    if isinstance(claim, dict)
+                                ],
+                            },
+                        )
+                elif feature_id == "prior_art_search":
+                    comparison_table = result.get("comparison_table")
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "comparison-table",
+                            "kind": "list",
+                            "title": "对比条目",
+                            "items": [
+                                {
+                                    "title": str(item.get("title") or item.get("document") or "对比项"),
+                                    "description": str(item.get("difference") or item.get("summary") or "")[:220],
+                                    "meta": str(item.get("risk_level") or ""),
+                                }
+                                for item in (comparison_table or [])[:6]
+                                if isinstance(item, dict)
+                            ],
+                        },
+                    )
+                    novelty_risks = result.get("novelty_risks")
+                    if isinstance(novelty_risks, list):
+                        upsert_runtime_block(
+                            runtime,
+                            {
+                                "id": "novelty-risks",
+                                "kind": "list",
+                                "title": "新颖性风险",
+                                "items": [
+                                    {"title": str(risk), "description": ""}
+                                    for risk in novelty_risks[:6]
+                                ],
+                            },
+                        )
+                elif feature_id == "copyright_materials":
+                    required_materials = result.get("required_materials")
+                    review_checklist = result.get("review_checklist")
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "required-materials",
+                            "kind": "list",
+                            "title": "材料清单",
+                            "items": [
+                                {
+                                    "title": str(item.get("title") or item.get("name") or "材料项"),
+                                    "description": str(item.get("description") or item.get("content") or "")[:220],
+                                    "meta": str(item.get("priority") or ""),
+                                }
+                                for item in (required_materials or [])[:8]
+                                if isinstance(item, dict)
+                            ],
+                        },
+                    )
+                    if isinstance(review_checklist, list):
+                        upsert_runtime_block(
+                            runtime,
+                            {
+                                "id": "review-checklist",
+                                "kind": "list",
+                                "title": "核对清单",
+                                "items": [
+                                    {"title": str(item), "description": ""}
+                                    for item in review_checklist[:6]
+                                ],
+                            },
+                        )
+                elif feature_id == "technical_description":
+                    sections = result.get("sections")
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "technical-sections",
+                            "kind": "list",
+                            "title": "说明书章节",
+                            "items": [
+                                {
+                                    "title": str(section.get("title") or "未命名章节"),
+                                    "description": str(section.get("content") or "")[:220],
+                                    "meta": str(section.get("source") or ""),
+                                }
+                                for section in (sections or [])[:8]
+                                if isinstance(section, dict)
+                            ],
+                        },
+                    )
+                elif feature_id == "figure_generation":
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "figure-output",
+                            "kind": "metrics",
+                            "title": "图表输出",
+                            "entries": [
+                                {"label": "策略", "value": str(result.get("strategy") or "unknown")},
+                                {"label": "格式", "value": str((result.get("render_data") or {}).get("format") if isinstance(result.get("render_data"), dict) else "unknown")},
+                                {"label": "章节", "value": str(result.get("chapter_index") or "未关联")},
+                            ],
+                        },
+                    )
+                    source_text = str(result.get("source_code") or result.get("prompt") or "")
+                    if source_text:
+                        upsert_runtime_block(
+                            runtime,
+                            {
+                                "id": "figure-source",
+                                "kind": "text",
+                                "title": "图表源码/提示词",
+                                "content": source_text[:1400],
+                            },
+                        )
+                elif feature_id == "compile_export":
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "compile-status",
+                            "kind": "metrics",
+                            "title": "编译状态",
+                            "entries": [
+                                {"label": "编译状态", "value": str(result.get("compile_status") or "unknown")},
+                                {"label": "章节数", "value": str(result.get("chapter_count") or 0)},
+                                {"label": "文献数", "value": str(result.get("literature_count") or 0)},
+                                {"label": "页数", "value": str(result.get("page_count") or 0)},
+                            ],
+                        },
+                    )
+                    compile_logs = str(result.get("compile_logs") or "")
+                    if compile_logs:
+                        upsert_runtime_block(
+                            runtime,
+                            {
+                                "id": "compile-logs",
+                                "kind": "text",
+                                "title": "编译日志",
+                                "content": compile_logs[:1600],
+                            },
+                        )
+                elif feature_id == "literature_management":
+                    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+                    top_cited = result.get("top_cited")
+                    recommendations = result.get("recommended_actions") or result.get("smart_recommendations")
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "literature-summary",
+                            "kind": "metrics",
+                            "title": "文献盘点",
+                            "entries": [
+                                {"label": "总文献", "value": str(summary.get("total") or 0)},
+                                {"label": "核心文献", "value": str(summary.get("core_count") or 0)},
+                                {"label": "平均引用", "value": str(summary.get("avg_citations") or 0)},
+                            ],
+                        },
+                    )
+                    if isinstance(top_cited, list):
+                        upsert_runtime_block(
+                            runtime,
+                            {
+                                "id": "top-cited",
+                                "kind": "list",
+                                "title": "高引用文献",
+                                "items": [
+                                    {
+                                        "title": str(item.get("title") or "Untitled"),
+                                        "description": "",
+                                        "meta": str(item.get("year") or ""),
+                                        "badge": str(item.get("citations") or ""),
+                                    }
+                                    for item in top_cited[:6]
+                                    if isinstance(item, dict)
+                                ],
+                            },
+                        )
+                    if isinstance(recommendations, list):
+                        upsert_runtime_block(
+                            runtime,
+                            {
+                                "id": "recommendations",
+                                "kind": "list",
+                                "title": "建议动作",
+                                "items": [
+                                    {"title": str(item), "description": ""}
+                                    for item in recommendations[:6]
+                                ],
+                            },
+                        )
+                elif feature_id == "thesis_writing":
+                    action = str(result.get("action") or "").strip().lower()
+                    if action == "generate_outline":
+                        outline = result.get("outline") if isinstance(result.get("outline"), dict) else {}
+                        chapters = outline.get("chapters") if isinstance(outline, dict) else []
+                        if isinstance(chapters, list):
+                            upsert_runtime_block(
+                                runtime,
+                                {
+                                    "id": "outline-chapters",
+                                    "kind": "list",
+                                    "title": "章节大纲",
+                                    "items": [
+                                        {
+                                            "title": str(chapter.get("title") or "未命名章节"),
+                                            "description": "、".join(str(item) for item in (chapter.get("keyPoints") or [])[:3]),
+                                            "meta": str(chapter.get("position") or ""),
+                                            "badge": str(chapter.get("targetWords") or ""),
+                                        }
+                                        for chapter in chapters[:8]
+                                        if isinstance(chapter, dict)
+                                    ],
+                                },
+                            )
+                    elif action == "write_chapter":
+                        chapter = result.get("chapter") if isinstance(result.get("chapter"), dict) else {}
+                        content_text = str(chapter.get("markdown") or chapter.get("content") or "")
+                        upsert_runtime_block(
+                            runtime,
+                            {
+                                "id": "chapter-draft",
+                                "kind": "text",
+                                "title": str(chapter.get("chapter_title") or chapter.get("title") or "章节草稿"),
+                                "content": content_text[:1600],
+                            },
+                        )
                 upsert_runtime_block(
                     runtime,
                     {

@@ -6,7 +6,10 @@ import { motion } from "framer-motion";
 import { ArrowLeft, FileText } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
-import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  TaskFeedbackBanner,
+  TaskRuntimePanel,
+} from "@/components/workspace";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import {
   WorkspaceResultPanel,
@@ -32,7 +35,7 @@ export default function PatentOutlinePage() {
   const [applicationScenario, setApplicationScenario] = useState("");
   const [implementationMethod, setImplementationMethod] = useState("");
 
-  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
     featureId: "patent_outline",
   });
@@ -282,8 +285,16 @@ export default function PatentOutlinePage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full"
+            className="space-y-6"
           >
+            <TaskRuntimePanel
+              runtime={runtime}
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              title="专利框架运行面板"
+              emptyDescription="执行后，这里会显示创新输入、框架生成和权利要求整理过程。"
+            />
             <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>

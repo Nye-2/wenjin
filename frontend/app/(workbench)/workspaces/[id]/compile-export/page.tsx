@@ -6,7 +6,10 @@ import { motion } from "framer-motion";
 import { ArrowLeft, FileText, FileDown } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
-import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  TaskFeedbackBanner,
+  TaskRuntimePanel,
+} from "@/components/workspace";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import {
@@ -28,7 +31,7 @@ export default function CompileExportPage() {
   const [compiler, setCompiler] = useState("xelatex");
   const [bibStyle, setBibStyle] = useState("gbt7714");
 
-  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
     featureId: "compile_export",
   });
@@ -312,6 +315,14 @@ export default function CompileExportPage() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
+            <TaskRuntimePanel
+              runtime={runtime}
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              title="编译导出运行面板"
+              emptyDescription="执行后，这里会显示一致性检查、编译导出和日志整理过程。"
+            />
             <WorkspaceResultPanel viewModel={compileResultViewModel} />
 
             <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">

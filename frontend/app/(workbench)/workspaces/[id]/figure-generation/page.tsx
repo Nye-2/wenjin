@@ -6,7 +6,10 @@ import { motion } from "framer-motion";
 import { ArrowLeft, BarChart3, Image as ImageIcon } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
-import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  TaskFeedbackBanner,
+  TaskRuntimePanel,
+} from "@/components/workspace";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import {
@@ -27,7 +30,7 @@ export default function FigureGenerationPage() {
   const [description, setDescription] = useState("");
   const [chapterIndex, setChapterIndex] = useState("");
 
-  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
     featureId: "figure_generation",
     onSuccess: () => setDescription(""),
@@ -288,6 +291,14 @@ export default function FigureGenerationPage() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
+            <TaskRuntimePanel
+              runtime={runtime}
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              title="图表生成运行面板"
+              emptyDescription="执行后，这里会显示图表规划、生成和结果整理过程。"
+            />
             <WorkspaceResultPanel viewModel={figureResultViewModel} />
 
             <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">

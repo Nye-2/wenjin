@@ -7,7 +7,10 @@ import { ArrowLeft, FileText, Settings } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { listArtifacts } from "@/lib/api";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
-import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  TaskFeedbackBanner,
+  TaskRuntimePanel,
+} from "@/components/workspace";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import {
   WorkspaceResultPanel,
@@ -53,7 +56,7 @@ export default function TechnicalDescriptionPage() {
   // UI state
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(true);
 
-  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
     featureId: "technical_description",
   });
@@ -405,8 +408,16 @@ export default function TechnicalDescriptionPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full"
+            className="space-y-6"
           >
+            <TaskRuntimePanel
+              runtime={runtime}
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              title="技术说明书运行面板"
+              emptyDescription="执行后，这里会显示软件画像、说明书生成和章节整理过程。"
+            />
             <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>

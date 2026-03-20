@@ -6,7 +6,10 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Search } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
-import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  TaskFeedbackBanner,
+  TaskRuntimePanel,
+} from "@/components/workspace";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import {
@@ -42,7 +45,7 @@ export default function PriorArtSearchPage() {
   }, [workspace, keywords]);
   const [timeRange, setTimeRange] = useState<string>("近5年");
 
-  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
     featureId: "prior_art_search",
   });
@@ -270,8 +273,16 @@ export default function PriorArtSearchPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full"
+            className="space-y-6"
           >
+            <TaskRuntimePanel
+              runtime={runtime}
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              title="现有技术检索运行面板"
+              emptyDescription="执行后，这里会显示检索范围、对比分析和风险整理过程。"
+            />
             <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>

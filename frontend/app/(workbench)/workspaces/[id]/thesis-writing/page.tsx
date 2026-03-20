@@ -7,7 +7,10 @@ import { ArrowLeft, PenTool, CheckCircle } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useThesisWritingStore, type OutlineData } from "@/stores/thesis-writing";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
-import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  TaskFeedbackBanner,
+  TaskRuntimePanel,
+} from "@/components/workspace";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import {
   WorkspaceResultPanel,
@@ -124,6 +127,7 @@ export default function ThesisWritingPage() {
     isRunning: isOutlineRunning,
     status: outlineStatus,
     error: outlineError,
+    runtime: outlineRuntime,
     clearStatus: clearOutlineStatus,
     clearError: clearOutlineError,
   } = useFeatureTaskRunner({
@@ -186,6 +190,7 @@ export default function ThesisWritingPage() {
     isRunning: isChapterRunning,
     status: chapterStatus,
     error: chapterError,
+    runtime: chapterRuntime,
     clearStatus: clearChapterStatus,
     clearError: clearChapterError,
   } = useFeatureTaskRunner({
@@ -198,6 +203,7 @@ export default function ThesisWritingPage() {
   const isRunning = isOutlineRunning || isChapterRunning;
   const status = currentStep === 1 ? outlineStatus : chapterStatus;
   const error = currentStep === 1 ? outlineError : chapterError;
+  const runtime = currentStep === 1 ? outlineRuntime : chapterRuntime;
 
   // Sync chapter selection when chapters change
   useEffect(() => {
@@ -422,8 +428,16 @@ export default function ThesisWritingPage() {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="h-full"
+                className="space-y-6"
               >
+                <TaskRuntimePanel
+                  runtime={runtime}
+                  isRunning={isRunning}
+                  status={status}
+                  error={error}
+                  title="论文大纲运行面板"
+                  emptyDescription="执行后，这里会显示大纲生成阶段和章节草案。"
+                />
                 <WorkspaceResultPanel viewModel={step1ResultViewModel} />
               </motion.div>
             </div>
@@ -484,6 +498,14 @@ export default function ThesisWritingPage() {
               >
                 {selectedChapter && selectedOutlineChapter ? (
                   <div className="max-w-3xl mx-auto space-y-6">
+                    <TaskRuntimePanel
+                      runtime={runtime}
+                      isRunning={isRunning}
+                      status={status}
+                      error={error}
+                      title="章节写作运行面板"
+                      emptyDescription="执行后，这里会显示章节写作阶段和草稿内容。"
+                    />
                     <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
                       <div className="flex items-start justify-between gap-4">
                         <div>

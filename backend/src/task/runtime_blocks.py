@@ -47,6 +47,86 @@ _FEATURE_RUNTIME_CONFIG: dict[str, dict[str, Any]] = {
             {"id": "report", "label": "整理报告", "description": "封装章节与参考文献"},
         ],
     },
+    "proposal_outline": {
+        "title": "申报书大纲",
+        "phases": [
+            {"id": "scope", "label": "项目范围", "description": "确认主题、类型与周期"},
+            {"id": "outline", "label": "生成大纲", "description": "生成章节结构、里程碑与风险"},
+            {"id": "finalize", "label": "整理产物", "description": "封装大纲 artifact"},
+        ],
+    },
+    "patent_outline": {
+        "title": "专利框架",
+        "phases": [
+            {"id": "scope", "label": "创新输入", "description": "确认创新点、场景与实施方式"},
+            {"id": "draft", "label": "生成框架", "description": "生成说明书结构和权利要求草案"},
+            {"id": "finalize", "label": "整理产物", "description": "封装专利框架 artifact"},
+        ],
+    },
+    "prior_art_search": {
+        "title": "现有技术检索",
+        "phases": [
+            {"id": "scope", "label": "检索范围", "description": "确认关键词、IPC 和时间范围"},
+            {"id": "analysis", "label": "风险分析", "description": "比较现有技术并识别新颖性风险"},
+            {"id": "finalize", "label": "整理产物", "description": "输出检索报告 artifact"},
+        ],
+    },
+    "copyright_materials": {
+        "title": "软著材料",
+        "phases": [
+            {"id": "profile", "label": "软件画像", "description": "确认软件信息和亮点"},
+            {"id": "materials", "label": "生成清单", "description": "生成申请材料和校验清单"},
+            {"id": "finalize", "label": "整理产物", "description": "封装材料 artifact"},
+        ],
+    },
+    "technical_description": {
+        "title": "技术说明书",
+        "phases": [
+            {"id": "profile", "label": "技术画像", "description": "确认软件架构和模块信息"},
+            {"id": "write", "label": "生成说明书", "description": "生成说明书章节内容"},
+            {"id": "finalize", "label": "整理产物", "description": "封装说明书 artifact"},
+        ],
+    },
+    "figure_generation": {
+        "title": "图表生成",
+        "phases": [
+            {"id": "plan", "label": "规划图表", "description": "确认图表类型与章节上下文"},
+            {"id": "render", "label": "生成图表", "description": "生成源码、提示词或渲染结果"},
+            {"id": "finalize", "label": "整理产物", "description": "封装图表 artifact"},
+        ],
+    },
+    "compile_export": {
+        "title": "编译导出",
+        "phases": [
+            {"id": "review", "label": "一致性检查", "description": "检查章节一致性并生成摘要"},
+            {"id": "compile", "label": "编译导出", "description": "生成 LaTeX、BibTeX 和 PDF"},
+            {"id": "finalize", "label": "整理产物", "description": "封装编译结果 artifact"},
+        ],
+    },
+    "literature_management": {
+        "title": "文献管理",
+        "phases": [
+            {"id": "collect", "label": "加载文献", "description": "统计工作区已有文献"},
+            {"id": "analyze", "label": "智能盘点", "description": "聚类主题并评估文献质量"},
+            {"id": "finalize", "label": "整理产物", "description": "封装文献盘点 artifact"},
+        ],
+    },
+    "thesis_writing_outline": {
+        "title": "论文大纲",
+        "phases": [
+            {"id": "prepare", "label": "准备参数", "description": "确认标题、字数与上下文"},
+            {"id": "outline", "label": "生成大纲", "description": "生成章节结构与写作顺序"},
+            {"id": "finalize", "label": "整理产物", "description": "封装大纲 artifact"},
+        ],
+    },
+    "thesis_writing_chapter": {
+        "title": "章节写作",
+        "phases": [
+            {"id": "prepare", "label": "准备章节", "description": "确认章节标题与目标字数"},
+            {"id": "draft", "label": "生成章节", "description": "撰写章节正文内容"},
+            {"id": "finalize", "label": "整理产物", "description": "封装章节 artifact"},
+        ],
+    },
 }
 
 

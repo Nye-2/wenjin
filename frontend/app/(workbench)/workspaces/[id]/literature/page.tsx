@@ -8,7 +8,10 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { useLiteratureStore } from "@/stores/literature";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import { useModelSelection } from "@/hooks/useModelSelection";
-import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  TaskFeedbackBanner,
+  TaskRuntimePanel,
+} from "@/components/workspace";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import {
   Dialog,
@@ -59,6 +62,7 @@ export default function LiteraturePage() {
     isRunning: isOrganizing,
     status: organizeStatus,
     error: organizeError,
+    runtime: organizeRuntime,
   } = useFeatureTaskRunner({
     workspaceId,
     featureId: "literature_management",
@@ -366,6 +370,18 @@ export default function LiteraturePage() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto p-6">
+        {(isOrganizing || organizeRuntime) && (
+          <div className="mb-6">
+            <TaskRuntimePanel
+              runtime={organizeRuntime}
+              isRunning={isOrganizing}
+              status={organizeStatus}
+              error={organizeError}
+              title="文献盘点运行面板"
+              emptyDescription="执行后，这里会显示文献加载、智能盘点和建议动作。"
+            />
+          </div>
+        )}
         {isLoading ? (
           <div className="flex items-center justify-center py-16">
             <motion.div
