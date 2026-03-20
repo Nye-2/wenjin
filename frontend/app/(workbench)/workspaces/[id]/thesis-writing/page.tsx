@@ -71,6 +71,18 @@ export default function ThesisWritingPage() {
     }
   }, [workspace, titleInput]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const chapterTask = window.sessionStorage.getItem(
+      `feature-runner:${workspaceId}:thesis_writing:chapter`
+    );
+    if (chapterTask) {
+      setStep(2);
+    }
+  }, [workspaceId, setStep]);
+
   const parseOutline = (raw: unknown): OutlineData | null => {
     if (!raw || typeof raw !== "object") {
       return null;
@@ -133,6 +145,7 @@ export default function ThesisWritingPage() {
   } = useFeatureTaskRunner({
     workspaceId,
     featureId: "thesis_writing",
+    runnerKey: "thesis_writing:outline",
     onSuccess: handleOutlineSuccess,
   });
 
@@ -196,6 +209,7 @@ export default function ThesisWritingPage() {
   } = useFeatureTaskRunner({
     workspaceId,
     featureId: "thesis_writing",
+    runnerKey: "thesis_writing:chapter",
     onSuccess: handleChapterSuccess,
     onError: handleChapterError,
   });

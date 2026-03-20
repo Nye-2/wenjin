@@ -181,6 +181,15 @@ class TaskStore:
         )
         await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
 
+    async def persist_runtime_state(self, task_id: str, metadata: dict | None) -> None:
+        """Persist task runtime metadata to PostgreSQL for refresh/reconnect recovery."""
+        runtime_state = None
+        if isinstance(metadata, dict):
+            runtime_candidate = metadata.get("runtime")
+            if isinstance(runtime_candidate, dict):
+                runtime_state = runtime_candidate
+        await self.update_task_record(task_id, runtime_state=runtime_state)
+
     async def mark_task_completed(
         self,
         task_id: str,
@@ -201,6 +210,11 @@ class TaskStore:
             completed_at=datetime.now(UTC),
             progress=final_progress,
             message=final_message,
+            runtime_state=(
+                runtime_state.get("metadata", {}).get("runtime")
+                if runtime_state and isinstance(runtime_state.get("metadata"), dict)
+                else None
+            ),
         )
         # Keep Redis state for a while for queries
         await self.set_task_state(

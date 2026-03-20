@@ -185,6 +185,7 @@ class ProgressTracker:
                     progress=progress,
                     message=message,
                 )
+                await store.persist_runtime_state(self._task_id, metadata)
 
         logger.debug(f"Task {self._task_id}: {progress}% - {message}")
 

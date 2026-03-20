@@ -226,3 +226,37 @@ class TestTaskService:
             "current_phase": "export",
             "pdf_path": "/tmp/test.pdf",
         }
+
+    @pytest.mark.asyncio
+    async def test_get_task_status_falls_back_to_persisted_runtime_state(self, task_service):
+        """When Redis runtime state is missing, DB-persisted runtime should still be returned."""
+        with patch("src.task.service.celery_app") as mock_celery:
+            mock_celery.send_task = MagicMock()
+
+            task_id = await task_service.submit_task(
+                user_id="user-runtime",
+                task_type="workspace_feature",
+                payload={"workspace_id": "ws-1", "feature_id": "deep_research"},
+            )
+
+        runtime = {
+            "title": "Deep Research",
+            "current_phase": "synthesis",
+            "blocks": [{"id": "ideas", "kind": "list", "items": []}],
+        }
+        await task_service._store.update_task_record(
+            task_id,
+            status="running",
+            progress=72,
+            message="Generating ideas",
+            runtime_state=runtime,
+        )
+        await task_service._store.delete_task_state(task_id)
+
+        status = await task_service.get_task_status(task_id, "user-runtime")
+
+        assert status is not None
+        assert status["status"] == "running"
+        assert status["progress"] == 72
+        assert status["message"] == "Generating ideas"
+        assert status["metadata"] == {"runtime": runtime}

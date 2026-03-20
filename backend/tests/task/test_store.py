@@ -191,3 +191,28 @@ class TestTaskStorePostgres:
         assert state is not None
         assert state["progress"] == 80
         assert state["metadata"] == {"current_phase": "compile"}
+
+    @pytest.mark.asyncio
+    async def test_persist_runtime_state_writes_runtime_to_record(self, task_store):
+        """Stage-bound runtime state should be persisted on the task record."""
+        await task_store.create_task_record(
+            task_id="test-task-runtime",
+            user_id="user-1",
+            task_type="workspace_feature",
+            priority=5,
+            payload={},
+        )
+
+        runtime = {
+            "title": "Deep Research",
+            "current_phase": "discovery",
+            "blocks": [{"id": "papers", "kind": "list", "items": []}],
+        }
+        await task_store.persist_runtime_state(
+            "test-task-runtime",
+            {"runtime": runtime},
+        )
+
+        record = await task_store.get_task_record("test-task-runtime")
+        assert record is not None
+        assert record.runtime_state == runtime

@@ -37,7 +37,13 @@ class TaskService:
         status = runtime_state.get("status", record.status) if runtime_state else record.status
         progress = runtime_state.get("progress", record.progress) if runtime_state else record.progress
         message = runtime_state.get("message", record.message) if runtime_state else record.message
-        metadata = runtime_state.get("metadata") if runtime_state else None
+        persisted_runtime = getattr(record, "runtime_state", None)
+        if runtime_state and runtime_state.get("metadata") is not None:
+            metadata = runtime_state.get("metadata")
+        elif persisted_runtime is not None:
+            metadata = {"runtime": persisted_runtime}
+        else:
+            metadata = None
 
         return {
             "task_id": record.id,

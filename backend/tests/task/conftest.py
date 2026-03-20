@@ -61,6 +61,7 @@ class FixtureTaskRecord(TestBase):
     # Response
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    runtime_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Progress tracking
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

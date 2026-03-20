@@ -11,6 +11,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 export interface UseFeatureTaskRunnerOptions {
   workspaceId: string;
   featureId: string;
+  runnerKey?: string;
   skipPolling?: boolean;
   refreshOnSuccess?: boolean;
   onSuccess?: (task: TaskStatus | null) => void | Promise<void>;
@@ -76,6 +77,7 @@ function _resolveTaskResult(task: TaskStatus | null): Record<string, unknown> | 
 export function useFeatureTaskRunner({
   workspaceId,
   featureId,
+  runnerKey,
   skipPolling = false,
   refreshOnSuccess = true,
   onSuccess,
@@ -97,14 +99,31 @@ export function useFeatureTaskRunner({
   onErrorRef.current = onError;
 
   const { fetchArtifacts, fetchPapers, loadWorkspace } = useWorkspaceStore();
+  const taskStorageKey = `feature-runner:${workspaceId}:${runnerKey || featureId}`;
 
   const clearError = useCallback(() => setError(null), []);
   const clearStatus = useCallback(() => setStatus(null), []);
+  const persistTaskId = useCallback(
+    (taskId: string) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      window.sessionStorage.setItem(taskStorageKey, taskId);
+    },
+    [taskStorageKey]
+  );
+  const clearPersistedTask = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.sessionStorage.removeItem(taskStorageKey);
+  }, [taskStorageKey]);
   const clearTask = useCallback(() => {
     setTask(null);
     setResult(null);
     setRuntime(null);
-  }, []);
+    clearPersistedTask();
+  }, [clearPersistedTask]);
 
   useEffect(() => {
     return () => {
@@ -112,6 +131,187 @@ export function useFeatureTaskRunner({
       taskStreamRef.current = null;
     };
   }, []);
+
+  const finalizeTask = useCallback(
+    async (resolvedTask: TaskStatus) => {
+      setTask(resolvedTask);
+      setResult(_resolveTaskResult(resolvedTask));
+      const nextRuntime = extractTaskRuntime(
+        resolvedTask.metadata && typeof resolvedTask.metadata === "object"
+          ? (resolvedTask.metadata as Record<string, unknown>)
+          : null
+      );
+      if (nextRuntime) {
+        setRuntime(nextRuntime);
+      }
+
+      if (resolvedTask.status === "success") {
+        if (refreshOnSuccess) {
+          const refreshTargets = _resolveRefreshTargets(resolvedTask);
+          const refreshJobs: Promise<unknown>[] = [];
+
+          if (refreshTargets.includes("artifacts")) {
+            refreshJobs.push(fetchArtifacts(workspaceId));
+          }
+          if (refreshTargets.includes("papers")) {
+            refreshJobs.push(fetchPapers(workspaceId));
+          }
+          if (refreshTargets.includes("workspace")) {
+            refreshJobs.push(loadWorkspace(workspaceId));
+          }
+
+          if (refreshJobs.length > 0) {
+            await Promise.all(refreshJobs);
+          }
+        }
+        setStatus(resolvedTask.message || "任务完成");
+        clearPersistedTask();
+        if (onSuccessRef.current) {
+          await onSuccessRef.current(resolvedTask);
+        }
+      } else {
+        setError(resolvedTask.error || resolvedTask.message || "任务执行失败");
+        clearPersistedTask();
+        if (onErrorRef.current) {
+          await onErrorRef.current();
+        }
+      }
+    },
+    [
+      refreshOnSuccess,
+      fetchArtifacts,
+      fetchPapers,
+      loadWorkspace,
+      workspaceId,
+      clearPersistedTask,
+    ]
+  );
+
+  const waitForTerminalTask = useCallback(
+    async (taskId: string): Promise<TaskStatus | null> => {
+      const task = await new Promise<TaskStatus | null>((resolve) => {
+        const stopStreaming = subscribeTaskProgress(
+          taskId,
+          (event) => {
+            if (event.message) {
+              setStatus(event.message);
+            }
+            const nextRuntime = extractTaskRuntime(event.metadata);
+            if (nextRuntime) {
+              setRuntime(nextRuntime);
+            }
+
+            if (
+              event.status === "success" ||
+              event.status === "failed" ||
+              event.status === "cancelled"
+            ) {
+              stopStreaming();
+              taskStreamRef.current = null;
+              void getTaskStatus(taskId)
+                .then((finalTask) => resolve(finalTask))
+                .catch(() => resolve(null));
+            }
+          },
+          async () => {
+            stopStreaming();
+            taskStreamRef.current = null;
+            try {
+              const finalTask = await getTaskStatus(taskId);
+              if (
+                finalTask.status === "success" ||
+                finalTask.status === "failed" ||
+                finalTask.status === "cancelled"
+              ) {
+                resolve(finalTask);
+                return;
+              }
+            } catch {
+              // Ignore fallback fetch errors below and resolve null.
+            }
+            resolve(null);
+          }
+        );
+
+        taskStreamRef.current?.();
+        taskStreamRef.current = stopStreaming;
+      });
+      return task;
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (skipPolling || typeof window === "undefined" || runningRef.current) {
+      return;
+    }
+
+    const persistedTaskId = window.sessionStorage.getItem(taskStorageKey);
+    if (!persistedTaskId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const restoreTask = async () => {
+      try {
+        const currentTask = await getTaskStatus(persistedTaskId);
+        if (cancelled || !currentTask) {
+          return;
+        }
+
+        const restoredRuntime = extractTaskRuntime(
+          currentTask.metadata && typeof currentTask.metadata === "object"
+            ? (currentTask.metadata as Record<string, unknown>)
+            : null
+        );
+        if (restoredRuntime) {
+          setRuntime(restoredRuntime);
+        }
+        setStatus(currentTask.message || "任务恢复中...");
+
+        if (
+          currentTask.status === "success" ||
+          currentTask.status === "failed" ||
+          currentTask.status === "cancelled"
+        ) {
+          await finalizeTask(currentTask);
+          return;
+        }
+
+        runningRef.current = true;
+        setIsRunning(true);
+        const finalTask = await waitForTerminalTask(persistedTaskId);
+        if (cancelled) {
+          return;
+        }
+        if (!finalTask) {
+          setError("任务状态流中断，请稍后在工作区查看结果");
+          return;
+        }
+        await finalizeTask(finalTask);
+      } catch (error: unknown) {
+        if (cancelled) {
+          return;
+        }
+        clearPersistedTask();
+        setError(
+          error instanceof Error ? error.message : "任务恢复失败，请重新执行"
+        );
+      } finally {
+        if (!cancelled) {
+          setIsRunning(false);
+          runningRef.current = false;
+        }
+      }
+    };
+
+    void restoreTask();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [taskStorageKey, skipPolling, waitForTerminalTask, finalizeTask, clearPersistedTask]);
 
   const run = useCallback(
     async (params: Record<string, unknown>, threadId?: string) => {
@@ -158,53 +358,8 @@ export function useFeatureTaskRunner({
 
         setStatus("任务已提交，正在处理中...");
         const taskId = resp.task_id;
-        const task = await new Promise<TaskStatus | null>((resolve) => {
-          const stopStreaming = subscribeTaskProgress(
-            taskId,
-            (event) => {
-              if (event.message) {
-                setStatus(event.message);
-              }
-              const nextRuntime = extractTaskRuntime(event.metadata);
-              if (nextRuntime) {
-                setRuntime(nextRuntime);
-              }
-
-              if (
-                event.status === "success" ||
-                event.status === "failed" ||
-                event.status === "cancelled"
-              ) {
-                stopStreaming();
-                taskStreamRef.current = null;
-                void getTaskStatus(taskId)
-                  .then((finalTask) => resolve(finalTask))
-                  .catch(() => resolve(null));
-              }
-            },
-            async () => {
-              stopStreaming();
-              taskStreamRef.current = null;
-              try {
-                const finalTask = await getTaskStatus(taskId);
-                if (
-                  finalTask.status === "success" ||
-                  finalTask.status === "failed" ||
-                  finalTask.status === "cancelled"
-                ) {
-                  resolve(finalTask);
-                  return;
-                }
-              } catch {
-                // Ignore fallback fetch errors below and resolve null.
-              }
-              resolve(null);
-            }
-          );
-
-          taskStreamRef.current?.();
-          taskStreamRef.current = stopStreaming;
-        });
+        persistTaskId(taskId);
+        const task = await waitForTerminalTask(taskId);
 
         if (!task) {
           setError("任务状态流中断，请稍后在工作区查看结果");
@@ -214,48 +369,8 @@ export function useFeatureTaskRunner({
           return null;
         }
 
-        setTask(task);
-        setResult(_resolveTaskResult(task));
-        const finalRuntime = extractTaskRuntime(
-          task.metadata && typeof task.metadata === "object"
-            ? (task.metadata as Record<string, unknown>)
-            : null
-        );
-        if (finalRuntime) {
-          setRuntime(finalRuntime);
-        }
-
-        if (task.status === "success") {
-          if (refreshOnSuccess) {
-            const refreshTargets = _resolveRefreshTargets(task);
-            const refreshJobs: Promise<unknown>[] = [];
-
-            if (refreshTargets.includes("artifacts")) {
-              refreshJobs.push(fetchArtifacts(workspaceId));
-            }
-            if (refreshTargets.includes("papers")) {
-              refreshJobs.push(fetchPapers(workspaceId));
-            }
-            if (refreshTargets.includes("workspace")) {
-              refreshJobs.push(loadWorkspace(workspaceId));
-            }
-
-            if (refreshJobs.length > 0) {
-              await Promise.all(refreshJobs);
-            }
-          }
-          setStatus(task.message || "任务完成");
-          if (onSuccessRef.current) {
-            await onSuccessRef.current(task);
-          }
-          return task;
-        } else {
-          setError(task.error || task.message || "任务执行失败");
-          if (onErrorRef.current) {
-            await onErrorRef.current();
-          }
-          return task;
-        }
+        await finalizeTask(task);
+        return task;
       } catch (e: unknown) {
         setError(
           e instanceof Error ? e.message : "执行失败，请稍后重试"
@@ -273,11 +388,10 @@ export function useFeatureTaskRunner({
       workspaceId,
       featureId,
       skipPolling,
-      refreshOnSuccess,
-      fetchArtifacts,
-      fetchPapers,
-      loadWorkspace,
       clearTask,
+      finalizeTask,
+      persistTaskId,
+      waitForTerminalTask,
     ]
   );
 
