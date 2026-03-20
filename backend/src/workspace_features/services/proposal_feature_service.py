@@ -435,6 +435,33 @@ async def build_proposal_outline_payload(
     normalized_period = _normalize_period(period_months)
     if normalized_period <= 0:
         normalized_period = DEFAULT_PERIODS.get(normalized_type, 24)
+    runtime = get_runtime_state()
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "proposal-scope",
+                "kind": "metrics",
+                "title": "项目范围",
+                "entries": [
+                    {"label": "主题", "value": normalized_topic},
+                    {"label": "类型", "value": PROPOSAL_TYPES.get(normalized_type, normalized_type)},
+                    {"label": "周期", "value": f"{normalized_period} 个月"},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="项目范围已确认",
+            description="已整理项目主题、类型与执行周期。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在生成申报书大纲、里程碑和风险清单...",
+            current_phase="outline",
+            stage_transition=True,
+        )
 
     template_sections = _build_proposal_template_sections(
         topic=normalized_topic,
@@ -469,6 +496,52 @@ async def build_proposal_outline_payload(
     risks = _build_risks()
 
     type_label = PROPOSAL_TYPES.get(normalized_type, "科研项目")
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "proposal-sections",
+                "kind": "list",
+                "title": "大纲章节",
+                "items": [
+                    {
+                        "title": str(section.get("title") or "未命名章节"),
+                        "description": str(section.get("content") or "")[:220],
+                        "meta": str(section.get("source") or generation_mode),
+                    }
+                    for section in sections[:6]
+                    if isinstance(section, dict)
+                ],
+            },
+        )
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "proposal-milestones",
+                "kind": "list",
+                "title": "里程碑",
+                "items": [
+                    {
+                        "title": str(item.get("name") or item.get("title") or f"里程碑 {index + 1}"),
+                        "description": str(item.get("description") or ""),
+                        "meta": str(item.get("timeline") or ""),
+                    }
+                    for index, item in enumerate(milestones[:5])
+                    if isinstance(item, dict)
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="申报书大纲已生成",
+            description=f"已输出 {len(sections)} 个章节和 {len(milestones)} 个里程碑。",
+            tone="success" if generation_mode == "llm" else "warning",
+        )
+        await _emit_bound_runtime(
+            message="正在整理申报书大纲产物...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
 
     return {
         "schema_version": "v1",

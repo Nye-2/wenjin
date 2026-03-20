@@ -10,9 +10,33 @@ from typing import Any
 from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_writing_model
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 from src.workspace_features.services.thesis_feature_service import build_compile_payload
 
 logger = logging.getLogger(__name__)
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 
 def _resolve_writing_model(requested_model: str | None) -> str:
@@ -307,10 +331,36 @@ async def compile_export_graph(
     params = payload.get("params", {})
     requested_model = _read_optional_str(params.get("model_id"))
     model_id = _resolve_writing_model(requested_model)
+    runtime = get_runtime_state()
 
     # Load data
     chapter_summaries = await _load_chapter_summaries(workspace_id)
     literature_count = await _load_literature_count(workspace_id)
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "compile-inputs",
+                "kind": "metrics",
+                "title": "编译上下文",
+                "entries": [
+                    {"label": "章节数", "value": str(len(chapter_summaries))},
+                    {"label": "文献数", "value": str(literature_count)},
+                    {"label": "编译器", "value": str(params.get("compiler") or "xelatex")},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="编译上下文已加载",
+            description=f"已整理 {len(chapter_summaries)} 个章节摘要和 {literature_count} 条文献。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在检查章节一致性...",
+            current_phase="review",
+            stage_transition=True,
+        )
 
     # Step 1: Consistency review
     consistency_review = await _review_consistency(
@@ -319,6 +369,29 @@ async def compile_export_graph(
         memory_context=memory_context,
         model_id=model_id,
     )
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "consistency-review",
+                "kind": "text",
+                "title": "一致性检查",
+                "content": json.dumps(consistency_review, ensure_ascii=False, indent=2)
+                if consistency_review is not None
+                else "未返回一致性审查结果。",
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="一致性检查完成",
+            description="已完成章节逻辑与引用一致性检查。",
+            tone="success" if consistency_review is not None else "warning",
+        )
+        await _emit_bound_runtime(
+            message="正在生成摘要和关键词并执行编译...",
+            current_phase="compile",
+            stage_transition=True,
+        )
 
     # Step 2: Generate abstract and keywords
     abstract_keywords = await _generate_abstract_keywords(
@@ -328,6 +401,16 @@ async def compile_export_graph(
         memory_context=memory_context,
         model_id=model_id,
     )
+    if runtime is not None and abstract_keywords is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "abstract-keywords",
+                "kind": "text",
+                "title": "摘要与关键词",
+                "content": json.dumps(abstract_keywords, ensure_ascii=False, indent=2),
+            },
+        )
 
     # Determine pipeline results
     consistency_ok = consistency_review is not None
@@ -343,6 +426,42 @@ async def compile_export_graph(
         compiler=str(params.get("compiler") or "xelatex"),
         bibliography_style=str(params.get("bibliography_style") or "gbt7714"),
     )
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "compile-result",
+                "kind": "metrics",
+                "title": "编译结果",
+                "entries": [
+                    {"label": "编译状态", "value": str(compile_payload.get("compile_status") or "unknown")},
+                    {"label": "页数", "value": str(compile_payload.get("page_count") or 0)},
+                    {"label": "模板", "value": str(compile_payload.get("template") or "default")},
+                ],
+            },
+        )
+        compile_logs = str(compile_payload.get("compile_logs") or "")
+        if compile_logs:
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "compile-logs",
+                    "kind": "text",
+                    "title": "编译日志",
+                    "content": compile_logs[:1800],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="编译流程完成",
+            description="已生成摘要、关键词并完成编译尝试。",
+            tone="success" if compile_payload.get("compile_status") == "success" else "warning",
+        )
+        await _emit_bound_runtime(
+            message="正在整理编译导出产物...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
 
     return {
         "workspace_id": workspace_id,

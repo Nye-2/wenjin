@@ -17,10 +17,35 @@ from typing import Any
 
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    advance_runtime_phase,
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 
 logger = logging.getLogger(__name__)
 
 PATENT_OUTPUT_LANGUAGE = "zh"
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 
 def _utc_now_iso() -> str:
@@ -301,6 +326,33 @@ async def build_patent_outline_payload(
     normalized_field = _normalize_text(technical_field)
     normalized_scenario = _normalize_text(application_scenario)
     normalized_implementation = _normalize_text(implementation_method)
+    runtime = get_runtime_state()
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "patent-scope",
+                "kind": "metrics",
+                "title": "创新输入",
+                "entries": [
+                    {"label": "创新点", "value": normalized_innovation},
+                    {"label": "技术领域", "value": normalized_field or "未提供"},
+                    {"label": "应用场景", "value": normalized_scenario or "未提供"},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="创新输入已整理",
+            description="已确认创新点、技术领域和应用场景。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在生成说明书结构与权利要求草案...",
+            current_phase="draft",
+            stage_transition=True,
+        )
 
     template_data = _build_patent_outline_template(
         innovation_description=normalized_innovation,
@@ -325,8 +377,7 @@ async def build_patent_outline_payload(
             claim["source"] = "llm"
         for claim in llm_data.get("claims_draft", {}).get("dependent_claims", []):
             claim["source"] = "llm"
-
-        return {
+        result = {
             "schema_version": "v1",
             "output_language": PATENT_OUTPUT_LANGUAGE,
             "innovation_description": normalized_innovation,
@@ -341,8 +392,57 @@ async def build_patent_outline_payload(
             "evidence_points_needed": template_data["evidence_points_needed"],
             "generated_at": _utc_now_iso(),
         }
+        if runtime is not None:
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "patent-sections",
+                    "kind": "list",
+                    "title": "说明书框架",
+                    "items": [
+                        {
+                            "title": str(section.get("title") or "未命名章节"),
+                            "description": str(section.get("content") or "")[:220],
+                            "meta": str(section.get("source") or ""),
+                        }
+                        for section in (llm_data.get("sections") or [])[:6]
+                        if isinstance(section, dict)
+                    ],
+                },
+            )
+            claims = llm_data.get("claims_draft") or {}
+            independent_claims = claims.get("independent_claims") if isinstance(claims, dict) else []
+            if isinstance(independent_claims, list):
+                upsert_runtime_block(
+                    runtime,
+                    {
+                        "id": "claims",
+                        "kind": "list",
+                        "title": "独立权利要求",
+                        "items": [
+                            {
+                                "title": str(claim.get("title") or claim.get("claim") or f"权利要求 {index + 1}"),
+                                "description": str(claim.get("content") or claim.get("claim") or "")[:220],
+                            }
+                            for index, claim in enumerate(independent_claims[:4])
+                            if isinstance(claim, dict)
+                        ],
+                    },
+                )
+            append_runtime_activity(
+                runtime,
+                title="专利框架已生成",
+                description="已完成说明书结构和权利要求草案。",
+                tone="success",
+            )
+            await _emit_bound_runtime(
+                message="正在整理专利框架产物...",
+                current_phase="finalize",
+                stage_transition=True,
+            )
+        return result
 
-    return {
+    result = {
         "schema_version": "v1",
         "output_language": PATENT_OUTPUT_LANGUAGE,
         "innovation_description": normalized_innovation,
@@ -357,6 +457,36 @@ async def build_patent_outline_payload(
         "evidence_points_needed": template_data["evidence_points_needed"],
         "generated_at": _utc_now_iso(),
     }
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "patent-sections",
+                "kind": "list",
+                "title": "说明书框架",
+                "items": [
+                    {
+                        "title": str(section.get("title") or "未命名章节"),
+                        "description": str(section.get("content") or "")[:220],
+                        "meta": str(section.get("source") or ""),
+                    }
+                    for section in template_data["sections"][:6]
+                    if isinstance(section, dict)
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="专利框架已生成",
+            description="已输出模板化说明书结构和权利要求草案。",
+            tone="warning",
+        )
+        await _emit_bound_runtime(
+            message="正在整理专利框架产物...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
+    return result
 
 
 def _build_prior_art_template(
@@ -545,6 +675,33 @@ async def build_prior_art_search_payload(
 
     normalized_ipc = [code.strip().upper() for code in ipc_codes if code.strip()][:3]
     normalized_time_range = _normalize_text(time_range, "近5年")
+    runtime = get_runtime_state()
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "search-scope",
+                "kind": "metrics",
+                "title": "检索范围",
+                "entries": [
+                    {"label": "关键词", "value": "、".join(normalized_keywords)},
+                    {"label": "IPC/CPC", "value": "、".join(normalized_ipc) or "未指定"},
+                    {"label": "时间范围", "value": normalized_time_range},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="检索范围已确认",
+            description="已整理关键词、分类号和时间范围。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在比对现有技术并识别新颖性风险...",
+            current_phase="analysis",
+            stage_transition=True,
+        )
 
     template_data = _build_prior_art_template(
         keywords=normalized_keywords,
@@ -564,8 +721,7 @@ async def build_prior_art_search_payload(
         search_scope["keywords"] = normalized_keywords
         search_scope["ipc_codes"] = normalized_ipc
         search_scope["time_range"] = normalized_time_range
-
-        return {
+        result = {
             "schema_version": "v1",
             "output_language": PATENT_OUTPUT_LANGUAGE,
             "keywords": normalized_keywords,
@@ -581,8 +737,62 @@ async def build_prior_art_search_payload(
             "next_steps": template_data["next_steps"],
             "generated_at": _utc_now_iso(),
         }
+        if runtime is not None:
+            comparison_table = result.get("comparison_table")
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "comparison-table",
+                    "kind": "list",
+                    "title": "对比条目",
+                    "items": [
+                        {
+                            "title": str(item.get("title") or item.get("document") or "对比项"),
+                            "description": str(
+                                (item.get("comparison") or {}).get("novelty_assessment")
+                                if isinstance(item.get("comparison"), dict)
+                                else item.get("summary") or ""
+                            )[:220],
+                            "meta": str(item.get("patent_number") or ""),
+                        }
+                        for item in (comparison_table or [])[:6]
+                        if isinstance(item, dict)
+                    ],
+                },
+            )
+            risks = result.get("novelty_risks")
+            if isinstance(risks, list):
+                upsert_runtime_block(
+                    runtime,
+                    {
+                        "id": "novelty-risks",
+                        "kind": "list",
+                        "title": "新颖性风险",
+                        "items": [
+                            {
+                                "title": str(risk.get("description") or risk),
+                                "description": str(risk.get("mitigation") or ""),
+                                "meta": str(risk.get("level") or ""),
+                            }
+                            for risk in risks[:6]
+                            if isinstance(risk, dict)
+                        ],
+                    },
+                )
+            append_runtime_activity(
+                runtime,
+                title="检索分析完成",
+                description="已生成对比条目、新颖性风险和规避建议。",
+                tone="success",
+            )
+            await _emit_bound_runtime(
+                message="正在整理现有技术检索报告...",
+                current_phase="finalize",
+                stage_transition=True,
+            )
+        return result
 
-    return {
+    result = {
         "schema_version": "v1",
         "output_language": PATENT_OUTPUT_LANGUAGE,
         "keywords": normalized_keywords,
@@ -598,3 +808,57 @@ async def build_prior_art_search_payload(
         "next_steps": template_data["next_steps"],
         "generated_at": _utc_now_iso(),
     }
+    if runtime is not None:
+        comparison_table = result.get("comparison_table")
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "comparison-table",
+                "kind": "list",
+                "title": "对比条目",
+                "items": [
+                    {
+                        "title": str(item.get("title") or item.get("document") or "对比项"),
+                        "description": str(
+                            (item.get("comparison") or {}).get("novelty_assessment")
+                            if isinstance(item.get("comparison"), dict)
+                            else item.get("summary") or ""
+                        )[:220],
+                        "meta": str(item.get("patent_number") or ""),
+                    }
+                    for item in (comparison_table or [])[:6]
+                    if isinstance(item, dict)
+                ],
+            },
+        )
+        risks = result.get("novelty_risks")
+        if isinstance(risks, list):
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "novelty-risks",
+                    "kind": "list",
+                    "title": "新颖性风险",
+                    "items": [
+                        {
+                            "title": str(risk.get("description") or risk),
+                            "description": str(risk.get("mitigation") or ""),
+                            "meta": str(risk.get("level") or ""),
+                        }
+                        for risk in risks[:6]
+                        if isinstance(risk, dict)
+                    ],
+                },
+        )
+        append_runtime_activity(
+            runtime,
+            title="检索分析完成",
+            description="已生成模板化对比条目、新颖性风险和规避建议。",
+            tone="warning",
+        )
+        await _emit_bound_runtime(
+            message="正在整理现有技术检索报告...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
+    return result

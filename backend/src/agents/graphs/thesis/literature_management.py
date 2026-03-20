@@ -11,8 +11,32 @@ from typing import Any
 from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_model
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 
 logger = logging.getLogger(__name__)
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 
 def _resolve_management_model(requested_model: str | None) -> str:
@@ -43,9 +67,34 @@ async def literature_management_graph(
     focus_topic = str(params.get("topic", payload.get("workspace_name", "")))
     requested_model = _read_optional_str(params.get("model_id"))
     model_id = _resolve_management_model(requested_model)
+    runtime = get_runtime_state()
 
     # Step 1: Load literature
     literature = await _load_literature(workspace_id)
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "literature-context",
+                "kind": "metrics",
+                "title": "文献上下文",
+                "entries": [
+                    {"label": "主题", "value": focus_topic or "研究主题"},
+                    {"label": "文献总数", "value": str(len(literature))},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="文献已加载",
+            description=f"已读取 {len(literature)} 条工作区文献，开始统计盘点。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在统计文献质量与结构...",
+            current_phase="analyze",
+            stage_transition=True,
+        )
 
     # Step 2: Compute base statistics (always works, no LLM needed)
     stats = _compute_statistics(literature, focus_topic)
@@ -69,6 +118,65 @@ async def literature_management_graph(
 
     stats["model_id"] = model_id
     stats["generated_at"] = datetime.now(tz=timezone.utc).isoformat()
+    if runtime is not None:
+        summary = stats.get("summary") if isinstance(stats.get("summary"), dict) else {}
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "literature-summary",
+                "kind": "metrics",
+                "title": "文献盘点",
+                "entries": [
+                    {"label": "总文献", "value": str(summary.get("total") or 0)},
+                    {"label": "核心文献", "value": str(summary.get("core_count") or 0)},
+                    {"label": "平均引用", "value": str(summary.get("avg_citations") or 0)},
+                ],
+            },
+        )
+        if isinstance(stats.get("top_cited"), list):
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "top-cited",
+                    "kind": "list",
+                    "title": "高引用文献",
+                    "items": [
+                        {
+                            "title": str(item.get("title") or "Untitled"),
+                            "description": "",
+                            "meta": str(item.get("year") or ""),
+                            "badge": str(item.get("citations") or ""),
+                        }
+                        for item in stats["top_cited"][:6]
+                        if isinstance(item, dict)
+                    ],
+                },
+            )
+        recommendations = stats.get("smart_recommendations") or stats.get("recommended_actions")
+        if isinstance(recommendations, list):
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "recommendations",
+                    "kind": "list",
+                    "title": "建议动作",
+                    "items": [
+                        {"title": str(item), "description": ""}
+                        for item in recommendations[:6]
+                    ],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="文献盘点完成",
+            description="已完成统计分析并生成建议动作。",
+            tone="success" if stats.get("generation_mode") == "llm" else "warning",
+        )
+        await _emit_bound_runtime(
+            message="正在整理文献盘点产物...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
     return stats
 
 

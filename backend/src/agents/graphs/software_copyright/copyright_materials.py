@@ -13,10 +13,34 @@ from typing import Any
 
 from src.agents.graphs._shared import _normalize_list, _utc_now_iso
 from src.agents.workspace_lead_agent import register_feature_graph
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 
 logger = logging.getLogger(__name__)
 
 COPYRIGHT_OUTPUT_LANGUAGE = "zh"
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 
 def _build_required_materials(
@@ -148,6 +172,34 @@ async def copyright_materials_graph(
     highlights = _normalize_list(params.get("highlights"))
     target_platforms = _normalize_list(params.get("target_platforms"))
     source_modules = _normalize_list(params.get("source_modules"))
+    runtime = get_runtime_state()
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "materials-profile",
+                "kind": "metrics",
+                "title": "软件画像",
+                "entries": [
+                    {"label": "软件名称", "value": software_name},
+                    {"label": "版本", "value": version},
+                    {"label": "平台", "value": str(len(target_platforms))},
+                    {"label": "模块", "value": str(len(source_modules))},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="基础信息已整理",
+            description="已整理软件名称、版本和申请主体。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在生成申请材料清单...",
+            current_phase="materials",
+            stage_transition=True,
+        )
 
     # Step 2: Build materials checklist
     required_materials = _build_required_materials(
@@ -162,6 +214,48 @@ async def copyright_materials_graph(
 
     # Step 3: Build review checklist
     review_checklist = _build_review_checklist()
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "required-materials",
+                "kind": "list",
+                "title": "材料清单",
+                "items": [
+                    {
+                        "title": str(item.get("title") or item.get("id") or "材料项"),
+                        "description": "、".join(str(field) for field in (item.get("required_fields") or [])[:3]),
+                        "meta": str(item.get("status") or ""),
+                    }
+                    for item in required_materials[:8]
+                    if isinstance(item, dict)
+                ],
+            },
+        )
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "review-checklist",
+                "kind": "list",
+                "title": "核对清单",
+                "items": [
+                    {"title": str(item), "description": ""}
+                    for item in review_checklist[:6]
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="材料清单已生成",
+            description=f"已输出 {len(required_materials)} 个材料项和核对清单。",
+            tone="success",
+        )
+        await _emit_bound_runtime(
+            message="正在整理软著材料产物...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
 
     # Step 4: Build output
     return {

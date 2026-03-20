@@ -12,9 +12,33 @@ from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_writing_model
 from src.execution.public_paths import sandbox_path_to_public_url
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 from src.thesis.execution.figure_tool import generate_figure
 
 logger = logging.getLogger(__name__)
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 
 def _resolve_writing_model(requested_model: str | None) -> str:
@@ -315,9 +339,36 @@ async def figure_generation_graph(
     memory_context = initial_state.get("knowledge_context")
     requested_model = _read_optional_str(params.get("model_id"))
     model_id = _resolve_writing_model(requested_model)
+    runtime = get_runtime_state()
 
     # Resolve default strategy from fig_type
     strategy = _resolve_strategy(fig_type)
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "figure-inputs",
+                "kind": "metrics",
+                "title": "图表输入",
+                "entries": [
+                    {"label": "图表类型", "value": fig_type},
+                    {"label": "默认策略", "value": strategy},
+                    {"label": "章节", "value": str(chapter_index or "未关联")},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="图表参数已整理",
+            description="已确认图表类型、描述和章节上下文。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在规划图表策略...",
+            current_phase="plan",
+            stage_transition=True,
+        )
 
     # Step 1: Plan figure (LLM)
     figure_plan = await _plan_figure(
@@ -331,6 +382,29 @@ async def figure_generation_graph(
     # Allow plan to override strategy
     if figure_plan and figure_plan.get("recommended_strategy"):
         strategy = figure_plan["recommended_strategy"]
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "figure-plan",
+                "kind": "text",
+                "title": "图表规划",
+                "content": json.dumps(figure_plan, ensure_ascii=False, indent=2)
+                if figure_plan is not None
+                else "未返回结构化图表规划，将使用兜底策略。",
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="图表规划完成",
+            description=f"已确定使用 {strategy} 作为生成策略。",
+            tone="success" if figure_plan is not None else "warning",
+        )
+        await _emit_bound_runtime(
+            message="正在生成图表源码/提示词...",
+            current_phase="render",
+            stage_transition=True,
+        )
 
     # Step 2: Generate figure code (LLM)
     generated_code = await _generate_figure_code(
@@ -376,6 +450,41 @@ async def figure_generation_graph(
         file_url = sandbox_path_to_public_url(
             execution.figure_path,
             thread_id=str(thread_id) if thread_id else None,
+        )
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "figure-output",
+                "kind": "metrics",
+                "title": "图表输出",
+                "entries": [
+                    {"label": "策略", "value": strategy},
+                    {"label": "执行状态", "value": "success" if execution_ok else "generated_code"},
+                    {"label": "格式", "value": str(file_format or "unknown")},
+                ],
+            },
+        )
+        if generated_code:
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "figure-source",
+                    "kind": "text",
+                    "title": "源码/提示词",
+                    "content": generated_code[:1400],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="图表生成完成",
+            description="已生成图表源码并完成渲染尝试。",
+            tone="success" if execution_ok else "warning",
+        )
+        await _emit_bound_runtime(
+            message="正在整理图表产物...",
+            current_phase="finalize",
+            stage_transition=True,
         )
 
     # Build result — source_code for mermaid/python, prompt for kling

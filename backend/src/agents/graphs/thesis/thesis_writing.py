@@ -10,12 +10,36 @@ from typing import Any
 from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_writing_model
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 from src.workspace_features.services.thesis_writing_service import (
     build_chapter_payload,
     build_outline_payload,
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 # ---------------------------------------------------------------------------
 # Max revision rounds
@@ -110,6 +134,33 @@ async def _handle_generate_outline(
     deep_research_artifact_ids = _coerce_str_list(
         params.get("deep_research_artifact_ids")
     )
+    runtime = get_runtime_state()
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "outline-inputs",
+                "kind": "metrics",
+                "title": "大纲输入",
+                "entries": [
+                    {"label": "论文标题", "value": paper_title},
+                    {"label": "目标字数", "value": str(target_words)},
+                    {"label": "文献数", "value": str(literature_count)},
+                    {"label": "深度调研产物", "value": str(len(deep_research_artifact_ids))},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="大纲参数已整理",
+            description="已确认论文标题、目标字数和上下文产物。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在生成论文大纲...",
+            current_phase="outline",
+            stage_transition=True,
+        )
 
     outline_payload = build_outline_payload(
         paper_title=paper_title,
@@ -117,6 +168,39 @@ async def _handle_generate_outline(
         literature_count=literature_count,
         deep_research_artifact_ids=deep_research_artifact_ids,
     )
+    if runtime is not None:
+        outline = outline_payload.get("outline") if isinstance(outline_payload.get("outline"), dict) else {}
+        chapters = outline.get("chapters") if isinstance(outline, dict) else []
+        if isinstance(chapters, list):
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "outline-chapters",
+                    "kind": "list",
+                    "title": "章节大纲",
+                    "items": [
+                        {
+                            "title": str(chapter.get("title") or "未命名章节"),
+                            "description": "、".join(str(item) for item in (chapter.get("keyPoints") or [])[:3]),
+                            "meta": str(chapter.get("position") or ""),
+                            "badge": str(chapter.get("targetWords") or ""),
+                        }
+                        for chapter in chapters[:8]
+                        if isinstance(chapter, dict)
+                    ],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="论文大纲已生成",
+            description=f"已输出 {len(chapters) if isinstance(chapters, list) else 0} 个章节。",
+            tone="success",
+        )
+        await _emit_bound_runtime(
+            message="正在整理论文大纲产物...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
 
     return {
         "action": "generate_outline",
@@ -150,6 +234,33 @@ async def _handle_write_chapter(
     ).strip() or "未命名论文"
     target_words = max(800, _coerce_int(params.get("target_words"), 2500))
     references_used = _coerce_str_list(params.get("references_used"))
+    runtime = get_runtime_state()
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "chapter-inputs",
+                "kind": "metrics",
+                "title": "章节输入",
+                "entries": [
+                    {"label": "论文标题", "value": paper_title},
+                    {"label": "章节标题", "value": chapter_title},
+                    {"label": "章节序号", "value": str(chapter_index)},
+                    {"label": "目标字数", "value": str(target_words)},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="章节参数已整理",
+            description="已确认章节标题、字数和引用上下文。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在生成章节草稿...",
+            current_phase="draft",
+            stage_transition=True,
+        )
 
     chapter_payload = build_chapter_payload(
         paper_title=paper_title,
@@ -158,6 +269,42 @@ async def _handle_write_chapter(
         target_words=target_words,
         references_used=references_used,
     )
+    if runtime is not None:
+        content_text = str(chapter_payload.get("markdown") or chapter_payload.get("content") or "")
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "chapter-draft",
+                "kind": "text",
+                "title": chapter_title,
+                "content": content_text[:1800],
+            },
+        )
+        references = chapter_payload.get("references_used") or references_used
+        if isinstance(references, list):
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "chapter-references",
+                    "kind": "list",
+                    "title": "参考文献",
+                    "items": [
+                        {"title": str(reference), "description": ""}
+                        for reference in references[:8]
+                    ],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="章节草稿已生成",
+            description=f"已完成 {chapter_title} 草稿生成。",
+            tone="success",
+        )
+        await _emit_bound_runtime(
+            message="正在整理章节草稿产物...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
 
     return {
         "action": "write_chapter",

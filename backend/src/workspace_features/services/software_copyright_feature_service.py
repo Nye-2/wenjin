@@ -17,10 +17,34 @@ from src.artifacts import ArtifactType
 from src.database import Artifact, get_db_session
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 
 logger = logging.getLogger(__name__)
 
 COPYRIGHT_OUTPUT_LANGUAGE = "zh"
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 
 def _utc_now_iso() -> str:
@@ -364,6 +388,34 @@ async def build_technical_description_payload(
     normalized_db = database_middleware if database_middleware else []
     normalized_protocols = interface_protocols if interface_protocols else []
     normalized_highlights = highlights if highlights else []
+    runtime = get_runtime_state()
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "software-profile",
+                "kind": "metrics",
+                "title": "软件画像",
+                "entries": [
+                    {"label": "软件名称", "value": normalized_name},
+                    {"label": "版本", "value": normalized_version},
+                    {"label": "架构", "value": normalized_architecture},
+                    {"label": "核心模块", "value": str(len(normalized_modules))},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="技术画像已整理",
+            description="已汇总软件名称、架构和模块信息。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在生成技术说明书章节...",
+            current_phase="write",
+            stage_transition=True,
+        )
 
     # Build template sections first
     template_sections = _build_technical_description_template(
@@ -395,6 +447,36 @@ async def build_technical_description_payload(
     else:
         sections = template_sections
         generation_mode = "template_fallback"
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "technical-sections",
+                "kind": "list",
+                "title": "说明书章节",
+                "items": [
+                    {
+                        "title": str(section.get("title") or "未命名章节"),
+                        "description": str(section.get("content") or "")[:220],
+                        "meta": str(section.get("source") or generation_mode),
+                    }
+                    for section in sections[:8]
+                    if isinstance(section, dict)
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="说明书章节已生成",
+            description=f"已输出 {len(sections)} 个技术说明书章节。",
+            tone="success" if generation_mode == "llm" else "warning",
+        )
+        await _emit_bound_runtime(
+            message="正在整理技术说明书产物...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
 
     return {
         "schema_version": "v1",
