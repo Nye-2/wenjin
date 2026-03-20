@@ -20,11 +20,38 @@ from src.database import get_db_session
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
 from src.services.literature_service import LiteratureService
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    advance_runtime_phase,
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    set_runtime_phase,
+    upsert_runtime_block,
+)
 
 logger = logging.getLogger(__name__)
 
 SCI_SCHEMA_VERSION = "v1"
 SCI_OUTPUT_LANGUAGE = "en"
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    """Emit the currently bound runtime state if available."""
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 
 def _utc_now_iso() -> str:
@@ -255,9 +282,35 @@ async def build_literature_search_payload(
         normalized_query = "研究主题"
 
     normalized_discipline = _normalize_discipline(discipline)
+    runtime = get_runtime_state()
 
     # Load existing literature for context
     existing_literature = await _load_workspace_literature(workspace_id)
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "context",
+                "kind": "metrics",
+                "title": "检索上下文",
+                "entries": [
+                    {"label": "历史文献", "value": str(len(existing_literature))},
+                    {"label": "学科", "value": normalized_discipline},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="检索上下文已就绪",
+            description=f"已加载 {len(existing_literature)} 条历史文献作为检索参考。",
+            tone="info",
+        )
+        advance_runtime_phase(runtime, "prepare", "retrieve")
+        await _emit_bound_runtime(
+            message="正在生成候选论文与高相关命中...",
+            current_phase="retrieve",
+            stage_transition=True,
+        )
 
     # Try LLM-based synthesis
     llm_result, model_id, generation_error = await _try_llm_literature_search(
@@ -270,6 +323,52 @@ async def build_literature_search_payload(
     if llm_result is not None:
         llm_result["model_id"] = model_id
         llm_result["existing_literature_count"] = len(existing_literature)
+        if runtime is not None:
+            top_hits = llm_result.get("top_hits")
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "search-results",
+                    "kind": "list",
+                    "title": "高相关命中",
+                    "description": "模型已整理候选文献与优先命中",
+                    "items": [
+                        {
+                            "title": str(item.get("title") or "Untitled"),
+                            "description": str(item.get("summary") or ""),
+                            "meta": str(item.get("venue") or ""),
+                            "badge": str(item.get("year") or "") or None,
+                        }
+                        for item in (top_hits or [])[:6]
+                        if isinstance(item, dict)
+                    ],
+                },
+            )
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "result-summary",
+                    "kind": "metrics",
+                    "title": "检索结果",
+                    "entries": [
+                        {"label": "候选文献", "value": str(len(llm_result.get("papers") or []))},
+                        {"label": "Top Hits", "value": str(len(top_hits) if isinstance(top_hits, list) else 0)},
+                        {"label": "生成模式", "value": str(llm_result.get("search_strategy") or "llm")},
+                    ],
+                },
+            )
+            append_runtime_activity(
+                runtime,
+                title="检索完成",
+                description="已生成候选文献和高相关命中列表。",
+                tone="success",
+            )
+            advance_runtime_phase(runtime, "retrieve", "finalize")
+            await _emit_bound_runtime(
+                message="正在整理文献检索产物...",
+                current_phase="finalize",
+                stage_transition=True,
+            )
         return llm_result
 
     # Fallback to template
@@ -280,6 +379,32 @@ async def build_literature_search_payload(
     template_result["model_id"] = model_id
     template_result["generation_error"] = generation_error
     template_result["existing_literature_count"] = len(existing_literature)
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "result-summary",
+                "kind": "metrics",
+                "title": "检索结果",
+                "entries": [
+                    {"label": "候选文献", "value": "0"},
+                    {"label": "Top Hits", "value": "0"},
+                    {"label": "生成模式", "value": "template_fallback"},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="检索退回模板",
+            description="当前模型未返回结构化结果，已生成模板化检索输出。",
+            tone="warning",
+        )
+        advance_runtime_phase(runtime, "retrieve", "finalize")
+        await _emit_bound_runtime(
+            message="正在整理模板化检索结果...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
     return template_result
 
 
@@ -454,6 +579,7 @@ async def build_paper_analysis_payload(
     resolved_title = paper_title
     if not resolved_title:
         resolved_title = "未命名论文"
+    runtime = get_runtime_state()
 
     # Try to load more paper context if paper_id is provided
     paper_content = None
@@ -469,6 +595,33 @@ async def build_paper_analysis_payload(
         except Exception as e:
             logger.warning(f"Failed to load paper {paper_id}: {e}")
 
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "paper-context",
+                "kind": "metrics",
+                "title": "论文上下文",
+                "entries": [
+                    {"label": "标题", "value": resolved_title},
+                    {"label": "Paper ID", "value": paper_id or "未提供"},
+                    {"label": "摘要", "value": "已提供" if paper_abstract else "未提供"},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="论文上下文已就绪",
+            description="已解析论文标题和摘要，准备开始结构化分析。",
+            tone="info",
+        )
+        advance_runtime_phase(runtime, "prepare", "analyze")
+        await _emit_bound_runtime(
+            message="正在提炼方法、实验和创新点...",
+            current_phase="analyze",
+            stage_transition=True,
+        )
+
     # Try LLM-based analysis
     llm_result, model_id, generation_error = await _try_llm_paper_analysis(
         paper_title=resolved_title,
@@ -480,6 +633,56 @@ async def build_paper_analysis_payload(
     if llm_result is not None:
         llm_result["paper_id"] = paper_id
         llm_result["model_id"] = model_id
+        if runtime is not None:
+            sections = llm_result.get("sections")
+            recommendations = llm_result.get("recommendations")
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "analysis-sections",
+                    "kind": "list",
+                    "title": "分析分区",
+                    "description": "核心分析章节与摘要",
+                    "items": [
+                        {
+                            "title": str(section.get("title") or key),
+                            "description": str(section.get("content") or "")[:220],
+                            "meta": (
+                                f"{len(section.get('key_points', []))} 个要点"
+                                if isinstance(section.get("key_points"), list)
+                                else ""
+                            ),
+                        }
+                        for key, section in (sections or {}).items()
+                        if isinstance(section, dict)
+                    ],
+                },
+            )
+            if isinstance(recommendations, list):
+                upsert_runtime_block(
+                    runtime,
+                    {
+                        "id": "recommendations",
+                        "kind": "list",
+                        "title": "后续建议",
+                        "items": [
+                            {"title": str(item), "description": ""}
+                            for item in recommendations[:5]
+                        ],
+                    },
+                )
+            append_runtime_activity(
+                runtime,
+                title="结构化分析完成",
+                description="已输出方法、实验、结论和创新点分析。",
+                tone="success",
+            )
+            advance_runtime_phase(runtime, "analyze", "finalize")
+            await _emit_bound_runtime(
+                message="正在整理论文分析产物...",
+                current_phase="finalize",
+                stage_transition=True,
+            )
         return llm_result
 
     # Fallback to template
@@ -489,6 +692,37 @@ async def build_paper_analysis_payload(
     )
     template_result["model_id"] = model_id
     template_result["generation_error"] = generation_error
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "analysis-sections",
+                "kind": "list",
+                "title": "分析分区",
+                "description": "模板化分区结构",
+                "items": [
+                    {
+                        "title": str(section.get("title") or key),
+                        "description": str(section.get("content") or "")[:180],
+                        "meta": "template",
+                    }
+                    for key, section in (template_result.get("sections") or {}).items()
+                    if isinstance(section, dict)
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="分析退回模板",
+            description="当前模型未返回结构化分析，已生成模板化输出。",
+            tone="warning",
+        )
+        advance_runtime_phase(runtime, "analyze", "finalize")
+        await _emit_bound_runtime(
+            message="正在整理模板化分析结果...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
     return template_result
 
 
@@ -758,11 +992,57 @@ async def build_sci_writing_payload(
         for artifact_id in (context_artifact_ids or [])
         if str(artifact_id).strip()
     ]
+    runtime = get_runtime_state()
 
     context_summaries = await _load_artifact_context_summaries(
         workspace_id=workspace_id,
         context_artifact_ids=resolved_context_ids,
     )
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "writing-context",
+                "kind": "metrics",
+                "title": "写作上下文",
+                "entries": [
+                    {"label": "论文标题", "value": resolved_title},
+                    {"label": "章节", "value": _resolve_section_title(normalized_section_type)},
+                    {"label": "目标字数", "value": str(resolved_target_words)},
+                    {"label": "上下文产物", "value": str(len(context_summaries))},
+                ],
+            },
+        )
+        if context_summaries:
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "context-artifacts",
+                    "kind": "list",
+                    "title": "上下文产物",
+                    "description": "已加载的相关 artifact 摘要",
+                    "items": [
+                        {
+                            "title": str(item.get("title") or "Untitled"),
+                            "description": str(item.get("summary") or ""),
+                            "meta": str(item.get("type") or ""),
+                        }
+                        for item in context_summaries[:5]
+                    ],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="写作上下文已就绪",
+            description=f"已加载 {len(context_summaries)} 个 artifact 作为章节写作参考。",
+            tone="info",
+        )
+        advance_runtime_phase(runtime, "prepare", "draft")
+        await _emit_bound_runtime(
+            message="正在生成章节草稿...",
+            current_phase="draft",
+            stage_transition=True,
+        )
 
     llm_result, model_id, generation_error = await _try_llm_sci_writing(
         paper_title=resolved_title,
@@ -784,6 +1064,42 @@ async def build_sci_writing_payload(
     outline = llm_result.get("outline")
     references = llm_result.get("references")
     writing_mode = str(llm_result.get("writing_mode") or "template_fallback")
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "draft-preview",
+                "kind": "text",
+                "title": "草稿预览",
+                "description": section_title or _resolve_section_title(normalized_section_type),
+                "content": draft_content[:1400],
+            },
+        )
+        if isinstance(references, list):
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "references",
+                    "kind": "list",
+                    "title": "参考建议",
+                    "items": [
+                        {"title": str(reference), "description": ""}
+                        for reference in references[:6]
+                    ],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="章节草稿已生成",
+            description=f"已生成 {section_title or normalized_section_type} 草稿并整理参考建议。",
+            tone="success" if writing_mode == "llm" else "warning",
+        )
+        advance_runtime_phase(runtime, "draft", "finalize")
+        await _emit_bound_runtime(
+            message="正在整理章节草稿产物...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
 
     return {
         "schema_version": SCI_SCHEMA_VERSION,

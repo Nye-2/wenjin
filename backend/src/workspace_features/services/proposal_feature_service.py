@@ -15,6 +15,13 @@ from typing import Any
 
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    advance_runtime_phase,
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +46,24 @@ DEFAULT_PERIODS = {
     "university": 12,
     "other": 24,
 }
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 
 def _utc_now_iso() -> str:
@@ -674,6 +699,34 @@ async def build_background_research_payload(
     normalized_time = (time_range or "近5年").strip()
     if not normalized_time:
         normalized_time = "近5年"
+    runtime = get_runtime_state()
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "research-scope",
+                "kind": "metrics",
+                "title": "调研范围",
+                "entries": [
+                    {"label": "关键词", "value": normalized_keywords},
+                    {"label": "行业范围", "value": normalized_industry},
+                    {"label": "时间范围", "value": normalized_time},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="调研范围已确认",
+            description="已锁定关键词、行业范围和时间窗口。",
+            tone="info",
+        )
+        advance_runtime_phase(runtime, "scope", "research")
+        await _emit_bound_runtime(
+            message="正在生成背景分析与章节内容...",
+            current_phase="research",
+            stage_transition=True,
+        )
 
     template_sections = _build_background_template_sections(
         keywords=normalized_keywords,
@@ -705,6 +758,62 @@ async def build_background_research_payload(
         ]
         generation_mode = "template_fallback"
         references = _build_references_template(normalized_keywords)
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "background-sections",
+                "kind": "list",
+                "title": "调研章节",
+                "description": "已生成的背景调研章节摘要",
+                "items": [
+                    {
+                        "title": str(section.get("title") or "未命名章节"),
+                        "description": str(section.get("content") or "")[:220],
+                        "meta": str(section.get("source") or generation_mode),
+                    }
+                    for section in sections[:6]
+                    if isinstance(section, dict)
+                ],
+            },
+        )
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "references",
+                "kind": "list",
+                "title": "参考文献线索",
+                "items": [
+                    {
+                        "title": str(reference.get("title") or "未命名参考"),
+                        "description": " · ".join(
+                            part
+                            for part in [
+                                str(reference.get("authors") or "").strip(),
+                                str(reference.get("year") or "").strip(),
+                                str(reference.get("venue") or "").strip(),
+                            ]
+                            if part
+                        ),
+                    }
+                    for reference in references[:6]
+                    if isinstance(reference, dict)
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="背景分析完成",
+            description=f"已生成 {len(sections)} 个章节并整理参考文献线索。",
+            tone="success" if generation_mode == "llm" else "warning",
+        )
+        advance_runtime_phase(runtime, "research", "report")
+        await _emit_bound_runtime(
+            message="正在整理背景调研报告...",
+            current_phase="report",
+            stage_transition=True,
+        )
 
     return {
         "schema_version": "v1",

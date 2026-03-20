@@ -6,7 +6,10 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Search } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
-import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  TaskFeedbackBanner,
+  TaskRuntimePanel,
+} from "@/components/workspace";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import {
@@ -34,7 +37,7 @@ export default function OpeningResearchPage() {
   const [topic, setTopic] = useState("");
   const [reportType, setReportType] = useState<ReportTypeValue>("opening_report");
 
-  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
     featureId: "opening_research",
   });
@@ -237,8 +240,16 @@ export default function OpeningResearchPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full"
+            className="space-y-6"
           >
+            <TaskRuntimePanel
+              runtime={runtime}
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              title="开题调研运行面板"
+              emptyDescription="执行后，这里会显示研究现状、方法规划和报告章节生成的过程。"
+            />
             <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>

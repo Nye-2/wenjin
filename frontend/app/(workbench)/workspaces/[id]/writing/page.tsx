@@ -6,7 +6,10 @@ import { motion } from "framer-motion";
 import { ArrowLeft, PenTool } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
-import { TaskFeedbackBanner } from "@/components/workspace/TaskFeedbackBanner";
+import {
+  TaskFeedbackBanner,
+  TaskRuntimePanel,
+} from "@/components/workspace";
 import { ModelSelector } from "@/components/workspace/ModelSelector";
 import {
   WorkspaceResultPanel,
@@ -51,7 +54,7 @@ export default function SciWritingPage() {
   const [targetWords, setTargetWords] = useState(1200);
   const [contextArtifactIds, setContextArtifactIds] = useState("");
 
-  const { run, isRunning, status, error, result: latestTaskResult } = useFeatureTaskRunner({
+  const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
     featureId: "writing",
   });
@@ -298,8 +301,16 @@ export default function SciWritingPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full"
+            className="space-y-6"
           >
+            <TaskRuntimePanel
+              runtime={runtime}
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              title="论文写作运行面板"
+              emptyDescription="执行后，这里会显示上下文加载、草稿生成和整理产物的过程。"
+            />
             <WorkspaceResultPanel viewModel={resultViewModel} />
           </motion.div>
         </div>

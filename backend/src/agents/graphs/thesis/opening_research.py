@@ -10,8 +10,33 @@ from typing import Any
 from src.agents.graphs._shared import _read_optional_str
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_writing_model
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    advance_runtime_phase,
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 
 logger = logging.getLogger(__name__)
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 
 def _resolve_writing_model(requested_model: str | None) -> str:
@@ -54,10 +79,49 @@ async def opening_research_graph(
     memory_context = initial_state.get("knowledge_context")
     requested_model = _read_optional_str(params.get("model_id"))
     model_id = _resolve_writing_model(requested_model)
+    runtime = get_runtime_state()
 
     # Step 0: Load literature
     literature = await _load_literature(workspace_id)
     literature_highlights = _build_literature_highlights(literature)
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "literature",
+                "kind": "metrics",
+                "title": "文献基础",
+                "entries": [
+                    {"label": "主题", "value": topic},
+                    {"label": "报告类型", "value": report_type},
+                    {"label": "文献数量", "value": str(len(literature))},
+                ],
+            },
+        )
+        if literature_highlights:
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "literature-highlights",
+                    "kind": "list",
+                    "title": "文献线索",
+                    "items": [
+                        {"title": item, "description": ""}
+                        for item in literature_highlights[:6]
+                    ],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="文献背景已加载",
+            description=f"已载入 {len(literature)} 条文献，开始分析研究现状。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在分析研究现状与问题空间...",
+            current_phase="research_status",
+            stage_transition=True,
+        )
 
     # Step 1: Analyze research status
     research_analysis = await _analyze_research_status(
@@ -66,6 +130,30 @@ async def opening_research_graph(
         memory_context=memory_context,
         model_id=model_id,
     )
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "research-analysis",
+                "kind": "text",
+                "title": "研究现状分析",
+                "content": json.dumps(research_analysis, ensure_ascii=False, indent=2)
+                if research_analysis is not None
+                else "未返回结构化研究现状分析。",
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="研究现状分析完成",
+            description="已完成研究背景分析，进入方法规划阶段。",
+            tone="success" if research_analysis is not None else "warning",
+        )
+        advance_runtime_phase(runtime, "research_status", "methodology")
+        await _emit_bound_runtime(
+            message="正在规划报告的方法路线与结构...",
+            current_phase="methodology",
+            stage_transition=True,
+        )
 
     # Step 2: Plan methodology
     methodology_plan = await _plan_methodology(
@@ -74,6 +162,30 @@ async def opening_research_graph(
         topic=topic,
         model_id=model_id,
     )
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "methodology-plan",
+                "kind": "text",
+                "title": "方法规划",
+                "content": json.dumps(methodology_plan, ensure_ascii=False, indent=2)
+                if methodology_plan is not None
+                else "未返回结构化方法规划。",
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="方法规划完成",
+            description="已形成方法路线，开始生成报告章节。",
+            tone="success" if methodology_plan is not None else "warning",
+        )
+        advance_runtime_phase(runtime, "methodology", "report")
+        await _emit_bound_runtime(
+            message="正在整合章节并生成报告...",
+            current_phase="report",
+            stage_transition=True,
+        )
 
     # Step 3: Generate report sections
     sections = await _generate_report_sections(
@@ -86,6 +198,31 @@ async def opening_research_graph(
         memory_context=memory_context,
         model_id=model_id,
     )
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "report-sections",
+                "kind": "list",
+                "title": "报告章节",
+                "description": "已生成的章节摘要",
+                "items": [
+                    {
+                        "title": str(section.get("title") or "未命名章节"),
+                        "description": str(section.get("content") or "")[:220],
+                        "meta": str(section.get("source") or ""),
+                    }
+                    for section in sections[:6]
+                    if isinstance(section, dict)
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="报告章节已生成",
+            description=f"已输出 {len(sections)} 个章节。",
+            tone="success",
+        )
 
     # Determine generation mode
     step_results = {

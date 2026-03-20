@@ -13,7 +13,20 @@ from typing import Any
 from src.academic.services import ArtifactService
 from src.artifacts.types import ArtifactType
 from src.database import get_db_session
-from src.task.progress import ProgressTracker
+from src.task.progress import (
+    ProgressTracker,
+    bind_progress_tracker,
+    bind_runtime_state,
+    reset_progress_tracker,
+    reset_runtime_state,
+)
+from src.task.runtime_blocks import (
+    advance_runtime_phase,
+    append_runtime_activity,
+    create_feature_runtime,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 from src.workspace_features import get_workspace_feature
 
 logger = logging.getLogger(__name__)
@@ -304,18 +317,202 @@ async def _try_langgraph_execution(
     from src.agents.workspace_lead_agent import execute_feature_graph
 
     user_id = payload.get("user_id") or payload.get("created_by")
+    params = _read_params(payload)
+
+    if feature_id == "literature_search":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "关键词", "value": str(params.get("query") or payload.get("workspace_name") or "未指定")},
+                {"label": "学科", "value": str(params.get("discipline") or payload.get("workspace_discipline") or "未指定")},
+            ],
+        )
+    elif feature_id == "paper_analysis":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "论文标题", "value": str(params.get("paper_title") or payload.get("workspace_name") or "未命名论文")},
+                {"label": "Paper ID", "value": str(params.get("paper_id") or "未提供")},
+            ],
+        )
+    elif feature_id == "writing":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "标题", "value": str(params.get("paper_title") or payload.get("workspace_name") or "未命名论文")},
+                {"label": "章节", "value": str(params.get("section_type") or "introduction")},
+                {"label": "目标字数", "value": str(params.get("target_words") or 1200)},
+            ],
+        )
+    elif feature_id == "opening_research":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "主题", "value": str(params.get("topic") or payload.get("workspace_name") or "未指定主题")},
+                {"label": "报告类型", "value": str(params.get("report_type") or "opening_report")},
+            ],
+        )
+    elif feature_id == "background_research":
+        runtime = create_feature_runtime(
+            feature_id,
+            [
+                {"label": "关键词", "value": str(params.get("keywords") or payload.get("workspace_name") or "未指定主题")},
+                {"label": "行业范围", "value": str(params.get("industry_scope") or "相关领域")},
+                {"label": "时间范围", "value": str(params.get("time_range") or "近5年")},
+            ],
+        )
+    else:
+        runtime = None
 
     try:
-        await progress.update(5, "启动 LangGraph 增强处理")
-        result = await execute_feature_graph(
-            workspace_type,
-            feature_id,
-            payload,
-            user_id=str(user_id) if user_id else None,
-        )
+        if runtime is not None:
+            append_runtime_activity(
+                runtime,
+                title="任务启动",
+                description="正在准备参数并启动增强执行。",
+            )
+            await progress.update(
+                8,
+                "启动 LangGraph 增强处理",
+                current_step=runtime.get("current_phase"),
+                metadata={"runtime": runtime},
+                stage_transition=True,
+            )
+        else:
+            await progress.update(5, "启动 LangGraph 增强处理")
+
+        progress_token = bind_progress_tracker(progress)
+        runtime_token = bind_runtime_state(runtime) if runtime is not None else None
+        try:
+            result = await execute_feature_graph(
+                workspace_type,
+                feature_id,
+                payload,
+                user_id=str(user_id) if user_id else None,
+            )
+        finally:
+            reset_progress_tracker(progress_token)
+            if runtime_token is not None:
+                reset_runtime_state(runtime_token)
         artifacts = await _persist_langgraph_artifacts(
             feature_id, workspace_type, payload, result
         )
+
+        if runtime is not None:
+            current_phase = runtime.get("current_phase")
+            if current_phase:
+                advance_runtime_phase(runtime, str(current_phase), None)
+            if feature_id in {"literature_search", "paper_analysis", "writing", "opening_research", "background_research"}:
+                append_runtime_activity(
+                    runtime,
+                    title="结果已整理",
+                    description=f"{feature_id} 已完成结构化输出并写入 artifact。",
+                    tone="success",
+                )
+                result_metrics = [
+                    {"label": "生成模式", "value": str(result.get("generation_mode") or "unknown")},
+                    {"label": "Artifact", "value": str(len(artifacts))},
+                ]
+                if feature_id == "literature_search":
+                    top_hits = result.get("top_hits")
+                    result_metrics.insert(1, {"label": "Top Hits", "value": str(len(top_hits) if isinstance(top_hits, list) else 0)})
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "search-results",
+                            "kind": "list",
+                            "title": "高相关命中",
+                            "description": "优先推荐的文献候选",
+                            "items": [
+                                {
+                                    "title": str(item.get("title") or "Untitled"),
+                                    "description": str(item.get("summary") or ""),
+                                    "meta": str(item.get("venue") or ""),
+                                    "badge": str(item.get("year") or "") or None,
+                                }
+                                for item in (top_hits or [])[:5]
+                                if isinstance(item, dict)
+                            ],
+                        },
+                    )
+                elif feature_id == "paper_analysis":
+                    sections = result.get("sections")
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "analysis-sections",
+                            "kind": "list",
+                            "title": "分析分区",
+                            "description": "方法、实验、结论与创新点",
+                            "items": [
+                                {
+                                    "title": str(section.get("title") or key),
+                                    "description": str(section.get("content") or "")[:220],
+                                    "meta": (
+                                        f"{len(section.get('key_points', []))} 个要点"
+                                        if isinstance(section.get("key_points"), list)
+                                        else ""
+                                    ),
+                                }
+                                for key, section in (sections or {}).items()
+                                if isinstance(section, dict)
+                            ],
+                        },
+                    )
+                elif feature_id == "writing":
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "draft-preview",
+                            "kind": "text",
+                            "title": "草稿预览",
+                            "description": str(result.get("section_title") or result.get("section_type") or "章节草稿"),
+                            "content": str(result.get("content") or "")[:1200],
+                        },
+                    )
+                    references = result.get("references")
+                    if isinstance(references, list):
+                        upsert_runtime_block(
+                            runtime,
+                            {
+                                "id": "references",
+                                "kind": "list",
+                                "title": "参考建议",
+                                "items": [
+                                    {"title": str(reference), "description": ""}
+                                    for reference in references[:6]
+                                ],
+                            },
+                        )
+                elif feature_id in {"opening_research", "background_research"}:
+                    sections = result.get("sections")
+                    upsert_runtime_block(
+                        runtime,
+                        {
+                            "id": "sections",
+                            "kind": "list",
+                            "title": "报告章节",
+                            "description": "已生成的结构化章节内容",
+                            "items": [
+                                {
+                                    "title": str(section.get("title") or "未命名章节"),
+                                    "description": str(section.get("content") or "")[:220],
+                                    "meta": str(section.get("source") or ""),
+                                }
+                                for section in (sections or [])[:6]
+                                if isinstance(section, dict)
+                            ],
+                        },
+                    )
+                upsert_runtime_block(
+                    runtime,
+                    {
+                        "id": "result-summary",
+                        "kind": "metrics",
+                        "title": "输出概览",
+                        "entries": result_metrics,
+                    },
+                )
 
         # Wrap result in standard feature response format
         wrapped = {
@@ -331,7 +528,17 @@ async def _try_langgraph_execution(
             "refresh_targets": ["artifacts"],
             "generated_at": result.get("generated_at", datetime.now(tz=UTC).isoformat()),
         }
-        await progress.update(100, "LangGraph 增强处理完成")
+        if runtime is not None:
+            wrapped["runtime"] = runtime
+            await progress.update(
+                max(runtime_progress_for_phase(runtime), 98),
+                "LangGraph 增强处理完成",
+                current_step=runtime.get("current_phase"),
+                metadata={"runtime": runtime},
+                stage_transition=True,
+            )
+        else:
+            await progress.update(100, "LangGraph 增强处理完成")
         return wrapped
     except Exception:
         logger.warning(

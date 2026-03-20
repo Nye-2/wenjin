@@ -9,12 +9,22 @@ Write strategy (Phase 3 optimization):
 
 import json
 import logging
+from contextvars import ContextVar
 from datetime import UTC, datetime
 
 from src.config.task_config import task_settings
 from src.task.registry import TaskStatus
 
 logger = logging.getLogger(__name__)
+
+_CURRENT_PROGRESS_TRACKER: ContextVar["ProgressTracker | None"] = ContextVar(
+    "current_progress_tracker",
+    default=None,
+)
+_CURRENT_RUNTIME_STATE: ContextVar[dict | None] = ContextVar(
+    "current_runtime_state",
+    default=None,
+)
 
 
 class ProgressTracker:
@@ -223,6 +233,54 @@ class ProgressTracker:
             metadata=metadata,
             now=ts,
         )
+
+
+def bind_progress_tracker(progress: ProgressTracker):
+    """Bind the current progress tracker for nested service/graph helpers."""
+    return _CURRENT_PROGRESS_TRACKER.set(progress)
+
+
+def reset_progress_tracker(token) -> None:
+    """Reset the current bound progress tracker."""
+    _CURRENT_PROGRESS_TRACKER.reset(token)
+
+
+def bind_runtime_state(runtime: dict):
+    """Bind the current mutable runtime state for nested helpers."""
+    return _CURRENT_RUNTIME_STATE.set(runtime)
+
+
+def reset_runtime_state(token) -> None:
+    """Reset the current bound runtime state."""
+    _CURRENT_RUNTIME_STATE.reset(token)
+
+
+def get_runtime_state() -> dict | None:
+    """Return the currently bound runtime state."""
+    return _CURRENT_RUNTIME_STATE.get()
+
+
+async def emit_runtime_update(
+    *,
+    progress_value: int,
+    message: str,
+    current_phase: str | None = None,
+    runtime: dict | None = None,
+    stage_transition: bool = False,
+) -> None:
+    """Emit a structured runtime update using the currently bound tracker."""
+    tracker = _CURRENT_PROGRESS_TRACKER.get()
+    if tracker is None:
+        return
+
+    metadata = {"runtime": runtime} if runtime is not None else None
+    await tracker.update(
+        progress_value,
+        message,
+        current_step=current_phase,
+        metadata=metadata,
+        stage_transition=stage_transition,
+    )
 
 
 def get_progress_tracker(task_id: str) -> ProgressTracker:
