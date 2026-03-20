@@ -173,7 +173,9 @@ async def update_user_status(
             is_active=request.is_active,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        detail = str(exc)
+        status_code = 400 if "last active admin" in detail else 404
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
     await dashboard_service.create_admin_log(
         admin_id=str(current_user.id),
@@ -204,7 +206,8 @@ async def update_user_role(
             role=request.role,
         )
     except ValueError as exc:
-        status_code = 400 if "Unsupported role" in str(exc) else 404
+        detail = str(exc)
+        status_code = 400 if ("Unsupported role" in detail or "last active admin" in detail) else 404
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
     await dashboard_service.create_admin_log(

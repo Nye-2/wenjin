@@ -1070,6 +1070,8 @@ export interface AdminUserItem {
   credits: number;
   total_credits_earned: number;
   total_credits_spent: number;
+  workspace_count: number;
+  task_count: number;
   created_at: string | null;
   last_login: string | null;
 }

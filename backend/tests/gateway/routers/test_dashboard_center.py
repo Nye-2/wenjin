@@ -176,3 +176,43 @@ def test_get_admin_release_gate_defaults_to_core_only():
     assert response.status_code == 200
     assert response.json()["extended_gate"]["status"] == "pending"
     release_gate_service.run.assert_awaited_once_with(include_extended=False)
+
+
+def test_update_user_status_rejects_disabling_last_active_admin():
+    admin_service = AsyncMock()
+    admin_service.update_user_status = AsyncMock(
+        side_effect=ValueError("Cannot disable the last active admin")
+    )
+
+    client = _create_client(
+        user=_mock_user(user_id="admin-1", is_superuser=True),
+        admin_dashboard_service=admin_service,
+    )
+
+    response = client.post(
+        "/dashboard/admin/users/admin-2/status",
+        json={"is_active": False},
+    )
+
+    assert response.status_code == 400
+    assert "last active admin" in response.json()["detail"]
+
+
+def test_update_user_role_rejects_demoting_last_active_admin():
+    admin_service = AsyncMock()
+    admin_service.update_user_role = AsyncMock(
+        side_effect=ValueError("Cannot demote the last active admin")
+    )
+
+    client = _create_client(
+        user=_mock_user(user_id="admin-1", is_superuser=True),
+        admin_dashboard_service=admin_service,
+    )
+
+    response = client.post(
+        "/dashboard/admin/users/admin-2/role",
+        json={"role": "user"},
+    )
+
+    assert response.status_code == 400
+    assert "last active admin" in response.json()["detail"]

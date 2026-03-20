@@ -115,6 +115,29 @@ function formatLogDetails(details: Record<string, unknown>): string {
     .join(" | ");
 }
 
+function exportRowsToCsv(
+  filename: string,
+  headers: string[],
+  rows: Array<Array<string | number | boolean | null | undefined>>
+) {
+  const escapeCell = (value: string | number | boolean | null | undefined) => {
+    const text = value === null || value === undefined ? "" : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+
+  const csv = [headers, ...rows]
+    .map((row) => row.map(escapeCell).join(","))
+    .join("\n");
+
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function getCheckStatusClass(status: ReleaseGateCheck["status"]): string {
   if (status === "passed") return "bg-emerald-500/10 text-emerald-600";
   if (status === "failed") return "bg-rose-500/10 text-rose-600";
@@ -337,6 +360,55 @@ export default function AdminDashboardPage() {
     a.download = `release-gate-${releaseGateReport.generated_at.replace(/[: ]/g, "-")}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportUsersCsv = () => {
+    exportRowsToCsv(
+      `admin-users-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["email", "name", "role", "is_active", "credits", "workspace_count", "task_count", "created_at", "last_login"],
+      users.map((item) => [
+        item.email,
+        item.name ?? "",
+        item.role,
+        item.is_active ? "active" : "inactive",
+        item.credits,
+        item.workspace_count,
+        item.task_count,
+        item.created_at ?? "",
+        item.last_login ?? "",
+      ])
+    );
+  };
+
+  const exportCreditsCsv = () => {
+    exportRowsToCsv(
+      `admin-credit-history-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["created_at", "user_email", "user_id", "type", "amount", "balance_after", "description"],
+      creditHistory.map((item) => [
+        item.created_at,
+        item.user_email ?? "",
+        item.user_id ?? "",
+        item.type,
+        item.amount,
+        item.balance_after,
+        item.description ?? "",
+      ])
+    );
+  };
+
+  const exportLogsCsv = () => {
+    exportRowsToCsv(
+      `admin-logs-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["created_at", "action", "admin_email", "target_user_email", "target_user_id", "details"],
+      adminLogs.map((item) => [
+        item.created_at,
+        item.action,
+        item.admin?.email ?? item.admin_id ?? "",
+        item.target_user?.email ?? "",
+        item.target_user_id ?? "",
+        formatLogDetails(item.details),
+      ])
+    );
   };
 
   const openCreditDialog = (mode: CreditDialogMode, targetUser: AdminUserItem) => {
@@ -870,6 +942,16 @@ export default function AdminDashboardPage() {
               >
                 重置
               </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={exportUsersCsv}
+                disabled={users.length === 0}
+              >
+                <Download className="w-4 h-4 mr-1" />
+                导出 CSV
+              </Button>
             </form>
           </div>
           <div className="overflow-x-auto">
@@ -880,7 +962,10 @@ export default function AdminDashboardPage() {
                   <th className="py-2">角色</th>
                   <th className="py-2">状态</th>
                   <th className="py-2">积分</th>
+                  <th className="py-2">工作区</th>
+                  <th className="py-2">任务</th>
                   <th className="py-2">注册时间</th>
+                  <th className="py-2">最后登录</th>
                   <th className="py-2">操作</th>
                 </tr>
               </thead>
@@ -903,7 +988,10 @@ export default function AdminDashboardPage() {
                         </span>
                       </td>
                       <td className="py-2 text-[var(--text-primary)]">{item.credits}</td>
+                      <td className="py-2 text-[var(--text-primary)]">{item.workspace_count}</td>
+                      <td className="py-2 text-[var(--text-primary)]">{item.task_count}</td>
                       <td className="py-2 text-[var(--text-secondary)]">{formatDate(item.created_at)}</td>
+                      <td className="py-2 text-[var(--text-secondary)]">{formatDate(item.last_login)}</td>
                       <td className="py-2">
                         <div className="flex flex-wrap gap-2">
                           <button
@@ -1075,6 +1163,16 @@ export default function AdminDashboardPage() {
               >
                 重置
               </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={exportCreditsCsv}
+                disabled={creditHistory.length === 0}
+              >
+                <Download className="w-4 h-4 mr-1" />
+                导出 CSV
+              </Button>
             </form>
           </div>
           <div className="overflow-x-auto">
@@ -1229,6 +1327,16 @@ export default function AdminDashboardPage() {
                 }}
               >
                 重置
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={exportLogsCsv}
+                disabled={adminLogs.length === 0}
+              >
+                <Download className="w-4 h-4 mr-1" />
+                导出 CSV
               </Button>
             </form>
           </div>
