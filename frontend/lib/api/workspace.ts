@@ -6,6 +6,7 @@ import type {
   Literature,
   LiteratureListResponse,
   Paper,
+  UploadPaperResponse,
   TaskStatus,
   Workspace,
   WorkspaceActivityResponse,
@@ -62,6 +63,22 @@ export async function createPaper(data: {
   abstract?: string;
 }): Promise<Paper> {
   const response = await apiClient.post("/papers", data);
+  return response.data;
+}
+
+export async function uploadPaperFile(
+  workspaceId: string,
+  file: File
+): Promise<UploadPaperResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("workspace_id", workspaceId);
+
+  const response = await apiClient.post("/papers/upload", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
   return response.data;
 }
 

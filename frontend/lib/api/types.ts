@@ -32,6 +32,26 @@ export interface Paper {
   file_url?: string | null;
 }
 
+export interface PaperExtractionSubmission {
+  task_id?: string | null;
+  status: string;
+  paper_id?: string | null;
+  workspace_id?: string | null;
+  tier?: number | null;
+  message?: string | null;
+  reused_existing_task?: boolean;
+}
+
+export interface UploadPaperResponse {
+  success: boolean;
+  paper_id: string;
+  filename: string;
+  size_bytes: number;
+  workspace_id: string;
+  file_url?: string | null;
+  extraction?: PaperExtractionSubmission | null;
+}
+
 export interface Artifact {
   id: string;
   workspace_id: string;
