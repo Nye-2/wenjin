@@ -79,6 +79,55 @@ def merge_artifacts(
     return list(dict.fromkeys(existing + new))
 
 
+def merge_response_blocks(
+    existing: list[dict[str, Any]] | None,
+    new: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Reducer for structured response blocks emitted during a chat turn."""
+    if existing is None:
+        return [block for block in (new or []) if isinstance(block, dict)]
+    if new is None:
+        return existing
+    return [
+        *existing,
+        *(block for block in new if isinstance(block, dict)),
+    ]
+
+
+def merge_response_metadata(
+    existing: dict[str, Any] | None,
+    new: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Reducer for structured response metadata emitted during a chat turn."""
+    if existing is None:
+        return dict(new or {})
+    if new is None:
+        return existing
+
+    merged = dict(existing)
+    for key, value in new.items():
+        if (
+            key == "artifacts"
+            and isinstance(merged.get(key), list)
+            and isinstance(value, list)
+        ):
+            deduped: list[Any] = []
+            seen: set[str] = set()
+            for item in [*merged[key], *value]:
+                marker = repr(item)
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                deduped.append(item)
+            merged[key] = deduped
+            continue
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = {**merged[key], **value}
+            continue
+        merged[key] = value
+    return merged
+
+
 def merge_academic_artifacts(
     existing: list[AcademicArtifact] | None,
     new: list[AcademicArtifact] | None,
@@ -163,6 +212,8 @@ class ThreadState(AgentState):
     thread_data: NotRequired[ThreadDataState | None]
     title: NotRequired[str | None]
     artifacts: Annotated[list[str], merge_artifacts]
+    response_blocks: Annotated[list[dict[str, Any]], merge_response_blocks]
+    response_metadata: Annotated[dict[str, Any], merge_response_metadata]
     todos: NotRequired[list | None]
     uploaded_files: NotRequired[list[dict] | None]
     viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]

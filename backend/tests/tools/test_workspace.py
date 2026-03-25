@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from src.agents.lead_agent.feature_bridge import BridgedChatResponse
@@ -30,15 +28,15 @@ async def test_run_workspace_feature_tool_uses_shared_executor(
         _fake_execute_workspace_feature_request,
     )
 
-    raw = await workspace.run_workspace_feature_tool.coroutine(
+    result = await workspace.run_workspace_feature_tool.coroutine(
         workspace_id="ws-1",
         thread_id="thread-1",
         user_id="user-1",
         feature_id="framework_outline",
         params={"topic": "LLM planning"},
+        tool_call_id="tc-1",
     )
 
-    payload = json.loads(raw)
     assert captured == {
         "workspace_id": "ws-1",
         "thread_id": "thread-1",
@@ -46,8 +44,12 @@ async def test_run_workspace_feature_tool_uses_shared_executor(
         "feature_id": "framework_outline",
         "params": {"topic": "LLM planning"},
     }
-    assert payload["content"] == "task submitted"
-    assert payload["metadata"]["orchestration"]["feature_id"] == "framework_outline"
+    assert result.update["response_blocks"][0]["type"] == "task"
+    assert (
+        result.update["response_metadata"]["orchestration"]["feature_id"]
+        == "framework_outline"
+    )
+    assert result.update["messages"][0].content == "task submitted"
 
 
 @pytest.mark.asyncio
@@ -63,16 +65,14 @@ async def test_run_workspace_feature_tool_returns_explicit_error_when_unavailabl
         _fake_execute_workspace_feature_request,
     )
 
-    raw = await workspace.run_workspace_feature_tool.coroutine(
+    result = await workspace.run_workspace_feature_tool.coroutine(
         workspace_id="ws-1",
         thread_id="thread-1",
         user_id="user-1",
         feature_id="framework_outline",
         params={"topic": "LLM planning"},
+        tool_call_id="tc-2",
     )
 
-    payload = json.loads(raw)
-    assert payload == {
-        "error": "feature_execution_unavailable",
-        "feature_id": "framework_outline",
-    }
+    assert "response_blocks" not in result.update
+    assert "feature_execution_unavailable" in result.update["messages"][0].content

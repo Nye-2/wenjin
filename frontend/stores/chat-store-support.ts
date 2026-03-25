@@ -1,4 +1,5 @@
 import {
+  type ChatAttachment,
   type ChatMessage,
   type ChatMessageBlock,
   type Thread,
@@ -21,6 +22,7 @@ export function createPendingUserMessage(options: {
   id: string;
   content: string;
   createdAt: string;
+  attachments?: ChatAttachment[];
 }): Message {
   return {
     id: options.id,
@@ -28,7 +30,10 @@ export function createPendingUserMessage(options: {
     content: options.content,
     created_at: options.createdAt,
     blocks: [],
-    metadata: null,
+    metadata:
+      options.attachments && options.attachments.length > 0
+        ? { attachments: options.attachments }
+        : null,
   };
 }
 

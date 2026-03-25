@@ -60,16 +60,24 @@ def _default_subagent_enabled() -> bool:
         return True
 
 
+def _default_model_name() -> str:
+    """Resolve the default model id used by the lead agent."""
+    try:
+        return get_default_model_id()
+    except Exception:
+        return "default"
+
+
 def _normalize_runtime_config(config: RunnableConfig | None) -> RunnableConfig:
     """Fill runtime defaults expected by the middleware/tool stack."""
     normalized = dict(config or {})
     configurable = dict(normalized.get("configurable", {}))
 
+    configurable["model_name"] = configurable.get("model_name") or _default_model_name()
     configurable.setdefault("subagent_enabled", _default_subagent_enabled())
-    configurable.setdefault(
-        "supports_vision",
-        _model_supports_vision(configurable.get("model_name")),
-    )
+    if configurable.get("supports_vision") is None:
+        configurable.pop("supports_vision", None)
+    configurable.setdefault("supports_vision", _model_supports_vision(configurable["model_name"]))
 
     normalized["configurable"] = configurable
     return normalized
@@ -88,10 +96,21 @@ def _merge_runtime_config(
         return dict(base)
 
     merged = {**base, **override}
-    merged["configurable"] = {
-        **dict(base.get("configurable", {})),
-        **dict(override.get("configurable", {})),
+    base_configurable = dict(base.get("configurable", {}))
+    override_configurable = dict(override.get("configurable", {}))
+    merged_configurable = {
+        **base_configurable,
+        **override_configurable,
     }
+    if (
+        "model_name" in override_configurable
+        and "supports_vision" not in override_configurable
+    ):
+        merged_configurable.pop("supports_vision", None)
+    elif override_configurable.get("supports_vision") is None:
+        merged_configurable.pop("supports_vision", None)
+
+    merged["configurable"] = merged_configurable
     return merged
 
 
@@ -270,6 +289,7 @@ def get_available_tools(
         read_file_tool,
         run_workspace_feature_tool,
         str_replace_tool,
+        view_image_tool,
         write_file_tool,
     )
 
@@ -280,6 +300,7 @@ def get_available_tools(
         write_file_tool,
         str_replace_tool,
         ls_tool,
+        view_image_tool,
     ])
 
     # Interaction tools
@@ -581,16 +602,7 @@ def make_lead_agent(
     # Get configuration
     config = _normalize_runtime_config(config)
     configurable = config.get("configurable", {})
-    try:
-        default_model = get_default_model_id()
-    except Exception:
-        default_model = "default"
-    model_name = configurable.get("model_name") or default_model
-    config["configurable"]["model_name"] = model_name
-    config["configurable"]["supports_vision"] = config["configurable"].get(
-        "supports_vision",
-        _model_supports_vision(model_name),
-    )
+    model_name = configurable["model_name"]
     thinking_enabled = configurable.get("thinking_enabled", False)
     reasoning_effort = configurable.get("reasoning_effort")
     subagent_enabled = configurable.get("subagent_enabled", True)

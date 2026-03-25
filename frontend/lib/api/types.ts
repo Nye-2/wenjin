@@ -53,6 +53,20 @@ export interface ChatMessage {
   metadata?: Record<string, unknown>;
 }
 
+export type ChatUploadKind = "literature" | "workspace_context" | "transient";
+
+export interface ChatAttachment {
+  name: string;
+  path: string;
+  kind: ChatUploadKind;
+  url?: string | null;
+  content_type?: string | null;
+  size_bytes?: number | null;
+  paper_id?: string | null;
+  artifact_id?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ChatMessageBlock {
   type: string;
   title?: string | null;
@@ -198,6 +212,7 @@ export interface ChatRequest {
   thinking_enabled?: boolean;
   reasoning_effort?: ReasoningEffort;
   stream?: boolean;
+  attachments?: ChatAttachment[];
 }
 
 export interface Model {

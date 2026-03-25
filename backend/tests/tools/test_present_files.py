@@ -89,6 +89,10 @@ async def test_present_files_tool_updates_artifacts_with_normalized_paths(tmp_pa
     )
 
     assert result.update["artifacts"] == [f"{VIRTUAL_OUTPUTS_PREFIX}/drafts/paper.pdf"]
+    assert result.update["response_blocks"][0]["type"] == "artifacts"
+    assert result.update["response_metadata"]["artifacts"][0]["url"].endswith(
+        "/api/threads/thread-1/artifacts/mnt/user-data/outputs/drafts/paper.pdf"
+    )
     tool_message = result.update["messages"][0]
     assert tool_message.tool_call_id == "tc-1"
     assert "Successfully presented 1 file(s)" in tool_message.content

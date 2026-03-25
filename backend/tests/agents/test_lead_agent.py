@@ -1,6 +1,6 @@
 """Tests for Lead Agent middleware chain integration."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -252,8 +252,6 @@ class TestMakeLeadAgent:
 
     def test_make_lead_agent_without_middlewares(self):
         """Test that make_lead_agent works without middlewares."""
-        from unittest.mock import MagicMock, patch
-
         from src.config.config_loader import MiddlewaresConfig, SummarizationConfig
 
         config = {"configurable": {"model_name": "gpt-4o"}}
@@ -278,11 +276,69 @@ class TestMakeLeadAgent:
             assert agent is not None
             mock_create_agent.assert_called_once()
 
+    def test_make_lead_agent_defaults_vision_from_default_model(self):
+        """Default model resolution should happen before inferring vision support."""
+        fake_agent = MagicMock()
+
+        with patch(
+            "src.agents.lead_agent.agent.get_default_model_id",
+            return_value="gpt-4o",
+        ), patch(
+            "src.agents.lead_agent.agent.get_model_config",
+            side_effect=lambda model_name: MagicMock(model=model_name),
+        ), patch(
+            "src.models.factory.create_chat_model"
+        ) as mock_model, patch(
+            "src.agents.lead_agent.agent.get_available_tools",
+            return_value=[],
+        ), patch(
+            "src.agents.lead_agent.agent.create_react_agent",
+            return_value=fake_agent,
+        ):
+            mock_model.return_value = MagicMock()
+
+            agent = make_lead_agent({"configurable": {}}, middlewares=[])
+
+        configurable = agent._default_config["configurable"]
+        assert configurable["model_name"] == "gpt-4o"
+        assert configurable["supports_vision"] is True
+
+    @pytest.mark.asyncio
+    async def test_make_lead_agent_recomputes_vision_for_runtime_model_override(self):
+        """Runtime model overrides should not inherit stale vision flags."""
+        fake_agent = MagicMock()
+        fake_agent.ainvoke = AsyncMock(return_value={"messages": []})
+
+        with patch(
+            "src.agents.lead_agent.agent.get_model_config",
+            side_effect=lambda model_name: MagicMock(model=model_name),
+        ), patch(
+            "src.models.factory.create_chat_model"
+        ) as mock_model, patch(
+            "src.agents.lead_agent.agent.get_available_tools",
+            return_value=[],
+        ), patch(
+            "src.agents.lead_agent.agent.create_react_agent",
+            return_value=fake_agent,
+        ):
+            mock_model.return_value = MagicMock()
+
+            agent = make_lead_agent(
+                {"configurable": {"model_name": "gpt-4o"}},
+                middlewares=[],
+            )
+            await agent.ainvoke(
+                {"messages": []},
+                config={"configurable": {"model_name": "qwen3.5-plus"}},
+            )
+
+        runtime_config = fake_agent.ainvoke.await_args.kwargs["config"]
+        assert runtime_config["configurable"]["model_name"] == "qwen3.5-plus"
+        assert runtime_config["configurable"]["supports_vision"] is False
+
     @pytest.mark.asyncio
     async def test_make_lead_agent_applies_before_model_middlewares_on_invoke(self):
         """Runtime middleware chain should modify the state before agent execution."""
-        from unittest.mock import patch
-
         config = {"configurable": {"model_name": "gpt-4o"}}
         fake_agent = MagicMock()
         fake_agent.ainvoke = AsyncMock(return_value={"messages": []})

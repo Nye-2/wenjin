@@ -6,8 +6,8 @@ import type {
   RefObject,
 } from "react";
 import { motion } from "framer-motion";
-import { Send } from "lucide-react";
-import type { Model, ReasoningEffort, Workspace } from "@/lib/api";
+import { Paperclip, Send, X } from "lucide-react";
+import type { ChatUploadKind, Model, ReasoningEffort, Workspace } from "@/lib/api";
 import { AgentStatusBar, QuickActions } from "@/components/workspace";
 import { SkillSelector } from "./SkillSelector";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,35 @@ export function isReasoningEffort(value: string | null): value is ReasoningEffor
   );
 }
 
+export const WORKSPACE_CHAT_UPLOAD_KIND_OPTIONS: Array<{
+  value: ChatUploadKind;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "literature",
+    label: "核心文献",
+    description: "进入文献中心并保留文件",
+  },
+  {
+    value: "workspace_context",
+    label: "工作区上下文",
+    description: "存入工作区并沉淀基础材料",
+  },
+  {
+    value: "transient",
+    label: "临时附件",
+    description: "仅用于当前 chat / thread",
+  },
+];
+
+interface PendingAttachment {
+  id: string;
+  name: string;
+  size: number;
+  kind: ChatUploadKind;
+}
+
 interface WorkspaceChatComposerProps {
   actionError: string | null;
   isExecuting: boolean;
@@ -44,6 +73,12 @@ interface WorkspaceChatComposerProps {
   supportsReasoningEffort: boolean;
   selectedReasoningEffort: ReasoningEffort | null;
   onSelectReasoningEffort: (value: ReasoningEffort) => void;
+  defaultUploadKind: ChatUploadKind;
+  onSelectDefaultUploadKind: (value: ChatUploadKind) => void;
+  pendingAttachments: PendingAttachment[];
+  onOpenFilePicker: () => void;
+  onRemoveAttachment: (attachmentId: string) => void;
+  onUpdateAttachmentKind: (attachmentId: string, kind: ChatUploadKind) => void;
   inputValue: string;
   onInputChange: (value: string) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -66,6 +101,12 @@ export function WorkspaceChatComposer({
   supportsReasoningEffort,
   selectedReasoningEffort,
   onSelectReasoningEffort,
+  defaultUploadKind,
+  onSelectDefaultUploadKind,
+  pendingAttachments,
+  onOpenFilePicker,
+  onRemoveAttachment,
+  onUpdateAttachmentKind,
   inputValue,
   onInputChange,
   inputRef,
@@ -159,6 +200,86 @@ export function WorkspaceChatComposer({
           </>
         )}
       </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <label
+          htmlFor="chat-upload-kind-select"
+          className="text-xs font-medium text-[var(--text-muted)]"
+        >
+          上传归类
+        </label>
+        <select
+          id="chat-upload-kind-select"
+          value={defaultUploadKind}
+          onChange={(event) =>
+            onSelectDefaultUploadKind(event.target.value as ChatUploadKind)
+          }
+          disabled={isStreaming}
+          className="min-w-[220px] rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
+        >
+          {WORKSPACE_CHAT_UPLOAD_KIND_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label} · {option.description}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={onOpenFilePicker}
+          disabled={isStreaming}
+          className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:border-[var(--border-focus)] disabled:opacity-60"
+        >
+          <Paperclip className="h-4 w-4" />
+          添加附件
+        </button>
+      </div>
+
+      {pendingAttachments.length > 0 ? (
+        <div className="mb-3 flex flex-col gap-2">
+          {pendingAttachments.map((attachment) => (
+            <div
+              key={attachment.id}
+              className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)]/70 px-3 py-2"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+                  {attachment.name}
+                </p>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  {attachment.size < 1024 * 1024
+                    ? `${Math.max(1, Math.round(attachment.size / 1024))} KB`
+                    : `${(attachment.size / 1024 / 1024).toFixed(1)} MB`}
+                </p>
+              </div>
+              <select
+                value={attachment.kind}
+                onChange={(event) =>
+                  onUpdateAttachmentKind(
+                    attachment.id,
+                    event.target.value as ChatUploadKind
+                  )
+                }
+                disabled={isStreaming}
+                className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-xs text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
+              >
+                {WORKSPACE_CHAT_UPLOAD_KIND_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => onRemoveAttachment(attachment.id)}
+                disabled={isStreaming}
+                className="rounded-full border border-[var(--border-default)] p-1 text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-60"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <form onSubmit={onSubmit} className="flex gap-3">
         <div className="flex-1 relative">

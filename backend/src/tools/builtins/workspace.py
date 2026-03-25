@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Annotated, Any
 
-from langchain_core.tools import tool
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import InjectedToolCallId, tool
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from src.agents.lead_agent.feature_bridge import (
@@ -64,7 +66,8 @@ async def run_workspace_feature_tool(
     user_id: str,
     feature_id: str,
     params: dict[str, Any] | None = None,
-) -> str:
+    tool_call_id: Annotated[str, InjectedToolCallId] = "",
+) -> Command:
     """Run a canonical workspace feature and return structured execution metadata."""
     reply = await execute_workspace_feature_request(
         workspace_id=workspace_id,
@@ -74,15 +77,35 @@ async def run_workspace_feature_tool(
         params=params,
     )
     if reply is None:
-        return json.dumps(
-            {"error": "feature_execution_unavailable", "feature_id": feature_id},
+        payload = json.dumps(
+            {
+                "error": "feature_execution_unavailable",
+                "feature_id": feature_id,
+            },
             ensure_ascii=False,
         )
-    return json.dumps(
-        {
-            "content": reply.content,
-            "blocks": reply.blocks,
-            "metadata": reply.metadata,
-        },
-        ensure_ascii=False,
-    )
+        return Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        content=payload,
+                        tool_call_id=tool_call_id,
+                    )
+                ]
+            }
+        )
+
+    update: dict[str, Any] = {
+        "messages": [
+            ToolMessage(
+                content=reply.content,
+                tool_call_id=tool_call_id,
+            )
+        ]
+    }
+    if reply.blocks:
+        update["response_blocks"] = reply.blocks
+    if reply.metadata:
+        update["response_metadata"] = reply.metadata
+
+    return Command(update=update)

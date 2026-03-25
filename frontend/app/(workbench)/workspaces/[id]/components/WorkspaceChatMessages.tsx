@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, Sparkles, User } from "lucide-react";
+import { Bot, Paperclip, Sparkles, User } from "lucide-react";
 import { StreamingText, ThinkingIndicator } from "@/components/glass";
 import {
   type WorkspaceFeatureActionContext,
@@ -52,6 +52,91 @@ export function resolveBlockFeatureId(message: Message): string | null {
     }
   }
   return null;
+}
+
+function readMessageAttachments(message: Message): Array<Record<string, unknown>> {
+  const attachments = message.metadata?.attachments;
+  if (!Array.isArray(attachments)) {
+    return [];
+  }
+  return attachments.filter(
+    (item): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === "object"
+  );
+}
+
+function formatAttachmentKind(kind: unknown): string {
+  switch (kind) {
+    case "literature":
+      return "核心文献";
+    case "workspace_context":
+      return "工作区上下文";
+    default:
+      return "临时附件";
+  }
+}
+
+function renderMessageAttachments(message: Message, isUser: boolean) {
+  const attachments = readMessageAttachments(message);
+  if (attachments.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mb-3 space-y-2">
+      {attachments.map((attachment, index) => {
+        const name =
+          typeof attachment.name === "string"
+            ? attachment.name
+            : `附件 ${index + 1}`;
+        const url =
+          typeof attachment.url === "string" ? attachment.url : null;
+        return (
+          <div
+            key={`${name}-${index}`}
+            className={cn(
+              "rounded-xl border px-3 py-2",
+              isUser
+                ? "border-white/20 bg-white/10"
+                : "border-[var(--border-default)] bg-[var(--bg-surface)]/70"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <Paperclip className="h-3.5 w-3.5" />
+              <p className="min-w-0 flex-1 truncate text-xs font-medium">
+                {name}
+              </p>
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                  isUser
+                    ? "bg-white/15 text-white"
+                    : "bg-[var(--bg-muted)] text-[var(--text-muted)]"
+                )}
+              >
+                {formatAttachmentKind(attachment.kind)}
+              </span>
+            </div>
+            {url ? (
+              <div className="mt-2">
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn(
+                    "text-[11px] underline underline-offset-2",
+                    isUser ? "text-white" : "text-[var(--accent-primary)]"
+                  )}
+                >
+                  打开附件
+                </a>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function renderCardActions(
@@ -178,6 +263,69 @@ function renderStructuredBlocks(
                 {typeof data.summary === "string" ? data.summary : message.content}
               </p>
               {featureId ? renderCardActions(actionContext, handlers) : null}
+            </div>
+          );
+        }
+
+        if (block.type === "artifacts") {
+          const items = Array.isArray(data.items) ? data.items : [];
+          return (
+            <div
+              key={`${block.type}-${index}`}
+              className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)]/70 px-3 py-3"
+            >
+              <p className="text-sm font-medium text-[var(--text-primary)]">
+                {block.title || "输出文件"}
+              </p>
+              <div className="mt-3 space-y-2">
+                {items.map((item, itemIndex) => {
+                  const name =
+                    typeof item?.name === "string"
+                      ? item.name
+                      : typeof item?.path === "string"
+                        ? item.path
+                        : `文件 ${itemIndex + 1}`;
+                  const path = typeof item?.path === "string" ? item.path : null;
+                  const url = typeof item?.url === "string" ? item.url : null;
+                  const downloadUrl =
+                    typeof item?.download_url === "string" ? item.download_url : url;
+                  return (
+                    <div
+                      key={`${name}-${itemIndex}`}
+                      className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-muted)]/60 px-3 py-2"
+                    >
+                      <p className="text-xs font-medium text-[var(--text-primary)]">
+                        {name}
+                      </p>
+                      {path ? (
+                        <p className="mt-1 break-all text-[11px] text-[var(--text-muted)]">
+                          {path}
+                        </p>
+                      ) : null}
+                      {url ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full bg-[var(--accent-primary)]/10 px-2.5 py-1 text-[11px] font-medium text-[var(--accent-primary)]"
+                          >
+                            打开文件
+                          </a>
+                          <a
+                            href={downloadUrl || url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-primary)]"
+                          >
+                            下载
+                          </a>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
         }
@@ -312,6 +460,7 @@ function WorkspaceChatMessageBubble({
           <StreamingText text={message.content} isStreaming={true} />
         ) : (
           <>
+            {renderMessageAttachments(message, isUser)}
             {message.content ? (
               <p className="text-sm whitespace-pre-wrap">{message.content}</p>
             ) : null}

@@ -1,7 +1,11 @@
 """Chat router for AI conversations."""
 
+import base64
 import logging
+import mimetypes
 from collections.abc import AsyncGenerator
+from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -10,6 +14,7 @@ from langchain_core.runnables import RunnableConfig
 
 from src.academic.services import ArtifactService, PaperService, WorkspaceService
 from src.agents.lead_agent.feature_bridge import maybe_bridge_workspace_feature
+from src.agents.middlewares.thread_data import get_thread_data_root
 from src.agents.thread_state import ThreadState
 from src.config import get_model_config
 from src.config.config_loader import get_app_config
@@ -23,6 +28,7 @@ from src.gateway.deps import (
     get_workspace_service,
 )
 from src.gateway.routers.chat_contracts import (
+    ChatAttachment,
     ChatMessage,
     ChatRequest,
     ChatResponse,
@@ -78,10 +84,16 @@ from src.services.chat_thread_events import (
     publish_thread_deleted,
     publish_thread_updated,
 )
+from src.tools.builtins.artifacts import (
+    build_presented_artifact_items,
+    build_presented_artifacts_block,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+_THREAD_VIRTUAL_ROOT = "/mnt/user-data/"
+_THREAD_UPLOADS_VIRTUAL_ROOT = "/mnt/user-data/uploads/"
 
 
 def _model_supports_vision(model_name: str) -> bool:
@@ -136,13 +148,94 @@ def _build_chat_initial_state(
     *,
     workspace_id: str | None,
     effective_skill: str | None,
+    attachments: list[ChatAttachment] | None = None,
 ) -> dict[str, object]:
     """Build the thread state passed into the chat lead-agent."""
-    return {
+    initial_state: dict[str, object] = {
         "messages": _build_langchain_messages(thread),
         "workspace_id": workspace_id,
         "current_skill": effective_skill,
     }
+    uploaded_files, viewed_images = _attachment_state_for_chat_turn(
+        thread_id=str(thread.id),
+        attachments=attachments or [],
+    )
+    if uploaded_files:
+        initial_state["uploaded_files"] = uploaded_files
+    if viewed_images:
+        initial_state["viewed_images"] = viewed_images
+    return initial_state
+
+
+def _is_within_root(candidate: Path, root: Path) -> bool:
+    try:
+        return candidate.is_relative_to(root)
+    except AttributeError:
+        from os.path import commonpath
+
+        return commonpath([str(candidate), str(root)]) == str(root)
+
+
+def _resolve_thread_virtual_path(thread_id: str, virtual_path: str) -> Path | None:
+    normalized_path = f"/{str(virtual_path or '').lstrip('/')}"
+    if not normalized_path.startswith(_THREAD_VIRTUAL_ROOT):
+        return None
+
+    thread_root = get_thread_data_root(thread_id).resolve()
+    relative = normalized_path.removeprefix(_THREAD_VIRTUAL_ROOT)
+    candidate = (thread_root / relative).resolve()
+    if not _is_within_root(candidate, thread_root):
+        return None
+    return candidate
+
+
+def _attachment_state_for_chat_turn(
+    *,
+    thread_id: str,
+    attachments: list[ChatAttachment],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
+    """Build middleware-ready uploaded file and viewed image state from request attachments."""
+    uploaded_files: list[dict[str, Any]] = []
+    viewed_images: dict[str, dict[str, str]] = {}
+
+    for attachment in attachments:
+        path = str(attachment.path or "").strip()
+        if not path.startswith(_THREAD_UPLOADS_VIRTUAL_ROOT):
+            continue
+
+        uploaded_files.append(
+            {
+                "name": attachment.name,
+                "path": path,
+                "size": attachment.size_bytes or 0,
+                "kind": attachment.kind,
+                "content_type": attachment.content_type,
+                "url": attachment.url,
+                "paper_id": attachment.paper_id,
+                "artifact_id": attachment.artifact_id,
+                "metadata": attachment.metadata,
+            }
+        )
+
+        content_type = (attachment.content_type or "").strip().lower()
+        actual_path = _resolve_thread_virtual_path(thread_id, path)
+        if not actual_path or not actual_path.is_file():
+            continue
+
+        mime_type, _ = mimetypes.guess_type(actual_path.name)
+        effective_mime = content_type or mime_type or ""
+        if not effective_mime.startswith("image/"):
+            continue
+
+        try:
+            viewed_images[path] = {
+                "base64": base64.b64encode(actual_path.read_bytes()).decode("utf-8"),
+                "mime_type": effective_mime,
+            }
+        except OSError:
+            logger.debug("Failed to load uploaded image attachment: %s", actual_path, exc_info=True)
+
+    return uploaded_files, viewed_images
 
 
 def _build_fallback_messages(
@@ -157,6 +250,71 @@ def _build_fallback_messages(
         SystemMessage(content=fallback_prompt),
         *list(prepared_state.get("messages", [])),
     ]
+
+
+def _coerce_message_content(content: Any) -> str:
+    """Normalize LangChain message content into plain text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str) and text.strip():
+                    text_parts.append(text.strip())
+        return "\n".join(text_parts)
+    return str(content or "")
+
+
+def _reply_from_agent_result(
+    result: dict[str, Any],
+    *,
+    thread_id: str,
+) -> GeneratedChatReply:
+    """Convert final agent state into the persisted chat reply contract."""
+    messages = list(result.get("messages") or [])
+    content = ""
+    if messages:
+        content = _coerce_message_content(getattr(messages[-1], "content", ""))
+
+    blocks = [
+        block
+        for block in (result.get("response_blocks") or [])
+        if isinstance(block, dict)
+    ]
+    metadata = (
+        dict(result.get("response_metadata"))
+        if isinstance(result.get("response_metadata"), dict)
+        else {}
+    )
+
+    artifacts = [
+        artifact
+        for artifact in (result.get("artifacts") or [])
+        if isinstance(artifact, str) and artifact.strip()
+    ]
+    if artifacts:
+        artifact_items = build_presented_artifact_items(
+            artifacts,
+            thread_id=thread_id,
+        )
+        if artifact_items and not isinstance(metadata.get("artifacts"), list):
+            metadata["artifacts"] = artifact_items
+        if artifact_items and not any(
+            isinstance(block, dict) and block.get("type") == "artifacts"
+            for block in blocks
+        ):
+            blocks.append(build_presented_artifacts_block(artifact_items))
+        if not content:
+            count = len(artifact_items)
+            content = f"已生成 {count} 个文件，可直接打开查看。"
+
+    return GeneratedChatReply(
+        content=content,
+        blocks=blocks,
+        metadata=metadata,
+    )
 
 
 async def _generate_chat_response(
@@ -196,6 +354,7 @@ async def _generate_chat_response(
         thread,
         workspace_id=workspace_id,
         effective_skill=effective_skill,
+        attachments=request.attachments,
     )
     middlewares = build_pipeline(
         config,
@@ -222,8 +381,7 @@ async def _generate_chat_response(
 
         agent = make_lead_agent(config, middlewares=middlewares)
         result = await agent.ainvoke(initial_state, config=config)
-        content = result["messages"][-1].content if result.get("messages") else ""
-        return GeneratedChatReply(content=content)
+        return _reply_from_agent_result(result, thread_id=thread.id)
 
     except Exception:
         logger.exception("Agent failed, falling back to simple model")
@@ -233,6 +391,7 @@ async def _generate_chat_response(
             thread,
             workspace_id=workspace_id,
             effective_skill=effective_skill,
+            attachments=request.attachments,
         )
         try:
             prepared_state = await middleware_before_model(

@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import re
 import shlex
 import shutil
 from pathlib import Path
@@ -33,6 +34,15 @@ class LocalSandbox(Sandbox):
 
     # Allowed virtual path prefixes
     ALLOWED_VIRTUAL_PREFIXES = frozenset(["/mnt/user-data"])
+    _COMMAND_ABSOLUTE_PATH_RE = re.compile(
+        r"(?<![A-Za-z0-9_.:/])(\/(?!\/)[^ \t\r\n'\"`|&;<>(),]*)"
+    )
+    _COMMAND_RELATIVE_TRAVERSAL_RE = re.compile(
+        r"(?<![A-Za-z0-9_])((?:\./)*(?:\.\./)+[^ \t\r\n'\"`|&;<>(),]*|\.\.(?=$|[ \t\r\n'\"`|&;<>(),]))"
+    )
+    _COMMAND_HOME_PATH_RE = re.compile(
+        r"(?<![A-Za-z0-9_])(~(?:\/[^ \t\r\n'\"`|&;<>(),]*)?)"
+    )
 
     def __init__(self, id: str, path_mappings: dict[str, str]):
         """Initialize local sandbox.
@@ -48,6 +58,22 @@ class LocalSandbox(Sandbox):
             vp: str(Path(pp).resolve()) for vp, pp in path_mappings.items()
         }
         self._workspace_path = path_mappings.get("/mnt/user-data/workspace")
+
+    @staticmethod
+    def _is_within_root(path: str, root: str) -> bool:
+        """Return whether a resolved path stays under a resolved root."""
+        try:
+            return os.path.commonpath([path, root]) == root
+        except ValueError:
+            return False
+
+    def _is_within_allowed_roots(self, path: str) -> bool:
+        """Return whether a physical path remains inside any mapped sandbox root."""
+        resolved = str(Path(path).resolve())
+        return any(
+            self._is_within_root(resolved, root)
+            for root in self._resolved_base_paths.values()
+        )
 
     def _resolve_path(self, path: str) -> str:
         """Resolve virtual path to physical path with security checks.
@@ -101,7 +127,7 @@ class LocalSandbox(Sandbox):
                 try:
                     real_resolved = str(Path(resolved).resolve())
                     real_base = self._resolved_base_paths[virtual_path]
-                    if not real_resolved.startswith(real_base):
+                    if not self._is_within_root(real_resolved, real_base):
                         raise SandboxSecurityError(
                             f"Path escape detected: {path}"
                         )
@@ -129,7 +155,7 @@ class LocalSandbox(Sandbox):
             reverse=True,
         ):
             physical_resolved = str(Path(physical_path).resolve())
-            if resolved.startswith(physical_resolved):
+            if self._is_within_root(resolved, physical_resolved):
                 relative = resolved[len(physical_resolved):].lstrip("/")
                 if relative:
                     return f"{virtual_path}/{relative}"
@@ -148,18 +174,42 @@ class LocalSandbox(Sandbox):
             return shell_from_path
         return "/bin/sh"
 
+    def _validate_relative_command_path(self, fragment: str) -> None:
+        """Validate a relative path fragment against sandbox roots."""
+        if self._workspace_path is None:
+            raise SandboxSecurityError("Sandbox workspace is not configured.")
+
+        resolved = str((Path(self._workspace_path) / fragment).resolve())
+        if not self._is_within_allowed_roots(resolved):
+            raise SandboxSecurityError(
+                f"Command references path outside sandbox: {fragment}"
+            )
+
     def _validate_command(self, command: str) -> None:
-        """Reject obvious absolute-path references outside the virtual sandbox."""
+        """Reject path references that escape the sandbox roots."""
+        if "\x00" in command:
+            raise SandboxSecurityError("Command contains null byte.")
+
         try:
             tokens = shlex.split(command, posix=True)
         except ValueError:
-            return
+            tokens = [command]
 
         for token in tokens:
-            if token.startswith("/") and not token.startswith("/mnt/user-data"):
+            for match in self._COMMAND_HOME_PATH_RE.finditer(token):
                 raise SandboxSecurityError(
-                    f"Command references path outside sandbox: {token}"
+                    f"Command references unsupported home path: {match.group(1)}"
                 )
+
+            for match in self._COMMAND_ABSOLUTE_PATH_RE.finditer(token):
+                fragment = match.group(1)
+                if not fragment.startswith("/mnt/user-data"):
+                    raise SandboxSecurityError(
+                        f"Command references path outside sandbox: {fragment}"
+                    )
+
+            for match in self._COMMAND_RELATIVE_TRAVERSAL_RE.finditer(token):
+                self._validate_relative_command_path(match.group(1))
 
     async def execute_command(
         self,

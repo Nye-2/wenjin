@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+ChatUploadKind = Literal["literature", "workspace_context", "transient"]
 
 
 class ChatMessage(BaseModel):
@@ -18,6 +19,20 @@ class ChatMessage(BaseModel):
     content: str
     timestamp: datetime | None = None
     blocks: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatAttachment(BaseModel):
+    """Thread-scoped chat attachment metadata."""
+
+    name: str
+    path: str
+    kind: ChatUploadKind = "transient"
+    url: str | None = None
+    content_type: str | None = None
+    size_bytes: int | None = None
+    paper_id: str | None = None
+    artifact_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -32,6 +47,7 @@ class ChatRequest(BaseModel):
     thinking_enabled: bool = False
     reasoning_effort: ReasoningEffort | None = None
     stream: bool = True
+    attachments: list[ChatAttachment] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):

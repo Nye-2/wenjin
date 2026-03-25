@@ -322,6 +322,40 @@ class TestChatRuntimeConfig:
         assert config["configurable"]["subagent_enabled"] is True
         assert config["configurable"]["max_concurrent_subagents"] == 4
 
+    def test_initial_state_includes_uploaded_files_and_viewed_images(self, tmp_path):
+        request_attachment = chat.ChatAttachment(
+            name="figure.png",
+            path="/mnt/user-data/uploads/figure.png",
+            kind="transient",
+            content_type="image/png",
+            size_bytes=8,
+        )
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="gpt-4o",
+        )
+        thread_root = tmp_path / "threads" / "thread-1" / "user-data"
+        uploads_dir = thread_root / "uploads"
+        uploads_dir.mkdir(parents=True)
+        (uploads_dir / "figure.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        with patch(
+            "src.gateway.routers.chat.get_thread_data_root",
+            return_value=thread_root,
+        ):
+            state = chat._build_chat_initial_state(
+                thread,
+                workspace_id="ws-1",
+                effective_skill=None,
+                attachments=[request_attachment],
+            )
+
+        assert state["uploaded_files"][0]["name"] == "figure.png"
+        assert "/mnt/user-data/uploads/figure.png" in state["viewed_images"]
+
 
 class TestChatMessages:
     """Chat message flow tests."""
@@ -464,6 +498,90 @@ class TestChatMessages:
         thread = service.threads[payload["thread_id"]]
         assert thread.messages[-1]["blocks"][0]["title"] == "论文写作"
 
+    @pytest.mark.asyncio
+    async def test_generate_chat_response_preserves_structured_tool_state(self):
+        """Structured tool updates should survive the agent chat path."""
+        request = chat.ChatRequest(message="启动模块", workspace_id="ws-1")
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="gpt-4o",
+            skill="framework-designer",
+        )
+        current_user = create_mock_user("user-1")
+        fake_agent = MagicMock()
+        fake_agent.ainvoke = AsyncMock(
+            return_value={
+                "messages": [MagicMock(content="模块已启动")],
+                "response_blocks": [{"type": "task", "title": "框架设计"}],
+                "response_metadata": {
+                    "orchestration": {"feature_id": "framework_outline", "task_id": "task-1"}
+                },
+            }
+        )
+
+        with patch(
+            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.gateway.routers.chat.route_chat_model",
+            return_value="gpt-4o",
+        ), patch(
+            "src.agents.lead_agent.agent.build_pipeline",
+            return_value=[],
+        ), patch(
+            "src.agents.lead_agent.agent.make_lead_agent",
+            return_value=fake_agent,
+        ):
+            reply = await chat._generate_chat_response(request, thread, current_user)
+
+        assert reply.content == "模块已启动"
+        assert reply.blocks[0]["type"] == "task"
+        assert reply.metadata["orchestration"]["task_id"] == "task-1"
+
+    @pytest.mark.asyncio
+    async def test_generate_chat_response_builds_artifact_block_from_agent_state(self):
+        """Agent-presented files should become structured chat artifacts."""
+        request = chat.ChatRequest(message="导出文件", workspace_id="ws-1")
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="gpt-4o",
+        )
+        current_user = create_mock_user("user-1")
+        fake_agent = MagicMock()
+        fake_agent.ainvoke = AsyncMock(
+            return_value={
+                "messages": [MagicMock(content="")],
+                "artifacts": ["/mnt/user-data/outputs/report.md"],
+            }
+        )
+
+        with patch(
+            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.gateway.routers.chat.route_chat_model",
+            return_value="gpt-4o",
+        ), patch(
+            "src.agents.lead_agent.agent.build_pipeline",
+            return_value=[],
+        ), patch(
+            "src.agents.lead_agent.agent.make_lead_agent",
+            return_value=fake_agent,
+        ):
+            reply = await chat._generate_chat_response(request, thread, current_user)
+
+        assert reply.blocks[0]["type"] == "artifacts"
+        assert reply.metadata["artifacts"][0]["url"].endswith(
+            "/api/threads/thread-1/artifacts/mnt/user-data/outputs/report.md"
+        )
+        assert reply.content == "已生成 1 个文件，可直接打开查看。"
+
     def test_thread_agent_status_defaults_to_idle(self):
         """Threads expose a default idle execution status for unified UI polling."""
         service = FakeChatThreadService()
@@ -543,6 +661,12 @@ class TestChatMessages:
         current_user = create_mock_user("user-1")
         fallback_model = MagicMock()
         fallback_model.ainvoke = AsyncMock(return_value=MagicMock(content="fallback"))
+        app_config = MagicMock()
+        app_config.middlewares.summarization.enabled = False
+        app_config.memory.enabled = True
+        app_config.memory.injection_enabled = True
+        app_config.subagents.enabled = True
+        app_config.subagents.max_concurrent = 3
 
         with patch(
             "src.gateway.routers.chat.maybe_bridge_workspace_feature",
@@ -553,6 +677,9 @@ class TestChatMessages:
         ), patch(
             "src.agents.lead_agent.agent.make_lead_agent",
             side_effect=RuntimeError("boom"),
+        ), patch(
+            "src.agents.lead_agent.agent.get_app_config",
+            return_value=app_config,
         ), patch(
             "src.agents.middlewares.memory.build_memory_context",
             AsyncMock(return_value="<academic_memory>\n- 偏好 IEEE\n</academic_memory>"),

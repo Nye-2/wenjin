@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { ReasoningEffort } from "@/lib/api";
+import {
+  createThread,
+  uploadThreadFiles,
+  type ChatAttachment,
+  type ChatUploadKind,
+  type ReasoningEffort,
+} from "@/lib/api";
 import { useModelSelection } from "@/hooks/useModelSelection";
 import { useChatStore, Message } from "@/stores/chat";
 import { useDashboardStore } from "@/stores/dashboard";
@@ -37,6 +43,12 @@ interface ChatPanelProps {
   workspaceId: string;
 }
 
+interface PendingChatAttachment {
+  id: string;
+  file: File;
+  kind: ChatUploadKind;
+}
+
 export function ChatPanel({ workspaceId }: ChatPanelProps) {
   const router = useRouter();
   const {
@@ -66,6 +78,8 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<ReasoningEffort | null>(null);
+  const [defaultUploadKind, setDefaultUploadKind] = useState<ChatUploadKind>("transient");
+  const [pendingAttachments, setPendingAttachments] = useState<PendingChatAttachment[]>([]);
   const {
     models: availableModels,
     selectedModel,
@@ -76,6 +90,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const availableChatSkills = getWorkspaceChatSkills(workspace?.type);
   const currentSkillLabel = formatWorkspaceChatSkillLabel(workspace?.type, currentSkill);
   const resolveSkillLabel = (skillId: string | null | undefined): string | null =>
@@ -247,16 +262,72 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputValue.trim() || isStreaming) return;
+    if (isStreaming) {
+      return;
+    }
 
     const content = inputValue.trim();
-    setInputValue("");
-    await sendMessage(content, {
-      workspaceId,
-      skill: currentSkill,
-      model: selectedModel || undefined,
-      reasoningEffort: supportsReasoningEffort ? selectedReasoningEffort ?? "minimal" : undefined,
-    });
+    if (!content) {
+      setActionError(
+        pendingAttachments.length > 0
+          ? "发送附件时请补充一句说明。"
+          : "请输入消息内容。"
+      );
+      return;
+    }
+
+    setActionError(null);
+
+    try {
+      let activeThreadId = threadId || undefined;
+      let uploadedAttachments: ChatAttachment[] = [];
+
+      if (pendingAttachments.length > 0) {
+        if (!activeThreadId) {
+          const createdThread = await createThread({
+            workspace_id: workspaceId,
+            model: selectedModel || undefined,
+            skill: currentSkill,
+          });
+          activeThreadId = createdThread.id;
+        }
+
+        const grouped = pendingAttachments.reduce(
+          (map, attachment) => {
+            const existing = map.get(attachment.kind) ?? [];
+            existing.push(attachment.file);
+            map.set(attachment.kind, existing);
+            return map;
+          },
+          new Map<ChatUploadKind, File[]>()
+        );
+
+        const uploadResults = await Promise.all(
+          Array.from(grouped.entries()).map(([kind, files]) =>
+            uploadThreadFiles({
+              threadId: activeThreadId as string,
+              kind,
+              workspaceId,
+              files,
+            })
+          )
+        );
+        uploadedAttachments = uploadResults.flatMap((result) => result.files);
+      }
+
+      setInputValue("");
+      setPendingAttachments([]);
+      await sendMessage(content, {
+        workspaceId,
+        skill: currentSkill,
+        model: selectedModel || undefined,
+        reasoningEffort: supportsReasoningEffort ? selectedReasoningEffort ?? "minimal" : undefined,
+        threadId: activeThreadId,
+        attachments: uploadedAttachments,
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Failed to upload attachments");
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -268,12 +339,14 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
 
   const handleSelectThread = async (selectedThreadId: string) => {
     setIsHistoryOpen(false);
+    setPendingAttachments([]);
     await loadThread(selectedThreadId);
   };
 
   const handleStartNewThread = () => {
     setIsHistoryOpen(false);
     setActionError(null);
+    setPendingAttachments([]);
     startNewThread();
   };
 
@@ -315,8 +388,56 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     });
   };
 
+  const handleOpenFilePicker = () => {
+    attachmentInputRef.current?.click();
+  };
+
+  const handleSelectFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0) {
+      return;
+    }
+
+    const createdAt = Date.now();
+    setPendingAttachments((current) => [
+      ...current,
+      ...files.map((file, index) => ({
+        id: `attachment-${createdAt}-${index}`,
+        file,
+        kind: defaultUploadKind,
+      })),
+    ]);
+    event.target.value = "";
+  };
+
+  const handleRemoveAttachment = (attachmentId: string) => {
+    setPendingAttachments((current) =>
+      current.filter((attachment) => attachment.id !== attachmentId)
+    );
+  };
+
+  const handleUpdateAttachmentKind = (
+    attachmentId: string,
+    kind: ChatUploadKind
+  ) => {
+    setPendingAttachments((current) =>
+      current.map((attachment) =>
+        attachment.id === attachmentId
+          ? { ...attachment, kind }
+          : attachment
+      )
+    );
+  };
+
   return (
     <div className="flex-1 h-full flex flex-col">
+      <input
+        ref={attachmentInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleSelectFiles}
+      />
       <WorkspaceChatHeader
         workspaceName={workspace?.name}
         workspaceType={workspace?.type}
@@ -365,6 +486,17 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
         supportsReasoningEffort={supportsReasoningEffort}
         selectedReasoningEffort={selectedReasoningEffort}
         onSelectReasoningEffort={setSelectedReasoningEffort}
+        defaultUploadKind={defaultUploadKind}
+        onSelectDefaultUploadKind={setDefaultUploadKind}
+        pendingAttachments={pendingAttachments.map((attachment) => ({
+          id: attachment.id,
+          name: attachment.file.name,
+          size: attachment.file.size,
+          kind: attachment.kind,
+        }))}
+        onOpenFilePicker={handleOpenFilePicker}
+        onRemoveAttachment={handleRemoveAttachment}
+        onUpdateAttachmentKind={handleUpdateAttachmentKind}
         inputValue={inputValue}
         onInputChange={setInputValue}
         inputRef={inputRef}

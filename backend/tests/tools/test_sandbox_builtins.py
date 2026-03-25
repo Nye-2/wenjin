@@ -113,3 +113,22 @@ async def test_bash_tool_rejects_host_absolute_paths(tmp_path):
         )
 
     assert "outside sandbox" in result
+
+
+@pytest.mark.asyncio
+async def test_bash_tool_rejects_relative_escape_paths(tmp_path):
+    provider = LocalSandboxProvider(base_dir=str(tmp_path))
+    sandbox = await provider.acquire("thread-1")
+    (tmp_path / "secret.txt").write_text("host-secret", encoding="utf-8")
+
+    with patch(
+        "src.tools.builtins.bash.resolve_runtime_sandbox",
+        AsyncMock(return_value=sandbox),
+    ):
+        result = await bash_tool.coroutine(
+            command="cat ../../../secret.txt",
+            state={"messages": []},
+            config={"configurable": {"thread_id": "thread-1"}},
+        )
+
+    assert "outside sandbox" in result

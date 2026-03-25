@@ -17,6 +17,8 @@ from src.agents.thread_state import (
     merge_academic_artifacts,
     merge_artifacts,
     merge_cited_papers,
+    merge_response_blocks,
+    merge_response_metadata,
     merge_viewed_images,
 )
 
@@ -137,6 +139,16 @@ class TestDeerFlowBaseFields:
             },
         )
         assert state["viewed_images"]["/img/test.png"]["base64"] == "abc123"
+
+    def test_structured_response_fields(self):
+        """ThreadState supports structured response blocks and metadata."""
+        state = ThreadState(
+            messages=[],
+            response_blocks=[{"type": "result", "title": "摘要"}],
+            response_metadata={"artifacts": [{"path": "/mnt/user-data/outputs/report.md"}]},
+        )
+        assert state["response_blocks"][0]["type"] == "result"
+        assert state["response_metadata"]["artifacts"][0]["path"] == "/mnt/user-data/outputs/report.md"
 
 
 # ============ Academic Fields Tests ============
@@ -261,6 +273,34 @@ class TestMergeArtifacts:
         """Test merge when new is None."""
         result = merge_artifacts(["/path/a"], None)
         assert result == ["/path/a"]
+
+
+class TestMergeStructuredResponse:
+    """Test reducers used for structured chat replies."""
+
+    def test_merge_response_blocks_appends_dict_blocks(self):
+        result = merge_response_blocks(
+            [{"type": "result"}],
+            [{"type": "artifacts"}, "skip-me"],
+        )
+        assert result == [{"type": "result"}, {"type": "artifacts"}]
+
+    def test_merge_response_metadata_merges_nested_dicts_and_artifacts(self):
+        result = merge_response_metadata(
+            {
+                "orchestration": {"feature_id": "writing"},
+                "artifacts": [{"path": "a"}],
+            },
+            {
+                "orchestration": {"task_id": "task-1"},
+                "artifacts": [{"path": "a"}, {"path": "b"}],
+            },
+        )
+        assert result["orchestration"] == {
+            "feature_id": "writing",
+            "task_id": "task-1",
+        }
+        assert result["artifacts"] == [{"path": "a"}, {"path": "b"}]
 
     def test_merge_both_none(self):
         """Test merge when both are None."""

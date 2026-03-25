@@ -9,8 +9,14 @@ This module provides REST endpoints for:
 - Getting artifact lineage (parent chain)
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import mimetypes
+from pathlib import Path
+from urllib.parse import quote
 
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
+
+from src.agents.middlewares.thread_data import get_thread_data_root
 from src.database import User
 from src.gateway.access_control import (
     owner_check_session_from_service as _owner_check_session_from_service,
@@ -24,7 +30,7 @@ from src.gateway.contracts.artifact import (
     ArtifactsListResponse,
     artifact_to_responses,
 )
-from src.gateway.deps import get_artifact_service
+from src.gateway.deps import get_artifact_service, get_chat_thread_service
 from src.gateway.resource_access import (
     ensure_workspace_owner_for_service as _ensure_workspace_owner_for_artifact_service,
 )
@@ -35,11 +41,62 @@ from src.gateway.validators.artifact import (
     ArtifactCreatePayloadValidator,
     UpdateArtifactValidator,
 )
+from src.services import ChatThreadService
 
 router = APIRouter(tags=["artifacts"])
 
 WorkspaceArtifactCreateRequest = ArtifactCreatePayloadValidator
 WorkspaceArtifactUpdateRequest = UpdateArtifactValidator
+_THREAD_ARTIFACT_VIRTUAL_PREFIX = "/mnt/user-data/"
+
+
+def _is_within_root(candidate: Path, root: Path) -> bool:
+    """Return whether a resolved path remains inside the thread root."""
+    try:
+        return candidate.is_relative_to(root)
+    except AttributeError:
+        from os.path import commonpath
+
+        return commonpath([str(candidate), str(root)]) == str(root)
+
+
+def _resolve_thread_file_path(thread_id: str, path: str) -> Path:
+    """Resolve a thread virtual file path to the owned filesystem path."""
+    normalized_path = f"/{path.lstrip('/')}"
+    if not normalized_path.startswith(_THREAD_ARTIFACT_VIRTUAL_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    thread_root = get_thread_data_root(thread_id).resolve()
+    relative = normalized_path.removeprefix(_THREAD_ARTIFACT_VIRTUAL_PREFIX)
+    candidate = (thread_root / relative).resolve()
+    if not _is_within_root(candidate, thread_root):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    return candidate
+
+
+def _build_inline_file_response(actual_path: Path, mime_type: str | None) -> Response:
+    """Return an inline response suitable for browser viewing."""
+    encoded_filename = quote(actual_path.name)
+    if mime_type == "text/html":
+        return HTMLResponse(content=actual_path.read_text(encoding="utf-8", errors="replace"))
+    if mime_type and mime_type.startswith("text/"):
+        return PlainTextResponse(
+            content=actual_path.read_text(encoding="utf-8", errors="replace"),
+            media_type=mime_type,
+        )
+    return Response(
+        content=actual_path.read_bytes(),
+        media_type=mime_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"
+        },
+    )
 
 
 async def _create_workspace_artifact(
@@ -195,6 +252,54 @@ async def _get_workspace_artifact_lineage(
 
 
 # ============ Endpoints ============
+
+
+@router.get(
+    "/threads/{thread_id}/artifacts/{path:path}",
+    summary="Get Thread Artifact File",
+)
+async def get_thread_artifact(
+    thread_id: str,
+    path: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+) -> Response:
+    """Serve a thread-scoped sandbox file after ownership verification."""
+    thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Thread not found",
+        )
+
+    actual_path = _resolve_thread_file_path(thread_id, path)
+    if not actual_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Artifact not found: {path}",
+        )
+    if not actual_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Path is not a file: {path}",
+        )
+
+    mime_type, _ = mimetypes.guess_type(actual_path)
+    encoded_filename = quote(actual_path.name)
+    if request.query_params.get("download"):
+        return FileResponse(
+            path=actual_path,
+            filename=actual_path.name,
+            media_type=mime_type,
+            headers={
+                "Content-Disposition": (
+                    f"attachment; filename*=UTF-8''{encoded_filename}"
+                )
+            },
+        )
+    return _build_inline_file_response(actual_path, mime_type)
+
 
 @router.post(
     "/workspaces/{workspace_id}/artifacts",

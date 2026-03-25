@@ -128,6 +128,36 @@ class TestLocalSandbox:
         assert not result.success
         assert "outside sandbox" in result.stderr
 
+    @pytest.mark.asyncio
+    async def test_execute_command_rejects_relative_escape_paths(self, sandbox, temp_dir):
+        """Shell commands should not escape the sandbox via relative traversal."""
+        Path(temp_dir, "secret.txt").write_text("host-secret", encoding="utf-8")
+
+        result = await sandbox.execute_command("cat ../../../secret.txt")
+
+        assert not result.success
+        assert "outside sandbox" in result.stderr
+
+    @pytest.mark.asyncio
+    async def test_execute_command_allows_relative_paths_within_user_data(self, sandbox):
+        """Relative traversal to sibling sandbox dirs should remain available."""
+        await sandbox.write_file("/mnt/user-data/uploads/input.txt", "upload-data")
+
+        result = await sandbox.execute_command("cat ../uploads/input.txt")
+
+        assert result.success
+        assert "upload-data" in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_execute_command_rejects_host_paths_embedded_in_script_strings(self, sandbox):
+        """Quoted scripts should still be inspected for host path access."""
+        result = await sandbox.execute_command(
+            'python -c "from pathlib import Path; print(Path(\'/etc/hosts\').read_text())"'
+        )
+
+        assert not result.success
+        assert "outside sandbox" in result.stderr
+
 
 class TestLocalSandboxProvider:
     @pytest.fixture

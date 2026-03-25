@@ -9,6 +9,7 @@ import {
   getThread,
   listThreads,
   streamChat,
+  type ChatAttachment,
   type ReasoningEffort,
   type ThreadAgentStatus,
   type ThreadSummary,
@@ -52,6 +53,8 @@ interface ChatState {
       skill?: string | null;
       model?: string;
       reasoningEffort?: ReasoningEffort;
+      threadId?: string;
+      attachments?: ChatAttachment[];
     }
   ) => Promise<void>;
   addMessage: (message: Message) => void;
@@ -84,6 +87,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage: async (content: string, options) => {
     const { threadId, currentSkill } = get();
+    const effectiveThreadId = options?.threadId || threadId || undefined;
     const hasExplicitSkill = Boolean(options && "skill" in options);
     const skillToUse = hasExplicitSkill ? (options?.skill ?? null) : currentSkill;
 
@@ -92,6 +96,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id: userMessageId,
       content,
       createdAt: new Date().toISOString(),
+      attachments: options?.attachments,
     });
 
     set((state) => ({
@@ -114,9 +119,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const requestPayload = {
       message: content,
       workspace_id: options?.workspaceId,
-      thread_id: threadId || undefined,
+      thread_id: effectiveThreadId,
       model: options?.model,
       reasoning_effort: options?.reasoningEffort,
+      attachments: options?.attachments,
       ...(hasExplicitSkill ? { skill: skillToUse } : currentSkill ? { skill: currentSkill } : {}),
     };
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -86,6 +87,42 @@ def _normalize_presented_filepath(
     return f"{VIRTUAL_OUTPUTS_PREFIX}/{normalized}"
 
 
+def build_presented_artifact_items(
+    normalized_files: list[str],
+    *,
+    thread_id: str | None,
+) -> list[dict[str, str]]:
+    """Build structured file descriptors consumable by chat UI."""
+    items: list[dict[str, str]] = []
+    for virtual_path in normalized_files:
+        normalized_virtual_path = (
+            virtual_path
+            if str(virtual_path).startswith("/")
+            else f"/{str(virtual_path).lstrip('/')}"
+        )
+        item = {
+            "name": Path(normalized_virtual_path).name,
+            "path": normalized_virtual_path,
+        }
+        if thread_id:
+            route_path = quote(normalized_virtual_path.lstrip("/"), safe="/")
+            item["url"] = f"/api/threads/{thread_id}/artifacts/{route_path}"
+            item["download_url"] = f"{item['url']}?download=true"
+        items.append(item)
+    return items
+
+
+def build_presented_artifacts_block(
+    items: list[dict[str, str]],
+) -> dict[str, object]:
+    """Build a chat block describing presented files."""
+    return {
+        "type": "artifacts",
+        "title": "输出文件",
+        "data": {"items": items},
+    }
+
+
 @tool("present_files", args_schema=PresentFilesInput)
 async def present_files_tool(
     files: list[str],
@@ -134,10 +171,18 @@ async def present_files_tool(
             }
         )
 
+    configurable = config.get("configurable", {})
+    thread_id = str(configurable.get("thread_id") or "").strip() or None
+    artifact_items = build_presented_artifact_items(
+        normalized_files,
+        thread_id=thread_id,
+    )
     summary = "\n".join(f"- {path}" for path in normalized_files)
     return Command(
         update={
             "artifacts": normalized_files,
+            "response_blocks": [build_presented_artifacts_block(artifact_items)],
+            "response_metadata": {"artifacts": artifact_items},
             "messages": [
                 ToolMessage(
                     content=(

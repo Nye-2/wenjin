@@ -18,7 +18,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.database import Artifact
-from src.gateway.routers.artifacts import get_artifact_service, router
+from src.gateway.routers import artifacts as artifacts_router
+from src.gateway.routers.artifacts import (
+    get_artifact_service,
+    get_chat_thread_service,
+    router,
+)
 from src.gateway.routers.auth import get_current_user
 
 # Valid test UUIDs
@@ -137,10 +142,30 @@ class MockArtifactService:
         return list(reversed(lineage))
 
 
+class MockChatThreadService:
+    """Mock chat thread service for thread artifact file serving."""
+
+    def __init__(self):
+        self._thread = MagicMock()
+        self._thread.id = "thread-1"
+        self._thread.user_id = USER_ID
+
+    async def get_thread(self, thread_id, user_id):
+        if thread_id == self._thread.id and user_id == self._thread.user_id:
+            return self._thread
+        return None
+
+
 @pytest.fixture
 def mock_service():
     """Create a mock artifact service."""
     return MockArtifactService()
+
+
+@pytest.fixture
+def mock_chat_thread_service():
+    """Create a mock chat thread service."""
+    return MockChatThreadService()
 
 
 def create_mock_user():
@@ -153,7 +178,7 @@ def create_mock_user():
 
 
 @pytest.fixture
-def app(mock_service):
+def app(mock_service, mock_chat_thread_service):
     """Create FastAPI app with artifacts router."""
     app = FastAPI()
 
@@ -164,7 +189,11 @@ def app(mock_service):
     async def get_current_user_override():
         return create_mock_user()
 
+    async def get_chat_thread_service_override():
+        return mock_chat_thread_service
+
     app.dependency_overrides[get_artifact_service] = get_artifact_service_override
+    app.dependency_overrides[get_chat_thread_service] = get_chat_thread_service_override
     app.dependency_overrides[get_current_user] = get_current_user_override
     app.include_router(router)
 
@@ -178,6 +207,40 @@ def client(app):
 
 
 # ============ Test Classes ============
+
+
+class TestThreadArtifactFiles:
+    """Test thread-scoped sandbox artifact file serving."""
+
+    def test_get_thread_artifact_success(self, client, monkeypatch, tmp_path):
+        thread_root = tmp_path / "thread-1" / "user-data"
+        artifact_path = thread_root / "outputs" / "report.md"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text("# Report", encoding="utf-8")
+
+        monkeypatch.setattr(
+            artifacts_router,
+            "get_thread_data_root",
+            lambda thread_id: thread_root,
+        )
+
+        response = client.get("/threads/thread-1/artifacts/mnt/user-data/outputs/report.md")
+
+        assert response.status_code == 200
+        assert response.text == "# Report"
+
+    def test_get_thread_artifact_rejects_paths_outside_virtual_root(self, client):
+        response = client.get("/threads/thread-1/artifacts/etc/passwd")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Access denied"
+
+    def test_get_thread_artifact_requires_owned_thread(self, client):
+        response = client.get("/threads/thread-2/artifacts/mnt/user-data/outputs/report.md")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Thread not found"
+
 
 class TestCreateArtifact:
     """Test create artifact endpoint."""

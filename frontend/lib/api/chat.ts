@@ -1,6 +1,8 @@
 import { apiClient } from "@/lib/api/client";
 import type {
+  ChatAttachment,
   ChatMessage,
+  ChatUploadKind,
   ChatRequest,
   Thread,
   ThreadAgentStatus,
@@ -36,6 +38,33 @@ export async function listThreads(
 
 export async function deleteThread(threadId: string): Promise<void> {
   await apiClient.delete(`/threads/${threadId}`);
+}
+
+export async function uploadThreadFiles(options: {
+  threadId: string;
+  kind: ChatUploadKind;
+  workspaceId?: string;
+  files: File[];
+}): Promise<{ success: boolean; files: ChatAttachment[]; message: string }> {
+  const formData = new FormData();
+  formData.append("kind", options.kind);
+  if (options.workspaceId) {
+    formData.append("workspace_id", options.workspaceId);
+  }
+  for (const file of options.files) {
+    formData.append("files", file);
+  }
+
+  const response = await apiClient.post(
+    `/threads/${options.threadId}/uploads`,
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }
+  );
+  return response.data;
 }
 
 export async function getThreadAgentStatus(

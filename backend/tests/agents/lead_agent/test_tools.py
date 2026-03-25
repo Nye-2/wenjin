@@ -39,6 +39,7 @@ def test_get_available_tools_uses_canonical_runtime_tool_names():
     assert "write_file" in tool_names
     assert "str_replace" in tool_names
     assert "ls" in tool_names
+    assert "view_image" in tool_names
     assert "ask_clarification" in tool_names
     assert "present_files" in tool_names
     assert "run_workspace_feature" in tool_names

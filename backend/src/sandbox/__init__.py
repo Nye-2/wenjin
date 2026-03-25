@@ -27,6 +27,7 @@ from .paths import VirtualPathMapper
 from .providers.base import SandboxProvider
 
 # Providers
+from .providers.docker import DockerSandbox, DockerSandboxProvider
 from .providers.local import LocalSandbox, LocalSandboxProvider
 
 # Legacy imports (backward compatibility)
@@ -57,6 +58,8 @@ __all__ = [
     "AcademicToolsConfig",
     # Providers
     "SandboxProvider",
+    "DockerSandbox",
+    "DockerSandboxProvider",
     "LocalSandbox",
     "LocalSandboxProvider",
     # Legacy

@@ -26,7 +26,18 @@ async def start_chat_turn(
 ) -> ChatThread:
     """Create or load a thread, persist the user message, and mark it running."""
     thread = await _get_or_create_owned_thread(request, current_user, chat_thread_service)
-    await chat_thread_service.add_message(thread, role="user", content=request.message)
+    metadata = {}
+    if request.attachments:
+        metadata["attachments"] = [
+            attachment.model_dump()
+            for attachment in request.attachments
+        ]
+    await chat_thread_service.add_message(
+        thread,
+        role="user",
+        content=request.message,
+        metadata=metadata or None,
+    )
     await set_thread_status(
         thread.workspace_id,
         thread.id,
