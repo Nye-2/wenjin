@@ -52,6 +52,8 @@ export function extractArtifactFileUrl(
 
   const directCandidates = [
     content.file_url,
+    content.stored_url,
+    content.thread_url,
     content.public_url,
     content.pdf_url,
     content.file_path,
@@ -73,6 +75,8 @@ export function extractArtifactFileUrl(
   if (renderData) {
     const nestedCandidates = [
       renderData.file_url,
+      renderData.stored_url,
+      renderData.thread_url,
       renderData.public_url,
       renderData.file_path,
     ];

@@ -116,7 +116,15 @@ def test_transient_upload_returns_attachment_metadata(client):
 
 
 def test_literature_upload_persists_pdf_to_paper_center(client):
-    with _patch_storage_roots(client.app):
+    with _patch_storage_roots(client.app), patch(
+        "src.gateway.routers.uploads.extract_document_preview",
+        return_value={
+            "title": "Transformer Paper",
+            "authors": ["Ashish Vaswani", "Noam Shazeer"],
+            "page_count": 15,
+            "text_preview": "Attention is all you need.",
+        },
+    ):
         response = client.post(
             "/api/threads/thread-1/uploads",
             data={"kind": "literature", "workspace_id": "ws-1"},
@@ -129,8 +137,20 @@ def test_literature_upload_persists_pdf_to_paper_center(client):
     submit_kwargs = client.app.state.paper_service.create_in_workspace.await_args.kwargs
     assert submit_kwargs["workspace_id"] == "ws-1"
     assert submit_kwargs["source"] == "chat_upload"
+    assert submit_kwargs["title"] == "Transformer Paper"
+    assert submit_kwargs["authors"] == [
+        {"name": "Ashish Vaswani"},
+        {"name": "Noam Shazeer"},
+    ]
     assert submit_kwargs["file_path"].endswith("workspace_uploads/ws-1/papers/paper.pdf")
     assert body["files"][0]["metadata"]["stored_url"] == "/api/workspaces/ws-1/files/papers/paper.pdf"
+    assert body["files"][0]["metadata"]["document_title"] == "Transformer Paper"
+    assert body["files"][0]["metadata"]["document_authors"] == [
+        "Ashish Vaswani",
+        "Noam Shazeer",
+    ]
+    assert body["files"][0]["metadata"]["page_count"] == 15
+    assert body["files"][0]["metadata"]["text_preview"] == "Attention is all you need."
 
 
 def test_workspace_context_upload_creates_artifact_and_memory_note(client):
@@ -140,6 +160,14 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     with _patch_storage_roots(client.app), patch(
         "src.gateway.routers.uploads.KnowledgeService",
         return_value=mock_knowledge_service,
+    ), patch(
+        "src.gateway.routers.uploads.extract_document_preview",
+        return_value={
+            "title": "Opening Proposal",
+            "authors": [],
+            "page_count": None,
+            "text_preview": "# proposal",
+        },
     ):
         response = client.post(
             "/api/threads/thread-1/uploads",
@@ -155,8 +183,10 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     artifact_content = client.app.state.artifact_service.create.await_args.kwargs["content"]
     assert artifact_content["text_preview"] == "# proposal"
     assert artifact_content["stored_url"] == "/api/workspaces/ws-1/files/context/proposal.md"
+    assert artifact_content["document_title"] == "Opening Proposal"
     mock_knowledge_service.upsert.assert_awaited_once()
     knowledge_args = mock_knowledge_service.upsert.await_args.args
+    assert "Opening Proposal" in knowledge_args[2]
     assert "内容摘要" in knowledge_args[2]
     assert "proposal" in knowledge_args[2]
     client.app.state.db.commit.assert_awaited()

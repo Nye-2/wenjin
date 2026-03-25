@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 from urllib.parse import quote
@@ -10,6 +11,29 @@ from src.execution.path_utils import normalize_thread_id
 
 DEFAULT_WORKSPACE_UPLOAD_ROOT = Path(".academiagpt/workspace_uploads")
 _PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
+_TEXT_PREVIEW_CONTENT_TYPES = {
+    "application/json",
+    "application/ld+json",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
+}
+_TEXT_PREVIEW_SUFFIXES = {
+    ".md",
+    ".markdown",
+    ".txt",
+    ".json",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".csv",
+    ".tsv",
+    ".tex",
+    ".bib",
+    ".py",
+    ".r",
+}
+_AUTHOR_SPLIT_RE = re.compile(r"\s*(?:;|\n| and )\s*", re.IGNORECASE)
 
 
 def sanitize_upload_filename(filename: str | None) -> str:
@@ -132,6 +156,111 @@ def workspace_upload_public_url(
         workspace_upload_root(workspace_id, root=root).resolve()
     ).as_posix()
     return f"/api/workspaces/{workspace_id}/files/{quote(relative)}"
+
+
+def _normalize_text_preview(text: str, *, max_chars: int) -> str | None:
+    preview = " ".join(text.split())
+    if not preview:
+        return None
+    return preview[:max_chars]
+
+
+def _is_text_like_upload(filename: str | None, content_type: str | None) -> bool:
+    normalized_content_type = str(content_type or "").split(";", 1)[0].strip().lower()
+    suffix = Path(str(filename or "")).suffix.lower()
+    return (
+        normalized_content_type.startswith("text/")
+        or normalized_content_type in _TEXT_PREVIEW_CONTENT_TYPES
+        or suffix in _TEXT_PREVIEW_SUFFIXES
+    )
+
+
+def _split_document_authors(raw: str) -> list[str]:
+    stripped = str(raw or "").strip()
+    if not stripped:
+        return []
+
+    if ";" in stripped or "\n" in stripped or " and " in stripped.lower():
+        candidates = _AUTHOR_SPLIT_RE.split(stripped)
+    else:
+        candidates = [stripped]
+
+    authors: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized = candidate.strip(" ,;")
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        authors.append(normalized)
+    return authors
+
+
+def extract_document_preview(
+    filename: str | None,
+    content_type: str | None,
+    *,
+    content: bytes | None = None,
+    file_path: str | Path | None = None,
+    max_chars: int = 1200,
+    max_pages: int = 2,
+) -> dict[str, object]:
+    """Extract lightweight preview metadata from an uploaded document.
+
+    Returns a dict with keys:
+    - ``title``: document title if detected
+    - ``authors``: list of author names
+    - ``page_count``: PDF page count when applicable
+    - ``text_preview``: compact text preview for text/PDF uploads
+    """
+    preview: dict[str, object] = {
+        "title": None,
+        "authors": [],
+        "page_count": None,
+        "text_preview": None,
+    }
+
+    if is_pdf_upload(filename, content_type):
+        try:
+            import fitz  # PyMuPDF
+
+            if content is not None:
+                doc = fitz.open(stream=content, filetype="pdf")
+            elif file_path is not None:
+                doc = fitz.open(str(file_path))
+            else:
+                return preview
+
+            with doc:
+                metadata = doc.metadata or {}
+                preview["title"] = (metadata.get("title") or "").strip() or None
+                preview["authors"] = _split_document_authors(
+                    metadata.get("author") or ""
+                )
+                preview["page_count"] = doc.page_count
+                text_parts: list[str] = []
+                for page_index in range(min(doc.page_count, max_pages)):
+                    page = doc.load_page(page_index)
+                    text_parts.append(page.get_text())
+                preview["text_preview"] = _normalize_text_preview(
+                    "\n".join(text_parts),
+                    max_chars=max_chars,
+                )
+        except Exception:
+            return preview
+
+        return preview
+
+    if content is not None and _is_text_like_upload(filename, content_type):
+        preview["text_preview"] = _normalize_text_preview(
+            content.decode("utf-8", errors="replace"),
+            max_chars=max_chars,
+        )
+
+    return preview
 
 
 def persist_workspace_upload(

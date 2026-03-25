@@ -54,6 +54,14 @@ async def test_upload_paper_persists_pdf_and_records_file_path(tmp_path, handler
     with patch(
         "src.application.handlers.papers_handler._PERSISTED_UPLOAD_ROOT",
         tmp_path / "workspace_uploads",
+    ), patch(
+        "src.application.handlers.papers_handler.extract_document_preview",
+        return_value={
+            "title": "Detected Title",
+            "authors": ["Ada Lovelace", "Alan Turing"],
+            "page_count": 12,
+            "text_preview": "Detected preview",
+        },
     ):
         response = await papers_handler.upload_paper(
             workspace_id="ws-1",
@@ -66,6 +74,11 @@ async def test_upload_paper_persists_pdf_and_records_file_path(tmp_path, handler
     kwargs = paper_service.create_in_workspace.await_args.kwargs
     assert kwargs["workspace_id"] == "ws-1"
     assert kwargs["source"] == "manual_upload"
+    assert kwargs["title"] == "Detected Title"
+    assert kwargs["authors"] == [
+        {"name": "Ada Lovelace"},
+        {"name": "Alan Turing"},
+    ]
     assert kwargs["file_path"] == str(stored_path)
     assert response["paper_id"] == "paper-1"
     assert response["filename"] == "paper.pdf"
@@ -83,6 +96,14 @@ async def test_upload_paper_accepts_pdf_by_extension_without_content_type(tmp_pa
     with patch(
         "src.application.handlers.papers_handler._PERSISTED_UPLOAD_ROOT",
         tmp_path / "workspace_uploads",
+    ), patch(
+        "src.application.handlers.papers_handler.extract_document_preview",
+        return_value={
+            "title": None,
+            "authors": [],
+            "page_count": None,
+            "text_preview": None,
+        },
     ):
         response = await papers_handler.upload_paper(
             workspace_id="ws-1",
@@ -107,6 +128,14 @@ async def test_upload_paper_renames_duplicates_before_persisting(tmp_path, handl
     with patch(
         "src.application.handlers.papers_handler._PERSISTED_UPLOAD_ROOT",
         tmp_path / "workspace_uploads",
+    ), patch(
+        "src.application.handlers.papers_handler.extract_document_preview",
+        return_value={
+            "title": None,
+            "authors": [],
+            "page_count": None,
+            "text_preview": None,
+        },
     ):
         response = await papers_handler.upload_paper(
             workspace_id="ws-1",

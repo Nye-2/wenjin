@@ -24,6 +24,7 @@ from src.services import ChatThreadService
 from src.services.knowledge_service import KnowledgeService
 from src.services.workspace_uploads import (
     DEFAULT_WORKSPACE_UPLOAD_ROOT,
+    extract_document_preview,
     is_pdf_upload,
     next_available_path,
     persist_workspace_upload,
@@ -34,29 +35,6 @@ from src.services.workspace_uploads import (
 router = APIRouter(prefix="/threads/{thread_id}/uploads", tags=["uploads"])
 
 _PERSISTED_UPLOAD_ROOT = DEFAULT_WORKSPACE_UPLOAD_ROOT
-_TEXT_PREVIEW_CONTENT_TYPES = {
-    "application/json",
-    "application/ld+json",
-    "application/xml",
-    "application/yaml",
-    "application/x-yaml",
-}
-_TEXT_PREVIEW_SUFFIXES = {
-    ".md",
-    ".markdown",
-    ".txt",
-    ".json",
-    ".xml",
-    ".yaml",
-    ".yml",
-    ".csv",
-    ".tsv",
-    ".tex",
-    ".bib",
-    ".py",
-    ".r",
-}
-_TEXT_PREVIEW_MAX_CHARS = 1200
 _MEMORY_PREVIEW_MAX_CHARS = 280
 
 
@@ -76,28 +54,6 @@ def _thread_upload_dir(thread_id: str) -> Path:
 
 def _attachment_url(thread_id: str, filename: str) -> str:
     return f"/api/threads/{thread_id}/artifacts/mnt/user-data/uploads/{filename}"
-
-
-def _extract_text_preview(
-    *,
-    filename: str,
-    content_type: str | None,
-    content: bytes,
-) -> str | None:
-    normalized_content_type = str(content_type or "").split(";", 1)[0].strip().lower()
-    suffix = Path(filename).suffix.lower()
-    is_text_like = (
-        normalized_content_type.startswith("text/")
-        or normalized_content_type in _TEXT_PREVIEW_CONTENT_TYPES
-        or suffix in _TEXT_PREVIEW_SUFFIXES
-    )
-    if not is_text_like:
-        return None
-
-    preview = " ".join(content.decode("utf-8", errors="replace").split())
-    if not preview:
-        return None
-    return preview[:_TEXT_PREVIEW_MAX_CHARS]
 
 
 def _build_attachment(
@@ -228,6 +184,11 @@ async def upload_thread_files(
         metadata: dict[str, object] = {}
 
         if kind == "literature" and resolved_workspace_id:
+            document_preview = extract_document_preview(
+                upload.filename,
+                upload.content_type,
+                content=content,
+            )
             persistent_path = persist_workspace_upload(
                 workspace_id=resolved_workspace_id,
                 bucket="papers",
@@ -235,10 +196,19 @@ async def upload_thread_files(
                 source_path=thread_path,
                 root=_PERSISTED_UPLOAD_ROOT,
             )
+            paper_title = (
+                str(document_preview.get("title") or "").strip()
+                or persistent_path.stem
+            )
+            paper_authors = [
+                {"name": name}
+                for name in document_preview.get("authors", [])
+                if isinstance(name, str) and name.strip()
+            ]
             paper = await paper_service.create_in_workspace(
                 workspace_id=resolved_workspace_id,
-                title=persistent_path.stem,
-                authors=[],
+                title=paper_title,
+                authors=paper_authors,
                 file_path=str(persistent_path),
                 source="chat_upload",
             )
@@ -249,6 +219,14 @@ async def upload_thread_files(
                 persistent_path,
                 root=_PERSISTED_UPLOAD_ROOT,
             )
+            if document_preview.get("title"):
+                metadata["document_title"] = document_preview["title"]
+            if document_preview.get("authors"):
+                metadata["document_authors"] = document_preview["authors"]
+            if document_preview.get("page_count"):
+                metadata["page_count"] = document_preview["page_count"]
+            if document_preview.get("text_preview"):
+                metadata["text_preview"] = document_preview["text_preview"]
 
         if kind == "workspace_context" and resolved_workspace_id:
             persistent_path = persist_workspace_upload(
@@ -258,10 +236,13 @@ async def upload_thread_files(
                 source_path=thread_path,
                 root=_PERSISTED_UPLOAD_ROOT,
             )
-            text_preview = _extract_text_preview(
-                filename=saved_name,
-                content_type=upload.content_type,
+            document_preview = extract_document_preview(
+                upload.filename,
+                upload.content_type,
                 content=content,
+            )
+            text_preview = (
+                str(document_preview.get("text_preview") or "").strip() or None
             )
             artifact = await artifact_service.create(
                 workspace_id=resolved_workspace_id,
@@ -283,12 +264,17 @@ async def upload_thread_files(
                     "thread_path": f"/mnt/user-data/uploads/{saved_name}",
                     "thread_url": _attachment_url(thread_id, saved_name),
                     "text_preview": text_preview,
+                    "document_title": document_preview.get("title"),
+                    "document_authors": document_preview.get("authors") or [],
+                    "page_count": document_preview.get("page_count"),
                 },
             )
             artifact_id = str(artifact.id)
             knowledge_text = (
                 f"用户上传了工作区上下文文件《{persistent_path.name}》作为当前研究参考材料。"
             )
+            if document_preview.get("title"):
+                knowledge_text += f" 文档标题：{document_preview['title']}。"
             if text_preview:
                 knowledge_text += f" 内容摘要：{text_preview[:_MEMORY_PREVIEW_MAX_CHARS]}"
             await knowledge_service.upsert(

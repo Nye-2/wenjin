@@ -24,6 +24,7 @@ from src.gateway.deps import (
 )
 from src.services.workspace_uploads import (
     DEFAULT_WORKSPACE_UPLOAD_ROOT,
+    extract_document_preview,
     is_pdf_upload,
     persist_workspace_upload,
     sanitize_upload_filename,
@@ -107,6 +108,11 @@ class PapersHandler:
         size_bytes = len(content)
 
         try:
+            document_preview = extract_document_preview(
+                filename,
+                file.content_type,
+                content=content,
+            )
             persistent_path = persist_workspace_upload(
                 workspace_id=workspace_id,
                 bucket="papers",
@@ -116,8 +122,15 @@ class PapersHandler:
             )
             paper = await self.paper_service.create_in_workspace(
                 workspace_id=workspace_id,
-                title=Path(persistent_path).stem,
-                authors=[],
+                title=(
+                    str(document_preview.get("title") or "").strip()
+                    or Path(persistent_path).stem
+                ),
+                authors=[
+                    {"name": name}
+                    for name in document_preview.get("authors", [])
+                    if isinstance(name, str) and name.strip()
+                ],
                 file_path=str(persistent_path),
                 source="manual_upload",
             )
