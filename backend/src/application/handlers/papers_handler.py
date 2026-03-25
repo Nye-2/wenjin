@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, UploadFile
@@ -21,8 +22,16 @@ from src.gateway.deps import (
     get_task_service,
     get_workspace_service,
 )
+from src.services.workspace_uploads import (
+    DEFAULT_WORKSPACE_UPLOAD_ROOT,
+    is_pdf_upload,
+    persist_workspace_upload,
+    sanitize_upload_filename,
+)
 from src.task.registry import PAPER_EXTRACTION_TASK
 from src.task.service import ConcurrencyLimitError, TaskService
+
+_PERSISTED_UPLOAD_ROOT = DEFAULT_WORKSPACE_UPLOAD_ROOT
 
 
 class PapersHandler:
@@ -82,7 +91,12 @@ class PapersHandler:
             user_id=user_id,
         )
 
-        if file.content_type not in ("application/pdf", "application/x-pdf"):
+        try:
+            filename = sanitize_upload_filename(file.filename)
+        except ValueError as exc:
+            raise BadRequestError(str(exc)) from exc
+
+        if not is_pdf_upload(filename, file.content_type):
             raise BadRequestError("Only PDF files are accepted")
 
         content = await file.read()
@@ -90,15 +104,21 @@ class PapersHandler:
             raise BadRequestError("Uploaded file is empty")
 
         size_bytes = len(content)
-        filename = file.filename or "untitled.pdf"
-        title = filename.rsplit(".", 1)[0] if "." in filename else filename
 
         try:
+            persistent_path = persist_workspace_upload(
+                workspace_id=workspace_id,
+                bucket="papers",
+                filename=filename,
+                content=content,
+                root=_PERSISTED_UPLOAD_ROOT,
+            )
             paper = await self.paper_service.create_in_workspace(
                 workspace_id=workspace_id,
-                title=title,
+                title=Path(persistent_path).stem,
                 authors=[],
-                source="upload",
+                file_path=str(persistent_path),
+                source="manual_upload",
             )
         except Exception as exc:
             raise BadRequestError(f"Failed to upload paper: {str(exc)}") from exc
@@ -106,10 +126,13 @@ class PapersHandler:
         return {
             "success": True,
             "paper_id": str(paper.id),
-            "filename": filename,
+            "filename": persistent_path.name,
+            "original_filename": filename,
             "content_type": file.content_type,
             "size_bytes": size_bytes,
             "workspace_id": workspace_id,
+            "file_path": str(persistent_path),
+            "source": "manual_upload",
         }
 
     async def list_papers(

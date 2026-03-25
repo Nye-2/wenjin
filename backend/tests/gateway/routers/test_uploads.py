@@ -150,5 +150,10 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     body = response.json()
     assert body["files"][0]["artifact_id"] == "artifact-1"
     client.app.state.artifact_service.create.assert_awaited_once()
+    artifact_content = client.app.state.artifact_service.create.await_args.kwargs["content"]
+    assert artifact_content["text_preview"] == "# proposal"
     mock_knowledge_service.upsert.assert_awaited_once()
+    knowledge_args = mock_knowledge_service.upsert.await_args.args
+    assert "内容摘要" in knowledge_args[2]
+    assert "proposal" in knowledge_args[2]
     client.app.state.db.commit.assert_awaited()

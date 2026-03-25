@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -12,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agents.middlewares.thread_data import get_thread_data_root
 from src.artifacts import ArtifactType
 from src.database import KnowledgeCategory, User
-from src.execution.path_utils import normalize_thread_id
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_artifact_service,
@@ -24,11 +22,41 @@ from src.gateway.deps import (
 from src.gateway.routers.chat_contracts import ChatAttachment, ChatUploadKind
 from src.services import ChatThreadService
 from src.services.knowledge_service import KnowledgeService
+from src.services.workspace_uploads import (
+    DEFAULT_WORKSPACE_UPLOAD_ROOT,
+    is_pdf_upload,
+    next_available_path,
+    persist_workspace_upload,
+    sanitize_upload_filename,
+)
 
 router = APIRouter(prefix="/threads/{thread_id}/uploads", tags=["uploads"])
 
-_PERSISTED_UPLOAD_ROOT = Path(".academiagpt/workspace_uploads")
-_PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
+_PERSISTED_UPLOAD_ROOT = DEFAULT_WORKSPACE_UPLOAD_ROOT
+_TEXT_PREVIEW_CONTENT_TYPES = {
+    "application/json",
+    "application/ld+json",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
+}
+_TEXT_PREVIEW_SUFFIXES = {
+    ".md",
+    ".markdown",
+    ".txt",
+    ".json",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".csv",
+    ".tsv",
+    ".tex",
+    ".bib",
+    ".py",
+    ".r",
+}
+_TEXT_PREVIEW_MAX_CHARS = 1200
+_MEMORY_PREVIEW_MAX_CHARS = 280
 
 
 class ThreadUploadResponse(BaseModel):
@@ -39,39 +67,36 @@ class ThreadUploadResponse(BaseModel):
     message: str
 
 
-def _sanitize_filename(filename: str | None) -> str:
-    candidate = Path(str(filename or "").strip()).name
-    if not candidate or candidate in {".", ".."}:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid filename",
-        )
-    return candidate
-
-
 def _thread_upload_dir(thread_id: str) -> Path:
     uploads_dir = get_thread_data_root(thread_id) / "uploads"
     uploads_dir.mkdir(parents=True, exist_ok=True)
     return uploads_dir
 
 
-def _next_available_path(directory: Path, filename: str) -> Path:
-    candidate = directory / filename
-    if not candidate.exists():
-        return candidate
-
-    stem = candidate.stem
-    suffix = candidate.suffix
-    index = 2
-    while True:
-        next_candidate = directory / f"{stem}-{index}{suffix}"
-        if not next_candidate.exists():
-            return next_candidate
-        index += 1
-
-
 def _attachment_url(thread_id: str, filename: str) -> str:
     return f"/api/threads/{thread_id}/artifacts/mnt/user-data/uploads/{filename}"
+
+
+def _extract_text_preview(
+    *,
+    filename: str,
+    content_type: str | None,
+    content: bytes,
+) -> str | None:
+    normalized_content_type = str(content_type or "").split(";", 1)[0].strip().lower()
+    suffix = Path(filename).suffix.lower()
+    is_text_like = (
+        normalized_content_type.startswith("text/")
+        or normalized_content_type in _TEXT_PREVIEW_CONTENT_TYPES
+        or suffix in _TEXT_PREVIEW_SUFFIXES
+    )
+    if not is_text_like:
+        return None
+
+    preview = " ".join(content.decode("utf-8", errors="replace").split())
+    if not preview:
+        return None
+    return preview[:_TEXT_PREVIEW_MAX_CHARS]
 
 
 def _build_attachment(
@@ -98,13 +123,6 @@ def _build_attachment(
     )
 
 
-def _persistent_workspace_dir(workspace_id: str, bucket: str) -> Path:
-    workspace_component = normalize_thread_id(workspace_id)
-    target = _PERSISTED_UPLOAD_ROOT / workspace_component / bucket
-    target.mkdir(parents=True, exist_ok=True)
-    return target
-
-
 async def _require_owned_thread(
     *,
     thread_id: str,
@@ -127,13 +145,6 @@ async def _require_owned_workspace(
     if workspace is None or str(workspace.user_id) != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     return workspace
-
-
-def _is_pdf_upload(file: UploadFile) -> bool:
-    content_type = (file.content_type or "").lower()
-    if content_type in _PDF_CONTENT_TYPES:
-        return True
-    return Path(file.filename or "").suffix.lower() == ".pdf"
 
 
 @router.post("", response_model=ThreadUploadResponse)
@@ -187,7 +198,13 @@ async def upload_thread_files(
     stored_files: list[ChatAttachment] = []
 
     for upload in files:
-        filename = _sanitize_filename(upload.filename)
+        try:
+            filename = sanitize_upload_filename(upload.filename)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
         content = await upload.read()
         if not content:
             raise HTTPException(
@@ -195,13 +212,13 @@ async def upload_thread_files(
                 detail=f"Uploaded file is empty: {filename}",
             )
 
-        if kind == "literature" and not _is_pdf_upload(upload):
+        if kind == "literature" and not is_pdf_upload(upload.filename, upload.content_type):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Literature uploads must be PDF files: {filename}",
             )
 
-        thread_path = _next_available_path(uploads_dir, filename)
+        thread_path = next_available_path(uploads_dir, filename)
         thread_path.write_bytes(content)
         saved_name = thread_path.name
 
@@ -210,9 +227,13 @@ async def upload_thread_files(
         metadata: dict[str, object] = {}
 
         if kind == "literature" and resolved_workspace_id:
-            persistent_dir = _persistent_workspace_dir(resolved_workspace_id, "papers")
-            persistent_path = _next_available_path(persistent_dir, saved_name)
-            shutil.copy2(thread_path, persistent_path)
+            persistent_path = persist_workspace_upload(
+                workspace_id=resolved_workspace_id,
+                bucket="papers",
+                filename=saved_name,
+                source_path=thread_path,
+                root=_PERSISTED_UPLOAD_ROOT,
+            )
             paper = await paper_service.create_in_workspace(
                 workspace_id=resolved_workspace_id,
                 title=persistent_path.stem,
@@ -224,9 +245,18 @@ async def upload_thread_files(
             metadata["stored_path"] = str(persistent_path)
 
         if kind == "workspace_context" and resolved_workspace_id:
-            persistent_dir = _persistent_workspace_dir(resolved_workspace_id, "context")
-            persistent_path = _next_available_path(persistent_dir, saved_name)
-            shutil.copy2(thread_path, persistent_path)
+            persistent_path = persist_workspace_upload(
+                workspace_id=resolved_workspace_id,
+                bucket="context",
+                filename=saved_name,
+                source_path=thread_path,
+                root=_PERSISTED_UPLOAD_ROOT,
+            )
+            text_preview = _extract_text_preview(
+                filename=saved_name,
+                content_type=upload.content_type,
+                content=content,
+            )
             artifact = await artifact_service.create(
                 workspace_id=resolved_workspace_id,
                 type=ArtifactType.NOTE.value,
@@ -241,13 +271,19 @@ async def upload_thread_files(
                     "stored_path": str(persistent_path),
                     "thread_path": f"/mnt/user-data/uploads/{saved_name}",
                     "thread_url": _attachment_url(thread_id, saved_name),
+                    "text_preview": text_preview,
                 },
             )
             artifact_id = str(artifact.id)
+            knowledge_text = (
+                f"用户上传了工作区上下文文件《{persistent_path.name}》作为当前研究参考材料。"
+            )
+            if text_preview:
+                knowledge_text += f" 内容摘要：{text_preview[:_MEMORY_PREVIEW_MAX_CHARS]}"
             await knowledge_service.upsert(
                 str(current_user.id),
                 KnowledgeCategory.CONTEXT,
-                f"用户上传了工作区上下文文件《{persistent_path.name}》作为当前研究参考材料。",
+                knowledge_text,
                 confidence=0.85,
                 source="chat_upload.workspace_context",
                 workspace_context=resolved_workspace_id,
