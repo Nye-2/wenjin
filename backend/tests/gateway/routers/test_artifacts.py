@@ -156,6 +156,20 @@ class MockChatThreadService:
         return None
 
 
+class MockWorkspaceService:
+    """Mock workspace service for workspace file serving."""
+
+    def __init__(self):
+        self._workspace = MagicMock()
+        self._workspace.id = WORKSPACE_ID
+        self._workspace.user_id = USER_ID
+
+    async def get(self, workspace_id):
+        if workspace_id == self._workspace.id:
+            return self._workspace
+        return None
+
+
 @pytest.fixture
 def mock_service():
     """Create a mock artifact service."""
@@ -168,6 +182,12 @@ def mock_chat_thread_service():
     return MockChatThreadService()
 
 
+@pytest.fixture
+def mock_workspace_service():
+    """Create a mock workspace service."""
+    return MockWorkspaceService()
+
+
 def create_mock_user():
     """Create a mock authenticated user."""
     user = MagicMock()
@@ -178,7 +198,7 @@ def create_mock_user():
 
 
 @pytest.fixture
-def app(mock_service, mock_chat_thread_service):
+def app(mock_service, mock_chat_thread_service, mock_workspace_service):
     """Create FastAPI app with artifacts router."""
     app = FastAPI()
 
@@ -192,8 +212,14 @@ def app(mock_service, mock_chat_thread_service):
     async def get_chat_thread_service_override():
         return mock_chat_thread_service
 
+    async def get_workspace_service_override():
+        return mock_workspace_service
+
     app.dependency_overrides[get_artifact_service] = get_artifact_service_override
     app.dependency_overrides[get_chat_thread_service] = get_chat_thread_service_override
+    app.dependency_overrides[artifacts_router.get_workspace_service] = (
+        get_workspace_service_override
+    )
     app.dependency_overrides[get_current_user] = get_current_user_override
     app.include_router(router)
 
@@ -240,6 +266,49 @@ class TestThreadArtifactFiles:
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Thread not found"
+
+
+class TestWorkspaceFiles:
+    """Test canonical workspace upload file serving."""
+
+    def test_get_workspace_file_success(self, client, monkeypatch, tmp_path):
+        workspace_root = tmp_path / "workspace_uploads" / WORKSPACE_ID
+        file_path = workspace_root / "papers" / "paper.pdf"
+        file_path.parent.mkdir(parents=True)
+        file_path.write_bytes(b"%PDF-1.4")
+
+        monkeypatch.setattr(
+            artifacts_router,
+            "resolve_workspace_upload_relative_path",
+            lambda workspace_id, path: file_path,
+        )
+
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/files/papers/paper.pdf")
+
+        assert response.status_code == 200
+        assert response.content == b"%PDF-1.4"
+
+    def test_get_workspace_file_rejects_escaped_path(self, client, monkeypatch):
+        def _raise(*_args, **_kwargs):
+            raise ValueError("File path escapes workspace uploads root")
+
+        monkeypatch.setattr(
+            artifacts_router,
+            "resolve_workspace_upload_relative_path",
+            _raise,
+        )
+
+        response = client.get(
+            f"/workspaces/{WORKSPACE_ID}/files/%2E%2E/%2E%2E/etc/passwd"
+        )
+
+        assert response.status_code == 403
+        assert "escapes workspace uploads root" in response.json()["detail"]
+
+    def test_get_workspace_file_requires_owner(self, client):
+        response = client.get("/workspaces/non-owned/files/papers/paper.pdf")
+
+        assert response.status_code == 404
 
 
 class TestCreateArtifact:

@@ -30,18 +30,24 @@ from src.gateway.contracts.artifact import (
     ArtifactsListResponse,
     artifact_to_responses,
 )
-from src.gateway.deps import get_artifact_service, get_chat_thread_service
+from src.gateway.deps import (
+    get_artifact_service,
+    get_chat_thread_service,
+    get_workspace_service,
+)
 from src.gateway.resource_access import (
     ensure_workspace_owner_for_service as _ensure_workspace_owner_for_artifact_service,
 )
 from src.gateway.resource_access import (
     get_workspace_artifact_or_404 as _get_workspace_artifact_or_404,
 )
+from src.gateway.routers.workspaces_runtime import get_owned_workspace
 from src.gateway.validators.artifact import (
     ArtifactCreatePayloadValidator,
     UpdateArtifactValidator,
 )
 from src.services import ChatThreadService
+from src.services.workspace_uploads import resolve_workspace_upload_relative_path
 
 router = APIRouter(tags=["artifacts"])
 
@@ -278,6 +284,59 @@ async def get_thread_artifact(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Artifact not found: {path}",
+        )
+    if not actual_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Path is not a file: {path}",
+        )
+
+    mime_type, _ = mimetypes.guess_type(actual_path)
+    encoded_filename = quote(actual_path.name)
+    if request.query_params.get("download"):
+        return FileResponse(
+            path=actual_path,
+            filename=actual_path.name,
+            media_type=mime_type,
+            headers={
+                "Content-Disposition": (
+                    f"attachment; filename*=UTF-8''{encoded_filename}"
+                )
+            },
+        )
+    return _build_inline_file_response(actual_path, mime_type)
+
+
+@router.get(
+    "/workspaces/{workspace_id}/files/{path:path}",
+    summary="Get Workspace Upload File",
+)
+async def get_workspace_file(
+    workspace_id: str,
+    path: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    workspace_service=Depends(get_workspace_service),
+) -> Response:
+    """Serve a canonical workspace upload after ownership verification."""
+    await get_owned_workspace(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+
+    try:
+        actual_path = resolve_workspace_upload_relative_path(workspace_id, path)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+
+    if not actual_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File not found: {path}",
         )
     if not actual_path.is_file():
         raise HTTPException(

@@ -79,7 +79,7 @@ async def create_paper(
         )
     except ApplicationError as exc:
         raise to_http_exception(exc) from exc
-    return paper_to_response(paper)
+    return paper_to_response(paper, workspace_id=request.workspace_id)
 
 
 @router.post("/upload")
@@ -125,7 +125,7 @@ async def list_papers(
         )
     except ApplicationError as exc:
         raise to_http_exception(exc) from exc
-    return [paper_to_response(p) for p in papers]
+    return [paper_to_response(p, workspace_id=workspace_id) for p in papers]
 
 
 @router.get("/{paper_id}", response_model=PaperResponse)

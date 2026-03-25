@@ -42,6 +42,7 @@ def app():
             "content_type": file.content_type,
             "size_bytes": len(content),
             "workspace_id": workspace_id,
+            "file_url": f"/api/workspaces/{workspace_id}/files/papers/{file.filename}",
         }
 
     mock_handler.upload_paper = AsyncMock(side_effect=upload_paper)
@@ -78,6 +79,7 @@ class TestUploadPaperEndpoint:
         assert body["filename"] == "test.pdf"
         assert "paper_id" in body
         assert "size_bytes" in body
+        assert body["file_url"] == "/api/workspaces/ws-1/files/papers/test.pdf"
         client.app.state.mock_handler.upload_paper.assert_awaited_once()
 
     def test_upload_rejects_non_pdf(self, client):

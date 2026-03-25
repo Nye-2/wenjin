@@ -11,6 +11,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import { useWorkspaceStore, Paper } from "@/stores/workspace";
+import { resolvePublicAssetUrl } from "@/lib/public-assets";
 import { cn } from "@/lib/utils";
 
 interface PaperItemProps {
@@ -19,6 +20,8 @@ interface PaperItemProps {
 }
 
 function PaperItem({ paper, index }: PaperItemProps) {
+  const fileUrl = resolvePublicAssetUrl(paper.file_url ?? null);
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -60,10 +63,21 @@ function PaperItem({ paper, index }: PaperItemProps) {
 
       {/* Hover actions */}
       <div className="mt-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button className="text-xs text-[var(--accent-primary)] hover:text-[var(--accent-secondary)] flex items-center gap-1">
+        <a
+          href={fileUrl ?? undefined}
+          target="_blank"
+          rel="noreferrer"
+          aria-disabled={!fileUrl}
+          className={cn(
+            "text-xs flex items-center gap-1",
+            fileUrl
+              ? "text-[var(--accent-primary)] hover:text-[var(--accent-secondary)]"
+              : "pointer-events-none text-[var(--text-muted)]"
+          )}
+        >
           <ExternalLink className="w-3 h-3" />
-          View
-        </button>
+          {fileUrl ? "View" : "No file"}
+        </a>
       </div>
     </motion.div>
   );

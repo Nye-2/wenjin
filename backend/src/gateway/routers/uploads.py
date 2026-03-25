@@ -28,6 +28,7 @@ from src.services.workspace_uploads import (
     next_available_path,
     persist_workspace_upload,
     sanitize_upload_filename,
+    workspace_upload_public_url,
 )
 
 router = APIRouter(prefix="/threads/{thread_id}/uploads", tags=["uploads"])
@@ -243,6 +244,11 @@ async def upload_thread_files(
             )
             paper_id = str(paper.id)
             metadata["stored_path"] = str(persistent_path)
+            metadata["stored_url"] = workspace_upload_public_url(
+                resolved_workspace_id,
+                persistent_path,
+                root=_PERSISTED_UPLOAD_ROOT,
+            )
 
         if kind == "workspace_context" and resolved_workspace_id:
             persistent_path = persist_workspace_upload(
@@ -269,6 +275,11 @@ async def upload_thread_files(
                     "content_type": upload.content_type,
                     "size_bytes": len(content),
                     "stored_path": str(persistent_path),
+                    "stored_url": workspace_upload_public_url(
+                        resolved_workspace_id,
+                        persistent_path,
+                        root=_PERSISTED_UPLOAD_ROOT,
+                    ),
                     "thread_path": f"/mnt/user-data/uploads/{saved_name}",
                     "thread_url": _attachment_url(thread_id, saved_name),
                     "text_preview": text_preview,
@@ -290,6 +301,11 @@ async def upload_thread_files(
             )
             await db.commit()
             metadata["stored_path"] = str(persistent_path)
+            metadata["stored_url"] = workspace_upload_public_url(
+                resolved_workspace_id,
+                persistent_path,
+                root=_PERSISTED_UPLOAD_ROOT,
+            )
 
         stored_files.append(
             _build_attachment(

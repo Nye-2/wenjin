@@ -71,6 +71,7 @@ async def test_upload_paper_persists_pdf_and_records_file_path(tmp_path, handler
     assert response["filename"] == "paper.pdf"
     assert response["original_filename"] == "paper.pdf"
     assert response["file_path"] == str(stored_path)
+    assert response["file_url"] == "/api/workspaces/ws-1/files/papers/paper.pdf"
     assert response["source"] == "manual_upload"
 
 
@@ -92,6 +93,7 @@ async def test_upload_paper_accepts_pdf_by_extension_without_content_type(tmp_pa
     kwargs = paper_service.create_in_workspace.await_args.kwargs
     assert kwargs["file_path"].endswith("workspace_uploads/ws-1/papers/extension-only.pdf")
     assert response["filename"] == "extension-only.pdf"
+    assert response["file_url"] == "/api/workspaces/ws-1/files/papers/extension-only.pdf"
 
 
 @pytest.mark.asyncio
@@ -117,3 +119,4 @@ async def test_upload_paper_renames_duplicates_before_persisting(tmp_path, handl
     assert stored_path.read_bytes() == b"%PDF-1.4 new body"
     assert kwargs["file_path"] == str(stored_path)
     assert response["filename"] == "paper-2.pdf"
+    assert response["file_url"] == "/api/workspaces/ws-1/files/papers/paper-2.pdf"

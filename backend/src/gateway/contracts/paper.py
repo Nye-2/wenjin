@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from src.services.workspace_uploads import workspace_upload_public_url
+
 
 class PaperSummaryResponse(BaseModel):
     """Common paper response fields shared by multiple routers."""
@@ -20,6 +22,7 @@ class PaperSummaryResponse(BaseModel):
     source: str
     citation_count: int | None
     reference_count: int | None
+    file_url: str | None = None
 
 
 class PaperResponse(PaperSummaryResponse):
@@ -58,7 +61,18 @@ class PaperExtractionTaskResponse(BaseModel):
     reused_existing_task: bool = False
 
 
-def _paper_summary_payload(paper: Any) -> dict[str, Any]:
+def _paper_summary_payload(
+    paper: Any,
+    *,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
+    file_url = None
+    if workspace_id and getattr(paper, "file_path", None):
+        try:
+            file_url = workspace_upload_public_url(workspace_id, paper.file_path)
+        except ValueError:
+            file_url = None
+
     return {
         "id": str(paper.id),
         "doi": paper.doi,
@@ -70,17 +84,28 @@ def _paper_summary_payload(paper: Any) -> dict[str, Any]:
         "source": paper.source,
         "citation_count": paper.citation_count,
         "reference_count": paper.reference_count,
+        "file_url": file_url,
     }
 
 
-def paper_to_summary_response(paper: Any) -> PaperSummaryResponse:
+def paper_to_summary_response(
+    paper: Any,
+    *,
+    workspace_id: str | None = None,
+) -> PaperSummaryResponse:
     """Convert a paper object into the shared summary response model."""
-    return PaperSummaryResponse(**_paper_summary_payload(paper))
+    return PaperSummaryResponse(
+        **_paper_summary_payload(paper, workspace_id=workspace_id)
+    )
 
 
-def paper_to_response(paper: Any) -> PaperResponse:
+def paper_to_response(
+    paper: Any,
+    *,
+    workspace_id: str | None = None,
+) -> PaperResponse:
     """Convert a paper object into the detailed papers-router response model."""
-    payload = _paper_summary_payload(paper)
+    payload = _paper_summary_payload(paper, workspace_id=workspace_id)
     payload.update(
         {
             "file_path": paper.file_path,

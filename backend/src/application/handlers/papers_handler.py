@@ -27,6 +27,7 @@ from src.services.workspace_uploads import (
     is_pdf_upload,
     persist_workspace_upload,
     sanitize_upload_filename,
+    workspace_upload_public_url,
 )
 from src.task.registry import PAPER_EXTRACTION_TASK
 from src.task.service import ConcurrencyLimitError, TaskService
@@ -132,6 +133,11 @@ class PapersHandler:
             "size_bytes": size_bytes,
             "workspace_id": workspace_id,
             "file_path": str(persistent_path),
+            "file_url": workspace_upload_public_url(
+                workspace_id,
+                persistent_path,
+                root=_PERSISTED_UPLOAD_ROOT,
+            ),
             "source": "manual_upload",
         }
 

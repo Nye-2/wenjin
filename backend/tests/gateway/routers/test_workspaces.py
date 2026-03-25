@@ -51,6 +51,7 @@ def create_mock_paper(
     year: int = 2024,
     venue: str = "Test Conference",
     abstract: str = "Test abstract",
+    file_path: str | None = None,
     source: str = "manual_upload",
     citation_count: int = 10,
     reference_count: int = 20,
@@ -64,6 +65,7 @@ def create_mock_paper(
     paper.year = year
     paper.venue = venue
     paper.abstract = abstract
+    paper.file_path = file_path
     paper.source = source
     paper.citation_count = citation_count
     paper.reference_count = reference_count
@@ -518,7 +520,11 @@ class TestListWorkspacePapers:
     def test_list_workspace_papers_success(self, client, mock_paper_service):
         """Test successful paper listing."""
         mock_papers = [
-            create_mock_paper(id="paper-1", title="Paper 1"),
+            create_mock_paper(
+                id="paper-1",
+                title="Paper 1",
+                file_path=".academiagpt/workspace_uploads/test-workspace-id/papers/paper-1.pdf",
+            ),
             create_mock_paper(id="paper-2", title="Paper 2"),
         ]
         mock_paper_service.list_workspace_papers.return_value = mock_papers
@@ -531,6 +537,10 @@ class TestListWorkspacePapers:
         assert len(data["papers"]) == 2
         assert data["papers"][0]["title"] == "Paper 1"
         assert data["papers"][1]["title"] == "Paper 2"
+        assert data["papers"][0]["file_url"] == (
+            "/api/workspaces/test-workspace-id/files/papers/paper-1.pdf"
+        )
+        assert data["papers"][1]["file_url"] is None
 
     def test_list_workspace_papers_with_filter(self, client, mock_paper_service):
         """Test paper listing with read status filter."""

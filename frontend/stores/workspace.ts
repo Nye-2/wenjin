@@ -42,6 +42,7 @@ export interface Paper {
   authors: string[];
   year: number | null;
   venue: string | null;
+  file_url?: string | null;
 }
 
 export type WorkspaceActivityItem = ApiWorkspaceActivityItem;
@@ -206,6 +207,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           authors: p.authors?.map((a) => a.name) || [],
           year: p.year || null,
           venue: p.venue || null,
+          file_url: p.file_url ?? null,
         })),
         isPapersLoading: false,
       });

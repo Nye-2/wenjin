@@ -220,7 +220,7 @@ async def list_workspace_papers(
         read_status=read_status,
     )
     return PapersListResponse(
-        papers=[paper_to_response(p) for p in papers],
+        papers=[paper_to_response(p, workspace_id=workspace_id) for p in papers],
         count=len(papers),
     )
 

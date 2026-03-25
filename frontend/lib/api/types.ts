@@ -29,6 +29,7 @@ export interface Paper {
   source: string;
   citation_count?: number;
   reference_count?: number;
+  file_url?: string | null;
 }
 
 export interface Artifact {

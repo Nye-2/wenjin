@@ -768,7 +768,7 @@ class TestPaperResponse:
         # Check all expected fields are present
         expected_fields = [
             "id", "doi", "title", "authors", "year", "venue",
-            "abstract", "file_path", "source", "external_ids",
+            "abstract", "file_path", "file_url", "source", "external_ids",
             "toc", "citation_count", "reference_count"
         ]
         for field in expected_fields:
@@ -799,6 +799,17 @@ class TestHelperFunctions:
         assert response.authors == sample_paper.authors
         assert response.year == sample_paper.year
         assert response.doi == sample_paper.doi
+        assert response.file_url is None
+
+    def test_paper_to_response_with_workspace_context(self):
+        """Test workspace-scoped file URL generation."""
+        paper = create_mock_paper(
+            file_path=".academiagpt/workspace_uploads/ws-1/papers/paper.pdf",
+        )
+
+        response = paper_to_response(paper, workspace_id="ws-1")
+
+        assert response.file_url == "/api/workspaces/ws-1/files/papers/paper.pdf"
 
     def test_section_to_response(self):
         """Test section_to_response helper function."""
@@ -831,3 +842,4 @@ class TestHelperFunctions:
         assert response.toc is None
         assert response.citation_count is None
         assert response.reference_count is None
+        assert response.file_url is None

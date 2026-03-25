@@ -130,6 +130,7 @@ def test_literature_upload_persists_pdf_to_paper_center(client):
     assert submit_kwargs["workspace_id"] == "ws-1"
     assert submit_kwargs["source"] == "chat_upload"
     assert submit_kwargs["file_path"].endswith("workspace_uploads/ws-1/papers/paper.pdf")
+    assert body["files"][0]["metadata"]["stored_url"] == "/api/workspaces/ws-1/files/papers/paper.pdf"
 
 
 def test_workspace_context_upload_creates_artifact_and_memory_note(client):
@@ -149,9 +150,11 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     assert response.status_code == 200
     body = response.json()
     assert body["files"][0]["artifact_id"] == "artifact-1"
+    assert body["files"][0]["metadata"]["stored_url"] == "/api/workspaces/ws-1/files/context/proposal.md"
     client.app.state.artifact_service.create.assert_awaited_once()
     artifact_content = client.app.state.artifact_service.create.await_args.kwargs["content"]
     assert artifact_content["text_preview"] == "# proposal"
+    assert artifact_content["stored_url"] == "/api/workspaces/ws-1/files/context/proposal.md"
     mock_knowledge_service.upsert.assert_awaited_once()
     knowledge_args = mock_knowledge_service.upsert.await_args.args
     assert "内容摘要" in knowledge_args[2]
