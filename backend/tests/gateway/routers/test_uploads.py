@@ -16,6 +16,7 @@ from src.gateway.deps import (
     get_chat_thread_service,
     get_db,
     get_paper_service,
+    get_task_service,
     get_workspace_service,
 )
 from src.gateway.routers.uploads import router
@@ -44,6 +45,9 @@ def app(tmp_path):
     )
     artifact_service = MagicMock()
     artifact_service.create = AsyncMock(return_value=SimpleNamespace(id="artifact-1"))
+    task_service = MagicMock()
+    task_service.find_active_task_by_payload = AsyncMock(return_value=None)
+    task_service.submit_task = AsyncMock(return_value="task-paper-extract-1")
     db = AsyncMock()
 
     async def _get_current_user():
@@ -64,17 +68,22 @@ def app(tmp_path):
     async def _get_db():
         yield db
 
+    async def _get_task_service():
+        yield task_service
+
     app.dependency_overrides[get_current_user] = _get_current_user
     app.dependency_overrides[get_chat_thread_service] = _get_chat_thread_service
     app.dependency_overrides[get_workspace_service] = _get_workspace_service
     app.dependency_overrides[get_paper_service] = _get_paper_service
     app.dependency_overrides[get_artifact_service] = _get_artifact_service
     app.dependency_overrides[get_db] = _get_db
+    app.dependency_overrides[get_task_service] = _get_task_service
 
     app.state.chat_thread_service = chat_thread_service
     app.state.workspace_service = workspace_service
     app.state.paper_service = paper_service
     app.state.artifact_service = artifact_service
+    app.state.task_service = task_service
     app.state.db = db
     app.state.temp_root = tmp_path
     return app
@@ -151,6 +160,44 @@ def test_literature_upload_persists_pdf_to_paper_center(client):
     ]
     assert body["files"][0]["metadata"]["page_count"] == 15
     assert body["files"][0]["metadata"]["text_preview"] == "Attention is all you need."
+    assert body["files"][0]["metadata"]["extraction"]["task_id"] == "task-paper-extract-1"
+    assert body["files"][0]["metadata"]["extraction"]["status"] == "scheduled"
+    client.app.state.task_service.submit_task.assert_awaited_once_with(
+        user_id="user-1",
+        task_type="paper_extraction",
+        payload={
+            "workspace_id": "ws-1",
+            "paper_id": "paper-1",
+            "tier": 1,
+            "thread_id": "thread-1",
+        },
+    )
+
+
+def test_literature_upload_keeps_success_when_extraction_queue_fails(client):
+    client.app.state.task_service.submit_task = AsyncMock(
+        side_effect=RuntimeError("queue offline")
+    )
+
+    with _patch_storage_roots(client.app), patch(
+        "src.gateway.routers.uploads.extract_document_preview",
+        return_value={
+            "title": "Transformer Paper",
+            "authors": ["Ashish Vaswani"],
+            "page_count": 15,
+            "text_preview": "Attention is all you need.",
+        },
+    ):
+        response = client.post(
+            "/api/threads/thread-1/uploads",
+            data={"kind": "literature", "workspace_id": "ws-1"},
+            files=[("files", ("paper.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf"))],
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["files"][0]["metadata"]["extraction"]["status"] == "failed"
+    assert "queue offline" in body["files"][0]["metadata"]["extraction"]["message"]
 
 
 def test_workspace_context_upload_creates_artifact_and_memory_note(client):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,7 @@ from src.task.registry import PAPER_EXTRACTION_TASK
 from src.task.service import ConcurrencyLimitError, TaskService
 
 _PERSISTED_UPLOAD_ROOT = DEFAULT_WORKSPACE_UPLOAD_ROOT
+logger = logging.getLogger(__name__)
 
 
 class PapersHandler:
@@ -134,6 +136,12 @@ class PapersHandler:
                 file_path=str(persistent_path),
                 source="manual_upload",
             )
+            extraction = await self.schedule_uploaded_paper_extraction(
+                paper_id=str(paper.id),
+                workspace_id=workspace_id,
+                user_id=user_id,
+                tier=1,
+            )
         except Exception as exc:
             raise BadRequestError(f"Failed to upload paper: {str(exc)}") from exc
 
@@ -152,6 +160,7 @@ class PapersHandler:
                 root=_PERSISTED_UPLOAD_ROOT,
             ),
             "source": "manual_upload",
+            "extraction": extraction,
         }
 
     async def list_papers(
@@ -237,6 +246,23 @@ class PapersHandler:
         if not paper.file_path:
             raise BadRequestError("Paper has no file path for extraction")
 
+        return await self._queue_paper_extraction_submission(
+            paper_id=paper_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            tier=tier,
+        )
+
+    async def _queue_paper_extraction_submission(
+        self,
+        *,
+        paper_id: str,
+        workspace_id: str,
+        user_id: str,
+        tier: int,
+        thread_id: str | None = None,
+    ) -> PaperExtractionTaskSubmission:
+        """Submit or reuse a paper extraction task after access checks are satisfied."""
         existing_task_id = await self.task_service.find_active_task_by_payload(
             user_id=user_id,
             task_type=PAPER_EXTRACTION_TASK,
@@ -257,14 +283,17 @@ class PapersHandler:
             )
 
         try:
+            payload = {
+                "workspace_id": workspace_id,
+                "paper_id": paper_id,
+                "tier": tier,
+            }
+            if thread_id:
+                payload["thread_id"] = thread_id
             task_id = await self.task_service.submit_task(
                 user_id=user_id,
                 task_type=PAPER_EXTRACTION_TASK,
-                payload={
-                    "workspace_id": workspace_id,
-                    "paper_id": paper_id,
-                    "tier": tier,
-                },
+                payload=payload,
             )
         except ConcurrencyLimitError as exc:
             raise BadRequestError(
@@ -281,6 +310,48 @@ class PapersHandler:
             tier=tier,
             message="论文提取任务已提交",
         )
+
+    async def schedule_uploaded_paper_extraction(
+        self,
+        *,
+        paper_id: str,
+        workspace_id: str,
+        user_id: str,
+        tier: int = 1,
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Best-effort extraction scheduling for newly uploaded papers.
+
+        Upload should succeed even if background extraction cannot be queued.
+        """
+        try:
+            submission = await self._queue_paper_extraction_submission(
+                paper_id=paper_id,
+                workspace_id=workspace_id,
+                user_id=user_id,
+                tier=tier,
+                thread_id=thread_id,
+            )
+            payload = submission.to_dict()
+            payload["status"] = (
+                "existing" if submission.reused_existing_task else "scheduled"
+            )
+            return payload
+        except Exception as exc:
+            logger.warning(
+                "Failed to auto-schedule paper extraction for paper %s in workspace %s: %s",
+                paper_id,
+                workspace_id,
+                exc,
+                exc_info=True,
+            )
+            return {
+                "status": "failed",
+                "message": str(exc),
+                "paper_id": paper_id,
+                "workspace_id": workspace_id,
+                "tier": tier,
+            }
 
     async def get_paper_sections(
         self,

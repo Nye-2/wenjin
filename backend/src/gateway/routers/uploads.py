@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.middlewares.thread_data import get_thread_data_root
+from src.application.handlers.papers_handler import PapersHandler
 from src.artifacts import ArtifactType
 from src.database import KnowledgeCategory, User
 from src.gateway.auth_dependencies import get_current_user
@@ -17,6 +18,7 @@ from src.gateway.deps import (
     get_chat_thread_service,
     get_db,
     get_paper_service,
+    get_task_service,
     get_workspace_service,
 )
 from src.gateway.routers.chat_contracts import ChatAttachment, ChatUploadKind
@@ -115,6 +117,7 @@ async def upload_thread_files(
     workspace_service=Depends(get_workspace_service),
     paper_service=Depends(get_paper_service),
     artifact_service=Depends(get_artifact_service),
+    task_service=Depends(get_task_service),
     db: AsyncSession = Depends(get_db),
 ) -> ThreadUploadResponse:
     """Upload one or more files into a thread-scoped sandbox uploads directory."""
@@ -213,12 +216,24 @@ async def upload_thread_files(
                 source="chat_upload",
             )
             paper_id = str(paper.id)
+            extraction = await PapersHandler(
+                paper_service=paper_service,
+                workspace_service=workspace_service,
+                task_service=task_service,
+            ).schedule_uploaded_paper_extraction(
+                paper_id=paper_id,
+                workspace_id=resolved_workspace_id,
+                user_id=str(current_user.id),
+                tier=1,
+                thread_id=thread_id,
+            )
             metadata["stored_path"] = str(persistent_path)
             metadata["stored_url"] = workspace_upload_public_url(
                 resolved_workspace_id,
                 persistent_path,
                 root=_PERSISTED_UPLOAD_ROOT,
             )
+            metadata["extraction"] = extraction
             if document_preview.get("title"):
                 metadata["document_title"] = document_preview["title"]
             if document_preview.get("authors"):
