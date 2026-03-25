@@ -1,8 +1,12 @@
 """Celery worker configuration and entry point."""
 
+import asyncio
 import logging
 import sys
 
+from celery.signals import worker_process_init, worker_process_shutdown
+
+from src.config.app_config import celery_settings
 from src.task.celery_app import celery_app
 
 # Configure logging
@@ -13,8 +17,131 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+_worker_runner: asyncio.Runner | None = None
 
-def start_worker(concurrency: int = 4, loglevel: str = "info", queues: list[str] | None = None):
+
+def _load_worker_runtime_dependencies():
+    """Load bootstrap-time dependencies lazily to keep imports localized."""
+    from src.academic.cache.redis_client import redis_client
+    from src.config import get_extensions_config
+    from src.database import init_db, reset_db_engine
+    from src.mcp import activate_mcp_runtime
+    from src.observability.sentry import init_sentry
+
+    return (
+        init_sentry,
+        reset_db_engine,
+        init_db,
+        redis_client,
+        get_extensions_config,
+        activate_mcp_runtime,
+    )
+
+
+def _load_worker_shutdown_dependencies():
+    """Load shutdown-time dependencies lazily."""
+    from src.academic.cache.redis_client import redis_client
+    from src.database import close_db
+    from src.mcp import shutdown_mcp_runtime
+
+    return shutdown_mcp_runtime, redis_client, close_db
+
+
+def _get_worker_runner() -> asyncio.Runner:
+    """Return the process-local asyncio runner used by Celery tasks and hooks."""
+    global _worker_runner
+    if _worker_runner is None:
+        _worker_runner = asyncio.Runner()
+    return _worker_runner
+
+
+def close_worker_runner() -> None:
+    """Close and clear the process-local asyncio runner."""
+    global _worker_runner
+    if _worker_runner is None:
+        return
+
+    _worker_runner.close()
+    _worker_runner = None
+
+
+async def _bootstrap_worker_runtime() -> None:
+    """Initialize worker-process runtime dependencies before task execution."""
+    (
+        init_sentry,
+        reset_db_engine,
+        init_db,
+        redis_client,
+        get_extensions_config,
+        activate_mcp_runtime,
+    ) = _load_worker_runtime_dependencies()
+
+    init_sentry()
+    await reset_db_engine(dispose_current=False)
+    await redis_client.reset_client(close_current=False)
+    await init_db()
+    await redis_client.connect()
+    manager, _ = await activate_mcp_runtime(
+        extensions_config=get_extensions_config(),
+        warmup=True,
+    )
+    runtime_errors = manager.get_last_load_errors()
+    if runtime_errors:
+        raise RuntimeError(
+            f"MCP runtime bootstrap failed for worker process: {runtime_errors}"
+        )
+
+
+async def _shutdown_worker_runtime() -> None:
+    """Release worker-process runtime dependencies."""
+    shutdown_mcp_runtime, redis_client, close_db = (
+        _load_worker_shutdown_dependencies()
+    )
+
+    try:
+        await shutdown_mcp_runtime()
+    finally:
+        await redis_client.disconnect()
+        await close_db()
+
+
+def _run_async(coro) -> None:
+    """Run an async coroutine on the worker process runner."""
+    _get_worker_runner().run(coro)
+
+
+def run_worker_coroutine(coro):
+    """Run an async coroutine on the shared worker process loop."""
+    return _get_worker_runner().run(coro)
+
+
+@worker_process_init.connect
+def _on_worker_process_init(**_kwargs) -> None:
+    """Bootstrap runtime inside each Celery worker process."""
+    try:
+        _run_async(_bootstrap_worker_runtime())
+        logger.info("Worker process runtime bootstrap completed")
+    except Exception:
+        logger.exception("Worker process runtime bootstrap failed")
+        raise
+
+
+@worker_process_shutdown.connect
+def _on_worker_process_shutdown(**_kwargs) -> None:
+    """Best-effort runtime shutdown for each Celery worker process."""
+    try:
+        _run_async(_shutdown_worker_runtime())
+    except Exception:
+        logger.warning("Worker process runtime shutdown failed", exc_info=True)
+    finally:
+        close_worker_runner()
+
+
+def start_worker(
+    concurrency: int | None = None,
+    loglevel: str = "info",
+    queues: list[str] | None = None,
+):
     """Start a Celery worker.
 
     Args:
@@ -22,6 +149,7 @@ def start_worker(concurrency: int = 4, loglevel: str = "info", queues: list[str]
         loglevel: Logging level (debug, info, warning, error)
         queues: List of queues to consume (default: all queues)
     """
+    concurrency = concurrency or celery_settings.worker_concurrency
     logger.info(f"Starting Celery worker with concurrency={concurrency}, loglevel={loglevel}")
 
     argv = [
@@ -52,5 +180,7 @@ def start_flower(port: int = 5555):
 
 if __name__ == "__main__":
     # Default worker startup
-    concurrency = int(sys.argv[1]) if len(sys.argv) > 1 else 4
+    concurrency = (
+        int(sys.argv[1]) if len(sys.argv) > 1 else celery_settings.worker_concurrency
+    )
     start_worker(concurrency=concurrency)

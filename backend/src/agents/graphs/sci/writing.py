@@ -11,6 +11,7 @@ from typing import Any
 from src.agents.graphs._shared import (
     _normalize_list,
     _read_optional_int,
+    _read_payload_params,
     _read_optional_str,
 )
 from src.agents.workspace_lead_agent import register_feature_graph
@@ -44,13 +45,13 @@ async def writing_graph(
 
     Pipeline:
         1. Parse parameters and extract context
-        2. Call service layer (handles LLM + fallback)
+        2. Call service layer
         3. Build structured output
     """
     workspace_id = str(payload.get("workspace_id", ""))
     workspace_name = str(payload.get("workspace_name", ""))
     workspace_description = str(payload.get("workspace_description", ""))
-    params = payload.get("params", {})
+    params = _read_payload_params(payload)
 
     # Extract parameters (per handoff document)
     paper_title = str(
@@ -73,7 +74,7 @@ async def writing_graph(
     context_artifact_ids = _normalize_list(params.get("context_artifact_ids"))
     preferred_model = _read_optional_str(params.get("model_id"))
 
-    # Call service layer - handles LLM + fallback internally
+    # Call service layer
     result = await build_sci_writing_payload(
         workspace_id=workspace_id,
         workspace_name=workspace_name,
@@ -98,7 +99,7 @@ async def writing_graph(
         "outline": result.get("outline", []),
         "references": result.get("references", []),
         "word_count": result.get("word_count", 0),
-        "writing_mode": result.get("writing_mode", "template_fallback"),
+        "writing_mode": result.get("writing_mode", "llm"),
         "output_language": result.get("output_language", DEFAULT_OUTPUT_LANGUAGE),
         "model_id": result.get("model_id"),
         "generation_error": result.get("generation_error"),

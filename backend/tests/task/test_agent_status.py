@@ -13,6 +13,7 @@ class TestAgentStatusInLocalExecutor:
         mock_redis._client = MagicMock()
         mock_redis.set_agent_status = AsyncMock()
         mock_redis.client = MagicMock()
+        mock_redis.client.publish = AsyncMock()
 
         mock_store = AsyncMock()
         mock_store.mark_task_started = AsyncMock()
@@ -25,10 +26,12 @@ class TestAgentStatusInLocalExecutor:
 
         with (
             patch("src.academic.cache.redis_client.redis_client", mock_redis),
+            patch("src.config.redis_settings.enabled", True),
             patch("src.database.get_db_session") as mock_db_ctx,
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch("src.task.tasks.base._dispatch_task", new_callable=AsyncMock, return_value={"status": "ok"}),
+            patch("src.task.tasks.base._append_task_chat_message", new_callable=AsyncMock),
         ):
             mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -50,6 +53,7 @@ class TestAgentStatusInLocalExecutor:
         mock_redis._client = MagicMock()
         mock_redis.set_agent_status = AsyncMock()
         mock_redis.client = MagicMock()
+        mock_redis.client.publish = AsyncMock()
 
         mock_store = AsyncMock()
         mock_store.mark_task_started = AsyncMock()
@@ -61,10 +65,12 @@ class TestAgentStatusInLocalExecutor:
 
         with (
             patch("src.academic.cache.redis_client.redis_client", mock_redis),
+            patch("src.config.redis_settings.enabled", True),
             patch("src.database.get_db_session") as mock_db_ctx,
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch("src.task.tasks.base._dispatch_task", new_callable=AsyncMock, return_value={"status": "ok"}),
+            patch("src.task.tasks.base._append_task_chat_message", new_callable=AsyncMock),
         ):
             mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -81,6 +87,7 @@ class TestAgentStatusInLocalExecutor:
         mock_redis._client = MagicMock()
         mock_redis.set_agent_status = AsyncMock()
         mock_redis.client = MagicMock()
+        mock_redis.client.publish = AsyncMock()
 
         mock_store = AsyncMock()
         mock_store.mark_task_started = AsyncMock()
@@ -93,10 +100,12 @@ class TestAgentStatusInLocalExecutor:
 
         with (
             patch("src.academic.cache.redis_client.redis_client", mock_redis),
+            patch("src.config.redis_settings.enabled", True),
             patch("src.database.get_db_session") as mock_db_ctx,
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch("src.task.tasks.base._dispatch_task", new_callable=AsyncMock, side_effect=ValueError("boom")),
+            patch("src.task.tasks.base._append_task_chat_message", new_callable=AsyncMock),
         ):
             mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)

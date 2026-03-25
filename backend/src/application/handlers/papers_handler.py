@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends
-from fastapi import UploadFile
+from fastapi import Depends, UploadFile
 
-from src.academic.services.extraction_service import ExtractionService
 from src.academic.services.paper_service import PaperService
 from src.academic.services.workspace_service import WorkspaceService
 from src.application.errors import (
@@ -16,12 +14,15 @@ from src.application.errors import (
     InternalServiceError,
     NotFoundError,
 )
-from src.database import Paper, PaperExtraction, PaperSection
+from src.application.results import PaperExtractionTaskSubmission
+from src.database import Paper, PaperSection
 from src.gateway.deps import (
-    get_extraction_service,
     get_paper_service,
+    get_task_service,
     get_workspace_service,
 )
+from src.task.registry import PAPER_EXTRACTION_TASK
+from src.task.service import ConcurrencyLimitError, TaskService
 
 
 class PapersHandler:
@@ -31,12 +32,12 @@ class PapersHandler:
         self,
         *,
         paper_service: PaperService,
-        extraction_service: ExtractionService,
         workspace_service: WorkspaceService,
+        task_service: TaskService,
     ) -> None:
         self.paper_service = paper_service
-        self.extraction_service = extraction_service
         self.workspace_service = workspace_service
+        self.task_service = task_service
 
     async def create_paper(
         self,
@@ -179,8 +180,8 @@ class PapersHandler:
         workspace_id: str,
         tier: int,
         user_id: str,
-    ) -> PaperExtraction:
-        """Trigger extraction for a paper in a workspace."""
+    ) -> PaperExtractionTaskSubmission:
+        """Queue extraction for a paper in a workspace."""
         paper = await self._get_accessible_paper_or_404(paper_id=paper_id, user_id=user_id)
 
         await self._require_owned_workspace(workspace_id=workspace_id, user_id=user_id)
@@ -194,20 +195,50 @@ class PapersHandler:
         if not paper.file_path:
             raise BadRequestError("Paper has no file path for extraction")
 
-        try:
-            extraction = await self.extraction_service.extract_paper(
-                paper_id=paper_id,
-                file_path=paper.file_path,
-                tier=tier,
-            )
-            await self.extraction_service.extract_sections(
+        existing_task_id = await self.task_service.find_active_task_by_payload(
+            user_id=user_id,
+            task_type=PAPER_EXTRACTION_TASK,
+            payload_filters={
+                "workspace_id": workspace_id,
+                "paper_id": paper_id,
+                "tier": tier,
+            },
+        )
+        if existing_task_id:
+            return PaperExtractionTaskSubmission(
+                task_id=existing_task_id,
                 paper_id=paper_id,
                 workspace_id=workspace_id,
-                file_path=paper.file_path,
+                tier=tier,
+                message="已有进行中的论文提取任务",
+                reused_existing_task=True,
             )
-            return extraction
+
+        try:
+            task_id = await self.task_service.submit_task(
+                user_id=user_id,
+                task_type=PAPER_EXTRACTION_TASK,
+                payload={
+                    "workspace_id": workspace_id,
+                    "paper_id": paper_id,
+                    "tier": tier,
+                },
+            )
+        except ConcurrencyLimitError as exc:
+            raise BadRequestError(
+                f"并发任务数已达上限（{exc.limit}），请等待现有任务完成"
+            ) from exc
         except Exception as exc:
-            raise InternalServiceError(f"Extraction failed: {str(exc)}") from exc
+            raise InternalServiceError(
+                f"Failed to queue extraction: {str(exc)}"
+            ) from exc
+        return PaperExtractionTaskSubmission(
+            task_id=task_id,
+            paper_id=paper_id,
+            workspace_id=workspace_id,
+            tier=tier,
+            message="论文提取任务已提交",
+        )
 
     async def get_paper_sections(
         self,
@@ -293,12 +324,12 @@ class PapersHandler:
 
 async def get_papers_handler(
     paper_service: PaperService = Depends(get_paper_service),
-    extraction_service: ExtractionService = Depends(get_extraction_service),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
+    task_service: TaskService = Depends(get_task_service),
 ) -> PapersHandler:
     """Get papers application handler."""
     return PapersHandler(
         paper_service=paper_service,
-        extraction_service=extraction_service,
         workspace_service=workspace_service,
+        task_service=task_service,
     )

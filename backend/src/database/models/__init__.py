@@ -8,6 +8,7 @@ from .credit import CreditTransaction, CreditTransactionType
 from .generation import GenerationRecord
 from .knowledge import KnowledgeCategory, UserKnowledge
 from .paper import Paper, PaperChunk, PaperExtraction, PaperSection, WorkspacePaper
+from .subagent_task import SubagentTaskRecord
 from .task import TaskRecord
 from .user import User
 from .workspace import Workspace, WorkspaceType
@@ -46,6 +47,7 @@ __all__ = [
     "GenerationRecord",
     # Task
     "TaskRecord",
+    "SubagentTaskRecord",
     # Workspace Literature
     "WorkspaceLiterature",
 ]

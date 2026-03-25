@@ -90,9 +90,30 @@ class TestNormalizeText:
 
 class TestProposalOutlineGraph:
     @pytest.mark.asyncio
-    async def test_basic_execution(self):
+    async def test_basic_execution(self, monkeypatch: pytest.MonkeyPatch):
         """Test basic graph execution with minimal payload."""
         from src.agents.graphs.proposal.proposal_outline import proposal_outline_graph
+
+        async def _fake_build_proposal_outline_payload(**kwargs):
+            _ = kwargs
+            return {
+                "topic": "人工智能研究",
+                "proposal_type": "national_natural_science",
+                "proposal_type_label": "国家自然科学基金",
+                "period_months": 36,
+                "sections": [],
+                "milestones": [],
+                "risks": [],
+                "generation_mode": "llm",
+                "model_id": "mock-model",
+                "generation_error": None,
+                "generated_at": "2026-03-20T00:00:00+00:00",
+            }
+
+        monkeypatch.setattr(
+            "src.agents.graphs.proposal.proposal_outline.build_proposal_outline_payload",
+            _fake_build_proposal_outline_payload,
+        )
 
         initial_state = {
             "messages": [],
@@ -117,9 +138,29 @@ class TestProposalOutlineGraph:
         assert result["proposal_type"] == "national_natural_science"
 
     @pytest.mark.asyncio
-    async def test_fallback_to_workspace_name(self):
+    async def test_fallback_to_workspace_name(self, monkeypatch: pytest.MonkeyPatch):
         """Test that topic falls back to workspace name."""
         from src.agents.graphs.proposal.proposal_outline import proposal_outline_graph
+
+        async def _fake_build_proposal_outline_payload(**kwargs):
+            return {
+                "topic": kwargs["topic"],
+                "proposal_type": kwargs["proposal_type"],
+                "proposal_type_label": "科研项目",
+                "period_months": 24,
+                "sections": [],
+                "milestones": [],
+                "risks": [],
+                "generation_mode": "llm",
+                "model_id": "mock-model",
+                "generation_error": None,
+                "generated_at": "2026-03-20T00:00:00+00:00",
+            }
+
+        monkeypatch.setattr(
+            "src.agents.graphs.proposal.proposal_outline.build_proposal_outline_payload",
+            _fake_build_proposal_outline_payload,
+        )
 
         initial_state = {
             "messages": [],

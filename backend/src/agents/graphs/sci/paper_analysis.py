@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.agents.graphs._shared import _read_optional_str
+from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.workspace_features.services import build_paper_analysis_payload
 
@@ -28,7 +28,7 @@ async def paper_analysis_graph(
         3. Build structured output
     """
     workspace_id = str(payload.get("workspace_id", ""))
-    params = payload.get("params", {})
+    params = _read_payload_params(payload)
 
     # Extract parameters (per handoff document)
     paper_id = _read_optional_str(params.get("paper_id"))
@@ -43,7 +43,7 @@ async def paper_analysis_graph(
     )
     preferred_model = _read_optional_str(params.get("model_id"))
 
-    # Call service layer - handles LLM + fallback internally
+    # Call service layer
     result = await build_paper_analysis_payload(
         workspace_id=workspace_id,
         paper_id=paper_id,
@@ -56,7 +56,7 @@ async def paper_analysis_graph(
     return {
         "paper_id": result.get("paper_id"),
         "paper_title": result.get("paper_title"),
-        "analysis_mode": result.get("analysis_mode", "template_fallback"),
+        "analysis_mode": result.get("analysis_mode", "llm"),
         "sections": result.get("sections", {}),
         "summary": result.get("summary", ""),
         "quality_assessment": result.get("quality_assessment", {}),

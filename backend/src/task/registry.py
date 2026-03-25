@@ -25,6 +25,10 @@ class TaskQueue(StrEnum):
     PRIORITY = "priority"
 
 
+PAPER_EXTRACTION_TASK = "paper_extraction"
+WORKSPACE_FEATURE_TASK = "workspace_feature"
+
+
 @dataclass
 class TaskTypeConfig:
     """Configuration for a task type."""
@@ -37,25 +41,13 @@ class TaskTypeConfig:
 
 # Task type registry
 TASK_REGISTRY: dict[str, TaskTypeConfig] = {
-    "deep_research": TaskTypeConfig(
-        queue=TaskQueue.DEFAULT,
-        timeout=600,
-        retry=2,
-        description="Deep research: literature search, analysis, and summary",
-    ),
-    "literature_search": TaskTypeConfig(
+    PAPER_EXTRACTION_TASK: TaskTypeConfig(
         queue=TaskQueue.DEFAULT,
         timeout=300,
-        retry=2,
-        description="Literature search: Semantic Scholar, arXiv search",
-    ),
-    "paper_processing": TaskTypeConfig(
-        queue=TaskQueue.DEFAULT,
-        timeout=120,
         retry=1,
-        description="Paper processing: PDF parsing, metadata extraction",
+        description="Paper extraction triggered from the papers API",
     ),
-    "workspace_feature": TaskTypeConfig(
+    WORKSPACE_FEATURE_TASK: TaskTypeConfig(
         queue=TaskQueue.DEFAULT,
         timeout=300,
         retry=1,

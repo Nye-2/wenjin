@@ -15,7 +15,7 @@ class TaskRecord(Base):
     Attributes:
         id: UUID primary key
         user_id: ID of the user who owns this task
-        task_type: Type of task (e.g., 'paper_processing', 'generation')
+        task_type: Type of task (e.g., 'workspace_feature', 'paper_extraction')
         status: Current status (pending, running, completed, failed, cancelled)
         priority: Task priority (1-10, higher = more important)
         payload: Task request payload as JSON

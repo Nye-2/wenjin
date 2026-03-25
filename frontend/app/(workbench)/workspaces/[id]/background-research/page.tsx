@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, BookOpen } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { BookOpen } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -30,13 +30,43 @@ const TIME_RANGE_OPTIONS = [
 
 export default function BackgroundResearchPage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params.id as string;
   const { workspace, artifacts } = useWorkspaceStore();
+  const keywordsSeed = searchParams.get("keywords");
+  const industryScopeSeed = searchParams.get("industry_scope");
+  const timeRangeSeed = searchParams.get("time_range");
 
-  const [keywords, setKeywords] = useState("");
-  const [industryScope, setIndustryScope] = useState("相关领域");
-  const [timeRange, setTimeRange] = useState("近5年");
+  const [keywords, setKeywords] = useState(() => keywordsSeed || "");
+  const [industryScope, setIndustryScope] = useState(
+    () => industryScopeSeed || "相关领域"
+  );
+  const [timeRange, setTimeRange] = useState(() =>
+    TIME_RANGE_OPTIONS.some((item) => item.value === timeRangeSeed)
+      ? (timeRangeSeed as string)
+      : "近5年"
+  );
+
+  useEffect(() => {
+    if (keywordsSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setKeywords(keywordsSeed);
+    }
+  }, [keywordsSeed]);
+
+  useEffect(() => {
+    if (industryScopeSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setIndustryScope(industryScopeSeed);
+    }
+  }, [industryScopeSeed]);
+
+  useEffect(() => {
+    if (TIME_RANGE_OPTIONS.some((item) => item.value === timeRangeSeed)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setTimeRange(timeRangeSeed as string);
+    }
+  }, [timeRangeSeed]);
 
   const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
@@ -136,48 +166,16 @@ export default function BackgroundResearchPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Header */}
-      <header className="h-14 flex items-center gap-4 px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push(`/workspaces/${workspaceId}`)}
-          className={cn(
-            "p-2 rounded-lg",
-            "bg-[var(--bg-surface)]",
-            "hover:bg-[var(--bg-muted)]",
-            "text-[var(--text-secondary)]",
-            "transition-colors"
-          )}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-emerald-500/10">
-            <BookOpen className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[var(--text-primary)]">
-              背景调研
-            </h1>
-            <p className="text-xs text-[var(--text-muted)]">
-              调研项目背景和研究现状
-            </p>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Input */}
-        <aside className="w-80 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-          <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">
-            调研配置
-          </h2>
-
-          <div className="space-y-4">
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="背景调研"
+      description="调研项目背景和研究现状"
+      icon={BookOpen}
+      iconBgClass="bg-emerald-500/10"
+      iconClass="text-emerald-600 dark:text-emerald-400"
+      sidebarTitle="调研配置"
+      sidebar={
+        <div className="space-y-4">
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 主题关键词
@@ -249,28 +247,18 @@ export default function BackgroundResearchPage() {
               error={error}
               onRetry={handleGenerate}
             />
-          </div>
-        </aside>
-
-        {/* Main Area */}
-        <div className="flex-1 p-6 overflow-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <TaskRuntimePanel
-              runtime={runtime}
-              isRunning={isRunning}
-              status={status}
-              error={error}
-              title="背景调研运行面板"
-              emptyDescription="执行后，这里会显示调研范围、背景分析和报告整理阶段。"
-            />
-            <WorkspaceResultPanel viewModel={resultViewModel} />
-          </motion.div>
         </div>
-      </main>
-    </div>
+      }
+    >
+      <TaskRuntimePanel
+        runtime={runtime}
+        isRunning={isRunning}
+        status={status}
+        error={error}
+        title="背景调研运行面板"
+        emptyDescription="执行后，这里会显示调研范围、背景分析和报告整理阶段。"
+      />
+      <WorkspaceResultPanel viewModel={resultViewModel} />
+    </FeatureWorkbenchShell>
   );
 }

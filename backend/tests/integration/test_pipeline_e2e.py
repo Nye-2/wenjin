@@ -1,4 +1,4 @@
-"""End-to-end integration test for the 16-layer pipeline."""
+"""End-to-end integration tests for the canonical pipeline."""
 
 from unittest.mock import MagicMock, patch
 
@@ -6,7 +6,7 @@ import pytest
 
 from src.agents.lead_agent.agent import build_pipeline
 from src.agents.thread_state import ThreadState
-from src.config.config_loader import MiddlewaresConfig, SummarizationConfig
+from src.config.config_loader import MemoryConfig, MiddlewaresConfig, SummarizationConfig
 
 
 def _mock_app_config(summarization_enabled: bool = False):
@@ -45,13 +45,34 @@ class TestPipelineE2E:
         assert isinstance(config.models, list)
         assert isinstance(config.subagents.enabled, bool)
 
-    def test_memory_integrates(self, tmp_path):
-        """Memory system should create and read without errors."""
-        from src.agents.memory.updater import get_memory_data
-        storage = str(tmp_path / "test_memory.json")
-        data = get_memory_data(storage_path=storage)
-        assert "version" in data
-        assert "facts" in data
+    @pytest.mark.asyncio
+    async def test_memory_integrates(self):
+        """Memory system should format canonical persisted knowledge without file storage."""
+        from unittest.mock import AsyncMock
+
+        from src.services.user_memory_service import build_memory_context
+
+        config = MemoryConfig(enabled=True, injection_enabled=True, max_injection_tokens=128)
+        with patch(
+            "src.services.user_memory_service._load_memory_config",
+            return_value=config,
+        ), patch(
+            "src.services.user_memory_service.load_user_memory",
+            AsyncMock(
+                return_value=[
+                    {
+                        "category": "context",
+                        "content": "正在撰写 LLM 综述",
+                        "confidence": 0.9,
+                        "workspace_context": "ws-1",
+                    }
+                ]
+            ),
+        ):
+            memory = await build_memory_context("user-1", "ws-1")
+
+        assert "<academic_memory>" in memory
+        assert "正在撰写 LLM 综述" in memory
 
     def test_reflection_resolves_module(self):
         """Reflection system should resolve known modules."""

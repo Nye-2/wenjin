@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, Search } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { Search } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -30,12 +30,18 @@ type ReportTypeValue = (typeof REPORT_TYPES)[number]["value"];
 
 export default function OpeningResearchPage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params.id as string;
   const { workspace, artifacts } = useWorkspaceStore();
+  const topicSeed = searchParams.get("topic");
+  const reportTypeSeed = searchParams.get("report_type");
 
-  const [topic, setTopic] = useState("");
-  const [reportType, setReportType] = useState<ReportTypeValue>("opening_report");
+  const [topic, setTopic] = useState(() => topicSeed || "");
+  const [reportType, setReportType] = useState<ReportTypeValue>(() =>
+    REPORT_TYPES.some((item) => item.value === reportTypeSeed)
+      ? (reportTypeSeed as ReportTypeValue)
+      : "opening_report"
+  );
 
   const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
@@ -107,6 +113,20 @@ export default function OpeningResearchPage() {
   });
 
   useEffect(() => {
+    if (topicSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setTopic(topicSeed);
+    }
+  }, [topicSeed]);
+
+  useEffect(() => {
+    if (REPORT_TYPES.some((item) => item.value === reportTypeSeed)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setReportType(reportTypeSeed as ReportTypeValue);
+    }
+  }, [reportTypeSeed]);
+
+  useEffect(() => {
     if (workspace && !topic) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
       setTopic((workspace.description || workspace.name || "").toString());
@@ -123,48 +143,16 @@ export default function OpeningResearchPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Header */}
-      <header className="h-14 flex items-center gap-4 px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push(`/workspaces/${workspaceId}`)}
-          className={cn(
-            "p-2 rounded-lg",
-            "bg-[var(--bg-surface)]",
-            "hover:bg-[var(--bg-muted)]",
-            "text-[var(--text-secondary)]",
-            "transition-colors"
-          )}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-amber-500/10">
-            <Search className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[var(--text-primary)]">
-              开题调研
-            </h1>
-            <p className="text-xs text-[var(--text-muted)]">
-              生成开题报告、文献综述、可行性分析
-            </p>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Input */}
-        <aside className="w-80 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-          <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">
-            报告配置
-          </h2>
-
-          <div className="space-y-4">
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="开题调研"
+      description="生成开题报告、文献综述、可行性分析"
+      icon={Search}
+      iconBgClass="bg-amber-500/10"
+      iconClass="text-amber-600 dark:text-amber-400"
+      sidebarTitle="报告配置"
+      sidebar={
+        <div className="space-y-4">
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 研究主题
@@ -232,28 +220,18 @@ export default function OpeningResearchPage() {
               error={error}
               onRetry={handleGenerate}
             />
-          </div>
-        </aside>
-
-        {/* Main Area */}
-        <div className="flex-1 p-6 overflow-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <TaskRuntimePanel
-              runtime={runtime}
-              isRunning={isRunning}
-              status={status}
-              error={error}
-              title="开题调研运行面板"
-              emptyDescription="执行后，这里会显示研究现状、方法规划和报告章节生成的过程。"
-            />
-            <WorkspaceResultPanel viewModel={resultViewModel} />
-          </motion.div>
         </div>
-      </main>
-    </div>
+      }
+    >
+      <TaskRuntimePanel
+        runtime={runtime}
+        isRunning={isRunning}
+        status={status}
+        error={error}
+        title="开题调研运行面板"
+        emptyDescription="执行后，这里会显示研究现状、方法规划和报告章节生成的过程。"
+      />
+      <WorkspaceResultPanel viewModel={resultViewModel} />
+    </FeatureWorkbenchShell>
   );
 }

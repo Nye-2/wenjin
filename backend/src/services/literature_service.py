@@ -85,7 +85,15 @@ def _iter_candidate_papers(content: Any) -> list[dict[str, Any]]:
                     if isinstance(item, dict):
                         candidates.append(item)
 
-    # Compatibility: allow direct paper lists in legacy artifacts.
+    corpus = content.get("corpus")
+    if isinstance(corpus, dict):
+        top_papers = corpus.get("top_papers")
+        if isinstance(top_papers, list):
+            for item in top_papers:
+                if isinstance(item, dict):
+                    candidates.append(item)
+
+    # Also accept direct paper-list fields from artifact payloads.
     for key in ("papers", "works", "seminal_works", "recent_works"):
         works = content.get(key)
         if isinstance(works, list):

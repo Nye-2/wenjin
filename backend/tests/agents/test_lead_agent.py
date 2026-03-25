@@ -1,12 +1,15 @@
 """Tests for Lead Agent middleware chain integration."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from src.agents.lead_agent.agent import (
     apply_prompt_template,
     build_middlewares,
     make_lead_agent,
 )
+from src.agents.middlewares.base import Middleware
 from src.agents.middlewares import (
     CitationContextMiddleware,
     DisciplineContextMiddleware,
@@ -111,6 +114,19 @@ class TestApplyPromptTemplate:
         assert "Test knowledge context" in prompt
         assert "<knowledge_context>" in prompt
 
+    def test_prompt_includes_memory_context(self):
+        """Test that prompt template includes long-term memory context if present."""
+        state = ThreadState(
+            messages=[],
+            memory_context="<academic_memory>偏好 IEEE</academic_memory>",
+        )
+        config = {"configurable": {}}
+
+        prompt = apply_prompt_template(state, config)
+
+        assert "偏好 IEEE" in prompt
+        assert "<academic_memory>" in prompt
+
     def test_prompt_includes_discipline_norms(self):
         """Test that prompt template includes discipline_norms if present."""
         state = ThreadState(
@@ -147,6 +163,7 @@ class TestApplyPromptTemplate:
             workspace_type="sci",
             discipline="computer_science",
             literature_context="<literature_context>Lit context</literature_context>",
+            memory_context="<academic_memory>Memory context</academic_memory>",
             knowledge_context="<knowledge_context>Knowledge context</knowledge_context>",
             discipline_norms={
                 "citation_style": "APA",
@@ -160,16 +177,46 @@ class TestApplyPromptTemplate:
         assert "SCI Paper" in prompt
         assert "Computer Science" in prompt
         assert "Lit context" in prompt
+        assert "Memory context" in prompt
         assert "Knowledge context" in prompt
         assert "APA" in prompt
+
+    def test_prompt_scopes_available_skills_to_workspace(self):
+        """Test that available skills are rendered from the workspace chat catalog."""
+        state = ThreadState(messages=[], workspace_type="sci")
+        config = {"configurable": {}}
+
+        prompt = apply_prompt_template(state, config)
+
+        assert "Available Skills" in prompt
+        assert "deep-research" in prompt
+        assert "peer-reviewer" in prompt
+        assert "journal-recommender" in prompt
+        assert "fullpaper-writer" not in prompt
+        assert "proposal-writer" not in prompt
+
+    def test_prompt_omits_available_skills_when_workspace_has_no_chat_skill_catalog(self):
+        """Test that workspaces without chat skills do not render stale prompt hints."""
+        state = ThreadState(messages=[], workspace_type="patent")
+        config = {"configurable": {}}
+
+        prompt = apply_prompt_template(state, config)
+
+        assert "Available Skills" not in prompt
 
 
 class TestMakeLeadAgent:
     """Tests for make_lead_agent function."""
 
+    class _InjectMemoryMiddleware(Middleware):
+        async def before_model(self, state, config):
+            return {"memory_context": "<academic_memory>偏好 IEEE</academic_memory>"}
+
     def test_make_lead_agent_accepts_middlewares(self):
         """Test that make_lead_agent accepts middleware chain."""
         from unittest.mock import MagicMock, patch
+
+        from src.agents.lead_agent.dynamic_tools import DynamicToolNode
 
         workspace_service = MagicMock()
         index_service = MagicMock()
@@ -198,6 +245,10 @@ class TestMakeLeadAgent:
 
             assert agent is not None
             mock_create_agent.assert_called_once()
+            args, kwargs = mock_create_agent.call_args
+            assert callable(args[0])
+            assert isinstance(args[1], DynamicToolNode)
+            assert "checkpointer" in kwargs
 
     def test_make_lead_agent_without_middlewares(self):
         """Test that make_lead_agent works without middlewares."""
@@ -226,3 +277,26 @@ class TestMakeLeadAgent:
 
             assert agent is not None
             mock_create_agent.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_make_lead_agent_applies_before_model_middlewares_on_invoke(self):
+        """Runtime middleware chain should modify the state before agent execution."""
+        from unittest.mock import patch
+
+        config = {"configurable": {"model_name": "gpt-4o"}}
+        fake_agent = MagicMock()
+        fake_agent.ainvoke = AsyncMock(return_value={"messages": []})
+
+        with patch("src.models.factory.create_chat_model") as mock_model, \
+             patch("src.agents.lead_agent.agent.get_available_tools", return_value=[]), \
+             patch("src.agents.lead_agent.agent.create_react_agent", return_value=fake_agent):
+            mock_model.return_value = MagicMock()
+
+            agent = make_lead_agent(
+                config,
+                middlewares=[self._InjectMemoryMiddleware()],
+            )
+            await agent.ainvoke({"messages": []}, config=config)
+
+        invoked_state = fake_agent.ainvoke.await_args.args[0]
+        assert invoked_state["memory_context"] == "<academic_memory>偏好 IEEE</academic_memory>"

@@ -2,7 +2,6 @@
 
 from src.agents.graphs.thesis.opening_research import (
     _build_literature_highlights,
-    _build_template_sections,
     _normalize_report_type,
     _parse_json_list_response,
     _parse_json_response,
@@ -55,51 +54,6 @@ class TestBuildLiteratureHighlights:
         papers = [{"title": "Solo Paper"}]
         result = _build_literature_highlights(papers)
         assert result == ["Solo Paper"]
-
-
-# ---------------------------------------------------------------------------
-# _build_template_sections
-# ---------------------------------------------------------------------------
-class TestBuildTemplateSections:
-    def test_opening_report_has_6_sections(self):
-        sections = _build_template_sections("opening_report", "NLP", "", [])
-        assert len(sections) == 6
-        titles = [s["title"] for s in sections]
-        assert "研究背景与意义" in titles
-        assert "进度安排与风险预案" in titles
-
-    def test_literature_review_has_4_sections(self):
-        sections = _build_template_sections("literature_review", "CV", "", [])
-        assert len(sections) == 4
-        titles = [s["title"] for s in sections]
-        assert "检索范围与方法" in titles
-        assert "研究空白与切入点" in titles
-
-    def test_feasibility_analysis_has_4_sections(self):
-        sections = _build_template_sections("feasibility_analysis", "RL", "", [])
-        assert len(sections) == 4
-        titles = [s["title"] for s in sections]
-        assert "技术可行性" in titles
-        assert "计划与风险控制" in titles
-
-    def test_with_literature_highlights_adds_reference_section(self):
-        highlights = ["Paper A(2024) - ACL", "Paper B(2023) - EMNLP"]
-        sections = _build_template_sections("opening_report", "NLP", "", highlights)
-        assert len(sections) == 7  # 6 + reference section
-        assert sections[-1]["title"] == "参考文献线索"
-        assert "Paper A" in sections[-1]["content"]
-
-    def test_no_highlights_no_reference_section(self):
-        sections = _build_template_sections("opening_report", "NLP", "", [])
-        assert all(s["title"] != "参考文献线索" for s in sections)
-
-    def test_topic_in_content(self):
-        sections = _build_template_sections("opening_report", "强化学习", "", [])
-        assert "强化学习" in sections[0]["content"]
-
-    def test_workspace_description_in_opening_report(self):
-        sections = _build_template_sections("opening_report", "NLP", "这是描述", [])
-        assert "这是描述" in sections[0]["content"]
 
 
 # ---------------------------------------------------------------------------

@@ -208,6 +208,36 @@ function renderSummary(
       return num(summary.drafts_count)
         ? `${num(summary.drafts_count)} 份草稿`
         : "未开始";
+    case "literature_review":
+      if (num(summary.sections_count) > 0) {
+        return `${num(summary.sections_count)} 个综述章节`;
+      }
+      if (num(summary.gaps_count) > 0) {
+        return `${num(summary.gaps_count)} 个研究空白`;
+      }
+      return num(summary.count) > 0 ? `${num(summary.count)} 份综述` : "未开始";
+    case "framework_outline":
+      if (num(summary.sections_count) > 0) {
+        return `${num(summary.sections_count)} 个章节框架`;
+      }
+      if (num(summary.keywords_count) > 0) {
+        return `${num(summary.keywords_count)} 个关键词`;
+      }
+      return num(summary.count) > 0 ? `${num(summary.count)} 份框架` : "未开始";
+    case "peer_review":
+      if (typeof summary.score === "number" && Number.isFinite(summary.score)) {
+        return `评分 ${summary.score.toFixed(1)}`;
+      }
+      if (num(summary.revision_actions_count) > 0) {
+        return `${num(summary.revision_actions_count)} 条修改建议`;
+      }
+      return num(summary.count) > 0 ? `${num(summary.count)} 份评审` : "未开始";
+    case "journal_recommend":
+      return num(summary.journals_count) > 0
+        ? `${num(summary.journals_count)} 个候选期刊`
+        : num(summary.count) > 0
+          ? `${num(summary.count)} 份推荐`
+          : "未开始";
     case "proposal_outline":
       return bool(summary.has_outline) || num(summary.count) > 0 || num(summary.outline_count) > 0
         ? `${num(summary.count) || num(summary.outline_count) || 1} 份大纲`
@@ -216,6 +246,14 @@ function renderSummary(
       return num(summary.count) > 0 || num(summary.research_count) > 0
         ? `${num(summary.count) || num(summary.research_count)} 份调研`
         : "未开始";
+    case "experiment_design":
+      if (num(summary.hypotheses_count) > 0) {
+        return `${num(summary.hypotheses_count)} 个研究假设`;
+      }
+      if (num(summary.variables_count) > 0) {
+        return `${num(summary.variables_count)} 个实验变量`;
+      }
+      return num(summary.count) > 0 ? `${num(summary.count)} 份设计` : "未开始";
     case "copyright_materials":
       return bool(summary.has_materials) ? "已生成材料清单" : "未开始";
     case "technical_description":

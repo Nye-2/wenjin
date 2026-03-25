@@ -15,6 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Workspace, WorkspaceType
 
+_CHAT_ROLLOUT_DEFAULT_TYPES = {
+    "thesis",
+    "sci",
+    "proposal",
+    "software_copyright",
+    "patent",
+}
+
 
 class WorkspaceService:
     """Service for managing workspaces.
@@ -33,6 +41,22 @@ class WorkspaceService:
             db: AsyncSession for database operations
         """
         self.db: AsyncSession = db
+
+    @staticmethod
+    def _with_rollout_defaults(
+        workspace_type: WorkspaceType | str,
+        config: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Inject rollout defaults into workspace.config without overwriting overrides."""
+        type_value = workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type)
+        base_config = dict(config or {})
+        rollout = base_config.get("rollout")
+        rollout_config = dict(rollout) if isinstance(rollout, dict) else {}
+        enabled_by_default = type_value in _CHAT_ROLLOUT_DEFAULT_TYPES
+        rollout_config.setdefault("chat_cockpit_enabled", enabled_by_default)
+        rollout_config.setdefault("chat_feature_orchestration_enabled", enabled_by_default)
+        base_config["rollout"] = rollout_config
+        return base_config
 
     async def create(
         self,
@@ -77,7 +101,7 @@ class WorkspaceService:
             type=workspace_type,
             discipline=discipline,
             description=description,
-            config=config or {},
+            config=self._with_rollout_defaults(workspace_type, config),
         )
         self.db.add(workspace)
         await self.db.commit()
@@ -148,6 +172,11 @@ class WorkspaceService:
                     ) from None
 
         # Update only provided fields
+        if "config" in kwargs or "type" in kwargs:
+            target_type = kwargs.get("type", workspace.type)
+            source_config = kwargs.get("config", workspace.config)
+            kwargs["config"] = self._with_rollout_defaults(target_type, source_config)
+
         for key, value in kwargs.items():
             if hasattr(workspace, key) and value is not None:
                 setattr(workspace, key, value)

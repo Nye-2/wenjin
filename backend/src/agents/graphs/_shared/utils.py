@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -128,10 +128,10 @@ def detect_generation_mode(step_results: dict[str, bool]) -> str:
             Example: {"phase2_llm": True, "phase3_validation": False}
 
     Returns:
-        "llm" if all succeeded, "partial_llm" if some succeeded, "template_fallback" if all failed
+        "llm" if all succeeded, "partial_llm" if some succeeded, "failed" if all failed
     """
     if not step_results:
-        return "template_fallback"
+        return "failed"
 
     succeeded = sum(1 for v in step_results.values() if v)
     total = len(step_results)
@@ -140,7 +140,7 @@ def detect_generation_mode(step_results: dict[str, bool]) -> str:
         return "llm"
     if succeeded > 0:
         return "partial_llm"
-    return "template_fallback"
+    return "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ def _utc_now_iso() -> str:
     Returns:
         ISO formatted timestamp string (e.g., "2026-03-18T12:34:56.789012+00:00")
     """
-    return datetime.now(tz=timezone.utc).isoformat()
+    return datetime.now(tz=UTC).isoformat()
 
 
 def _normalize_list(value: Any, *, max_items: int = 10) -> list[str]:
@@ -224,6 +224,18 @@ def _read_optional_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _read_payload_params(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Read nested business params from a task payload.
+
+    Workspace feature task payloads keep orchestration metadata at the top level
+    and all user/business inputs under ``params``.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    params = payload.get("params")
+    return params if isinstance(params, dict) else {}
 
 
 def _normalize_text(value: Any, fallback: str = "") -> str:

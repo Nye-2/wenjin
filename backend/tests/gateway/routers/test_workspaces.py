@@ -103,11 +103,6 @@ class TestCreateWorkspace:
         return create_mock_user()
 
     @pytest.fixture
-    def mock_user(self):
-        """Create mock user for authentication."""
-        return create_mock_user()
-
-    @pytest.fixture
     def client(self, mock_workspace_service, mock_user):
         """Create test client with mocked dependencies."""
         app = FastAPI()

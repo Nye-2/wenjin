@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, FileText, FileDown } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { FileText, FileDown } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -23,13 +23,43 @@ import { cn } from "@/lib/utils";
 
 export default function CompileExportPage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params.id as string;
   const { artifacts } = useWorkspaceStore();
+  const templateSeed = searchParams.get("template");
+  const compilerSeed = searchParams.get("compiler");
+  const bibliographyStyleSeed = searchParams.get("bibliography_style");
 
-  const [template, setTemplate] = useState("default");
-  const [compiler, setCompiler] = useState("xelatex");
-  const [bibStyle, setBibStyle] = useState("gbt7714");
+  const [template, setTemplate] = useState(
+    () => templateSeed || "default"
+  );
+  const [compiler, setCompiler] = useState(
+    () => compilerSeed || "xelatex"
+  );
+  const [bibStyle, setBibStyle] = useState(
+    () => bibliographyStyleSeed || "gbt7714"
+  );
+
+  useEffect(() => {
+    if (templateSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setTemplate(templateSeed);
+    }
+  }, [templateSeed]);
+
+  useEffect(() => {
+    if (compilerSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setCompiler(compilerSeed);
+    }
+  }, [compilerSeed]);
+
+  useEffect(() => {
+    if (bibliographyStyleSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setBibStyle(bibliographyStyleSeed);
+    }
+  }, [bibliographyStyleSeed]);
 
   const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
@@ -138,47 +168,17 @@ export default function CompileExportPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Header */}
-      <header className="h-14 flex items-center gap-4 px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push(`/workspaces/${workspaceId}`)}
-          className={cn(
-            "p-2 rounded-lg",
-            "bg-[var(--bg-surface)]",
-            "hover:bg-[var(--bg-muted)]",
-            "text-[var(--text-secondary)]",
-            "transition-colors"
-          )}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-rose-500/10">
-            <FileText className="w-5 h-5 text-rose-600 dark:text-rose-400" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[var(--text-primary)]">
-              编译导出
-            </h1>
-            <p className="text-xs text-[var(--text-muted)]">
-              LaTeX 编译 · 多格式导出
-            </p>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Config */}
-        <aside className="w-72 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-          <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">
-            编译配置
-          </h2>
-
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="编译导出"
+      description="LaTeX 编译 · 多格式导出"
+      icon={FileText}
+      iconBgClass="bg-rose-500/10"
+      iconClass="text-rose-600 dark:text-rose-400"
+      sidebarTitle="编译配置"
+      sidebarWidthClassName="lg:w-72"
+      sidebar={
+        <div>
           <div className="space-y-4">
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">
@@ -265,8 +265,7 @@ export default function CompileExportPage() {
             />
           </div>
 
-          {/* Export Options */}
-          <div className="mt-6 pt-6 border-t border-[var(--border-default)]">
+          <div className="mt-6 border-t border-[var(--border-default)] pt-6">
             <h3 className="text-sm font-medium text-[var(--text-primary)] mb-3">
               导出格式
             </h3>
@@ -306,92 +305,83 @@ export default function CompileExportPage() {
               </button>
             </div>
           </div>
-        </aside>
-
-        {/* Main Area - PDF Preview */}
-        <div className="flex-1 p-6 overflow-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <TaskRuntimePanel
-              runtime={runtime}
-              isRunning={isRunning}
-              status={status}
-              error={error}
-              title="编译导出运行面板"
-              emptyDescription="执行后，这里会显示一致性检查、编译导出和日志整理过程。"
-            />
-            <WorkspaceResultPanel viewModel={compileResultViewModel} />
-
-            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-[var(--text-primary)]">
-                    PDF 预览
-                  </h2>
-                  <p className="text-sm text-[var(--text-muted)]">
-                    编译完成后，这里会展示最近一次 PDF 结果。
-                  </p>
-                </div>
-                {latestCompileUrl && (
-                  <div className="flex gap-2">
-                    <a
-                      href={latestCompileUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-lg bg-rose-600 px-3 py-2 text-sm text-white"
-                    >
-                      打开 PDF
-                    </a>
-                    <a
-                      href={latestCompileUrl}
-                      download
-                      className="rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)]"
-                    >
-                      下载
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              {latestCompileUrl && isPdfUrl(latestCompileUrl) ? (
-                <div className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-white">
-                  <iframe
-                    src={latestCompileUrl}
-                    title="Compile Preview"
-                    className="h-[640px] w-full"
-                  />
-                </div>
-              ) : (
-                <div className="text-center py-10">
-                  <FileText className="mx-auto mb-4 h-12 w-12 text-rose-500/60" />
-                  <p className="text-sm text-[var(--text-secondary)]">
-                    暂无可预览 PDF，执行编译后会在这里显示。
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {latestCompileLogs && (
-              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-                <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">
-                  最近编译日志
-                </h3>
-                <pre className="overflow-x-auto rounded-lg bg-[var(--bg-elevated)] p-4 text-xs leading-6 text-[var(--text-secondary)]">
-                  {latestCompileLogs}
-                </pre>
-              </div>
-            )}
-            {latestCompileError && (
-              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
-                {latestCompileError}
-              </div>
-            )}
-          </motion.div>
         </div>
-      </main>
-    </div>
+      }
+    >
+      <TaskRuntimePanel
+        runtime={runtime}
+        isRunning={isRunning}
+        status={status}
+        error={error}
+        title="编译导出运行面板"
+        emptyDescription="执行后，这里会显示一致性检查、编译导出和日志整理过程。"
+      />
+      <WorkspaceResultPanel viewModel={compileResultViewModel} />
+
+      <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">
+              PDF 预览
+            </h2>
+            <p className="text-sm text-[var(--text-muted)]">
+              编译完成后，这里会展示最近一次 PDF 结果。
+            </p>
+          </div>
+          {latestCompileUrl && (
+            <div className="flex gap-2">
+              <a
+                href={latestCompileUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg bg-rose-600 px-3 py-2 text-sm text-white"
+              >
+                打开 PDF
+              </a>
+              <a
+                href={latestCompileUrl}
+                download
+                className="rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)]"
+              >
+                下载
+              </a>
+            </div>
+          )}
+        </div>
+
+        {latestCompileUrl && isPdfUrl(latestCompileUrl) ? (
+          <div className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-white">
+            <iframe
+              src={latestCompileUrl}
+              title="Compile Preview"
+              className="h-[640px] w-full"
+            />
+          </div>
+        ) : (
+          <div className="text-center py-10">
+            <FileText className="mx-auto mb-4 h-12 w-12 text-rose-500/60" />
+            <p className="text-sm text-[var(--text-secondary)]">
+              暂无可预览 PDF，执行编译后会在这里显示。
+            </p>
+          </div>
+        )}
+      </div>
+
+      {latestCompileLogs && (
+        <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+          <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">
+            最近编译日志
+          </h3>
+          <pre className="overflow-x-auto rounded-lg bg-[var(--bg-elevated)] p-4 text-xs leading-6 text-[var(--text-secondary)]">
+            {latestCompileLogs}
+          </pre>
+        </div>
+      )}
+      {latestCompileError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+          {latestCompileError}
+        </div>
+      )}
+    </FeatureWorkbenchShell>
   );
 }

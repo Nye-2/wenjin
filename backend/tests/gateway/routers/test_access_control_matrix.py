@@ -1,4 +1,4 @@
-"""Access control matrix tests for papers, artifacts, and academic routers.
+"""Access control matrix tests for canonical papers and artifacts routers.
 
 Verifies that:
 - Anonymous (no token) access returns 401
@@ -151,62 +151,4 @@ class TestArtifactsAuth:
     def test_delete_artifact_requires_auth(self, unauthenticated_client):
         """DELETE /workspaces/{id}/artifacts/{id} without token should return 401."""
         response = unauthenticated_client.delete(f"/workspaces/{WORKSPACE_ID}/artifacts/{uuid4()}")
-        assert response.status_code == 401
-
-
-class TestAcademicAuth:
-    """Test that deprecated academic and canonical workspace artifact endpoints require authentication."""
-
-    @pytest.fixture
-    def unauthenticated_client(self):
-        """Client with NO auth override."""
-        from src.gateway.routers.academic import get_paper_service, router as academic_router
-        from src.gateway.routers.artifacts import (
-            get_artifact_service,
-            router as artifacts_router,
-        )
-
-        app = FastAPI()
-        register_error_handlers(app)
-
-        mock_paper_service = AsyncMock()
-        mock_artifact_service = AsyncMock()
-        mock_artifact_service.list_by_workspace = AsyncMock(return_value=[])
-
-        async def override_paper_service():
-            return mock_paper_service
-
-        async def override_artifact_service():
-            return mock_artifact_service
-
-        app.dependency_overrides[get_paper_service] = override_paper_service
-        app.dependency_overrides[get_artifact_service] = override_artifact_service
-        app.include_router(academic_router)
-        app.include_router(artifacts_router)
-        return TestClient(app)
-
-    def test_create_paper_requires_auth(self, unauthenticated_client):
-        """POST /academic/papers without token should return 401."""
-        response = unauthenticated_client.post(
-            "/academic/papers",
-            json={"title": "Unauthorized Paper"},
-        )
-        assert response.status_code == 401
-
-    def test_create_artifact_requires_auth(self, unauthenticated_client):
-        """POST /workspaces/{id}/artifacts without token should return 401."""
-        response = unauthenticated_client.post(
-            f"/workspaces/{WORKSPACE_ID}/artifacts",
-            json={
-                "type": "research_idea",
-                "content": {"test": True},
-            },
-        )
-        assert response.status_code == 401
-
-    def test_list_artifacts_requires_auth(self, unauthenticated_client):
-        """GET /workspaces/{id}/artifacts without token should return 401."""
-        response = unauthenticated_client.get(
-            f"/workspaces/{WORKSPACE_ID}/artifacts"
-        )
         assert response.status_code == 401

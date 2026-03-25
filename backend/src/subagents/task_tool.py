@@ -1,5 +1,6 @@
 """Task delegation tool using SubagentExecutor."""
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
@@ -15,12 +16,13 @@ class TaskInput(BaseModel):
     max_turns: int | None = Field(default=None, description="Maximum turns for the subagent")
 
 
-@tool(args_schema=TaskInput)
+@tool("task", args_schema=TaskInput)
 async def task_tool(
     description: str,
     prompt: str,
     subagent_type: str,
     max_turns: int | None = None,
+    config: RunnableConfig | None = None,
 ) -> str:
     """Delegate a task to a specialized subagent for parallel execution.
 
@@ -41,29 +43,36 @@ async def task_tool(
     Returns:
         Results from the subagent
     """
-    config = registry.get(subagent_type)
-    if not config:
+    subagent_config = registry.get(subagent_type)
+    if not subagent_config:
         available = list(registry._subagents.keys())
         return f"Error: Unknown subagent type '{subagent_type}'. Available: {available}"
 
     if max_turns is not None:
-        config = type(config)(
-            name=config.name,
-            description=config.description,
-            system_prompt=config.system_prompt,
-            allowed_tools=config.allowed_tools,
+        subagent_config = type(subagent_config)(
+            name=subagent_config.name,
+            description=subagent_config.description,
+            system_prompt=subagent_config.system_prompt,
+            allowed_tools=subagent_config.allowed_tools,
             max_turns=max_turns,
         )
 
     from src.agents.lead_agent.agent import get_available_tools
     tools = get_available_tools(subagent_enabled=False)
+    runtime_config = config or {}
+    configurable = runtime_config.get("configurable", {})
 
-    executor = SubagentExecutor(config=config, tools=tools)
-    result = executor.execute(prompt)
+    executor = SubagentExecutor(
+        config=subagent_config,
+        tools=tools,
+        parent_model=configurable.get("model_name"),
+        thread_id=configurable.get("thread_id"),
+    )
+    result = await executor.aexecute(prompt)
 
     if result.status == SubagentStatus.COMPLETED:
-        return f"[{config.name} completed]\n{result.result}"
+        return f"[{subagent_config.name} completed]\n{result.result}"
     elif result.status == SubagentStatus.TIMED_OUT:
-        return f"[{config.name} timed out]\n{result.error or 'Exceeded time limit'}"
+        return f"[{subagent_config.name} timed out]\n{result.error or 'Exceeded time limit'}"
     else:
-        return f"[{config.name} failed]\n{result.error or 'Unknown error'}"
+        return f"[{subagent_config.name} failed]\n{result.error or 'Unknown error'}"

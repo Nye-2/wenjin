@@ -1,13 +1,17 @@
 """Lead Agent factory for AcademiaGPT."""
 
+import asyncio
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
+from src.agents.lead_agent.chat_skill_catalog import list_workspace_chat_skills
+from src.agents.lead_agent.dynamic_tools import DynamicToolNode
 from src.agents.middlewares import (
     CitationContextMiddleware,
     ClarificationMiddleware,
@@ -27,10 +31,100 @@ from src.agents.middlewares import (
     WorkspaceContextMiddleware,
 )
 from src.agents.thread_state import ThreadState
-from src.config import get_default_model_id
+from src.config import get_default_model_id, get_model_config
 from src.config.config_loader import get_app_config
+from src.sandbox.runtime import get_sandbox_provider
 
 logger = logging.getLogger(__name__)
+
+
+def _model_supports_vision(model_name: str | None) -> bool:
+    """Infer whether the configured model can accept image inputs."""
+    if not model_name:
+        return False
+
+    try:
+        model_config = get_model_config(model_name)
+    except Exception:
+        model_config = None
+
+    raw_model = (getattr(model_config, "model", None) or model_name).lower()
+    return any(tag in raw_model for tag in ("vision", "vl", "gpt-4o"))
+
+
+def _default_subagent_enabled() -> bool:
+    """Resolve the default subagent toggle from app config."""
+    try:
+        return bool(get_app_config().subagents.enabled)
+    except Exception:
+        return True
+
+
+def _normalize_runtime_config(config: RunnableConfig | None) -> RunnableConfig:
+    """Fill runtime defaults expected by the middleware/tool stack."""
+    normalized = dict(config or {})
+    configurable = dict(normalized.get("configurable", {}))
+
+    configurable.setdefault("subagent_enabled", _default_subagent_enabled())
+    configurable.setdefault(
+        "supports_vision",
+        _model_supports_vision(configurable.get("model_name")),
+    )
+
+    normalized["configurable"] = configurable
+    return normalized
+
+
+def _merge_runtime_config(
+    base: RunnableConfig | None,
+    override: RunnableConfig | None,
+) -> RunnableConfig:
+    """Merge a default runtime config with a request-specific override."""
+    if base is None and override is None:
+        return {}
+    if base is None:
+        return dict(override or {})
+    if override is None:
+        return dict(base)
+
+    merged = {**base, **override}
+    merged["configurable"] = {
+        **dict(base.get("configurable", {})),
+        **dict(override.get("configurable", {})),
+    }
+    return merged
+
+
+def _render_workspace_available_skills(workspace_type: str | None) -> str:
+    skills = list_workspace_chat_skills(workspace_type)
+    if not skills:
+        return ""
+    lines = [
+        "\n\n## Available Skills",
+        "Use these skills for specific academic tasks:",
+    ]
+    lines.extend(f"- {skill.id}: {skill.description}" for skill in skills)
+    return "\n".join(lines)
+
+
+def _extend_unique_tools(
+    existing: list[BaseTool],
+    new_tools: list[BaseTool],
+) -> None:
+    """Append tools while deduplicating by tool name."""
+    seen_names = {
+        tool.name
+        for tool in existing
+        if getattr(tool, "name", None)
+    }
+
+    for tool in new_tools:
+        tool_name = getattr(tool, "name", None)
+        if tool_name and tool_name in seen_names:
+            continue
+        if tool_name:
+            seen_names.add(tool_name)
+        existing.append(tool)
 
 
 def apply_prompt_template(
@@ -92,6 +186,11 @@ You have access to specialized tools and subagents for:
     if literature_context:
         base_prompt += f"\n\n{literature_context}"
 
+    # Add long-term user memory context
+    memory_context = state.get("memory_context", "")
+    if memory_context:
+        base_prompt += f"\n\n{memory_context}"
+
     # Add knowledge context
     knowledge_context = state.get("knowledge_context", "")
     if knowledge_context:
@@ -120,8 +219,23 @@ You have access to specialized tools and subagents for:
             "\nUse it as the default approach unless the request clearly requires a different toolchain."
         )
 
-    # Add available skills
-    base_prompt += "\n\n## Available Skills\nUse these skills for specific academic tasks:\n- deep-research: Comprehensive literature analysis and idea generation\n- framework-designer: Generate paper abstract and outline\n- fullpaper-writer: Complete paper writing\n- literature-review: Generate literature review\n- proposal-writer: Write research proposals\n- experiment-designer: Design experiments\n- peer-reviewer: Review and critique papers\n- journal-recommender: Recommend journals for submission"
+    thread_id = configurable.get("thread_id")
+    workspace_id = configurable.get("workspace_id")
+    user_id = configurable.get("user_id")
+    if workspace_id or thread_id or user_id:
+        base_prompt += "\n\n## Runtime Context"
+        if workspace_id:
+            base_prompt += f"\n- Workspace ID: {workspace_id}"
+        if thread_id:
+            base_prompt += f"\n- Thread ID: {thread_id}"
+        if user_id:
+            base_prompt += f"\n- User ID: {user_id}"
+        base_prompt += (
+            "\nUse these ids when calling workspace tools."
+            "\nPrefer `run_workspace_feature` for deterministic feature execution."
+        )
+
+    base_prompt += _render_workspace_available_skills(workspace_type)
 
     return base_prompt
 
@@ -149,9 +263,12 @@ def get_available_tools(
     from src.tools.builtins import (
         ask_clarification_tool,
         bash_tool,
+        list_workspace_artifacts_tool,
+        list_workspace_features_tool,
         ls_tool,
         present_files_tool,
         read_file_tool,
+        run_workspace_feature_tool,
         str_replace_tool,
         write_file_tool,
     )
@@ -167,6 +284,11 @@ def get_available_tools(
 
     # Interaction tools
     tools.append(ask_clarification_tool)
+    tools.extend([
+        list_workspace_features_tool,
+        list_workspace_artifacts_tool,
+        run_workspace_feature_tool,
+    ])
 
     # Output tools
     tools.append(present_files_tool)
@@ -192,6 +314,16 @@ def get_available_tools(
     # Citation management tools (skip DB-dependent ones)
     # format_citation and format_bibliography also require AsyncSession injection;
     # they cannot be used in the react-agent context until DB injection is wired.
+
+    if include_mcp:
+        try:
+            from src.mcp import get_cached_mcp_tools
+
+            _extend_unique_tools(tools, get_cached_mcp_tools())
+        except ImportError:
+            logger.warning("MCP integration unavailable; skipping MCP tools")
+        except Exception as exc:
+            logger.error("Failed to load cached MCP tools: %s", exc)
 
     # Subagent delegation tool
     if subagent_enabled:
@@ -276,9 +408,10 @@ def build_pipeline(
     15. CitationContextMiddleware  - Post-processing (conditional)
     16. ClarificationMiddleware    - Control (MUST BE LAST)
     """
+    config = _normalize_runtime_config(config)
     configurable = config.get("configurable", {})
     is_plan_mode = configurable.get("is_plan_mode", False)
-    subagent_enabled = configurable.get("subagent_enabled", False)
+    subagent_enabled = configurable.get("subagent_enabled", _default_subagent_enabled())
 
     # Get middleware config with error handling
     try:
@@ -299,7 +432,14 @@ def build_pipeline(
     pipeline.append(ThreadDataMiddleware())
     pipeline.append(UploadsMiddleware())
 
-    # Sandbox (3) - requires provider
+    # Sandbox (3) - resolve default provider when sandboxing is configured
+    if sandbox_provider is None:
+        try:
+            sandbox_provider = get_sandbox_provider()
+        except Exception as exc:
+            logger.warning("Failed to resolve sandbox provider: %s", exc, exc_info=True)
+            sandbox_provider = None
+
     if sandbox_provider:
         pipeline.append(SandboxMiddleware(sandbox_provider))
 
@@ -321,8 +461,15 @@ def build_pipeline(
 
     # Memory (6) - requires queue
     memory_config = getattr(app_config, "memory", None)
-    if memory_config and getattr(memory_config, "enabled", False) and memory_queue:
-        pipeline.append(MemoryMiddleware(queue=memory_queue, enabled=True))
+    if memory_config and getattr(memory_config, "enabled", False):
+        pipeline.append(
+            MemoryMiddleware(
+                queue=memory_queue,
+                enabled=True,
+                inject_enabled=getattr(memory_config, "injection_enabled", True),
+                capture_enabled=memory_queue is not None,
+            )
+        )
 
     # --- Academic context layer (7-10) ---
     if workspace_service:
@@ -343,7 +490,10 @@ def build_pipeline(
 
     # SubagentLimit (13) - subagents enabled
     if subagent_enabled:
-        max_concurrent = configurable.get("max_concurrent_subagents", 3)
+        max_concurrent = configurable.get(
+            "max_concurrent_subagents",
+            getattr(getattr(app_config, "subagents", None), "max_concurrent", 3),
+        )
         pipeline.append(SubagentLimitMiddleware(max_concurrent=max_concurrent))
 
     # --- Post-processing layer (14-16) ---
@@ -405,7 +555,17 @@ async def middleware_after_model(
     return current_state
 
 
-def make_lead_agent(config: RunnableConfig, middlewares: list | None = None) -> Callable:
+def make_lead_agent(
+    config: RunnableConfig,
+    middlewares: list | None = None,
+    *,
+    workspace_service=None,
+    index_service=None,
+    artifact_service=None,
+    paper_service=None,
+    sandbox_provider=None,
+    memory_queue=None,
+) -> Callable:
     """Factory function to create the lead agent.
 
     This is the entry point registered in langgraph.json.
@@ -419,28 +579,54 @@ def make_lead_agent(config: RunnableConfig, middlewares: list | None = None) -> 
         Compiled agent graph
     """
     # Get configuration
+    config = _normalize_runtime_config(config)
     configurable = config.get("configurable", {})
     try:
         default_model = get_default_model_id()
     except Exception:
         default_model = "default"
     model_name = configurable.get("model_name") or default_model
+    config["configurable"]["model_name"] = model_name
+    config["configurable"]["supports_vision"] = config["configurable"].get(
+        "supports_vision",
+        _model_supports_vision(model_name),
+    )
     thinking_enabled = configurable.get("thinking_enabled", False)
+    reasoning_effort = configurable.get("reasoning_effort")
     subagent_enabled = configurable.get("subagent_enabled", True)
 
-    # Create model
     from src.models.factory import create_chat_model
-    model = create_chat_model(model_name, thinking_enabled=thinking_enabled)
-
-    # Get tools
-    tools = get_available_tools(
-        subagent_enabled=subagent_enabled,
-        model_name=model_name,
+    base_model = create_chat_model(
+        model_name,
+        thinking_enabled=thinking_enabled,
+        reasoning_effort=reasoning_effort,
     )
+
+    def _load_tools() -> list[BaseTool]:
+        return get_available_tools(
+            subagent_enabled=subagent_enabled,
+            model_name=model_name,
+        )
+
+    tool_node = DynamicToolNode(_load_tools)
+
+    def _resolve_model(_state, _runtime):
+        current_tools = tool_node.list_available_tools()
+        if not current_tools:
+            return base_model
+        return base_model.bind_tools(current_tools)
 
     # Use provided middlewares or build pipeline
     if middlewares is None:
-        middlewares = build_pipeline(config)
+        middlewares = build_pipeline(
+            config,
+            workspace_service=workspace_service,
+            index_service=index_service,
+            artifact_service=artifact_service,
+            paper_service=paper_service,
+            sandbox_provider=sandbox_provider,
+            memory_queue=memory_queue,
+        )
 
     # Build system prompt for the agent
     def prompt_fn(state):
@@ -449,10 +635,68 @@ def make_lead_agent(config: RunnableConfig, middlewares: list | None = None) -> 
 
     # Create react agent
     agent = create_react_agent(
-        model,
-        tools,
+        _resolve_model,
+        tool_node,
         prompt=prompt_fn,
         checkpointer=MemorySaver(),
     )
 
-    return agent
+    return _MiddlewareWrappedAgent(
+        agent,
+        middlewares=middlewares,
+        default_config=config,
+    )
+
+
+class _MiddlewareWrappedAgent:
+    """Attach the repo's middleware chain around the LangGraph agent."""
+
+    def __init__(
+        self,
+        agent: Any,
+        *,
+        middlewares: list | None,
+        default_config: RunnableConfig,
+    ) -> None:
+        self._agent = agent
+        self._middlewares = middlewares or []
+        self._default_config = default_config
+
+    async def ainvoke(self, input: dict[str, Any], config: RunnableConfig | None = None, **kwargs):
+        runtime_config = _normalize_runtime_config(
+            _merge_runtime_config(self._default_config, config)
+        )
+        state = ThreadState(**(input or {}))
+        if self._middlewares:
+            state = await middleware_before_model(state, runtime_config, self._middlewares)
+        result = await self._agent.ainvoke(state, config=runtime_config, **kwargs)
+        return await self._apply_after_model(result, runtime_config)
+
+    def invoke(self, input: dict[str, Any], config: RunnableConfig | None = None, **kwargs):
+        runtime_config = _normalize_runtime_config(
+            _merge_runtime_config(self._default_config, config)
+        )
+        state = ThreadState(**(input or {}))
+        if self._middlewares:
+            state = asyncio.run(
+                middleware_before_model(state, runtime_config, self._middlewares)
+            )
+        result = self._agent.invoke(state, config=runtime_config, **kwargs)
+        if not self._middlewares or not isinstance(result, dict):
+            return result
+        return asyncio.run(
+            self._apply_after_model(result, runtime_config)
+        )
+
+    async def _apply_after_model(
+        self,
+        result: Any,
+        runtime_config: RunnableConfig,
+    ) -> Any:
+        if not self._middlewares or not isinstance(result, dict):
+            return result
+        state = ThreadState(**result)
+        return await middleware_after_model(state, runtime_config, self._middlewares)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._agent, name)

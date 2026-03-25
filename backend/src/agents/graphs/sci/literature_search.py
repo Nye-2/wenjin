@@ -1,4 +1,4 @@
-"""Literature Search sub-graph — LLM-powered literature search with fallback.
+"""Literature Search sub-graph — LLM-powered literature search.
 
 Pipeline: extract parameters -> call service layer -> build output
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.agents.graphs._shared import _read_optional_str
+from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.workspace_features.services import build_literature_search_payload
 
@@ -24,11 +24,11 @@ async def literature_search_graph(
 
     Pipeline:
         1. Extract parameters from payload
-        2. Call service layer (handles LLM + fallback)
+        2. Call service layer
         3. Build structured output
     """
     workspace_id = str(payload.get("workspace_id", ""))
-    params = payload.get("params", {})
+    params = _read_payload_params(payload)
 
     # Extract parameters (per handoff document)
     query = str(
@@ -45,7 +45,7 @@ async def literature_search_graph(
     )
     preferred_model = _read_optional_str(params.get("model_id"))
 
-    # Call service layer - handles LLM + fallback internally
+    # Call service layer
     result = await build_literature_search_payload(
         workspace_id=workspace_id,
         query=query,
@@ -61,7 +61,7 @@ async def literature_search_graph(
         "top_hits": result.get("top_hits", []),
         "filters": result.get("filters", {}),
         "summary": result.get("summary", ""),
-        "search_strategy": result.get("search_strategy", "template_fallback"),
+        "search_strategy": result.get("search_strategy", "llm_synthesis"),
         "generated_at": result.get("generated_at"),
         "model_id": result.get("model_id"),
         "generation_error": result.get("generation_error"),

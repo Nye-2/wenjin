@@ -19,17 +19,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.academic.services.extraction_service import ExtractionService
 from src.academic.services.paper_service import PaperService
+from src.gateway.deps import get_task_service
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.papers import (
-    get_extraction_service,
     get_paper_service,
     get_workspace_service,
     paper_to_response,
     router,
     section_to_response,
 )
+from src.task.service import TaskService
 
 # ============ Auth Mock ============
 
@@ -116,27 +116,6 @@ def create_mock_section(
     return section
 
 
-def create_mock_extraction(
-    id: str = None,
-    paper_id: str = None,
-    tier: int = 1,
-    extraction_type: str = "full_text",
-    structured_data: dict = None,
-    processing_time_ms: int = 100,
-    model_used: str = "pymupdf",
-):
-    """Create a mock extraction object."""
-    extraction = MagicMock()
-    extraction.id = id or str(uuid4())
-    extraction.paper_id = paper_id or str(uuid4())
-    extraction.tier = tier
-    extraction.extraction_type = extraction_type
-    extraction.structured_data = structured_data or {"test": "data"}
-    extraction.processing_time_ms = processing_time_ms
-    extraction.model_used = model_used
-    return extraction
-
-
 class MockDBSession:
     """Mock database session for testing."""
 
@@ -198,15 +177,6 @@ def mock_paper_service():
 
 
 @pytest.fixture
-def mock_extraction_service():
-    """Create mock extraction service."""
-    service = MagicMock(spec=ExtractionService)
-    service.extract_paper = AsyncMock()
-    service.extract_sections = AsyncMock()
-    return service
-
-
-@pytest.fixture
 def mock_workspace_service():
     """Create mock workspace service."""
     service = AsyncMock()
@@ -215,15 +185,24 @@ def mock_workspace_service():
 
 
 @pytest.fixture
-def app(mock_paper_service, mock_extraction_service, mock_workspace_service):
+def mock_task_service():
+    """Create mock task service."""
+    service = AsyncMock(spec=TaskService)
+    service.submit_task = AsyncMock(return_value="task-paper-extract-1")
+    service.find_active_task_by_payload = AsyncMock(return_value=None)
+    return service
+
+
+@pytest.fixture
+def app(mock_paper_service, mock_task_service, mock_workspace_service):
     """Create FastAPI app with papers router and dependency overrides."""
     app = FastAPI()
 
     async def get_paper_service_override() -> PaperService:
         return mock_paper_service
 
-    async def get_extraction_service_override() -> ExtractionService:
-        return mock_extraction_service
+    async def get_task_service_override():
+        yield mock_task_service
 
     async def get_workspace_service_override():
         return mock_workspace_service
@@ -233,7 +212,7 @@ def app(mock_paper_service, mock_extraction_service, mock_workspace_service):
 
     # Set up dependency overrides
     app.dependency_overrides[get_paper_service] = get_paper_service_override
-    app.dependency_overrides[get_extraction_service] = get_extraction_service_override
+    app.dependency_overrides[get_task_service] = get_task_service_override
     app.dependency_overrides[get_workspace_service] = get_workspace_service_override
     app.dependency_overrides[get_current_user] = get_current_user_override
 
@@ -529,7 +508,13 @@ class TestDeletePaper:
 class TestExtractPaper:
     """Test paper extraction endpoint."""
 
-    def test_extract_paper_no_file_path(self, client, sample_paper, mock_paper_service):
+    def test_extract_paper_no_file_path(
+        self,
+        client,
+        sample_paper,
+        mock_paper_service,
+        mock_task_service,
+    ):
         """Test extraction fails when paper has no file path."""
         sample_paper.file_path = None
         mock_paper_service.get.return_value = sample_paper
@@ -541,8 +526,9 @@ class TestExtractPaper:
 
         assert response.status_code == 400
         assert "no file path" in response.json()["detail"].lower()
+        mock_task_service.submit_task.assert_not_called()
 
-    def test_extract_paper_not_found(self, client, mock_paper_service):
+    def test_extract_paper_not_found(self, client, mock_paper_service, mock_task_service):
         """Test extraction fails when paper not found."""
         mock_paper_service.get.return_value = None
 
@@ -552,49 +538,83 @@ class TestExtractPaper:
         )
 
         assert response.status_code == 404
+        mock_task_service.submit_task.assert_not_called()
 
     def test_extract_paper_with_file_path(
-        self, client, sample_paper, mock_paper_service, mock_extraction_service
+        self,
+        client,
+        sample_paper,
+        mock_paper_service,
+        mock_task_service,
     ):
-        """Test extraction with file path."""
+        """Test extraction queues an async task."""
         sample_paper.file_path = "/tmp/test.pdf"
         mock_paper_service.get.return_value = sample_paper
-
-        mock_extraction = create_mock_extraction(paper_id=sample_paper.id)
-        mock_extraction_service.extract_paper.return_value = mock_extraction
-        mock_extraction_service.extract_sections.return_value = []
 
         response = client.post(
             f"/papers/{sample_paper.id}/extract",
             params={"workspace_id": "test-workspace"},
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 202
         data = response.json()
+        assert data["task_id"] == "task-paper-extract-1"
         assert data["paper_id"] == sample_paper.id
         assert data["tier"] == 1
-        mock_extraction_service.extract_paper.assert_called_once()
-        mock_extraction_service.extract_sections.assert_called_once()
+        assert data["workspace_id"] == "test-workspace"
+        assert data["status"] == "pending"
+        submit_kwargs = mock_task_service.submit_task.await_args.kwargs
+        assert submit_kwargs["task_type"] == "paper_extraction"
+        assert submit_kwargs["user_id"] == MOCK_USER_ID
+        assert submit_kwargs["payload"]["paper_id"] == sample_paper.id
+        assert submit_kwargs["payload"]["workspace_id"] == "test-workspace"
+        assert submit_kwargs["payload"]["tier"] == 1
+        assert "file_path" not in submit_kwargs["payload"]
 
     def test_extract_paper_tier2(
-        self, client, sample_paper, mock_paper_service, mock_extraction_service
+        self,
+        client,
+        sample_paper,
+        mock_paper_service,
+        mock_task_service,
     ):
-        """Test tier 2 extraction."""
+        """Test tier 2 extraction submission."""
         sample_paper.file_path = "/tmp/test.pdf"
         mock_paper_service.get.return_value = sample_paper
-
-        mock_extraction = create_mock_extraction(paper_id=sample_paper.id, tier=2)
-        mock_extraction_service.extract_paper.return_value = mock_extraction
-        mock_extraction_service.extract_sections.return_value = []
 
         response = client.post(
             f"/papers/{sample_paper.id}/extract",
             params={"workspace_id": "test-workspace", "tier": 2},
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 202
         data = response.json()
         assert data["tier"] == 2
+        submit_kwargs = mock_task_service.submit_task.await_args.kwargs
+        assert submit_kwargs["payload"]["tier"] == 2
+
+    def test_extract_paper_reuses_existing_task(
+        self,
+        client,
+        sample_paper,
+        mock_paper_service,
+        mock_task_service,
+    ):
+        """Duplicate extraction requests should reuse an active task."""
+        sample_paper.file_path = "/tmp/test.pdf"
+        mock_paper_service.get.return_value = sample_paper
+        mock_task_service.find_active_task_by_payload.return_value = "existing-task-42"
+
+        response = client.post(
+            f"/papers/{sample_paper.id}/extract",
+            params={"workspace_id": "test-workspace"},
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["task_id"] == "existing-task-42"
+        assert data["reused_existing_task"] is True
+        mock_task_service.submit_task.assert_not_called()
 
 
 class TestGetPaperSections:

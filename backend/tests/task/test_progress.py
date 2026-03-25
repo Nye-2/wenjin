@@ -101,6 +101,28 @@ class TestProgressUpdateWriteStrategy:
         event = json.loads(redis.client.publish.call_args.args[1])
         assert event["progress"] == 100
 
+    @pytest.mark.asyncio
+    async def test_update_publishes_workspace_activity_payload(self):
+        """Workspace task updates should carry a canonical activity snapshot."""
+        redis = _make_redis()
+        tracker = ProgressTracker(
+            redis,
+            "task-1",
+            workspace_id="ws-1",
+            thread_id="thread-1",
+            task_type="workspace_feature",
+            feature_id="deep_research",
+        )
+
+        with patch("src.workspace_events.publish_workspace_event", new=AsyncMock()) as publish_workspace_event:
+            await tracker.update(45, "Gathering evidence")
+
+        payload = publish_workspace_event.await_args.args[2]
+        assert payload["task"]["status"] == "running"
+        assert payload["activity"]["id"] == "task:task-1"
+        assert payload["activity"]["status"] == "running"
+        assert payload["activity"]["summary"] == "Gathering evidence"
+
 
 class TestProgressCompleteWriteStrategy:
     """complete() should only write Redis + Pub/Sub, NOT DB."""

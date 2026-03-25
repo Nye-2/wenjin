@@ -89,10 +89,12 @@ class ViewImageMiddleware(Middleware):
         if not image_content:
             return {}
 
-        # Create HumanMessage with image content
+        # Append a HumanMessage with image content instead of replacing the
+        # existing conversation history.
         message = HumanMessage(content=image_content)
+        existing_messages = list(state.get("messages", []))
 
-        return {"messages": [message]}
+        return {"messages": existing_messages + [message]}
 
     async def after_model(
         self,

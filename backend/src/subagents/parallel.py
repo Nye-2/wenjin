@@ -173,12 +173,7 @@ class ParallelExecutor:
                 trace_id=context.get("trace_id"),
             )
 
-            # Run in thread pool since execute is synchronous
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: executor.execute(prompt),
-            )
+            result = await executor.aexecute(prompt)
 
             return {
                 "subagent_type": subagent_type,

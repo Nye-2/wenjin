@@ -13,9 +13,9 @@ class VirtualPathMapper:
         /mnt/user-data/outputs/...
 
     Physical paths (actual filesystem):
-        {base_dir}/{thread_id}/workspace/...
-        {base_dir}/{thread_id}/uploads/...
-        {base_dir}/{thread_id}/outputs/...
+        {base_dir}/{thread_id}/user-data/workspace/...
+        {base_dir}/{thread_id}/user-data/uploads/...
+        {base_dir}/{thread_id}/user-data/outputs/...
     """
 
     VIRTUAL_PREFIX = "/mnt/user-data"
@@ -27,7 +27,7 @@ class VirtualPathMapper:
 
     def get_thread_paths(self, thread_id: str) -> dict[str, str]:
         """Get all thread-specific paths."""
-        thread_base = Path(self.base_dir) / thread_id
+        thread_base = Path(self.base_dir) / thread_id / "user-data"
         return {
             subdir: str(thread_base / subdir)
             for subdir in self.SUBDIRS
@@ -40,7 +40,7 @@ class VirtualPathMapper:
 
         relative = virtual_path[len(self.VIRTUAL_PREFIX):].lstrip("/")
         if not relative:
-            return str(Path(self.base_dir) / thread_id)
+            return str(Path(self.base_dir) / thread_id / "user-data")
 
         parts = relative.split("/", 1)
         subdir = parts[0]

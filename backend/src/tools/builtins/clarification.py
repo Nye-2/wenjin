@@ -6,12 +6,12 @@ from pydantic import BaseModel, Field
 
 
 class ClarificationInput(BaseModel):
-    """Input for ask_clarification tool."""
+    """Input for ask_clarification."""
     question: str = Field(description="The question to ask the user")
     options: list[str] | None = Field(default=None, description="Optional list of choices")
 
 
-@tool(args_schema=ClarificationInput)
+@tool("ask_clarification", args_schema=ClarificationInput)
 async def ask_clarification_tool(
     question: str,
     options: list[str] | None = None,

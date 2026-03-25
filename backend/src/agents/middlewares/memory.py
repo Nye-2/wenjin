@@ -1,209 +1,29 @@
-"""Memory middleware for persisting conversation context.
-
-This middleware intercepts conversations and enqueues them for memory updates,
-enabling persistent learning from user interactions.
-"""
+"""Memory middleware for the canonical DB-backed memory flow."""
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from src.agents.memory.queue import MemoryQueue
+from src.agents.memory.capture import (
+    enqueue_memory_capture,
+    filter_messages_for_memory as _filter_messages_for_memory,
+    messages_to_conversation_text,
+)
+from src.agents.memory.queue import MemoryQueue, get_default_memory_queue
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
-from src.database.models.knowledge import KnowledgeCategory
+from src.services.user_memory_service import (
+    _parse_knowledge_json,
+    build_memory_context,
+    extract_and_persist_knowledge,
+    format_knowledge_for_prompt,
+    load_user_memory,
+)
 
 logger = logging.getLogger(__name__)
-
-KNOWLEDGE_EXTRACTION_PROMPT = """从以下对话中提取学术相关知识点。返回 JSON 数组:
-[
-  {{
-    "category": "preference | knowledge | context | behavior | goal",
-    "content": "简洁描述（一句话）",
-    "confidence": 0.5-1.0
-  }}
-]
-
-仅提取明确或高度可推断的信息。不要猜测。不确定时不要提取。
-category 说明:
-- preference: 引用格式偏好、写作风格、语言偏好
-- knowledge: 学科知识、专业术语
-- context: 当前研究方向、进展状态
-- behavior: 操作习惯
-- goal: 研究目标、里程碑
-
-对话内容:
-{conversation}
-
-仅返回 JSON 数组，不要其他内容。"""
-
-
-def _coerce_confidence(value: Any, default: float = 0.7) -> float:
-    """Parse and clamp confidence into [0.0, 1.0]."""
-    try:
-        confidence = float(value)
-    except (TypeError, ValueError):
-        confidence = default
-    return min(1.0, max(0.0, confidence))
-
-
-def format_knowledge_for_prompt(knowledge_items: list[dict[str, Any]]) -> str:
-    """Format UserKnowledge entries into system prompt injection."""
-    if not knowledge_items:
-        return ""
-
-    sections: dict[str, list[str]] = {
-        "preference": [],
-        "knowledge": [],
-        "context": [],
-        "behavior": [],
-        "goal": [],
-    }
-    for item in knowledge_items:
-        cat = item.get("category", "context")
-        content = item.get("content", "")
-        conf = item.get("confidence", 0.7)
-        if cat in sections:
-            sections[cat].append(f"- {content} (置信度: {conf:.1f})")
-
-    parts: list[str] = ["<academic_memory>"]
-    label_map = {
-        "preference": "用户偏好",
-        "knowledge": "学科知识",
-        "context": "研究上下文",
-        "behavior": "行为习惯",
-        "goal": "研究目标",
-    }
-    for cat, label in label_map.items():
-        if sections[cat]:
-            parts.append(f"\n{label}:")
-            parts.extend(sections[cat])
-    parts.append("</academic_memory>")
-    return "\n".join(parts)
-
-
-async def load_user_memory(
-    user_id: str,
-    workspace_id: str | None = None,
-    *,
-    limit: int = 20,
-    min_confidence: float = 0.5,
-) -> list[dict[str, Any]]:
-    """Load active UserKnowledge from DB."""
-    from src.database import get_db_session
-    from src.services.knowledge_service import KnowledgeService
-
-    try:
-        async with get_db_session() as db:
-            service = KnowledgeService(db)
-            entries = await service.list_active(
-                user_id,
-                workspace_context=workspace_id,
-                min_confidence=min_confidence,
-                limit=limit,
-            )
-            return [
-                {
-                    "category": (
-                        entry.category.value
-                        if hasattr(entry.category, "value")
-                        else str(entry.category)
-                    ),
-                    "content": entry.content,
-                    "confidence": entry.confidence,
-                }
-                for entry in entries
-            ]
-    except Exception:
-        logger.exception("Failed to load user memory")
-        return []
-
-
-async def extract_and_persist_knowledge(
-    user_id: str,
-    conversation_text: str,
-    *,
-    workspace_context: str | None = None,
-    source: str | None = None,
-) -> int:
-    """Extract knowledge from conversation via LLM and persist to DB."""
-    from src.database import get_db_session
-    from src.services.knowledge_service import KnowledgeService
-
-    try:
-        from src.models.factory import create_chat_model
-        from src.models.router import route_model
-
-        try:
-            model_id = route_model(
-                preferred_categories=("utility", "gen", "tool"),
-                allowed_categories=("utility", "gen", "tool"),
-                require_tools=False,
-            )
-        except Exception:
-            model_id = "default"
-        model = create_chat_model(model_id, temperature=0.1)
-        prompt = KNOWLEDGE_EXTRACTION_PROMPT.format(
-            conversation=conversation_text[:4000],
-        )
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-
-        items = _parse_knowledge_json(content)
-        if not items:
-            return 0
-
-        count = 0
-        async with get_db_session() as db:
-            service = KnowledgeService(db)
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                cat = str(item.get("category", "")).strip()
-                text = str(item.get("content", "")).strip()
-                conf = _coerce_confidence(item.get("confidence", 0.7))
-                if not text or conf < 0.5:
-                    continue
-                try:
-                    KnowledgeCategory(cat)
-                except ValueError:
-                    continue
-                await service.upsert(
-                    user_id,
-                    cat,
-                    text,
-                    confidence=conf,
-                    source=source,
-                    workspace_context=workspace_context,
-                )
-                count += 1
-            await db.commit()
-        return count
-    except Exception:
-        logger.exception("Failed to extract knowledge")
-        return 0
-
-
-def _parse_knowledge_json(text: str) -> list[dict[str, Any]]:
-    """Parse JSON array from LLM response, handling markdown fences."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(
-            lines[1:-1] if lines[-1].strip() == "```" else lines[1:],
-        )
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, list):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-    return []
 
 
 class MemoryMiddleware(Middleware):
@@ -223,18 +43,24 @@ class MemoryMiddleware(Middleware):
         queue: MemoryQueue | None = None,
         enabled: bool = True,
         min_messages: int = 2,
+        inject_enabled: bool = True,
+        capture_enabled: bool = True,
     ):
         """Initialize MemoryMiddleware.
 
         Args:
             queue: MemoryQueue instance for batching updates.
-                   If None, a new queue will be created.
+                   If None, the configured default queue will be used.
             enabled: Whether to enable memory persistence (default: True)
             min_messages: Minimum message count to trigger enqueue (default: 2)
+            inject_enabled: Whether to inject long-term memory before model calls
+            capture_enabled: Whether to capture turns back into long-term memory
         """
-        self._queue = queue or MemoryQueue()
+        self._queue = queue or get_default_memory_queue()
         self._enabled = enabled
         self._min_messages = min_messages
+        self._inject_enabled = inject_enabled
+        self._capture_enabled = capture_enabled
 
     @property
     def queue(self) -> MemoryQueue:
@@ -251,18 +77,26 @@ class MemoryMiddleware(Middleware):
         state: ThreadState,
         config: RunnableConfig,
     ) -> dict[str, Any]:
-        """Called before the model processes messages.
+        """Inject persistent user memory into the prompt state."""
+        if not self._enabled or not self._inject_enabled:
+            return {}
 
-        This middleware does not modify state before model processing.
+        if state.get("memory_context"):
+            return {}
 
-        Args:
-            state: Current thread state
-            config: Runtime configuration
+        configurable = config.get("configurable", {})
+        user_id = configurable.get("user_id")
+        if not user_id:
+            return {}
 
-        Returns:
-            Empty dict (no state modifications)
-        """
-        return {}
+        workspace_id = state.get("workspace_id") or configurable.get("workspace_id")
+        memory_context = await build_memory_context(
+            str(user_id),
+            str(workspace_id) if workspace_id else None,
+        )
+        if not memory_context:
+            return {}
+        return {"memory_context": memory_context}
 
     async def after_model(
         self,
@@ -281,7 +115,7 @@ class MemoryMiddleware(Middleware):
             Empty dict (no state modifications)
         """
         # Skip if disabled
-        if not self._enabled:
+        if not self._enabled or not self._capture_enabled:
             return {}
 
         # Get messages from state
@@ -292,20 +126,26 @@ class MemoryMiddleware(Middleware):
             return {}
 
         # Filter to only Human and AI messages (exclude tool messages, system, etc.)
-        filtered_messages = [
-            msg for msg in messages
-            if isinstance(msg, (HumanMessage, AIMessage))
-        ]
+        filtered_messages = _filter_messages_for_memory(messages)
 
         # Skip if no meaningful messages after filtering
         if len(filtered_messages) < self._min_messages:
             return {}
 
         # Get thread_id from config
-        thread_id = config.get("configurable", {}).get("thread_id", "default")
+        configurable = config.get("configurable", {})
+        thread_id = configurable.get("thread_id", "default")
+        user_id = configurable.get("user_id")
+        workspace_id = configurable.get("workspace_id")
 
-        # Enqueue for memory update
-        self._queue.enqueue(thread_id, filtered_messages)
+        enqueue_memory_capture(
+            thread_id=str(thread_id),
+            user_id=str(user_id) if user_id else None,
+            workspace_id=str(workspace_id) if workspace_id else None,
+            messages=filtered_messages,
+            source="chat.middleware",
+            queue=self._queue,
+        )
 
         logger.debug(
             f"Enqueued {len(filtered_messages)} messages for memory update "

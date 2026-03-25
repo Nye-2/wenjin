@@ -1,5 +1,6 @@
 """Tests for rate limiting middleware activation."""
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import FastAPI
@@ -66,6 +67,49 @@ class TestRateLimiting:
         resp = client.get("/test")
         assert "X-RateLimit-Limit" in resp.headers
         assert "X-RateLimit-Window" in resp.headers
+
+    def test_forwarded_for_is_ignored_for_untrusted_direct_client(self):
+        from src.gateway.middleware.rate_limit import RateLimitMiddleware
+
+        middleware = RateLimitMiddleware(FastAPI())
+        request = SimpleNamespace(
+            headers={"X-Forwarded-For": "203.0.113.10"},
+            client=SimpleNamespace(host="8.8.8.8"),
+        )
+
+        assert middleware._get_client_ip(request) == "8.8.8.8"
+
+    def test_forwarded_for_is_used_for_private_proxy_hops(self):
+        from src.gateway.middleware.rate_limit import RateLimitMiddleware
+
+        middleware = RateLimitMiddleware(FastAPI())
+        request = SimpleNamespace(
+            headers={"X-Forwarded-For": "203.0.113.10, 172.18.0.2"},
+            client=SimpleNamespace(host="172.18.0.2"),
+        )
+
+        assert middleware._get_client_ip(request) == "203.0.113.10"
+
+    @patch("time.time", side_effect=[100.0, 100.0, 100.0, 100.0])
+    def test_redis_failure_falls_back_to_memory_limit(self, _mock_time):
+        from src.gateway.middleware.rate_limit import RateLimitMiddleware
+
+        class FailingRedis:
+            @property
+            def client(self):
+                raise RuntimeError("redis unavailable")
+
+        middleware = RateLimitMiddleware(
+            FastAPI(),
+            requests_per_minute=1,
+            window_seconds=60,
+            redis_client=FailingRedis(),
+        )
+
+        import asyncio
+
+        assert asyncio.run(middleware._check_redis("rate_limit:test")) is True
+        assert asyncio.run(middleware._check_redis("rate_limit:test")) is False
 
     def test_setup_uses_redis_settings_values(self):
         from src.gateway.middleware.rate_limit import RateLimitMiddleware, setup_rate_limiting

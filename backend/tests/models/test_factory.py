@@ -99,10 +99,11 @@ class TestCreateChatModel:
                 thinking_enabled=True
             )
 
-            # Verify thinking_budget is set
             assert model is not None
-            # ChatAnthropic with thinking should have thinking_budget
-            assert hasattr(model, "thinking_budget") or hasattr(model, "model_kwargs")
+            assert getattr(model, "thinking", None) == {
+                "type": "enabled",
+                "budget_tokens": 10000,
+            }
 
     def test_error_when_no_models_configured(self) -> None:
         """No configured models should raise explicit configuration error."""

@@ -47,7 +47,6 @@ def _get_imports(source: str) -> set[str]:
 ROUTER_MODULES = [
     "src.gateway.routers.papers",
     "src.gateway.routers.artifacts",
-    "src.gateway.routers.academic",
     "src.gateway.routers.workspaces",
     "src.gateway.routers.tasks",
 ]
@@ -103,7 +102,6 @@ class TestRouterRegistration:
         app_source = _get_router_source("src.gateway.app")
 
         expected_routers = [
-            "academic",
             "artifacts",
             "auth",
             "chat",
@@ -132,7 +130,6 @@ class TestAuthDependency:
         "src.gateway.routers.tasks",
         "src.gateway.routers.papers",
         "src.gateway.routers.artifacts",
-        "src.gateway.routers.academic",
     ]
 
     @pytest.mark.parametrize("module_name", AUTH_REQUIRED_ROUTERS)

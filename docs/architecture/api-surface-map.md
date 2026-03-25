@@ -1,7 +1,7 @@
 # API Surface Map
 
-Generated: 2026-03-19
-Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gateway/routers/` + `backend/src/api/subagents.py` + `backend/src/thesis/api.py`
+Generated: 2026-03-20
+Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gateway/routers/` + `backend/src/api/subagents.py`
 
 ## Global Endpoints
 
@@ -22,22 +22,23 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 | Literature | `/api/workspaces/{workspace_id}/literature*` | Bearer | 文献 CRUD、批量导入、数量统计 |
 | Papers | `/api/papers*` | Bearer | 论文 CRUD、提取、检索、章节 |
 | Artifacts | `/api/workspaces/{workspace_id}/artifacts*` | Bearer | Canonical workspace-scoped 成果 CRUD、lineage |
-| Tasks | `/api/tasks*` | Bearer | 任务提交、状态、SSE 进度、取消 |
+| Tasks | `/api/tasks*` | Bearer | 任务状态、SSE 进度、取消；不再提供任务创建入口 |
 | Dashboard | `/api/dashboard/*` | Bearer | 用户看板 + 管理员看板/积分/发布门禁 |
 
-## Deprecated Compatibility Surface
+## Removed Compatibility Surface
 
-`backend/src/gateway/app.py` 的 `deprecation_middleware` 会对以下路径写入 `Deprecation` 与 `Sunset: 2026-05-01` 头:
+以下兼容入口已从网关移除，不再提供服务：
 
 | Group | Prefix | Status |
 |---|---|---|
-| Thesis API | `/api/thesis/*` | Deprecated |
-| Academic router (tag=`academic`) | `/api/*` (tag 区分) | Deprecated |
+| Thesis API | `/api/thesis/*` | Removed |
+| Academic router (legacy `/academic/papers`) | `/api/*` | Removed |
 
 ## Notes for API Consumers
 
 - 新能力只应接入 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`。
 - artifact 的读写应统一接入 `/api/workspaces/{workspace_id}/artifacts*`。
 - thread skill 属于会话级状态，服务端持久化在 `chat_threads.skill`。
+- `POST /api/tasks` 已删除；新任务必须走 feature execute 或 papers extract 等 domain 入口。
 - 对长时任务，前端应使用 `/api/tasks/{task_id}` 或 `/api/tasks/{task_id}/stream` 获取进度。
 - `/api/chat/stream` 与 `/api/tasks/{task_id}/stream` 均为 SSE，需要反向代理禁用缓冲。

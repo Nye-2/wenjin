@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from src.task.registry import WORKSPACE_FEATURE_TASK
+
 FEATURE_COSTS: dict[str, int | dict[str, int]] = {
     "deep_research": 100,
     "literature_management": 20,
@@ -32,9 +34,7 @@ FEATURE_COSTS: dict[str, int | dict[str, int]] = {
 }
 
 BILLABLE_TASK_TYPES: frozenset[str] = frozenset({
-    "workspace_feature",
-    "deep_research",
-    "literature_search",
+    WORKSPACE_FEATURE_TASK,
 })
 
 FEATURE_DISPLAY_NAMES: dict[str, str] = {

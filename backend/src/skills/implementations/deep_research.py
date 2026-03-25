@@ -619,10 +619,13 @@ class DeepResearchSkillV2(BaseSkill):
             # Create artifacts
             artifacts = self._create_artifacts(
                 input.workspace_id,
+                input.user_query,
                 papers,
                 patterns,
+                trends,
                 gaps,
                 ideas,
+                synthesis,
             )
             self._upsert_runtime_block(
                 runtime,
@@ -1350,100 +1353,133 @@ class DeepResearchSkillV2(BaseSkill):
     def _create_artifacts(
         self,
         workspace_id: str,
+        query: str,
         papers: list[Paper],
         patterns: list[ResearchPattern],
+        trends: list[ResearchTrend],
         gaps: list[ResearchGap],
         ideas: list[ResearchIdea],
+        synthesis: str,
     ) -> list[AcademicArtifact]:
         """Create academic artifacts from the analysis.
 
         Args:
             workspace_id: The workspace ID.
+            query: The original deep research query.
             papers: List of analyzed papers.
             patterns: List of identified patterns.
+            trends: List of identified trends.
             gaps: List of identified gaps.
             ideas: List of generated ideas.
+            synthesis: Final synthesis summary.
 
         Returns:
             List of AcademicArtifact objects.
         """
-        artifacts = []
         timestamp = datetime.now(UTC)
+        serialized_papers = [
+            {
+                "title": paper.title,
+                "authors": paper.authors,
+                "year": paper.year,
+                "venue": paper.venue,
+                "citations": paper.citations,
+                "doi": paper.doi,
+                "url": paper.url,
+                "paper_id": paper.paper_id,
+                "abstract": paper.abstract,
+            }
+            for paper in papers
+        ]
+        serialized_patterns = [
+            {
+                "description": pattern.description,
+                "frequency": pattern.frequency,
+                "papers": pattern.papers,
+            }
+            for pattern in patterns
+        ]
+        serialized_trends = [
+            {
+                "topic": trend.topic,
+                "description": trend.description,
+                "growth_rate": trend.growth_rate,
+                "paper_count": trend.paper_count,
+            }
+            for trend in trends
+        ]
+        serialized_gaps = [
+            {
+                "description": gap.description,
+                "supporting_evidence": gap.supporting_evidence,
+                "potential_impact": gap.potential_impact,
+            }
+            for gap in gaps
+        ]
+        serialized_ideas = [
+            {
+                "title": idea.title,
+                "description": idea.description,
+                "methodology_hints": idea.methodology_hints,
+                "related_papers": idea.related_papers,
+                "novelty_score": idea.novelty_score,
+            }
+            for idea in ideas
+        ]
 
-        # Create literature review artifact
-        artifacts.append(AcademicArtifact(
-            id=f"lit-review-{uuid.uuid4().hex[:8]}",
-            workspace_id=workspace_id,
-            type="literature_review",
-            content={
-                "papers": [
-                    {
-                        "title": p.title,
-                        "authors": p.authors,
-                        "year": p.year,
-                        "venue": p.venue,
-                        "citations": p.citations,
-                        "doi": p.doi,
-                    }
-                    for p in papers
-                ],
-                "patterns": [
-                    {
-                        "description": p.description,
-                        "frequency": p.frequency,
-                        "papers": p.papers,
-                    }
-                    for p in patterns
-                ],
-                "created_at": timestamp.isoformat(),
-            },
-            created_by_skill=self.name,
-        ))
+        recommended_actions = [
+            {
+                "action": "literature_management",
+                "reason": "将调研结果导入文献管理，便于筛选与引用。",
+            }
+        ]
+        if serialized_gaps or serialized_ideas:
+            recommended_actions.append(
+                {
+                    "action": "thesis_writing.generate_outline",
+                    "reason": "基于研究空白与候选创意生成论文大纲。",
+                }
+            )
+        if serialized_ideas:
+            recommended_actions.append(
+                {
+                    "action": "opening_research",
+                    "reason": "把调研结论进一步整理为开题背景与研究意义。",
+                }
+            )
 
-        # Create research ideas artifact
-        if ideas:
-            artifacts.append(AcademicArtifact(
-                id=f"research-ideas-{uuid.uuid4().hex[:8]}",
+        return [
+            AcademicArtifact(
+                id=f"deep-research-{uuid.uuid4().hex[:8]}",
                 workspace_id=workspace_id,
-                type="research_ideas",
+                type="deep_research_report",
                 content={
-                    "ideas": [
-                        {
-                            "title": idea.title,
-                            "description": idea.description,
-                            "methodology_hints": idea.methodology_hints,
-                            "related_papers": idea.related_papers,
-                            "novelty_score": idea.novelty_score,
-                        }
-                        for idea in ideas
-                    ],
-                    "gaps_addressed": [g.description for g in gaps],
-                    "created_at": timestamp.isoformat(),
+                    "schema_version": "v1",
+                    "source_feature": "deep_research",
+                    "topic": query,
+                    "discipline": None,
+                    "query": {
+                        "keywords": [query],
+                        "constraints": [],
+                    },
+                    "corpus": {
+                        "paper_count": len(serialized_papers),
+                        "top_papers": serialized_papers[:8],
+                    },
+                    "discovery": {
+                        "patterns": serialized_patterns,
+                        "trends": serialized_trends,
+                        "summary": synthesis,
+                    },
+                    "gaps": serialized_gaps,
+                    "ideas": serialized_ideas,
+                    "recommended_actions": recommended_actions,
+                    "generated_at": timestamp.isoformat(),
+                    "generation_mode": "skill",
                 },
                 created_by_skill=self.name,
-            ))
-
-        # Create research gap analysis artifact
-        if gaps:
-            artifacts.append(AcademicArtifact(
-                id=f"gap-analysis-{uuid.uuid4().hex[:8]}",
-                workspace_id=workspace_id,
-                type="gap_analysis",
-                content={
-                    "gaps": [
-                        {
-                            "description": g.description,
-                            "supporting_evidence": g.supporting_evidence,
-                            "potential_impact": g.potential_impact,
-                        }
-                        for g in gaps
-                    ],
-                    "created_at": timestamp.isoformat(),
-                },
-                created_by_skill=self.name,
-            ))
-
-        return artifacts
+            )
+        ]
 
     def _build_report(
         self,

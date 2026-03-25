@@ -10,6 +10,7 @@ supporting:
 """
 
 import logging
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
@@ -45,10 +46,20 @@ def _is_anthropic_provider(base_url: str, model: str) -> bool:
     return False
 
 
+def _supports_reasoning_effort(config: dict[str, Any]) -> bool:
+    """Infer whether the model accepts reasoning_effort."""
+    if bool(config.get("supports_reasoning_effort", False)):
+        return True
+
+    model_string = str(config.get("model", "") or "").lower()
+    return "gpt-5" in model_string or "doubao" in model_string
+
+
 def create_chat_model(
     model_id: str,
     temperature: float | None = None,
     thinking_enabled: bool = False,
+    reasoning_effort: str | None = None,
 ) -> BaseChatModel:
     """Create a chat model instance based on dynamic configuration.
 
@@ -60,7 +71,8 @@ def create_chat_model(
         temperature: Optional temperature override. If not provided, uses
                      the temperature from the model config.
         thinking_enabled: Whether to enable extended thinking for Claude models.
-                         When enabled, adds thinking_budget and betas parameters.
+                         When enabled, adds thinking and betas parameters.
+        reasoning_effort: Optional reasoning effort for GPT-5/Doubao-style models.
 
     Returns:
         Configured chat model instance (ChatOpenAI or ChatAnthropic)
@@ -94,6 +106,14 @@ def create_chat_model(
 
     # Determine if this is an Anthropic model
     is_anthropic = _is_anthropic_provider(base_url, model_string)
+    supports_reasoning_effort = _supports_reasoning_effort(config)
+    resolved_reasoning_effort = (
+        reasoning_effort.strip()
+        if isinstance(reasoning_effort, str) and reasoning_effort.strip()
+        else None
+    )
+    if supports_reasoning_effort and resolved_reasoning_effort is None:
+        resolved_reasoning_effort = "minimal"
 
     if is_anthropic:
         return _create_anthropic_model(
@@ -111,6 +131,9 @@ def create_chat_model(
             base_url=base_url,
             temperature=actual_temperature,
             max_tokens=max_tokens,
+            reasoning_effort=(
+                resolved_reasoning_effort if supports_reasoning_effort else None
+            ),
         )
 
 
@@ -120,6 +143,7 @@ def _create_openai_compatible_model(
     base_url: str,
     temperature: float,
     max_tokens: int,
+    reasoning_effort: str | None = None,
 ) -> ChatOpenAI:
     """Create an OpenAI-compatible model instance.
 
@@ -141,12 +165,18 @@ def _create_openai_compatible_model(
         base_url,
     )
 
+    kwargs: dict[str, Any] = {
+        "model": model_string,
+        "api_key": api_key,
+        "base_url": base_url,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if reasoning_effort:
+        kwargs["reasoning_effort"] = reasoning_effort
+
     return ChatOpenAI(
-        model=model_string,
-        api_key=api_key,
-        base_url=base_url,
-        temperature=temperature,
-        max_tokens=max_tokens,
+        **kwargs,
     )
 
 
@@ -188,9 +218,12 @@ def _create_anthropic_model(
         "max_tokens": max_tokens,
     }
 
-    # Add extended thinking parameters if enabled
+    # LangChain Anthropic expects extended thinking under the `thinking` field.
     if thinking_enabled:
-        kwargs["thinking_budget"] = DEFAULT_THINKING_BUDGET
+        kwargs["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": DEFAULT_THINKING_BUDGET,
+        }
         kwargs["betas"] = DEFAULT_ANTHROPIC_BETAS
         logger.debug(
             "Extended thinking enabled with budget=%d",

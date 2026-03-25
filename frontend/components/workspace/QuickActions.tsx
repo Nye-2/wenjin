@@ -47,24 +47,45 @@ const colorMap: Record<string, string> = {
 
 interface QuickActionsProps {
   onAction: (featureId: string) => void;
+  featureIds?: string[];
+  maxItems?: number;
 }
 
-export function QuickActions({ onAction }: QuickActionsProps) {
+export function QuickActions({
+  onAction,
+  featureIds,
+  maxItems = 5,
+}: QuickActionsProps) {
   const { features } = useFeaturesStore();
   const { isExecuting } = useTaskStore();
+  const orderedFeatures = (() => {
+    if (featureIds && featureIds.length > 0) {
+      const preferredOrder = new Map(
+        featureIds.map((featureId, index) => [featureId, index])
+      );
+      return features
+        .filter((feature) => preferredOrder.has(feature.id))
+        .sort(
+          (left, right) =>
+            (preferredOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+            (preferredOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+        );
+    }
+    return features.slice(0, maxItems);
+  })();
 
   const handleAction = (featureId: string) => {
     if (isExecuting) return;
     onAction(featureId);
   };
 
-  if (features.length === 0) {
+  if (orderedFeatures.length === 0) {
     return null;
   }
 
   return (
     <div className="flex flex-wrap gap-2">
-      {features.map((feature) => {
+      {orderedFeatures.slice(0, maxItems).map((feature) => {
         const Icon = iconMap[feature.icon] || FileText;
         const colorClass = colorMap[feature.color || ""] || "text-[var(--text-primary)]";
         const isDisabled = isExecuting;

@@ -17,6 +17,11 @@ import {
   deleteWorkspace as apiDeleteWorkspace,
   getWorkspaceActivity,
 } from '../lib/api';
+import {
+  isWorkspaceChatCockpitEnabled,
+  isWorkspaceChatOrchestrationEnabled,
+} from '@/lib/workspace-rollout';
+import { upsertWorkspaceActivityList } from '@/lib/workspace-event-ordering';
 
 // ============ Types ============
 
@@ -69,6 +74,8 @@ interface WorkspaceState {
   fetchPapers: (workspaceId: string) => Promise<void>;
   fetchArtifacts: (workspaceId: string) => Promise<void>;
   fetchActivity: (workspaceId: string, limit?: number) => Promise<void>;
+  upsertActivity: (activity: WorkspaceActivityItem) => void;
+  removeActivity: (activityId: string) => void;
   createArtifact: (data: {
     workspace_id: string;
     type: string;
@@ -76,6 +83,8 @@ interface WorkspaceState {
     content: Record<string, unknown>;
   }) => Promise<Artifact>;
   clearError: () => void;
+  isChatCockpitEnabled: () => boolean;
+  isChatOrchestrationEnabled: () => boolean;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -247,6 +256,29 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  upsertActivity: (activity: WorkspaceActivityItem) => {
+    if (!activity?.id) {
+      return;
+    }
+
+    set((state) => {
+      const limit = state.activities.length > 0 ? state.activities.length : 40;
+      return {
+        activities: upsertWorkspaceActivityList(state.activities, activity, limit),
+      };
+    });
+  },
+
+  removeActivity: (activityId: string) => {
+    if (!activityId) {
+      return;
+    }
+
+    set((state) => ({
+      activities: state.activities.filter((item) => item.id !== activityId),
+    }));
+  },
+
   createArtifact: async (data) => {
     try {
       const artifact = await createArtifact({
@@ -273,6 +305,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   clearError: () => {
     set({ error: null });
+  },
+
+  isChatCockpitEnabled: () => {
+    return isWorkspaceChatCockpitEnabled(get().workspace);
+  },
+
+  isChatOrchestrationEnabled: () => {
+    return isWorkspaceChatOrchestrationEnabled(get().workspace);
   },
 }));
 

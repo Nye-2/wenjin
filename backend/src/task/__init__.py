@@ -13,7 +13,20 @@ from src.task.registry import (
 )
 from src.task.service import TaskService
 from src.task.store import TaskStore
-from src.task.worker import start_flower, start_worker
+
+
+def start_worker(*args, **kwargs):
+    """Lazily import and start the Celery worker entrypoint."""
+    from src.task.worker import start_worker as _start_worker
+
+    return _start_worker(*args, **kwargs)
+
+
+def start_flower(*args, **kwargs):
+    """Lazily import and start the Flower entrypoint."""
+    from src.task.worker import start_flower as _start_flower
+
+    return _start_flower(*args, **kwargs)
 
 __all__ = [
     # Celery

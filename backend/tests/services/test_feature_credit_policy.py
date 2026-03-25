@@ -25,8 +25,12 @@ class TestFeatureCosts:
 class TestBillableTaskTypes:
     def test_contains_core_types(self):
         assert "workspace_feature" in BILLABLE_TASK_TYPES
-        assert "deep_research" in BILLABLE_TASK_TYPES
-        assert "literature_search" in BILLABLE_TASK_TYPES
+
+    def test_legacy_deep_research_task_type_is_not_billable(self):
+        assert "deep_research" not in BILLABLE_TASK_TYPES
+
+    def test_legacy_literature_search_task_type_is_not_billable(self):
+        assert "literature_search" not in BILLABLE_TASK_TYPES
 
     def test_is_frozen_set(self):
         assert isinstance(BILLABLE_TASK_TYPES, frozenset)

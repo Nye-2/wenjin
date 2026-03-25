@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import shlex
 import shutil
 from pathlib import Path
 
@@ -46,6 +47,7 @@ class LocalSandbox(Sandbox):
         self._resolved_base_paths = {
             vp: str(Path(pp).resolve()) for vp, pp in path_mappings.items()
         }
+        self._workspace_path = path_mappings.get("/mnt/user-data/workspace")
 
     def _resolve_path(self, path: str) -> str:
         """Resolve virtual path to physical path with security checks.
@@ -146,12 +148,34 @@ class LocalSandbox(Sandbox):
             return shell_from_path
         return "/bin/sh"
 
+    def _validate_command(self, command: str) -> None:
+        """Reject obvious absolute-path references outside the virtual sandbox."""
+        try:
+            tokens = shlex.split(command, posix=True)
+        except ValueError:
+            return
+
+        for token in tokens:
+            if token.startswith("/") and not token.startswith("/mnt/user-data"):
+                raise SandboxSecurityError(
+                    f"Command references path outside sandbox: {token}"
+                )
+
     async def execute_command(
         self,
         command: str,
         timeout: int = 300,
     ) -> CommandResult:
         """Execute shell command."""
+        try:
+            self._validate_command(command)
+        except SandboxSecurityError as exc:
+            return CommandResult(
+                stdout="",
+                stderr=str(exc),
+                exit_code=1,
+            )
+
         # Resolve virtual paths in command
         resolved_command = command
         for virtual_path, physical_path in sorted(
@@ -171,6 +195,7 @@ class LocalSandbox(Sandbox):
                 executable=self._get_shell(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=self._workspace_path,
             )
 
             try:
@@ -310,6 +335,11 @@ class LocalSandboxProvider(SandboxProvider):
         self._lock = asyncio.Lock()
         self._cleanup_on_release = cleanup_on_release
 
+    @staticmethod
+    def _get_user_data_root(base_dir: str, thread_id: str) -> Path:
+        """Resolve the persistent per-thread user-data directory."""
+        return Path(base_dir) / thread_id / "user-data"
+
     async def acquire(self, thread_id: str) -> LocalSandbox:
         """Acquire or create sandbox for thread."""
         async with self._lock:
@@ -317,13 +347,13 @@ class LocalSandboxProvider(SandboxProvider):
                 return self._sandboxes[thread_id]
 
             # Create thread directories
-            thread_path = Path(self.base_dir) / thread_id
+            user_data_path = self._get_user_data_root(self.base_dir, thread_id)
             for subdir in ["workspace", "uploads", "outputs"]:
-                (thread_path / subdir).mkdir(parents=True, exist_ok=True)
+                (user_data_path / subdir).mkdir(parents=True, exist_ok=True)
 
             # Create path mappings
             path_mappings = {
-                f"/mnt/user-data/{subdir}": str(thread_path / subdir)
+                f"/mnt/user-data/{subdir}": str(user_data_path / subdir)
                 for subdir in ["workspace", "uploads", "outputs"]
             }
 

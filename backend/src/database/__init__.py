@@ -28,6 +28,7 @@ from .models import (
     PaperChunk,
     PaperExtraction,
     PaperSection,
+    SubagentTaskRecord,
     # Task
     TaskRecord,
     # User
@@ -45,8 +46,11 @@ from .session import (
     async_session_factory,
     close_db,
     engine,
+    get_async_session_factory,
     get_db_session,
+    get_engine,
     init_db,
+    reset_db_engine,
 )
 
 __all__ = [
@@ -59,8 +63,11 @@ __all__ = [
     "get_db_session",
     "async_session_factory",
     "engine",
+    "get_async_session_factory",
+    "get_engine",
     "init_db",
     "close_db",
+    "reset_db_engine",
     # Models - User
     "User",
     # Models - Workspace
@@ -93,6 +100,7 @@ __all__ = [
     "GenerationRecord",
     # Models - Task
     "TaskRecord",
+    "SubagentTaskRecord",
     # Models - Workspace Literature
     "WorkspaceLiterature",
 ]

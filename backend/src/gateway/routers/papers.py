@@ -17,15 +17,14 @@ from src.database import (
 )
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.paper import (
-    ExtractionResponse,
     PaperResponse,
+    PaperExtractionTaskResponse,
     SectionResponse,
-    extraction_to_response,
+    paper_extraction_task_to_response,
     paper_to_response,
     section_to_response,
 )
 from src.gateway.deps import (
-    get_extraction_service,
     get_paper_service,
     get_workspace_service,
 )
@@ -38,7 +37,6 @@ from src.gateway.validators.paper import (
 
 router = APIRouter(prefix="/papers", tags=["papers"])
 __all__ = [
-    "get_extraction_service",
     "get_paper_service",
     "get_papers_handler",
     "get_workspace_service",
@@ -219,7 +217,7 @@ async def delete_paper(
     return {"success": True, "message": f"Paper {paper_id} deleted"}
 
 
-@router.post("/{paper_id}/extract", response_model=ExtractionResponse)
+@router.post("/{paper_id}/extract", response_model=PaperExtractionTaskResponse, status_code=status.HTTP_202_ACCEPTED)
 async def extract_paper(
     paper_id: str,
     workspace_id: str,
@@ -227,20 +225,18 @@ async def extract_paper(
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
 ):
-    """Trigger paper extraction.
+    """Queue paper extraction.
 
     Args:
         paper_id: Paper UUID string
         workspace_id: Workspace UUID string for section extraction
         tier: Extraction tier (1=engineering, 2=LLM)
-        paper_service: Paper service instance
-        extraction_service: Extraction service instance
 
     Returns:
-        Extraction response
+        Async task submission response
 
     Raises:
-        HTTPException: If paper not found or extraction fails
+        HTTPException: If the paper is inaccessible or task submission fails
     """
     try:
         extraction = await handler.extract_paper(
@@ -251,7 +247,7 @@ async def extract_paper(
         )
     except ApplicationError as exc:
         raise to_http_exception(exc) from exc
-    return extraction_to_response(extraction)
+    return paper_extraction_task_to_response(extraction)
 
 
 @router.get("/{paper_id}/sections", response_model=list[SectionResponse])

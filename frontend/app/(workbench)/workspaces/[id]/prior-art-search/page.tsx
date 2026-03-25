@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, Search } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { Search } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -17,7 +17,12 @@ import {
   type WorkspaceResultViewModel,
 } from "@/components/workspace/WorkspaceResultPanel";
 import { createWorkspaceResultViewModel, describeFields, describeTaskStatus } from "@/lib/workspace-result";
-import { findLatestArtifact, getArtifactContentRecord, readStringList } from "@/lib/artifact-utils";
+import {
+  findLatestArtifact,
+  getArtifactContentRecord,
+  joinStringArrayLike,
+  readStringList,
+} from "@/lib/artifact-utils";
 import { cn } from "@/lib/utils";
 
 const TIME_RANGE_OPTIONS = [
@@ -30,12 +35,29 @@ const TIME_RANGE_OPTIONS = [
 
 export default function PriorArtSearchPage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params.id as string;
   const { workspace, artifacts } = useWorkspaceStore();
+  const keywordsSeed = searchParams.get("keywords");
+  const ipcCodesSeed = searchParams.get("ipc_codes");
+  const timeRangeSeed = searchParams.get("time_range");
 
-  const [keywords, setKeywords] = useState("");
-  const [ipcCodes, setIpcCodes] = useState("");
+  const [keywords, setKeywords] = useState(() => keywordsSeed || "");
+  const [ipcCodes, setIpcCodes] = useState(() => ipcCodesSeed || "");
+
+  useEffect(() => {
+    if (keywordsSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setKeywords(keywordsSeed);
+    }
+  }, [keywordsSeed]);
+
+  useEffect(() => {
+    if (ipcCodesSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setIpcCodes(ipcCodesSeed);
+    }
+  }, [ipcCodesSeed]);
 
   useEffect(() => {
     if (workspace && !keywords) {
@@ -43,7 +65,18 @@ export default function PriorArtSearchPage() {
       setKeywords((workspace.name || workspace.description || "").toString());
     }
   }, [workspace, keywords]);
-  const [timeRange, setTimeRange] = useState<string>("近5年");
+  const [timeRange, setTimeRange] = useState<string>(() =>
+    TIME_RANGE_OPTIONS.some((item) => item.value === timeRangeSeed)
+      ? (timeRangeSeed as string)
+      : "近5年"
+  );
+
+  useEffect(() => {
+    if (TIME_RANGE_OPTIONS.some((item) => item.value === timeRangeSeed)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setTimeRange(timeRangeSeed as string);
+    }
+  }, [timeRangeSeed]);
 
   const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
@@ -73,6 +106,39 @@ export default function PriorArtSearchPage() {
     : [];
   const noveltyRisks = readStringList(latestPriorArtResult?.novelty_risks, 3);
   const avoidanceSuggestions = readStringList(latestPriorArtResult?.avoidance_suggestions, 3);
+
+  useEffect(() => {
+    const latestKeywords = joinStringArrayLike(latestPriorArtResult?.keywords);
+    if (latestKeywords && !keywords) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest keywords when route seed is absent
+      setKeywords(latestKeywords);
+    }
+  }, [latestPriorArtResult, keywords]);
+
+  useEffect(() => {
+    const latestIpcCodes = joinStringArrayLike(latestPriorArtResult?.ipc_codes);
+    if (latestIpcCodes && !ipcCodes) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest IPC codes when route seed is absent
+      setIpcCodes(latestIpcCodes);
+    }
+  }, [latestPriorArtResult, ipcCodes]);
+
+  useEffect(() => {
+    const latestTimeRange =
+      typeof latestPriorArtResult?.time_range === "string"
+        ? latestPriorArtResult.time_range
+        : null;
+    if (
+      latestTimeRange &&
+      timeRange === "近5年" &&
+      !timeRangeSeed &&
+      TIME_RANGE_OPTIONS.some((item) => item.value === latestTimeRange)
+    ) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest time range when route seed is absent
+      setTimeRange(latestTimeRange);
+    }
+  }, [latestPriorArtResult, timeRange, timeRangeSeed]);
+
   const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
     summary: latestPriorArtResult
       ? "最近一次现有技术检索分析已生成，可用于修订专利方案与权利要求。"
@@ -134,48 +200,18 @@ export default function PriorArtSearchPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Header */}
-      <header className="h-14 flex items-center gap-4 px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push(`/workspaces/${workspaceId}`)}
-          className={cn(
-            "p-2 rounded-lg",
-            "bg-[var(--bg-surface)]",
-            "hover:bg-[var(--bg-muted)]",
-            "text-[var(--text-secondary)]",
-            "transition-colors"
-          )}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-amber-500/10">
-            <Search className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[var(--text-primary)]">
-              现有技术检索
-            </h1>
-            <p className="text-xs text-[var(--text-muted)]">
-              检索相关专利与文献，辅助新颖性分析
-            </p>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Input */}
-        <aside className="w-96 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4 overflow-y-auto">
-          <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">
-            检索配置
-          </h2>
-
-          <div className="space-y-4">
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="现有技术检索"
+      description="检索相关专利与文献，辅助新颖性分析"
+      icon={Search}
+      iconBgClass="bg-amber-500/10"
+      iconClass="text-amber-600 dark:text-amber-400"
+      sidebarTitle="检索配置"
+      sidebarWidthClassName="lg:w-96"
+      sidebarClassName="overflow-y-auto"
+      sidebar={
+        <div className="space-y-4">
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 检索关键词 <span className="text-red-500">*</span>
@@ -265,28 +301,18 @@ export default function PriorArtSearchPage() {
               error={error}
               onRetry={handleSearch}
             />
-          </div>
-        </aside>
-
-        {/* Main Area */}
-        <div className="flex-1 p-6 overflow-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <TaskRuntimePanel
-              runtime={runtime}
-              isRunning={isRunning}
-              status={status}
-              error={error}
-              title="现有技术检索运行面板"
-              emptyDescription="执行后，这里会显示检索范围、对比分析和风险整理过程。"
-            />
-            <WorkspaceResultPanel viewModel={resultViewModel} />
-          </motion.div>
         </div>
-      </main>
-    </div>
+      }
+    >
+      <TaskRuntimePanel
+        runtime={runtime}
+        isRunning={isRunning}
+        status={status}
+        error={error}
+        title="现有技术检索运行面板"
+        emptyDescription="执行后，这里会显示检索范围、对比分析和风险整理过程。"
+      />
+      <WorkspaceResultPanel viewModel={resultViewModel} />
+    </FeatureWorkbenchShell>
   );
 }

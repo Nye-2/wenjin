@@ -1,7 +1,23 @@
 """Task system configuration."""
 
+import sys
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from src.config.app_config import celery_settings
+
+
+def _task_settings_config() -> SettingsConfigDict:
+    """Create task settings config without leaking local `.env` into tests."""
+    env_file = None if "pytest" in sys.modules else ".env"
+    return SettingsConfigDict(
+        env_prefix="TASK_",
+        case_sensitive=False,
+        env_file=env_file,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 class TaskSettings(BaseSettings):
@@ -9,24 +25,34 @@ class TaskSettings(BaseSettings):
 
     # Celery
     celery_broker_url: str = Field(
-        default="redis://localhost:6379/1", description="Celery broker URL"
+        default_factory=lambda: celery_settings.broker_url,
+        description="Celery broker URL",
     )
     celery_result_backend: str = Field(
-        default="redis://localhost:6379/2", description="Celery result backend URL"
+        default_factory=lambda: celery_settings.result_backend,
+        description="Celery result backend URL",
     )
 
     # Worker
-    worker_concurrency: int = Field(default=4, ge=1, description="Worker concurrency")
+    worker_concurrency: int = Field(
+        default_factory=lambda: celery_settings.worker_concurrency,
+        ge=1,
+        description="Worker concurrency",
+    )
     worker_prefetch_multiplier: int = Field(
         default=2, ge=1, description="Worker prefetch multiplier"
     )
 
     # Task defaults
     task_soft_time_limit: int = Field(
-        default=600, ge=60, description="Soft time limit in seconds (10 minutes)"
+        default_factory=lambda: celery_settings.task_soft_time_limit,
+        ge=60,
+        description="Soft time limit in seconds (10 minutes)",
     )
     task_time_limit: int = Field(
-        default=900, ge=60, description="Hard time limit in seconds (15 minutes)"
+        default_factory=lambda: celery_settings.task_time_limit,
+        ge=60,
+        description="Hard time limit in seconds (15 minutes)",
     )
     task_acks_late: bool = Field(default=True, description="Acknowledge tasks after completion")
     task_default_retry_delay: int = Field(
@@ -51,13 +77,7 @@ class TaskSettings(BaseSettings):
         default=7, ge=1, le=10, description="Max priority for non-admin users"
     )
 
-    model_config = SettingsConfigDict(
-        env_prefix="TASK_",
-        case_sensitive=False,
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = _task_settings_config()
 
 
 # Global instance

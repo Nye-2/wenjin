@@ -5,14 +5,39 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from src.agents.graphs._shared import _read_optional_str
+from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_model
+from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.runtime_blocks import (
+    advance_runtime_phase,
+    append_runtime_activity,
+    runtime_progress_for_phase,
+    upsert_runtime_block,
+)
 
 logger = logging.getLogger(__name__)
+
+
+async def _emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
+    )
 
 
 def _resolve_research_model(requested_model: str | None) -> str:
@@ -26,6 +51,61 @@ def _resolve_research_model(requested_model: str | None) -> str:
         )
     except Exception:
         return requested_model or "default"
+
+
+def _combine_discovery_papers(discovery: dict[str, Any]) -> list[dict[str, Any]]:
+    """Merge seminal and recent works into a deduplicated paper list."""
+    merged: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+
+    for key in ("seminal_works", "recent_works"):
+        works = discovery.get(key)
+        if not isinstance(works, list):
+            continue
+        for item in works:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            year = str(item.get("year") or "").strip()
+            dedupe_key = f"{title.lower()}::{year}"
+            if not title or dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
+            merged.append(item)
+
+    return merged
+
+
+def _build_recommended_actions(
+    *,
+    gap_count: int,
+    idea_count: int,
+) -> list[dict[str, str]]:
+    """Produce lightweight next-step recommendations for downstream modules."""
+    actions = [
+        {
+            "action": "literature_management",
+            "reason": "先将调研结果沉淀为可筛选、可导入的文献清单。",
+        }
+    ]
+
+    if gap_count > 0 or idea_count > 0:
+        actions.append(
+            {
+                "action": "thesis_writing.generate_outline",
+                "reason": "基于研究空白与候选创意生成论文大纲。",
+            }
+        )
+
+    if idea_count > 0:
+        actions.append(
+            {
+                "action": "opening_research",
+                "reason": "将调研发现转为开题背景、意义与可行性分析。",
+            }
+        )
+
+    return actions
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +126,7 @@ async def deep_research_graph(
 
     Each phase has LLM fallback. Output combined into structured result payload.
     """
-    params = payload.get("params", {})
+    params = _read_payload_params(payload)
     topic = str(
         params.get("topic")
         or params.get("query")
@@ -58,9 +138,10 @@ async def deep_research_graph(
     if not discipline:
         discipline = "通用学科"
     focus_areas: list[str] = params.get("focus_areas", [])
-    memory_context = initial_state.get("knowledge_context")
+    memory_context = initial_state.get("memory_context")
     requested_model = _read_optional_str(params.get("model_id"))
     model_id = _resolve_research_model(requested_model)
+    runtime = get_runtime_state()
 
     pipeline_steps: dict[str, bool] = {
         "discovery": False,
@@ -68,6 +149,19 @@ async def deep_research_graph(
         "synthesis": False,
         "cross_validation": False,
     }
+
+    if runtime is not None:
+        append_runtime_activity(
+            runtime,
+            title="调研任务启动",
+            description="开始并行检索经典文献、近期文献与研究趋势。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在发现经典文献、近期工作与研究趋势...",
+            current_phase="discovery",
+            stage_transition=True,
+        )
 
     # Phase 1: Discovery (parallel)
     discovery = await _phase1_discovery(
@@ -82,6 +176,53 @@ async def deep_research_graph(
         or discovery.get("recent_works")
         or discovery.get("trends")
     )
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "discovery-summary",
+                "kind": "metrics",
+                "title": "发现摘要",
+                "entries": [
+                    {
+                        "label": "经典文献",
+                        "value": str(
+                            len(discovery.get("seminal_works"))
+                            if isinstance(discovery.get("seminal_works"), list)
+                            else 0
+                        ),
+                    },
+                    {
+                        "label": "近期文献",
+                        "value": str(
+                            len(discovery.get("recent_works"))
+                            if isinstance(discovery.get("recent_works"), list)
+                            else 0
+                        ),
+                    },
+                    {
+                        "label": "研究趋势",
+                        "value": str(
+                            len(discovery.get("trends"))
+                            if isinstance(discovery.get("trends"), list)
+                            else 0
+                        ),
+                    },
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="文献发现完成",
+            description="已完成发现阶段，开始识别研究空白。",
+            tone="success" if pipeline_steps["discovery"] else "warning",
+        )
+        advance_runtime_phase(runtime, "discovery", "gap_mining")
+        await _emit_bound_runtime(
+            message="正在分析研究空白与问题空间...",
+            current_phase="gap_mining",
+            stage_transition=True,
+        )
 
     # Phase 2: Gap Mining (sequential, depends on Phase 1)
     gaps = await _phase2_gap_mining(
@@ -92,6 +233,36 @@ async def deep_research_graph(
         model_id=model_id,
     )
     pipeline_steps["gap_mining"] = bool(gaps)
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "research-gaps",
+                "kind": "list",
+                "title": "研究空白",
+                "items": [
+                    {
+                        "title": str(item.get("description") or "研究空白"),
+                        "description": str(item.get("potential_impact") or ""),
+                        "meta": str(item.get("severity") or ""),
+                    }
+                    for item in gaps[:6]
+                    if isinstance(item, dict)
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="空白识别完成",
+            description="已归纳研究空白，开始生成候选研究创意。",
+            tone="success" if pipeline_steps["gap_mining"] else "warning",
+        )
+        advance_runtime_phase(runtime, "gap_mining", "synthesis")
+        await _emit_bound_runtime(
+            message="正在综合文献与空白生成研究创意...",
+            current_phase="synthesis",
+            stage_transition=True,
+        )
 
     # Phase 3: Synthesis (sequential, depends on Phase 1 + Phase 2)
     ideas = await _phase3_synthesis(
@@ -103,6 +274,36 @@ async def deep_research_graph(
         model_id=model_id,
     )
     pipeline_steps["synthesis"] = bool(ideas)
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "research-ideas",
+                "kind": "list",
+                "title": "研究创意",
+                "items": [
+                    {
+                        "title": str(item.get("title") or "研究创意"),
+                        "description": str(item.get("description") or ""),
+                        "meta": str(item.get("novelty_assessment") or ""),
+                    }
+                    for item in ideas[:6]
+                    if isinstance(item, dict)
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="创意综合完成",
+            description="已形成候选研究方向，开始执行交叉验证。",
+            tone="success" if pipeline_steps["synthesis"] else "warning",
+        )
+        advance_runtime_phase(runtime, "synthesis", "cross_validation")
+        await _emit_bound_runtime(
+            message="正在验证发现结果与研究创意的一致性...",
+            current_phase="cross_validation",
+            stage_transition=True,
+        )
 
     # Phase 4: Cross-Validation (sequential, depends on all above)
     cross_validation = await _phase4_cross_validate(
@@ -113,18 +314,79 @@ async def deep_research_graph(
         model_id=model_id,
     )
     pipeline_steps["cross_validation"] = cross_validation is not None
+    if runtime is not None:
+        if cross_validation is not None:
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "cross-validation",
+                    "kind": "metrics",
+                    "title": "交叉验证",
+                    "entries": [
+                        {
+                            "label": "验证评分",
+                            "value": str(cross_validation.get("validation_score") or 0),
+                        },
+                        {
+                            "label": "一致性问题",
+                            "value": str(
+                                len(cross_validation.get("consistency_issues"))
+                                if isinstance(cross_validation.get("consistency_issues"), list)
+                                else 0
+                            ),
+                        },
+                        {
+                            "label": "改进建议",
+                            "value": str(
+                                len(cross_validation.get("recommendations"))
+                                if isinstance(cross_validation.get("recommendations"), list)
+                                else 0
+                            ),
+                        },
+                    ],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="交叉验证完成",
+            description="已完成一致性检查，正在整理最终调研报告。",
+            tone="success" if pipeline_steps["cross_validation"] else "warning",
+        )
+        advance_runtime_phase(runtime, "cross_validation", "finalize")
+        await _emit_bound_runtime(
+            message="正在整理深度调研报告...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
+
+    papers = _combine_discovery_papers(discovery)
 
     return {
+        "schema_version": "v1",
+        "source_feature": "deep_research",
         "topic": topic,
         "discipline": discipline,
+        "query": {
+            "keywords": [topic],
+            "focus_areas": focus_areas,
+            "constraints": [],
+        },
+        "corpus": {
+            "paper_count": len(papers),
+            "top_papers": papers[:8],
+        },
         "discovery": discovery,
         "gaps": gaps,
         "ideas": ideas,
+        "recommended_actions": _build_recommended_actions(
+            gap_count=len(gaps),
+            idea_count=len(ideas),
+        ),
         "cross_validation": cross_validation,
         "model_id": model_id,
         "pipeline_steps": pipeline_steps,
         "generation_mode": _determine_generation_mode(pipeline_steps),
-        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "generated_at": datetime.now(tz=UTC).isoformat(),
     }
 
 
@@ -591,6 +853,8 @@ def _build_discovery_summary(discovery: dict[str, Any], max_items: int = 10) -> 
 
 def _determine_generation_mode(steps: dict[str, bool]) -> str:
     """Compute generation mode from pipeline steps results."""
+    if not steps:
+        return "failed"
     succeeded = sum(steps.values())
     total = len(steps)
     if succeeded == total:
@@ -598,4 +862,4 @@ def _determine_generation_mode(steps: dict[str, bool]) -> str:
     elif succeeded > 0:
         return "partial_llm"
     else:
-        return "template_fallback"
+        return "failed"

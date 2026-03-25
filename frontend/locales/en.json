@@ -151,6 +151,7 @@
   },
   "artifacts": {
     "types": {
+      "deep_research_report": "Deep Research Report",
       "research_idea": "Research Idea",
       "methodology": "Methodology",
       "framework_outline": "Framework",

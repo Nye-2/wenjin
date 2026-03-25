@@ -1,9 +1,11 @@
 """Tests for DockerExecutionService."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from src.execution.path_utils import normalize_thread_id
 from src.execution.service import DockerExecutionService
 from src.execution.types import ExecutionRequest, ExecutionType
 
@@ -24,7 +26,9 @@ class TestDockerExecutionService:
     def test_provider_map_has_all_types(self, service):
         """Should have providers for all execution types."""
         assert ExecutionType.LATEX_COMPILE in service.PROVIDER_MAP
-        # Others will be added in later phases
+        assert ExecutionType.PYTHON_PLOT in service.PROVIDER_MAP
+        assert ExecutionType.MERMAID_DIAGRAM in service.PROVIDER_MAP
+        assert ExecutionType.AI_IMAGE in service.PROVIDER_MAP
 
     @pytest.mark.asyncio
     async def test_health_check(self, service):
@@ -46,3 +50,26 @@ class TestDockerExecutionService:
         assert work_dir.exists()
         assert "test-thread" in str(work_dir)
         assert "latex_compile" in str(work_dir)
+
+    def test_prepare_work_dir_is_unique_per_call(self, service):
+        request = ExecutionRequest(
+            execution_type=ExecutionType.LATEX_COMPILE,
+            content="test",
+            thread_id="test-thread",
+        )
+        first = service._prepare_work_dir(request)
+        second = service._prepare_work_dir(request)
+        assert first != second
+
+    def test_prepare_work_dir_sanitizes_thread_id(self, service, temp_dir):
+        unsafe_thread_id = "../../unsafe//thread"
+        request = ExecutionRequest(
+            execution_type=ExecutionType.LATEX_COMPILE,
+            content="test",
+            thread_id=unsafe_thread_id,
+        )
+        work_dir = service._prepare_work_dir(request)
+        relative_parts = work_dir.relative_to(Path(temp_dir)).parts
+
+        assert relative_parts[0] == normalize_thread_id(unsafe_thread_id)
+        assert ".." not in relative_parts

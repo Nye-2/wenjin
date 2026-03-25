@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .path_utils import normalize_thread_id
+
 _SANDBOX_VIRTUAL_PREFIX = "/mnt/user-data/"
 _DEFAULT_PUBLIC_PREFIX = "/uploads/sandboxes"
 
@@ -38,5 +40,5 @@ def sandbox_path_to_public_url(
 
     relative_path = sandbox_path.removeprefix(_SANDBOX_VIRTUAL_PREFIX).lstrip("/")
     normalized_prefix = public_prefix.rstrip("/")
-    normalized_thread_id = (thread_id or "default").strip() or "default"
+    normalized_thread_id = normalize_thread_id(thread_id)
     return f"{normalized_prefix}/{normalized_thread_id}/{relative_path}"

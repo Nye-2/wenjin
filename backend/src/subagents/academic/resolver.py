@@ -1,6 +1,7 @@
 """Academic agent configuration resolver."""
 
 import logging
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .errors import InvalidToolError, UnknownSubagentTypeError
@@ -12,18 +13,34 @@ logger = logging.getLogger(__name__)
 class AcademicAgentResolver:
     """Resolves academic agent configuration based on type and requested tools."""
 
-    def __init__(self, sandbox_tools: dict[str, Any]):
+    def __init__(self, sandbox_tools: Mapping[str, Any] | Sequence[Any]):
         """Initialize the resolver.
 
         Args:
-            sandbox_tools: Dictionary of available sandbox tools.
+            sandbox_tools: Mapping or sequence of available tools.
         """
-        self._sandbox_tools = sandbox_tools
+        self._sandbox_tools = self._normalize_tools(sandbox_tools)
         self._tool_categories = {
             "search": ["semantic_scholar_search", "web_search", "arxiv_search"],
             "file": ["read_file", "get_paper_section", "get_paper_toc"],
             "code": ["python_exec", "data_analysis"],
         }
+
+    @staticmethod
+    def _normalize_tools(
+        sandbox_tools: Mapping[str, Any] | Sequence[Any],
+    ) -> dict[str, Any]:
+        """Normalize tool inputs into a name-to-tool mapping."""
+        if isinstance(sandbox_tools, Mapping):
+            return dict(sandbox_tools)
+
+        normalized: dict[str, Any] = {}
+        for tool in sandbox_tools:
+            tool_name = getattr(tool, "name", None)
+            if not tool_name:
+                continue
+            normalized[str(tool_name)] = tool
+        return normalized
 
     def resolve_config(
         self,

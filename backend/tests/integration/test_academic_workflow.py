@@ -185,7 +185,7 @@ class TestEndToEndAcademicWorkflow:
 
                 # Check artifact types
                 artifact_types = [a.type for a in output.artifacts]
-                assert "literature_review" in artifact_types
+                assert "deep_research_report" in artifact_types
 
                 # Verify cited papers were added to state
                 assert len(thread_state.get("cited_papers", [])) > 0
@@ -309,7 +309,7 @@ class TestEndToEndAcademicWorkflow:
 
         # Verify all artifacts exist in state
         all_artifact_types = [a.type for a in thread_state["academic_artifacts"]]
-        assert "literature_review" in all_artifact_types
+        assert "deep_research_report" in all_artifact_types
         assert "framework_outline" in all_artifact_types
 
     @pytest.mark.asyncio
@@ -367,21 +367,26 @@ class TestEndToEndAcademicWorkflow:
         """Artifacts should flow between skills with correct types."""
         # Track artifact flow through the chain
 
-        # Step 1: Deep Research creates literature_review
+        # Step 1: Deep Research creates deep_research_report
         research_artifact = AcademicArtifact(
             id="research-results-1",
             workspace_id="test-workspace",
-            type="literature_review",
+            type="deep_research_report",
             content={
-                "papers": [{"title": p.title} for p in sample_papers],
-                "patterns": [],
+                "schema_version": "v1",
+                "source_feature": "deep_research",
+                "topic": "test topic",
+                "corpus": {"paper_count": len(sample_papers), "top_papers": [{"title": p.title} for p in sample_papers]},
+                "discovery": {"patterns": []},
+                "gaps": [],
+                "ideas": [],
             },
             created_by_skill="deep-research",
         )
         thread_state["academic_artifacts"] = [research_artifact]
 
         # Verify initial artifact type
-        assert thread_state["academic_artifacts"][0].type == "literature_review"
+        assert thread_state["academic_artifacts"][0].type == "deep_research_report"
 
         # Step 2: Framework Designer consumes and creates framework_outline
         framework_artifact = AcademicArtifact(
@@ -398,7 +403,7 @@ class TestEndToEndAcademicWorkflow:
 
         # Verify chain so far
         artifact_types = [a.type for a in thread_state["academic_artifacts"]]
-        assert "literature_review" in artifact_types
+        assert "deep_research_report" in artifact_types
         assert "framework_outline" in artifact_types
 
         # Step 3: Paper Writer creates paper_draft
@@ -416,7 +421,7 @@ class TestEndToEndAcademicWorkflow:
 
         # Verify complete chain
         final_types = [a.type for a in thread_state["academic_artifacts"]]
-        assert "literature_review" in final_types
+        assert "deep_research_report" in final_types
         assert "framework_outline" in final_types
         assert "paper_draft" in final_types
 

@@ -23,12 +23,15 @@ class TestLocalSandbox:
     def sandbox(self, temp_dir):
         """Create LocalSandbox instance."""
         thread_dir = Path(temp_dir) / "thread-123"
-        thread_dir.mkdir(parents=True)
+        user_data_dir = thread_dir / "user-data"
+        user_data_dir.mkdir(parents=True)
         path_mappings = {
-            "/mnt/user-data/workspace": str(thread_dir / "workspace"),
-            "/mnt/user-data/uploads": str(thread_dir / "uploads"),
-            "/mnt/user-data/outputs": str(thread_dir / "outputs"),
+            "/mnt/user-data/workspace": str(user_data_dir / "workspace"),
+            "/mnt/user-data/uploads": str(user_data_dir / "uploads"),
+            "/mnt/user-data/outputs": str(user_data_dir / "outputs"),
         }
+        for mapped_path in path_mappings.values():
+            Path(mapped_path).mkdir(parents=True, exist_ok=True)
         return LocalSandbox(id="thread-123", path_mappings=path_mappings)
 
     @pytest.mark.asyncio
@@ -118,6 +121,13 @@ class TestLocalSandbox:
         result = await sandbox.execute_command("sleep 10", timeout=1)
         assert result.timed_out
 
+    @pytest.mark.asyncio
+    async def test_execute_command_rejects_host_absolute_paths(self, sandbox):
+        """Shell commands should not reference host absolute paths directly."""
+        result = await sandbox.execute_command("cat /etc/hosts")
+        assert not result.success
+        assert "outside sandbox" in result.stderr
+
 
 class TestLocalSandboxProvider:
     @pytest.fixture
@@ -166,7 +176,7 @@ class TestLocalSandboxProvider:
         """Should create thread directories on acquire."""
         await provider.acquire("thread-dirs")
 
-        thread_path = Path(temp_dir) / "thread-dirs"
+        thread_path = Path(temp_dir) / "thread-dirs" / "user-data"
         assert thread_path.exists()
         assert (thread_path / "workspace").exists()
         assert (thread_path / "uploads").exists()
@@ -186,12 +196,15 @@ class TestLocalSandboxSecurity:
     def sandbox(self, temp_dir):
         """Create LocalSandbox instance."""
         thread_dir = Path(temp_dir) / "thread-sec"
-        thread_dir.mkdir(parents=True)
+        user_data_dir = thread_dir / "user-data"
+        user_data_dir.mkdir(parents=True)
         path_mappings = {
-            "/mnt/user-data/workspace": str(thread_dir / "workspace"),
-            "/mnt/user-data/uploads": str(thread_dir / "uploads"),
-            "/mnt/user-data/outputs": str(thread_dir / "outputs"),
+            "/mnt/user-data/workspace": str(user_data_dir / "workspace"),
+            "/mnt/user-data/uploads": str(user_data_dir / "uploads"),
+            "/mnt/user-data/outputs": str(user_data_dir / "outputs"),
         }
+        for mapped_path in path_mappings.values():
+            Path(mapped_path).mkdir(parents=True, exist_ok=True)
         return LocalSandbox(id="thread-sec", path_mappings=path_mappings)
 
     @pytest.mark.asyncio

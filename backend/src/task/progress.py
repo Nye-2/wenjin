@@ -13,6 +13,10 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 
 from src.config.task_config import task_settings
+from src.services.workspace_activity_contracts import (
+    build_task_activity_item,
+    serialize_activity_item,
+)
 from src.task.registry import TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -58,6 +62,38 @@ class ProgressTracker:
     def _channel_name(self) -> str:
         """Redis pub/sub channel for this task."""
         return f"task_progress:{self._task_id}"
+
+    def _build_activity_payload(
+        self,
+        *,
+        status: str,
+        progress: int,
+        message: str | None,
+        metadata: dict | None,
+        occurred_at: str,
+    ) -> dict[str, object] | None:
+        if not self._workspace_id:
+            return None
+
+        payload: dict[str, object] = {}
+        if self._feature_id:
+            payload["feature_id"] = self._feature_id
+        if self._thread_id:
+            payload["thread_id"] = self._thread_id
+
+        return serialize_activity_item(
+            build_task_activity_item(
+                task_id=self._task_id,
+                workspace_id=self._workspace_id,
+                task_type=self._task_type,
+                payload=payload,
+                status=status,
+                progress=progress,
+                message=message,
+                error=None,
+                occurred_at=occurred_at,
+            )
+        )
 
     async def _set_redis_state(
         self,
@@ -126,6 +162,15 @@ class ProgressTracker:
                         "thread_id": self._thread_id,
                         "metadata": metadata,
                     }
+                }
+                | {
+                    "activity": self._build_activity_payload(
+                        status=status,
+                        progress=progress,
+                        message=message,
+                        metadata=metadata,
+                        occurred_at=ts,
+                    )
                 },
             )
 

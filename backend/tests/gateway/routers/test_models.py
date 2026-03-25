@@ -35,6 +35,7 @@ def _sample_tool_models() -> str:
                 "api_key": "sk-tool-2",
                 "base_url": "https://api.qnaigc.com/v1",
                 "supports_tools": True,
+                "supports_reasoning_effort": True,
             },
         ]
     )
@@ -99,6 +100,7 @@ class TestModelsRouter:
         )
         assert default_entry["is_default"] is True
         assert default_entry["supports_tools"] is True
+        assert default_entry["supports_reasoning_effort"] is False
         assert default_entry["category"] == "tool"
         model_names = [model["name"] for model in payload["models"]]
         assert "qwen-flash" not in model_names
@@ -120,6 +122,7 @@ class TestModelsRouter:
         payload = response.json()
         assert payload["name"] == "glm-5"
         assert payload["supports_tools"] is True
+        assert payload["supports_reasoning_effort"] is True
 
     def test_list_models_supports_purpose_filter(self):
         image_models = json.dumps(

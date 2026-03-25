@@ -1,5 +1,6 @@
 """Tests for 16-layer middleware pipeline assembly."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from src.config.config_loader import MiddlewaresConfig, SummarizationConfig
@@ -11,6 +12,8 @@ def _mock_app_config(summarization_enabled: bool = False):
     mock_config.middlewares = MiddlewaresConfig(
         summarization=SummarizationConfig(enabled=summarization_enabled)
     )
+    mock_config.subagents = SimpleNamespace(enabled=True, max_concurrent=4)
+    mock_config.sandbox = None
     return mock_config
 
 
@@ -26,7 +29,10 @@ class TestPipelineAssembly:
             }
         }
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.lead_agent.agent.get_sandbox_provider",
+            return_value=None,
+        ):
             pipeline = build_pipeline(
                 config=config,
                 workspace_service=None,  # Will skip WS middleware
@@ -45,7 +51,10 @@ class TestPipelineAssembly:
 
         config = {"configurable": {"subagent_enabled": False}}
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.lead_agent.agent.get_sandbox_provider",
+            return_value=None,
+        ):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
@@ -62,7 +71,10 @@ class TestPipelineAssembly:
 
         config = {"configurable": {"subagent_enabled": True}}
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.lead_agent.agent.get_sandbox_provider",
+            return_value=None,
+        ):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
@@ -73,7 +85,10 @@ class TestPipelineAssembly:
 
         config = {"configurable": {"subagent_enabled": False}}
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.lead_agent.agent.get_sandbox_provider",
+            return_value=None,
+        ):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
@@ -85,7 +100,10 @@ class TestPipelineAssembly:
 
         config = {"configurable": {"subagent_enabled": False}}
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=True)):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=True)), patch(
+            "src.agents.lead_agent.agent.get_sandbox_provider",
+            return_value=None,
+        ):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
@@ -97,8 +115,26 @@ class TestPipelineAssembly:
 
         config = {"configurable": {"subagent_enabled": False}}
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=False)):
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=False)), patch(
+            "src.agents.lead_agent.agent.get_sandbox_provider",
+            return_value=None,
+        ):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
         assert "SummarizationMiddleware" not in type_names
+
+    def test_sandbox_middleware_is_auto_included_when_provider_available(self):
+        from src.agents.lead_agent.agent import build_pipeline
+
+        config = {"configurable": {"subagent_enabled": False}}
+        mock_provider = object()
+
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.lead_agent.agent.get_sandbox_provider",
+            return_value=mock_provider,
+        ):
+            pipeline = build_pipeline(config=config)
+
+        type_names = [type(m).__name__ for m in pipeline]
+        assert "SandboxMiddleware" in type_names

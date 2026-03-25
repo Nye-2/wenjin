@@ -51,7 +51,7 @@ class TestSandboxIntegration:
         assert "document.tex" in names
 
         # 7. Verify physical files exist
-        physical_path = Path(temp_dir) / "integration-test" / "workspace" / "document.tex"
+        physical_path = Path(temp_dir) / "integration-test" / "user-data" / "workspace" / "document.tex"
         assert physical_path.exists()
 
         # 8. Release sandbox
@@ -96,7 +96,7 @@ class TestSandboxIntegration:
         virtual = "/mnt/user-data/workspace/test.txt"
         physical = mapper.to_physical(virtual, thread_id="path-test")
 
-        assert "path-test/workspace/test.txt" in physical
+        assert "path-test/user-data/workspace/test.txt" in physical
 
         # Cleanup
         await provider.release(sandbox)

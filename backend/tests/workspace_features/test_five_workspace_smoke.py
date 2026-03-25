@@ -121,7 +121,7 @@ SMOKE_MATRIX = [
         "deep_research",
         {"query": "深度学习在自然语言处理中的应用"},
         "thesis.deep_research",
-        "deep_research",
+        "workspace_feature",
         id="thesis-deep_research",
     ),
     pytest.param(
@@ -225,10 +225,11 @@ class TestFiveWorkspaceSmoke:
         assert payload["handler_key"] == expected_handler_key
         assert submit_kwargs["task_type"] == expected_task_type
 
-        # User params are forwarded (flat-merged)
+        # User params stay under canonical params to avoid dual sources of truth
+        assert payload["params"] == params
         for key, value in params.items():
-            assert payload[key] == value, (
-                f"param '{key}' not forwarded: expected {value!r}, got {payload.get(key)!r}"
+            assert payload["params"][key] == value, (
+                f"param '{key}' not forwarded: expected {value!r}, got {payload['params'].get(key)!r}"
             )
 
     # ---- Step 4b: Duplicate submission guard ----

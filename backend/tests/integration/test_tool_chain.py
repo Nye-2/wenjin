@@ -339,7 +339,7 @@ class TestSkillWithTools:
                 assert output.success
                 assert len(output.artifacts) >= 1
                 artifact_types = [a.type for a in output.artifacts]
-                assert "literature_review" in artifact_types
+                assert "deep_research_report" in artifact_types
 
     @pytest.mark.asyncio
     async def test_skill_adapters_integrate_tools(self):

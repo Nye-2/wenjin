@@ -8,13 +8,13 @@ This skill analyzes research ideas and literature context to generate:
 """
 
 import logging
+import re
 import uuid
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.agents.memory.updater import get_memory_data
 from src.agents.thread_state import AcademicArtifact, ThreadState
 from src.config.llm_config import get_gen_models
 from src.models.factory import create_chat_model
@@ -414,7 +414,6 @@ class FrameworkDesignerSkillV2(BaseSkill):
         description: Human-readable description.
         version: Version string (2.0.0 for enhanced version).
         model_id: ID of the LLM model to use for generation.
-        memory_storage_path: Path to the memory storage file.
     """
 
     name = "framework-designer"
@@ -424,19 +423,15 @@ class FrameworkDesignerSkillV2(BaseSkill):
     def __init__(
         self,
         model_id: str | None = None,
-        memory_storage_path: str | None = None,
     ):
         """Initialize the Enhanced Framework Designer Skill.
 
         Args:
             model_id: Optional model ID for the LLM. If not provided,
                      will use the default model from configuration.
-            memory_storage_path: Optional path to memory storage file.
         """
         self.model_id = model_id
-        self.memory_storage_path = memory_storage_path
         self._model: BaseChatModel | None = None
-        self._memory: dict | None = None
 
     def _get_model(self) -> BaseChatModel:
         """Get or create the LLM model instance.
@@ -459,40 +454,62 @@ class FrameworkDesignerSkillV2(BaseSkill):
                 self._model = create_chat_model(models[0].id, temperature=0.7)
         return self._model
 
-    def _get_memory(self) -> dict:
-        """Get memory data from storage.
+    def _prepare_memory_context_from_prompt(self, memory_prompt: str) -> dict[str, Any]:
+        """Convert canonical prompt-form memory into the legacy skill context shape."""
+        context: dict[str, Any] = {
+            "research_context": {"summary": ""},
+            "writing_preferences": {"summary": ""},
+            "tool_preferences": {"summary": ""},
+            "top_facts": [],
+        }
 
-        Returns:
-            Memory data dictionary.
-        """
-        if self._memory is None:
-            self._memory = get_memory_data(storage_path=self.memory_storage_path)
-        return self._memory
+        section = None
+        for raw_line in memory_prompt.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("<") or line.startswith("</"):
+                continue
+            if line.endswith(":"):
+                section = line[:-1]
+                continue
+            if not line.startswith("- "):
+                continue
 
-    def _prepare_memory_context(self) -> dict[str, Any]:
+            content = re.sub(r"\s*\(置信度:\s*[\d.]+\)\s*$", "", line[2:]).strip()
+            if not content:
+                continue
+
+            context["top_facts"].append({"content": content, "confidence": 0.8})
+            if section == "研究上下文" and not context["research_context"]["summary"]:
+                context["research_context"]["summary"] = content
+            elif section == "用户偏好" and not context["writing_preferences"]["summary"]:
+                context["writing_preferences"]["summary"] = content
+            elif section == "行为习惯" and not context["tool_preferences"]["summary"]:
+                context["tool_preferences"]["summary"] = content
+
+        return context
+
+    def _prepare_memory_context(self, state: ThreadState | None = None) -> dict[str, Any]:
         """Prepare memory context for injection into prompts.
 
         Extracts research context, writing preferences, and other
-        relevant user data from memory storage.
+        relevant user data from canonical prompt-form state memory.
 
         Returns:
             Dictionary containing memory context for prompt injection.
         """
-        memory = self._get_memory()
-        user_data = memory.get("user", {})
-
-        context: dict[str, Any] = {
-            "research_context": user_data.get("researchContext", {}),
-            "writing_preferences": user_data.get("writingPreferences", {}),
-            "tool_preferences": user_data.get("toolPreferences", {}),
+        if state is not None:
+            raw_memory = state.get("memory_context")
+            if isinstance(raw_memory, dict):
+                return raw_memory
+            prompt_memory = str(raw_memory or "").strip()
+            if prompt_memory:
+                return self._prepare_memory_context_from_prompt(prompt_memory)
+        return {
+            "research_context": {"summary": ""},
+            "writing_preferences": {"summary": ""},
+            "tool_preferences": {"summary": ""},
+            "top_facts": [],
         }
-
-        # Include top facts if available
-        facts = memory.get("facts", [])
-        sorted_facts = sorted(facts, key=lambda f: f.get("confidence", 0), reverse=True)
-        context["top_facts"] = sorted_facts[:5] if sorted_facts else []
-
-        return context
 
     def _format_memory_for_prompt(self, memory_context: dict) -> str:
         """Format memory context for inclusion in prompts.
@@ -871,7 +888,7 @@ class FrameworkDesignerSkillV2(BaseSkill):
             model = self._get_model()
 
             # Prepare memory context
-            memory_context = self._prepare_memory_context()
+            memory_context = self._prepare_memory_context(state)
             logger.info("Framework Designer V2: Memory context prepared")
 
             # Extract research idea

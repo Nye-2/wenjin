@@ -6,7 +6,7 @@ import {
   FileText,
   Lightbulb,
   BookOpen,
-
+  SearchCheck,
   ListChecks,
   FileCode,
   ClipboardList,
@@ -19,6 +19,7 @@ import { ArtifactDetailDialog } from "@/components/workspace/ArtifactDetailDialo
 const artifactIcons: Record<string, React.ElementType> = {
   hypothesis: Lightbulb,
   literature: BookOpen,
+  deep_research_report: SearchCheck,
   literature_review: BookOpen,
   framework_outline: ListChecks,
   outline: ListChecks,
@@ -35,6 +36,7 @@ const artifactIcons: Record<string, React.ElementType> = {
 const artifactColors: Record<string, string> = {
   hypothesis: "text-amber-500",
   literature: "text-blue-500",
+  deep_research_report: "text-sky-500",
   literature_review: "text-blue-500",
   framework_outline: "text-purple-500",
   outline: "text-purple-500",

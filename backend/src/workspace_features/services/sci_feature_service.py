@@ -1,9 +1,9 @@
 """Service helpers for SCI workspace feature handlers.
 
 This module keeps handler logic thin and reusable by encapsulating:
-1. literature search (with local data or template fallback),
+1. literature search (LLM synthesis),
 2. paper analysis (structured method/experiment/conclusion extraction).
-3. SCI section writing (context-aware draft generation with fallback).
+3. SCI section writing (context-aware draft generation).
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from src.task.runtime_blocks import (
     advance_runtime_phase,
     append_runtime_activity,
     runtime_progress_for_phase,
-    set_runtime_phase,
     upsert_runtime_block,
 )
 
@@ -112,27 +111,6 @@ async def _load_workspace_literature(workspace_id: str) -> list[dict[str, Any]]:
 
     items = response.get("items")
     return items if isinstance(items, list) else []
-
-
-def _build_literature_search_template(
-    query: str,
-    discipline: str,
-) -> dict[str, Any]:
-    """Build a template-based literature search result when LLM is unavailable."""
-    return {
-        "query": query,
-        "discipline": discipline,
-        "papers": [],
-        "top_hits": [],
-        "filters": {
-            "year_range": {"min": 2020, "max": 2025},
-            "sources": ["Semantic Scholar", "CrossRef", "Google Scholar"],
-            "quartiles": ["Q1", "Q2", "Q3", "Q4"],
-        },
-        "summary": f"针对“{query}”的文献检索。请配置外部检索服务以获取实时结果。",
-        "search_strategy": "template_fallback",
-        "generated_at": _utc_now_iso(),
-    }
 
 
 async def _try_llm_literature_search(
@@ -259,6 +237,490 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
     return None
 
 
+def _resolve_generation_model(preferred_model: str | None) -> str | None:
+    models = list_user_selectable_models(purpose="writing")
+    if not models:
+        return None
+    try:
+        return route_writing_model(requested_model=preferred_model)
+    except Exception:
+        return models[0].id
+
+
+def _build_literature_review_template(topic: str, discipline: str) -> dict[str, Any]:
+    return {
+        "summary": f"围绕 {topic} 的研究已经形成若干稳定方向，但在 {discipline} 语境下仍存在可继续深化的空白。",
+        "sections": [
+            {
+                "title": "研究背景",
+                "content": f"说明 {topic} 在 {discipline} 中的重要性、典型问题场景以及研究动因。",
+            },
+            {
+                "title": "代表性路线",
+                "content": "归纳经典方法、近期方法和方法演进趋势，对比各路线的适用边界。",
+            },
+            {
+                "title": "研究空白",
+                "content": "从数据、方法、评估设置和落地场景四个层面梳理仍未充分解决的问题。",
+            },
+        ],
+        "key_papers": [],
+        "research_gaps": [
+            "缺少统一评测基准或跨场景验证。",
+            "现有方法对真实约束与工程可行性考虑不足。",
+            "论文之间的对比口径不完全一致，结论可复用性有限。",
+        ],
+        "next_actions": [
+            "补充 5-10 篇高相关核心文献并标记方法与数据集。",
+            "基于研究空白收敛 1-2 个可执行的问题陈述。",
+            "将文献综述沉淀为写作大纲的相关工作部分。",
+        ],
+    }
+
+
+async def _try_llm_literature_review(
+    *,
+    topic: str,
+    discipline: str,
+    literature: list[dict[str, Any]],
+    context_summaries: list[dict[str, str]],
+    preferred_model: str | None,
+) -> tuple[dict[str, Any] | None, str | None, str | None]:
+    model_id = _resolve_generation_model(preferred_model)
+    if model_id is None:
+        return None, None, "no_generation_model_configured"
+
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+    except Exception as exc:
+        return None, model_id, f"langchain_message_import_failed: {exc}"
+
+    try:
+        model = create_chat_model(model_id, temperature=0.2)
+    except Exception as exc:
+        return None, model_id, f"model_init_failed: {exc}"
+
+    literature_lines = [
+        f"- {item.get('title', 'Untitled')} ({item.get('year', 'n/a')})"
+        for item in literature[:12]
+        if isinstance(item, dict)
+    ]
+    artifact_lines = [
+        f"- {item.get('title', 'Untitled')}: {item.get('summary', '')}"
+        for item in context_summaries[:5]
+    ]
+    prompt = "\n".join(
+        [
+            "请生成 SCI 论文可直接复用的文献综述，输出 JSON。",
+            f"主题：{topic}",
+            f"学科：{discipline or '综合'}",
+            "已有文献信息：",
+            "\n".join(literature_lines) if literature_lines else "- 暂无明确文献条目",
+            "已有上下文产出：",
+            "\n".join(artifact_lines) if artifact_lines else "- 暂无上下文产出",
+            "",
+            "输出 JSON 结构：",
+            '{"summary":"综述摘要","sections":[{"title":"章节标题","content":"章节内容"}],"key_papers":[{"title":"论文标题","reason":"为什么重要"}],"research_gaps":["空白1"],"next_actions":["动作1"]}',
+        ]
+    )
+
+    try:
+        response = await model.ainvoke(
+            [
+                SystemMessage(content="你是严谨的学术综述作者，只返回 JSON。"),
+                HumanMessage(content=prompt),
+            ]
+        )
+    except Exception as exc:
+        return None, model_id, f"llm_generation_failed: {exc}"
+
+    parsed = _parse_json_payload(_extract_response_text(response))
+    if parsed is None:
+        return None, model_id, "llm_output_not_json"
+    return parsed, model_id, None
+
+
+async def build_sci_literature_review_payload(
+    *,
+    workspace_id: str,
+    topic: str,
+    discipline: str | None = None,
+    context_artifact_ids: list[str] | None = None,
+    preferred_model: str | None = None,
+) -> dict[str, Any]:
+    """Build a structured literature review payload for SCI workspaces."""
+    resolved_topic = (topic or "").strip() or "研究主题"
+    resolved_discipline = _normalize_discipline(discipline)
+    context_summaries = await _load_artifact_context_summaries(
+        workspace_id=workspace_id,
+        context_artifact_ids=context_artifact_ids or [],
+    )
+    literature = await _load_workspace_literature(workspace_id)
+    llm_result, model_id, generation_error = await _try_llm_literature_review(
+        topic=resolved_topic,
+        discipline=resolved_discipline,
+        literature=literature,
+        context_summaries=context_summaries,
+        preferred_model=preferred_model,
+    )
+    payload = llm_result or _build_literature_review_template(resolved_topic, resolved_discipline)
+    return {
+        "schema_version": SCI_SCHEMA_VERSION,
+        "document_type": ArtifactType.LITERATURE_REVIEW.value,
+        "output_language": SCI_OUTPUT_LANGUAGE,
+        "topic": resolved_topic,
+        "discipline": resolved_discipline,
+        "summary": str(payload.get("summary") or "").strip(),
+        "sections": payload.get("sections") if isinstance(payload.get("sections"), list) else [],
+        "key_papers": payload.get("key_papers") if isinstance(payload.get("key_papers"), list) else [],
+        "research_gaps": payload.get("research_gaps") if isinstance(payload.get("research_gaps"), list) else [],
+        "next_actions": payload.get("next_actions") if isinstance(payload.get("next_actions"), list) else [],
+        "context_artifact_ids": context_artifact_ids or [],
+        "context_artifacts_count": len(context_summaries),
+        "generated_at": _utc_now_iso(),
+        "model_id": model_id,
+        "generation_error": generation_error,
+        "generation_mode": "llm" if llm_result is not None else "template",
+    }
+
+
+def _build_framework_outline_template(
+    *,
+    paper_title: str,
+    topic: str,
+) -> dict[str, Any]:
+    return {
+        "abstract": f"本文围绕 {topic} 展开研究，说明问题背景、方法路线、实验评估与潜在贡献。",
+        "keywords": [topic, "methodology", "evaluation"],
+        "sections": [
+            {"title": "Introduction", "focus": "研究背景、问题定义、贡献概述"},
+            {"title": "Related Work", "focus": "已有方法脉络与差异化定位"},
+            {"title": "Methodology", "focus": "模型/系统设计与核心机制"},
+            {"title": "Experiments", "focus": "数据集、基线、指标与实验设置"},
+            {"title": "Results and Discussion", "focus": "结果解读、消融与局限"},
+            {"title": "Conclusion", "focus": "总结与未来工作"},
+        ],
+        "contributions": [
+            "给出清晰的问题建模与研究边界。",
+            "设计可复用的方法路线与评估方案。",
+            "形成可直接进入正文写作的章节框架。",
+        ],
+    }
+
+
+async def _try_llm_framework_outline(
+    *,
+    paper_title: str,
+    topic: str,
+    context_summaries: list[dict[str, str]],
+    preferred_model: str | None,
+) -> tuple[dict[str, Any] | None, str | None, str | None]:
+    model_id = _resolve_generation_model(preferred_model)
+    if model_id is None:
+        return None, None, "no_generation_model_configured"
+
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+    except Exception as exc:
+        return None, model_id, f"langchain_message_import_failed: {exc}"
+
+    try:
+        model = create_chat_model(model_id, temperature=0.2)
+    except Exception as exc:
+        return None, model_id, f"model_init_failed: {exc}"
+
+    artifact_lines = [
+        f"- {item.get('title', 'Untitled')}: {item.get('summary', '')}"
+        for item in context_summaries[:6]
+    ]
+    prompt = "\n".join(
+        [
+            "请为 SCI 论文生成摘要和章节大纲，返回 JSON。",
+            f"论文题目：{paper_title}",
+            f"研究主题：{topic}",
+            "上下文产出：",
+            "\n".join(artifact_lines) if artifact_lines else "- 暂无上下文",
+            "",
+            "输出 JSON：",
+            '{"abstract":"摘要","keywords":["kw1"],"sections":[{"title":"Introduction","focus":"..." }],"contributions":["贡献1"]}',
+        ]
+    )
+
+    try:
+        response = await model.ainvoke(
+            [
+                SystemMessage(content="你是学术写作规划助手，只返回 JSON。"),
+                HumanMessage(content=prompt),
+            ]
+        )
+    except Exception as exc:
+        return None, model_id, f"llm_generation_failed: {exc}"
+
+    parsed = _parse_json_payload(_extract_response_text(response))
+    if parsed is None:
+        return None, model_id, "llm_output_not_json"
+    return parsed, model_id, None
+
+
+async def build_framework_outline_payload(
+    *,
+    workspace_id: str,
+    paper_title: str,
+    topic: str,
+    context_artifact_ids: list[str] | None = None,
+    preferred_model: str | None = None,
+) -> dict[str, Any]:
+    """Build a framework-outline payload for SCI workspaces."""
+    resolved_title = (paper_title or "").strip() or "Untitled Paper"
+    resolved_topic = (topic or "").strip() or resolved_title
+    context_summaries = await _load_artifact_context_summaries(
+        workspace_id=workspace_id,
+        context_artifact_ids=context_artifact_ids or [],
+    )
+    llm_result, model_id, generation_error = await _try_llm_framework_outline(
+        paper_title=resolved_title,
+        topic=resolved_topic,
+        context_summaries=context_summaries,
+        preferred_model=preferred_model,
+    )
+    payload = llm_result or _build_framework_outline_template(
+        paper_title=resolved_title,
+        topic=resolved_topic,
+    )
+    return {
+        "schema_version": SCI_SCHEMA_VERSION,
+        "document_type": ArtifactType.FRAMEWORK_OUTLINE.value,
+        "output_language": SCI_OUTPUT_LANGUAGE,
+        "paper_title": resolved_title,
+        "topic": resolved_topic,
+        "abstract": str(payload.get("abstract") or "").strip(),
+        "keywords": payload.get("keywords") if isinstance(payload.get("keywords"), list) else [],
+        "sections": payload.get("sections") if isinstance(payload.get("sections"), list) else [],
+        "contributions": payload.get("contributions") if isinstance(payload.get("contributions"), list) else [],
+        "context_artifact_ids": context_artifact_ids or [],
+        "context_artifacts_count": len(context_summaries),
+        "generated_at": _utc_now_iso(),
+        "model_id": model_id,
+        "generation_error": generation_error,
+        "generation_mode": "llm" if llm_result is not None else "template",
+    }
+
+
+def _build_peer_review_template(
+    *,
+    paper_title: str,
+) -> dict[str, Any]:
+    return {
+        "overall_assessment": f"{paper_title} 已具备基础论文结构，但还需要在问题定义、实验完整性和论证力度上继续加强。",
+        "score": 7.2,
+        "strengths": [
+            "选题具备明确的问题背景与应用价值。",
+            "结构完整，便于继续扩展为正式稿件。",
+            "已有产出足以支持进一步的实证强化。",
+        ],
+        "weaknesses": [
+            "创新点与已有方法差异需要写得更聚焦。",
+            "实验设置和评价指标说明仍偏薄弱。",
+            "结论部分还需要结合局限性与未来工作。",
+        ],
+        "revision_actions": [
+            "补一段与主流基线的差异化定位。",
+            "补充实验设置、评价指标与消融说明。",
+            "将结论改写为“发现 + 局限 + 下一步”结构。",
+        ],
+    }
+
+
+async def _try_llm_peer_review(
+    *,
+    paper_title: str,
+    manuscript_excerpt: str,
+    preferred_model: str | None,
+) -> tuple[dict[str, Any] | None, str | None, str | None]:
+    model_id = _resolve_generation_model(preferred_model)
+    if model_id is None:
+        return None, None, "no_generation_model_configured"
+
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+    except Exception as exc:
+        return None, model_id, f"langchain_message_import_failed: {exc}"
+
+    try:
+        model = create_chat_model(model_id, temperature=0.1)
+    except Exception as exc:
+        return None, model_id, f"model_init_failed: {exc}"
+
+    prompt = "\n".join(
+        [
+            "请以审稿人视角评审以下稿件内容，输出 JSON。",
+            f"题目：{paper_title}",
+            f"稿件摘录：{_truncate(manuscript_excerpt, 2600)}",
+            "",
+            "输出 JSON：",
+            '{"overall_assessment":"总体评价","score":7.5,"strengths":["优点1"],"weaknesses":["问题1"],"revision_actions":["修改建议1"]}',
+        ]
+    )
+
+    try:
+        response = await model.ainvoke(
+            [
+                SystemMessage(content="你是严格但建设性的学术审稿人，只返回 JSON。"),
+                HumanMessage(content=prompt),
+            ]
+        )
+    except Exception as exc:
+        return None, model_id, f"llm_generation_failed: {exc}"
+
+    parsed = _parse_json_payload(_extract_response_text(response))
+    if parsed is None:
+        return None, model_id, "llm_output_not_json"
+    return parsed, model_id, None
+
+
+async def build_peer_review_payload(
+    *,
+    paper_title: str,
+    manuscript_excerpt: str,
+    preferred_model: str | None = None,
+) -> dict[str, Any]:
+    """Build a structured peer-review payload."""
+    resolved_title = (paper_title or "").strip() or "Untitled Paper"
+    llm_result, model_id, generation_error = await _try_llm_peer_review(
+        paper_title=resolved_title,
+        manuscript_excerpt=manuscript_excerpt,
+        preferred_model=preferred_model,
+    )
+    payload = llm_result or _build_peer_review_template(paper_title=resolved_title)
+    return {
+        "schema_version": SCI_SCHEMA_VERSION,
+        "document_type": ArtifactType.REVIEW.value,
+        "output_language": SCI_OUTPUT_LANGUAGE,
+        "paper_title": resolved_title,
+        "overall_assessment": str(payload.get("overall_assessment") or "").strip(),
+        "score": float(payload.get("score") or 0),
+        "strengths": payload.get("strengths") if isinstance(payload.get("strengths"), list) else [],
+        "weaknesses": payload.get("weaknesses") if isinstance(payload.get("weaknesses"), list) else [],
+        "revision_actions": payload.get("revision_actions") if isinstance(payload.get("revision_actions"), list) else [],
+        "generated_at": _utc_now_iso(),
+        "model_id": model_id,
+        "generation_error": generation_error,
+        "generation_mode": "llm" if llm_result is not None else "template",
+    }
+
+
+def _build_journal_recommend_template(
+    *,
+    paper_title: str,
+) -> dict[str, Any]:
+    return {
+        "paper_profile": f"{paper_title} 属于具备明确问题背景、方法设计和实验验证的常规 SCI 论文形态。",
+        "journals": [
+            {
+                "name": "Expert Systems with Applications",
+                "fit": "适合方法与应用并重的工程类论文。",
+                "reason": "偏好有实验验证、应用落地和系统性叙述的稿件。",
+            },
+            {
+                "name": "Knowledge-Based Systems",
+                "fit": "适合强调模型设计与决策智能的稿件。",
+                "reason": "如果论文突出方法创新和知识建模，可优先考虑。",
+            },
+            {
+                "name": "Applied Sciences",
+                "fit": "适合主题交叉、工程验证充分的稿件。",
+                "reason": "当投稿策略偏向稳妥和快速时可作为保守选项。",
+            },
+        ],
+        "submission_notes": [
+            "摘要中需要突出问题、方法、实验结果三段式信息。",
+            "投稿前补齐与目标期刊近三年同类论文的对比定位。",
+        ],
+    }
+
+
+async def _try_llm_journal_recommend(
+    *,
+    paper_title: str,
+    abstract: str,
+    discipline: str,
+    preferred_model: str | None,
+) -> tuple[dict[str, Any] | None, str | None, str | None]:
+    model_id = _resolve_generation_model(preferred_model)
+    if model_id is None:
+        return None, None, "no_generation_model_configured"
+
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+    except Exception as exc:
+        return None, model_id, f"langchain_message_import_failed: {exc}"
+
+    try:
+        model = create_chat_model(model_id, temperature=0.2)
+    except Exception as exc:
+        return None, model_id, f"model_init_failed: {exc}"
+
+    prompt = "\n".join(
+        [
+            "请根据论文题目和摘要推荐投稿期刊，输出 JSON。",
+            f"题目：{paper_title}",
+            f"学科：{discipline}",
+            f"摘要：{_truncate(abstract, 2400)}",
+            "",
+            "输出 JSON：",
+            '{"paper_profile":"论文画像","journals":[{"name":"期刊","fit":"适配度","reason":"推荐原因"}],"submission_notes":["建议1"]}',
+        ]
+    )
+
+    try:
+        response = await model.ainvoke(
+            [
+                SystemMessage(content="你是审稿策略顾问，只返回 JSON。"),
+                HumanMessage(content=prompt),
+            ]
+        )
+    except Exception as exc:
+        return None, model_id, f"llm_generation_failed: {exc}"
+
+    parsed = _parse_json_payload(_extract_response_text(response))
+    if parsed is None:
+        return None, model_id, "llm_output_not_json"
+    return parsed, model_id, None
+
+
+async def build_journal_recommend_payload(
+    *,
+    paper_title: str,
+    abstract: str,
+    discipline: str | None = None,
+    preferred_model: str | None = None,
+) -> dict[str, Any]:
+    """Build a structured journal-recommendation payload."""
+    resolved_title = (paper_title or "").strip() or "Untitled Paper"
+    resolved_discipline = _normalize_discipline(discipline)
+    llm_result, model_id, generation_error = await _try_llm_journal_recommend(
+        paper_title=resolved_title,
+        abstract=abstract,
+        discipline=resolved_discipline,
+        preferred_model=preferred_model,
+    )
+    payload = llm_result or _build_journal_recommend_template(paper_title=resolved_title)
+    return {
+        "schema_version": SCI_SCHEMA_VERSION,
+        "document_type": ArtifactType.SUMMARY.value,
+        "output_language": SCI_OUTPUT_LANGUAGE,
+        "paper_title": resolved_title,
+        "discipline": resolved_discipline,
+        "paper_profile": str(payload.get("paper_profile") or "").strip(),
+        "journals": payload.get("journals") if isinstance(payload.get("journals"), list) else [],
+        "submission_notes": payload.get("submission_notes") if isinstance(payload.get("submission_notes"), list) else [],
+        "generated_at": _utc_now_iso(),
+        "model_id": model_id,
+        "generation_error": generation_error,
+        "generation_mode": "llm" if llm_result is not None else "template",
+    }
+
+
 async def build_literature_search_payload(
     *,
     workspace_id: str,
@@ -266,7 +728,7 @@ async def build_literature_search_payload(
     discipline: str | None = None,
     preferred_model: str | None = None,
 ) -> dict[str, Any]:
-    """Build literature search artifact content with LLM synthesis + fallback.
+    """Build literature search artifact content with LLM synthesis.
 
     Args:
         workspace_id: UUID of the workspace
@@ -371,77 +833,22 @@ async def build_literature_search_payload(
             )
         return llm_result
 
-    # Fallback to template
-    template_result = _build_literature_search_template(
-        query=normalized_query,
-        discipline=normalized_discipline,
-    )
-    template_result["model_id"] = model_id
-    template_result["generation_error"] = generation_error
-    template_result["existing_literature_count"] = len(existing_literature)
     if runtime is not None:
-        upsert_runtime_block(
-            runtime,
-            {
-                "id": "result-summary",
-                "kind": "metrics",
-                "title": "检索结果",
-                "entries": [
-                    {"label": "候选文献", "value": "0"},
-                    {"label": "Top Hits", "value": "0"},
-                    {"label": "生成模式", "value": "template_fallback"},
-                ],
-            },
-        )
         append_runtime_activity(
             runtime,
-            title="检索退回模板",
-            description="当前模型未返回结构化结果，已生成模板化检索输出。",
-            tone="warning",
+            title="检索失败",
+            description=f"模型未返回结构化检索结果：{generation_error or 'unknown_error'}",
+            tone="error",
         )
         advance_runtime_phase(runtime, "retrieve", "finalize")
         await _emit_bound_runtime(
-            message="正在整理模板化检索结果...",
+            message="文献检索失败，正在回传错误信息...",
             current_phase="finalize",
             stage_transition=True,
         )
-    return template_result
-
-
-def _build_paper_analysis_template(
-    paper_title: str,
-    paper_id: str | None = None,
-) -> dict[str, Any]:
-    """Build template-based paper analysis when LLM is unavailable."""
-    return {
-        "paper_id": paper_id,
-        "paper_title": paper_title,
-        "analysis_mode": "template_fallback",
-        "sections": {
-            "methodology": {
-                "title": "研究方法",
-                "content": "请配置 LLM 服务以获取深度方法分析。",
-                "key_points": ["研究设计", "数据收集", "分析方法"],
-            },
-            "experiments": {
-                "title": "实验设计",
-                "content": "请配置 LLM 服务以获取实验设计分析。",
-                "key_points": ["实验设置", "基准对比", "评价指标"],
-            },
-            "conclusions": {
-                "title": "研究结论",
-                "content": "请配置 LLM 服务以获取结论摘要。",
-                "key_points": ["主要发现", "研究贡献", "局限性"],
-            },
-            "innovations": {
-                "title": "创新点",
-                "content": "请配置 LLM 服务以获取创新点分析。",
-                "key_points": ["方法创新", "理论贡献", "应用价值"],
-            },
-        },
-        "summary": f"《{paper_title}》的结构化分析。请配置 LLM 服务以获取深度分析。",
-        "generated_at": _utc_now_iso(),
-    }
+    raise RuntimeError(
+        f"literature_search_llm_failed: {generation_error or 'unknown_error'}"
+    )
 
 
 async def _try_llm_paper_analysis(
@@ -563,7 +970,7 @@ async def build_paper_analysis_payload(
     paper_abstract: str | None = None,
     preferred_model: str | None = None,
 ) -> dict[str, Any]:
-    """Build paper analysis artifact content with LLM analysis + fallback.
+    """Build paper analysis artifact content with LLM analysis.
 
     Args:
         workspace_id: UUID of the workspace
@@ -685,45 +1092,22 @@ async def build_paper_analysis_payload(
             )
         return llm_result
 
-    # Fallback to template
-    template_result = _build_paper_analysis_template(
-        paper_title=resolved_title,
-        paper_id=paper_id,
-    )
-    template_result["model_id"] = model_id
-    template_result["generation_error"] = generation_error
     if runtime is not None:
-        upsert_runtime_block(
-            runtime,
-            {
-                "id": "analysis-sections",
-                "kind": "list",
-                "title": "分析分区",
-                "description": "模板化分区结构",
-                "items": [
-                    {
-                        "title": str(section.get("title") or key),
-                        "description": str(section.get("content") or "")[:180],
-                        "meta": "template",
-                    }
-                    for key, section in (template_result.get("sections") or {}).items()
-                    if isinstance(section, dict)
-                ],
-            },
-        )
         append_runtime_activity(
             runtime,
-            title="分析退回模板",
-            description="当前模型未返回结构化分析，已生成模板化输出。",
-            tone="warning",
+            title="分析失败",
+            description=f"模型未返回结构化分析：{generation_error or 'unknown_error'}",
+            tone="error",
         )
         advance_runtime_phase(runtime, "analyze", "finalize")
         await _emit_bound_runtime(
-            message="正在整理模板化分析结果...",
+            message="论文分析失败，正在回传错误信息...",
             current_phase="finalize",
             stage_transition=True,
         )
-    return template_result
+    raise RuntimeError(
+        f"paper_analysis_llm_failed: {generation_error or 'unknown_error'}"
+    )
 
 
 def _normalize_section_type(section_type: str | None) -> str:
@@ -835,51 +1219,6 @@ def _summarize_artifact_for_prompt(artifact_type: str, content: dict[str, Any]) 
     return "参考产出内容"
 
 
-def _build_sci_writing_template(
-    *,
-    paper_title: str,
-    section_type: str,
-    target_words: int,
-) -> dict[str, Any]:
-    section_title = _resolve_section_title(section_type)
-    section_focus = {
-        "abstract": "research objective, method, key results, and conclusion",
-        "introduction": "background, problem statement, and contributions",
-        "related_work": "comparison with prior work and identified research gap",
-        "methodology": "method framework, core approach, and design motivation",
-        "experiments": "experimental setup, metrics, and baselines",
-        "results": "primary findings, error analysis, and interpretability",
-        "discussion": "limitations, applicability boundary, and improvement directions",
-        "conclusion": "summary and future work",
-    }.get(section_type, "core claims and evidence structure for this section")
-
-    content = (
-        f"{section_title} Draft Template\n"
-        f"The paper \"{paper_title}\" should focus this section on {section_focus}.\n\n"
-        "Paragraph 1: explain the role of this section in the full paper and align it with the research objective.\n"
-        "Paragraph 2: provide the core reasoning chain, supported by method, experiment, or result evidence.\n"
-        "Paragraph 3: summarize limitations or next steps and prepare transition to subsequent sections.\n\n"
-        f"Suggested length: around {target_words} words. Refine with real data, equations, and figures."
-    )
-    outline = [
-        f"{section_title} objective and boundary",
-        "core claims and evidence organization",
-        "section summary and transition",
-    ]
-    references = [
-        "Add core references directly supporting the section claims",
-        "Attach reproducible experiment or data evidence for key conclusions",
-    ]
-    return {
-        "section_title": section_title,
-        "content": content,
-        "outline": outline,
-        "references": references,
-        "output_language": SCI_OUTPUT_LANGUAGE,
-        "writing_mode": "template_fallback",
-    }
-
-
 async def _try_llm_sci_writing(
     *,
     paper_title: str,
@@ -983,7 +1322,7 @@ async def build_sci_writing_payload(
     context_artifact_ids: list[str] | None = None,
     preferred_model: str | None = None,
 ) -> dict[str, Any]:
-    """Build SCI writing artifact payload with LLM generation + template fallback."""
+    """Build SCI writing artifact payload with LLM generation."""
     resolved_title = (paper_title or "").strip() or workspace_name or "未命名论文"
     normalized_section_type = _normalize_section_type(section_type)
     resolved_target_words = target_words if isinstance(target_words, int) and target_words > 0 else 1200
@@ -1053,17 +1392,28 @@ async def build_sci_writing_payload(
     )
 
     if llm_result is None:
-        llm_result = _build_sci_writing_template(
-            paper_title=resolved_title,
-            section_type=normalized_section_type,
-            target_words=resolved_target_words,
+        if runtime is not None:
+            append_runtime_activity(
+                runtime,
+                title="章节写作失败",
+                description=f"模型未返回有效章节草稿：{generation_error or 'unknown_error'}",
+                tone="error",
+            )
+            advance_runtime_phase(runtime, "draft", "finalize")
+            await _emit_bound_runtime(
+                message="章节写作失败，正在回传错误信息...",
+                current_phase="finalize",
+                stage_transition=True,
+            )
+        raise RuntimeError(
+            f"sci_writing_llm_failed: {generation_error or 'unknown_error'}"
         )
 
     draft_content = str(llm_result.get("content") or "").strip()
     section_title = str(llm_result.get("section_title") or _resolve_section_title(normalized_section_type)).strip()
     outline = llm_result.get("outline")
     references = llm_result.get("references")
-    writing_mode = str(llm_result.get("writing_mode") or "template_fallback")
+    writing_mode = str(llm_result.get("writing_mode") or "llm")
     if runtime is not None:
         upsert_runtime_block(
             runtime,
@@ -1092,7 +1442,7 @@ async def build_sci_writing_payload(
             runtime,
             title="章节草稿已生成",
             description=f"已生成 {section_title or normalized_section_type} 草稿并整理参考建议。",
-            tone="success" if writing_mode == "llm" else "warning",
+            tone="success",
         )
         advance_runtime_phase(runtime, "draft", "finalize")
         await _emit_bound_runtime(
@@ -1121,5 +1471,5 @@ async def build_sci_writing_payload(
         "writing_mode": writing_mode,
         "generated_at": _utc_now_iso(),
         "model_id": model_id,
-        "generation_error": generation_error if writing_mode != "llm" else None,
+        "generation_error": None,
     }

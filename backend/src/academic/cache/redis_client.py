@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -20,17 +21,68 @@ class RedisClient:
         self.url = url or redis_settings.url
         self._settings = redis_settings
         self._client: redis.Redis | None = None
+        self._owner_pid = os.getpid()
+
+    def _build_client(self) -> redis.Redis:
+        """Build a fresh Redis client for the current process."""
+        return redis.from_url(
+            self.url,
+            decode_responses=True,
+            max_connections=self._settings.max_connections,
+        )
+
+    def _forked_from_owner(self) -> bool:
+        """Return whether the client state was inherited across a process fork."""
+        return self._owner_pid != os.getpid()
+
+    async def reset_client(self, *, close_current: bool = True) -> None:
+        """Reset the cached Redis client so the current process gets a fresh one."""
+        current_client = self._client
+        self._client = None
+        self._owner_pid = os.getpid()
+
+        if not close_current or current_client is None:
+            return
+
+        close_method = getattr(current_client, "aclose", None)
+        if callable(close_method):
+            await close_method()
+        else:
+            await current_client.close()
 
     async def connect(self) -> None:
         """Establish Redis connection."""
+        if self._forked_from_owner():
+            logger.info("Resetting Redis client after process fork")
+            await self.reset_client(close_current=False)
+
         if self._client is None:
-            self._client = redis.from_url(self.url, decode_responses=True)
+            self._client = self._build_client()
+
+        try:
+            await self._client.ping()
+        except RuntimeError as exc:
+            if "attached to a different loop" not in str(exc):
+                await self.disconnect()
+                raise
+            logger.warning("Redis client loop affinity changed; rebuilding client")
+            await self.reset_client(close_current=False)
+            self._client = self._build_client()
+            await self._client.ping()
+        except Exception:
+            await self.disconnect()
+            raise
 
     async def disconnect(self) -> None:
         """Close Redis connection."""
         if self._client:
-            await self._client.close()
-            self._client = None
+            await self.reset_client(close_current=True)
+
+    async def ping(self) -> bool:
+        """Check whether Redis is reachable."""
+        if self._client is None:
+            await self.connect()
+        return bool(await self.client.ping())
 
     @property
     def client(self) -> redis.Redis:

@@ -201,11 +201,10 @@ class TestDetermineGenerationMode:
             "synthesis": False,
             "cross_validation": False,
         }
-        assert _determine_generation_mode(steps) == "template_fallback"
+        assert _determine_generation_mode(steps) == "failed"
 
     def test_empty_steps(self):
-        """Empty dict means 0 succeeded == 0 total => llm (0==0)."""
-        assert _determine_generation_mode({}) == "llm"
+        assert _determine_generation_mode({}) == "failed"
 
 
 # ---------------------------------------------------------------------------

@@ -1,15 +1,20 @@
 """Task storage layer - Redis for runtime, PostgreSQL for persistence."""
 
+import hashlib
 import json
 import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import func as sa_func
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.task_config import task_settings
 from src.database.models.task import TaskRecord
+from src.services.workspace_activity_contracts import (
+    build_task_activity_item,
+    serialize_activity_item,
+)
 from src.task.registry import TaskStatus
 from src.workspace_events import publish_workspace_event
 
@@ -26,6 +31,12 @@ class TaskStore:
     def _record_model(self):
         """Return the SQLAlchemy model used for task persistence."""
         return getattr(self, "_model", getattr(self, "_test_model", TaskRecord))
+
+    @staticmethod
+    def _advisory_lock_key(user_id: str) -> int:
+        """Derive a stable signed bigint lock key for per-user task submission."""
+        digest = hashlib.blake2b(user_id.encode("utf-8"), digest_size=8).digest()
+        return int.from_bytes(digest, byteorder="big", signed=True)
 
     # === Redis Operations (Runtime State) ===
 
@@ -111,6 +122,58 @@ class TaskStore:
         await self._db.refresh(record)
         return record
 
+    async def create_task_record_guarded(
+        self,
+        *,
+        task_id: str,
+        user_id: str,
+        task_type: str,
+        priority: int,
+        payload: dict,
+        concurrency_limit: int,
+    ) -> tuple[TaskRecord | None, int]:
+        """Atomically enforce per-user active-task limit and create the task record."""
+        record_model = self._record_model()
+        active_statuses = [
+            TaskStatus.PENDING.value,
+            TaskStatus.RUNNING.value,
+        ]
+
+        tx = self._db.begin_nested() if self._db.in_transaction() else self._db.begin()
+        async with tx:
+            bind = self._db.get_bind()
+            if bind is not None and bind.dialect.name == "postgresql":
+                await self._db.execute(
+                    text("SELECT pg_advisory_xact_lock(:lock_key)"),
+                    {"lock_key": self._advisory_lock_key(user_id)},
+                )
+
+            count_result = await self._db.execute(
+                select(sa_func.count())
+                .select_from(record_model)
+                .where(
+                    record_model.user_id == user_id,
+                    record_model.status.in_(active_statuses),
+                )
+            )
+            active_count = count_result.scalar() or 0
+            if active_count >= concurrency_limit:
+                return None, active_count
+
+            record = record_model(
+                id=task_id,
+                user_id=user_id,
+                task_type=task_type,
+                status=TaskStatus.PENDING.value,
+                priority=priority,
+                payload=payload,
+            )
+            self._db.add(record)
+            await self._db.flush()
+
+        await self._db.refresh(record)
+        return record, active_count
+
     async def get_task_record(self, task_id: str) -> TaskRecord | None:
         """Get task record from PostgreSQL."""
         record_model = self._record_model()
@@ -174,12 +237,47 @@ class TaskStore:
 
     async def mark_task_started(self, task_id: str, worker_id: str | None = None) -> None:
         """Mark task as started."""
-        await self.update_task_record(
+        started_at = datetime.now(UTC)
+        record = await self.update_task_record(
             task_id,
             status=TaskStatus.RUNNING.value,
-            started_at=datetime.now(UTC),
+            started_at=started_at,
         )
         await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
+        payload = record.payload if record and isinstance(record.payload, dict) else {}
+        workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
+        if workspace_id:
+            await publish_workspace_event(
+                workspace_id,
+                "task.updated",
+                {
+                    "task": {
+                        "task_id": task_id,
+                        "task_type": record.task_type if record else None,
+                        "status": TaskStatus.RUNNING.value,
+                        "progress": record.progress if record else 0,
+                        "message": record.message if record else None,
+                        "feature_id": payload.get("feature_id"),
+                        "thread_id": payload.get("thread_id"),
+                        "metadata": None,
+                    },
+                    "activity": serialize_activity_item(
+                        build_task_activity_item(
+                            task_id=task_id,
+                            workspace_id=workspace_id,
+                            task_type=record.task_type if record else None,
+                            payload=payload if isinstance(payload, dict) else None,
+                            status=TaskStatus.RUNNING.value,
+                            progress=record.progress if record else 0,
+                            message=record.message if record else None,
+                            error=None,
+                            occurred_at=started_at,
+                            created_at=record.created_at if record else None,
+                            started_at=started_at,
+                        )
+                    ),
+                },
+            )
 
     async def persist_runtime_state(self, task_id: str, metadata: dict | None) -> None:
         """Persist task runtime metadata to PostgreSQL for refresh/reconnect recovery."""
@@ -202,12 +300,13 @@ class TaskStore:
         runtime_state = await self.get_task_state(task_id)
         final_progress = 100 if success else runtime_state.get("progress", 0) if runtime_state else 0
         final_message = error or runtime_state.get("message") if runtime_state else error
+        completed_at = datetime.now(UTC)
         record = await self.update_task_record(
             task_id,
             status=status,
             result=result,
             error=error,
-            completed_at=datetime.now(UTC),
+            completed_at=completed_at,
             progress=final_progress,
             message=final_message,
             runtime_state=(
@@ -244,10 +343,29 @@ class TaskStore:
                         "result": result,
                         "error": error,
                     }
+                }
+                | {
+                    "activity": serialize_activity_item(
+                        build_task_activity_item(
+                            task_id=task_id,
+                            workspace_id=workspace_id,
+                            task_type=record.task_type if record else None,
+                            payload=payload if isinstance(payload, dict) else None,
+                            status=status,
+                            progress=final_progress,
+                            message=final_message,
+                            error=error,
+                            result=result if isinstance(result, dict) else result,
+                            occurred_at=completed_at,
+                            created_at=record.created_at if record else None,
+                            started_at=record.started_at if record else None,
+                            completed_at=completed_at,
+                        )
+                    )
                 },
             )
 
-            refresh_targets = ["activity", "dashboard"]
+            refresh_targets = ["dashboard"]
             if success and isinstance(result, dict):
                 for target in result.get("refresh_targets") or []:
                     if isinstance(target, str) and target not in refresh_targets:

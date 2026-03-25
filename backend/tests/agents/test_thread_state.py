@@ -169,6 +169,14 @@ class TestAcademicFields:
         )
         assert state["knowledge_context"] == "Knowledge context string"
 
+    def test_memory_context_field(self):
+        """Test long-term memory_context field."""
+        state = ThreadState(
+            messages=[],
+            memory_context="<academic_memory>偏好 IEEE</academic_memory>",
+        )
+        assert state["memory_context"] == "<academic_memory>偏好 IEEE</academic_memory>"
+
     def test_discipline_norms_field(self):
         """Test discipline_norms field (formerly _discipline_norms PrivateAttr)."""
         norms = {"citation_style": "IEEE", "writing_style": "technical"}

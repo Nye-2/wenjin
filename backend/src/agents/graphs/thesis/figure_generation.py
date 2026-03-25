@@ -5,19 +5,22 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from src.agents.graphs._shared import _read_optional_str
+from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.agents.workspace_lead_agent import register_feature_graph
-from src.models.router import route_writing_model
+from src.execution.capabilities import execution_type_readiness
 from src.execution.public_paths import sandbox_path_to_public_url
+from src.execution.types import ExecutionType
+from src.models.router import route_writing_model
 from src.task.progress import emit_runtime_update, get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
     runtime_progress_for_phase,
     upsert_runtime_block,
 )
+from src.thesis.execution import get_execution_service
 from src.thesis.execution.figure_tool import generate_figure
 
 logger = logging.getLogger(__name__)
@@ -64,6 +67,11 @@ _FIGURE_STRATEGY_BY_TYPE: dict[str, str] = {
 }
 
 _VALID_STRATEGIES = {"mermaid", "python", "kling"}
+_STRATEGY_TO_EXECUTION_TYPE: dict[str, ExecutionType] = {
+    "mermaid": ExecutionType.MERMAID_DIAGRAM,
+    "python": ExecutionType.PYTHON_PLOT,
+    "kling": ExecutionType.AI_IMAGE,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -78,50 +86,24 @@ def _resolve_strategy(fig_type: str) -> str:
     return _FIGURE_STRATEGY_BY_TYPE.get(normalized, "mermaid")
 
 
-# ---------------------------------------------------------------------------
-# Helper: build fallback source code per strategy
-# ---------------------------------------------------------------------------
-def _build_fallback_source(strategy: str, description: str) -> str:
-    """Return template code for *strategy* when LLM generation fails."""
-    desc = (description or "").replace("'", "").replace('"', "").replace("\n", " ").strip()
-    if not desc:
-        desc = "示例图表"
+def _provider_ready(strategy: str) -> bool:
+    """Check whether execution provider for strategy is available."""
+    exec_type = _STRATEGY_TO_EXECUTION_TYPE.get(strategy)
+    if exec_type is None:
+        return False
+    try:
+        execution_service = get_execution_service()
+    except Exception:
+        return False
+    ready, _ = execution_type_readiness(execution_service, exec_type)
+    return ready
 
-    if strategy == "python":
-        title = desc[:40]
-        return "\n".join([
-            "import matplotlib.pyplot as plt",
-            "",
-            "labels = ['方案A', '方案B', '方案C', '方案D']",
-            "values = [0.68, 0.74, 0.81, 0.79]",
-            "",
-            "fig, ax = plt.subplots(figsize=(8, 4.5))",
-            "ax.bar(labels, values, color=['#2563eb', '#0891b2', '#16a34a', '#f59e0b'])",
-            "ax.set_ylim(0, 1)",
-            f"ax.set_title('{title}')",
-            "ax.set_ylabel('Score')",
-            "for idx, value in enumerate(values):",
-            "    ax.text(idx, value + 0.02, f'{value:.2f}', ha='center')",
-            "plt.tight_layout()",
-            "plt.savefig('/workspace/output/chart.png', dpi=200)",
-        ])
 
-    if strategy == "kling":
-        prompt_desc = desc[:120]
-        return (
-            "生成一张用于本科论文的学术概念图，风格简洁、信息层次清晰。"
-            f"主题：{prompt_desc}。要求包含核心实体、关键关系和流程方向，可直接用于论文插图。"
-        )
-
-    # Default: mermaid
-    summary = desc[:36]
-    return "\n".join([
-        "flowchart TD",
-        f'  A["研究问题: {summary}"] --> B["方法设计"]',
-        '  B --> C["实验验证"]',
-        '  C --> D["结果分析"]',
-        '  D --> E["结论与展望"]',
-    ])
+def _select_execution_strategy(strategy: str) -> tuple[str, str | None]:
+    """Validate whether requested strategy is executable."""
+    if _provider_ready(strategy):
+        return strategy, None
+    return strategy, f"provider for {strategy} not ready"
 
 
 # ---------------------------------------------------------------------------
@@ -315,9 +297,9 @@ async def figure_generation_graph(
         1. plan_figure — LLM analyzes context and plans the figure
         2. generate_figure_code — LLM generates code/prompt based on plan
 
-    Each step has fallback. Output is code/prompt ready for downstream execution.
+    Output is code/prompt ready for downstream execution.
     """
-    params = payload.get("params", {})
+    params = _read_payload_params(payload)
     fig_type = str(
         params.get("fig_type")
         or params.get("figure_type")
@@ -336,7 +318,7 @@ async def figure_generation_graph(
     thread_id = payload.get("thread_id")
     workspace_id = str(payload.get("workspace_id", ""))
     workspace_name = str(payload.get("workspace_name", ""))
-    memory_context = initial_state.get("knowledge_context")
+    memory_context = initial_state.get("memory_context")
     requested_model = _read_optional_str(params.get("model_id"))
     model_id = _resolve_writing_model(requested_model)
     runtime = get_runtime_state()
@@ -345,6 +327,11 @@ async def figure_generation_graph(
     strategy = _resolve_strategy(fig_type)
 
     if runtime is not None:
+        chapter_label = (
+            str(chapter_index)
+            if chapter_index is not None
+            else "未关联"
+        )
         upsert_runtime_block(
             runtime,
             {
@@ -354,7 +341,7 @@ async def figure_generation_graph(
                 "entries": [
                     {"label": "图表类型", "value": fig_type},
                     {"label": "默认策略", "value": strategy},
-                    {"label": "章节", "value": str(chapter_index or "未关联")},
+                    {"label": "章节", "value": chapter_label},
                 ],
             },
         )
@@ -382,6 +369,9 @@ async def figure_generation_graph(
     # Allow plan to override strategy
     if figure_plan and figure_plan.get("recommended_strategy"):
         strategy = figure_plan["recommended_strategy"]
+
+    requested_strategy = strategy
+    execution_strategy, strategy_fallback_reason = _select_execution_strategy(strategy)
     if runtime is not None:
         upsert_runtime_block(
             runtime,
@@ -397,8 +387,12 @@ async def figure_generation_graph(
         append_runtime_activity(
             runtime,
             title="图表规划完成",
-            description=f"已确定使用 {strategy} 作为生成策略。",
-            tone="success" if figure_plan is not None else "warning",
+            description=(
+                f"已确定使用 {execution_strategy} 作为执行策略。"
+                if strategy_fallback_reason is None
+                else f"原策略 {requested_strategy} 当前不可执行：{strategy_fallback_reason}。"
+            ),
+            tone="success" if figure_plan is not None and strategy_fallback_reason is None else "warning",
         )
         await _emit_bound_runtime(
             message="正在生成图表源码/提示词...",
@@ -408,7 +402,7 @@ async def figure_generation_graph(
 
     # Step 2: Generate figure code (LLM)
     generated_code = await _generate_figure_code(
-        strategy=strategy,
+        strategy=execution_strategy,
         description=description,
         plan=figure_plan,
         memory_context=memory_context,
@@ -419,37 +413,44 @@ async def figure_generation_graph(
     planning_ok = figure_plan is not None
     code_gen_ok = generated_code is not None
 
-    # Fallback to template if LLM code generation failed
     if not code_gen_ok:
-        generated_code = _build_fallback_source(strategy, description)
+        raise RuntimeError("figure_generation_failed: llm_output_missing_source")
 
-    generation_mode = "llm" if code_gen_ok else "template_fallback"
+    generation_mode = "llm"
     execution_ok = False
     execution_error: str | None = None
     file_path: str | None = None
     file_url: str | None = None
     file_format: str | None = None
 
-    if generated_code:
-        raw_figure_id = f"{workspace_name or 'figure'}-{int(datetime.now(tz=timezone.utc).timestamp())}"
-        figure_id = re.sub(r"[^a-zA-Z0-9_.-]+", "-", raw_figure_id).strip("-").lower()
-        if not figure_id:
-            figure_id = "figure"
-        execution = await generate_figure(
-            strategy=strategy,
-            content=generated_code,
-            workspace_id=workspace_id or None,
-            thread_id=str(thread_id) if thread_id else None,
-            figure_id=figure_id,
-            timeout=60,
+    if not _provider_ready(execution_strategy):
+        raise RuntimeError(
+            f"figure_generation_failed: {strategy_fallback_reason or f'provider for {execution_strategy} is not ready'}"
         )
-        execution_ok = execution.success
-        execution_error = execution.error
-        file_path = execution.figure_path
-        file_format = execution.format
-        file_url = sandbox_path_to_public_url(
-            execution.figure_path,
-            thread_id=str(thread_id) if thread_id else None,
+
+    raw_figure_id = f"{workspace_name or 'figure'}-{int(datetime.now(tz=UTC).timestamp())}"
+    figure_id = re.sub(r"[^a-zA-Z0-9_.-]+", "-", raw_figure_id).strip("-").lower()
+    if not figure_id:
+        figure_id = "figure"
+    execution = await generate_figure(
+        strategy=execution_strategy,
+        content=generated_code,
+        workspace_id=workspace_id or None,
+        thread_id=str(thread_id) if thread_id else None,
+        figure_id=figure_id,
+        timeout=60,
+    )
+    execution_ok = execution.success
+    execution_error = execution.error
+    file_path = execution.figure_path
+    file_format = execution.format
+    file_url = sandbox_path_to_public_url(
+        execution.figure_path,
+        thread_id=str(thread_id) if thread_id else None,
+    )
+    if not execution_ok:
+        raise RuntimeError(
+            f"figure_generation_failed: {execution_error or 'execution_failed'}"
         )
     if runtime is not None:
         upsert_runtime_block(
@@ -459,7 +460,8 @@ async def figure_generation_graph(
                 "kind": "metrics",
                 "title": "图表输出",
                 "entries": [
-                    {"label": "策略", "value": strategy},
+                    {"label": "请求策略", "value": requested_strategy},
+                    {"label": "执行策略", "value": execution_strategy},
                     {"label": "执行状态", "value": "success" if execution_ok else "generated_code"},
                     {"label": "格式", "value": str(file_format or "unknown")},
                 ],
@@ -478,8 +480,12 @@ async def figure_generation_graph(
         append_runtime_activity(
             runtime,
             title="图表生成完成",
-            description="已生成图表源码并完成渲染尝试。",
-            tone="success" if execution_ok else "warning",
+            description=(
+                "已生成图表源码并完成渲染尝试。"
+                if strategy_fallback_reason is None
+                else f"执行备注：{strategy_fallback_reason}"
+            ),
+            tone="success",
         )
         await _emit_bound_runtime(
             message="正在整理图表产物...",
@@ -492,9 +498,10 @@ async def figure_generation_graph(
         "figure_type": fig_type,
         "description": description,
         "chapter_index": chapter_index,
-        "strategy": strategy,
-        "source_code": generated_code if strategy != "kling" else None,
-        "prompt": generated_code if strategy == "kling" else None,
+        "strategy": execution_strategy,
+        "requested_strategy": requested_strategy,
+        "source_code": generated_code if execution_strategy != "kling" else None,
+        "prompt": generated_code if execution_strategy == "kling" else None,
         "figure_plan": figure_plan,
         "render_data": {
             "file_path": file_path,
@@ -507,10 +514,12 @@ async def figure_generation_graph(
             "figure_planning": planning_ok,
             "code_generation": code_gen_ok,
             "figure_execution": execution_ok,
+            "strategy_downgraded": execution_strategy != requested_strategy,
         },
-        "status": "generated" if execution_ok else "generated_code",
-        "execution_error": execution_error,
-        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "status": "generated",
+        "execution_error": None,
+        "execution_note": strategy_fallback_reason,
+        "generated_at": datetime.now(tz=UTC).isoformat(),
     }
 
     return result

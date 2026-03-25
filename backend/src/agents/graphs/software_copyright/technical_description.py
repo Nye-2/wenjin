@@ -8,7 +8,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.agents.graphs._shared import _normalize_list, _read_optional_str
+from src.agents.graphs._shared import (
+    _normalize_list,
+    _read_optional_str,
+    _read_payload_params,
+)
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.workspace_features.services import build_technical_description_payload
 
@@ -27,13 +31,13 @@ async def technical_description_graph(
     Pipeline:
         1. Extract parameters
         2. Load existing copyright_materials for defaults
-        3. Call service layer (handles LLM + fallback)
+        3. Call service layer
         4. Build structured output
     """
     workspace_id = str(payload.get("workspace_id", ""))
     workspace_name = str(payload.get("workspace_name", ""))
     workspace_description = str(payload.get("workspace_description", ""))
-    params = payload.get("params", {})
+    params = _read_payload_params(payload)
 
     # Step 1: Extract parameters (per handoff document)
     software_name = str(
@@ -53,7 +57,7 @@ async def technical_description_graph(
     highlights = _normalize_list(params.get("highlights"))
     preferred_model = _read_optional_str(params.get("model_id"))
 
-    # Step 2: Call service layer - handles LLM + fallback internally
+    # Step 2: Call service layer
     # Service layer also handles loading existing copyright_materials for defaults
     result = await build_technical_description_payload(
         workspace_id=workspace_id,
@@ -73,13 +77,13 @@ async def technical_description_graph(
     return {
         "software_profile": result.get("software_profile", {}),
         "sections": result.get("sections", {}),
-        "generation_mode": result.get("generation_mode", "template_fallback"),
+        "generation_mode": result.get("generation_mode", "llm"),
         "model_id": result.get("model_id"),
         "generation_error": result.get("generation_error"),
         "generated_at": result.get("generated_at"),
         "upgrade": result.get("upgrade", {
-            "auto_upgrade": True,
-            "can_regenerate_with_llm": result.get("generation_mode") == "template_fallback",
+            "auto_upgrade": False,
+            "can_regenerate_with_llm": False,
             "last_error": result.get("generation_error"),
         }),
     }

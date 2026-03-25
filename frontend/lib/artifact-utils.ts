@@ -1,5 +1,15 @@
 import type { Artifact } from "@/stores/workspace";
 
+export function findArtifactById(
+  artifacts: Artifact[],
+  artifactId: string | null | undefined
+): Artifact | null {
+  if (!artifactId) {
+    return null;
+  }
+  return artifacts.find((artifact) => artifact.id === artifactId) ?? null;
+}
+
 export function findLatestArtifact(
   artifacts: Artifact[],
   acceptedTypes: string[]
@@ -29,6 +39,36 @@ export function readString(value: unknown): string | null {
   }
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+export function readStringArrayLike(
+  value: unknown,
+  maxItems: number = 8
+): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => readString(item))
+      .filter((item): item is string => Boolean(item))
+      .slice(0, maxItems);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/[\n,，]+/)
+      .map((item) => readString(item))
+      .filter((item): item is string => Boolean(item))
+      .slice(0, maxItems);
+  }
+
+  return [];
+}
+
+export function joinStringArrayLike(
+  value: unknown,
+  maxItems: number = 8
+): string | null {
+  const items = readStringArrayLike(value, maxItems);
+  return items.length > 0 ? items.join(",") : null;
 }
 
 export function readStringList(value: unknown, maxItems: number = 5): string[] {

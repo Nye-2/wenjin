@@ -1,6 +1,7 @@
 """Tests for ViewImageMiddleware."""
 
 import pytest
+from langchain_core.messages import HumanMessage
 
 from src.agents.middlewares.view_image import ViewImageMiddleware
 from src.agents.thread_state import ThreadState
@@ -33,6 +34,20 @@ def state_with_image() -> ThreadState:
             "image2.jpg": {
                 "base64": "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBEQACEQA/ALUABo//2Q==",
                 "mime_type": "image/jpeg",
+            },
+        },
+    }
+
+
+@pytest.fixture
+def state_with_message_and_image() -> ThreadState:
+    """Create state with existing messages and viewed images."""
+    return {
+        "messages": [HumanMessage(content="Original prompt")],
+        "viewed_images": {
+            "image1.png": {
+                "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                "mime_type": "image/png",
             },
         },
     }
@@ -90,6 +105,20 @@ class TestViewImageMiddleware:
             assert "type" in item
             assert item["type"] == "image_url"
             assert "image_url" in item
+
+    @pytest.mark.asyncio
+    async def test_before_model_preserves_existing_messages(
+        self,
+        middleware: ViewImageMiddleware,
+        state_with_message_and_image: ThreadState,
+        vision_config: dict,
+    ):
+        """Viewed images should be appended instead of replacing prior messages."""
+        result = await middleware.before_model(state_with_message_and_image, vision_config)
+
+        assert "messages" in result
+        assert len(result["messages"]) == 2
+        assert result["messages"][0].content == "Original prompt"
 
     @pytest.mark.asyncio
     async def test_before_model_skips_without_vision(
@@ -220,4 +249,3 @@ class TestViewImageMiddleware:
         assert len(result["messages"]) == 1
         content = result["messages"][0].content
         assert len(content) == 1  # Only one valid image
-

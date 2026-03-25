@@ -1,25 +1,11 @@
-"""Workspaces router for workspace management API endpoints.
-
-This module provides REST endpoints for:
-- Workspace CRUD operations
-- Paper association management
-- Dashboard overview
-"""
-
-from typing import Any
+"""Workspaces router for workspace management API endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
 
 from src.academic.services.paper_service import PaperService
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User, Workspace
-from src.gateway.access_control import require_workspace_owner
+from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.contracts.paper import (
-    PaperSummaryResponse as PaperResponse,
-)
 from src.gateway.contracts.paper import (
     paper_to_summary_response as paper_to_response,
 )
@@ -28,115 +14,33 @@ from src.gateway.deps import (
     get_paper_service,
     get_workspace_activity_service,
     get_workspace_service,
+    get_workspace_summary_service,
 )
-from src.gateway.validators.workspace import (
-    AddPaperToWorkspaceValidator,
-    CreateWorkspaceValidator,
-    UpdateWorkspaceValidator,
+from src.gateway.routers.workspaces_contracts import (
+    AddPaperRequest,
+    CreateWorkspaceRequest,
+    PapersListResponse,
+    UpdateWorkspaceRequest,
+    WorkspaceActivityResponse,
+    WorkspaceResponse,
+    WorkspacesListResponse,
+    WorkspaceSummaryResponse,
+)
+from src.gateway.routers.workspaces_runtime import (
+    create_workspace_events_response_with_stream,
+    get_owned_workspace,
+    workspace_type_value,
+)
+from src.gateway.routers.workspaces_serializers import (
+    workspace_activity_to_response,
+    workspace_to_response,
 )
 from src.services.dashboard_service import DashboardService
 from src.services.workspace_activity_service import WorkspaceActivityService
+from src.services.workspace_summary_service import WorkspaceSummaryService
 from src.workspace_events import stream_workspace_events
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
-
-
-# ============ Request/Response Models ============
-
-class WorkspaceResponse(BaseModel):
-    """Workspace response."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    user_id: str
-    name: str
-    type: str
-    discipline: str | None
-    description: str | None
-    config: dict
-    created_at: str
-    updated_at: str
-
-
-class WorkspacesListResponse(BaseModel):
-    """Workspaces list response."""
-    workspaces: list[WorkspaceResponse]
-
-
-class PapersListResponse(BaseModel):
-    """Workspace papers response."""
-
-    papers: list[PaperResponse]
-    count: int
-
-
-class WorkspaceActivityItemResponse(BaseModel):
-    """Workspace activity timeline item."""
-
-    id: str
-    kind: str
-    workspace_id: str | None = None
-    occurred_at: str
-    title: str
-    summary: str | None = None
-    status: str | None = None
-    thread_id: str | None = None
-    task_id: str | None = None
-    artifact_id: str | None = None
-    feature_id: str | None = None
-    subagent_type: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class WorkspaceActivityResponse(BaseModel):
-    """Workspace activity feed response."""
-
-    items: list[WorkspaceActivityItemResponse]
-    count: int
-
-
-# Re-export validators as request models for backward compatibility
-CreateWorkspaceRequest = CreateWorkspaceValidator
-UpdateWorkspaceRequest = UpdateWorkspaceValidator
-AddPaperRequest = AddPaperToWorkspaceValidator
-
-
-def workspace_to_response(workspace: Workspace) -> WorkspaceResponse:
-    """Convert Workspace ORM object to response model."""
-    return WorkspaceResponse(
-        id=str(workspace.id),
-        user_id=str(workspace.user_id),
-        name=workspace.name,
-        type=workspace.type.value if workspace.type else None,
-        discipline=workspace.discipline,
-        description=workspace.description,
-        config=workspace.config or {},
-        created_at=workspace.created_at.isoformat() if workspace.created_at else "",
-        updated_at=workspace.updated_at.isoformat() if workspace.updated_at else "",
-    )
-
-
-def workspace_activity_to_response(item: dict[str, Any]) -> WorkspaceActivityItemResponse:
-    """Convert a service activity item into the API response contract."""
-    occurred_at = item.get("occurred_at")
-    return WorkspaceActivityItemResponse(
-        id=str(item.get("id") or ""),
-        kind=str(item.get("kind") or "activity"),
-        workspace_id=str(item["workspace_id"]) if item.get("workspace_id") is not None else None,
-        occurred_at=occurred_at.isoformat() if hasattr(occurred_at, "isoformat") else str(occurred_at or ""),
-        title=str(item.get("title") or "Activity"),
-        summary=item.get("summary"),
-        status=item.get("status"),
-        thread_id=str(item["thread_id"]) if item.get("thread_id") is not None else None,
-        task_id=str(item["task_id"]) if item.get("task_id") is not None else None,
-        artifact_id=str(item["artifact_id"]) if item.get("artifact_id") is not None else None,
-        feature_id=str(item["feature_id"]) if item.get("feature_id") is not None else None,
-        subagent_type=item.get("subagent_type"),
-        metadata=item.get("metadata") or {},
-    )
-
-
-# ============ Endpoints ============
 
 @router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
@@ -210,7 +114,7 @@ async def get_workspace(
     Raises:
         HTTPException: If workspace not found
     """
-    workspace = await require_workspace_owner(
+    workspace = await get_owned_workspace(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
@@ -238,7 +142,7 @@ async def update_workspace(
     Raises:
         HTTPException: If workspace not found
     """
-    await require_workspace_owner(
+    await get_owned_workspace(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
@@ -272,7 +176,7 @@ async def delete_workspace(
     Raises:
         HTTPException: If workspace not found
     """
-    await require_workspace_owner(
+    await get_owned_workspace(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
@@ -305,7 +209,7 @@ async def list_workspace_papers(
     Returns:
         Papers in the workspace with total count
     """
-    await require_workspace_owner(
+    await get_owned_workspace(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
@@ -341,7 +245,7 @@ async def add_paper_to_workspace(
     Returns:
         Success message
     """
-    await require_workspace_owner(
+    await get_owned_workspace(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
@@ -375,7 +279,7 @@ async def remove_paper_from_workspace(
     Returns:
         Success message
     """
-    await require_workspace_owner(
+    await get_owned_workspace(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
@@ -413,16 +317,38 @@ async def get_workspace_dashboard(
     Raises:
         HTTPException: If workspace not found
     """
-    workspace = await require_workspace_owner(
+    workspace = await get_owned_workspace(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    workspace_type = workspace.type.value if workspace.type else None
+    workspace_type = workspace_type_value(workspace)
     return await dashboard_service.get_dashboard(
         workspace_id,
         workspace_type=workspace_type,
     )
+
+
+@router.get("/{workspace_id}/summary", response_model=WorkspaceSummaryResponse)
+async def get_workspace_summary(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    summary_service: WorkspaceSummaryService = Depends(get_workspace_summary_service),
+):
+    """Get workspace cockpit summary with phase, recommendation, and risk data."""
+    workspace = await get_owned_workspace(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+    workspace_type = workspace_type_value(workspace, default="thesis")
+    payload = await summary_service.get_summary(
+        workspace_id,
+        workspace_type=workspace_type,
+        user_id=str(current_user.id),
+    )
+    return WorkspaceSummaryResponse(**payload)
 
 
 @router.get("/{workspace_id}/activity", response_model=WorkspaceActivityResponse)
@@ -434,7 +360,7 @@ async def get_workspace_activity(
     activity_service: WorkspaceActivityService = Depends(get_workspace_activity_service),
 ):
     """Get a unified recent activity timeline for the workspace."""
-    await require_workspace_owner(
+    await get_owned_workspace(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
@@ -458,18 +384,12 @@ async def subscribe_workspace_events(
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ):
     """Subscribe to workspace-scoped live events via SSE."""
-    await require_workspace_owner(
+    await get_owned_workspace(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-
-    return StreamingResponse(
-        await stream_workspace_events(workspace_id),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+    return await create_workspace_events_response_with_stream(
+        workspace_id=workspace_id,
+        stream_factory=stream_workspace_events,
     )

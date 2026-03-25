@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, List } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { List } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -46,12 +46,19 @@ type ProposalTypeValue = (typeof PROPOSAL_TYPES)[number]["value"];
 
 export default function ProposalOutlinePage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params.id as string;
   const { workspace, artifacts } = useWorkspaceStore();
+  const topicSeed = searchParams.get("topic");
+  const proposalTypeSeed = searchParams.get("proposal_type");
+  const periodMonthsSeed = searchParams.get("period_months");
 
-  const [topic, setTopic] = useState("");
-  const [proposalType, setProposalType] = useState<ProposalTypeValue>("other");
+  const [topic, setTopic] = useState(() => topicSeed || "");
+  const [proposalType, setProposalType] = useState<ProposalTypeValue>(() =>
+    PROPOSAL_TYPES.some((item) => item.value === proposalTypeSeed)
+      ? (proposalTypeSeed as ProposalTypeValue)
+      : "other"
+  );
 
   useEffect(() => {
     if (workspace && !topic) {
@@ -59,7 +66,32 @@ export default function ProposalOutlinePage() {
       setTopic((workspace.description || workspace.name || "").toString());
     }
   }, [workspace, topic]);
-  const [periodMonths, setPeriodMonths] = useState<number>(24);
+  const [periodMonths, setPeriodMonths] = useState<number>(() => {
+    const parsed = Number(periodMonthsSeed);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 24;
+  });
+
+  useEffect(() => {
+    if (topicSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setTopic(topicSeed);
+    }
+  }, [topicSeed]);
+
+  useEffect(() => {
+    if (PROPOSAL_TYPES.some((item) => item.value === proposalTypeSeed)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setProposalType(proposalTypeSeed as ProposalTypeValue);
+    }
+  }, [proposalTypeSeed]);
+
+  useEffect(() => {
+    const parsed = Number(periodMonthsSeed);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setPeriodMonths(parsed);
+    }
+  }, [periodMonthsSeed]);
 
   const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
@@ -174,48 +206,16 @@ export default function ProposalOutlinePage() {
   });
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Header */}
-      <header className="h-14 flex items-center gap-4 px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push(`/workspaces/${workspaceId}`)}
-          className={cn(
-            "p-2 rounded-lg",
-            "bg-[var(--bg-surface)]",
-            "hover:bg-[var(--bg-muted)]",
-            "text-[var(--text-secondary)]",
-            "transition-colors"
-          )}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-purple-500/10">
-            <List className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[var(--text-primary)]">
-              申报书大纲
-            </h1>
-            <p className="text-xs text-[var(--text-muted)]">
-              生成项目申报书结构化大纲
-            </p>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Input */}
-        <aside className="w-80 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-          <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">
-            大纲配置
-          </h2>
-
-          <div className="space-y-4">
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="申报书大纲"
+      description="生成项目申报书结构化大纲"
+      icon={List}
+      iconBgClass="bg-purple-500/10"
+      iconClass="text-purple-600 dark:text-purple-400"
+      sidebarTitle="大纲配置"
+      sidebar={
+        <div className="space-y-4">
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 项目主题
@@ -291,28 +291,18 @@ export default function ProposalOutlinePage() {
               error={error}
               onRetry={handleGenerate}
             />
-          </div>
-        </aside>
-
-        {/* Main Area */}
-        <div className="flex-1 p-6 overflow-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <TaskRuntimePanel
-              runtime={runtime}
-              isRunning={isRunning}
-              status={status}
-              error={error}
-              title="申报书大纲运行面板"
-              emptyDescription="执行后，这里会显示项目范围、大纲生成和里程碑整理过程。"
-            />
-            <WorkspaceResultPanel viewModel={resultViewModel} />
-          </motion.div>
         </div>
-      </main>
-    </div>
+      }
+    >
+      <TaskRuntimePanel
+        runtime={runtime}
+        isRunning={isRunning}
+        status={status}
+        error={error}
+        title="申报书大纲运行面板"
+        emptyDescription="执行后，这里会显示项目范围、大纲生成和里程碑整理过程。"
+      />
+      <WorkspaceResultPanel viewModel={resultViewModel} />
+    </FeatureWorkbenchShell>
   );
 }

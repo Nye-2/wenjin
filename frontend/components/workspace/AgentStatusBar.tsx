@@ -6,9 +6,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Check, Loader2, X, ChevronDown, ChevronUp, Bot } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getThreadAgentStatus, type ThreadAgentStatus } from "@/lib/api";
+import { formatWorkspaceChatSkillLabel } from "@/lib/workspace-chat-skills";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chat";
 import { useTaskStore } from "@/stores/task";
+import { useWorkspaceStore } from "@/stores/workspace";
 
 type StageStatus = "completed" | "running" | "pending";
 
@@ -75,6 +77,7 @@ export function AgentStatusBar() {
   const { currentTask, recentCompleted, cancelTask, clearRecentCompleted } =
     useTaskStore();
   const { threadId, currentSkill, isStreaming, threadStatuses, setThreadStatus } = useChatStore();
+  const { workspace } = useWorkspaceStore();
   const [isExpanded, setIsExpanded] = useState(true);
   const threadStatus: ThreadAgentStatus | null = threadId ? threadStatuses[threadId] ?? null : null;
 
@@ -145,7 +148,10 @@ export function AgentStatusBar() {
 
     const skillLabel =
       visibleThreadStatus?.current_skill || currentSkill
-        ? (visibleThreadStatus?.current_skill || currentSkill || "chat").replace(/-/g, " ")
+        ? formatWorkspaceChatSkillLabel(
+            workspace?.type,
+            visibleThreadStatus?.current_skill || currentSkill
+          ) ?? "chat"
         : "chat";
 
     return (

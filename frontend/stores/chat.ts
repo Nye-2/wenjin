@@ -9,19 +9,27 @@ import {
   getThread,
   listThreads,
   streamChat,
-  type Thread,
+  type ReasoningEffort,
   type ThreadAgentStatus,
   type ThreadSummary,
 } from '../lib/api';
+import { syncCurrentSkillWithThread } from '@/lib/chat-skill-state';
+import { upsertThreadSummaryList } from '@/lib/workspace-event-ordering';
+import {
+  buildPendingThreadSummary,
+  createPendingUserMessage,
+  createPlaceholderAssistantMessage,
+  createStoreAssistantMessage,
+  findLastAssistantMessage,
+  maybeStartStructuredTask,
+  toStoreMessages,
+  toThreadSummary,
+  upsertTrailingAssistantMessage,
+  appendAssistantContent,
+  type Message,
+} from './chat-store-support';
 
-// ============ Types ============
-
-export interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  created_at: string;
-}
+export type { Message } from './chat-store-support';
 
 // ============ Store State ============
 
@@ -30,6 +38,7 @@ interface ChatState {
   isStreaming: boolean;
   isThreadsLoading: boolean;
   currentSkill: string | null;
+  isSkillSelectionPending: boolean;
   threadId: string | null;
   threads: ThreadSummary[];
   threadStatuses: Record<string, ThreadAgentStatus>;
@@ -42,12 +51,16 @@ interface ChatState {
       workspaceId?: string;
       skill?: string | null;
       model?: string;
+      reasoningEffort?: ReasoningEffort;
     }
   ) => Promise<void>;
   addMessage: (message: Message) => void;
   loadThreads: (workspaceId: string) => Promise<ThreadSummary[]>;
   loadLatestThread: (workspaceId: string) => Promise<void>;
-  loadThread: (threadId: string) => Promise<void>;
+  loadThread: (
+    threadId: string,
+    options?: { preservePendingSkill?: boolean }
+  ) => Promise<void>;
   deleteThread: (threadId: string, workspaceId: string) => Promise<void>;
   upsertThreadSummary: (summary: ThreadSummary) => void;
   removeThread: (threadId: string) => void;
@@ -58,66 +71,12 @@ interface ChatState {
   setThreadId: (threadId: string | null) => void;
 }
 
-function toStoreMessages(detail: Thread): Message[] {
-  return detail.messages
-    .filter(
-      (message): message is typeof message & { role: 'user' | 'assistant' } =>
-        message.role === 'user' || message.role === 'assistant'
-    )
-    .map((message, index) => ({
-      id: `${detail.id}:${index}`,
-      role: message.role,
-      content: message.content,
-      created_at: message.timestamp ?? detail.updated_at,
-    }));
-}
-
-function buildThreadPreview(messages: Thread['messages']) {
-  const lastMessage = messages[messages.length - 1];
-  const normalizedPreview = typeof lastMessage?.content === 'string'
-    ? lastMessage.content.replace(/\s+/g, ' ').trim()
-    : '';
-
-  return {
-    message_count: messages.length,
-    last_message_role: lastMessage?.role ?? null,
-    last_message_preview: normalizedPreview
-      ? normalizedPreview.length <= 120
-        ? normalizedPreview
-        : `${normalizedPreview.slice(0, 117).trimEnd()}...`
-      : null,
-  };
-}
-
-function toThreadSummary(thread: Thread | ThreadSummary): ThreadSummary {
-  if ('messages' in thread) {
-    return {
-      id: thread.id,
-      workspace_id: thread.workspace_id,
-      title: thread.title ?? null,
-      model: thread.model,
-      skill: thread.skill ?? null,
-      created_at: thread.created_at,
-      updated_at: thread.updated_at,
-      ...buildThreadPreview(thread.messages),
-    };
-  }
-
-  return thread;
-}
-
-function upsertThreadSummary(threads: ThreadSummary[], summary: ThreadSummary): ThreadSummary[] {
-  return [summary, ...threads.filter((thread) => thread.id !== summary.id)].sort(
-    (left, right) =>
-      new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
-  );
-}
-
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isStreaming: false,
   isThreadsLoading: false,
   currentSkill: null,
+  isSkillSelectionPending: false,
   threadId: null,
   threads: [],
   threadStatuses: {},
@@ -128,31 +87,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const hasExplicitSkill = Boolean(options && "skill" in options);
     const skillToUse = hasExplicitSkill ? (options?.skill ?? null) : currentSkill;
 
-    // Generate unique ID for user message
     const userMessageId = `user-${Date.now()}`;
-    const userMessage: Message = {
+    const userMessage = createPendingUserMessage({
       id: userMessageId,
-      role: 'user',
       content,
-      created_at: new Date().toISOString(),
-    };
+      createdAt: new Date().toISOString(),
+    });
 
-    // Add user message immediately
     set((state) => ({
       messages: [...state.messages, userMessage],
       isStreaming: true,
       error: null,
     }));
 
-    // Prepare placeholder for assistant message
     const assistantMessageId = `assistant-${Date.now()}`;
     let assistantContent = '';
-    const assistantMessage: Message = {
+    const assistantMessage = createPlaceholderAssistantMessage({
       id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      created_at: new Date().toISOString(),
-    };
+      createdAt: new Date().toISOString(),
+    });
 
     set((state) => ({
       messages: [...state.messages, assistantMessage],
@@ -163,53 +116,54 @@ export const useChatStore = create<ChatState>((set, get) => ({
       workspace_id: options?.workspaceId,
       thread_id: threadId || undefined,
       model: options?.model,
+      reasoning_effort: options?.reasoningEffort,
       ...(hasExplicitSkill ? { skill: skillToUse } : currentSkill ? { skill: currentSkill } : {}),
     };
 
     // Stream response
     streamChat(
       requestPayload,
-      // onMessage - receive content chunks
       (chunk) => {
         assistantContent += chunk;
-        set((state) => {
-          const messages = [...state.messages];
-          const lastIndex = messages.length - 1;
-          if (lastIndex >= 0 && messages[lastIndex].role === 'assistant') {
-            messages[lastIndex] = {
-              ...messages[lastIndex],
-              content: assistantContent,
-            };
-          }
-          return { messages };
-        });
+        set((state) => ({
+          messages: appendAssistantContent(state.messages, assistantContent),
+        }));
       },
-      // onThreadId - receive thread ID
       ({ threadId: newThreadId, skill }) => {
+        const createdAt = new Date().toISOString();
         set((state) => ({
           threadId: newThreadId,
           currentSkill: skill,
+          isSkillSelectionPending: false,
           threads: state.threads.some((thread) => thread.id === newThreadId)
             ? state.threads
-            : upsertThreadSummary(state.threads, {
-                id: newThreadId,
-                workspace_id: options?.workspaceId,
-                title: null,
-                model: options?.model ?? "default",
-                skill,
-                message_count: state.messages.length + 1,
-                last_message_role: 'assistant',
-                last_message_preview: null,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              }),
+            : upsertThreadSummaryList(
+                state.threads,
+                buildPendingThreadSummary({
+                  threadId: newThreadId,
+                  workspaceId: options?.workspaceId,
+                  model: options?.model,
+                  skill,
+                  messageCount: state.messages.length + 1,
+                  createdAt,
+                })
+              ),
         }));
       },
-      // onError
+      (assistantMessage) => {
+        const hydratedMessage = createStoreAssistantMessage({
+          fallbackId: assistantMessageId,
+          fallbackCreatedAt: new Date().toISOString(),
+          message: assistantMessage,
+        });
+        set((state) => ({
+          messages: upsertTrailingAssistantMessage(state.messages, hydratedMessage),
+        }));
+        maybeStartStructuredTask(hydratedMessage);
+      },
       (error) => {
         set({ error, isStreaming: false });
       },
-      // onDone
       () => {
         set({ isStreaming: false });
         if (options?.workspaceId) {
@@ -219,7 +173,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     );
 
     if (hasExplicitSkill) {
-      set({ currentSkill: skillToUse });
+      set({
+        currentSkill: skillToUse,
+        isSkillSelectionPending: true,
+      });
     }
   },
 
@@ -245,6 +202,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             : {
                 messages: [],
                 currentSkill: null,
+                isSkillSelectionPending: false,
                 threadId: null,
               }),
           error: null,
@@ -266,6 +224,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({
         messages: [],
         currentSkill: null,
+        isSkillSelectionPending: false,
         threadId: null,
         threads: [],
         error: null,
@@ -276,18 +235,38 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await get().loadThread(threads[0].id);
   },
 
-  loadThread: async (threadId: string) => {
+  loadThread: async (threadId: string, options) => {
     try {
       const detail = await getThread(threadId);
       const summary = toThreadSummary(detail);
+      const messages = toStoreMessages(detail);
 
-      set((state) => ({
-        messages: toStoreMessages(detail),
-        currentSkill: detail.skill ?? null,
-        threadId: detail.id,
-        threads: upsertThreadSummary(state.threads, summary),
-        error: null,
-      }));
+      set((state) => {
+        const nextSkillState =
+          options?.preservePendingSkill
+            ? syncCurrentSkillWithThread({
+                currentSkill: state.currentSkill,
+                nextThreadSkill: detail.skill ?? null,
+                isSkillSelectionPending: state.isSkillSelectionPending,
+              })
+            : {
+                currentSkill: detail.skill ?? null,
+                isSkillSelectionPending: false,
+              };
+
+        return {
+          messages,
+          currentSkill: nextSkillState.currentSkill,
+          isSkillSelectionPending: nextSkillState.isSkillSelectionPending,
+          threadId: detail.id,
+          threads: upsertThreadSummaryList(state.threads, summary),
+          error: null,
+        };
+      });
+      const lastAssistantMessage = findLastAssistantMessage(messages);
+      if (lastAssistantMessage) {
+        maybeStartStructuredTask(lastAssistantMessage);
+      }
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to load chat thread',
@@ -330,13 +309,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   upsertThreadSummary: (summary: ThreadSummary) => {
-    set((state) => ({
-      threads: upsertThreadSummary(state.threads, summary),
-      currentSkill:
-        state.threadId === summary.id
-          ? summary.skill ?? state.currentSkill
-          : state.currentSkill,
-    }));
+    set((state) => {
+      if (state.threadId !== summary.id) {
+        return {
+          threads: upsertThreadSummaryList(state.threads, summary),
+        };
+      }
+
+      const nextSkillState = syncCurrentSkillWithThread({
+        currentSkill: state.currentSkill,
+        nextThreadSkill: summary.skill ?? null,
+        isSkillSelectionPending: state.isSkillSelectionPending,
+      });
+
+      return {
+        threads: upsertThreadSummaryList(state.threads, summary),
+        currentSkill: nextSkillState.currentSkill,
+        isSkillSelectionPending: nextSkillState.isSkillSelectionPending,
+      };
+    });
   },
 
   removeThread: (threadId: string) => {
@@ -349,6 +340,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (state.threadId === threadId) {
         nextState.threadId = null;
         nextState.currentSkill = null;
+        nextState.isSkillSelectionPending = false;
         nextState.messages = [];
       }
 
@@ -372,6 +364,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       messages: [],
       currentSkill: null,
+      isSkillSelectionPending: false,
       threadId: null,
       threadStatuses: {},
       error: null,
@@ -379,13 +372,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setCurrentSkill: (skill: string | null) => {
-    set({ currentSkill: skill });
+    set({
+      currentSkill: skill,
+      isSkillSelectionPending: true,
+    });
   },
 
   clearMessages: () => {
     set({
       messages: [],
       currentSkill: null,
+      isSkillSelectionPending: false,
       threadId: null,
       threads: [],
       threadStatuses: {},

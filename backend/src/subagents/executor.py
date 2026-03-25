@@ -1,5 +1,6 @@
 """SubagentExecutor - background task execution with thread pools."""
 
+import asyncio
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -7,9 +8,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 
-from src.subagents.events import EventStream, SubagentEvent, SubagentEventType
 from src.subagents.models import SubagentStatus
 from src.subagents.registry import SubagentConfig
 
@@ -39,28 +40,6 @@ _execution_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="subagent
 # Background task tracking
 _background_tasks: dict[str, SubagentResult] = {}
 _background_tasks_lock = threading.Lock()
-
-# Event streaming support
-_event_streams: dict[str, EventStream] = {}
-_event_streams_lock = threading.Lock()
-
-
-def register_event_stream(task_id: str, stream: EventStream) -> None:
-    """Register an event stream for a task."""
-    with _event_streams_lock:
-        _event_streams[task_id] = stream
-
-
-def unregister_event_stream(task_id: str) -> None:
-    """Unregister an event stream."""
-    with _event_streams_lock:
-        _event_streams.pop(task_id, None)
-
-
-def get_event_stream(task_id: str) -> EventStream | None:
-    """Get the event stream for a task."""
-    with _event_streams_lock:
-        return _event_streams.get(task_id)
 
 
 def get_background_task_result(task_id: str) -> SubagentResult | None:
@@ -131,90 +110,130 @@ class SubagentExecutor:
             prompt=self.config.system_prompt,
         )
 
-    def execute(
+    @staticmethod
+    def _serialize_message_content(content: Any) -> str:
+        """Flatten model message content into text."""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text_parts: list[str] = []
+            for block in content:
+                if isinstance(block, str):
+                    text_parts.append(block)
+                elif isinstance(block, dict) and "text" in block:
+                    text_parts.append(str(block["text"]))
+            return "\n".join(part for part in text_parts if part)
+        if content is None:
+            return ""
+        return str(content)
+
+    @staticmethod
+    def _capture_ai_message(
+        result_holder: SubagentResult,
+        message: AIMessage,
+    ) -> None:
+        """Append unique AI messages to execution history."""
+        message_dict = message.model_dump()
+        message_id = message_dict.get("id")
+
+        if message_id and any(msg.get("id") == message_id for msg in result_holder.ai_messages):
+            return
+        if not message_id and message_dict in result_holder.ai_messages:
+            return
+
+        result_holder.ai_messages.append(message_dict)
+
+    @classmethod
+    def _extract_result_from_messages(cls, messages: list[Any]) -> str:
+        """Extract the final AI response text from streamed messages."""
+        for message in reversed(messages):
+            if isinstance(message, AIMessage):
+                return cls._serialize_message_content(message.content)
+
+        if messages:
+            last_message = messages[-1]
+            if hasattr(last_message, "content"):
+                return cls._serialize_message_content(last_message.content)
+            return str(last_message)
+
+        return "No response generated"
+
+    async def _aexecute(
         self,
         task: str,
         result_holder: SubagentResult | None = None,
-        stream: EventStream | None = None,
     ) -> SubagentResult:
-        """Synchronous execution with optional event streaming."""
+        """Async execution path that supports async-only tools."""
         if result_holder is None:
             result_holder = SubagentResult(task_id=str(uuid.uuid4())[:12])
-
-        # Emit STARTED event
-        if stream:
-            stream.push(SubagentEvent(
-                type=SubagentEventType.STARTED,
-                task_id=result_holder.task_id,
-                subagent_type=self.config.name,
-                message=f"Task started: {task[:50]}...",
-            ))
 
         result_holder.status = SubagentStatus.RUNNING
         result_holder.started_at = datetime.now(UTC)
 
-        # Emit RUNNING event
-        if stream:
-            stream.push(SubagentEvent(
-                type=SubagentEventType.RUNNING,
-                task_id=result_holder.task_id,
-                subagent_type=self.config.name,
-                message="Agent execution in progress",
-            ))
-
         try:
             agent = self._create_agent()
-            response = agent.invoke({"messages": [("human", task)]})
-            messages = response.get("messages", [])
-            last_msg = messages[-1] if messages else None
-            result_holder.result = getattr(last_msg, "content", str(last_msg)) if last_msg else ""
-            result_holder.status = SubagentStatus.COMPLETED
+            run_config: dict[str, Any] = {"recursion_limit": self.config.max_turns}
+            if self.thread_id:
+                run_config["configurable"] = {"thread_id": self.thread_id}
 
-            # Emit COMPLETED event
-            if stream:
-                stream.push(SubagentEvent(
-                    type=SubagentEventType.COMPLETED,
-                    task_id=result_holder.task_id,
-                    subagent_type=self.config.name,
-                    message="Task completed successfully",
-                    data={"result_preview": result_holder.result[:100] if result_holder.result else None},
-                ))
+            final_state: dict[str, Any] | None = None
+            async for chunk in agent.astream(
+                {"messages": [("human", task)]},
+                config=run_config,
+                stream_mode="values",
+            ):
+                final_state = chunk
+                messages = chunk.get("messages", [])
+                if messages and isinstance(messages[-1], AIMessage):
+                    self._capture_ai_message(result_holder, messages[-1])
+
+            messages = final_state.get("messages", []) if final_state else []
+            result_holder.result = self._extract_result_from_messages(messages)
+            result_holder.status = SubagentStatus.COMPLETED
         except Exception as e:
             result_holder.error = str(e)
             result_holder.status = SubagentStatus.FAILED
-
-            # Emit FAILED event
-            if stream:
-                stream.push(SubagentEvent(
-                    type=SubagentEventType.FAILED,
-                    task_id=result_holder.task_id,
-                    subagent_type=self.config.name,
-                    message=f"Task failed: {str(e)[:100]}",
-                    data={"error": str(e)},
-                ))
         finally:
             result_holder.completed_at = datetime.now(UTC)
 
         return result_holder
 
+    async def aexecute(
+        self,
+        task: str,
+        result_holder: SubagentResult | None = None,
+    ) -> SubagentResult:
+        """Public async execution API for subagents."""
+        return await self._aexecute(task, result_holder=result_holder)
+
+    def execute(
+        self,
+        task: str,
+        result_holder: SubagentResult | None = None,
+    ) -> SubagentResult:
+        """Synchronous wrapper around async execution."""
+        try:
+            return asyncio.run(self._aexecute(task, result_holder=result_holder))
+        except Exception as e:
+            if result_holder is None:
+                result_holder = SubagentResult(task_id=str(uuid.uuid4())[:12])
+            result_holder.status = SubagentStatus.FAILED
+            result_holder.error = str(e)
+            result_holder.completed_at = datetime.now(UTC)
+            return result_holder
+
     def execute_async(self, task: str, task_id: str | None = None) -> str:
         """Background execution (returns task_id immediately)."""
         task_id = task_id or str(uuid.uuid4())[:12]
         result = SubagentResult(task_id=task_id)
-        stream = EventStream()
 
         with _background_tasks_lock:
             _background_tasks[task_id] = result
-        with _event_streams_lock:
-            _event_streams[task_id] = stream
 
         def _run():
             try:
-                self.execute(task, result_holder=result, stream=stream)
+                self.execute(task, result_holder=result)
             finally:
-                # Cleanup: close stream and remove from global dictionaries
-                stream.close()
-                unregister_event_stream(task_id)
                 with _background_tasks_lock:
                     _background_tasks.pop(task_id, None)
 

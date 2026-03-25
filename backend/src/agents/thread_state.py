@@ -149,7 +149,8 @@ class ThreadState(AgentState):
         - discipline: Academic discipline
         - workspace_config: Workspace configuration (was _workspace_config)
         - literature_context: Literature context string (was _literature_context)
-        - knowledge_context: Knowledge base context (was _knowledge_context)
+        - knowledge_context: Workspace artifact context (was _knowledge_context)
+        - memory_context: Long-term user memory context
         - discipline_norms: Discipline-specific norms (was _discipline_norms)
         - current_skill: Currently executing skill name
         - academic_artifacts: AcademicArtifact list with merge reducer
@@ -173,6 +174,7 @@ class ThreadState(AgentState):
     workspace_config: NotRequired[dict[str, Any] | None]
     literature_context: NotRequired[str | None]
     knowledge_context: NotRequired[str | None]
+    memory_context: NotRequired[str | None]
     discipline_norms: NotRequired[dict[str, Any] | None]
     current_skill: NotRequired[str | None]
 

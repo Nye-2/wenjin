@@ -26,7 +26,7 @@ class ArtifactResponse(BaseModel):
 
 
 class ArtifactsListResponse(BaseModel):
-    """List response for legacy academic artifact routes."""
+    """List response for workspace artifact routes."""
 
     artifacts: list[ArtifactResponse]
     count: int

@@ -19,13 +19,23 @@ def _frontend_workspace_page_path() -> Path:
     )
 
 
+def _frontend_route_map_path() -> Path:
+    repo_root = Path(__file__).resolve().parents[3]
+    return (
+        repo_root
+        / "frontend"
+        / "lib"
+        / "workspace-feature-routes.ts"
+    )
+
+
 def _parse_feature_route_map(source: str) -> dict[str, str]:
     match = re.search(
-        r"const featureRouteMap: Record<string, string> = \{(?P<body>.*?)\n\};",
+        r"export const workspaceFeatureRouteMap: Record<string, string> = \{(?P<body>.*?)\n\};",
         source,
         re.DOTALL,
     )
-    assert match is not None, "Cannot locate featureRouteMap in frontend workspace page"
+    assert match is not None, "Cannot locate workspaceFeatureRouteMap in frontend route map file"
 
     body = match.group("body")
     pairs = re.findall(
@@ -38,8 +48,8 @@ def _parse_feature_route_map(source: str) -> dict[str, str]:
 
 def test_frontend_feature_route_map_matches_registry():
     """All registry features should have a frontend route map entry, without extras."""
-    page_path = _frontend_workspace_page_path()
-    source = page_path.read_text(encoding="utf-8")
+    route_map_path = _frontend_route_map_path()
+    source = route_map_path.read_text(encoding="utf-8")
     route_map = _parse_feature_route_map(source)
 
     declared_feature_ids = {feature.id for feature in iter_workspace_features()}
@@ -57,10 +67,11 @@ def test_frontend_feature_route_map_matches_registry():
 
 
 def test_frontend_feature_route_pages_exist():
-    """Every route declared in featureRouteMap should point to an existing page file."""
+    """Every route declared in workspaceFeatureRouteMap should point to an existing page file."""
     page_path = _frontend_workspace_page_path()
     workspace_dir = page_path.parent
-    source = page_path.read_text(encoding="utf-8")
+    route_map_path = _frontend_route_map_path()
+    source = route_map_path.read_text(encoding="utf-8")
     route_map = _parse_feature_route_map(source)
 
     missing_pages: list[str] = []

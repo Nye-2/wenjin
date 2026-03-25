@@ -22,8 +22,28 @@ class TestReadOptionalStr:
 
 class TestLiteratureSearchGraph:
     @pytest.mark.asyncio
-    async def test_basic_execution(self):
+    async def test_basic_execution(self, monkeypatch: pytest.MonkeyPatch):
         """Test basic graph execution with minimal payload."""
+        async def _fake_build_literature_search_payload(**kwargs):
+            _ = kwargs
+            return {
+                "query": "machine learning",
+                "discipline": "综合",
+                "papers": [],
+                "top_hits": [],
+                "filters": {},
+                "summary": "ok",
+                "search_strategy": "llm_synthesis",
+                "generated_at": "2026-03-20T00:00:00+00:00",
+                "model_id": "mock-model",
+                "generation_error": None,
+            }
+
+        monkeypatch.setattr(
+            "src.agents.graphs.sci.literature_search.build_literature_search_payload",
+            _fake_build_literature_search_payload,
+        )
+
         initial_state = {
             "messages": [],
             "workspace_id": "test-workspace",
@@ -45,8 +65,27 @@ class TestLiteratureSearchGraph:
         assert result["query"] == "machine learning"
 
     @pytest.mark.asyncio
-    async def test_fallback_to_workspace_name(self):
+    async def test_fallback_to_workspace_name(self, monkeypatch: pytest.MonkeyPatch):
         """Test that query falls back to workspace name when not provided."""
+        async def _fake_build_literature_search_payload(**kwargs):
+            return {
+                "query": kwargs["query"],
+                "discipline": "综合",
+                "papers": [],
+                "top_hits": [],
+                "filters": {},
+                "summary": "ok",
+                "search_strategy": "llm_synthesis",
+                "generated_at": "2026-03-20T00:00:00+00:00",
+                "model_id": "mock-model",
+                "generation_error": None,
+            }
+
+        monkeypatch.setattr(
+            "src.agents.graphs.sci.literature_search.build_literature_search_payload",
+            _fake_build_literature_search_payload,
+        )
+
         initial_state = {
             "messages": [],
             "workspace_id": "test-workspace",

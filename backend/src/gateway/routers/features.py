@@ -23,6 +23,7 @@ from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_workspace_service
 from src.gateway.error_mapping import to_http_exception
+from src.task.registry import WORKSPACE_FEATURE_TASK
 from src.workspace_features import list_workspace_features
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class WorkspaceFeature(BaseModel):
     icon: str
     agent: str
     agentLabel: str
-    taskType: str = "workspace_feature"
+    taskType: str = WORKSPACE_FEATURE_TASK
     handlerKey: str | None = None
     panel: str | None = None
     stages: list[FeatureStage] = Field(default_factory=list)

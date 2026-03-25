@@ -6,6 +6,7 @@ algorithm with Redis as the backend storage.
 
 import time
 from collections.abc import Callable
+from ipaddress import ip_address
 
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
@@ -49,6 +50,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._excluded_paths = {
             "/health",
             "/health/",
+            "/livez",
+            "/livez/",
+            "/readyz",
+            "/readyz/",
             "/docs",
             "/redoc",
             "/openapi.json",
@@ -113,7 +118,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _get_client_ip(self, request: Request) -> str | None:
         """Extract client IP from request.
 
-        Checks X-Forwarded-For header first, then falls back to client.host.
+        Trust X-Forwarded-For only when the immediate peer is an internal proxy.
 
         Args:
             request: Incoming request
@@ -121,17 +126,42 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         Returns:
             Client IP address or None
         """
-        # Check X-Forwarded-For header (for reverse proxy setups)
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            # Take the first IP (original client)
-            return forwarded_for.split(",")[0].strip()
+        client_host = request.client.host if request.client else None
 
-        # Fall back to direct client IP
-        if request.client:
-            return request.client.host
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for and self._is_trusted_proxy(client_host):
+            original_ip = forwarded_for.split(",")[0].strip()
+            if self._is_valid_ip(original_ip):
+                return original_ip
+
+        if client_host:
+            return client_host
 
         return None
+
+    @staticmethod
+    def _is_valid_ip(value: str | None) -> bool:
+        if not value:
+            return False
+        try:
+            ip_address(value)
+            return True
+        except ValueError:
+            return False
+
+    @classmethod
+    def _is_trusted_proxy(cls, host: str | None) -> bool:
+        if not cls._is_valid_ip(host):
+            return False
+        parsed = ip_address(host)
+        return parsed.is_loopback or parsed.is_private or parsed.is_link_local
+
+    def _resolve_redis_backend(self):
+        if self._redis is None:
+            return None
+        if hasattr(self._redis, "client"):
+            return self._redis.client
+        return self._redis
 
     async def _check_redis(self, key: str) -> bool:
         """Check rate limit using Redis.
@@ -145,11 +175,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             True if request is allowed, False if rate limit exceeded
         """
         try:
+            backend = self._resolve_redis_backend()
+            if backend is None:
+                return self._check_memory(key)
+
             now = time.time()
             window_start = now - self.window_seconds
 
             # Use Redis pipeline for atomic operations
-            pipe = self._redis.pipeline()
+            pipe = backend.pipeline()
 
             # Remove old entries
             pipe.zremrangebyscore(key, 0, window_start)
@@ -169,8 +203,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return current_count < self.requests_per_minute
 
         except Exception:
-            # Fall back to allowing request if Redis fails
-            return True
+            return self._check_memory(key)
 
     def _check_memory(self, key: str) -> bool:
         """Check rate limit using in-memory storage.

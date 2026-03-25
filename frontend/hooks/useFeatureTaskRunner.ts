@@ -5,6 +5,10 @@ import {
   subscribeTaskProgress,
   type TaskStatus,
 } from "@/lib/api";
+import {
+  ensureWorkspaceFeatureTaskCreated,
+  getWorkspaceFeatureExecutionWarningMessage,
+} from "@/lib/workspace-feature-execution";
 import { extractTaskRuntime, type TaskRuntimeState } from "@/lib/task-runtime";
 import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -42,13 +46,13 @@ const _VALID_REFRESH_TARGETS = new Set<RefreshTarget>([
 function _resolveRefreshTargets(task: TaskStatus): RefreshTarget[] {
   const rawResult = task.result;
   if (!rawResult || typeof rawResult !== "object") {
-    // Backward compatibility for legacy tasks without refresh_targets.
+    // Conservative default when task result omits refresh targets.
     return ["artifacts"];
   }
 
   const rawTargets = (rawResult as Record<string, unknown>).refresh_targets;
   if (!Array.isArray(rawTargets)) {
-    // Backward compatibility for legacy tasks without refresh_targets.
+    // Conservative default when task result omits refresh targets.
     return ["artifacts"];
   }
 
@@ -332,7 +336,12 @@ export function useFeatureTaskRunner({
 
         if (skipPolling) {
           if (resp.status === "warning") {
-            setStatus(resp.message || "暂时无法执行该功能");
+            setStatus(
+              getWorkspaceFeatureExecutionWarningMessage(
+                resp,
+                "暂时无法执行该功能"
+              )
+            );
           } else {
             setStatus(
               resp.message || "任务已提交，稍后可在工作台查看结果。"
@@ -341,15 +350,18 @@ export function useFeatureTaskRunner({
           return null;
         }
 
-        if (resp.status === "warning" && !resp.task_id) {
-          setError(resp.message || "功能暂不可用");
-          if (onErrorRef.current) {
-            await onErrorRef.current();
-          }
-          return null;
-        }
-        if (!resp.task_id) {
-          setError("任务创建失败，请稍后重试");
+        let submittedTask: {
+          taskId: string;
+        };
+        try {
+          submittedTask = ensureWorkspaceFeatureTaskCreated(resp, {
+            warningFallback: "功能暂不可用",
+            missingTaskFallback: "任务创建失败，请稍后重试",
+          });
+        } catch (error: unknown) {
+          setError(
+            error instanceof Error ? error.message : "任务创建失败，请稍后重试"
+          );
           if (onErrorRef.current) {
             await onErrorRef.current();
           }
@@ -357,7 +369,7 @@ export function useFeatureTaskRunner({
         }
 
         setStatus("任务已提交，正在处理中...");
-        const taskId = resp.task_id;
+        const taskId = submittedTask.taskId;
         persistTaskId(taskId);
         const task = await waitForTerminalTask(taskId);
 

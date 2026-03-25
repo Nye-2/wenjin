@@ -103,6 +103,10 @@ class ModelConfig(BaseModel):
     supports_tools: bool = Field(default=False, description="Supports tool/function calling")
     supports_json_mode: bool = Field(default=True, description="Supports JSON response format")
     supports_json_schema: bool = Field(default=False, description="Supports JSON schema response format")
+    supports_reasoning_effort: bool = Field(
+        default=False,
+        description="Supports configurable reasoning effort",
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -138,6 +142,7 @@ def _parse_model_from_json(data: dict) -> ModelConfig | None:
             supports_tools=data.get("supports_tools", False),
             supports_json_mode=data.get("supports_json_mode", True),
             supports_json_schema=data.get("supports_json_schema", False),
+            supports_reasoning_effort=data.get("supports_reasoning_effort", False),
         )
     except Exception as e:
         logger.warning("Failed to parse model config: %s. Skipping.", e)

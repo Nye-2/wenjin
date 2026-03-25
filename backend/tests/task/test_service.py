@@ -1,6 +1,6 @@
 """Tests for TaskService."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -30,8 +30,8 @@ class TestTaskService:
 
             task_id = await task_service.submit_task(
                 user_id="user-1",
-                task_type="deep_research",
-                payload={"query": "machine learning"},
+                task_type="workspace_feature",
+                payload={"feature_id": "deep_research", "query": "machine learning"},
                 priority=5,
             )
 
@@ -56,13 +56,18 @@ class TestTaskService:
 
             task_id = await task_service.submit_task(
                 user_id="user-1",
-                task_type="literature_search",
-                payload={"query": "test"},
+                task_type="workspace_feature",
+                payload={
+                    "workspace_id": "ws-1",
+                    "workspace_type": "sci",
+                    "feature_id": "literature_search",
+                    "query": "test",
+                },
             )
 
             status = await task_service.get_task_status(task_id, "user-1")
             assert status is not None
-            assert status["task_type"] == "literature_search"
+            assert status["task_type"] == "workspace_feature"
             assert status["status"] in ("pending", "running")
 
     @pytest.mark.asyncio
@@ -73,8 +78,8 @@ class TestTaskService:
 
             task_id = await task_service.submit_task(
                 user_id="user-1",
-                task_type="deep_research",
-                payload={},
+                task_type="workspace_feature",
+                payload={"feature_id": "deep_research"},
             )
 
             status = await task_service.get_task_status(task_id, "user-2")
@@ -89,8 +94,8 @@ class TestTaskService:
             for i in range(3):
                 await task_service.submit_task(
                     user_id="user-list",
-                    task_type="deep_research",
-                    payload={"index": i},
+                    task_type="workspace_feature",
+                    payload={"feature_id": "deep_research", "index": i},
                 )
 
             tasks = await task_service.list_tasks("user-list")
@@ -152,16 +157,16 @@ class TestTaskService:
             for i in range(3):
                 await task_service.submit_task(
                     user_id="user-limit",
-                    task_type="deep_research",
-                    payload={"index": i},
+                    task_type="workspace_feature",
+                    payload={"feature_id": "deep_research", "index": i},
                 )
 
             # 4th should fail
             with pytest.raises(ConcurrencyLimitError):
                 await task_service.submit_task(
                     user_id="user-limit",
-                    task_type="deep_research",
-                    payload={"index": 3},
+                    task_type="workspace_feature",
+                    payload={"feature_id": "deep_research", "index": 3},
                 )
 
     @pytest.mark.asyncio
@@ -174,8 +179,8 @@ class TestTaskService:
             for i in range(3):
                 tid = await task_service.submit_task(
                     user_id="user-limit2",
-                    task_type="deep_research",
-                    payload={"index": i},
+                    task_type="workspace_feature",
+                    payload={"feature_id": "deep_research", "index": i},
                 )
                 task_ids.append(tid)
 
@@ -187,8 +192,8 @@ class TestTaskService:
             # Now should allow submitting again
             new_id = await task_service.submit_task(
                 user_id="user-limit2",
-                task_type="deep_research",
-                payload={"index": 3},
+                task_type="workspace_feature",
+                payload={"feature_id": "deep_research", "index": 3},
             )
             assert new_id is not None
 
@@ -260,3 +265,73 @@ class TestTaskService:
         assert status["progress"] == 72
         assert status["message"] == "Generating ideas"
         assert status["metadata"] == {"runtime": runtime}
+
+    @pytest.mark.asyncio
+    async def test_find_active_task_by_payload_returns_matching_task(self, task_service):
+        """Payload-based dedupe should find the active matching internal task."""
+        mock_executor = AsyncMock()
+
+        with patch("src.task.service.get_executor", return_value=mock_executor):
+            matching_task_id = await task_service.submit_task(
+                user_id="user-dedupe",
+                task_type="paper_extraction",
+                payload={
+                    "workspace_id": "ws-1",
+                    "paper_id": "paper-1",
+                    "tier": 2,
+                },
+            )
+            await task_service.submit_task(
+                user_id="user-dedupe",
+                task_type="paper_extraction",
+                payload={
+                    "workspace_id": "ws-1",
+                    "paper_id": "paper-2",
+                    "tier": 2,
+                },
+            )
+
+        found_task_id = await task_service.find_active_task_by_payload(
+            user_id="user-dedupe",
+            task_type="paper_extraction",
+            payload_filters={
+                "workspace_id": "ws-1",
+                "paper_id": "paper-1",
+                "tier": 2,
+            },
+        )
+
+        assert found_task_id == matching_task_id
+
+    @pytest.mark.asyncio
+    async def test_find_active_task_by_payload_ignores_completed_tasks(self, task_service):
+        """Completed tasks must not be returned by payload-based dedupe."""
+        mock_executor = AsyncMock()
+
+        with patch("src.task.service.get_executor", return_value=mock_executor):
+            matching_task_id = await task_service.submit_task(
+                user_id="user-dedupe-finished",
+                task_type="paper_extraction",
+                payload={
+                    "workspace_id": "ws-1",
+                    "paper_id": "paper-1",
+                    "tier": 1,
+                },
+            )
+
+        await task_service._store.update_task_record(
+            matching_task_id,
+            status="success",
+        )
+
+        found_task_id = await task_service.find_active_task_by_payload(
+            user_id="user-dedupe-finished",
+            task_type="paper_extraction",
+            payload_filters={
+                "workspace_id": "ws-1",
+                "paper_id": "paper-1",
+                "tier": 1,
+            },
+        )
+
+        assert found_task_id is None

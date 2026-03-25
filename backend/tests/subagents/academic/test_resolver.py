@@ -26,6 +26,19 @@ class TestAcademicAgentResolver:
         """Create resolver instance."""
         return AcademicAgentResolver(sandbox_tools)
 
+    def test_accepts_tool_sequences(self):
+        """Resolver should normalize tool lists into a name mapping."""
+
+        class _Tool:
+            def __init__(self, name: str):
+                self.name = name
+
+        resolver = AcademicAgentResolver([_Tool("read_file"), _Tool("write_file")])
+
+        config = resolver.resolve_config("scout", requested_tools=["read_file"])
+
+        assert config.tools == ["read_file"]
+
     def test_resolve_config_valid_scout(self, resolver):
         """Test resolving scout configuration."""
         config = resolver.resolve_config("scout")

@@ -10,6 +10,7 @@ import {
   Download,
   File,
   ChevronRight,
+  SearchCheck,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,7 @@ import { useWorkspaceStore, Artifact } from "@/stores/workspace";
 const artifactIconMap: Record<string, LucideIcon> = {
   outline: FileText,
   abstract: FileText,
+  deep_research_report: SearchCheck,
   literature_review: BookOpen,
   chapter: FileText,
   figure: BarChart3,
@@ -35,6 +37,7 @@ const artifactIconMap: Record<string, LucideIcon> = {
 const artifactColorMap: Record<string, string> = {
   outline: "text-purple-500 bg-purple-500/10",
   abstract: "text-blue-500 bg-blue-500/10",
+  deep_research_report: "text-sky-500 bg-sky-500/10",
   literature_review: "text-emerald-500 bg-emerald-500/10",
   chapter: "text-amber-500 bg-amber-500/10",
   figure: "text-rose-500 bg-rose-500/10",
@@ -64,6 +67,7 @@ export function ArtifactLibrary({
   const typeOrder = [
     "outline",
     "abstract",
+    "deep_research_report",
     "literature_review",
     "methodology",
     "chapter",

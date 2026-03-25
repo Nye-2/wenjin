@@ -214,3 +214,49 @@ class TestChatThreadService:
         assert thread.title.startswith("A much longer opening message")
         mock_db_session.commit.assert_awaited_once()
         mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_delete_thread_removes_local_thread_directory(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Deleting a thread also cleans its persisted local thread directory."""
+        thread = _make_thread()
+
+        with patch.object(
+            service,
+            "get_thread",
+            AsyncMock(return_value=thread),
+        ), patch(
+            "src.services.chat_thread_service.delete_thread_directory",
+        ) as delete_thread_directory:
+            deleted = await service.delete_thread("thread-1", "user-1")
+
+        assert deleted is True
+        mock_db_session.delete.assert_awaited_once_with(thread)
+        mock_db_session.commit.assert_awaited_once()
+        delete_thread_directory.assert_called_once_with("thread-1")
+
+    @pytest.mark.asyncio
+    async def test_delete_thread_survives_cleanup_failure(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Filesystem cleanup is best-effort and must not mask a successful delete."""
+        thread = _make_thread()
+
+        with patch.object(
+            service,
+            "get_thread",
+            AsyncMock(return_value=thread),
+        ), patch(
+            "src.services.chat_thread_service.delete_thread_directory",
+            side_effect=RuntimeError("boom"),
+        ):
+            deleted = await service.delete_thread("thread-1", "user-1")
+
+        assert deleted is True
+        mock_db_session.delete.assert_awaited_once_with(thread)
+        mock_db_session.commit.assert_awaited_once()

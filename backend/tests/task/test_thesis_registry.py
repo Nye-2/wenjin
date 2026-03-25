@@ -26,10 +26,10 @@ class TestThesisRegistryUpdate:
             "compile_export",
         ]
 
-    def test_deep_research_feature_uses_skill_task_type(self):
+    def test_deep_research_feature_uses_workspace_feature_task_type(self):
         f = get_workspace_feature("thesis", "deep_research")
         assert f is not None
-        assert f.task_type == "deep_research"
+        assert f.task_type == "workspace_feature"
         assert f.handler_key == "thesis.deep_research"
 
     def test_thesis_writing_uses_workspace_feature_task_type(self):

@@ -12,12 +12,18 @@ import {
   LazyChatPanel,
   LazyLiteraturePanel,
 } from "@/components/workspace/lazy-panels";
+import { TaskSummaryStrip } from "@/components/workspace";
 import { ModuleCard } from "./components/ModuleCard";
 import { RecentArtifacts } from "./components/RecentArtifacts";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
+import {
+  getWorkspaceFeatureRoute,
+  workspaceFeatureRouteMap,
+} from "@/lib/workspace-feature-routes";
+import { isWorkspaceChatCockpitEnabled } from "@/lib/workspace-rollout";
+import type { WorkspaceFeature } from "@/lib/api";
 
-// Constants
 const RECENT_ARTIFACTS_LIMIT = 5;
 
 const workspaceTypeLabels: Record<string, string> = {
@@ -34,24 +40,6 @@ const workspaceTypeColors: Record<string, string> = {
   proposal: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
   software_copyright: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
   patent: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-};
-
-const featureRouteMap: Record<string, string> = {
-  deep_research: "deep-research",
-  literature_management: "literature",
-  opening_research: "opening-research",
-  thesis_writing: "thesis-writing",
-  figure_generation: "figure-generation",
-  compile_export: "compile-export",
-  literature_search: "literature-search",
-  paper_analysis: "paper-analysis",
-  writing: "writing",
-  proposal_outline: "proposal-outline",
-  background_research: "background-research",
-  copyright_materials: "copyright-materials",
-  technical_description: "technical-description",
-  patent_outline: "patent-outline",
-  prior_art_search: "prior-art-search",
 };
 
 type ModuleStatusValue = "not_started" | "in_progress" | "completed" | "failed";
@@ -103,15 +91,92 @@ function normalizeModuleStatus(status: string | undefined): ModuleStatusValue {
   return "not_started";
 }
 
+interface TaskTrackProps {
+  workspaceId: string;
+  features: WorkspaceFeature[];
+  modules: Array<{ id: string; status: string }>;
+  recommendedFeatureIds: string[];
+}
+
+function TaskTrack({
+  workspaceId,
+  features,
+  modules,
+  recommendedFeatureIds,
+}: TaskTrackProps) {
+  const router = useRouter();
+  const recommendedSet = new Set(recommendedFeatureIds);
+  const moduleById = new Map(modules.map((module) => [module.id, module.status]));
+
+  return (
+    <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold text-[var(--text-primary)]">任务轨道</h2>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          主线模块按任务顺序排列，推荐项会优先高亮。
+        </p>
+      </div>
+      <div className="space-y-2">
+        {features.map((feature, index) => {
+          const status = normalizeModuleStatus(moduleById.get(feature.id));
+          const isRecommended = recommendedSet.has(feature.id);
+          const route = workspaceFeatureRouteMap[feature.id];
+          return (
+            <button
+              type="button"
+              key={feature.id}
+              onClick={() =>
+                router.push(route ? `/workspaces/${workspaceId}/${route}` : `/workspaces/${workspaceId}`)
+              }
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors",
+                isRecommended
+                  ? "border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/8"
+                  : "border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-muted)]"
+              )}
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--bg-surface)] text-xs font-medium text-[var(--text-secondary)]">
+                {index + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+                    {feature.name}
+                  </p>
+                  {isRecommended && (
+                    <span className="rounded-full bg-[var(--accent-primary)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--accent-primary)]">
+                      推荐
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs text-[var(--text-muted)]">
+                  {feature.description}
+                </p>
+              </div>
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                  moduleStatusMeta[status].badgeClass
+                )}
+              >
+                {moduleStatusMeta[status].label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export default function WorkbenchPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
 
-  const { workspace, isWorkspaceLoading, error, artifacts } =
-    useWorkspaceStore();
+  const { workspace, isWorkspaceLoading, error, artifacts } = useWorkspaceStore();
   const { features } = useFeaturesStore();
-  const { modules, fetchDashboard, reset: resetDashboard } = useDashboardStore();
+  const { modules, summary, fetchDashboard, reset: resetDashboard } = useDashboardStore();
 
   const moduleStatusCounts = useMemo(() => {
     const counts: Record<ModuleStatusValue, number> = {
@@ -120,7 +185,9 @@ export default function WorkbenchPage() {
       completed: 0,
       failed: 0,
     };
-    const moduleStatusById = new Map(modules.map((module) => [module.id, module.status]));
+    const moduleStatusById = new Map(
+      modules.map((module) => [module.id, module.status])
+    );
 
     for (const feature of features) {
       const status = normalizeModuleStatus(moduleStatusById.get(feature.id));
@@ -132,13 +199,17 @@ export default function WorkbenchPage() {
 
   useEffect(() => {
     if (workspaceId) {
-      fetchDashboard(workspaceId);
+      void fetchDashboard(workspaceId);
     }
 
     return () => {
       resetDashboard();
     };
   }, [workspaceId, fetchDashboard, resetDashboard]);
+
+  const recommendedFeatureIds =
+    summary?.recommended_actions.map((action) => action.feature_id) ?? [];
+  const chatCockpitEnabled = isWorkspaceChatCockpitEnabled(workspace);
 
   if (isWorkspaceLoading || (!workspace && !error)) {
     return (
@@ -163,9 +234,7 @@ export default function WorkbenchPage() {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center"
         >
-          <p className="text-red-500 mb-4">
-            {error || "Workspace not found"}
-          </p>
+          <p className="text-red-500 mb-4">{error || "Workspace not found"}</p>
           <button
             onClick={() => router.push("/workspaces")}
             className="px-4 py-2 rounded-lg bg-academic-primary text-white hover:bg-academic-primary/90 transition-colors"
@@ -219,109 +288,8 @@ export default function WorkbenchPage() {
     </section>
   );
 
-  // Thesis workspace uses card dashboard layout
-  if (workspace.type === "thesis") {
-    return (
-      <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-        {/* Header */}
-        <header className="h-16 flex items-center justify-between px-6 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-          <div className="flex items-center gap-4">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => router.push("/workspaces")}
-              className={cn(
-                "p-2 rounded-lg",
-                "bg-[var(--bg-surface)]",
-                "hover:bg-[var(--bg-muted)]",
-                "text-[var(--text-secondary)]",
-                "transition-colors"
-              )}
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </motion.button>
-
-            <div>
-              <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                {workspace.name}
-              </h1>
-              {workspace.description && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {workspace.description}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Type Badge */}
-            <span
-              className={cn(
-                "px-3 py-1 rounded-full text-xs font-medium",
-                workspaceTypeColors[workspace.type] || "bg-slate-500/10 text-slate-600"
-              )}
-            >
-              {workspaceTypeLabels[workspace.type] || workspace.type}
-            </span>
-
-            {/* Discipline Badge */}
-            {workspace.discipline && (
-              <span className="px-3 py-1 rounded-full text-xs font-medium bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-default)]">
-                {workspace.discipline}
-              </span>
-            )}
-          </div>
-        </header>
-
-        {/* Main Content - Card Dashboard */}
-        <ErrorBoundary>
-          <main className="flex-1 overflow-auto p-6">
-            <div className="max-w-6xl mx-auto space-y-6">
-              {moduleStatusOverview}
-
-              {/* Module Cards Grid */}
-              <section>
-                <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
-                  工作模块
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {features.map((feature) => {
-                    const moduleStatus = modules.find((m) => m.id === feature.id);
-                    const route = featureRouteMap[feature.id] ?? "";
-
-                    return (
-                      <ModuleCard
-                        key={feature.id}
-                        workspaceId={workspaceId}
-                        feature={feature}
-                        moduleStatus={moduleStatus}
-                        route={route}
-                      />
-                    );
-                  })}
-                </div>
-              </section>
-
-              {/* Recent Artifacts */}
-              <section>
-                <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
-                  最近产出
-                </h2>
-                <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl p-4">
-                  <RecentArtifacts artifacts={artifacts.slice(0, RECENT_ARTIFACTS_LIMIT)} />
-                </div>
-              </section>
-            </div>
-          </main>
-        </ErrorBoundary>
-      </div>
-    );
-  }
-
-  // Other workspace types use card dashboard layout + embedded panels
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Header */}
       <header className="h-16 flex items-center justify-between px-6 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
         <div className="flex items-center gap-4">
           <motion.button
@@ -352,7 +320,6 @@ export default function WorkbenchPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Type Badge */}
           <span
             className={cn(
               "px-3 py-1 rounded-full text-xs font-medium",
@@ -362,7 +329,6 @@ export default function WorkbenchPage() {
             {workspaceTypeLabels[workspace.type] || workspace.type}
           </span>
 
-          {/* Discipline Badge */}
           {workspace.discipline && (
             <span className="px-3 py-1 rounded-full text-xs font-medium bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-default)]">
               {workspace.discipline}
@@ -371,55 +337,120 @@ export default function WorkbenchPage() {
         </div>
       </header>
 
-      {/* Main Content - Card Dashboard + Panels */}
       <ErrorBoundary>
         <main className="flex-1 overflow-auto p-6">
-          <div className="max-w-6xl mx-auto space-y-6">
-            {moduleStatusOverview}
+          <div className="max-w-7xl mx-auto space-y-6">
+            <TaskSummaryStrip summary={summary} />
 
-            {/* Module Cards Grid */}
-            <section>
-              <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
-                工作模块
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {features.map((feature) => {
-                  const moduleStatus = modules.find((m) => m.id === feature.id);
-                  const route = featureRouteMap[feature.id] ?? "";
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1.35fr)_320px]">
+              <TaskTrack
+                workspaceId={workspaceId}
+                features={features}
+                modules={modules}
+                recommendedFeatureIds={recommendedFeatureIds}
+              />
+              {chatCockpitEnabled ? (
+                <div className="min-h-[720px] overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
+                  <LazyChatPanel workspaceId={workspaceId} />
+                </div>
+              ) : (
+                <section className="min-h-[720px] rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+                  <div className="max-w-2xl">
+                    <h2 className="text-base font-semibold text-[var(--text-primary)]">
+                      Classic Workspace Mode
+                    </h2>
+                    <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                      当前工作区暂未灰度开启 chat cockpit。你仍然可以从左侧任务轨道或下方工作模块进入各功能，
+                      后端依然使用统一的 feature / task / artifact 执行链。
+                    </p>
+                  </div>
 
-                  return (
-                    <ModuleCard
-                      key={feature.id}
-                      workspaceId={workspaceId}
-                      feature={feature}
-                      moduleStatus={moduleStatus}
-                      route={route}
-                    />
-                  );
-                })}
-              </div>
-            </section>
+                  {summary?.current_phase && (
+                    <div className="mt-6 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-4">
+                      <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                        当前阶段
+                      </p>
+                      <h3 className="mt-2 text-lg font-semibold text-[var(--text-primary)]">
+                        {summary.current_phase.title}
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                        {summary.current_phase.description}
+                      </p>
+                    </div>
+                  )}
 
-            {/* Recent Artifacts */}
-            <section>
-              <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
-                最近产出
-              </h2>
-              <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl p-4">
-                <RecentArtifacts artifacts={artifacts.slice(0, RECENT_ARTIFACTS_LIMIT)} />
-              </div>
-            </section>
-
-            {/* Embedded Knowledge / Chat / Literature Panels */}
-            <section className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1.45fr)_minmax(0,1fr)] gap-4">
-              <div className="min-h-[360px]">
-                <LazyKnowledgePanel workspaceId={workspaceId} />
-              </div>
-              <div className="min-h-[360px]">
-                <LazyChatPanel workspaceId={workspaceId} />
-              </div>
-              <div className="min-h-[360px]">
+                  {summary?.recommended_actions && summary.recommended_actions.length > 0 && (
+                    <div className="mt-6">
+                      <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                        推荐进入
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {summary.recommended_actions.map((action) => (
+                          <button
+                            key={action.feature_id}
+                            type="button"
+                            onClick={() => {
+                              const route = getWorkspaceFeatureRoute(workspaceId, action.feature_id);
+                              if (route) {
+                                router.push(route);
+                              }
+                            }}
+                            className="rounded-full border border-[var(--border-default)] bg-[var(--bg-muted)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)]"
+                          >
+                            {action.title}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+              <div className="min-h-[720px] overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
                 <LazyLiteraturePanel workspaceId={workspaceId} />
+              </div>
+            </section>
+
+            <section className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_340px]">
+              <div className="space-y-6">
+                {moduleStatusOverview}
+
+                <section>
+                  <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
+                    工作模块
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {features.map((feature) => {
+                      const moduleStatus = modules.find((m) => m.id === feature.id);
+                      const route = workspaceFeatureRouteMap[feature.id] ?? "";
+
+                      return (
+                        <ModuleCard
+                          key={feature.id}
+                          workspaceId={workspaceId}
+                          feature={feature}
+                          moduleStatus={moduleStatus}
+                          route={route}
+                        />
+                      );
+                    })}
+                  </div>
+                </section>
+              </div>
+
+              <div className="space-y-4">
+                <section>
+                  <h2 className="text-sm font-medium text-[var(--text-muted)] mb-4">
+                    最近产出
+                  </h2>
+                  <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl p-4">
+                    <RecentArtifacts
+                      artifacts={artifacts.slice(0, RECENT_ARTIFACTS_LIMIT)}
+                    />
+                  </div>
+                </section>
+                <div className="min-h-[420px] overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
+                  <LazyKnowledgePanel workspaceId={workspaceId} />
+                </div>
               </div>
             </section>
           </div>

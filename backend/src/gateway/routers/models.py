@@ -22,6 +22,7 @@ class ModelInfo(BaseModel):
     max_tokens: int
     supports_tools: bool
     supports_thinking: bool
+    supports_reasoning_effort: bool
     supports_vision: bool
     is_default: bool
 
@@ -55,6 +56,13 @@ def _supports_thinking(model: ModelConfig) -> bool:
     return raw_model.startswith("claude")
 
 
+def _supports_reasoning_effort(model: ModelConfig) -> bool:
+    if getattr(model, "supports_reasoning_effort", False):
+        return True
+    raw_model = (model.model or "").lower()
+    return "gpt-5" in raw_model or "doubao" in raw_model
+
+
 def _supports_vision(model: ModelConfig) -> bool:
     raw_model = (model.model or "").lower()
     return any(tag in raw_model for tag in ("vision", "vl", "gpt-4o"))
@@ -73,6 +81,7 @@ def _to_model_info(model: ModelConfig, *, category: str, mark_default: bool) -> 
         max_tokens=model.max_tokens,
         supports_tools=(model.supports_tools or category == "tool"),
         supports_thinking=_supports_thinking(model),
+        supports_reasoning_effort=_supports_reasoning_effort(model),
         supports_vision=_supports_vision(model),
         is_default=mark_default,
     )

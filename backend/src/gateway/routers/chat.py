@@ -1,188 +1,182 @@
 """Chat router for AI conversations."""
 
-import json
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel
 
+from src.academic.services import ArtifactService, PaperService, WorkspaceService
+from src.agents.lead_agent.feature_bridge import maybe_bridge_workspace_feature
+from src.agents.thread_state import ThreadState
+from src.config import get_model_config
+from src.config.config_loader import get_app_config
 from src.database import ChatThread, User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps import get_chat_thread_service
+from src.gateway.deps import (
+    get_artifact_service,
+    get_chat_thread_service,
+    get_literature_service,
+    get_paper_service,
+    get_workspace_service,
+)
+from src.gateway.routers.chat_contracts import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    GeneratedChatReply,
+    ThreadAgentStatusResponse,
+    ThreadCreate,
+    ThreadListResponse,
+    ThreadResponse,
+)
+from src.gateway.routers.chat_lifecycle import (
+    fail_chat_turn as _fail_chat_turn,
+)
+from src.gateway.routers.chat_lifecycle import (
+    persist_chat_reply as _persist_chat_reply,
+)
+from src.gateway.routers.chat_lifecycle import (
+    start_chat_turn as _start_chat_turn,
+)
+from src.gateway.routers.chat_runtime import (
+    build_langchain_messages as _build_langchain_messages,
+)
+from src.gateway.routers.chat_runtime import (
+    coerce_generated_reply as _coerce_generated_reply,
+)
+from src.gateway.routers.chat_runtime import (
+    resolve_workspace_id as _resolve_workspace_id,
+)
+from src.gateway.routers.chat_serializers import (
+    thread_to_response as _thread_to_response,
+)
+from src.gateway.routers.chat_serializers import (
+    thread_to_summary as _thread_to_summary,
+)
+from src.gateway.routers.chat_streaming import (
+    stream_assistant_message_event as _stream_assistant_message_event,
+)
+from src.gateway.routers.chat_streaming import (
+    stream_content_event as _stream_content_event,
+)
+from src.gateway.routers.chat_streaming import (
+    stream_done_event as _stream_done_event,
+)
+from src.gateway.routers.chat_streaming import (
+    stream_error_event as _stream_error_event,
+)
+from src.gateway.routers.chat_streaming import (
+    stream_thread_context_event as _stream_thread_context_event,
+)
 from src.models import route_chat_model
-from src.services import ChatThreadAccessError, ChatThreadService
-from src.workspace_events import publish_workspace_event
+from src.services import ChatThreadService
+from src.services.literature_service import LiteratureService
+from src.services.chat_thread_events import (
+    publish_thread_deleted,
+    publish_thread_updated,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-class ChatMessage(BaseModel):
-    """A single chat message."""
+def _model_supports_vision(model_name: str) -> bool:
+    """Infer whether the selected chat model accepts image inputs."""
+    try:
+        model_config = get_model_config(model_name)
+    except Exception:
+        model_config = None
 
-    role: str
-    content: str
-    timestamp: datetime | None = None
-
-
-class ChatRequest(BaseModel):
-    """Chat request."""
-
-    message: str
-    workspace_id: str | None = None
-    thread_id: str | None = None
-    model: str | None = None
-    skill: str | None = None
-    thinking_enabled: bool = False
-    stream: bool = True
+    raw_model = (getattr(model_config, "model", None) or model_name).lower()
+    return any(tag in raw_model for tag in ("vision", "vl", "gpt-4o"))
 
 
-class ChatResponse(BaseModel):
-    """Chat response."""
-
-    thread_id: str
-    message: ChatMessage
-    workspace_id: str | None = None
-    skill: str | None = None
-
-
-class ThreadCreate(BaseModel):
-    """Thread creation request."""
-
-    workspace_id: str | None = None
-    title: str | None = None
-    model: str | None = None
-    skill: str | None = None
+def _subagent_runtime_defaults() -> tuple[bool, int]:
+    """Load chat-side subagent defaults from app config."""
+    try:
+        subagents = get_app_config().subagents
+        return bool(subagents.enabled), int(subagents.max_concurrent)
+    except Exception:
+        return True, 3
 
 
-class ThreadResponse(BaseModel):
-    """Thread response."""
-
-    id: str
-    workspace_id: str | None
-    title: str | None
-    model: str
-    skill: str | None
-    messages: list[ChatMessage]
-    created_at: datetime
-    updated_at: datetime
-
-
-class ThreadSummaryResponse(BaseModel):
-    """Thread summary used by history and restoration surfaces."""
-
-    id: str
-    workspace_id: str | None
-    title: str | None
-    model: str
-    skill: str | None
-    message_count: int = 0
-    last_message_preview: str | None = None
-    last_message_role: str | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class ThreadListResponse(BaseModel):
-    """List wrapper for thread summaries."""
-
-    threads: list[ThreadSummaryResponse]
-    count: int
+def _build_chat_runtime_config(
+    *,
+    request: ChatRequest,
+    thread: ChatThread,
+    current_user: User,
+    workspace_id: str | None,
+    effective_skill: str | None,
+    effective_model: str,
+) -> RunnableConfig:
+    """Build the runtime config used by the chat lead-agent path."""
+    subagent_enabled, max_concurrent_subagents = _subagent_runtime_defaults()
+    return {
+        "configurable": {
+            "thread_id": thread.id,
+            "workspace_id": workspace_id,
+            "user_id": str(current_user.id),
+            "model_name": effective_model,
+            "supports_vision": _model_supports_vision(effective_model),
+            "subagent_enabled": subagent_enabled,
+            "max_concurrent_subagents": max_concurrent_subagents,
+            "selected_skill": effective_skill,
+            "thinking_enabled": request.thinking_enabled,
+            "reasoning_effort": request.reasoning_effort,
+        }
+    }
 
 
-class ThreadAgentStatusResponse(BaseModel):
-    """Execution status for a chat thread."""
-
-    thread_id: str
-    status: str
-    current_skill: str | None = None
-    subagent_count: int = 0
-
-
-def _resolve_workspace_id(request: ChatRequest, thread: ChatThread) -> str | None:
-    """Resolve workspace context from request or existing thread."""
-    return request.workspace_id or thread.workspace_id
-
-
-def _build_langchain_messages(thread: ChatThread) -> list:
-    """Convert stored thread messages into LangChain message objects."""
-    messages = []
-    for msg in thread.messages or []:
-        if msg["role"] == "user":
-            messages.append(HumanMessage(content=msg["content"]))
-        elif msg["role"] == "assistant":
-            messages.append(AIMessage(content=msg["content"]))
-        elif msg["role"] == "system":
-            messages.append(SystemMessage(content=msg["content"]))
-    return messages
+def _build_chat_initial_state(
+    thread: ChatThread,
+    *,
+    workspace_id: str | None,
+    effective_skill: str | None,
+) -> dict[str, object]:
+    """Build the thread state passed into the chat lead-agent."""
+    return {
+        "messages": _build_langchain_messages(thread),
+        "workspace_id": workspace_id,
+        "current_skill": effective_skill,
+    }
 
 
-def _thread_messages_to_response(messages: list[dict]) -> list[ChatMessage]:
-    """Map persisted JSON messages to API models."""
+def _build_fallback_messages(
+    *,
+    prepared_state: ThreadState,
+    config: RunnableConfig,
+    apply_prompt_template,
+) -> list[object]:
+    """Build a fallback simple-model prompt using the same enriched state."""
+    fallback_prompt = apply_prompt_template(ThreadState(**prepared_state), config)
     return [
-        ChatMessage(
-            role=message["role"],
-            content=message["content"],
-            timestamp=message.get("timestamp"),
-        )
-        for message in messages
+        SystemMessage(content=fallback_prompt),
+        *list(prepared_state.get("messages", [])),
     ]
 
 
-def _truncate_preview(content: str | None, limit: int = 120) -> str | None:
-    """Collapse message text into a short single-line preview."""
-    normalized = " ".join((content or "").split())
-    if not normalized:
-        return None
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 3].rstrip() + "..."
-
-
-async def _set_thread_agent_status(
-    workspace_id: str | None,
-    thread_id: str,
+async def _generate_chat_response(
+    request: ChatRequest,
+    thread: ChatThread,
+    current_user: User,
     *,
-    status: str,
-    skill: str | None,
-    subagent_count: int = 0,
-) -> None:
-    """Best-effort agent status update for thread-scoped UI polling."""
-    try:
-        from src.academic.cache.redis_client import redis_client
-        from src.config import redis_settings
-
-        if redis_settings.enabled and redis_client._client is not None:
-            await redis_client.set_agent_status(
-                thread_id,
-                status,
-                skill=skill,
-                subagent_count=subagent_count,
-            )
-        await publish_workspace_event(
-            workspace_id,
-            "thread.status",
-            {
-                "thread": {
-                    "thread_id": thread_id,
-                    "status": status,
-                    "current_skill": skill,
-                    "subagent_count": subagent_count,
-                }
-            },
-        )
-    except Exception:
-        logger.debug("Failed to update agent status for thread %s", thread_id, exc_info=True)
-
-
-async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> str:
+    workspace_service: WorkspaceService | None = None,
+    literature_service: LiteratureService | None = None,
+    artifact_service: ArtifactService | None = None,
+    paper_service: PaperService | None = None,
+) -> GeneratedChatReply:
     """Generate a chat response through the unified lead-agent pipeline."""
+    from src.agents.lead_agent.agent import (
+        apply_prompt_template,
+        build_pipeline,
+        make_lead_agent,
+        middleware_before_model,
+    )
+
     workspace_id = _resolve_workspace_id(request, thread)
     effective_skill = thread.skill
     effective_model = route_chat_model(
@@ -190,110 +184,81 @@ async def _generate_chat_response(request: ChatRequest, thread: ChatThread) -> s
         thread_model=thread.model,
         require_tools=True,
     )
+    config = _build_chat_runtime_config(
+        request=request,
+        thread=thread,
+        current_user=current_user,
+        workspace_id=workspace_id,
+        effective_skill=effective_skill,
+        effective_model=effective_model,
+    )
+    initial_state = _build_chat_initial_state(
+        thread,
+        workspace_id=workspace_id,
+        effective_skill=effective_skill,
+    )
+    middlewares = build_pipeline(
+        config,
+        workspace_service=workspace_service,
+        index_service=literature_service,
+        artifact_service=artifact_service,
+        paper_service=paper_service,
+    )
 
     try:
-        from src.agents.lead_agent.agent import make_lead_agent
-
-        config: RunnableConfig = {
-            "configurable": {
-                "thread_id": thread.id,
-                "workspace_id": workspace_id,
-                "model_name": effective_model,
-                "selected_skill": effective_skill,
-                "thinking_enabled": request.thinking_enabled,
-            }
-        }
-
-        agent = make_lead_agent(config)
-        result = await agent.ainvoke(
-            {
-                "messages": _build_langchain_messages(thread),
-                "workspace_id": workspace_id,
-                "current_skill": effective_skill,
-            },
-            config=config,
+        bridged = await maybe_bridge_workspace_feature(
+            message=request.message,
+            workspace_id=workspace_id,
+            thread_id=thread.id,
+            user_id=str(current_user.id),
+            selected_skill=effective_skill,
         )
-        return result["messages"][-1].content if result.get("messages") else ""
+        if bridged is not None:
+            return GeneratedChatReply(
+                content=bridged.content,
+                blocks=bridged.blocks,
+                metadata=bridged.metadata,
+            )
+
+        agent = make_lead_agent(config, middlewares=middlewares)
+        result = await agent.ainvoke(initial_state, config=config)
+        content = result["messages"][-1].content if result.get("messages") else ""
+        return GeneratedChatReply(content=content)
 
     except Exception:
         logger.exception("Agent failed, falling back to simple model")
         from src.models.factory import create_chat_model
 
-        model = create_chat_model(effective_model, request.thinking_enabled)
-        response = await model.ainvoke(_build_langchain_messages(thread))
-        return response.content
-
-
-def _thread_to_response(thread: ChatThread, include_messages: bool = True) -> ThreadResponse:
-    """Convert a thread ORM object to the API response model."""
-    return ThreadResponse(
-        id=thread.id,
-        workspace_id=thread.workspace_id,
-        title=thread.title,
-        model=thread.model,
-        skill=thread.skill,
-        messages=_thread_messages_to_response(thread.messages or []) if include_messages else [],
-        created_at=thread.created_at,
-        updated_at=thread.updated_at,
-    )
-
-
-def _thread_to_summary(thread: ChatThread) -> ThreadSummaryResponse:
-    """Convert a thread ORM object into a history summary."""
-    messages = thread.messages or []
-    last_message = messages[-1] if messages else {}
-    last_message_content = last_message.get("content") if isinstance(last_message, dict) else None
-    last_message_role = last_message.get("role") if isinstance(last_message, dict) else None
-
-    return ThreadSummaryResponse(
-        id=thread.id,
-        workspace_id=thread.workspace_id,
-        title=thread.title,
-        model=thread.model,
-        skill=thread.skill,
-        message_count=len(messages),
-        last_message_preview=_truncate_preview(last_message_content),
-        last_message_role=last_message_role,
-        created_at=thread.created_at,
-        updated_at=thread.updated_at,
-    )
-
-
-async def _publish_thread_updated(thread: ChatThread) -> None:
-    """Publish a thread summary update to the workspace event stream."""
-    await publish_workspace_event(
-        thread.workspace_id,
-        "thread.updated",
-        {"thread": _thread_to_summary(thread).model_dump(mode="json")},
-    )
-
-
-async def _publish_thread_deleted(workspace_id: str | None, thread_id: str) -> None:
-    """Publish a thread deletion event for workspace consumers."""
-    await publish_workspace_event(
-        workspace_id,
-        "thread.deleted",
-        {"thread_id": thread_id},
-    )
-
-
-async def _get_or_create_owned_thread(
-    request: ChatRequest,
-    current_user: User,
-    chat_thread_service: ChatThreadService,
-) -> ChatThread:
-    """Fetch or create a thread while enforcing owner isolation."""
-    try:
-        return await chat_thread_service.get_or_create_thread(
-            thread_id=request.thread_id,
-            user_id=str(current_user.id),
-            workspace_id=request.workspace_id,
-            model=request.model,
-            skill=request.skill,
-            skill_explicit="skill" in request.model_fields_set,
+        prepared_state = _build_chat_initial_state(
+            thread,
+            workspace_id=workspace_id,
+            effective_skill=effective_skill,
         )
-    except ChatThreadAccessError as exc:
-        raise HTTPException(status_code=404, detail="Thread not found") from exc
+        try:
+            prepared_state = await middleware_before_model(
+                ThreadState(**prepared_state),
+                config,
+                middlewares,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to prepare middleware-enriched fallback context",
+                exc_info=True,
+            )
+
+        model = create_chat_model(
+            effective_model,
+            thinking_enabled=request.thinking_enabled,
+            reasoning_effort=request.reasoning_effort,
+        )
+        response = await model.ainvoke(
+            _build_fallback_messages(
+                prepared_state=ThreadState(**prepared_state),
+                config=config,
+                apply_prompt_template=apply_prompt_template,
+            )
+        )
+        return GeneratedChatReply(content=response.content)
 
 
 @router.post("/threads", response_model=ThreadResponse)
@@ -310,7 +275,7 @@ async def create_thread(
         model=request.model,
         skill=request.skill,
     )
-    await _publish_thread_updated(thread)
+    await publish_thread_updated(thread)
     return _thread_to_response(thread, include_messages=False)
 
 
@@ -341,7 +306,7 @@ async def delete_thread(
     deleted = await chat_thread_service.delete_thread(thread_id, str(current_user.id))
     if not deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
-    await _publish_thread_deleted(thread.workspace_id, thread_id)
+    await publish_thread_deleted(thread.workspace_id, thread_id)
     return {"success": True}
 
 
@@ -350,40 +315,39 @@ async def chat(
     request: ChatRequest,
     current_user: User = Depends(get_current_user),
     chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    literature_service: LiteratureService = Depends(get_literature_service),
+    artifact_service: ArtifactService = Depends(get_artifact_service),
+    paper_service: PaperService = Depends(get_paper_service),
 ):
     """Send a message and get a response (non-streaming)."""
-    thread = await _get_or_create_owned_thread(request, current_user, chat_thread_service)
-    await chat_thread_service.add_message(thread, role="user", content=request.message)
-    await _set_thread_agent_status(
-        thread.workspace_id,
-        thread.id,
-        status="running",
-        skill=thread.skill,
+    thread = await _start_chat_turn(
+        request=request,
+        current_user=current_user,
+        chat_thread_service=chat_thread_service,
     )
 
     try:
-        response_content = await _generate_chat_response(request, thread)
-
-        assistant_message = await chat_thread_service.add_message(
-            thread,
-            role="assistant",
-            content=response_content,
+        reply = _coerce_generated_reply(
+            await _generate_chat_response(
+                request,
+                thread,
+                current_user,
+                workspace_service=workspace_service,
+                literature_service=literature_service,
+                artifact_service=artifact_service,
+                paper_service=paper_service,
+            )
         )
-        await chat_thread_service.set_title_if_empty(thread, request.message)
-        await _publish_thread_updated(thread)
-        await _set_thread_agent_status(
-            thread.workspace_id,
-            thread.id,
-            status="completed",
-            skill=thread.skill,
+        assistant_message = await _persist_chat_reply(
+            thread=thread,
+            current_user=current_user,
+            user_message=request.message,
+            reply=reply,
+            chat_thread_service=chat_thread_service,
         )
     except Exception:
-        await _set_thread_agent_status(
-            thread.workspace_id,
-            thread.id,
-            status="failed",
-            skill=thread.skill,
-        )
+        await _fail_chat_turn(thread)
         raise
 
     return ChatResponse(
@@ -399,52 +363,51 @@ async def chat_stream(
     request: ChatRequest,
     current_user: User = Depends(get_current_user),
     chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    literature_service: LiteratureService = Depends(get_literature_service),
+    artifact_service: ArtifactService = Depends(get_artifact_service),
+    paper_service: PaperService = Depends(get_paper_service),
 ):
     """Send a message and get a streaming response."""
 
     async def generate() -> AsyncGenerator[str, None]:
-        thread = await _get_or_create_owned_thread(request, current_user, chat_thread_service)
-        await chat_thread_service.add_message(thread, role="user", content=request.message)
-        await _set_thread_agent_status(
-            thread.workspace_id,
-            thread.id,
-            status="running",
-            skill=thread.skill,
+        thread = await _start_chat_turn(
+            request=request,
+            current_user=current_user,
+            chat_thread_service=chat_thread_service,
         )
 
-        yield f"data: {json.dumps({'type': 'thread_id', 'thread_id': thread.id, 'skill': thread.skill})}\n\n"
+        yield _stream_thread_context_event(thread_id=thread.id, skill=thread.skill)
 
         try:
-            response_content = await _generate_chat_response(request, thread)
-            if response_content:
-                yield (
-                    f"data: {json.dumps({'type': 'content', 'content': response_content})}\n\n"
+            reply = _coerce_generated_reply(
+                await _generate_chat_response(
+                    request,
+                    thread,
+                    current_user,
+                    workspace_service=workspace_service,
+                    literature_service=literature_service,
+                    artifact_service=artifact_service,
+                    paper_service=paper_service,
                 )
+            )
+            if reply.content:
+                yield _stream_content_event(reply.content)
 
-            await chat_thread_service.add_message(
-                thread,
-                role="assistant",
-                content=response_content,
+            assistant_message = await _persist_chat_reply(
+                thread=thread,
+                current_user=current_user,
+                user_message=request.message,
+                reply=reply,
+                chat_thread_service=chat_thread_service,
             )
-            await chat_thread_service.set_title_if_empty(thread, request.message)
-            await _publish_thread_updated(thread)
-            await _set_thread_agent_status(
-                thread.workspace_id,
-                thread.id,
-                status="completed",
-                skill=thread.skill,
-            )
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            yield _stream_assistant_message_event(assistant_message)
+            yield _stream_done_event()
 
         except Exception as exc:
             logger.exception("Streaming chat failed")
-            await _set_thread_agent_status(
-                thread.workspace_id,
-                thread.id,
-                status="failed",
-                skill=thread.skill,
-            )
-            yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
+            await _fail_chat_turn(thread)
+            yield _stream_error_event(str(exc))
 
     return StreamingResponse(
         generate(),

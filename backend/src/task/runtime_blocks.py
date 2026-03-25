@@ -5,8 +5,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-
 _FEATURE_RUNTIME_CONFIG: dict[str, dict[str, Any]] = {
+    "deep_research": {
+        "title": "深度调研",
+        "phases": [
+            {"id": "discovery", "label": "发现文献", "description": "并行检索经典文献、近期工作与研究趋势"},
+            {"id": "gap_mining", "label": "挖掘空白", "description": "识别研究空白与可切入的问题空间"},
+            {"id": "synthesis", "label": "综合创意", "description": "生成候选方向、研究创意和后续建议"},
+            {"id": "cross_validation", "label": "交叉验证", "description": "检查发现与创意的一致性和可信度"},
+            {"id": "finalize", "label": "整理产物", "description": "封装深度调研报告并写入 artifact"},
+        ],
+    },
     "literature_search": {
         "title": "文献检索",
         "phases": [
@@ -31,6 +40,38 @@ _FEATURE_RUNTIME_CONFIG: dict[str, dict[str, Any]] = {
             {"id": "finalize", "label": "整理产物", "description": "整理大纲、参考和 draft artifact"},
         ],
     },
+    "literature_review": {
+        "title": "文献综述",
+        "phases": [
+            {"id": "prepare", "label": "整理主题", "description": "确认主题、学科与上下文 artifact"},
+            {"id": "synthesize", "label": "综合综述", "description": "归纳 key papers、研究空白与章节结构"},
+            {"id": "finalize", "label": "整理产物", "description": "封装文献综述 artifact"},
+        ],
+    },
+    "framework_outline": {
+        "title": "框架与摘要",
+        "phases": [
+            {"id": "prepare", "label": "整理输入", "description": "确认题目、主题与上下文 artifact"},
+            {"id": "outline", "label": "生成框架", "description": "生成摘要、关键词和章节结构"},
+            {"id": "finalize", "label": "整理产物", "description": "封装框架 artifact"},
+        ],
+    },
+    "peer_review": {
+        "title": "同行评审",
+        "phases": [
+            {"id": "prepare", "label": "读取稿件", "description": "加载论文标题与待审内容"},
+            {"id": "review", "label": "评审分析", "description": "识别 strengths、weaknesses 与 revision actions"},
+            {"id": "finalize", "label": "整理产物", "description": "封装评审 artifact"},
+        ],
+    },
+    "journal_recommend": {
+        "title": "期刊推荐",
+        "phases": [
+            {"id": "prepare", "label": "提炼画像", "description": "确认论文标题、摘要和学科领域"},
+            {"id": "match", "label": "匹配期刊", "description": "生成候选期刊、fit 和投稿建议"},
+            {"id": "finalize", "label": "整理产物", "description": "封装推荐摘要 artifact"},
+        ],
+    },
     "opening_research": {
         "title": "开题调研",
         "phases": [
@@ -53,6 +94,15 @@ _FEATURE_RUNTIME_CONFIG: dict[str, dict[str, Any]] = {
             {"id": "scope", "label": "项目范围", "description": "确认主题、类型与周期"},
             {"id": "outline", "label": "生成大纲", "description": "生成章节结构、里程碑与风险"},
             {"id": "finalize", "label": "整理产物", "description": "封装大纲 artifact"},
+        ],
+    },
+    "experiment_design": {
+        "title": "实验设计",
+        "phases": [
+            {"id": "hypothesis", "label": "明确假设", "description": "确认研究目标与核心假设"},
+            {"id": "variables", "label": "设计变量", "description": "生成变量、流程与实验方案"},
+            {"id": "evaluation", "label": "规划评估", "description": "整理评估指标、风险与验证路径"},
+            {"id": "finalize", "label": "整理产物", "description": "封装实验设计 artifact"},
         ],
     },
     "patent_outline": {
@@ -125,6 +175,15 @@ _FEATURE_RUNTIME_CONFIG: dict[str, dict[str, Any]] = {
             {"id": "prepare", "label": "准备章节", "description": "确认章节标题与目标字数"},
             {"id": "draft", "label": "生成章节", "description": "撰写章节正文内容"},
             {"id": "finalize", "label": "整理产物", "description": "封装章节 artifact"},
+        ],
+    },
+    "thesis_writing_full": {
+        "title": "全文写作",
+        "phases": [
+            {"id": "prepare", "label": "准备参数", "description": "确认标题、字数与上下文"},
+            {"id": "outline", "label": "生成大纲", "description": "规划章节结构与写作顺序"},
+            {"id": "draft", "label": "批量写作", "description": "按章节生成全文草稿"},
+            {"id": "finalize", "label": "整理产物", "description": "落库大纲与章节 artifact"},
         ],
     },
 }

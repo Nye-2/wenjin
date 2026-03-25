@@ -50,10 +50,10 @@ def _make_feature():
     feature = MagicMock()
     feature.id = "deep_research"
     feature.name = "Deep Research"
-    feature.task_type = "deep_research"
+    feature.task_type = "workspace_feature"
     feature.agent = "research"
     feature.agent_label = "Research Agent"
-    feature.handler_key = "deep_research"
+    feature.handler_key = "thesis.deep_research"
     return feature
 
 

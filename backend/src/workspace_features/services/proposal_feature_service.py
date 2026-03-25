@@ -1,8 +1,8 @@
 """Service helpers for proposal workspace feature handlers.
 
 This module keeps handler logic thin and reusable by encapsulating:
-1. proposal outline generation (with template fallback),
-2. background research payload assembly (with LLM-optional strategy).
+1. proposal outline generation (LLM-only),
+2. background research payload assembly (LLM-only).
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from src.artifacts import ArtifactType
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
 from src.task.progress import emit_runtime_update, get_runtime_state
@@ -302,38 +303,26 @@ def _normalize_llm_sections(
     raw_sections: Any,
     template_sections: list[dict[str, str]],
 ) -> list[dict[str, str]] | None:
-    """Normalize LLM-generated sections against template."""
+    """Normalize and validate LLM-generated sections against required schema."""
     if not isinstance(raw_sections, list):
         return None
 
     normalized: list[dict[str, str]] = []
     for index, template_section in enumerate(template_sections):
         candidate = raw_sections[index] if index < len(raw_sections) else None
-        if isinstance(candidate, dict):
-            candidate_content = str(candidate.get("content") or "").strip()
-            if candidate_content:
-                normalized.append(
-                    {
-                        "id": template_section["id"],
-                        "title": template_section["title"],
-                        "content": candidate_content,
-                        "source": "llm",
-                    }
-                )
-                continue
-
+        if not isinstance(candidate, dict):
+            return None
+        candidate_content = str(candidate.get("content") or "").strip()
+        if not candidate_content:
+            return None
         normalized.append(
             {
                 "id": template_section["id"],
                 "title": template_section["title"],
-                "content": template_section["content"],
-                "source": "template",
+                "content": candidate_content,
+                "source": "llm",
             }
         )
-
-    # If LLM didn't provide meaningful content for any section, treat as invalid.
-    if not any(section["source"] == "llm" for section in normalized):
-        return None
     return normalized
 
 
@@ -414,7 +403,7 @@ async def build_proposal_outline_payload(
     period_months: int | None,
     preferred_model: str | None = None,
 ) -> dict[str, Any]:
-    """Build proposal outline artifact content with template-first, LLM-optional strategy.
+    """Build proposal outline artifact content with LLM generation.
 
     Args:
         workspace_id: Workspace ID for context
@@ -477,20 +466,25 @@ async def build_proposal_outline_payload(
         preferred_model=preferred_model,
     )
 
-    if llm_sections is not None:
-        sections = llm_sections
-        generation_mode = "llm"
-    else:
-        sections = [
-            {
-                "id": section["id"],
-                "title": section["title"],
-                "content": section["content"],
-                "source": "template",
-            }
-            for section in template_sections
-        ]
-        generation_mode = "template_fallback"
+    if llm_sections is None:
+        if runtime is not None:
+            append_runtime_activity(
+                runtime,
+                title="申报书大纲生成失败",
+                description=f"模型未返回有效章节：{generation_error or 'unknown_error'}",
+                tone="error",
+            )
+            await _emit_bound_runtime(
+                message="申报书大纲生成失败，正在回传错误信息...",
+                current_phase="finalize",
+                stage_transition=True,
+            )
+        raise RuntimeError(
+            f"proposal_outline_llm_failed: {generation_error or 'unknown_error'}"
+        )
+
+    sections = llm_sections
+    generation_mode = "llm"
 
     milestones = _build_milestones(normalized_period)
     risks = _build_risks()
@@ -535,7 +529,7 @@ async def build_proposal_outline_payload(
             runtime,
             title="申报书大纲已生成",
             description=f"已输出 {len(sections)} 个章节和 {len(milestones)} 个里程碑。",
-            tone="success" if generation_mode == "llm" else "warning",
+            tone="success",
         )
         await _emit_bound_runtime(
             message="正在整理申报书大纲产物...",
@@ -552,7 +546,7 @@ async def build_proposal_outline_payload(
         "period_months": normalized_period,
         "generation_mode": generation_mode,
         "model_id": model_id,
-        "generation_error": generation_error,
+        "generation_error": None,
         "sections": sections,
         "milestones": milestones,
         "risks": risks,
@@ -620,33 +614,6 @@ def _build_background_template_sections(
                 "- 预期突破：\n"
                 "- 可行性评估："
             ),
-        },
-    ]
-
-
-def _build_references_template(keywords: str) -> list[dict[str, str]]:
-    """Build placeholder references structure."""
-    return [
-        {
-            "title": "参考文献1（待补充）",
-            "authors": "",
-            "year": "",
-            "venue": "",
-            "note": f"与{keywords}相关的核心文献",
-        },
-        {
-            "title": "参考文献2（待补充）",
-            "authors": "",
-            "year": "",
-            "venue": "",
-            "note": "综述性文献",
-        },
-        {
-            "title": "参考文献3（待补充）",
-            "authors": "",
-            "year": "",
-            "venue": "",
-            "note": "最新研究进展",
         },
     ]
 
@@ -748,7 +715,7 @@ async def build_background_research_payload(
     time_range: str,
     preferred_model: str | None = None,
 ) -> dict[str, Any]:
-    """Build background research artifact content with template-first, LLM-optional strategy.
+    """Build background research artifact content with LLM generation.
 
     Args:
         workspace_id: Workspace ID for context
@@ -815,22 +782,27 @@ async def build_background_research_payload(
         preferred_model=preferred_model,
     )
 
-    if llm_sections is not None:
-        sections = llm_sections
-        generation_mode = "llm"
-        references = llm_refs or _build_references_template(normalized_keywords)
-    else:
-        sections = [
-            {
-                "id": section["id"],
-                "title": section["title"],
-                "content": section["content"],
-                "source": "template",
-            }
-            for section in template_sections
-        ]
-        generation_mode = "template_fallback"
-        references = _build_references_template(normalized_keywords)
+    if llm_sections is None:
+        if runtime is not None:
+            append_runtime_activity(
+                runtime,
+                title="背景调研生成失败",
+                description=f"模型未返回有效章节：{generation_error or 'unknown_error'}",
+                tone="error",
+            )
+            advance_runtime_phase(runtime, "research", "report")
+            await _emit_bound_runtime(
+                message="背景调研生成失败，正在回传错误信息...",
+                current_phase="report",
+                stage_transition=True,
+            )
+        raise RuntimeError(
+            f"background_research_llm_failed: {generation_error or 'unknown_error'}"
+        )
+
+    sections = llm_sections
+    generation_mode = "llm"
+    references = llm_refs or []
 
     if runtime is not None:
         upsert_runtime_block(
@@ -879,7 +851,7 @@ async def build_background_research_payload(
             runtime,
             title="背景分析完成",
             description=f"已生成 {len(sections)} 个章节并整理参考文献线索。",
-            tone="success" if generation_mode == "llm" else "warning",
+            tone="success",
         )
         advance_runtime_phase(runtime, "research", "report")
         await _emit_bound_runtime(
@@ -896,8 +868,123 @@ async def build_background_research_payload(
         "time_range": normalized_time,
         "generation_mode": generation_mode,
         "model_id": model_id,
-        "generation_error": generation_error,
+        "generation_error": None,
         "sections": sections,
         "references": references,
+        "generated_at": _utc_now_iso(),
+    }
+
+
+def _build_experiment_design_template(topic: str, objective: str) -> dict[str, Any]:
+    return {
+        "hypotheses": [
+            f"{topic} 的核心方案能够有效支撑“{objective}”这一目标。",
+            "关键变量的变化将对主要评价指标产生显著影响。",
+        ],
+        "variables": [
+            {"name": "自变量", "definition": "核心方法/干预因素", "type": "independent"},
+            {"name": "因变量", "definition": "效果指标或性能表现", "type": "dependent"},
+            {"name": "控制变量", "definition": "数据集、实验环境、基线设置", "type": "control"},
+        ],
+        "procedure": [
+            "明确实验对象、样本来源和数据清洗标准。",
+            "设置基线方案与消融实验，统一评价指标。",
+            "记录结果并从有效性、稳定性和泛化性三个角度分析。",
+        ],
+        "evaluation": [
+            "主要指标：准确率、召回率、F1 或任务对应核心指标。",
+            "稳健性指标：不同数据划分、不同参数设置下的波动情况。",
+            "应用指标：计算成本、部署约束或时间效率。",
+        ],
+        "risks": [
+            "样本规模不足导致统计显著性不稳定。",
+            "实验口径不一致会削弱不同方案之间的可比性。",
+        ],
+    }
+
+
+async def _try_llm_experiment_design(
+    *,
+    topic: str,
+    objective: str,
+    preferred_model: str | None,
+) -> tuple[dict[str, Any] | None, str | None, str | None]:
+    models = list_user_selectable_models(purpose="writing")
+    if not models:
+        return None, None, "no_generation_model_configured"
+    try:
+        model_id = route_writing_model(requested_model=preferred_model)
+    except Exception:
+        model_id = models[0].id
+
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+    except Exception as exc:
+        return None, model_id, f"langchain_message_import_failed: {exc}"
+
+    try:
+        model = create_chat_model(model_id, temperature=0.2)
+    except Exception as exc:
+        return None, model_id, f"model_init_failed: {exc}"
+
+    prompt = "\n".join(
+        [
+            "请为研究计划生成实验设计方案，返回 JSON。",
+            f"主题：{topic}",
+            f"研究目标：{objective}",
+            "",
+            "输出 JSON：",
+            '{"hypotheses":["假设1"],"variables":[{"name":"变量","definition":"说明","type":"independent"}],"procedure":["步骤1"],"evaluation":["指标1"],"risks":["风险1"]}',
+        ]
+    )
+
+    try:
+        response = await model.ainvoke(
+            [
+                SystemMessage(content="你是科研项目实验设计顾问，只返回 JSON。"),
+                HumanMessage(content=prompt),
+            ]
+        )
+    except Exception as exc:
+        return None, model_id, f"llm_generation_failed: {exc}"
+
+    parsed = _parse_json_payload(_extract_response_text(response))
+    if parsed is None:
+        return None, model_id, "llm_output_not_json"
+    return parsed, model_id, None
+
+
+async def build_experiment_design_payload(
+    *,
+    topic: str,
+    objective: str,
+    preferred_model: str | None = None,
+) -> dict[str, Any]:
+    """Build a structured experiment-design payload for proposal workspaces."""
+    resolved_topic = (topic or "").strip() or "研究主题"
+    resolved_objective = (objective or "").strip() or resolved_topic
+    llm_result, model_id, generation_error = await _try_llm_experiment_design(
+        topic=resolved_topic,
+        objective=resolved_objective,
+        preferred_model=preferred_model,
+    )
+    payload = llm_result or _build_experiment_design_template(
+        resolved_topic,
+        resolved_objective,
+    )
+    return {
+        "schema_version": "v1",
+        "document_type": ArtifactType.METHODOLOGY.value,
+        "output_language": PROPOSAL_OUTPUT_LANGUAGE,
+        "topic": resolved_topic,
+        "objective": resolved_objective,
+        "hypotheses": payload.get("hypotheses") if isinstance(payload.get("hypotheses"), list) else [],
+        "variables": payload.get("variables") if isinstance(payload.get("variables"), list) else [],
+        "procedure": payload.get("procedure") if isinstance(payload.get("procedure"), list) else [],
+        "evaluation": payload.get("evaluation") if isinstance(payload.get("evaluation"), list) else [],
+        "risks": payload.get("risks") if isinstance(payload.get("risks"), list) else [],
+        "generation_mode": "llm" if llm_result is not None else "template",
+        "model_id": model_id,
+        "generation_error": generation_error,
         "generated_at": _utc_now_iso(),
     }

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from src.agents.graphs._shared import _read_optional_str
+from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_writing_model
 from src.task.progress import emit_runtime_update, get_runtime_state
@@ -89,21 +89,34 @@ async def thesis_writing_graph(
 
     * ``"generate_outline"`` — Build thesis outline payload.
     * ``"write_chapter"`` — Build chapter draft payload.
+    * ``"write_all"`` — Build outline and all chapter drafts in one run.
     * ``"review_section"`` — Review an existing section and provide feedback.
     * ``"revise_section"`` — Revise a section based on feedback.
     * *default* — Full review-and-revise loop (max 2 rounds).
     """
-    params = payload.get("params", {})
+    params = _read_payload_params(payload)
+    workspace_id = str(payload.get("workspace_id") or "").strip() or None
     action = str(params.get("action", "")).strip()
-    memory_context = initial_state.get("knowledge_context")
+    memory_context = initial_state.get("memory_context")
     requested_model = _read_optional_str(params.get("model_id"))
     model_id = _resolve_writing_model(requested_model)
 
     if action == "generate_outline":
-        return await _handle_generate_outline(params, model_id=model_id)
+        return await _handle_generate_outline(
+            params,
+            workspace_id=workspace_id,
+            model_id=model_id,
+        )
 
     if action == "write_chapter":
         return await _handle_write_chapter(params, model_id=model_id)
+
+    if action == "write_all":
+        return await _handle_write_all(
+            params,
+            workspace_id=workspace_id,
+            model_id=model_id,
+        )
 
     if action == "review_section":
         return await _handle_review_section(params, memory_context, model_id=model_id)
@@ -121,6 +134,7 @@ async def thesis_writing_graph(
 async def _handle_generate_outline(
     params: dict[str, Any],
     *,
+    workspace_id: str | None = None,
     model_id: str = "default",
 ) -> dict[str, Any]:
     """Build an outline payload for thesis writing Step 1."""
@@ -162,11 +176,13 @@ async def _handle_generate_outline(
             stage_transition=True,
         )
 
-    outline_payload = build_outline_payload(
+    outline_payload = await build_outline_payload(
         paper_title=paper_title,
         target_words=target_words,
         literature_count=literature_count,
         deep_research_artifact_ids=deep_research_artifact_ids,
+        workspace_id=workspace_id,
+        preferred_model=model_id,
     )
     if runtime is not None:
         outline = outline_payload.get("outline") if isinstance(outline_payload.get("outline"), dict) else {}
@@ -209,8 +225,8 @@ async def _handle_generate_outline(
         "source_context": outline_payload.get("source_context", {}),
         "schema_version": outline_payload.get("schema_version", "v1"),
         "model_id": model_id,
-        "generation_mode": outline_payload.get("generation_mode", "template_fallback"),
-        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "generation_mode": outline_payload.get("generation_mode", "llm"),
+        "generated_at": datetime.now(tz=UTC).isoformat(),
     }
 
 
@@ -262,12 +278,13 @@ async def _handle_write_chapter(
             stage_transition=True,
         )
 
-    chapter_payload = build_chapter_payload(
+    chapter_payload = await build_chapter_payload(
         paper_title=paper_title,
         chapter_index=chapter_index,
         chapter_title=chapter_title,
         target_words=target_words,
         references_used=references_used,
+        preferred_model=model_id,
     )
     if runtime is not None:
         content_text = str(chapter_payload.get("markdown") or chapter_payload.get("content") or "")
@@ -312,8 +329,164 @@ async def _handle_write_chapter(
         "chapter": chapter_payload,
         "schema_version": chapter_payload.get("schema_version", "v1"),
         "model_id": model_id,
-        "generation_mode": chapter_payload.get("generation_mode", "template_fallback"),
-        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "generation_mode": chapter_payload.get("generation_mode", "llm"),
+        "generated_at": datetime.now(tz=UTC).isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Mode 2b: write_all
+# ---------------------------------------------------------------------------
+async def _handle_write_all(
+    params: dict[str, Any],
+    *,
+    workspace_id: str | None = None,
+    model_id: str = "default",
+) -> dict[str, Any]:
+    """Build outline and chapter payloads for full-text generation."""
+    paper_title = str(
+        params.get("paper_title")
+        or params.get("topic")
+        or "未命名论文"
+    ).strip() or "未命名论文"
+    target_words = max(1000, _coerce_int(params.get("target_words"), 20000))
+    literature_count = max(0, _coerce_int(params.get("literature_count"), 0))
+    deep_research_artifact_ids = _coerce_str_list(
+        params.get("deep_research_artifact_ids")
+    )
+    references_used = _coerce_str_list(params.get("references_used"))
+
+    runtime = get_runtime_state()
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "write-all-inputs",
+                "kind": "metrics",
+                "title": "全文生成输入",
+                "entries": [
+                    {"label": "论文标题", "value": paper_title},
+                    {"label": "目标字数", "value": str(target_words)},
+                    {"label": "文献数", "value": str(literature_count)},
+                    {"label": "深度调研产物", "value": str(len(deep_research_artifact_ids))},
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="全文生成参数已整理",
+            description="准备生成大纲并批量写作章节。",
+            tone="info",
+        )
+        await _emit_bound_runtime(
+            message="正在生成论文大纲...",
+            current_phase="outline",
+            stage_transition=True,
+        )
+
+    outline_payload = await build_outline_payload(
+        paper_title=paper_title,
+        target_words=target_words,
+        literature_count=literature_count,
+        deep_research_artifact_ids=deep_research_artifact_ids,
+        workspace_id=workspace_id,
+        preferred_model=model_id,
+    )
+    outline = (
+        outline_payload.get("outline")
+        if isinstance(outline_payload.get("outline"), dict)
+        else {}
+    )
+    chapters = outline.get("chapters") if isinstance(outline.get("chapters"), list) else []
+
+    chapter_payloads: list[dict[str, Any]] = []
+    if chapters:
+        if runtime is not None:
+            await _emit_bound_runtime(
+                message="正在批量生成章节草稿...",
+                current_phase="draft",
+                stage_transition=True,
+            )
+
+        for index, chapter in enumerate(chapters):
+            if not isinstance(chapter, dict):
+                continue
+            chapter_title = str(chapter.get("title") or f"第{index + 1}章")
+            chapter_target_words = max(
+                800,
+                _coerce_int(chapter.get("targetWords"), max(1000, target_words // max(len(chapters), 1))),
+            )
+            chapter_payload = await build_chapter_payload(
+                paper_title=paper_title,
+                chapter_index=index,
+                chapter_title=chapter_title,
+                target_words=chapter_target_words,
+                references_used=references_used,
+                preferred_model=model_id,
+            )
+            chapter_payloads.append(chapter_payload)
+
+    if runtime is not None:
+        if chapters:
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "write-all-outline-chapters",
+                    "kind": "list",
+                    "title": "大纲章节",
+                    "items": [
+                        {
+                            "title": str(chapter.get("title") or "未命名章节"),
+                            "description": "、".join(str(item) for item in (chapter.get("keyPoints") or [])[:3]),
+                            "meta": str(chapter.get("position") or ""),
+                            "badge": str(chapter.get("targetWords") or ""),
+                        }
+                        for chapter in chapters[:10]
+                        if isinstance(chapter, dict)
+                    ],
+                },
+            )
+        if chapter_payloads:
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "write-all-generated-chapters",
+                    "kind": "list",
+                    "title": "章节草稿",
+                    "items": [
+                        {
+                            "title": str(chapter.get("chapter_title") or "未命名章节"),
+                            "description": str(chapter.get("markdown") or "")[:220],
+                            "meta": f"目标 {chapter.get('target_words') or 0} 字",
+                            "badge": str(chapter.get("estimated_words") or ""),
+                        }
+                        for chapter in chapter_payloads[:10]
+                        if isinstance(chapter, dict)
+                    ],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="全文草稿已生成",
+            description=f"已生成大纲和 {len(chapter_payloads)} 个章节草稿。",
+            tone="success",
+        )
+        await _emit_bound_runtime(
+            message="正在整理全文生成产物...",
+            current_phase="finalize",
+            stage_transition=True,
+        )
+
+    return {
+        "action": "write_all",
+        "paper_title": outline_payload.get("paper_title", paper_title),
+        "outline": outline,
+        "chapters": chapter_payloads,
+        "source_context": outline_payload.get("source_context", {}),
+        "schema_version": outline_payload.get("schema_version", "v1"),
+        "model_id": model_id,
+        "generation_mode": "llm",
+        "generated_at": datetime.now(tz=UTC).isoformat(),
     }
 
 
@@ -339,19 +512,16 @@ async def _handle_review_section(
         model_id=model_id,
     )
 
-    if review is not None:
-        generation_mode = "llm"
-    else:
-        review = _build_review_fallback(section_title)
-        generation_mode = "template_fallback"
+    if review is None:
+        raise RuntimeError("review_section_llm_failed: model did not return valid JSON review")
 
     return {
         "action": "review_section",
         "section_title": section_title,
         "review": review,
         "model_id": model_id,
-        "generation_mode": generation_mode,
-        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "generation_mode": "llm",
+        "generated_at": datetime.now(tz=UTC).isoformat(),
     }
 
 
@@ -384,14 +554,11 @@ async def _handle_revise_section(
         model_id=model_id,
     )
 
-    if revision is not None:
-        generation_mode = "llm"
-        revised_content = revision.get("revised_content", section_content)
-        changes_summary = revision.get("changes_summary", "")
-    else:
-        generation_mode = "template_fallback"
-        revised_content = section_content
-        changes_summary = "LLM 修改失败，返回原始内容"
+    if revision is None:
+        raise RuntimeError("revise_section_llm_failed: model did not return valid JSON revision")
+
+    revised_content = revision.get("revised_content", section_content)
+    changes_summary = revision.get("changes_summary", "")
 
     return {
         "action": "revise_section",
@@ -400,8 +567,8 @@ async def _handle_revise_section(
         "revision_round": revision_round,
         "changes_summary": changes_summary,
         "model_id": model_id,
-        "generation_mode": generation_mode,
-        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "generation_mode": "llm",
+        "generated_at": datetime.now(tz=UTC).isoformat(),
     }
 
 
@@ -422,7 +589,6 @@ async def _handle_review_and_revise(
     original_content = section_content
     current_content = section_content
     rounds: list[dict[str, Any]] = []
-    any_llm_success = False
 
     for round_num in range(1, _MAX_REVISION_ROUNDS + 1):
         # Review current content
@@ -435,9 +601,9 @@ async def _handle_review_and_revise(
         )
 
         if review is None:
-            review = _build_review_fallback(section_title)
-        else:
-            any_llm_success = True
+            raise RuntimeError(
+                f"review_and_revise_failed: review round {round_num} returned invalid output"
+            )
 
         round_result: dict[str, Any] = {
             "round": round_num,
@@ -459,26 +625,16 @@ async def _handle_review_and_revise(
             model_id=model_id,
         )
 
-        if revision is not None:
-            any_llm_success = True
-            revised_content = revision.get("revised_content", current_content)
-            round_result["revised_content"] = revised_content
-            current_content = revised_content
-        else:
-            round_result["revised_content"] = None
+        if revision is None:
+            raise RuntimeError(
+                f"review_and_revise_failed: revise round {round_num} returned invalid output"
+            )
+
+        revised_content = revision.get("revised_content", current_content)
+        round_result["revised_content"] = revised_content
+        current_content = revised_content
 
         rounds.append(round_result)
-
-    # Determine generation mode
-    if any_llm_success and all(
-        r.get("revised_content") is not None or not r["review"].get("revision_needed", False)
-        for r in rounds
-    ):
-        generation_mode = "llm"
-    elif any_llm_success:
-        generation_mode = "partial_llm"
-    else:
-        generation_mode = "template_fallback"
 
     return {
         "action": "review_and_revise",
@@ -488,8 +644,8 @@ async def _handle_review_and_revise(
         "rounds": rounds,
         "total_rounds": len(rounds),
         "model_id": model_id,
-        "generation_mode": generation_mode,
-        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "generation_mode": "llm",
+        "generated_at": datetime.now(tz=UTC).isoformat(),
     }
 
 
@@ -652,20 +808,6 @@ def _parse_json_response(text: str) -> dict[str, Any] | None:
         return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         return None
-
-
-# ---------------------------------------------------------------------------
-# Helper: build review fallback
-# ---------------------------------------------------------------------------
-def _build_review_fallback(section_title: str) -> dict[str, Any]:
-    """Build a fallback review result when LLM is unavailable."""
-    return {
-        "overall_score": 0,
-        "issues": [],
-        "strengths": [],
-        "revision_needed": False,
-        "revision_instructions": None,
-    }
 
 
 # ---------------------------------------------------------------------------

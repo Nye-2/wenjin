@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, FlaskConical } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { FlaskConical } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -22,20 +22,43 @@ import { cn } from "@/lib/utils";
 
 export default function PaperAnalysisPage() {
   const params = useParams();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const workspaceId = params.id as string;
   const { workspace, artifacts } = useWorkspaceStore();
+  const paperIdSeed = searchParams.get("paper_id");
+  const paperTitleSeed = searchParams.get("paper_title");
+  const paperAbstractSeed = searchParams.get("paper_abstract");
 
   const [paperId, setPaperId] = useState(
-    () => searchParams.get("paper_id") || ""
+    () => paperIdSeed || ""
   );
   const [paperTitle, setPaperTitle] = useState(
-    () => searchParams.get("paper_title") || ""
+    () => paperTitleSeed || ""
   );
   const [paperAbstract, setPaperAbstract] = useState(
-    () => searchParams.get("paper_abstract") || ""
+    () => paperAbstractSeed || ""
   );
+
+  useEffect(() => {
+    if (paperIdSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setPaperId(paperIdSeed);
+    }
+  }, [paperIdSeed]);
+
+  useEffect(() => {
+    if (paperTitleSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setPaperTitle(paperTitleSeed);
+    }
+  }, [paperTitleSeed]);
+
+  useEffect(() => {
+    if (paperAbstractSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setPaperAbstract(paperAbstractSeed);
+    }
+  }, [paperAbstractSeed]);
 
   useEffect(() => {
     if (workspace && !paperTitle) {
@@ -76,6 +99,31 @@ export default function PaperAnalysisPage() {
   const latestSectionNames = latestSections
     ? Object.keys(latestSections).slice(0, 4)
     : [];
+
+  useEffect(() => {
+    const latestPaperId = readString(latestAnalysisResult?.paper_id);
+    if (latestPaperId && !paperId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest analysis input when route seed is absent
+      setPaperId(latestPaperId);
+    }
+  }, [latestAnalysisResult, paperId]);
+
+  useEffect(() => {
+    const latestPaperTitle = readString(latestAnalysisResult?.paper_title);
+    if (latestPaperTitle && !paperTitle) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest analysis input when route seed is absent
+      setPaperTitle(latestPaperTitle);
+    }
+  }, [latestAnalysisResult, paperTitle]);
+
+  useEffect(() => {
+    const latestPaperAbstract = readString(latestAnalysisResult?.paper_abstract);
+    if (latestPaperAbstract && !paperAbstract) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest analysis input when route seed is absent
+      setPaperAbstract(latestPaperAbstract);
+    }
+  }, [latestAnalysisResult, paperAbstract]);
+
   const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
     summary: latestAnalysisResult
       ? "最近一次论文结构化分析已生成，可继续作为写作上下文使用。"
@@ -128,39 +176,16 @@ export default function PaperAnalysisPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      <header className="h-14 flex items-center gap-4 px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push(`/workspaces/${workspaceId}`)}
-          className={cn(
-            "p-2 rounded-lg",
-            "bg-[var(--bg-surface)]",
-            "hover:bg-[var(--bg-muted)]",
-            "text-[var(--text-secondary)]",
-            "transition-colors"
-          )}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-fuchsia-500/10">
-            <FlaskConical className="w-5 h-5 text-fuchsia-600 dark:text-fuchsia-400" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[var(--text-primary)]">论文分析</h1>
-            <p className="text-xs text-[var(--text-muted)]">生成方法/实验/结论/创新点结构化分析</p>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 flex overflow-hidden">
-        <aside className="w-80 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-          <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">分析参数</h2>
-
-          <div className="space-y-4">
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="论文分析"
+      description="生成方法/实验/结论/创新点结构化分析"
+      icon={FlaskConical}
+      iconBgClass="bg-fuchsia-500/10"
+      iconClass="text-fuchsia-600 dark:text-fuchsia-400"
+      sidebarTitle="分析参数"
+      sidebar={
+        <div className="space-y-4">
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">Paper ID（可选）</label>
               <input
@@ -222,27 +247,18 @@ export default function PaperAnalysisPage() {
               error={error}
               onRetry={handleAnalyze}
             />
-          </div>
-        </aside>
-
-        <div className="flex-1 p-6 overflow-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <TaskRuntimePanel
-              runtime={runtime}
-              isRunning={isRunning}
-              status={status}
-              error={error}
-              title="论文分析运行面板"
-              emptyDescription="执行后，这里会显示分析阶段、论文上下文和结构化分析分区。"
-            />
-            <WorkspaceResultPanel viewModel={resultViewModel} />
-          </motion.div>
         </div>
-      </main>
-    </div>
+      }
+    >
+      <TaskRuntimePanel
+        runtime={runtime}
+        isRunning={isRunning}
+        status={status}
+        error={error}
+        title="论文分析运行面板"
+        emptyDescription="执行后，这里会显示分析阶段、论文上下文和结构化分析分区。"
+      />
+      <WorkspaceResultPanel viewModel={resultViewModel} />
+    </FeatureWorkbenchShell>
   );
 }

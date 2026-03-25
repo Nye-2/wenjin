@@ -36,9 +36,13 @@ function refreshWorkspaceTargets(workspaceId: string, targets: string[]) {
 function handleWorkspaceEvent(workspaceId: string, event: WorkspaceEvent) {
   const taskStore = useTaskStore.getState();
   const chatStore = useChatStore.getState();
+  const workspaceStore = useWorkspaceStore.getState();
 
   switch (event.type) {
     case "task.updated": {
+      if (event.activity) {
+        workspaceStore.upsertActivity(event.activity);
+      }
       const currentTask = taskStore.currentTask;
       if (currentTask?.id === event.task.task_id) {
         if (event.task.status === "running" || event.task.status === "pending") {
@@ -61,14 +65,31 @@ function handleWorkspaceEvent(workspaceId: string, event: WorkspaceEvent) {
       break;
     case "thread.updated":
       chatStore.upsertThreadSummary(event.thread);
-      refreshWorkspaceTargets(workspaceId, ["activity"]);
+      if (event.activity) {
+        workspaceStore.upsertActivity(event.activity);
+      } else {
+        refreshWorkspaceTargets(workspaceId, ["activity"]);
+      }
+      if (chatStore.threadId === event.thread.id) {
+        void chatStore.loadThread(event.thread.id, {
+          preservePendingSkill: true,
+        });
+      }
       break;
     case "thread.deleted":
       chatStore.removeThread(event.thread_id);
-      refreshWorkspaceTargets(workspaceId, ["activity"]);
+      if (event.activity_id) {
+        workspaceStore.removeActivity(event.activity_id);
+      } else {
+        refreshWorkspaceTargets(workspaceId, ["activity"]);
+      }
       break;
     case "subagent.updated":
-      refreshWorkspaceTargets(workspaceId, ["activity"]);
+      if (event.activity) {
+        workspaceStore.upsertActivity(event.activity);
+      } else {
+        refreshWorkspaceTargets(workspaceId, ["activity"]);
+      }
       break;
     case "workspace.refresh":
       refreshWorkspaceTargets(workspaceId, event.refresh_targets || []);
@@ -77,14 +98,6 @@ function handleWorkspaceEvent(workspaceId: string, event: WorkspaceEvent) {
       break;
     default:
       break;
-  }
-
-  if (
-    event.type === "thread.updated" &&
-    chatStore.threadId === event.thread.id
-  ) {
-    // Keep persisted skill aligned with the active thread even after reconnects.
-    chatStore.setCurrentSkill(event.thread.skill ?? null);
   }
 }
 

@@ -40,3 +40,41 @@ class TestWorkspaceLock:
         with pytest.raises(RuntimeError, match="Could not acquire lock"):
             async with client.workspace_lock("ws-1", timeout=30):
                 pass
+
+
+class TestClientLifecycle:
+    @pytest.mark.asyncio
+    async def test_reset_client_clears_cached_client_without_closing_when_requested(self):
+        redis = AsyncMock()
+
+        client = RedisClient(url="redis://test")
+        client._client = redis
+
+        await client.reset_client(close_current=False)
+
+        assert client._client is None
+        redis.aclose.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_connect_rebuilds_client_after_process_fork(self, monkeypatch):
+        first_client = AsyncMock()
+        second_client = AsyncMock()
+        second_client.ping = AsyncMock(return_value=True)
+        build_calls: list[str] = []
+
+        client = RedisClient(url="redis://test")
+        client._client = first_client
+        client._owner_pid = 100
+
+        monkeypatch.setattr("src.academic.cache.redis_client.os.getpid", lambda: 200)
+        monkeypatch.setattr(
+            client,
+            "_build_client",
+            lambda: build_calls.append("build") or second_client,
+        )
+
+        await client.connect()
+
+        assert build_calls == ["build"]
+        assert client._client is second_client
+        second_client.ping.assert_awaited_once()

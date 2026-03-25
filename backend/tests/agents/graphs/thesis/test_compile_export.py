@@ -1,5 +1,7 @@
 """Tests for compile export sub-graph — pure function tests only."""
 
+import pytest
+
 from src.agents.graphs.thesis.compile_export import (
     _determine_generation_mode,
     _extract_chapter_summaries,
@@ -223,7 +225,7 @@ class TestDetermineGenerationMode:
         assert _determine_generation_mode(False, True) == "partial_llm"
 
     def test_neither_succeed(self):
-        assert _determine_generation_mode(False, False) == "template_fallback"
+        assert _determine_generation_mode(False, False) == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -246,9 +248,101 @@ class TestPipelineStepsLogic:
         )
         assert mode == "partial_llm"
 
-    def test_all_false_means_fallback(self):
+    def test_all_false_means_failed(self):
         steps = {"consistency_review": False, "abstract_generation": False}
         mode = _determine_generation_mode(
             steps["consistency_review"], steps["abstract_generation"],
         )
-        assert mode == "template_fallback"
+        assert mode == "failed"
+
+
+@pytest.mark.asyncio
+async def test_compile_export_graph_passes_llm_abstract_to_compile_payload(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from src.agents.graphs.thesis import compile_export
+
+    async def _fake_load_chapter_summaries(_workspace_id: str):
+        return [{"title": "绪论", "summary": "章节摘要"}]
+
+    async def _fake_load_literature_count(_workspace_id: str):
+        return 12
+
+    async def _fake_review_consistency(**kwargs):
+        return {"issues": [], "overall_assessment": "ok"}
+
+    async def _fake_generate_abstract_keywords(**kwargs):
+        return {
+            "abstract_zh": "覆盖摘要",
+            "keywords_zh": ["关键词1", "关键词2"],
+            "abstract_en": "Abstract",
+            "keywords_en": ["kw1", "kw2"],
+        }
+
+    captured: dict[str, object] = {}
+
+    async def _fake_build_compile_payload(**kwargs):
+        captured.update(kwargs)
+        return {
+            "compile_status": "success",
+            "pdf_path": "/mnt/user-data/execution/latex_compile/test/main.pdf",
+            "pdf_url": "/uploads/sandboxes/thread-1/execution/latex_compile/test/main.pdf",
+            "page_count": 8,
+            "compile_error": None,
+            "compile_logs": "ok",
+            "latex_content": "latex",
+            "bib_content": "",
+            "source_summary": {"chapter_count": 1, "literature_count": 12},
+            "template": "default",
+            "compiler": "xelatex",
+            "bibliography_style": "gbt7714",
+            "paper_title": "测试论文",
+            "keywords": ["关键词1", "关键词2"],
+            "abstract_source": "llm_override",
+        }
+
+    monkeypatch.setattr(
+        compile_export,
+        "_load_chapter_summaries",
+        _fake_load_chapter_summaries,
+    )
+    monkeypatch.setattr(
+        compile_export,
+        "_load_literature_count",
+        _fake_load_literature_count,
+    )
+    monkeypatch.setattr(
+        compile_export,
+        "_review_consistency",
+        _fake_review_consistency,
+    )
+    monkeypatch.setattr(
+        compile_export,
+        "_generate_abstract_keywords",
+        _fake_generate_abstract_keywords,
+    )
+    monkeypatch.setattr(
+        compile_export,
+        "build_compile_payload",
+        _fake_build_compile_payload,
+    )
+
+    result = await compile_export.compile_export_graph(
+        initial_state={},
+        payload={
+            "workspace_id": "ws-1",
+            "workspace_name": "测试论文",
+            "workspace_description": "描述",
+            "thread_id": "thread-1",
+            "params": {
+                "template": "default",
+                "compiler": "xelatex",
+                "bibliography_style": "gbt7714",
+            },
+        },
+    )
+
+    assert captured.get("abstract_override") == "覆盖摘要"
+    assert captured.get("keywords_override") == ["关键词1", "关键词2"]
+    assert result["keywords"] == ["关键词1", "关键词2"]
+    assert result["abstract_source"] == "llm_override"

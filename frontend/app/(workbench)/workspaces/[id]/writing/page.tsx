@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, PenTool } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { PenTool } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -38,12 +38,20 @@ const SECTION_OPTIONS = [
 
 export default function SciWritingPage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params.id as string;
   const { workspace, artifacts } = useWorkspaceStore();
+  const paperTitleSeed = searchParams.get("paper_title");
+  const sectionTypeSeed = searchParams.get("section_type");
+  const targetWordsSeed = searchParams.get("target_words");
+  const contextArtifactIdsSeed = searchParams.get("context_artifact_ids");
 
-  const [paperTitle, setPaperTitle] = useState("");
-  const [sectionType, setSectionType] = useState("introduction");
+  const [paperTitle, setPaperTitle] = useState(() => paperTitleSeed || "");
+  const [sectionType, setSectionType] = useState(() =>
+    SECTION_OPTIONS.some((option) => option.value === sectionTypeSeed)
+      ? (sectionTypeSeed as string)
+      : "introduction"
+  );
 
   useEffect(() => {
     if (workspace && !paperTitle) {
@@ -51,8 +59,42 @@ export default function SciWritingPage() {
       setPaperTitle((workspace.description || workspace.name || "").toString().trim());
     }
   }, [workspace, paperTitle]);
-  const [targetWords, setTargetWords] = useState(1200);
-  const [contextArtifactIds, setContextArtifactIds] = useState("");
+  const [targetWords, setTargetWords] = useState(() => {
+    const parsed = Number(targetWordsSeed);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1200;
+  });
+  const [contextArtifactIds, setContextArtifactIds] = useState(
+    () => contextArtifactIdsSeed || ""
+  );
+
+  useEffect(() => {
+    if (paperTitleSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setPaperTitle(paperTitleSeed);
+    }
+  }, [paperTitleSeed]);
+
+  useEffect(() => {
+    if (SECTION_OPTIONS.some((option) => option.value === sectionTypeSeed)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setSectionType(sectionTypeSeed as string);
+    }
+  }, [sectionTypeSeed]);
+
+  useEffect(() => {
+    const parsed = Number(targetWordsSeed);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setTargetWords(parsed);
+    }
+  }, [targetWordsSeed]);
+
+  useEffect(() => {
+    if (contextArtifactIdsSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setContextArtifactIds(contextArtifactIdsSeed);
+    }
+  }, [contextArtifactIdsSeed]);
 
   const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
@@ -97,6 +139,37 @@ export default function SciWritingPage() {
     typeof latestDraftResult?.word_count === "number"
       ? latestDraftResult.word_count
       : null;
+
+  useEffect(() => {
+    const latestPaperTitle = readString(latestDraftResult?.paper_title);
+    if (latestPaperTitle && !paperTitle) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest writing input when route seed is absent
+      setPaperTitle(latestPaperTitle);
+    }
+  }, [latestDraftResult, paperTitle]);
+
+  useEffect(() => {
+    const latestSectionType = readString(latestDraftResult?.section_type);
+    if (
+      latestSectionType &&
+      !sectionTypeSeed &&
+      SECTION_OPTIONS.some((option) => option.value === latestSectionType)
+    ) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest section when route seed is absent
+      setSectionType(latestSectionType);
+    }
+  }, [latestDraftResult, sectionTypeSeed]);
+
+  useEffect(() => {
+    const latestTargetWords =
+      typeof latestDraftResult?.target_words === "number"
+        ? latestDraftResult.target_words
+        : null;
+    if (latestTargetWords && !targetWordsSeed) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest target words when route seed is absent
+      setTargetWords(latestTargetWords);
+    }
+  }, [latestDraftResult, targetWordsSeed]);
 
   const resultViewModel: WorkspaceResultViewModel = useMemo(
     () => createWorkspaceResultViewModel({
@@ -182,39 +255,16 @@ export default function SciWritingPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      <header className="h-14 flex items-center gap-4 px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push(`/workspaces/${workspaceId}`)}
-          className={cn(
-            "p-2 rounded-lg",
-            "bg-[var(--bg-surface)]",
-            "hover:bg-[var(--bg-muted)]",
-            "text-[var(--text-secondary)]",
-            "transition-colors"
-          )}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-amber-500/10">
-            <PenTool className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[var(--text-primary)]">论文写作</h1>
-            <p className="text-xs text-[var(--text-muted)]">生成 SCI 章节草稿并沉淀为可编辑 artifact</p>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 flex overflow-hidden">
-        <aside className="w-80 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-          <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">写作参数</h2>
-
-          <div className="space-y-4">
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="论文写作"
+      description="生成 SCI 章节草稿并沉淀为可编辑 artifact"
+      icon={PenTool}
+      iconBgClass="bg-amber-500/10"
+      iconClass="text-amber-600 dark:text-amber-400"
+      sidebarTitle="写作参数"
+      sidebar={
+        <div className="space-y-4">
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">论文标题</label>
               <input
@@ -294,27 +344,18 @@ export default function SciWritingPage() {
               error={error}
               onRetry={handleWrite}
             />
-          </div>
-        </aside>
-
-        <div className="flex-1 p-6 overflow-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <TaskRuntimePanel
-              runtime={runtime}
-              isRunning={isRunning}
-              status={status}
-              error={error}
-              title="论文写作运行面板"
-              emptyDescription="执行后，这里会显示上下文加载、草稿生成和整理产物的过程。"
-            />
-            <WorkspaceResultPanel viewModel={resultViewModel} />
-          </motion.div>
         </div>
-      </main>
-    </div>
+      }
+    >
+      <TaskRuntimePanel
+        runtime={runtime}
+        isRunning={isRunning}
+        status={status}
+        error={error}
+        title="论文写作运行面板"
+        emptyDescription="执行后，这里会显示上下文加载、草稿生成和整理产物的过程。"
+      />
+      <WorkspaceResultPanel viewModel={resultViewModel} />
+    </FeatureWorkbenchShell>
   );
 }

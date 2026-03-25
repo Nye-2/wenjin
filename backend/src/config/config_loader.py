@@ -63,7 +63,6 @@ class MemoryConfig(BaseModel):
     """Persistent memory configuration."""
     enabled: bool = False
     injection_enabled: bool = True
-    storage_path: str = "backend/.academiagpt/memory.json"
     debounce_seconds: int = 30
     model_name: str | None = None
     max_facts: int = 100

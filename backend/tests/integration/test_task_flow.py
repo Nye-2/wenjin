@@ -1,12 +1,4 @@
-"""Integration tests for task flow.
-
-This module tests the complete task API endpoints including:
-- Task submission
-- Task status retrieval
-- Task listing with filters
-- Task cancellation
-- SSE streaming endpoint
-"""
+"""Integration tests for task status/list/stream/cancel flow."""
 
 import uuid
 from unittest.mock import AsyncMock
@@ -48,17 +40,16 @@ class TestTaskFlow:
     """Tests for complete task flow."""
 
     @pytest.mark.asyncio
-    async def test_submit_and_get_task(self, task_client, test_user: FixtureUser):
-        """Test submitting and retrieving a task."""
+    async def test_get_task(self, task_client, test_user: FixtureUser):
+        """Test retrieving a task."""
         client, app = task_client
         mock_task_id = str(uuid.uuid4())
 
         # Create mock service
         mock_service = AsyncMock()
-        mock_service.submit_task = AsyncMock(return_value=mock_task_id)
         mock_service.get_task_status = AsyncMock(return_value={
             "task_id": mock_task_id,
-            "task_type": "paper_processing",
+            "task_type": "workspace_feature",
             "status": "pending",
             "progress": 0,
             "message": "Task submitted",
@@ -75,65 +66,41 @@ class TestTaskFlow:
 
         app.dependency_overrides[get_task_service] = override_get_task_service
 
-        # Submit task
-        response = await client.post(
-            "/api/tasks",
-            json={
-                "task_type": "paper_processing",
-                "priority": 5,
-                "payload": {"query": "machine learning"},
-            },
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert "task_id" in data
-        task_id = data["task_id"]
-
         # Get status
-        response = await client.get(f"/api/tasks/{task_id}")
+        response = await client.get(f"/api/tasks/{mock_task_id}")
         assert response.status_code == 200
         status = response.json()
-        assert status["task_id"] == task_id
-        assert status["task_type"] == "paper_processing"
+        assert status["task_id"] == mock_task_id
+        assert status["task_type"] == "workspace_feature"
         assert status["status"] in ("pending", "running")
 
     @pytest.mark.asyncio
-    async def test_submit_billable_task_type_is_blocked(self, task_client, test_user: FixtureUser):
-        """Billable task types must use feature execution endpoints."""
-        client, app = task_client
-
-        mock_service = AsyncMock()
-
-        async def override_get_task_service():
-            yield mock_service
-
-        app.dependency_overrides[get_task_service] = override_get_task_service
-
+    async def test_direct_task_submission_route_is_removed_for_workspace_feature(
+        self, task_client, test_user: FixtureUser
+    ):
+        """Raw task creation should no longer be exposed on /api/tasks."""
+        client, _app = task_client
         response = await client.post(
             "/api/tasks",
             json={
-                "task_type": "deep_research",
-                "payload": {"query": "machine learning"},
+                "task_type": "workspace_feature",
+                "payload": {
+                    "workspace_id": "ws-1",
+                    "workspace_type": "thesis",
+                    "feature_id": "deep_research",
+                    "query": "machine learning",
+                },
             },
         )
-        assert response.status_code == 400
-        assert "credit accounting" in response.json()["detail"]
-        mock_service.submit_task.assert_not_called()
+        assert response.status_code == 405
+        assert response.json()["detail"] == "Method Not Allowed"
 
     @pytest.mark.asyncio
-    async def test_submit_invalid_task_type(self, task_client, test_user: FixtureUser):
-        """Test submitting invalid task type."""
-        client, app = task_client
-
-        # Create mock service that raises ValueError for invalid task type
-        mock_service = AsyncMock()
-        mock_service.submit_task = AsyncMock(side_effect=ValueError("Unknown task type: invalid_type"))
-
-        async def override_get_task_service():
-            yield mock_service
-
-        app.dependency_overrides[get_task_service] = override_get_task_service
-
+    async def test_direct_task_submission_route_is_removed_before_task_type_validation(
+        self, task_client, test_user: FixtureUser
+    ):
+        """Route removal should fail before any task-type validation logic exists."""
+        client, _app = task_client
         response = await client.post(
             "/api/tasks",
             json={
@@ -141,7 +108,8 @@ class TestTaskFlow:
                 "payload": {},
             },
         )
-        assert response.status_code == 400
+        assert response.status_code == 405
+        assert response.json()["detail"] == "Method Not Allowed"
 
     @pytest.mark.asyncio
     async def test_list_tasks(self, task_client, test_user: FixtureUser):
@@ -154,7 +122,7 @@ class TestTaskFlow:
         mock_service.list_tasks = AsyncMock(return_value=[
             {
                 "task_id": mock_task_id,
-                "task_type": "literature_search",
+                "task_type": "workspace_feature",
                 "status": "pending",
                 "progress": 0,
                 "message": "Task submitted",
@@ -206,7 +174,7 @@ class TestTaskFlow:
         mock_service.cancel_task = AsyncMock(return_value=True)
         mock_service.get_task_status = AsyncMock(return_value={
             "task_id": mock_task_id,
-            "task_type": "deep_research",
+            "task_type": "workspace_feature",
             "status": "cancelled",
             "progress": 0,
             "message": "Cancelled by user",
@@ -263,7 +231,7 @@ class TestTaskFlow:
         mock_service.list_tasks = AsyncMock(return_value=[
             {
                 "task_id": mock_task_id,
-                "task_type": "deep_research",
+                "task_type": "workspace_feature",
                 "status": "pending",
                 "progress": 0,
                 "message": "Task submitted",
@@ -295,7 +263,7 @@ class TestTaskFlow:
         mock_service.list_tasks = AsyncMock(return_value=[
             {
                 "task_id": mock_task_id,
-                "task_type": "literature_search",
+                "task_type": "workspace_feature",
                 "status": "pending",
                 "progress": 0,
                 "message": "Task submitted",
@@ -310,11 +278,11 @@ class TestTaskFlow:
         app.dependency_overrides[get_task_service] = override_get_task_service
 
         # Filter by task type
-        response = await client.get("/api/tasks?task_type=literature_search")
+        response = await client.get("/api/tasks?task_type=workspace_feature")
         assert response.status_code == 200
         data = response.json()
         for task in data["tasks"]:
-            assert task["task_type"] == "literature_search"
+            assert task["task_type"] == "workspace_feature"
 
 
 class TestTaskFlowEdgeCases:
@@ -378,78 +346,44 @@ class TestTaskFlowEdgeCases:
         assert "count" in data
 
     @pytest.mark.asyncio
-    async def test_submit_task_with_default_priority(self, task_client, test_user: FixtureUser):
-        """Test submitting task with default priority."""
-        client, app = task_client
-        mock_task_id = str(uuid.uuid4())
-
-        # Create mock service
-        mock_service = AsyncMock()
-        mock_service.submit_task = AsyncMock(return_value=mock_task_id)
-
-        async def override_get_task_service():
-            yield mock_service
-
-        app.dependency_overrides[get_task_service] = override_get_task_service
-
-        response = await client.post(
-            "/api/tasks",
-            json={
-                "task_type": "paper_processing",
-                "payload": {"query": "test"},
-            },
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert "task_id" in data
-        # Verify default priority was used
-        mock_service.submit_task.assert_called_once()
-        call_kwargs = mock_service.submit_task.call_args.kwargs
-        assert call_kwargs["priority"] == 5  # default priority
-
+    @pytest.mark.parametrize(
+        ("payload", "label"),
+        [
+            (
+                {
+                    "task_type": "paper_processing",
+                    "payload": {"query": "test"},
+                },
+                "legacy raw task type",
+            ),
+            (
+                {
+                    "task_type": "workspace_feature",
+                    "priority": 15,
+                    "payload": {"feature_id": "deep_research", "query": "test"},
+                },
+                "invalid priority body",
+            ),
+            (
+                {
+                    "task_type": "workspace_feature",
+                },
+                "missing payload body",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_submit_task_with_invalid_priority(self, task_client, test_user: FixtureUser):
-        """Test submitting task with invalid priority."""
-        client, app = task_client
+    async def test_post_tasks_is_removed_regardless_of_request_body(
+        self,
+        task_client,
+        test_user: FixtureUser,
+        payload: dict,
+        label: str,
+    ):
+        """Route removal should win over any legacy submit payload variations."""
+        client, _app = task_client
 
-        # Create mock service
-        mock_service = AsyncMock()
+        response = await client.post("/api/tasks", json=payload)
 
-        async def override_get_task_service():
-            yield mock_service
-
-        app.dependency_overrides[get_task_service] = override_get_task_service
-
-        # Priority out of range (should be 1-10)
-        response = await client.post(
-            "/api/tasks",
-            json={
-                "task_type": "deep_research",
-                "priority": 15,
-                "payload": {"query": "test"},
-            },
-        )
-        # Should fail validation
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_submit_task_missing_payload(self, task_client, test_user: FixtureUser):
-        """Test submitting task without payload."""
-        client, app = task_client
-
-        # Create mock service
-        mock_service = AsyncMock()
-
-        async def override_get_task_service():
-            yield mock_service
-
-        app.dependency_overrides[get_task_service] = override_get_task_service
-
-        response = await client.post(
-            "/api/tasks",
-            json={
-                "task_type": "deep_research",
-            },
-        )
-        # Should fail validation
-        assert response.status_code == 422
+        assert response.status_code == 405, label
+        assert response.json()["detail"] == "Method Not Allowed"

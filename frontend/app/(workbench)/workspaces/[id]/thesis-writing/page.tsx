@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, PenTool, CheckCircle } from "lucide-react";
-import { useWorkspaceStore } from "@/stores/workspace";
+import { PenTool, CheckCircle } from "lucide-react";
+import { useWorkspaceStore, type Artifact } from "@/stores/workspace";
 import { useThesisWritingStore, type OutlineData } from "@/stores/thesis-writing";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -35,11 +36,60 @@ function resolveFeatureResult(
   return resultObj;
 }
 
+interface DeepResearchIdea {
+  title: string;
+  description: string;
+}
+
+function _extractDeepResearchIdeasFromArtifact(
+  artifact: Artifact
+): DeepResearchIdea[] {
+  const content =
+    artifact.content && typeof artifact.content === "object"
+      ? (artifact.content as Record<string, unknown>)
+      : null;
+  if (!content) {
+    return [];
+  }
+
+  const rawIdeas = content.ideas;
+  if (!Array.isArray(rawIdeas)) {
+    return [];
+  }
+
+  const ideas: DeepResearchIdea[] = [];
+  for (const item of rawIdeas) {
+    if (item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      const title = String(record.title || "").trim();
+      const description = String(
+        record.description || record.novelty_assessment || ""
+      ).trim();
+      if (title) {
+        ideas.push({ title, description });
+      }
+      continue;
+    }
+
+    const text = String(item || "").trim();
+    if (text) {
+      ideas.push({ title: text, description: "" });
+    }
+  }
+  return ideas;
+}
+
+function _collectDeepResearchArtifacts(artifacts: Artifact[]): Artifact[] {
+  return artifacts.filter((artifact) => artifact.type === "deep_research_report");
+}
+
 export default function ThesisWritingPage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params.id as string;
-  const { workspace } = useWorkspaceStore();
+  const paperTitleSeed = searchParams.get("paper_title");
+  const targetWordsSeed = searchParams.get("target_words");
+  const { workspace, artifacts, fetchArtifacts } = useWorkspaceStore();
   const {
     currentStep,
     outline,
@@ -51,8 +101,12 @@ export default function ThesisWritingPage() {
     updateChapterStatus,
   } = useThesisWritingStore();
 
-  const [titleInput, setTitleInput] = useState("");
-  const [targetWords, setTargetWords] = useState("20000");
+  const [titleInput, setTitleInput] = useState(
+    () => paperTitleSeed || ""
+  );
+  const [targetWords, setTargetWords] = useState(
+    () => targetWordsSeed || "20000"
+  );
   const {
     models: availableModels,
     selectedModel,
@@ -65,11 +119,32 @@ export default function ThesisWritingPage() {
   });
 
   useEffect(() => {
+    if (paperTitleSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setTitleInput(paperTitleSeed);
+    }
+  }, [paperTitleSeed]);
+
+  useEffect(() => {
+    if (targetWordsSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setTargetWords(targetWordsSeed);
+    }
+  }, [targetWordsSeed]);
+
+  useEffect(() => {
     if (workspace && !titleInput) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from async store
       setTitleInput(workspace.name || "");
     }
   }, [workspace, titleInput]);
+
+  useEffect(() => {
+    if (!workspaceId) {
+      return;
+    }
+    void fetchArtifacts(workspaceId);
+  }, [workspaceId, fetchArtifacts]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -232,6 +307,30 @@ export default function ThesisWritingPage() {
     chapters.find((ch) => ch.index === currentChapterIndex) ?? null;
   const selectedOutlineChapter =
     outline?.chapters[currentChapterIndex] ?? null;
+  const deepResearchArtifacts = useMemo(
+    () => _collectDeepResearchArtifacts(artifacts),
+    [artifacts]
+  );
+  const deepResearchArtifactIds = useMemo(
+    () => deepResearchArtifacts.map((artifact) => artifact.id),
+    [deepResearchArtifacts]
+  );
+  const deepResearchIdeas = useMemo(() => {
+    const ideaMap = new Map<string, DeepResearchIdea>();
+
+    for (const artifact of deepResearchArtifacts) {
+      const ideas = _extractDeepResearchIdeasFromArtifact(artifact);
+      for (const idea of ideas) {
+        const key = idea.title.trim().toLowerCase();
+        if (!key || ideaMap.has(key)) {
+          continue;
+        }
+        ideaMap.set(key, idea);
+      }
+    }
+
+    return Array.from(ideaMap.values()).slice(0, 8);
+  }, [deepResearchArtifacts]);
 
   const step1ResultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
     summary:
@@ -242,6 +341,8 @@ export default function ThesisWritingPage() {
         content: describeFields([
           ["论文主题", titleInput],
           ["目标字数", targetWords],
+          ["Deep Research 产物", String(deepResearchArtifactIds.length)],
+          ["Deep Research Ideas", String(deepResearchIdeas.length)],
         ]),
       },
       {
@@ -262,6 +363,7 @@ export default function ThesisWritingPage() {
       ],
     nextActions: [
       "在 Step 1 先生成完整大纲。",
+      "优先复用 Deep Research 的已有研究构想与研究空白。",
       "切换到 Step 2 按章节逐步写作并检查字数进度。",
       "完成正文后进入图表生成与编译导出。",
     ],
@@ -276,6 +378,8 @@ export default function ThesisWritingPage() {
       action: "generate_outline",
       paper_title: titleInput.trim(),
       target_words: Number(targetWords),
+      deep_research_artifact_ids: deepResearchArtifactIds,
+      deep_research_idea_titles: deepResearchIdeas.map((item) => item.title),
       model_id: selectedModel || undefined,
     });
   };
@@ -295,365 +399,346 @@ export default function ThesisWritingPage() {
     });
   };
 
-  return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Header */}
-      <header className="h-14 flex items-center justify-between px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <div className="flex items-center gap-4">
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => router.push(`/workspaces/${workspaceId}`)}
-            className={cn(
-              "p-2 rounded-lg",
-              "bg-[var(--bg-surface)]",
-              "hover:bg-[var(--bg-muted)]",
-              "text-[var(--text-secondary)]",
-              "transition-colors"
-            )}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </motion.button>
+  const headerActions = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <button
+        onClick={() => setStep(1)}
+        className={cn(
+          "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+          currentStep === 1
+            ? "bg-purple-600 text-white"
+            : "bg-[var(--bg-surface)] text-[var(--text-secondary)]"
+        )}
+      >
+        Step 1: 大纲规划
+      </button>
+      <button
+        onClick={() => setStep(2)}
+        disabled={!outline}
+        title={!outline ? "请先生成大纲" : undefined}
+        className={cn(
+          "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+          currentStep === 2
+            ? "bg-purple-600 text-white"
+            : "bg-[var(--bg-surface)] text-[var(--text-secondary)]",
+          !outline && "cursor-not-allowed opacity-50"
+        )}
+      >
+        Step 2: 全文写作
+      </button>
+      {!outline && (
+        <span className="text-xs text-[var(--text-muted)]">
+          需要先完成 Step 1
+        </span>
+      )}
+    </div>
+  );
 
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-purple-500/10">
-              <PenTool className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+  const sidebarTitle = currentStep === 1 ? "大纲配置" : "章节导航";
+  const sidebarWidthClassName = currentStep === 1 ? "lg:w-80" : "lg:w-64";
+  const sidebarContent =
+    currentStep === 1 ? (
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs text-[var(--text-muted)] mb-1">
+            论文主题
+          </label>
+          <input
+            type="text"
+            value={titleInput}
+            onChange={(e) => setTitleInput(e.target.value)}
+            placeholder="输入论文主题..."
+            className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs text-[var(--text-muted)] mb-1">
+            目标字数
+          </label>
+          <select
+            className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+            value={targetWords}
+            onChange={(e) => setTargetWords(e.target.value)}
+          >
+            <option value="10000">10,000 字</option>
+            <option value="20000">20,000 字</option>
+            <option value="30000">30,000 字</option>
+            <option value="50000">50,000 字</option>
+          </select>
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
+          <p className="mb-2 text-xs text-[var(--text-muted)]">
+            已有 Deep Research Ideas（自动注入大纲生成）
+          </p>
+          {deepResearchIdeas.length > 0 ? (
+            <div className="space-y-1.5">
+              {deepResearchIdeas.map((idea, index) => (
+                <p
+                  key={`dr-idea-${index}-${idea.title}`}
+                  className="text-xs text-[var(--text-secondary)]"
+                >
+                  {index + 1}. {idea.title}
+                </p>
+              ))}
             </div>
+          ) : (
+            <p className="text-xs text-[var(--text-muted)]">
+              暂无可复用 idea，先执行 Deep Research 可自动带入。
+            </p>
+          )}
+        </div>
+
+        <ModelSelector
+          id="thesis-writing-model"
+          label="写作模型"
+          models={availableModels}
+          selectedModel={selectedModel}
+          onChange={setSelectedModel}
+          isLoading={isModelLoading}
+          loadError={modelLoadError}
+          disabled={isRunning}
+        />
+
+        <button
+          className={cn(
+            "w-full rounded-lg bg-purple-600 py-2 text-white transition-colors hover:bg-purple-700",
+            isRunning && "cursor-not-allowed opacity-60"
+          )}
+          onClick={handleGenerateOutline}
+          disabled={isRunning}
+        >
+          {isRunning ? "正在生成..." : "生成大纲"}
+        </button>
+
+        <TaskFeedbackBanner
+          isRunning={isRunning}
+          status={status}
+          error={error}
+          onRetry={handleGenerateOutline}
+        />
+      </div>
+    ) : (
+      <div className="space-y-2">
+        {chapters.length === 0 ? (
+          <p className="text-sm text-[var(--text-muted)]">暂无章节</p>
+        ) : (
+          chapters.map((chapter) => (
+            <button
+              key={chapter.index}
+              className={cn(
+                "w-full rounded-lg border p-2 text-left transition-colors",
+                "flex items-center gap-2",
+                chapter.index === currentChapterIndex
+                  ? "border-purple-500/30 bg-purple-500/15"
+                  : "border-transparent hover:bg-[var(--bg-muted)]"
+              )}
+              onClick={() => setCurrentChapter(chapter.index)}
+            >
+              <CheckCircle
+                className={cn(
+                  "h-4 w-4",
+                  chapter.status === "completed" && "text-green-500",
+                  chapter.status === "generating" && "text-amber-500",
+                  chapter.status === "failed" && "text-red-500",
+                  chapter.status === "pending" && "text-[var(--text-muted)]"
+                )}
+              />
+              <div className="min-w-0">
+                <span className="block truncate text-sm text-[var(--text-primary)]">
+                  {chapter.title}
+                </span>
+                <span className="block text-[11px] text-[var(--text-muted)]">
+                  目标 {chapter.targetWords.toLocaleString()} 字
+                </span>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    );
+
+  const mainContent =
+    currentStep === 1 ? (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-6"
+      >
+        <TaskRuntimePanel
+          runtime={runtime}
+          isRunning={isRunning}
+          status={status}
+          error={error}
+          title="论文大纲运行面板"
+          emptyDescription="执行后，这里会显示大纲生成阶段和章节草案。"
+        />
+        <WorkspaceResultPanel viewModel={step1ResultViewModel} />
+      </motion.div>
+    ) : (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="h-full"
+      >
+        {selectedChapter && selectedOutlineChapter ? (
+          <div className="mx-auto max-w-3xl space-y-6">
+            <TaskRuntimePanel
+              runtime={runtime}
+              isRunning={isRunning}
+              status={status}
+              error={error}
+              title="章节写作运行面板"
+              emptyDescription="执行后，这里会显示章节写作阶段和草稿内容。"
+            />
+            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-semibold text-[var(--text-primary)]">
+                    {selectedChapter.title}
+                  </h2>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    {selectedOutlineChapter.position || "正文章节"}
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-xs font-medium",
+                    selectedChapter.status === "completed" &&
+                      "bg-green-500/10 text-green-600",
+                    selectedChapter.status === "generating" &&
+                      "bg-amber-500/10 text-amber-600",
+                    selectedChapter.status === "failed" &&
+                      "bg-red-500/10 text-red-600",
+                    selectedChapter.status === "pending" &&
+                      "bg-[var(--bg-muted)] text-[var(--text-secondary)]"
+                  )}
+                >
+                  {selectedChapter.status === "completed"
+                    ? "已完成"
+                    : selectedChapter.status === "generating"
+                      ? "生成中"
+                      : selectedChapter.status === "failed"
+                        ? "失败"
+                        : "待写作"}
+                </span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                <div className="rounded-lg bg-[var(--bg-elevated)] px-3 py-2">
+                  <p className="text-[var(--text-muted)]">目标字数</p>
+                  <p className="font-medium text-[var(--text-primary)]">
+                    {selectedChapter.targetWords.toLocaleString()} 字
+                  </p>
+                </div>
+                <div className="rounded-lg bg-[var(--bg-elevated)] px-3 py-2">
+                  <p className="text-[var(--text-muted)]">当前进度</p>
+                  <p className="font-medium text-[var(--text-primary)]">
+                    {selectedChapter.currentWords.toLocaleString()} 字
+                  </p>
+                </div>
+              </div>
+
+              <ModelSelector
+                id="thesis-writing-model-step2"
+                label="写作模型"
+                models={availableModels}
+                selectedModel={selectedModel}
+                onChange={setSelectedModel}
+                isLoading={isModelLoading}
+                loadError={modelLoadError}
+                disabled={isRunning}
+                className="mt-4 max-w-sm"
+              />
+
+              <button
+                className={cn(
+                  "mt-4 w-full rounded-lg px-4 py-2 text-white transition-colors sm:w-auto",
+                  isRunning
+                    ? "cursor-not-allowed bg-purple-400"
+                    : "bg-purple-600 hover:bg-purple-700"
+                )}
+                onClick={handleWriteChapter}
+                disabled={isRunning}
+              >
+                {isRunning ? "正在写作..." : "写作本章"}
+              </button>
+
+              <TaskFeedbackBanner
+                isRunning={isRunning}
+                status={status}
+                error={error}
+                onRetry={handleWriteChapter}
+                className="mt-3"
+              />
+            </div>
+
+            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+              <h3 className="mb-3 text-sm font-medium text-[var(--text-primary)]">
+                本章写作要点
+              </h3>
+              <div className="space-y-2">
+                {selectedOutlineChapter.keyPoints.length > 0 ? (
+                  selectedOutlineChapter.keyPoints.map((point, idx) => (
+                    <p
+                      key={`${selectedChapter.index}-kp-${idx}`}
+                      className="text-sm text-[var(--text-secondary)]"
+                    >
+                      {idx + 1}. {point}
+                    </p>
+                  ))
+                ) : (
+                  <p className="text-sm text-[var(--text-muted)]">
+                    暂无关键要点
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {selectedChapter.content && (
+              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+                <h3 className="mb-3 text-sm font-medium text-[var(--text-primary)]">
+                  章节正文
+                </h3>
+                <div className="prose prose-sm max-w-none whitespace-pre-wrap text-[var(--text-secondary)]">
+                  {selectedChapter.content}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center text-center">
             <div>
-              <h1 className="text-base font-semibold text-[var(--text-primary)]">
-                论文写作
-              </h1>
-              <p className="text-xs text-[var(--text-muted)]">
-                大纲规划 · 全文写作
+              <PenTool className="mx-auto mb-4 h-16 w-16 text-purple-500 opacity-50" />
+              <h2 className="mb-2 text-xl font-semibold text-[var(--text-primary)]">
+                全文写作
+              </h2>
+              <p className="text-[var(--text-secondary)]">
+                请先生成大纲，再选择章节开始写作
               </p>
             </div>
           </div>
-        </div>
-
-        {/* Step Indicator */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setStep(1)}
-            className={cn(
-              "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
-              currentStep === 1
-                ? "bg-purple-600 text-white"
-                : "bg-[var(--bg-surface)] text-[var(--text-secondary)]"
-            )}
-          >
-            Step 1: 大纲规划
-          </button>
-          <button
-            onClick={() => setStep(2)}
-            disabled={!outline}
-            title={!outline ? "请先生成大纲" : undefined}
-            className={cn(
-              "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
-              currentStep === 2
-                ? "bg-purple-600 text-white"
-                : "bg-[var(--bg-surface)] text-[var(--text-secondary)]",
-              !outline && "opacity-50 cursor-not-allowed"
-            )}
-          >
-            Step 2: 全文写作
-          </button>
-          {!outline && (
-            <span className="text-xs text-[var(--text-muted)]">
-              需要先完成 Step 1
-            </span>
-          )}
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
-        {currentStep === 1 ? (
-          /* Step 1: Outline Planning */
-          <>
-            {/* Left Sidebar */}
-            <aside className="w-80 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-              <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">
-                大纲配置
-              </h2>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs text-[var(--text-muted)] mb-1">
-                    论文主题
-                  </label>
-                  <input
-                    type="text"
-                    value={titleInput}
-                    onChange={(e) => setTitleInput(e.target.value)}
-                    placeholder="输入论文主题..."
-                    className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs text-[var(--text-muted)] mb-1">
-                    目标字数
-                  </label>
-                  <select
-                    className="w-full px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                    value={targetWords}
-                    onChange={(e) => setTargetWords(e.target.value)}
-                  >
-                    <option value="10000">10,000 字</option>
-                    <option value="20000">20,000 字</option>
-                    <option value="30000">30,000 字</option>
-                    <option value="50000">50,000 字</option>
-                  </select>
-                </div>
-
-                <ModelSelector
-                  id="thesis-writing-model"
-                  label="写作模型"
-                  models={availableModels}
-                  selectedModel={selectedModel}
-                  onChange={setSelectedModel}
-                  isLoading={isModelLoading}
-                  loadError={modelLoadError}
-                  disabled={isRunning}
-                />
-
-                <button
-                  className={cn(
-                    "w-full py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors",
-                    isRunning && "opacity-60 cursor-not-allowed"
-                  )}
-                  onClick={handleGenerateOutline}
-                  disabled={isRunning}
-                >
-                  {isRunning ? "正在生成..." : "生成大纲"}
-                </button>
-
-                <TaskFeedbackBanner
-                  isRunning={isRunning}
-                  status={status}
-                  error={error}
-                  onRetry={handleGenerateOutline}
-                />
-              </div>
-            </aside>
-
-            {/* Main Area */}
-            <div className="flex-1 p-6 overflow-auto">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-6"
-              >
-                <TaskRuntimePanel
-                  runtime={runtime}
-                  isRunning={isRunning}
-                  status={status}
-                  error={error}
-                  title="论文大纲运行面板"
-                  emptyDescription="执行后，这里会显示大纲生成阶段和章节草案。"
-                />
-                <WorkspaceResultPanel viewModel={step1ResultViewModel} />
-              </motion.div>
-            </div>
-          </>
-        ) : (
-          /* Step 2: Full Writing */
-          <>
-            {/* Left Sidebar - Chapter Nav */}
-            <aside className="w-64 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-              <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">
-                章节导航
-              </h2>
-
-              <div className="space-y-2">
-                {chapters.length === 0 ? (
-                  <p className="text-sm text-[var(--text-muted)]">暂无章节</p>
-                ) : (
-                  chapters.map((ch) => (
-                    <button
-                      key={ch.index}
-                      className={cn(
-                        "w-full flex items-center gap-2 p-2 rounded-lg text-left transition-colors",
-                        ch.index === currentChapterIndex
-                          ? "bg-purple-500/15 border border-purple-500/30"
-                          : "hover:bg-[var(--bg-muted)] border border-transparent"
-                      )}
-                      onClick={() => setCurrentChapter(ch.index)}
-                    >
-                      <CheckCircle
-                        className={cn(
-                          "w-4 h-4",
-                          ch.status === "completed" && "text-green-500",
-                          ch.status === "generating" && "text-amber-500",
-                          ch.status === "failed" && "text-red-500",
-                          ch.status === "pending" && "text-[var(--text-muted)]"
-                        )}
-                      />
-                      <div className="min-w-0">
-                        <span className="block text-sm text-[var(--text-primary)] truncate">
-                          {ch.title}
-                        </span>
-                        <span className="block text-[11px] text-[var(--text-muted)]">
-                          目标 {ch.targetWords.toLocaleString()} 字
-                        </span>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </aside>
-
-            {/* Main Area - Editor */}
-            <div className="flex-1 p-6 overflow-auto">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="h-full"
-              >
-                {selectedChapter && selectedOutlineChapter ? (
-                  <div className="max-w-3xl mx-auto space-y-6">
-                    <TaskRuntimePanel
-                      runtime={runtime}
-                      isRunning={isRunning}
-                      status={status}
-                      error={error}
-                      title="章节写作运行面板"
-                      emptyDescription="执行后，这里会显示章节写作阶段和草稿内容。"
-                    />
-                    <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h2 className="text-xl font-semibold text-[var(--text-primary)]">
-                            {selectedChapter.title}
-                          </h2>
-                          <p className="text-sm text-[var(--text-secondary)] mt-1">
-                            {selectedOutlineChapter.position || "正文章节"}
-                          </p>
-                        </div>
-                        <span
-                          className={cn(
-                            "px-2.5 py-1 rounded-md text-xs font-medium",
-                            selectedChapter.status === "completed" &&
-                              "bg-green-500/10 text-green-600",
-                            selectedChapter.status === "generating" &&
-                              "bg-amber-500/10 text-amber-600",
-                            selectedChapter.status === "failed" &&
-                              "bg-red-500/10 text-red-600",
-                            selectedChapter.status === "pending" &&
-                              "bg-[var(--bg-muted)] text-[var(--text-secondary)]"
-                          )}
-                        >
-                          {selectedChapter.status === "completed"
-                            ? "已完成"
-                            : selectedChapter.status === "generating"
-                            ? "生成中"
-                            : selectedChapter.status === "failed"
-                            ? "失败"
-                            : "待写作"}
-                        </span>
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                        <div className="rounded-lg bg-[var(--bg-elevated)] px-3 py-2">
-                          <p className="text-[var(--text-muted)]">目标字数</p>
-                          <p className="text-[var(--text-primary)] font-medium">
-                            {selectedChapter.targetWords.toLocaleString()} 字
-                          </p>
-                        </div>
-                        <div className="rounded-lg bg-[var(--bg-elevated)] px-3 py-2">
-                          <p className="text-[var(--text-muted)]">当前进度</p>
-                          <p className="text-[var(--text-primary)] font-medium">
-                            {selectedChapter.currentWords.toLocaleString()} 字
-                          </p>
-                        </div>
-                      </div>
-
-                      <ModelSelector
-                        id="thesis-writing-model-step2"
-                        label="写作模型"
-                        models={availableModels}
-                        selectedModel={selectedModel}
-                        onChange={setSelectedModel}
-                        isLoading={isModelLoading}
-                        loadError={modelLoadError}
-                        disabled={isRunning}
-                        className="mt-4 max-w-sm"
-                      />
-
-                      <button
-                        className={cn(
-                          "mt-4 w-full sm:w-auto px-4 py-2 rounded-lg text-white transition-colors",
-                          isRunning
-                            ? "bg-purple-400 cursor-not-allowed"
-                            : "bg-purple-600 hover:bg-purple-700"
-                        )}
-                        onClick={handleWriteChapter}
-                        disabled={isRunning}
-                      >
-                        {isRunning ? "正在写作..." : "写作本章"}
-                      </button>
-
-                      <TaskFeedbackBanner
-                        isRunning={isRunning}
-                        status={status}
-                        error={error}
-                        onRetry={handleWriteChapter}
-                        className="mt-3"
-                      />
-                    </div>
-
-                    <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-                      <h3 className="text-sm font-medium text-[var(--text-primary)] mb-3">
-                        本章写作要点
-                      </h3>
-                      <div className="space-y-2">
-                        {selectedOutlineChapter.keyPoints.length > 0 ? (
-                          selectedOutlineChapter.keyPoints.map((point, idx) => (
-                            <p
-                              key={`${selectedChapter.index}-kp-${idx}`}
-                              className="text-sm text-[var(--text-secondary)]"
-                            >
-                              {idx + 1}. {point}
-                            </p>
-                          ))
-                        ) : (
-                          <p className="text-sm text-[var(--text-muted)]">
-                            暂无关键要点
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Chapter Content Display */}
-                    {selectedChapter.content && (
-                      <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-                        <h3 className="text-sm font-medium text-[var(--text-primary)] mb-3">
-                          章节正文
-                        </h3>
-                        <div className="prose prose-sm max-w-none text-[var(--text-secondary)] whitespace-pre-wrap">
-                          {selectedChapter.content}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-center">
-                    <div>
-                      <PenTool className="w-16 h-16 text-purple-500 mx-auto mb-4 opacity-50" />
-                      <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-                        全文写作
-                      </h2>
-                      <p className="text-[var(--text-secondary)]">
-                        请先生成大纲，再选择章节开始写作
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            </div>
-          </>
         )}
-      </main>
-    </div>
+      </motion.div>
+    );
+
+  return (
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="论文写作"
+      description="大纲规划 · 全文写作"
+      icon={PenTool}
+      iconBgClass="bg-purple-500/10"
+      iconClass="text-purple-600 dark:text-purple-400"
+      headerActions={headerActions}
+      sidebarTitle={sidebarTitle}
+      sidebarWidthClassName={sidebarWidthClassName}
+      sidebar={sidebarContent}
+      contentAnimated={false}
+      contentClassName={currentStep === 2 ? "h-full" : undefined}
+    >
+      {mainContent}
+    </FeatureWorkbenchShell>
   );
 }

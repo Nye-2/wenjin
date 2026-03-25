@@ -38,6 +38,7 @@ from src.gateway.deps import (
 from src.services.credit_service import CreditService, InsufficientCreditsError
 from src.services.literature_service import LiteratureService
 from src.task.service import ConcurrencyLimitError, TaskService
+from src.task.workspace_feature_params import mirror_workspace_feature_params
 from src.workspace_features import get_workspace_feature
 
 logger = logging.getLogger(__name__)
@@ -67,24 +68,23 @@ def build_task_payload(
     thread_id: str | None,
 ) -> dict[str, Any]:
     """Build the canonical task payload for workspace feature execution."""
-    payload = dict(params)
-    payload.update(
-        {
-            "workspace_id": workspace_id,
-            "workspace_type": workspace_type,
-            "workspace_name": getattr(workspace, "name", ""),
-            "workspace_description": getattr(workspace, "description", ""),
-            "workspace_discipline": getattr(workspace, "discipline", ""),
-            "workspace_config": getattr(workspace, "config", {}) or {},
-            "feature_id": feature.id,
-            "feature_name": feature.name,
-            "agent": feature.agent,
-            "agent_label": feature.agent_label,
-            "handler_key": feature.handler_key,
-            "thread_id": thread_id,
-            "params": params,
-        }
-    )
+    sanitized_params = dict(params)
+    payload: dict[str, Any] = {
+        "workspace_id": workspace_id,
+        "workspace_type": workspace_type,
+        "workspace_name": getattr(workspace, "name", ""),
+        "workspace_description": getattr(workspace, "description", ""),
+        "workspace_discipline": getattr(workspace, "discipline", ""),
+        "workspace_config": getattr(workspace, "config", {}) or {},
+        "feature_id": feature.id,
+        "feature_name": feature.name,
+        "agent": feature.agent,
+        "agent_label": feature.agent_label,
+        "handler_key": feature.handler_key,
+        "thread_id": thread_id,
+        "params": sanitized_params,
+    }
+    mirror_workspace_feature_params(payload, sanitized_params)
     return payload
 
 
@@ -125,7 +125,7 @@ class FeatureExecutionHandler:
         Returns a dict matching ExecuteResponse shape:
             task_id, status, feature_id, message, warning, detail
         """
-        params = params or {}
+        params = dict(params or {})
 
         # 0. Idempotency-Key check (before any side effects)
         if idempotency_key and redis_client:
@@ -160,8 +160,11 @@ class FeatureExecutionHandler:
             )
 
         # 3. Literature threshold check (thesis writing only)
+        action = params.get("action")
         if feature_id == "thesis_writing":
-            action = params.get("action", "write_all")
+            normalized_action = str(action or "write_all").strip().lower() or "write_all"
+            params["action"] = normalized_action
+            action = normalized_action
             if action in ("write_chapter", "write_all"):
                 lit_stats = await self.literature_service.count_literature(workspace_id)
                 if lit_stats["total"] < LITERATURE_THRESHOLD:

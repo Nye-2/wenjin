@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from src.task.registry import WORKSPACE_FEATURE_TASK
+
 CANONICAL_WORKSPACE_TYPES = (
     "sci",
     "thesis",
@@ -31,7 +33,7 @@ class WorkspaceFeatureDefinition:
     agent: str
     agent_label: str
     handler_key: str
-    task_type: str = "workspace_feature"
+    task_type: str = WORKSPACE_FEATURE_TASK
     panel: str | None = None
     stages: tuple[FeatureStageDefinition, ...] = field(default_factory=tuple)
     color: str | None = None
@@ -70,7 +72,6 @@ THESIS_FEATURES = (
         agent="scout",
         agent_label="Scout",
         handler_key="thesis.deep_research",
-        task_type="deep_research",
         panel="deep_research_panel",
         color="purple",
         stages=(
@@ -88,7 +89,6 @@ THESIS_FEATURES = (
         agent="librarian",
         agent_label="Librarian",
         handler_key="thesis.literature_management",
-        task_type="workspace_feature",
         panel=None,
         stages=(),
         color="emerald",
@@ -102,7 +102,6 @@ THESIS_FEATURES = (
         agent="scout",
         agent_label="Scout",
         handler_key="thesis.opening_research",
-        task_type="workspace_feature",
         panel="opening_research_panel",
         color="amber",
         stages=(
@@ -120,7 +119,6 @@ THESIS_FEATURES = (
         agent="thesis_writer",
         agent_label="ThesisWriter",
         handler_key="thesis.thesis_writing",
-        task_type="workspace_feature",
         panel="thesis_editor",
         color="blue",
         stages=(
@@ -138,7 +136,6 @@ THESIS_FEATURES = (
         agent="figure_planner",
         agent_label="FigurePlanner",
         handler_key="thesis.figure_generation",
-        task_type="workspace_feature",
         panel="figure_panel",
         color="rose",
         stages=(
@@ -156,7 +153,6 @@ THESIS_FEATURES = (
         agent="thesis_writer",
         agent_label="ThesisWriter",
         handler_key="thesis.compile_export",
-        task_type="workspace_feature",
         panel="compile_panel",
         color="indigo",
         stages=(
@@ -218,6 +214,74 @@ SCI_FEATURES = (
             _stage("revise", "修订完善"),
         ),
     ),
+    WorkspaceFeatureDefinition(
+        workspace_type="sci",
+        id="literature_review",
+        name="文献综述",
+        description="基于现有主题与上下文生成结构化文献综述",
+        icon="book",
+        agent="reviewer",
+        agent_label="Reviewer",
+        handler_key="sci.literature_review",
+        panel="analysis_panel",
+        color="cyan",
+        stages=(
+            _stage("collect", "整理文献"),
+            _stage("synthesize", "综合观点"),
+            _stage("draft", "生成综述"),
+        ),
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="sci",
+        id="framework_outline",
+        name="框架与摘要",
+        description="生成论文摘要、关键词与整体大纲",
+        icon="list",
+        agent="planner",
+        agent_label="Planner",
+        handler_key="sci.framework_outline",
+        panel="editor_panel",
+        color="blue",
+        stages=(
+            _stage("position", "定位研究"),
+            _stage("outline", "生成框架"),
+            _stage("abstract", "补摘要"),
+        ),
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="sci",
+        id="peer_review",
+        name="同行评审",
+        description="对当前稿件进行审稿式批评与修改建议输出",
+        icon="flask",
+        agent="reviewer",
+        agent_label="Reviewer",
+        handler_key="sci.peer_review",
+        panel="analysis_panel",
+        color="rose",
+        stages=(
+            _stage("inspect", "审阅稿件"),
+            _stage("score", "评估质量"),
+            _stage("advise", "生成建议"),
+        ),
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="sci",
+        id="journal_recommend",
+        name="期刊推荐",
+        description="根据论文主题与摘要推荐潜在投稿期刊",
+        icon="lightbulb",
+        agent="advisor",
+        agent_label="Advisor",
+        handler_key="sci.journal_recommend",
+        panel="analysis_panel",
+        color="amber",
+        stages=(
+            _stage("profile", "提炼论文画像"),
+            _stage("match", "匹配期刊"),
+            _stage("rank", "输出建议"),
+        ),
+    ),
 )
 
 PROPOSAL_FEATURES = (
@@ -251,6 +315,23 @@ PROPOSAL_FEATURES = (
         stages=(
             _stage("search", "搜索资料"),
             _stage("summarize", "整理归纳"),
+        ),
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="proposal",
+        id="experiment_design",
+        name="实验设计",
+        description="围绕课题生成研究假设、变量设计与评估方案",
+        icon="flask",
+        agent="designer",
+        agent_label="Designer",
+        handler_key="proposal.experiment_design",
+        panel="outline_editor",
+        color="indigo",
+        stages=(
+            _stage("hypothesis", "明确假设"),
+            _stage("variables", "设计变量"),
+            _stage("evaluation", "规划评估"),
         ),
     ),
 )

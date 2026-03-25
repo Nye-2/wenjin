@@ -1,10 +1,11 @@
 """Skill loader for discovering and loading academic skills."""
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
+from src.config.extensions_config import ExtensionsConfig, get_extensions_config
 
 
 @dataclass
@@ -19,65 +20,52 @@ class Skill:
     enabled: bool = True
 
 
+def _default_skills_path() -> Path:
+    """Return the stable public skills directory path."""
+    return Path(__file__).resolve().parents[2] / "skills" / "public"
+
+
 def load_skills(
-    skills_path: str = "./skills/public",
-    config_path: str = "./extensions_config.json",
+    skills_path: str | Path | None = None,
+    config_path: str | None = None,
 ) -> list[Skill]:
     """Load all skills from the skills directory.
 
     Args:
         skills_path: Path to skills directory
-        config_path: Path to extensions config for enabled state
+        config_path: Optional explicit extensions config for enabled state
 
     Returns:
         List of loaded Skill objects
     """
-    skills_dir = Path(skills_path)
+    skills_dir = Path(skills_path) if skills_path is not None else _default_skills_path()
     if not skills_dir.exists():
         return []
 
-    # Load enabled state from config
-    enabled_skills = _load_enabled_skills(config_path)
+    extensions_config = (
+        ExtensionsConfig.from_file(config_path)
+        if config_path is not None
+        else get_extensions_config()
+    )
 
     skills = []
     for skill_dir in skills_dir.iterdir():
         if skill_dir.is_dir():
             skill_file = skill_dir / "SKILL.md"
             if skill_file.exists():
-                skill = _parse_skill(skill_file, enabled_skills)
+                skill = _parse_skill(skill_file, extensions_config)
                 if skill:
                     skills.append(skill)
 
     return skills
 
 
-def _load_enabled_skills(config_path: str) -> dict[str, bool]:
-    """Load skill enabled states from config file.
-
-    Args:
-        config_path: Path to extensions_config.json
-
-    Returns:
-        Dict of skill_name -> enabled
-    """
-    config_file = Path(config_path)
-    if not config_file.exists():
-        return {}
-
-    try:
-        with open(config_file) as f:
-            config = json.load(f)
-        return config.get("skills", {})
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def _parse_skill(skill_file: Path, enabled_skills: dict[str, bool]) -> Skill | None:
+def _parse_skill(skill_file: Path, extensions_config: ExtensionsConfig) -> Skill | None:
     """Parse a SKILL.md file into a Skill object.
 
     Args:
         skill_file: Path to SKILL.md
-        enabled_skills: Dict of enabled states
+        extensions_config: Unified extensions config
 
     Returns:
         Skill object or None if parsing fails
@@ -104,8 +92,7 @@ def _parse_skill(skill_file: Path, enabled_skills: dict[str, bool]) -> Skill | N
         allowed_tools = tuple(frontmatter.get("allowed-tools", []))
 
         # Get enabled state
-        skill_key = name.lower().replace("-", "_").replace(" ", "_")
-        enabled = enabled_skills.get(name, enabled_skills.get(skill_key, True))
+        enabled = extensions_config.is_skill_enabled(name, "public")
 
         return Skill(
             name=name,

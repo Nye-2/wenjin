@@ -17,7 +17,7 @@ class KnowledgeService:
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
-        # Keep backward compatibility for callers expecting `service.db`.
+        # Expose a consistent service session attribute used across service classes.
         self.db = db
 
     @staticmethod

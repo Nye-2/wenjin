@@ -1,6 +1,6 @@
 """Tests for the task delegation tool with real executor."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -26,7 +26,7 @@ class TestTaskTool:
             mock_result.status = SubagentStatus.COMPLETED
             mock_result.result = "Task done"
             mock_result.error = None
-            MockExec.return_value.execute.return_value = mock_result
+            MockExec.return_value.aexecute = AsyncMock(return_value=mock_result)
 
             result = await task_tool.ainvoke({
                 "description": "Search papers",
@@ -34,3 +34,25 @@ class TestTaskTool:
                 "subagent_type": "scout",
             })
             assert "completed" in result.lower() or "done" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_known_type_forwards_thread_context(self):
+        """Delegated subagents should inherit the parent thread runtime context."""
+        with patch("src.subagents.task_tool.SubagentExecutor") as MockExec:
+            mock_result = MagicMock()
+            mock_result.status = SubagentStatus.COMPLETED
+            mock_result.result = "Task done"
+            mock_result.error = None
+            MockExec.return_value.aexecute = AsyncMock(return_value=mock_result)
+
+            result = await task_tool.coroutine(
+                description="Search papers",
+                prompt="Find LLM alignment papers",
+                subagent_type="scout",
+                config={"configurable": {"thread_id": "thread-1", "model_name": "gpt-4o"}},
+            )
+
+            assert "completed" in result.lower() or "done" in result.lower()
+            _, kwargs = MockExec.call_args
+            assert kwargs["thread_id"] == "thread-1"
+            assert kwargs["parent_model"] == "gpt-4o"

@@ -151,6 +151,7 @@
   },
   "artifacts": {
     "types": {
+      "deep_research_report": "深度调研报告",
       "research_idea": "研究想法",
       "methodology": "方法论",
       "framework_outline": "框架",

@@ -3,7 +3,7 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.academic.services import ArtifactService, ExtractionService, PaperService, WorkspaceService
+from src.academic.services import ArtifactService, PaperService, WorkspaceService
 from src.gateway.deps.core import get_db
 from src.services.literature_service import LiteratureService
 
@@ -27,13 +27,6 @@ async def get_artifact_service(
 ) -> ArtifactService:
     """Get artifact service instance."""
     return ArtifactService(db)
-
-
-async def get_extraction_service(
-    db: AsyncSession = Depends(get_db),
-) -> ExtractionService:
-    """Get extraction service instance."""
-    return ExtractionService(db)
 
 
 async def get_literature_service(

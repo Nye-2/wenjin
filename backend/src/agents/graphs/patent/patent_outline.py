@@ -8,7 +8,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.agents.graphs._shared import _normalize_text, _read_optional_str
+from src.agents.graphs._shared import (
+    _normalize_text,
+    _read_optional_str,
+    _read_payload_params,
+)
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.workspace_features.services import build_patent_outline_payload
 
@@ -30,7 +34,7 @@ async def patent_outline_graph(
     workspace_id = str(payload.get("workspace_id", ""))
     workspace_name = str(payload.get("workspace_name", ""))
     workspace_description = str(payload.get("workspace_description", ""))
-    params = payload.get("params", {})
+    params = _read_payload_params(payload)
 
     # Step 1: Parameter extraction (per handoff document)
     innovation_description = _normalize_text(
@@ -61,7 +65,7 @@ async def patent_outline_graph(
         "sections": result.get("sections", []),
         "claims_draft": result.get("claims_draft", {}),
         "evidence_points_needed": result.get("evidence_points_needed", []),
-        "generation_mode": result.get("generation_mode", "template_fallback"),
+        "generation_mode": result.get("generation_mode", "llm"),
         "model_id": result.get("model_id"),
         "generation_error": result.get("generation_error"),
         "generated_at": result.get("generated_at"),

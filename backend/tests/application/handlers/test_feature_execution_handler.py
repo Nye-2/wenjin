@@ -102,7 +102,7 @@ class TestResolveWorkspaceType:
 
 
 class TestBuildTaskPayload:
-    def test_canonical_fields_override_user_params(self):
+    def test_canonical_fields_are_separate_from_business_params(self):
         ws = _make_workspace()
         feature = _make_feature("my_feature", "My Feature")
 
@@ -115,13 +115,16 @@ class TestBuildTaskPayload:
             thread_id="t-1",
         )
 
-        # Canonical fields override user params
         assert payload["workspace_id"] == "ws-1"
         assert payload["feature_id"] == "my_feature"
         assert payload["handler_key"] == "test.my_feature"
         assert payload["thread_id"] == "t-1"
-        # User params that don't conflict are kept
-        assert payload["extra"] == "kept"
+        assert payload["params"] == {
+            "workspace_id": "evil",
+            "feature_id": "evil",
+            "extra": "kept",
+        }
+        assert "extra" not in payload
 
     def test_includes_workspace_metadata(self):
         ws = _make_workspace()
@@ -211,6 +214,33 @@ class TestFeatureExecutionHandler:
 
     @pytest.mark.asyncio
     @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    async def test_literature_insufficient_uppercase_action_is_normalized(
+        self, mock_get_feature
+    ):
+        feature = _make_feature("thesis_writing", "论文写作")
+        mock_get_feature.return_value = feature
+
+        ws = _make_workspace()
+        ws_service = AsyncMock()
+        ws_service.get.return_value = ws
+
+        lit_service = AsyncMock()
+        lit_service.count_literature.return_value = {"total": 2, "core": 0}
+
+        handler = _make_handler(
+            workspace_service=ws_service,
+            literature_service=lit_service,
+        )
+
+        result = await handler.execute(
+            "ws-1", "thesis_writing", {"action": "WRITE_CHAPTER"}
+        )
+        assert isinstance(result, FeatureExecutionAdvisory)
+        assert result.code == "literature_insufficient"
+        lit_service.count_literature.assert_awaited_once_with("ws-1")
+
+    @pytest.mark.asyncio
+    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
     async def test_literature_check_skipped_for_non_writing_actions(
         self, mock_get_feature
     ):
@@ -245,6 +275,42 @@ class TestFeatureExecutionHandler:
         assert isinstance(result, FeatureTaskSubmission)
         assert result.task_id == "task-1"
         lit_service.count_literature.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    async def test_thesis_writing_missing_action_defaults_to_write_all(
+        self, mock_get_feature
+    ):
+        feature = _make_feature("thesis_writing", "论文写作")
+        mock_get_feature.return_value = feature
+
+        ws = _make_workspace()
+        ws_service = AsyncMock()
+        ws_service.get.return_value = ws
+
+        lit_service = AsyncMock()
+        lit_service.count_literature.return_value = {"total": 20, "core": 5}
+
+        task_service = AsyncMock()
+        task_service.find_active_task.return_value = None
+        task_service.submit_task.return_value = "task-1"
+
+        credit_service = AsyncMock()
+        credit_service.consume_for_feature.return_value = None
+
+        handler = _make_handler(
+            workspace_service=ws_service,
+            task_service=task_service,
+            literature_service=lit_service,
+            credit_service=credit_service,
+        )
+
+        result = await handler.execute("ws-1", "thesis_writing", {})
+        assert isinstance(result, FeatureTaskSubmission)
+        assert result.task_id == "task-1"
+
+        submit_payload = task_service.submit_task.await_args.kwargs["payload"]
+        assert submit_payload["params"]["action"] == "write_all"
 
     @pytest.mark.asyncio
     @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")

@@ -6,6 +6,7 @@ import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
 import { useFeaturesStore } from "@/stores/features";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { CommandPalette } from "@/components/workspace/CommandPalette";
 
 interface WorkbenchLayoutProps {
   children: ReactNode;
@@ -51,6 +52,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)]">
       {children}
+      <CommandPalette workspaceId={workspaceId} />
     </div>
   );
 }

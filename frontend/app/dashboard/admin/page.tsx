@@ -41,15 +41,19 @@ import {
   getAdminDashboard,
   getAdminReleaseGate,
   getAdminLogs,
+  getMcpConfig,
   listAdminUsers,
   updateAdminUserRole,
   updateAdminUserStatus,
+  updateMcpConfig,
   type AdminDashboardData,
   type AdminLogItem,
   type ReleaseGateCheck,
   type AdminReleaseGateReport,
   type AdminUserItem,
   type CreditTransactionItem,
+  type McpConfigResponse,
+  type McpServerConfigInput,
 } from "@/lib/api";
 
 type UserRoleFilter = "all" | "user" | "admin";
@@ -138,6 +142,18 @@ function exportRowsToCsv(
   URL.revokeObjectURL(url);
 }
 
+function formatJsonDraft(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function parseMcpServersDraft(draft: string): Record<string, McpServerConfigInput> {
+  const parsed = JSON.parse(draft || "{}") as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("MCP 配置必须是一个 JSON 对象，key 为 server 名称。");
+  }
+  return parsed as Record<string, McpServerConfigInput>;
+}
+
 function getCheckStatusClass(status: ReleaseGateCheck["status"]): string {
   if (status === "passed") return "bg-emerald-500/10 text-emerald-600";
   if (status === "failed") return "bg-rose-500/10 text-rose-600";
@@ -151,6 +167,10 @@ export default function AdminDashboardPage() {
 
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
   const [releaseGateReport, setReleaseGateReport] = useState<AdminReleaseGateReport | null>(null);
+  const [mcpConfig, setMcpConfig] = useState<McpConfigResponse | null>(null);
+  const [mcpDraft, setMcpDraft] = useState("{}");
+  const [mcpDraftBaseline, setMcpDraftBaseline] = useState("{}");
+  const [mcpDraftError, setMcpDraftError] = useState<string | null>(null);
 
   const [users, setUsers] = useState<AdminUserItem[]>([]);
   const [usersTotal, setUsersTotal] = useState(0);
@@ -185,6 +205,8 @@ export default function AdminDashboardPage() {
   const [isUsersLoading, setIsUsersLoading] = useState(false);
   const [isCreditLoading, setIsCreditLoading] = useState(false);
   const [isLogsLoading, setIsLogsLoading] = useState(false);
+  const [isMcpLoading, setIsMcpLoading] = useState(false);
+  const [isMcpSaving, setIsMcpSaving] = useState(false);
   const [isReleaseGateRunning, setIsReleaseGateRunning] = useState(false);
   const [releaseGateError, setReleaseGateError] = useState<string | null>(null);
   const [releaseGateFilterFailed, setReleaseGateFilterFailed] = useState(false);
@@ -226,6 +248,7 @@ export default function AdminDashboardPage() {
       setIsUsersLoading(true);
       setIsCreditLoading(true);
       setIsLogsLoading(true);
+      setIsMcpLoading(true);
 
       const usersRole = userRoleFilter === "all" ? undefined : userRoleFilter;
       const usersIsActive =
@@ -233,7 +256,7 @@ export default function AdminDashboardPage() {
       const creditType = creditTypeFilter === "all" ? undefined : creditTypeFilter;
       const logAction = logActionFilter === "all" ? undefined : logActionFilter;
 
-      const [dashboardRes, usersRes, creditsRes, logsRes] = await Promise.allSettled([
+      const [dashboardRes, usersRes, creditsRes, logsRes, mcpRes] = await Promise.allSettled([
         getAdminDashboard(),
         listAdminUsers({
           page: usersPage,
@@ -254,6 +277,7 @@ export default function AdminDashboardPage() {
           action: logAction,
           target_user_id: logTargetUserIdQuery || undefined,
         }),
+        getMcpConfig(),
       ]);
 
       if (cancelled) {
@@ -292,12 +316,23 @@ export default function AdminDashboardPage() {
         nextError = parseErrorMessage(logsRes.reason, "加载管理员日志失败");
       }
 
+      if (mcpRes.status === "fulfilled") {
+        const formattedDraft = formatJsonDraft(mcpRes.value.mcp_servers ?? {});
+        setMcpConfig(mcpRes.value);
+        setMcpDraft(formattedDraft);
+        setMcpDraftBaseline(formattedDraft);
+        setMcpDraftError(null);
+      } else if (!nextError) {
+        nextError = parseErrorMessage(mcpRes.reason, "加载 MCP 配置失败");
+      }
+
       setError(nextError);
       setIsLoading(false);
       setIsRefreshing(false);
       setIsUsersLoading(false);
       setIsCreditLoading(false);
       setIsLogsLoading(false);
+      setIsMcpLoading(false);
       hasLoadedOnceRef.current = true;
     };
 
@@ -411,6 +446,45 @@ export default function AdminDashboardPage() {
     );
   };
 
+  const formatMcpDraft = () => {
+    try {
+      const parsed = parseMcpServersDraft(mcpDraft);
+      setMcpDraft(formatJsonDraft(parsed));
+      setMcpDraftError(null);
+    } catch (err) {
+      setMcpDraftError(parseErrorMessage(err, "MCP 配置 JSON 无法格式化"));
+    }
+  };
+
+  const restoreMcpDraft = () => {
+    setMcpDraft(mcpDraftBaseline);
+    setMcpDraftError(null);
+  };
+
+  const saveMcpDraft = async () => {
+    let parsedServers: Record<string, McpServerConfigInput>;
+    try {
+      parsedServers = parseMcpServersDraft(mcpDraft);
+    } catch (err) {
+      setMcpDraftError(parseErrorMessage(err, "MCP 配置 JSON 无效"));
+      return;
+    }
+
+    setMcpDraftError(null);
+    setIsMcpSaving(true);
+    try {
+      const nextConfig = await updateMcpConfig({ mcp_servers: parsedServers });
+      const formattedDraft = formatJsonDraft(nextConfig.mcp_servers ?? {});
+      setMcpConfig(nextConfig);
+      setMcpDraft(formattedDraft);
+      setMcpDraftBaseline(formattedDraft);
+    } catch (err) {
+      setMcpDraftError(parseErrorMessage(err, "保存 MCP 配置失败"));
+    } finally {
+      setIsMcpSaving(false);
+    }
+  };
+
   const openCreditDialog = (mode: CreditDialogMode, targetUser: AdminUserItem) => {
     setCreditDialogMode(mode);
     setCreditDialogUser(targetUser);
@@ -487,6 +561,9 @@ export default function AdminDashboardPage() {
   const creditsEnd = Math.min(creditTotal, creditPage * creditPageSize);
   const logsStart = logsTotal === 0 ? 0 : (logsPage - 1) * logsPageSize + 1;
   const logsEnd = Math.min(logsTotal, logsPage * logsPageSize);
+  const mcpServerEntries = Object.entries(mcpConfig?.mcp_servers ?? {});
+  const enabledMcpCount = mcpServerEntries.filter(([, config]) => config.enabled !== false).length;
+  const hasMcpChanges = mcpDraft.trim() !== mcpDraftBaseline.trim();
   const coreChecks = releaseGateReport?.core_gate.checks ?? [];
   const extendedChecks = releaseGateReport?.extended_gate.checks ?? [];
   const failedChecks = [...coreChecks, ...extendedChecks].filter(
@@ -495,6 +572,12 @@ export default function AdminDashboardPage() {
   const isFailed = (s: string) => s === "failed" || s === "missing";
   const visibleCoreChecks = releaseGateFilterFailed ? coreChecks.filter((c) => isFailed(c.status)) : coreChecks;
   const visibleExtendedChecks = releaseGateFilterFailed ? extendedChecks.filter((c) => isFailed(c.status)) : extendedChecks;
+  let mcpDraftPreviewError: string | null = null;
+  try {
+    parseMcpServersDraft(mcpDraft);
+  } catch (err) {
+    mcpDraftPreviewError = parseErrorMessage(err, "MCP 配置 JSON 无效");
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
@@ -836,6 +919,174 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           )}
+        </section>
+
+        <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">MCP 配置中心</h2>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                管理外部 MCP server。编辑区只修改 <code>mcp_servers</code>，不会覆盖 skills 配置。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setIsRefreshing(true);
+                  setReloadNonce((value) => value + 1);
+                }}
+                disabled={isRefreshing || isMcpSaving}
+              >
+                <RefreshCw className={`w-4 h-4 mr-1 ${isRefreshing ? "animate-spin" : ""}`} />
+                重新加载
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={formatMcpDraft}
+                disabled={isMcpLoading || isMcpSaving}
+              >
+                格式化 JSON
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={restoreMcpDraft}
+                disabled={isMcpSaving || !hasMcpChanges}
+              >
+                撤销改动
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void saveMcpDraft()}
+                disabled={isMcpSaving || !hasMcpChanges || Boolean(mcpDraftPreviewError)}
+              >
+                {isMcpSaving ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+                保存配置
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+              <div className="text-xs text-[var(--text-muted)]">Server 总数</div>
+              <div className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">
+                {mcpServerEntries.length}
+              </div>
+            </div>
+            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+              <div className="text-xs text-[var(--text-muted)]">启用中的 Server</div>
+              <div className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">
+                {enabledMcpCount}
+              </div>
+            </div>
+            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+              <div className="text-xs text-[var(--text-muted)]">当前草稿状态</div>
+              <div className="mt-2 text-sm font-medium text-[var(--text-primary)]">
+                {hasMcpChanges ? "有未保存改动" : "与已加载配置一致"}
+              </div>
+              <div className="mt-1 text-xs text-[var(--text-muted)]">
+                {mcpDraftPreviewError ? "JSON 需修复后才能保存" : "可直接保存并触发 runtime 热更新"}
+              </div>
+            </div>
+          </div>
+
+          {isMcpLoading ? (
+            <div className="mt-4 text-sm text-[var(--text-muted)] flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              正在加载 MCP 配置
+            </div>
+          ) : mcpServerEntries.length === 0 ? (
+            <div className="mt-4 rounded-xl border border-dashed border-[var(--border-default)] px-4 py-5 text-sm text-[var(--text-muted)]">
+              当前没有配置任何 MCP server。可在下方 JSON 草稿中添加，例如：
+              <pre className="mt-2 overflow-x-auto rounded-lg bg-[var(--bg-base)] p-3 text-[11px] text-[var(--text-secondary)]">
+{`{
+  "github": {
+    "enabled": true,
+    "type": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"]
+  }
+}`}
+              </pre>
+            </div>
+          ) : (
+            <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-3">
+              {mcpServerEntries.map(([name, server]) => (
+                <div
+                  key={name}
+                  className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[var(--text-primary)]">{name}</h3>
+                      <p className="text-xs text-[var(--text-muted)] mt-1">
+                        {server.description?.trim() || "未填写说明"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-md bg-[var(--bg-muted)] px-2 py-1 text-[11px] text-[var(--text-secondary)]">
+                        {server.type ?? "stdio"}
+                      </span>
+                      <span
+                        className={`rounded-md px-2 py-1 text-[11px] ${
+                          server.enabled === false
+                            ? "bg-rose-500/10 text-rose-600"
+                            : "bg-emerald-500/10 text-emerald-600"
+                        }`}
+                      >
+                        {server.enabled === false ? "disabled" : "enabled"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]">
+                    {server.command ? <p>command: <code>{server.command}</code></p> : null}
+                    {server.url ? <p>url: <code>{server.url}</code></p> : null}
+                    {server.args?.length ? <p>args: <code>{server.args.join(" ")}</code></p> : null}
+                    {server.headers && Object.keys(server.headers).length > 0 ? (
+                      <p>headers: {Object.keys(server.headers).join(", ")}</p>
+                    ) : null}
+                    <p>
+                      OAuth:{" "}
+                      {server.oauth?.enabled === false
+                        ? "disabled"
+                        : server.oauth
+                          ? `enabled (${server.oauth.grant_type ?? "client_credentials"})`
+                          : "not configured"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-5 space-y-2">
+            <Label htmlFor="mcp-config-draft" className="text-sm font-medium text-[var(--text-primary)]">
+              MCP Server Draft
+            </Label>
+            <textarea
+              id="mcp-config-draft"
+              value={mcpDraft}
+              onChange={(event) => {
+                setMcpDraft(event.target.value);
+                if (mcpDraftError) {
+                  setMcpDraftError(null);
+                }
+              }}
+              spellCheck={false}
+              className="min-h-[320px] w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] px-4 py-3 font-mono text-xs text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent-primary)]"
+            />
+            <p className="text-[11px] text-[var(--text-muted)]">
+              保存后会写入后端 `extensions_config.json`，并立即刷新 MCP runtime 与工具缓存。
+            </p>
+            {(mcpDraftError || mcpDraftPreviewError) && (
+              <div className="rounded-lg border border-rose-300/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-600">
+                {mcpDraftError ?? mcpDraftPreviewError}
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">

@@ -8,6 +8,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+from src.services.workspace_activity_contracts import (
+    build_subagent_activity_item,
+    serialize_activity_item,
+)
+
 from .config import SubagentConfig
 from .events import SubagentEventStream
 from .graph import GraphTemplateRegistry, create_default_subagent_graph
@@ -158,7 +163,8 @@ class GlobalSubagentManager:
             ctx = self._get_or_create_context(task.thread_id, owner_user_id, workspace_id)
 
         async def run_with_limiter():
-            terminal_status = "completed"
+            thread_terminal_status = "completed"
+            subagent_status = "completed"
             final_result: SubagentResult | None = None
             try:
                 async with self._limiter.acquire(task.thread_id):
@@ -166,27 +172,39 @@ class GlobalSubagentManager:
                     result = await self._execute_task(task)
                     final_result = result
                     ctx.store_result(task.task_id, result)
-                    terminal_status = self._map_result_status(result.status)
+                    thread_terminal_status = self._map_result_status(result.status)
+                    subagent_status = (
+                        result.status.value
+                        if isinstance(result.status, SubagentStatus)
+                        else str(result.status)
+                    )
                     logger.info(
                         f"Task {task.task_id} completed with status {result.status}"
                     )
                     return result
             except Exception:
-                terminal_status = "failed"
+                thread_terminal_status = "failed"
+                subagent_status = "failed"
                 raise
             finally:
                 ctx.mark_task_finished(task.task_id)
                 await self._sync_thread_agent_status(
                     ctx.workspace_id,
                     task.thread_id,
-                    status="running" if ctx.active_task_count > 0 else terminal_status,
+                    status="running" if ctx.active_task_count > 0 else thread_terminal_status,
                     subagent_count=ctx.active_task_count,
+                )
+                activity = await self._persist_subagent_activity(
+                    task,
+                    status=subagent_status,
+                    result=final_result,
                 )
                 await self._publish_subagent_update(
                     ctx.workspace_id,
                     task,
-                    status=terminal_status,
+                    status=subagent_status,
                     result=final_result,
+                    activity=activity,
                 )
 
         async_task = asyncio.create_task(run_with_limiter())
@@ -199,10 +217,12 @@ class GlobalSubagentManager:
             status="running",
             subagent_count=ctx.active_task_count,
         )
+        activity = await self._persist_subagent_activity(task, status="running")
         await self._publish_subagent_update(
             ctx.workspace_id,
             task,
             status="running",
+            activity=activity,
         )
         return task.task_id
 
@@ -394,32 +414,32 @@ class GlobalSubagentManager:
         """List recent subagent tasks for a thread."""
         async with self._lock:
             ctx = self._get_accessible_context(thread_id, user_id)
-            if not ctx:
-                return []
+        if not ctx:
+            return await self._list_persisted_thread_tasks(thread_id, user_id=user_id, limit=limit)
 
-            ordered_tasks = sorted(
-                ctx._task_defs.values(),
-                key=lambda task: task.created_at,
-                reverse=True,
-            )[:limit]
+        ordered_tasks = sorted(
+            ctx._task_defs.values(),
+            key=lambda task: task.created_at,
+            reverse=True,
+        )[:limit]
 
-            items: list[dict] = []
-            for task in ordered_tasks:
-                result = ctx.get_result(task.task_id)
-                status = ctx.get_task_status(task.task_id)
-                items.append(
-                    {
-                        "task_id": task.task_id,
-                        "thread_id": task.thread_id,
-                        "prompt": task.prompt,
-                        "created_at": task.created_at,
-                        "status": status.value if isinstance(status, SubagentStatus) else str(status or "pending"),
-                        "subagent_type": task.metadata.get("subagent_type"),
-                        "error": result.error if result else None,
-                        "output_preview": self._truncate_preview(result.output if result else None),
-                    }
-                )
-            return items
+        items: list[dict] = []
+        for task in ordered_tasks:
+            result = ctx.get_result(task.task_id)
+            status = ctx.get_task_status(task.task_id)
+            items.append(
+                {
+                    "task_id": task.task_id,
+                    "thread_id": task.thread_id,
+                    "prompt": task.prompt,
+                    "created_at": task.created_at,
+                    "status": status.value if isinstance(status, SubagentStatus) else str(status or "pending"),
+                    "subagent_type": task.metadata.get("subagent_type"),
+                    "error": result.error if result else None,
+                    "output_preview": self._truncate_preview(result.output if result else None),
+                }
+            )
+        return items
 
     async def subscribe_events(
         self,
@@ -526,6 +546,7 @@ class GlobalSubagentManager:
         *,
         status: str,
         result: SubagentResult | None = None,
+        activity: dict[str, object] | None = None,
     ) -> None:
         """Mirror subagent lifecycle into the workspace event stream."""
         try:
@@ -542,13 +563,9 @@ class GlobalSubagentManager:
                         "subagent_type": task.metadata.get("subagent_type"),
                         "output_preview": self._truncate_preview(result.output if result else None),
                         "error": result.error if result else None,
-                    }
-                },
-            )
-            await publish_workspace_event(
-                workspace_id,
-                "workspace.refresh",
-                {"refresh_targets": ["activity"]},
+                    },
+                }
+                | ({"activity": activity} if activity is not None else {}),
             )
         except Exception:
             logger.debug(
@@ -556,6 +573,87 @@ class GlobalSubagentManager:
                 task.thread_id,
                 exc_info=True,
             )
+
+    async def _persist_subagent_activity(
+        self,
+        task: SubagentTask,
+        *,
+        status: str,
+        result: SubagentResult | None = None,
+    ) -> dict[str, object] | None:
+        """Persist durable subagent state and build the canonical activity payload."""
+        try:
+            from src.database import get_db_session
+            from src.subagents.store import SubagentTaskStore
+
+            async with get_db_session() as db:
+                record = await SubagentTaskStore(db).upsert_task_record(
+                    task=task,
+                    status=status,
+                    result=result,
+                )
+        except Exception:
+            logger.debug(
+                "Failed to persist subagent activity for thread %s",
+                task.thread_id,
+                exc_info=True,
+            )
+            return None
+
+        return serialize_activity_item(
+            build_subagent_activity_item(
+                workspace_id=record.workspace_id,
+                task_id=str(record.id),
+                thread_id=str(record.thread_id),
+                status=record.status,
+                subagent_type=record.subagent_type,
+                prompt=record.prompt,
+                output_preview=record.output_preview,
+                error=record.error,
+                occurred_at=record.completed_at or record.updated_at or record.created_at,
+                created_at=record.created_at,
+                completed_at=record.completed_at,
+            )
+        )
+
+    async def _list_persisted_thread_tasks(
+        self,
+        thread_id: str,
+        *,
+        user_id: str | None,
+        limit: int,
+    ) -> list[dict]:
+        try:
+            from src.database import get_db_session
+            from src.subagents.store import SubagentTaskStore
+
+            async with get_db_session() as db:
+                records = await SubagentTaskStore(db).list_thread_records(
+                    thread_id,
+                    user_id=user_id,
+                    limit=limit,
+                )
+        except Exception:
+            logger.debug(
+                "Failed to load persisted subagent records for thread %s",
+                thread_id,
+                exc_info=True,
+            )
+            return []
+
+        return [
+            {
+                "task_id": record.id,
+                "thread_id": record.thread_id,
+                "prompt": record.prompt,
+                "created_at": record.created_at,
+                "status": record.status,
+                "subagent_type": record.subagent_type,
+                "error": record.error,
+                "output_preview": record.output_preview,
+            }
+            for record in records
+        ]
 
     def _get_or_create_context(
         self,

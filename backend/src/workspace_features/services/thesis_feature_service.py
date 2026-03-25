@@ -1,9 +1,9 @@
 """Service helpers for thesis workspace feature handlers.
 
 This module keeps handler logic thin and reusable by encapsulating:
-1. figure generation (with degrade fallback),
-2. thesis compile payload assembly (with compile fallback),
-3. opening report payload generation (template + optional LLM fill).
+1. figure generation,
+2. thesis compile payload assembly,
+3. opening report payload generation.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from typing import Any
 from src.academic.services import ArtifactService
 from src.artifacts import ArtifactType
 from src.database import Artifact, get_db_session
+from src.execution.capabilities import execution_type_readiness
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.execution.types import ExecutionType
 from src.models.factory import create_chat_model
@@ -26,7 +27,7 @@ from src.services.literature_service import LiteratureService
 from src.thesis.execution import get_execution_service
 from src.thesis.execution.figure_tool import generate_figure
 from src.thesis.execution.latex_tool import compile_latex
-from src.thesis.workflow.latex_template import get_template
+from src.thesis.latex_template import get_template
 
 logger = logging.getLogger(__name__)
 
@@ -164,36 +165,8 @@ def _provider_ready(strategy: str) -> bool:
     except Exception:
         return False
 
-    provider_map = getattr(execution_service, "PROVIDER_MAP", None)
-    return isinstance(provider_map, dict) and exec_type in provider_map
-
-
-def _build_degraded_figure_payload(
-    *,
-    fig_type: str,
-    description: str,
-    chapter_index: int | None,
-    strategy: str,
-    source: str,
-    error: str | None,
-) -> dict[str, Any]:
-    content_field = "prompt" if strategy == "kling" else "source_code"
-    return {
-        "figure_type": fig_type,
-        "description": description,
-        "chapter_index": chapter_index,
-        "strategy": strategy,
-        "status": "degraded",
-        "generated_at": _utc_now_iso(),
-        "render_data": {},
-        content_field: source,
-        "upgrade": {
-            "auto_upgrade": True,
-            "required_execution_type": _STRATEGY_TO_EXECUTION_TYPE[strategy].value,
-            "provider_ready": _provider_ready(strategy),
-            "last_error": error,
-        },
-    }
+    ready, _ = execution_type_readiness(execution_service, exec_type)
+    return ready
 
 
 async def build_figure_payload(
@@ -205,20 +178,13 @@ async def build_figure_payload(
     description: str,
     chapter_index: int | None,
 ) -> dict[str, Any]:
-    """Build figure artifact content with runtime generation + degrade fallback."""
+    """Build figure artifact content with runtime generation."""
     normalized_type = _normalize_figure_type(fig_type)
     strategy = _resolve_figure_strategy(normalized_type)
     source = _build_figure_source(strategy, description)
 
     if not _provider_ready(strategy):
-        return _build_degraded_figure_payload(
-            fig_type=normalized_type,
-            description=description,
-            chapter_index=chapter_index,
-            strategy=strategy,
-            source=source,
-            error=f"provider for {strategy} is not ready",
-        )
+        raise RuntimeError(f"figure_generation_failed: provider for {strategy} is not ready")
 
     figure_id = f"{workspace_name or 'figure'}-{int(datetime.now().timestamp())}"
     figure_id = re.sub(r"[^a-zA-Z0-9_.-]+", "-", figure_id).strip("-").lower()
@@ -263,13 +229,8 @@ async def build_figure_payload(
             payload["source_code"] = source
         return payload
 
-    return _build_degraded_figure_payload(
-        fig_type=normalized_type,
-        description=description,
-        chapter_index=chapter_index,
-        strategy=strategy,
-        source=source,
-        error=result.error or "unknown generation error",
+    raise RuntimeError(
+        f"figure_generation_failed: {result.error or 'unknown_generation_error'}"
     )
 
 
@@ -361,8 +322,7 @@ def _render_markdown_to_latex(markdown: str) -> str:
     if in_code_block:
         output.append(r"\end{lstlisting}")
 
-    rendered = "\n".join(output).strip()
-    return rendered or "\\section{内容占位}\n待补充章节内容。"
+    return "\n".join(output).strip()
 
 
 def _artifact_content(artifact: Artifact) -> dict[str, Any]:
@@ -420,7 +380,9 @@ def _extract_sorted_chapters(artifacts: list[Artifact]) -> list[dict[str, Any]]:
         if markdown and not markdown.lstrip().startswith("#"):
             markdown = f"# {title}\n\n{markdown}"
         if not markdown:
-            summary = str(content.get("summary") or content.get("content") or "待补充")
+            summary = str(content.get("summary") or content.get("content") or "").strip()
+            if not summary:
+                continue
             markdown = f"# {title}\n\n{summary}"
         chapters.append(
             {
@@ -456,39 +418,6 @@ def _extract_figures(artifacts: list[Artifact]) -> list[dict[str, Any]]:
             }
         )
     return figures
-
-
-def _build_outline_fallback_chapters(outline: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_chapters = outline.get("chapters")
-    if not isinstance(raw_chapters, list):
-        return []
-
-    chapter_payloads: list[dict[str, Any]] = []
-    for index, chapter in enumerate(raw_chapters, start=1):
-        if not isinstance(chapter, dict):
-            continue
-        title = str(chapter.get("title") or f"第{index}章")
-        position = str(chapter.get("position") or "")
-        key_points = chapter.get("keyPoints")
-        points = (
-            [str(item) for item in key_points if item]
-            if isinstance(key_points, list)
-            else []
-        )
-        lines = [f"# {title}"]
-        if position:
-            lines.append(f"\n{position}")
-        if points:
-            lines.append("\n## 关键要点")
-            lines.extend(f"- {item}" for item in points[:6])
-        chapter_payloads.append(
-            {
-                "index": index - 1,
-                "title": title,
-                "markdown": "\n".join(lines),
-            }
-        )
-    return chapter_payloads
 
 
 def _build_figure_latex(figures: list[dict[str, Any]]) -> str:
@@ -570,6 +499,8 @@ async def build_compile_payload(
     template: str,
     compiler: str,
     bibliography_style: str,
+    abstract_override: str | None = None,
+    keywords_override: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build compile artifact content with real assembly + compile attempt."""
     artifacts, literature = await asyncio.gather(
@@ -580,7 +511,9 @@ async def build_compile_payload(
     outline = _extract_outline_content(artifacts)
     chapters = _extract_sorted_chapters(artifacts)
     if not chapters:
-        chapters = _build_outline_fallback_chapters(outline)
+        raise RuntimeError(
+            "compile_export_failed: no thesis chapter artifacts found, run thesis writing first"
+        )
     figures = _extract_figures(artifacts)
 
     paper_title = str(
@@ -588,27 +521,47 @@ async def build_compile_payload(
         or workspace_name
         or "未命名论文"
     )
-    abstract_text = str(
-        outline.get("abstract")
-        or workspace_description
-        or f"本文围绕《{paper_title}》展开研究。"
-    )
+    normalized_abstract_override = str(abstract_override or "").strip()
+    if normalized_abstract_override:
+        abstract_text = normalized_abstract_override
+        abstract_source = "llm_override"
+    else:
+        abstract_text = str(
+            outline.get("abstract")
+            or workspace_description
+            or f"本文围绕《{paper_title}》展开研究。"
+        )
+        abstract_source = "outline_or_workspace"
 
-    chapter_latex = [
-        _render_markdown_to_latex(chapter.get("markdown", ""))
-        for chapter in chapters
-    ]
+    keywords: list[str] = []
+    if isinstance(keywords_override, list):
+        for item in keywords_override:
+            text = str(item or "").strip()
+            if text:
+                keywords.append(text)
+    keywords = keywords[:8]
+
+    chapter_latex = []
+    for chapter in chapters:
+        rendered = _render_markdown_to_latex(chapter.get("markdown", ""))
+        if rendered:
+            chapter_latex.append(rendered)
     if not chapter_latex:
-        chapter_latex = [
-            "\\section{正文占位}\n目前尚无章节产出，请先在论文写作模块生成章节。"
-        ]
+        raise RuntimeError(
+            "compile_export_failed: chapter artifacts exist but contain no renderable markdown content"
+        )
 
     figure_latex = _build_figure_latex(figures)
     if figure_latex:
         chapter_latex.append(figure_latex)
 
     content_body = "\n\n".join(chapter_latex)
-    abstract_latex = f"\\begin{{abstract}}\n{_escape_latex(abstract_text)}\n\\end{{abstract}}\n"
+    abstract_lines = [_escape_latex(abstract_text)]
+    if keywords:
+        abstract_lines.append(
+            "\\textbf{关键词：}" + _escape_latex("；".join(keywords))
+        )
+    abstract_latex = "\\begin{abstract}\n" + "\n".join(abstract_lines) + "\n\\end{abstract}\n"
 
     language = resolve_thesis_output_language(template)
     final_latex = get_template(language).format(
@@ -654,6 +607,8 @@ async def build_compile_payload(
         "page_count": compile_result.page_count,
         "compile_error": compile_result.error,
         "compile_logs": _truncate(compile_result.logs or "", max_len=3000),
+        "keywords": keywords,
+        "abstract_source": abstract_source,
         "source_summary": {
             "outline_count": 1 if outline else 0,
             "chapter_count": len(chapters),
@@ -822,29 +777,18 @@ def _normalize_llm_sections(
     normalized: list[dict[str, str]] = []
     for index, template_section in enumerate(template_sections):
         candidate = raw_sections[index] if index < len(raw_sections) else None
-        if isinstance(candidate, dict):
-            candidate_content = str(candidate.get("content") or "").strip()
-            if candidate_content:
-                normalized.append(
-                    {
-                        "title": template_section["title"],
-                        "content": candidate_content,
-                        "source": "llm",
-                    }
-                )
-                continue
-
+        if not isinstance(candidate, dict):
+            return None
+        candidate_content = str(candidate.get("content") or "").strip()
+        if not candidate_content:
+            return None
         normalized.append(
             {
                 "title": template_section["title"],
-                "content": template_section["content"],
-                "source": "template",
+                "content": candidate_content,
+                "source": "llm",
             }
         )
-
-    # If LLM didn't provide meaningful content for any section, treat as invalid.
-    if not any(section["source"] == "llm" for section in normalized):
-        return None
     return normalized
 
 
@@ -920,7 +864,7 @@ async def build_opening_report_payload(
     report_type: str,
     preferred_model: str | None = None,
 ) -> dict[str, Any]:
-    """Build opening report content with template-first, LLM-optional strategy."""
+    """Build opening report content with LLM generation."""
     normalized_report_type = _normalize_report_type(report_type)
     normalized_topic = (topic or workspace_name or "未命名研究主题").strip()
     if not normalized_topic:
@@ -944,19 +888,12 @@ async def build_opening_report_payload(
         preferred_model=preferred_model,
     )
 
-    if llm_sections is not None:
-        sections = llm_sections
-        generation_mode = "llm"
-    else:
-        sections = [
-            {
-                "title": section["title"],
-                "content": section["content"],
-                "source": "template",
-            }
-            for section in template_sections
-        ]
-        generation_mode = "template_fallback"
+    if llm_sections is None:
+        raise RuntimeError(
+            f"opening_report_llm_failed: {generation_error or 'unknown_error'}"
+        )
+    sections = llm_sections
+    generation_mode = "llm"
 
     return {
         "topic": normalized_topic,
@@ -964,7 +901,7 @@ async def build_opening_report_payload(
         "workspace_description": workspace_description,
         "generation_mode": generation_mode,
         "model_id": model_id,
-        "generation_error": generation_error,
+        "generation_error": None,
         "sections": sections,
         "reference_clues": literature_highlights,
         "literature_count": len(literature),

@@ -86,7 +86,9 @@ class TestCreateWorkspace:
         assert added_workspace.type == WorkspaceType.THESIS
         assert added_workspace.discipline == "computer_science"
         assert added_workspace.description == "A test workspace"
-        assert added_workspace.config == config
+        assert added_workspace.config["setting1"] == "value1"
+        assert added_workspace.config["rollout"]["chat_cockpit_enabled"] is True
+        assert added_workspace.config["rollout"]["chat_feature_orchestration_enabled"] is True
 
     @pytest.mark.asyncio
     async def test_create_workspace_with_enum_type(
@@ -120,7 +122,7 @@ class TestCreateWorkspace:
     async def test_create_workspace_default_config(
         self, service, mock_db_session, sample_user_id
     ):
-        """Test that config defaults to empty dict."""
+        """Test that config gets rollout defaults when omitted."""
         await service.create(
             user_id=sample_user_id,
             name="Default Config Workspace",
@@ -128,7 +130,8 @@ class TestCreateWorkspace:
         )
 
         added_workspace = mock_db_session.add.call_args[0][0]
-        assert added_workspace.config == {}
+        assert added_workspace.config["rollout"]["chat_cockpit_enabled"] is True
+        assert added_workspace.config["rollout"]["chat_feature_orchestration_enabled"] is True
 
 
 class TestGetWorkspace:
@@ -336,7 +339,9 @@ class TestUpdateWorkspace:
         with patch.object(service, "get", return_value=mock_workspace):
             await service.update(sample_workspace_id, config=new_config)
 
-        assert mock_workspace.config == new_config
+        assert mock_workspace.config["setting1"] == "value1"
+        assert mock_workspace.config["setting2"] == "value2"
+        assert mock_workspace.config["rollout"]["chat_cockpit_enabled"] is False
 
 
 class TestDeleteWorkspace:

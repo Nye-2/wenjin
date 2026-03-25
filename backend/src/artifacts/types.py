@@ -6,6 +6,7 @@ from enum import StrEnum
 class ArtifactType(StrEnum):
     """Canonical artifact types used by persistence, validation, and features."""
 
+    DEEP_RESEARCH_REPORT = "deep_research_report"
     RESEARCH_IDEA = "research_idea"
     RESEARCH_IDEAS = "research_ideas"
     METHODOLOGY = "methodology"

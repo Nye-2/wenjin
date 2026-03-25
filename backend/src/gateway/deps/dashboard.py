@@ -10,6 +10,7 @@ from src.services.dashboard_service import DashboardService
 from src.services.release_gate_service import ReleaseGateService
 from src.services.user_dashboard_service import UserDashboardService
 from src.services.workspace_activity_service import WorkspaceActivityService
+from src.services.workspace_summary_service import WorkspaceSummaryService
 
 
 async def get_dashboard_service(
@@ -50,3 +51,10 @@ async def get_workspace_activity_service(
 ) -> WorkspaceActivityService:
     """Get workspace activity service instance."""
     return WorkspaceActivityService(db)
+
+
+async def get_workspace_summary_service(
+    db: AsyncSession = Depends(get_db),
+) -> WorkspaceSummaryService:
+    """Get workspace summary service instance."""
+    return WorkspaceSummaryService(db)

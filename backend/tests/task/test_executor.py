@@ -74,6 +74,24 @@ class TestLocalExecutor:
             await asyncio.sleep(0.05)
 
 
+@pytest.mark.asyncio
+async def test_run_task_locally_reuses_shared_task_flow() -> None:
+    """Local execution should delegate to the shared task runner used by Celery."""
+    with patch("src.task.tasks.base._execute_task_async", new_callable=AsyncMock) as mock_execute:
+        from src.task.executor import _run_task_locally
+
+        await _run_task_locally("task-1", "workspace_feature", {"workspace_id": "ws-1"})
+
+    mock_execute.assert_awaited_once()
+    local_task = mock_execute.await_args.args[0]
+    assert local_task.request.hostname == "local-executor"
+    assert mock_execute.await_args.args[1:] == (
+        "task-1",
+        "workspace_feature",
+        {"workspace_id": "ws-1"},
+    )
+
+
 class TestCeleryExecutor:
     """Tests for Celery-based task execution."""
 

@@ -1,12 +1,18 @@
 """Service layer for persisted chat threads."""
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
+import logging
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agents.middlewares.thread_data import delete_thread_directory
 from src.database import ChatThread
 from src.models.router import route_model
+
+logger = logging.getLogger(__name__)
 
 
 class ChatThreadAccessError(LookupError):
@@ -129,7 +135,9 @@ class ChatThreadService:
         role: str,
         content: str,
         timestamp: datetime | None = None,
-    ) -> dict[str, str]:
+        blocks: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Append a message and persist JSON history safely."""
         resolved_timestamp = timestamp or datetime.now(UTC)
         message = {
@@ -137,6 +145,14 @@ class ChatThreadService:
             "content": content,
             "timestamp": resolved_timestamp.isoformat(),
         }
+        if isinstance(blocks, list) and blocks:
+            message["blocks"] = [
+                block
+                for block in blocks
+                if isinstance(block, Mapping)
+            ]
+        if isinstance(metadata, Mapping) and metadata:
+            message["metadata"] = dict(metadata)
         messages = list(thread.messages or [])
         messages.append(message)
         thread.messages = messages
@@ -180,4 +196,12 @@ class ChatThreadService:
 
         await self.db.delete(thread)
         await self.db.commit()
+        try:
+            delete_thread_directory(thread_id)
+        except Exception:
+            logger.warning(
+                "Failed to delete local thread directory for %s",
+                thread_id,
+                exc_info=True,
+            )
         return True

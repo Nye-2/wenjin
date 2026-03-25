@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from src.agents.graphs._shared import _read_optional_str
+from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_writing_model
 from src.task.progress import emit_runtime_update, get_runtime_state
@@ -301,7 +301,7 @@ def _determine_generation_mode(
         return "llm"
     if succeeded == 1:
         return "partial_llm"
-    return "template_fallback"
+    return "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -322,13 +322,11 @@ async def compile_export_graph(
     thesis into a real PDF draft artifact.
     """
     workspace_id = str(payload.get("workspace_id", ""))
-    workspace_name = str(
-        payload.get("workspace_name", payload.get("params", {}).get("topic", ""))
-    )
+    params = _read_payload_params(payload)
+    workspace_name = str(payload.get("workspace_name") or params.get("topic") or "")
     workspace_description = str(payload.get("workspace_description", ""))
     thread_id = payload.get("thread_id")
-    memory_context = initial_state.get("knowledge_context")
-    params = payload.get("params", {})
+    memory_context = initial_state.get("memory_context")
     requested_model = _read_optional_str(params.get("model_id"))
     model_id = _resolve_writing_model(requested_model)
     runtime = get_runtime_state()
@@ -417,6 +415,21 @@ async def compile_export_graph(
     abstract_ok = abstract_keywords is not None
     generation_mode = _determine_generation_mode(consistency_ok, abstract_ok)
 
+    abstract_override: str | None = None
+    keywords_override: list[str] | None = None
+    if isinstance(abstract_keywords, dict):
+        abstract_text = str(abstract_keywords.get("abstract_zh") or "").strip()
+        if abstract_text:
+            abstract_override = abstract_text
+        raw_keywords = abstract_keywords.get("keywords_zh")
+        if isinstance(raw_keywords, list):
+            keywords_override = [
+                str(item).strip()
+                for item in raw_keywords
+                if str(item).strip()
+            ]
+            keywords_override = keywords_override[:8]
+
     compile_payload = await build_compile_payload(
         workspace_id=workspace_id,
         workspace_name=workspace_name,
@@ -425,6 +438,8 @@ async def compile_export_graph(
         template=str(params.get("template") or "default"),
         compiler=str(params.get("compiler") or "xelatex"),
         bibliography_style=str(params.get("bibliography_style") or "gbt7714"),
+        abstract_override=abstract_override,
+        keywords_override=keywords_override,
     )
     if runtime is not None:
         upsert_runtime_block(
@@ -476,6 +491,8 @@ async def compile_export_graph(
         "compile_logs": compile_payload.get("compile_logs"),
         "latex_content": compile_payload.get("latex_content"),
         "bib_content": compile_payload.get("bib_content"),
+        "keywords": compile_payload.get("keywords"),
+        "abstract_source": compile_payload.get("abstract_source"),
         "source_summary": compile_payload.get("source_summary"),
         "template": compile_payload.get("template"),
         "compiler": compile_payload.get("compiler"),
@@ -489,5 +506,5 @@ async def compile_export_graph(
             "consistency_review": consistency_ok,
             "abstract_generation": abstract_ok,
         },
-        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "generated_at": datetime.now(tz=UTC).isoformat(),
     }

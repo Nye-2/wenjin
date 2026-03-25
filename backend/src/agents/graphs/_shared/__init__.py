@@ -13,6 +13,7 @@ from .utils import (
     _normalize_list,
     _normalize_text,
     _read_optional_int,
+    _read_payload_params,
     _read_optional_str,
     _utc_now_iso,
     build_memory_context_text,
@@ -33,6 +34,7 @@ __all__ = [
     "_normalize_list",
     "_normalize_text",
     "_read_optional_int",
+    "_read_payload_params",
     "_read_optional_str",
     "_utc_now_iso",
 ]

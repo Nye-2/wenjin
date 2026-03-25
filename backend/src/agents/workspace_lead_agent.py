@@ -41,7 +41,6 @@ FeatureGraphFn = Callable[[dict[str, Any], dict[str, Any]], Awaitable[dict[str, 
 
 # Feature graph registry: composite_key -> async callable(initial_state, payload) -> result
 # Key format: "{workspace_type}.{feature_id}" (e.g., "thesis.literature_management")
-# Legacy format: "{feature_id}" (backward compat, deprecated)
 _FEATURE_GRAPH_REGISTRY: dict[str, FeatureGraphFn] = {}
 _LOADED_WORKSPACES: set[str] = set()
 _WORKSPACE_GRAPH_MODULES: dict[str, tuple[str, ...]] = {
@@ -57,10 +56,15 @@ _WORKSPACE_GRAPH_MODULES: dict[str, tuple[str, ...]] = {
         "src.agents.graphs.sci.literature_search",
         "src.agents.graphs.sci.paper_analysis",
         "src.agents.graphs.sci.writing",
+        "src.agents.graphs.sci.literature_review",
+        "src.agents.graphs.sci.framework_outline",
+        "src.agents.graphs.sci.peer_review",
+        "src.agents.graphs.sci.journal_recommend",
     ),
     "proposal": (
         "src.agents.graphs.proposal.proposal_outline",
         "src.agents.graphs.proposal.background_research",
+        "src.agents.graphs.proposal.experiment_design",
     ),
     "patent": (
         "src.agents.graphs.patent.patent_outline",
@@ -73,25 +77,19 @@ _WORKSPACE_GRAPH_MODULES: dict[str, tuple[str, ...]] = {
 }
 
 
-def register_feature_graph(feature_id: str, workspace_type: str | None = None):
+def register_feature_graph(feature_id: str, workspace_type: str):
     """Decorator to register a feature graph function.
 
     Args:
         feature_id: Unique identifier for the feature (e.g., "literature_search")
-        workspace_type: Workspace type for multi-workspace support (e.g., "sci", "patent")
-                         If None, assumes backward compatibility with thesis graphs.
+        workspace_type: Workspace type for multi-workspace support
+            (e.g., "sci", "patent", "thesis").
 
     Returns:
         Decorator function that registers the graph and returns it unchanged.
     """
     def decorator(fn: Callable) -> Callable:
-        # Build composite key
-        if workspace_type:
-            key = f"{workspace_type}.{feature_id}"
-        else:
-            # Backward compat: use feature_id only for thesis
-            key = feature_id
-
+        key = f"{workspace_type}.{feature_id}"
         _FEATURE_GRAPH_REGISTRY[key] = fn
         logger.debug("Registered feature graph: %s", key)
         return fn
@@ -157,7 +155,7 @@ async def execute_feature_graph(
     Raises:
         ValueError: If no graph is registered or execution fails
     """
-    from src.agents.middlewares.memory import (
+    from src.services.user_memory_service import (
         format_knowledge_for_prompt,
         load_user_memory,
     )
@@ -190,13 +188,10 @@ async def execute_feature_graph(
         "workspace_id": workspace_id,
         "workspace_type": workspace_type,
         "discipline": discipline,
-        "knowledge_context": memory_text,
+        "memory_context": memory_text,
     }
 
-    # Lookup graph: workspace_type.feature_id first, then feature_id (backward compat)
     lookup_key = f"{workspace_type}.{feature_id}"
-    if lookup_key not in _FEATURE_GRAPH_REGISTRY:
-        lookup_key = feature_id
 
     if lookup_key not in _FEATURE_GRAPH_REGISTRY:
         raise ValueError(
@@ -236,5 +231,5 @@ async def execute_thesis_feature_graph(
     *,
     user_id: str | None = None,
 ) -> dict[str, Any]:
-    """Backward-compatible entry point for thesis workspace features."""
+    """Convenience wrapper for thesis workspace feature execution."""
     return await execute_feature_graph("thesis", feature_id, payload, user_id=user_id)

@@ -19,7 +19,9 @@ models:
     supports_thinking: true
     supports_vision: true
     when_thinking_enabled:
-      thinking_budget: 10000
+      thinking:
+        type: enabled
+        budget_tokens: 10000
       betas: ["interleaved-thinking-2025-05-14"]
 
   - name: deepseek-v3
@@ -62,7 +64,7 @@ tool_groups:
     description: Academic research tools
 
 sandbox:
-  use: src.sandbox.local:LocalSandboxProvider
+  use: src.sandbox.providers.local:LocalSandboxProvider
 
 skills:
   path: ./skills/public
@@ -121,7 +123,6 @@ subagents:
 
 memory:
   enabled: true
-  storage_path: .academiagpt/memory.json
   debounce_seconds: 30
   max_facts: 100
   fact_confidence_threshold: 0.7

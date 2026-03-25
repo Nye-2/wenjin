@@ -6,7 +6,7 @@ import pytest
 
 
 class TestTaskMetricsInLocalExecutor:
-    """Verify track_task_start / track_task_end are called in _run_task_locally."""
+    """Verify the shared task runner still records metrics in local mode."""
 
     @pytest.mark.asyncio
     async def test_track_task_called_on_success(self):
@@ -32,8 +32,8 @@ class TestTaskMetricsInLocalExecutor:
                 new_callable=AsyncMock,
                 return_value={"status": "ok"},
             ),
-            patch("src.task.executor.track_task_start") as mock_start,
-            patch("src.task.executor.track_task_end") as mock_end,
+            patch("src.observability.prometheus.track_task_start") as mock_start,
+            patch("src.observability.prometheus.track_task_end") as mock_end,
         ):
             mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -73,8 +73,8 @@ class TestTaskMetricsInLocalExecutor:
                 new_callable=AsyncMock,
                 side_effect=ValueError("boom"),
             ),
-            patch("src.task.executor.track_task_start") as mock_start,
-            patch("src.task.executor.track_task_end") as mock_end,
+            patch("src.observability.prometheus.track_task_start") as mock_start,
+            patch("src.observability.prometheus.track_task_end") as mock_end,
         ):
             mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)

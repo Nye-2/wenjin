@@ -1,5 +1,7 @@
 """Tests for TaskStore."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 import pytest_asyncio
 
@@ -75,15 +77,42 @@ class TestTaskStorePostgres:
         record = await task_store.create_task_record(
             task_id="test-task-pg-1",
             user_id="user-1",
-            task_type="deep_research",
+            task_type="workspace_feature",
             priority=5,
-            payload={"query": "test"},
+            payload={"feature_id": "deep_research", "query": "test"},
         )
 
         assert record.id == "test-task-pg-1"
         assert record.user_id == "user-1"
-        assert record.task_type == "deep_research"
+        assert record.task_type == "workspace_feature"
         assert record.status == "pending"
+
+    @pytest.mark.asyncio
+    async def test_create_task_record_guarded_enforces_limit(self, task_store):
+        """Guarded creation should atomically reject submissions beyond the active-task limit."""
+        for index in range(2):
+            record, active_count = await task_store.create_task_record_guarded(
+                task_id=f"guarded-task-{index}",
+                user_id="guarded-user",
+                task_type="workspace_feature",
+                priority=5,
+                payload={"feature_id": "deep_research", "index": index},
+                concurrency_limit=2,
+            )
+            assert record is not None
+            assert active_count == index
+
+        blocked_record, blocked_count = await task_store.create_task_record_guarded(
+            task_id="guarded-task-blocked",
+            user_id="guarded-user",
+            task_type="workspace_feature",
+            priority=5,
+            payload={"feature_id": "deep_research", "index": 2},
+            concurrency_limit=2,
+        )
+
+        assert blocked_record is None
+        assert blocked_count == 2
 
     @pytest.mark.asyncio
     async def test_get_task_record(self, task_store):
@@ -91,14 +120,14 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-pg-2",
             user_id="user-1",
-            task_type="literature_search",
+            task_type="workspace_feature",
             priority=5,
-            payload={},
+            payload={"workspace_id": "ws-1", "feature_id": "literature_search"},
         )
 
         record = await task_store.get_task_record("test-task-pg-2")
         assert record is not None
-        assert record.task_type == "literature_search"
+        assert record.task_type == "workspace_feature"
 
     @pytest.mark.asyncio
     async def test_update_task_record(self, task_store):
@@ -106,9 +135,9 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-pg-3",
             user_id="user-1",
-            task_type="deep_research",
+            task_type="workspace_feature",
             priority=5,
-            payload={},
+            payload={"feature_id": "deep_research"},
         )
 
         updated = await task_store.update_task_record(
@@ -127,9 +156,9 @@ class TestTaskStorePostgres:
             await task_store.create_task_record(
                 task_id=f"test-task-list-{i}",
                 user_id="user-list",
-                task_type="deep_research",
+                task_type="workspace_feature",
                 priority=5,
-                payload={},
+                payload={"feature_id": "deep_research"},
             )
 
         tasks = await task_store.list_user_tasks("user-list")
@@ -142,9 +171,9 @@ class TestTaskStorePostgres:
             await task_store.create_task_record(
                 task_id=f"test-active-{i}",
                 user_id="user-active",
-                task_type="deep_research",
+                task_type="workspace_feature",
                 priority=5,
-                payload={},
+                payload={"feature_id": "deep_research"},
             )
         # First task is completed
         await task_store.update_task_record("test-active-0", status="success")
@@ -191,6 +220,75 @@ class TestTaskStorePostgres:
         assert state is not None
         assert state["progress"] == 80
         assert state["metadata"] == {"current_phase": "compile"}
+
+    @pytest.mark.asyncio
+    async def test_mark_task_completed_publishes_canonical_task_activity(
+        self,
+        task_store,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        publish_workspace_event = AsyncMock()
+        monkeypatch.setattr("src.task.store.publish_workspace_event", publish_workspace_event)
+
+        await task_store.create_task_record(
+            task_id="test-task-event",
+            user_id="user-1",
+            task_type="workspace_feature",
+            priority=5,
+            payload={
+                "workspace_id": "ws-1",
+                "feature_id": "deep_research",
+                "params": {"topic": "LLM agents"},
+            },
+        )
+        await task_store.set_task_state(
+            "test-task-event",
+            status="running",
+            progress=55,
+            message="Collecting papers",
+        )
+
+        await task_store.mark_task_completed(
+            "test-task-event",
+            success=True,
+            result={"refresh_targets": ["artifacts"]},
+        )
+
+        first_payload = publish_workspace_event.await_args_list[0].args[2]
+        second_payload = publish_workspace_event.await_args_list[1].args[2]
+        assert first_payload["activity"]["id"] == "task:test-task-event"
+        assert first_payload["activity"]["status"] == "success"
+        assert first_payload["activity"]["summary"] == "Collecting papers"
+        assert second_payload["refresh_targets"] == ["dashboard", "artifacts"]
+
+    @pytest.mark.asyncio
+    async def test_mark_task_started_publishes_running_activity(
+        self,
+        task_store,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        publish_workspace_event = AsyncMock()
+        monkeypatch.setattr("src.task.store.publish_workspace_event", publish_workspace_event)
+
+        await task_store.create_task_record(
+            task_id="test-task-started",
+            user_id="user-1",
+            task_type="workspace_feature",
+            priority=5,
+            payload={
+                "workspace_id": "ws-1",
+                "feature_id": "framework_outline",
+                "thread_id": "thread-1",
+            },
+        )
+
+        await task_store.mark_task_started("test-task-started", worker_id="worker-1")
+
+        payload = publish_workspace_event.await_args.args[2]
+        assert payload["task"]["status"] == "running"
+        assert payload["activity"]["id"] == "task:test-task-started"
+        assert payload["activity"]["status"] == "running"
+        assert payload["activity"]["feature_id"] == "framework_outline"
 
     @pytest.mark.asyncio
     async def test_persist_runtime_state_writes_runtime_to_record(self, task_store):

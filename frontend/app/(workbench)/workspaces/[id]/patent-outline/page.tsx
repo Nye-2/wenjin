@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, FileText } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { FileText } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -22,18 +22,31 @@ import {
   findLatestArtifact,
   getArtifactContentRecord,
   readNamedSections,
+  readString,
 } from "@/lib/artifact-utils";
 
 export default function PatentOutlinePage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params.id as string;
   const { workspace, artifacts } = useWorkspaceStore();
+  const innovationDescriptionSeed = searchParams.get("innovation_description");
+  const technicalFieldSeed = searchParams.get("technical_field");
+  const applicationScenarioSeed = searchParams.get("application_scenario");
+  const implementationMethodSeed = searchParams.get("implementation_method");
 
-  const [innovationDescription, setInnovationDescription] = useState("");
-  const [technicalField, setTechnicalField] = useState("");
-  const [applicationScenario, setApplicationScenario] = useState("");
-  const [implementationMethod, setImplementationMethod] = useState("");
+  const [innovationDescription, setInnovationDescription] = useState(
+    () => innovationDescriptionSeed || ""
+  );
+  const [technicalField, setTechnicalField] = useState(
+    () => technicalFieldSeed || ""
+  );
+  const [applicationScenario, setApplicationScenario] = useState(
+    () => applicationScenarioSeed || ""
+  );
+  const [implementationMethod, setImplementationMethod] = useState(
+    () => implementationMethodSeed || ""
+  );
 
   const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
@@ -49,6 +62,34 @@ export default function PatentOutlinePage() {
     purpose: "writing",
     persistenceKey: `workspace:${workspaceId}:model:writing`,
   });
+
+  useEffect(() => {
+    if (innovationDescriptionSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setInnovationDescription(innovationDescriptionSeed);
+    }
+  }, [innovationDescriptionSeed]);
+
+  useEffect(() => {
+    if (technicalFieldSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setTechnicalField(technicalFieldSeed);
+    }
+  }, [technicalFieldSeed]);
+
+  useEffect(() => {
+    if (applicationScenarioSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setApplicationScenario(applicationScenarioSeed);
+    }
+  }, [applicationScenarioSeed]);
+
+  useEffect(() => {
+    if (implementationMethodSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setImplementationMethod(implementationMethodSeed);
+    }
+  }, [implementationMethodSeed]);
 
   useEffect(() => {
     if (workspace && !innovationDescription) {
@@ -101,6 +142,44 @@ export default function PatentOutlinePage() {
   const evidencePoints = Array.isArray(latestPatentResult?.evidence_points_needed)
     ? latestPatentResult.evidence_points_needed
     : [];
+
+  useEffect(() => {
+    const latestInnovationDescription = readString(
+      latestPatentResult?.innovation_description
+    );
+    if (latestInnovationDescription && !innovationDescription) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest innovation description when route seed is absent
+      setInnovationDescription(latestInnovationDescription);
+    }
+  }, [latestPatentResult, innovationDescription]);
+
+  useEffect(() => {
+    const latestTechnicalField = readString(latestPatentResult?.technical_field);
+    if (latestTechnicalField && !technicalField) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest technical field when route seed is absent
+      setTechnicalField(latestTechnicalField);
+    }
+  }, [latestPatentResult, technicalField]);
+
+  useEffect(() => {
+    const latestApplicationScenario = readString(
+      latestPatentResult?.application_scenario
+    );
+    if (latestApplicationScenario && !applicationScenario) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest application scenario when route seed is absent
+      setApplicationScenario(latestApplicationScenario);
+    }
+  }, [latestPatentResult, applicationScenario]);
+
+  useEffect(() => {
+    const latestImplementationMethod = readString(
+      latestPatentResult?.implementation_method
+    );
+    if (latestImplementationMethod && !implementationMethod) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore latest implementation method when route seed is absent
+      setImplementationMethod(latestImplementationMethod);
+    }
+  }, [latestPatentResult, implementationMethod]);
 
   const resultViewModel: WorkspaceResultViewModel = createWorkspaceResultViewModel({
     summary: latestPatentResult
@@ -155,48 +234,18 @@ export default function PatentOutlinePage() {
   });
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Header */}
-      <header className="h-14 flex items-center gap-4 px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push(`/workspaces/${workspaceId}`)}
-          className={cn(
-            "p-2 rounded-lg",
-            "bg-[var(--bg-surface)]",
-            "hover:bg-[var(--bg-muted)]",
-            "text-[var(--text-secondary)]",
-            "transition-colors"
-          )}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-rose-500/10">
-            <FileText className="w-5 h-5 text-rose-600 dark:text-rose-400" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[var(--text-primary)]">
-              专利框架
-            </h1>
-            <p className="text-xs text-[var(--text-muted)]">
-              生成专利说明书与权利要求书框架
-            </p>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Input */}
-        <aside className="w-96 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4 overflow-y-auto">
-          <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">
-            专利信息配置
-          </h2>
-
-          <div className="space-y-4">
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="专利框架"
+      description="生成专利说明书与权利要求书框架"
+      icon={FileText}
+      iconBgClass="bg-rose-500/10"
+      iconClass="text-rose-600 dark:text-rose-400"
+      sidebarTitle="专利信息配置"
+      sidebarWidthClassName="lg:w-96"
+      sidebarClassName="overflow-y-auto"
+      sidebar={
+        <div className="space-y-4">
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 创新点描述 <span className="text-red-500">*</span>
@@ -277,28 +326,18 @@ export default function PatentOutlinePage() {
               error={error}
               onRetry={handleGenerate}
             />
-          </div>
-        </aside>
-
-        {/* Main Area */}
-        <div className="flex-1 p-6 overflow-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <TaskRuntimePanel
-              runtime={runtime}
-              isRunning={isRunning}
-              status={status}
-              error={error}
-              title="专利框架运行面板"
-              emptyDescription="执行后，这里会显示创新输入、框架生成和权利要求整理过程。"
-            />
-            <WorkspaceResultPanel viewModel={resultViewModel} />
-          </motion.div>
         </div>
-      </main>
-    </div>
+      }
+    >
+      <TaskRuntimePanel
+        runtime={runtime}
+        isRunning={isRunning}
+        status={status}
+        error={error}
+        title="专利框架运行面板"
+        emptyDescription="执行后，这里会显示创新输入、框架生成和权利要求整理过程。"
+      />
+      <WorkspaceResultPanel viewModel={resultViewModel} />
+    </FeatureWorkbenchShell>
   );
 }

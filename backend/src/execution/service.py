@@ -5,9 +5,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from .base import ExecutionService
 from .docker.client import DockerClient, DockerExecutionError
+from .path_utils import normalize_thread_id
+from .providers.ai_image import AIImageProvider
 from .providers.latex import LaTeXProvider
 from .providers.mermaid import MermaidProvider
 from .providers.python_viz import PythonVizProvider
@@ -34,7 +37,7 @@ class DockerExecutionService(ExecutionService):
         ExecutionType.LATEX_COMPILE: LaTeXProvider,
         ExecutionType.PYTHON_PLOT: PythonVizProvider,
         ExecutionType.MERMAID_DIAGRAM: MermaidProvider,
-        # ExecutionType.AI_IMAGE: AIImageProvider,
+        ExecutionType.AI_IMAGE: AIImageProvider,
     }
 
     def __init__(
@@ -221,15 +224,18 @@ class DockerExecutionService(ExecutionService):
         Returns:
             Working directory path.
         """
-        thread_id = request.thread_id or "default"
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        thread_id = normalize_thread_id(request.thread_id)
+        # Include microseconds and a short random suffix to avoid collisions
+        # when multiple executions start within the same second.
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        run_id = uuid4().hex[:8]
 
         work_dir = (
             self.sandbox_base_dir
             / thread_id
             / "execution"
             / request.execution_type.value
-            / timestamp
+            / f"{timestamp}_{run_id}"
         )
         work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -245,7 +251,7 @@ class DockerExecutionService(ExecutionService):
         Returns:
             Sandbox virtual path (e.g., /mnt/user-data/...).
         """
-        thread_id = thread_id or "default"
+        thread_id = normalize_thread_id(thread_id)
         relative = physical_path.relative_to(self.sandbox_base_dir / thread_id)
         return f"/mnt/user-data/{relative}"
 

@@ -9,7 +9,6 @@ import pytest
 
 from src.subagents.executor import SubagentExecutor, SubagentStatus
 from src.subagents.registry import SubagentConfig, registry
-from src.subagents.events import EventStream, SubagentEvent, SubagentEventType
 
 
 class TestSubagentChainIntegration:
@@ -20,9 +19,9 @@ class TestSubagentChainIntegration:
         assert registry.get("synthesizer") is not None
 
     @pytest.mark.asyncio
-    async def test_executor_with_event_stream(self):
-        """Executor should emit events to stream."""
-        from unittest.mock import patch, MagicMock
+    async def test_executor_completes_without_legacy_event_stream(self):
+        """Executor should focus on execution while manager owns event publication."""
+        from unittest.mock import MagicMock, patch
 
         config = SubagentConfig(
             name="Test",
@@ -31,31 +30,18 @@ class TestSubagentChainIntegration:
         )
         executor = SubagentExecutor(config=config, tools=[])
 
-        stream = EventStream()
-
         with patch.object(executor, "_create_agent") as mock_create:
             mock_agent = MagicMock()
-            mock_agent.invoke.return_value = {"messages": [MagicMock(content="OK")]}
+            async def _astream(*args, **kwargs):
+                yield {"messages": [MagicMock(content="OK")]}
+
+            mock_agent.astream = _astream
             mock_create.return_value = mock_agent
 
-            result = executor.execute("test task", stream=stream)
-
-            # Close stream to signal end of events
-            stream.close()
-
-            # Collect events
-            events = []
-            for event in stream.iterate(timeout=1.0):
-                events.append(event)
+            result = await executor.aexecute("test task")
 
             assert result.status == SubagentStatus.COMPLETED
-            # Events should include STARTED, RUNNING, COMPLETED
-            assert len(events) >= 1
-            # Verify all expected event types are present
-            event_types = [e.type for e in events]
-            assert SubagentEventType.STARTED in event_types
-            assert SubagentEventType.RUNNING in event_types
-            assert SubagentEventType.COMPLETED in event_types
+            assert result.result == "OK"
 
     def test_subagent_config_model_instantiation(self):
         """Subagent config models should instantiate with expected values."""
@@ -81,19 +67,39 @@ class TestSubagentChainIntegration:
 
 class TestMemoryIntegration:
     @pytest.mark.asyncio
-    async def test_memory_update_integration(self, tmp_path):
-        """Memory system should integrate with pipeline."""
-        from src.agents.memory.updater import MemoryUpdater
-        from langchain_core.messages import HumanMessage, AIMessage
+    async def test_memory_capture_callback_uses_canonical_persistence(self):
+        """Memory capture should hand off cleaned transcript to canonical persistence."""
+        from unittest.mock import AsyncMock, MagicMock, patch
 
-        storage = str(tmp_path / "memory.json")
-        updater = MemoryUpdater(storage_path=storage)
+        from langchain_core.messages import AIMessage, HumanMessage
 
+        from src.agents.memory.capture import enqueue_memory_capture
+
+        queue = MagicMock()
         messages = [
             HumanMessage(content="I study NLP"),
             AIMessage(content="I'll help with NLP research"),
         ]
 
-        # Update should not raise
-        result = await updater.update_from_messages(messages)
-        assert isinstance(result, bool)
+        with patch(
+            "src.agents.memory.capture.extract_and_persist_knowledge",
+            AsyncMock(),
+        ) as mock_persist:
+            enqueue_memory_capture(
+                thread_id="thread-1",
+                user_id="user-1",
+                workspace_id="ws-1",
+                messages=messages,
+                source="test",
+                queue=queue,
+            )
+
+            callback = queue.enqueue.call_args.kwargs["callback"]
+            await callback("thread-1", messages)
+
+        mock_persist.assert_awaited_once_with(
+            "user-1",
+            "user: I study NLP\nassistant: I'll help with NLP research",
+            workspace_context="ws-1",
+            source="test",
+        )

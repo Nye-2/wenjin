@@ -4,9 +4,11 @@ import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
@@ -18,23 +20,87 @@ from .base import Base
 
 logger = logging.getLogger(__name__)
 
-# Create async engine
-engine = create_async_engine(
-    settings.database_url,
-    echo=settings.debug,
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-)
 
-# Create session factory
-async_session_factory = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autocommit=False,
-    autoflush=False,
-)
+def _build_engine() -> AsyncEngine:
+    """Build a fresh async engine bound to the current process."""
+    return create_async_engine(
+        settings.database_url,
+        echo=settings.debug,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+    )
+
+
+def _build_session_factory(
+    target_engine: AsyncEngine,
+) -> async_sessionmaker[AsyncSession]:
+    """Build a fresh session factory bound to the provided engine."""
+    return async_sessionmaker(
+        target_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+
+
+_engine: AsyncEngine = _build_engine()
+_session_factory: async_sessionmaker[AsyncSession] = _build_session_factory(_engine)
+
+
+class _AsyncEngineProxy:
+    """Stable engine reference that survives process-local engine resets."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(get_engine(), name)
+
+    def __repr__(self) -> str:
+        return repr(get_engine())
+
+
+class _AsyncSessionFactoryProxy:
+    """Stable session-factory reference that follows engine resets."""
+
+    def __call__(self, *args: Any, **kwargs: Any):
+        return get_async_session_factory()(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(get_async_session_factory(), name)
+
+    def __repr__(self) -> str:
+        return repr(get_async_session_factory())
+
+
+engine = _AsyncEngineProxy()
+async_session_factory = _AsyncSessionFactoryProxy()
+
+
+def get_engine() -> AsyncEngine:
+    """Return the current process-local async engine."""
+    return _engine
+
+
+def get_async_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the current process-local async session factory."""
+    return _session_factory
+
+
+async def reset_db_engine(*, dispose_current: bool = True) -> None:
+    """Rebuild the async engine/session factory for the current process.
+
+    Celery forks worker child processes after module import. Reusing a parent
+    process async engine in the child can leak loop-bound futures into a new
+    event loop. This helper provides a clean child-process-local engine.
+    """
+    global _engine, _session_factory
+
+    previous_engine = _engine
+    _engine = _build_engine()
+    _session_factory = _build_session_factory(_engine)
+
+    if dispose_current:
+        await previous_engine.dispose()
 
 
 @asynccontextmanager

@@ -3,7 +3,12 @@
  */
 
 import { create } from "zustand";
-import { getWorkspaceDashboard, type ModuleStatus } from "@/lib/api";
+import {
+  getWorkspaceDashboard,
+  getWorkspaceSummary,
+  type ModuleStatus,
+  type WorkspaceSummaryData,
+} from "@/lib/api";
 
 // Re-export for convenience
 export type { ModuleStatus };
@@ -18,6 +23,7 @@ interface RecentArtifact {
 interface DashboardState {
   modules: ModuleStatus[];
   recentArtifacts: RecentArtifact[];
+  summary: WorkspaceSummaryData | null;
   isLoading: boolean;
   error: string | null;
   fetchDashboard: (workspaceId: string) => Promise<void>;
@@ -27,25 +33,59 @@ interface DashboardState {
 export const useDashboardStore = create<DashboardState>((set) => ({
   modules: [],
   recentArtifacts: [],
+  summary: null,
   isLoading: false,
   error: null,
 
   fetchDashboard: async (workspaceId: string) => {
     set({ isLoading: true, error: null });
-    try {
-      const data = await getWorkspaceDashboard(workspaceId);
+    const [dashboardResult, summaryResult] = await Promise.allSettled([
+      getWorkspaceDashboard(workspaceId),
+      getWorkspaceSummary(workspaceId),
+    ]);
+
+    if (dashboardResult.status === "fulfilled") {
+      const data = dashboardResult.value;
       set({
         modules: data.modules || [],
         recentArtifacts: data.recent_artifacts || [],
-        isLoading: false,
       });
-    } catch (e: unknown) {
-      const error = e instanceof Error ? e.message : "Failed to load dashboard";
-      set({ error, isLoading: false });
     }
+
+    if (summaryResult.status === "fulfilled") {
+      set({ summary: summaryResult.value });
+    }
+
+    const dashboardError =
+      dashboardResult.status === "rejected"
+        ? dashboardResult.reason instanceof Error
+          ? dashboardResult.reason.message
+          : "Failed to load dashboard"
+        : null;
+    const summaryError =
+      summaryResult.status === "rejected"
+        ? summaryResult.reason instanceof Error
+          ? summaryResult.reason.message
+          : "Failed to load workspace summary"
+        : null;
+
+    set({
+      isLoading: false,
+      error: dashboardError || summaryError,
+      ...(dashboardResult.status === "rejected"
+        ? { modules: [], recentArtifacts: [] }
+        : {}),
+      ...(summaryResult.status === "rejected" ? { summary: null } : {}),
+    });
   },
 
   reset: () => {
-    set({ modules: [], recentArtifacts: [], isLoading: false, error: null });
+    set({
+      modules: [],
+      recentArtifacts: [],
+      summary: null,
+      isLoading: false,
+      error: null,
+    });
   },
 }));

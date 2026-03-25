@@ -1,31 +1,15 @@
-"""Task API router."""
+"""Task API router for task status, streaming, listing, and cancellation."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_task_service
-from src.services.feature_credit_policy import BILLABLE_TASK_TYPES
 from src.task.service import TaskService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-
-
-# === Request/Response Models ===
-
-class TaskSubmitRequest(BaseModel):
-    """Task submission request."""
-    task_type: str = Field(..., description="Type of task to execute")
-    priority: int = Field(5, ge=1, le=10, description="Task priority (1-10)")
-    payload: dict = Field(..., description="Task-specific parameters")
-
-
-class TaskSubmitResponse(BaseModel):
-    """Task submission response."""
-    task_id: str
-    status: str = "pending"
 
 
 class TaskStatusResponse(BaseModel):
@@ -54,36 +38,6 @@ class TaskListResponse(BaseModel):
 async def get_current_user_id(current_user: User = Depends(get_current_user)) -> str:
     """Get current authenticated user ID."""
     return str(current_user.id)
-
-
-# === Endpoints ===
-
-@router.post("", response_model=TaskSubmitResponse, status_code=201)
-async def submit_task(
-    request: TaskSubmitRequest,
-    user_id: str = Depends(get_current_user_id),
-    task_service: TaskService = Depends(get_task_service),
-):
-    """Submit a new async task."""
-    if request.task_type in BILLABLE_TASK_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Task type '{request.task_type}' must be started from workspace feature "
-                "execution endpoints to ensure credit accounting."
-            ),
-        )
-
-    try:
-        task_id = await task_service.submit_task(
-            user_id=user_id,
-            task_type=request.task_type,
-            payload=request.payload,
-            priority=request.priority,
-        )
-        return TaskSubmitResponse(task_id=task_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/{task_id}", response_model=TaskStatusResponse)

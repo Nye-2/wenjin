@@ -46,18 +46,16 @@ class SectionResponse(BaseModel):
     level: int
 
 
-class ExtractionResponse(BaseModel):
-    """Detailed paper extraction response."""
+class PaperExtractionTaskResponse(BaseModel):
+    """Async paper extraction submission response."""
 
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
+    task_id: str
+    status: str = "pending"
     paper_id: str
+    workspace_id: str
     tier: int
-    extraction_type: str
-    structured_data: dict
-    processing_time_ms: int | None
-    model_used: str | None
+    message: str
+    reused_existing_task: bool = False
 
 
 def _paper_summary_payload(paper: Any) -> dict[str, Any]:
@@ -108,14 +106,13 @@ def section_to_response(section: Any) -> SectionResponse:
     )
 
 
-def extraction_to_response(extraction: Any) -> ExtractionResponse:
-    """Convert a paper extraction object into the shared response model."""
-    return ExtractionResponse(
-        id=str(extraction.id),
-        paper_id=str(extraction.paper_id),
-        tier=extraction.tier,
-        extraction_type=extraction.extraction_type,
-        structured_data=extraction.structured_data,
-        processing_time_ms=extraction.processing_time_ms,
-        model_used=extraction.model_used,
+def paper_extraction_task_to_response(result: Any) -> PaperExtractionTaskResponse:
+    """Convert a paper extraction task submission result into the shared response model."""
+    return PaperExtractionTaskResponse(
+        task_id=str(result.task_id),
+        paper_id=str(result.paper_id),
+        workspace_id=str(result.workspace_id),
+        tier=int(result.tier),
+        message=str(result.message),
+        reused_existing_task=bool(getattr(result, "reused_existing_task", False)),
     )

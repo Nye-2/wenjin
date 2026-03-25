@@ -309,6 +309,110 @@ class TestGlobalSubagentManager:
                 redis_client._client = original_client
 
     @pytest.mark.asyncio
+    async def test_publish_subagent_update_includes_canonical_activity(self, manager):
+        """Subagent workspace events should carry an activity payload for the timeline."""
+        task = SubagentTask(
+            task_id="subagent-1",
+            thread_id="thread-1",
+            prompt="Review the paper",
+            created_at=datetime.now(),
+            timeout=60,
+            metadata={"subagent_type": "paper_critic"},
+        )
+        result = SubagentResult(
+            task_id="subagent-1",
+            status=SubagentStatus.COMPLETED,
+            output="Found three revision points",
+            error=None,
+            duration_seconds=1.2,
+        )
+        activity = {
+            "id": "subagent:subagent-1",
+            "kind": "subagent_task",
+            "workspace_id": "ws-1",
+            "occurred_at": datetime.now().isoformat(),
+            "title": "Paper Critic",
+            "summary": "Found three revision points",
+            "status": "completed",
+            "thread_id": "thread-1",
+            "task_id": "subagent-1",
+            "artifact_id": None,
+            "feature_id": None,
+            "subagent_type": "paper_critic",
+            "metadata": {},
+        }
+
+        with patch("src.workspace_events.publish_workspace_event", new=AsyncMock()) as publish_workspace_event:
+            await manager._publish_subagent_update(
+                "ws-1",
+                task,
+                status="completed",
+                result=result,
+                activity=activity,
+            )
+
+        payload = publish_workspace_event.await_args.args[2]
+        assert payload["activity"]["id"] == "subagent:subagent-1"
+        assert payload["activity"]["kind"] == "subagent_task"
+        assert payload["activity"]["summary"] == "Found three revision points"
+
+    @pytest.mark.asyncio
+    async def test_persist_subagent_activity_uses_durable_record_timestamp(self, manager):
+        """Durable subagent projection should drive the canonical activity payload."""
+        task = SubagentTask(
+            task_id="subagent-persisted",
+            thread_id="thread-1",
+            prompt="Review the paper",
+            created_at=datetime.now(),
+            timeout=60,
+            metadata={
+                "subagent_type": "paper_critic",
+                "workspace_id": "ws-1",
+            },
+        )
+        result = SubagentResult(
+            task_id="subagent-persisted",
+            status=SubagentStatus.TIMED_OUT,
+            output=None,
+            error="Timed out after 60s",
+            duration_seconds=60,
+        )
+        completed_at = datetime.now()
+        persisted_record = MagicMock(
+            id="subagent-persisted",
+            workspace_id="ws-1",
+            thread_id="thread-1",
+            status="timed_out",
+            subagent_type="paper_critic",
+            prompt="Review the paper",
+            output_preview=None,
+            error="Timed out after 60s",
+            created_at=task.created_at,
+            updated_at=completed_at,
+            completed_at=completed_at,
+        )
+        mock_store = AsyncMock()
+        mock_store.upsert_task_record = AsyncMock(return_value=persisted_record)
+        ctx = AsyncMock()
+        ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("src.database.get_db_session", return_value=ctx),
+            patch("src.subagents.store.SubagentTaskStore", return_value=mock_store),
+        ):
+            activity = await manager._persist_subagent_activity(
+                task,
+                status="timed_out",
+                result=result,
+            )
+
+        assert activity is not None
+        assert activity["status"] == "timed_out"
+        assert activity["occurred_at"] == completed_at.isoformat()
+        assert activity["summary"] == "Timed out after 60s"
+
+    @pytest.mark.asyncio
     async def test_thread_access_isolated_by_user(self, manager):
         """Users should not access another user's thread context."""
         task = SubagentTask(

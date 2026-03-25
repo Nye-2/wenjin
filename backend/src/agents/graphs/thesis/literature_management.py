@@ -1,14 +1,14 @@
-"""Literature Management sub-graph — LLM-powered analysis replacing template stats."""
+"""Literature Management sub-graph — LLM-powered literature management analysis."""
 
 from __future__ import annotations
 
 import json
 import logging
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from src.agents.graphs._shared import _read_optional_str
+from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_model
 from src.task.progress import emit_runtime_update, get_runtime_state
@@ -59,12 +59,11 @@ async def literature_management_graph(
 ) -> dict[str, Any]:
     """Execute literature management with LLM-enhanced analysis.
 
-    Pipeline: load literature -> compute stats -> LLM topic clustering -> LLM recommendations
-    Falls back to template mode if LLM unavailable.
+    Pipeline: load literature -> compute stats -> LLM topic clustering -> LLM recommendations.
     """
     workspace_id = str(payload.get("workspace_id", ""))
-    params = payload.get("params", {})
-    focus_topic = str(params.get("topic", payload.get("workspace_name", "")))
+    params = _read_payload_params(payload)
+    focus_topic = str(params.get("topic") or payload.get("workspace_name") or "")
     requested_model = _read_optional_str(params.get("model_id"))
     model_id = _resolve_management_model(requested_model)
     runtime = get_runtime_state()
@@ -99,11 +98,11 @@ async def literature_management_graph(
     # Step 2: Compute base statistics (always works, no LLM needed)
     stats = _compute_statistics(literature, focus_topic)
 
-    # Step 3: LLM-powered analysis (with fallback)
+    # Step 3: LLM-powered analysis
     llm_analysis = await _llm_analyze_literature(
         literature,
         focus_topic,
-        initial_state.get("knowledge_context"),
+        initial_state.get("memory_context"),
         model_id=model_id,
     )
 
@@ -114,10 +113,10 @@ async def literature_management_graph(
         stats["smart_recommendations"] = llm_analysis.get("recommendations", [])
         stats["generation_mode"] = "llm"
     else:
-        stats["generation_mode"] = "template_fallback"
+        stats["generation_mode"] = "rule_based"
 
     stats["model_id"] = model_id
-    stats["generated_at"] = datetime.now(tz=timezone.utc).isoformat()
+    stats["generated_at"] = datetime.now(tz=UTC).isoformat()
     if runtime is not None:
         summary = stats.get("summary") if isinstance(stats.get("summary"), dict) else {}
         upsert_runtime_block(

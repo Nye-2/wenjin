@@ -1,7 +1,7 @@
 """Tests for chat router."""
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from src.gateway.routers import chat
 from src.gateway.routers.auth import get_current_user
+from src.gateway.routers.chat import GeneratedChatReply
 from src.services.chat_thread_service import ChatThreadAccessError
 
 
@@ -31,8 +32,8 @@ class FakeThread:
     model: str
     skill: str | None = None
     messages: list[dict] = field(default_factory=list)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class FakeChatThreadService:
@@ -89,7 +90,7 @@ class FakeChatThreadService:
                     raise ChatThreadAccessError("Thread not found")
                 if workspace_id and not thread.workspace_id:
                     thread.workspace_id = workspace_id
-                    thread.updated_at = datetime.now(timezone.utc)
+                    thread.updated_at = datetime.now(UTC)
                 if skill_explicit:
                     thread.skill = skill
                 return thread
@@ -108,13 +109,19 @@ class FakeChatThreadService:
         role: str,
         content: str,
         timestamp: datetime | None = None,
-    ) -> dict[str, str]:
-        resolved_timestamp = timestamp or datetime.now(timezone.utc)
+        blocks: list[dict] | None = None,
+        metadata: dict | None = None,
+    ) -> dict[str, object]:
+        resolved_timestamp = timestamp or datetime.now(UTC)
         message = {
             "role": role,
             "content": content,
             "timestamp": resolved_timestamp.isoformat(),
         }
+        if blocks:
+            message["blocks"] = blocks
+        if metadata:
+            message["metadata"] = metadata
         thread.messages = [*thread.messages, message]
         thread.updated_at = resolved_timestamp
         return message
@@ -123,7 +130,7 @@ class FakeChatThreadService:
         if thread.title or len(thread.messages) > 2:
             return
         thread.title = first_message[:50] + ("..." if len(first_message) > 50 else "")
-        thread.updated_at = datetime.now(timezone.utc)
+        thread.updated_at = datetime.now(UTC)
 
     async def list_threads(
         self,
@@ -160,10 +167,17 @@ def create_client(user_id: str, service: FakeChatThreadService) -> TestClient:
     async def override_get_chat_thread_service():
         return service
 
+    async def _return_none():
+        return None
+
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[chat.get_chat_thread_service] = (
         override_get_chat_thread_service
     )
+    app.dependency_overrides[chat.get_workspace_service] = _return_none
+    app.dependency_overrides[chat.get_literature_service] = _return_none
+    app.dependency_overrides[chat.get_artifact_service] = _return_none
+    app.dependency_overrides[chat.get_paper_service] = _return_none
     app.include_router(chat.router)
     return TestClient(app)
 
@@ -191,6 +205,10 @@ class TestChatThreads:
         response = client.get(f"/threads/{thread_id}")
         assert response.status_code == 200
         assert response.json()["id"] == thread_id
+
+
+class TestChatThreadsContinuation:
+    """Additional thread ownership and lifecycle tests."""
 
     def test_thread_access_is_isolated_by_user(self):
         """A thread owned by one user is hidden from another."""
@@ -270,6 +288,41 @@ class TestChatThreads:
         )
 
 
+class TestChatRuntimeConfig:
+    """Runtime config assembly for chat-agent invocations."""
+
+    def test_runtime_config_includes_vision_and_subagent_flags(self):
+        request = chat.ChatRequest(message="Hello", workspace_id="ws-1")
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="gpt-4o",
+        )
+        current_user = create_mock_user("user-1")
+
+        with patch(
+            "src.gateway.routers.chat.get_model_config",
+            return_value=MagicMock(model="gpt-4o"),
+        ), patch(
+            "src.gateway.routers.chat.get_app_config",
+            return_value=MagicMock(subagents=MagicMock(enabled=True, max_concurrent=4)),
+        ):
+            config = chat._build_chat_runtime_config(
+                request=request,
+                thread=thread,
+                current_user=current_user,
+                workspace_id="ws-1",
+                effective_skill=None,
+                effective_model="gpt-4o",
+            )
+
+        assert config["configurable"]["supports_vision"] is True
+        assert config["configurable"]["subagent_enabled"] is True
+        assert config["configurable"]["max_concurrent_subagents"] == 4
+
+
 class TestChatMessages:
     """Chat message flow tests."""
 
@@ -280,7 +333,7 @@ class TestChatMessages:
 
         with patch(
             "src.gateway.routers.chat._generate_chat_response",
-            AsyncMock(return_value="assistant reply"),
+            AsyncMock(return_value=GeneratedChatReply(content="assistant reply")),
         ):
             response = client.post(
                 "/chat",
@@ -309,7 +362,7 @@ class TestChatMessages:
 
         with patch(
             "src.gateway.routers.chat._generate_chat_response",
-            AsyncMock(return_value="assistant reply"),
+            AsyncMock(return_value=GeneratedChatReply(content="assistant reply")),
         ):
             response = client.post(
                 "/chat",
@@ -340,7 +393,7 @@ class TestChatMessages:
 
         with patch(
             "src.gateway.routers.chat._generate_chat_response",
-            AsyncMock(return_value="assistant reply"),
+            AsyncMock(return_value=GeneratedChatReply(content="assistant reply")),
         ):
             response = client.post(
                 "/chat",
@@ -362,7 +415,7 @@ class TestChatMessages:
 
         with patch(
             "src.gateway.routers.chat._generate_chat_response",
-            AsyncMock(return_value="stream reply"),
+            AsyncMock(return_value=GeneratedChatReply(content="stream reply")),
         ):
             response = client.post(
                 "/chat/stream",
@@ -384,6 +437,33 @@ class TestChatMessages:
             "assistant",
         ]
 
+    def test_chat_persists_structured_assistant_message(self):
+        """Structured blocks and metadata are stored on assistant messages."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        with patch(
+            "src.gateway.routers.chat._generate_chat_response",
+            AsyncMock(
+                return_value=GeneratedChatReply(
+                    content="已启动任务",
+                    blocks=[{"type": "task", "title": "论文写作", "data": {"task_id": "task-1"}}],
+                    metadata={"orchestration": {"task_id": "task-1", "feature_id": "writing"}},
+                )
+            ),
+        ):
+            response = client.post(
+                "/chat",
+                json={"message": "开始写作", "workspace_id": "ws-1"},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["message"]["blocks"][0]["type"] == "task"
+        assert payload["message"]["metadata"]["orchestration"]["task_id"] == "task-1"
+        thread = service.threads[payload["thread_id"]]
+        assert thread.messages[-1]["blocks"][0]["title"] == "论文写作"
+
     def test_thread_agent_status_defaults_to_idle(self):
         """Threads expose a default idle execution status for unified UI polling."""
         service = FakeChatThreadService()
@@ -402,3 +482,87 @@ class TestChatMessages:
         assert payload["thread_id"] == thread_id
         assert payload["status"] == "idle"
         assert payload["current_skill"] == "deep-research"
+
+    @pytest.mark.asyncio
+    async def test_generate_chat_response_forwards_reasoning_effort_to_fallback_model(self):
+        """Fallback model invocations preserve the selected reasoning effort."""
+        request = chat.ChatRequest(
+            message="Hello",
+            workspace_id="ws-1",
+            reasoning_effort="high",
+        )
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="glm-5",
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+        current_user = create_mock_user("user-1")
+        fallback_model = MagicMock()
+        fallback_model.ainvoke = AsyncMock(return_value=MagicMock(content="fallback"))
+
+        with patch(
+            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.gateway.routers.chat.route_chat_model",
+            return_value="glm-5",
+        ), patch(
+            "src.agents.lead_agent.agent.make_lead_agent",
+            side_effect=RuntimeError("boom"),
+        ), patch(
+            "src.models.factory.create_chat_model",
+            return_value=fallback_model,
+        ) as create_chat_model:
+            reply = await chat._generate_chat_response(request, thread, current_user)
+
+        assert reply.content == "fallback"
+        create_chat_model.assert_called_once_with(
+            "glm-5",
+            thinking_enabled=False,
+            reasoning_effort="high",
+        )
+
+    @pytest.mark.asyncio
+    async def test_fallback_model_receives_memory_enriched_system_prompt(self):
+        """Fallback responses should still include injected long-term memory context."""
+        request = chat.ChatRequest(
+            message="Hello",
+            workspace_id="ws-1",
+        )
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="glm-5",
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+        current_user = create_mock_user("user-1")
+        fallback_model = MagicMock()
+        fallback_model.ainvoke = AsyncMock(return_value=MagicMock(content="fallback"))
+
+        with patch(
+            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.gateway.routers.chat.route_chat_model",
+            return_value="glm-5",
+        ), patch(
+            "src.agents.lead_agent.agent.make_lead_agent",
+            side_effect=RuntimeError("boom"),
+        ), patch(
+            "src.agents.middlewares.memory.build_memory_context",
+            AsyncMock(return_value="<academic_memory>\n- 偏好 IEEE\n</academic_memory>"),
+        ), patch(
+            "src.models.factory.create_chat_model",
+            return_value=fallback_model,
+        ):
+            reply = await chat._generate_chat_response(request, thread, current_user)
+
+        assert reply.content == "fallback"
+        messages = fallback_model.ainvoke.await_args.args[0]
+        assert messages[0].content
+        assert "偏好 IEEE" in messages[0].content

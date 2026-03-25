@@ -1,14 +1,81 @@
 """Base task execution function."""
 
-import asyncio
 import logging
 import time
+from collections.abc import Mapping
 
 from celery import shared_task
 
-from src.task.handlers.skill_handler import get_skill_task_handler
-
 logger = logging.getLogger(__name__)
+
+
+def _resolve_thread_skill(payload: Mapping[str, object], task_type: str) -> str:
+    feature_id = payload.get("feature_id")
+    if isinstance(feature_id, str) and feature_id.strip():
+        return feature_id
+    return task_type
+
+
+async def _append_task_chat_message(
+    *,
+    db,
+    task_id: str,
+    task_type: str,
+    payload: dict,
+    result: dict | None = None,
+    error: str | None = None,
+) -> None:
+    """Best-effort task result write-back into the originating chat thread."""
+    thread_id = str(payload.get("thread_id") or "").strip()
+    if not thread_id:
+        return
+
+    feature_id = str(payload.get("feature_id") or task_type).strip()
+    if not feature_id:
+        return
+
+    try:
+        from src.agents.lead_agent.feature_bridge import (
+            build_feature_task_completion_card,
+            build_feature_task_failure_card,
+        )
+        from src.services.chat_thread_events import publish_thread_updated
+        from src.services.chat_thread_service import ChatThreadService
+
+        chat_thread_service = ChatThreadService(db)
+        thread = await chat_thread_service.get_by_id(thread_id)
+        if thread is None:
+            return
+
+        if error:
+            reply = build_feature_task_failure_card(
+                feature_id=feature_id,
+                task_id=task_id,
+                payload=payload,
+                error=error,
+            )
+        else:
+            reply = build_feature_task_completion_card(
+                feature_id=feature_id,
+                task_id=task_id,
+                payload=payload,
+                result=result or {},
+            )
+
+        await chat_thread_service.add_message(
+            thread,
+            role="assistant",
+            content=reply.content,
+            blocks=reply.blocks,
+            metadata=reply.metadata,
+        )
+        await publish_thread_updated(thread)
+    except Exception:
+        logger.warning(
+            "Failed to append task result to thread %s",
+            thread_id,
+            exc_info=True,
+        )
 
 
 @shared_task(bind=True, name="src.task.tasks.execute_task")
@@ -27,7 +94,9 @@ def execute_task(self, task_id: str, task_type: str, payload: dict) -> dict:
     Returns:
         Task result dict
     """
-    return asyncio.run(_execute_task_async(self, task_id, task_type, payload))
+    from src.task.worker import run_worker_coroutine
+
+    return run_worker_coroutine(_execute_task_async(self, task_id, task_type, payload))
 
 
 async def _execute_task_async(
@@ -38,7 +107,6 @@ async def _execute_task_async(
 ) -> dict:
     """Async task execution logic."""
     from src.academic.cache.redis_client import redis_client
-    from src.academic.services import ArtifactService
     from src.database import get_db_session
     from src.task.progress import ProgressTracker
     from src.task.store import TaskStore
@@ -74,67 +142,29 @@ async def _execute_task_async(
             # Track agent status in Redis
             thread_id = payload.get("thread_id")
             if thread_id:
-                try:
-                    await redis_client.set_agent_status(
-                        thread_id,
-                        "running",
-                        skill=task_type,
-                        subagent_count=0,
-                    )
-                except Exception:
-                    logger.debug("Failed to set agent status for thread %s", thread_id)
+                from src.services.chat_thread_events import set_thread_status
+
+                await set_thread_status(
+                    str(payload.get("workspace_id") or "") or None,
+                    str(thread_id),
+                    status="running",
+                    skill=_resolve_thread_skill(payload, task_type),
+                    subagent_count=0,
+                )
 
             # Dispatch to task-specific handler
             result = await _dispatch_task(task_type, payload, progress)
 
-            # Persist artifacts for skill-based deep research tasks so they
-            # become first-class workspace artifacts.
-            if task_type == "deep_research":
-                artifacts = result.get("artifacts") or []
-                if isinstance(artifacts, list) and artifacts:
-                    service = ArtifactService(db)
-                    workspace_id = str(payload.get("workspace_id") or "")
-                    persisted_refs: list[dict] = []
-                    for artifact in artifacts:
-                        # Expect skill handler to return dicts with at least "type" and "content"
-                        art_type = artifact.get("type", "other")
-                        content = artifact.get("content", {}) or {}
-                        title = artifact.get("title") or {
-                            "literature_review": "Deep Research 文献综述",
-                            "research_ideas": "Deep Research 研究创意",
-                            "gap_analysis": "Deep Research 研究空白分析",
-                        }.get(art_type, f"Deep Research {art_type}")
-
-                        record = await service.create(
-                            workspace_id=workspace_id,
-                            type=art_type,
-                            title=title,
-                            content=content,
-                            created_by_skill=artifact.get("created_by_skill") or "deep-research",
-                        )
-                        persisted_refs.append(
-                            {
-                                "id": str(record.id),
-                                "type": record.type,
-                                "title": record.title or "",
-                            }
-                        )
-
-                    # Replace artifacts payload with lightweight references
-                    result["artifacts"] = persisted_refs
-                    refresh_targets = result.get("refresh_targets") or []
-                    if "artifacts" not in refresh_targets:
-                        result["refresh_targets"] = [*refresh_targets, "artifacts"]
-
             if thread_id:
-                try:
-                    await redis_client.set_agent_status(
-                        thread_id,
-                        "completed",
-                        subagent_count=0,
-                    )
-                except Exception:
-                    logger.debug("Failed to update agent status for thread %s", thread_id)
+                from src.services.chat_thread_events import set_thread_status
+
+                await set_thread_status(
+                    str(payload.get("workspace_id") or "") or None,
+                    str(thread_id),
+                    status="completed",
+                    skill=_resolve_thread_skill(payload, task_type),
+                    subagent_count=0,
+                )
 
             track_task_end(task_type, time.perf_counter() - _task_start_time)
 
@@ -142,6 +172,13 @@ async def _execute_task_async(
             # mark_task_completed → DB + Redis (authoritative)
             # progress.complete  → Redis + Pub/Sub (SSE notification only)
             await store.mark_task_completed(task_id, success=True, result=result)
+            await _append_task_chat_message(
+                db=db,
+                task_id=task_id,
+                task_type=task_type,
+                payload=payload,
+                result=result,
+            )
             await progress.complete("Task completed successfully")
 
             return result
@@ -180,17 +217,25 @@ async def _execute_task_async(
                     )
             thread_id = payload.get("thread_id")
             if thread_id:
-                try:
-                    await redis_client.set_agent_status(
-                        thread_id,
-                        "failed",
-                        subagent_count=0,
-                    )
-                except Exception:
-                    logger.debug("Failed to update agent status for thread %s", thread_id)
+                from src.services.chat_thread_events import set_thread_status
+
+                await set_thread_status(
+                    str(payload.get("workspace_id") or "") or None,
+                    str(thread_id),
+                    status="failed",
+                    skill=_resolve_thread_skill(payload, task_type),
+                    subagent_count=0,
+                )
 
             # Terminal state: single DB write + Pub/Sub broadcast
             await store.mark_task_completed(task_id, success=False, error=str(e))
+            await _append_task_chat_message(
+                db=db,
+                task_id=task_id,
+                task_type=task_type,
+                payload=payload,
+                error=str(e),
+            )
             await progress.fail(str(e))
             raise
 
@@ -198,10 +243,7 @@ async def _execute_task_async(
 async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
     """Dispatch task to appropriate handler.
 
-    Routes task execution to:
-    1. Custom workflow handlers for thesis and workspace features
-    2. SkillTaskHandler for registered skill-based tasks
-    3. Placeholder execution for task types without concrete handlers
+    Routes task execution to canonical task handlers.
 
     Args:
         task_type: Type of task to execute
@@ -214,85 +256,32 @@ async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
     Raises:
         ValueError: If task_type is unknown
     """
+    from src.task.handlers.paper_extraction_handler import (
+        execute_paper_extraction,
+    )
     from src.task.handlers.workspace_feature_handler import (
         execute_workspace_feature,
     )
-    from src.task.registry import is_valid_task_type
+    from src.task.registry import (
+        PAPER_EXTRACTION_TASK,
+        WORKSPACE_FEATURE_TASK,
+        is_valid_task_type,
+    )
 
     if not is_valid_task_type(task_type):
         raise ValueError(f"Unknown task type: {task_type}")
 
-    if task_type == "workspace_feature":
+    if task_type == WORKSPACE_FEATURE_TASK:
         logger.info("Dispatching workspace_feature task to workspace feature handler")
         return await execute_workspace_feature(payload, progress)
 
-    # Thesis deep_research: prefer LangGraph sub-graph, fall back to skill.
-    if (
-        task_type == "deep_research"
-        and str(payload.get("workspace_type", "")).lower() == "thesis"
-    ):
-        try:
-            from src.task.handlers.workspace_feature_handler import (
-                _schedule_memory_extraction,
-                _try_langgraph_execution,
-            )
+    if task_type == PAPER_EXTRACTION_TASK:
+        logger.info("Dispatching paper_extraction task to paper extraction handler")
+        return await execute_paper_extraction(payload, progress)
 
-            logger.info("Dispatching thesis deep_research to LangGraph first")
-            langgraph_result = await _try_langgraph_execution(
-                "thesis",
-                "deep_research",
-                payload,
-                progress,
-            )
-            if langgraph_result is not None:
-                _schedule_memory_extraction("thesis", payload, langgraph_result)
-                return langgraph_result
-        except Exception:
-            logger.warning(
-                "LangGraph dispatch failed for thesis deep_research, falling back to skill",
-                exc_info=True,
-            )
-
-    # Get the skill task handler
-    handler = get_skill_task_handler()
-
-    # Check if this task type maps to a skill
-    skill_name = handler.get_skill_name(task_type)
-
-    if skill_name:
-        # Execute via skill handler
-        logger.info(f"Dispatching task type '{task_type}' to skill '{skill_name}'")
-        return await handler.execute_skill(task_type, payload, progress)
-    else:
-        logger.info(
-            "No skill mapping for task type '%s', using generic fallback executor",
-            task_type,
-        )
-        return await _execute_placeholder(task_type, payload, progress)
-
-
-async def _execute_placeholder(task_type: str, payload: dict, progress) -> dict:
-    """Generic fallback execution for task types without skill implementations.
-
-    Args:
-        task_type: Type of task
-        payload: Task parameters
-        progress: ProgressTracker instance
-
-    Returns:
-        Placeholder result dict
-    """
-    await progress.update(25, f"Processing {task_type}...")
-    await asyncio.sleep(1)
-
-    await progress.update(50, f"Executing {task_type} logic...")
-    await asyncio.sleep(1)
-
-    await progress.update(75, "Finalizing...")
-
-    return {
-        "task_type": task_type,
-        "status": "completed",
-        "message": f"Task '{task_type}' executed successfully (placeholder)",
-        "payload_received": payload,
-    }
+    logger.error(
+        "No executable mapping found for task type '%s'. "
+        "Task type is registered but has no concrete dispatcher.",
+        task_type,
+    )
+    raise ValueError(f"No executable mapping for task type: {task_type}")

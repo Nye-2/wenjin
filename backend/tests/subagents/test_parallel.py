@@ -1,7 +1,7 @@
 """Tests for parallel subagent execution."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -56,14 +56,13 @@ class TestParallelExecutor:
             ],
         )
 
-        # Mock the subagent executor - execute is synchronous, not async
         with patch("src.subagents.parallel.SubagentExecutor") as mock_executor_class:
             mock_executor = mock_executor_class.return_value
             mock_result = MagicMock()
             mock_result.status = SubagentStatus.COMPLETED
             mock_result.result = "test result"
             mock_result.error = None
-            mock_executor.execute = MagicMock(return_value=mock_result)
+            mock_executor.aexecute = AsyncMock(return_value=mock_result)
 
             results = await executor.execute_plan(plan, context={"workspace_id": "test"})
 
@@ -99,7 +98,7 @@ class TestParallelExecutor:
             mock_result.status = SubagentStatus.COMPLETED
             mock_result.result = {"ok": True}
             mock_result.error = None
-            mock_executor.execute = MagicMock(return_value=mock_result)
+            mock_executor.aexecute = AsyncMock(return_value=mock_result)
 
             results = await executor.execute_plan(
                 plan,
@@ -195,7 +194,7 @@ class TestParallelExecutorIntegration:
             mock_result.status.value = "completed"
             mock_result.result = "test result"
             mock_result.error = None
-            mock_executor.execute = MagicMock(return_value=mock_result)
+            mock_executor.aexecute = AsyncMock(return_value=mock_result)
 
             # Track time to verify we're not using busy wait
             start_time = asyncio.get_event_loop().time()
@@ -260,7 +259,7 @@ class TestParallelExecutorIntegration:
             mock_result.status = SubagentStatus.COMPLETED
             mock_result.result = "test result"
             mock_result.error = None
-            mock_executor.execute = MagicMock(return_value=mock_result)
+            mock_executor.aexecute = AsyncMock(return_value=mock_result)
 
             results = await executor.execute_plan(plan, context={"workspace_id": "test"})
 
@@ -268,7 +267,7 @@ class TestParallelExecutorIntegration:
             assert results[0].success is True
             assert len(results[0].task_results) == 3
             # Verify all tasks were executed
-            assert mock_executor.execute.call_count == 3
+            assert mock_executor.aexecute.call_count == 3
 
     @pytest.mark.asyncio
     async def test_mixed_success_in_parallel_tasks(self):
@@ -303,7 +302,7 @@ class TestParallelExecutorIntegration:
             mock_result2.result = None
             mock_result2.error = "Task failed"
 
-            mock_executor.execute.side_effect = [mock_result1, mock_result2]
+            mock_executor.aexecute = AsyncMock(side_effect=[mock_result1, mock_result2])
 
             results = await executor.execute_plan(plan, context={"workspace_id": "test"})
 

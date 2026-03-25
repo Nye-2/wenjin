@@ -162,6 +162,10 @@ class TestEventsEndpoint:
 class TestSpawnWithSubagentType:
     """Tests for spawn endpoint with subagent_type parameter."""
 
+    class _Tool:
+        def __init__(self, name: str):
+            self.name = name
+
     @pytest.fixture
     def mock_manager_with_tools(self, mock_manager):
         """Create mock manager with tools."""
@@ -171,6 +175,17 @@ class TestSpawnWithSubagentType:
             "get_paper_section": lambda s: f"section: {s}",
             "get_paper_toc": lambda: "toc",
         }
+        return mock_manager
+
+    @pytest.fixture
+    def mock_manager_with_tool_list(self, mock_manager):
+        """Create mock manager with the default list-based tool shape."""
+        mock_manager._tools = [
+            self._Tool("semantic_scholar_search"),
+            self._Tool("read_file"),
+            self._Tool("get_paper_section"),
+            self._Tool("get_paper_toc"),
+        ]
         return mock_manager
 
     def test_spawn_with_valid_subagent_type(self, client, mock_manager_with_tools, app):
@@ -187,6 +202,24 @@ class TestSpawnWithSubagentType:
         data = response.json()
         assert "task_id" in data
         assert data["status"] == "pending"
+        app.dependency_overrides = {}
+
+    def test_spawn_with_valid_subagent_type_and_list_backed_tools(
+        self,
+        client,
+        mock_manager_with_tool_list,
+        app,
+    ):
+        """List-backed default tool registries should also resolve cleanly."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager_with_tool_list
+        response = client.post(
+            "/subagents/threads/thread-123/spawn",
+            json={
+                "prompt": "Search for papers",
+                "subagent_type": "scout",
+            },
+        )
+        assert response.status_code == 200
         app.dependency_overrides = {}
 
     def test_spawn_with_invalid_subagent_type_returns_400(self, client, mock_manager_with_tools, app):

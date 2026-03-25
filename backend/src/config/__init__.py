@@ -37,6 +37,17 @@ from .llm_config import (
     get_utility_models,
     reload_models,
 )
+from .extensions_config import (
+    ExtensionsConfig,
+    McpOAuthConfig,
+    McpServerConfig,
+    SkillStateConfig,
+    default_config_path,
+    get_extensions_config,
+    reload_extensions_config,
+    reset_extensions_config,
+    set_extensions_config,
+)
 from .task_config import TaskSettings, task_settings
 
 __all__ = [
@@ -81,6 +92,16 @@ __all__ = [
     "get_model_full_config",
     "resolve_model_id",
     "reload_models",
+    # Extensions
+    "ExtensionsConfig",
+    "McpOAuthConfig",
+    "McpServerConfig",
+    "SkillStateConfig",
+    "default_config_path",
+    "get_extensions_config",
+    "reload_extensions_config",
+    "reset_extensions_config",
+    "set_extensions_config",
     # Task
     "TaskSettings",
     "task_settings",

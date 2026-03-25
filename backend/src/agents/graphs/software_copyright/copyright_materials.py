@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.agents.graphs._shared import _normalize_list, _utc_now_iso
+from src.agents.graphs._shared import _normalize_list, _read_payload_params, _utc_now_iso
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.task.progress import emit_runtime_update, get_runtime_state
 from src.task.runtime_blocks import (
@@ -154,7 +154,7 @@ async def copyright_materials_graph(
     workspace_name = str(payload.get("workspace_name", ""))
     workspace_description = str(payload.get("workspace_description", ""))
     workspace_discipline = str(payload.get("workspace_discipline", ""))
-    params = payload.get("params", {})
+    params = _read_payload_params(payload)
 
     # Step 1: Extract parameters (per handoff document)
     software_name = str(

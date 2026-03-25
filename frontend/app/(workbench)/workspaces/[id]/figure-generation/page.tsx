@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, BarChart3, Image as ImageIcon } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { BarChart3, Image as ImageIcon } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -23,12 +23,21 @@ import { cn } from "@/lib/utils";
 
 export default function FigureGenerationPage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params.id as string;
   const { workspace, artifacts, fetchArtifacts } = useWorkspaceStore();
-  const [figureType, setFigureType] = useState("flowchart");
-  const [description, setDescription] = useState("");
-  const [chapterIndex, setChapterIndex] = useState("");
+  const figureTypeSeed = searchParams.get("type");
+  const descriptionSeed = searchParams.get("description");
+  const chapterIndexSeed = searchParams.get("chapter_index");
+  const [figureType, setFigureType] = useState(
+    () => figureTypeSeed || "flowchart"
+  );
+  const [description, setDescription] = useState(
+    () => descriptionSeed || ""
+  );
+  const [chapterIndex, setChapterIndex] = useState(
+    () => chapterIndexSeed || ""
+  );
 
   const { run, isRunning, status, error, result: latestTaskResult, runtime } = useFeatureTaskRunner({
     workspaceId,
@@ -53,6 +62,27 @@ export default function FigureGenerationPage() {
     }
   }, [workspaceId, fetchArtifacts]);
 
+  useEffect(() => {
+    if (figureTypeSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setFigureType(figureTypeSeed);
+    }
+  }, [figureTypeSeed]);
+
+  useEffect(() => {
+    if (descriptionSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setDescription(descriptionSeed);
+    }
+  }, [descriptionSeed]);
+
+  useEffect(() => {
+    if (chapterIndexSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setChapterIndex(chapterIndexSeed);
+    }
+  }, [chapterIndexSeed]);
+
   const chapters = useMemo(() => {
     const outlineArtifact = artifacts.find(
       (a) =>
@@ -75,10 +105,24 @@ export default function FigureGenerationPage() {
     if (!chaptersList) return [];
 
     return chaptersList.map((chapter, index) => ({
-      index: index + 1,
+      index,
       title: String(chapter.title || `第${index + 1}章`),
     }));
   }, [artifacts]);
+  const selectedChapterLabel = useMemo(() => {
+    if (!chapterIndex) {
+      return "未关联";
+    }
+    const numericIndex = Number(chapterIndex);
+    const matched = chapters.find((chapter) => chapter.index === numericIndex);
+    if (matched) {
+      return matched.title;
+    }
+    if (Number.isNaN(numericIndex)) {
+      return "未关联";
+    }
+    return `第${numericIndex + 1}章`;
+  }, [chapterIndex, chapters]);
 
   const latestFigureArtifact = useMemo(
     () => findLatestArtifact(artifacts, ["figure"]),
@@ -105,7 +149,7 @@ export default function FigureGenerationPage() {
         title: "当前配置",
         content: describeFields([
           ["图表类型", figureType],
-          ["关联章节", chapterIndex || "未关联"],
+          ["关联章节", selectedChapterLabel],
         ]),
       },
       {
@@ -151,48 +195,16 @@ export default function FigureGenerationPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Header */}
-      <header className="h-14 flex items-center gap-4 px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push(`/workspaces/${workspaceId}`)}
-          className={cn(
-            "p-2 rounded-lg",
-            "bg-[var(--bg-surface)]",
-            "hover:bg-[var(--bg-muted)]",
-            "text-[var(--text-secondary)]",
-            "transition-colors"
-          )}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-cyan-500/10">
-            <BarChart3 className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[var(--text-primary)]">
-              图表生成
-            </h1>
-            <p className="text-xs text-[var(--text-muted)]">
-              流程图、数据可视化、概念图
-            </p>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Config */}
-        <aside className="w-80 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-          <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">
-            图表配置
-          </h2>
-
-          <div className="space-y-4">
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="图表生成"
+      description="流程图、数据可视化、概念图"
+      icon={BarChart3}
+      iconBgClass="bg-cyan-500/10"
+      iconClass="text-cyan-600 dark:text-cyan-400"
+      sidebarTitle="图表配置"
+      sidebar={
+        <div className="space-y-4">
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">
                 图表类型
@@ -239,10 +251,10 @@ export default function FigureGenerationPage() {
                   ))
                 ) : (
                   <>
-                    <option value="1">第一章</option>
-                    <option value="2">第二章</option>
-                    <option value="3">第三章</option>
-                    <option value="4">第四章</option>
+                    <option value="0">第一章</option>
+                    <option value="1">第二章</option>
+                    <option value="2">第三章</option>
+                    <option value="3">第四章</option>
                   </>
                 )}
               </select>
@@ -281,104 +293,94 @@ export default function FigureGenerationPage() {
               error={error}
               onRetry={handleGenerateFigure}
             />
-          </div>
-        </aside>
-
-        {/* Main Area - Preview */}
-        <div className="flex-1 p-6 overflow-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <TaskRuntimePanel
-              runtime={runtime}
-              isRunning={isRunning}
-              status={status}
-              error={error}
-              title="图表生成运行面板"
-              emptyDescription="执行后，这里会显示图表规划、生成和结果整理过程。"
-            />
-            <WorkspaceResultPanel viewModel={figureResultViewModel} />
-
-            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-[var(--text-primary)]">
-                    图表预览
-                  </h2>
-                  <p className="text-sm text-[var(--text-muted)]">
-                    {workspace?.name
-                      ? `当前工作区：${workspace.name}`
-                      : "配置左侧参数后生成图表"}
-                  </p>
-                </div>
-                {latestFigureUrl && (
-                  <div className="flex gap-2">
-                    <a
-                      href={latestFigureUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-lg bg-cyan-600 px-3 py-2 text-sm text-white"
-                    >
-                      打开文件
-                    </a>
-                    <a
-                      href={latestFigureUrl}
-                      download
-                      className="rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)]"
-                    >
-                      下载
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              {latestFigureUrl && isImageUrl(latestFigureUrl) && (
-                <div className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={latestFigureUrl}
-                    alt={readString(latestFigureResult?.description) || "图表预览"}
-                    className="max-h-[520px] w-full object-contain"
-                  />
-                </div>
-              )}
-
-              {latestFigureUrl && isPdfUrl(latestFigureUrl) && (
-                <div className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-white">
-                  <iframe
-                    src={latestFigureUrl}
-                    title="Figure Preview"
-                    className="h-[520px] w-full"
-                  />
-                </div>
-              )}
-
-              {!latestFigureUrl && latestFigureSource && (
-                <pre className="overflow-x-auto rounded-lg bg-[var(--bg-elevated)] p-4 text-xs leading-6 text-[var(--text-secondary)]">
-                  {latestFigureSource}
-                </pre>
-              )}
-
-              {!latestFigureUrl && !latestFigureSource && latestFigurePrompt && (
-                <div className="rounded-lg bg-[var(--bg-elevated)] p-4 text-sm leading-6 text-[var(--text-secondary)]">
-                  {latestFigurePrompt}
-                </div>
-              )}
-
-              {!latestFigureUrl && !latestFigureSource && !latestFigurePrompt && (
-                <div className="text-center py-12">
-                  <ImageIcon className="mx-auto mb-4 h-12 w-12 text-cyan-500/60" />
-                  <p className="text-sm text-[var(--text-secondary)]">
-                    暂无图表产出，执行生成后会在这里显示。
-                  </p>
-                </div>
-              )}
-            </div>
-          </motion.div>
         </div>
-      </main>
-    </div>
+      }
+    >
+      <TaskRuntimePanel
+        runtime={runtime}
+        isRunning={isRunning}
+        status={status}
+        error={error}
+        title="图表生成运行面板"
+        emptyDescription="执行后，这里会显示图表规划、生成和结果整理过程。"
+      />
+      <WorkspaceResultPanel viewModel={figureResultViewModel} />
+
+      <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">
+              图表预览
+            </h2>
+            <p className="text-sm text-[var(--text-muted)]">
+              {workspace?.name
+                ? `当前工作区：${workspace.name}`
+                : "配置左侧参数后生成图表"}
+            </p>
+          </div>
+          {latestFigureUrl && (
+            <div className="flex gap-2">
+              <a
+                href={latestFigureUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg bg-cyan-600 px-3 py-2 text-sm text-white"
+              >
+                打开文件
+              </a>
+              <a
+                href={latestFigureUrl}
+                download
+                className="rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)]"
+              >
+                下载
+              </a>
+            </div>
+          )}
+        </div>
+
+        {latestFigureUrl && isImageUrl(latestFigureUrl) && (
+          <div className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={latestFigureUrl}
+              alt={readString(latestFigureResult?.description) || "图表预览"}
+              className="max-h-[520px] w-full object-contain"
+            />
+          </div>
+        )}
+
+        {latestFigureUrl && isPdfUrl(latestFigureUrl) && (
+          <div className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-white">
+            <iframe
+              src={latestFigureUrl}
+              title="Figure Preview"
+              className="h-[520px] w-full"
+            />
+          </div>
+        )}
+
+        {!latestFigureUrl && latestFigureSource && (
+          <pre className="overflow-x-auto rounded-lg bg-[var(--bg-elevated)] p-4 text-xs leading-6 text-[var(--text-secondary)]">
+            {latestFigureSource}
+          </pre>
+        )}
+
+        {!latestFigureUrl && !latestFigureSource && latestFigurePrompt && (
+          <div className="rounded-lg bg-[var(--bg-elevated)] p-4 text-sm leading-6 text-[var(--text-secondary)]">
+            {latestFigurePrompt}
+          </div>
+        )}
+
+        {!latestFigureUrl && !latestFigureSource && !latestFigurePrompt && (
+          <div className="text-center py-12">
+            <ImageIcon className="mx-auto mb-4 h-12 w-12 text-cyan-500/60" />
+            <p className="text-sm text-[var(--text-secondary)]">
+              暂无图表产出，执行生成后会在这里显示。
+            </p>
+          </div>
+        )}
+      </div>
+    </FeatureWorkbenchShell>
   );
 }

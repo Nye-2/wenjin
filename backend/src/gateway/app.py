@@ -1,47 +1,18 @@
 """FastAPI Gateway Application."""
 
-from collections.abc import AsyncGenerator, Awaitable, Callable
+import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import Response
 
 from src.config.app_config import get_settings
 from src.gateway.middleware.correlation import correlation_middleware
 from src.gateway.middleware.error_handler import register_error_handlers
 from src.logging_config import setup_logging
 
-
-async def deprecation_middleware(
-    request: Request, call_next: Callable[[Request], Awaitable[Response]]
-) -> Response:
-    """Add Deprecation and Sunset headers to deprecated routes.
-
-    Deprecated routes (retained for >=1 release cycle, sunset 2026-05-01):
-    - /api/thesis/*  — thesis direct API (use feature execute instead)
-    - academic router routes registered via ``academic.router``
-      These overlap path-wise with the active ``papers.router``; we
-      distinguish them by checking the matched route's ``tags``.
-    """
-    response: Response = await call_next(request)
-    path = request.url.path
-
-    is_deprecated = False
-    # 1) thesis routes — simple prefix match, no overlap with other routers
-    if path.startswith("/api/thesis/"):
-        is_deprecated = True
-    else:
-        # 2) academic router routes — identified by their FastAPI tags
-        route = request.scope.get("route")
-        if route and hasattr(route, "tags") and "academic" in (route.tags or []):
-            is_deprecated = True
-
-    if is_deprecated:
-        response.headers["Deprecation"] = "true"
-        response.headers["Sunset"] = "2026-05-01"
-
-    return response
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -64,11 +35,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from src.academic.cache.redis_client import redis_client
     await redis_client.connect()
 
+    # Reconcile any tasks that were interrupted while using the in-process executor.
+    from src.task.recovery import reconcile_interrupted_tasks
+
+    await reconcile_interrupted_tasks()
+
+    try:
+        from src.config import get_extensions_config
+        from src.mcp import activate_mcp_runtime
+
+        await activate_mcp_runtime(
+            extensions_config=get_extensions_config(),
+            warmup=True,
+        )
+    except Exception as exc:
+        logger.warning("MCP runtime warmup skipped: %s", exc, exc_info=True)
+
     yield
 
     # Shutdown
     print("AcademiaGPT Gateway shutting down...")
+    try:
+        from src.mcp import shutdown_mcp_runtime
+
+        await shutdown_mcp_runtime()
+    except Exception as exc:
+        logger.warning("MCP runtime shutdown skipped: %s", exc, exc_info=True)
     await redis_client.disconnect()
+    from src.database import close_db
+
+    await close_db()
 
 
 # Create FastAPI application
@@ -84,9 +80,6 @@ register_error_handlers(app)
 
 # Load settings for CORS configuration
 settings = get_settings()
-
-# Add deprecation signal middleware for retired routes
-app.middleware("http")(deprecation_middleware)
 
 # Add correlation ID middleware for request tracing
 app.middleware("http")(correlation_middleware)
@@ -112,22 +105,40 @@ app.add_middleware(
 )
 
 
-# Health check endpoint
-@app.get("/health")
+@app.get("/livez", include_in_schema=False)
+async def live_check():
+    """Process liveness endpoint."""
+    from src.gateway.health import build_liveness_report
+
+    return build_liveness_report()
+
+
+@app.get("/readyz", include_in_schema=False)
+async def readiness_check():
+    """Dependency-aware readiness endpoint."""
+    from fastapi.responses import JSONResponse
+
+    from src.gateway.health import build_readiness_report
+
+    report = await build_readiness_report()
+    if report["status"] != "healthy":
+        return JSONResponse(status_code=503, content=report)
+    return report
+
+
+@app.get("/health", include_in_schema=False)
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "version": "2.0.0"}
+    """Backward-compatible readiness alias."""
+    return await readiness_check()
 
 
 # Include routers (imported after app creation to avoid circular imports)
 from src.api.subagents import router as subagents_router  # noqa: E402
-from src.thesis.api import router as thesis_router  # noqa: E402
 
-from .routers import academic, artifacts, auth, chat, dashboard, features, literature, models, papers, tasks, workspaces  # noqa: E402
+from .routers import artifacts, auth, chat, dashboard, features, literature, mcp, memory, models, papers, tasks, workspaces  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(subagents_router, prefix="/api", tags=["subagents"])
-app.include_router(academic.router, prefix="/api", tags=["academic"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
@@ -135,6 +146,7 @@ app.include_router(workspaces.router, prefix="/api", tags=["workspaces"])
 app.include_router(features.router, prefix="/api", tags=["features"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
 app.include_router(literature.router, prefix="/api", tags=["literature"])
+app.include_router(mcp.router, prefix="/api", tags=["mcp"])
+app.include_router(memory.router, prefix="/api", tags=["memory"])
 app.include_router(papers.router, prefix="/api", tags=["papers"])
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])
-app.include_router(thesis_router, prefix="/api/thesis", tags=["thesis"])

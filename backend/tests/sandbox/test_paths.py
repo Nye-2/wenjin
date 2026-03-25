@@ -17,7 +17,7 @@ class TestVirtualPathMapper:
             "/mnt/user-data/workspace/paper.tex",
             thread_id="thread-123",
         )
-        assert physical == "/tmp/threads/thread-123/workspace/paper.tex"
+        assert physical == "/tmp/threads/thread-123/user-data/workspace/paper.tex"
 
     def test_to_physical_uploads(self):
         """Should map uploads path correctly."""
@@ -26,7 +26,7 @@ class TestVirtualPathMapper:
             "/mnt/user-data/uploads/document.pdf",
             thread_id="thread-123",
         )
-        assert physical == "/tmp/threads/thread-123/uploads/document.pdf"
+        assert physical == "/tmp/threads/thread-123/user-data/uploads/document.pdf"
 
     def test_to_physical_outputs(self):
         """Should map outputs path correctly."""
@@ -35,7 +35,7 @@ class TestVirtualPathMapper:
             "/mnt/user-data/outputs/result.pdf",
             thread_id="thread-123",
         )
-        assert physical == "/tmp/threads/thread-123/outputs/result.pdf"
+        assert physical == "/tmp/threads/thread-123/user-data/outputs/result.pdf"
 
     def test_to_physical_non_virtual_path(self):
         """Should return unchanged if not a virtual path."""
@@ -50,7 +50,7 @@ class TestVirtualPathMapper:
         """Should convert physical path back to virtual."""
         mapper = VirtualPathMapper(base_dir="/tmp/threads")
         virtual = mapper.to_virtual(
-            "/tmp/threads/thread-123/workspace/paper.tex",
+            "/tmp/threads/thread-123/user-data/workspace/paper.tex",
             thread_id="thread-123",
         )
         assert virtual == "/mnt/user-data/workspace/paper.tex"
@@ -62,7 +62,7 @@ class TestVirtualPathMapper:
             "cat /mnt/user-data/workspace/file.txt",
             thread_id="thread-123",
         )
-        assert command == "cat /tmp/threads/thread-123/workspace/file.txt"
+        assert command == "cat /tmp/threads/thread-123/user-data/workspace/file.txt"
 
     def test_translate_command_multiple_paths(self):
         """Should translate multiple virtual paths."""
@@ -71,8 +71,8 @@ class TestVirtualPathMapper:
             "cp /mnt/user-data/uploads/a.pdf /mnt/user-data/outputs/b.pdf",
             thread_id="thread-123",
         )
-        assert "/tmp/threads/thread-123/uploads/a.pdf" in command
-        assert "/tmp/threads/thread-123/outputs/b.pdf" in command
+        assert "/tmp/threads/thread-123/user-data/uploads/a.pdf" in command
+        assert "/tmp/threads/thread-123/user-data/outputs/b.pdf" in command
 
     def test_translate_command_no_virtual_paths(self):
         """Should return unchanged if no virtual paths."""
@@ -87,6 +87,6 @@ class TestVirtualPathMapper:
         """Should return all thread paths."""
         mapper = VirtualPathMapper(base_dir="/tmp/threads")
         paths = mapper.get_thread_paths(thread_id="thread-123")
-        assert paths["workspace"] == "/tmp/threads/thread-123/workspace"
-        assert paths["uploads"] == "/tmp/threads/thread-123/uploads"
-        assert paths["outputs"] == "/tmp/threads/thread-123/outputs"
+        assert paths["workspace"] == "/tmp/threads/thread-123/user-data/workspace"
+        assert paths["uploads"] == "/tmp/threads/thread-123/user-data/uploads"
+        assert paths["outputs"] == "/tmp/threads/thread-123/user-data/outputs"

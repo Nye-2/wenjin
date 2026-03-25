@@ -1,9 +1,10 @@
 """Tests for MemoryMiddleware."""
 
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 
 class TestMemoryMiddleware:
@@ -35,7 +36,13 @@ class TestMemoryMiddleware:
     @pytest.fixture
     def config(self):
         """Create a config with thread_id."""
-        return {"configurable": {"thread_id": "test-thread-123"}}
+        return {
+            "configurable": {
+                "thread_id": "test-thread-123",
+                "user_id": "user-1",
+                "workspace_id": "ws-1",
+            }
+        }
 
     @pytest.mark.asyncio
     async def test_before_model_returns_empty(self, middleware, initial_state, config):
@@ -45,6 +52,18 @@ class TestMemoryMiddleware:
 
         # Assert
         assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_before_model_injects_memory_context(self, middleware, initial_state, config):
+        """Verify that before_model injects formatted long-term memory when available."""
+        with patch(
+            "src.agents.middlewares.memory.build_memory_context",
+            return_value="<academic_memory>\n- 偏好 IEEE\n</academic_memory>",
+        ):
+            result = await middleware.before_model(initial_state, config)
+
+        assert "memory_context" in result
+        assert "偏好 IEEE" in result["memory_context"]
 
     @pytest.mark.asyncio
     async def test_after_model_enqueues_conversation(self, middleware, mock_queue, config):
@@ -69,6 +88,7 @@ class TestMemoryMiddleware:
         # Messages should be filtered (only Human and AI messages)
         enqueued_messages = call_args[0][1]
         assert len(enqueued_messages) == 4
+        assert "callback" in call_args.kwargs
         assert result == {}
 
     @pytest.mark.asyncio
@@ -108,3 +128,63 @@ class TestMemoryMiddleware:
         # Assert
         mock_queue.enqueue.assert_not_called()
         assert result == {}
+
+
+class TestFilterMessagesForMemory:
+    """Focused tests for memory message filtering."""
+
+    @staticmethod
+    def _upload_block() -> str:
+        return (
+            "<uploaded_files>\n"
+            "- file.pdf (1024 bytes): /mnt/user-data/uploads/thread/file.pdf\n"
+            "</uploaded_files>"
+        )
+
+    def test_upload_only_turn_and_paired_ai_are_dropped(self):
+        from src.agents.middlewares.memory import _filter_messages_for_memory
+
+        result = _filter_messages_for_memory(
+            [
+                HumanMessage(content=self._upload_block()),
+                AIMessage(content="I have loaded the uploaded file."),
+            ]
+        )
+
+        assert result == []
+
+    def test_upload_block_is_removed_but_real_question_is_kept(self):
+        from src.agents.middlewares.memory import _filter_messages_for_memory
+
+        result = _filter_messages_for_memory(
+            [
+                HumanMessage(
+                    content=f"{self._upload_block()}\n\n请总结这个文件的关键结论。"
+                ),
+                AIMessage(content="这个文件主要讨论了实验设计。"),
+            ]
+        )
+
+        assert len(result) == 2
+        assert result[0].content == "请总结这个文件的关键结论。"
+        assert "/mnt/user-data/uploads/" not in result[0].content
+        assert result[1].content == "这个文件主要讨论了实验设计。"
+
+    def test_tool_messages_and_tool_call_ai_are_excluded(self):
+        from src.agents.middlewares.memory import _filter_messages_for_memory
+
+        result = _filter_messages_for_memory(
+            [
+                HumanMessage(content="帮我检索论文"),
+                AIMessage(
+                    content="先调用检索工具",
+                    tool_calls=[{"name": "search", "id": "call-1", "args": {}}],
+                ),
+                ToolMessage(content="检索结果", tool_call_id="call-1"),
+                AIMessage(content="我已经整理出 3 篇相关论文。"),
+            ]
+        )
+
+        assert len(result) == 2
+        assert result[0].content == "帮我检索论文"
+        assert result[1].content == "我已经整理出 3 篇相关论文。"

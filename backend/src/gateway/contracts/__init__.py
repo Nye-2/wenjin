@@ -8,12 +8,12 @@ from src.gateway.contracts.artifact import (
 )
 from src.gateway.contracts.error import ErrorDetail, ErrorResponse
 from src.gateway.contracts.paper import (
-    ExtractionResponse,
     PaperResponse,
+    PaperExtractionTaskResponse,
     PaperSummaryResponse,
     SectionResponse,
-    extraction_to_response,
     paper_to_response,
+    paper_extraction_task_to_response,
     paper_to_summary_response,
     section_to_response,
 )
@@ -23,14 +23,14 @@ __all__ = [
     "ArtifactsListResponse",
     "ErrorDetail",
     "ErrorResponse",
-    "ExtractionResponse",
     "PaperResponse",
+    "PaperExtractionTaskResponse",
     "PaperSummaryResponse",
     "SectionResponse",
-    "extraction_to_response",
     "artifact_to_response",
     "artifact_to_responses",
     "paper_to_response",
+    "paper_extraction_task_to_response",
     "paper_to_summary_response",
     "section_to_response",
 ]

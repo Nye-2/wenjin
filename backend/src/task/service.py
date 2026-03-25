@@ -6,6 +6,10 @@ from uuid import uuid4
 
 from src.config.app_config import celery_settings
 from src.config.task_config import task_settings
+from src.services.workspace_activity_contracts import (
+    build_task_activity_item,
+    serialize_activity_item,
+)
 from src.task import celery_app
 from src.task.executor import cancel_local_task, get_executor
 from src.task.registry import TaskStatus, get_task_config, is_valid_task_type
@@ -91,30 +95,23 @@ class TaskService:
         if not is_valid_task_type(task_type):
             raise ValueError(f"Unknown task type: {task_type}")
 
-        # Enforce per-user concurrency limit
-        # NOTE: TOCTOU window exists between count and insert. For strict
-        # guarantees under high concurrency, consider a Redis atomic counter
-        # or PostgreSQL advisory lock. Current DB-based check is sufficient
-        # for the expected low-concurrency per-user workload.
-        active_count = await self._store.count_active_tasks(user_id)
-        limit = task_settings.max_concurrent_tasks_per_user
-        if active_count >= limit:
-            raise ConcurrencyLimitError(current=active_count, limit=limit)
-
         # Validate priority
         priority = max(1, min(10, priority))
 
         # Generate task ID
         task_id = str(uuid4())
 
-        # Create database record
-        await self._store.create_task_record(
+        limit = task_settings.max_concurrent_tasks_per_user
+        record, active_count = await self._store.create_task_record_guarded(
             task_id=task_id,
             user_id=user_id,
             task_type=task_type,
             priority=priority,
             payload=payload,
+            concurrency_limit=limit,
         )
+        if record is None:
+            raise ConcurrencyLimitError(current=active_count, limit=limit)
 
         # Get task config
         config = get_task_config(task_type)
@@ -157,12 +154,32 @@ class TaskService:
                     "thread_id": payload.get("thread_id") if isinstance(payload, dict) else None,
                     "metadata": None,
                 }
-            },
+            }
+            | (
+                {
+                    "activity": serialize_activity_item(
+                        build_task_activity_item(
+                            task_id=task_id,
+                            workspace_id=workspace_id,
+                            task_type=task_type,
+                            payload=payload if isinstance(payload, dict) else None,
+                            status=TaskStatus.PENDING.value,
+                            progress=0,
+                            message=None,
+                            error=None,
+                            occurred_at=record.created_at,
+                            created_at=record.created_at,
+                        )
+                    )
+                }
+                if workspace_id
+                else {}
+            ),
         )
         await publish_workspace_event(
             workspace_id,
             "workspace.refresh",
-            {"refresh_targets": ["activity", "dashboard"]},
+            {"refresh_targets": ["dashboard"]},
         )
 
         return task_id
@@ -197,6 +214,32 @@ class TaskService:
                 payload_action = (payload.get("params") or {}).get("action")
                 if payload_action == action:
                     return record.id
+        return None
+
+    async def find_active_task_by_payload(
+        self,
+        *,
+        user_id: str,
+        task_type: str,
+        payload_filters: dict[str, object],
+        limit: int = 50,
+    ) -> str | None:
+        """Find an active task whose payload matches the provided key/value filters."""
+        records = await self._store.list_user_tasks(
+            user_id=user_id,
+            task_type=task_type,
+            status=None,
+            limit=limit,
+        )
+        active_statuses = {TaskStatus.PENDING.value, TaskStatus.RUNNING.value}
+        for record in records:
+            if record.status not in active_statuses:
+                continue
+            payload = record.payload or {}
+            if not isinstance(payload, dict):
+                continue
+            if all(payload.get(key) == value for key, value in payload_filters.items()):
+                return record.id
         return None
 
     async def get_task_status(self, task_id: str, user_id: str) -> dict | None:
@@ -282,11 +325,12 @@ class TaskService:
                 logger.warning("Local task %s not found or already finished", task_id)
                 return False
 
+        cancelled_at = datetime.now(UTC)
         # Update database
         await self._store.update_task_record(
             task_id,
             status=TaskStatus.CANCELLED.value,
-            completed_at=datetime.now(UTC),
+            completed_at=cancelled_at,
         )
         await self._store.set_task_state(task_id, TaskStatus.CANCELLED.value, message="Cancelled by user")
 
@@ -306,12 +350,34 @@ class TaskService:
                     "thread_id": payload.get("thread_id"),
                     "metadata": None,
                 }
-            },
+            }
+            | (
+                {
+                    "activity": serialize_activity_item(
+                        build_task_activity_item(
+                            task_id=task_id,
+                            workspace_id=workspace_id,
+                            task_type=record.task_type,
+                            payload=payload,
+                            status=TaskStatus.CANCELLED.value,
+                            progress=0,
+                            message="Cancelled by user",
+                            error=None,
+                            occurred_at=cancelled_at,
+                            created_at=record.created_at,
+                            started_at=record.started_at,
+                            completed_at=cancelled_at,
+                        )
+                    )
+                }
+                if workspace_id
+                else {}
+            ),
         )
         await publish_workspace_event(
             workspace_id,
             "workspace.refresh",
-            {"refresh_targets": ["activity", "dashboard"]},
+            {"refresh_targets": ["dashboard"]},
         )
 
         logger.info(f"Task cancelled: {task_id}")

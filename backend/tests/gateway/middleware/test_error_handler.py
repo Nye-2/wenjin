@@ -289,7 +289,7 @@ class TestValidationExceptionHandler:
 
         response = await validation_exception_handler(mock_request, exc)
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_includes_error_details(self, mock_request):

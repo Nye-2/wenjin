@@ -1,7 +1,7 @@
 """Service helpers for software copyright workspace feature handlers.
 
 This module keeps handler logic thin and reusable by encapsulating:
-1. technical description payload generation (template + optional LLM fill).
+1. technical description payload generation (LLM-only).
 """
 
 from __future__ import annotations
@@ -230,7 +230,6 @@ def _normalize_llm_sections(
         return None
 
     normalized: dict[str, Any] = {}
-    has_llm_content = False
 
     section_keys = [
         "system_overview",
@@ -245,25 +244,20 @@ def _normalize_llm_sections(
         template_section = template_sections.get(key, {})
         llm_section = raw_sections.get(key)
 
-        if isinstance(llm_section, dict):
-            content = str(llm_section.get("content") or "").strip()
-            if content:
-                normalized[key] = {
-                    "title": template_section.get("title", key),
-                    "content": content,
-                    "source": "llm",
-                }
-                # Preserve additional fields from template
-                for field_key in ["modules", "architecture_type", "steps"]:
-                    if field_key in template_section:
-                        normalized[key][field_key] = template_section[field_key]
-                has_llm_content = True
-                continue
-
-        normalized[key] = template_section
-
-    if not has_llm_content:
-        return None
+        if not isinstance(llm_section, dict):
+            return None
+        content = str(llm_section.get("content") or "").strip()
+        if not content:
+            return None
+        normalized[key] = {
+            "title": template_section.get("title", key),
+            "content": content,
+            "source": "llm",
+        }
+        # Preserve additional fields from template
+        for field_key in ["modules", "architecture_type", "steps"]:
+            if field_key in template_section:
+                normalized[key][field_key] = template_section[field_key]
     return normalized
 
 
@@ -363,12 +357,12 @@ async def build_technical_description_payload(
     highlights: list[str],
     preferred_model: str | None = None,
 ) -> dict[str, Any]:
-    """Build technical description artifact content with template-first, LLM-optional strategy.
+    """Build technical description artifact content with LLM generation.
 
     This function:
     1. Tries to load existing copyright_materials artifact for default values
-    2. Generates template-based sections as fallback
-    3. Attempts LLM generation if model is available
+    2. Uses template schema for section structure
+    3. Requires LLM generation for section content
     4. Returns a structured payload suitable for artifact persistence
     """
     # Try to load existing copyright_materials for defaults
@@ -383,11 +377,11 @@ async def build_technical_description_payload(
     # Normalize inputs
     normalized_name = (software_name or workspace_name or "待确认软件").strip()
     normalized_version = (version or "V1.0").strip()
-    normalized_modules = core_modules if core_modules else []
+    normalized_modules = _normalize_list(core_modules)
     normalized_architecture = (deployment_architecture or "B/S架构").strip()
-    normalized_db = database_middleware if database_middleware else []
-    normalized_protocols = interface_protocols if interface_protocols else []
-    normalized_highlights = highlights if highlights else []
+    normalized_db = _normalize_list(database_middleware)
+    normalized_protocols = _normalize_list(interface_protocols)
+    normalized_highlights = _normalize_list(highlights)
     runtime = get_runtime_state()
 
     if runtime is not None:
@@ -441,14 +435,32 @@ async def build_technical_description_payload(
         preferred_model=preferred_model,
     )
 
-    if llm_sections is not None:
-        sections = llm_sections
-        generation_mode = "llm"
-    else:
-        sections = template_sections
-        generation_mode = "template_fallback"
+    if llm_sections is None:
+        if runtime is not None:
+            append_runtime_activity(
+                runtime,
+                title="技术说明书生成失败",
+                description=f"模型未返回有效章节：{generation_error or 'unknown_error'}",
+                tone="error",
+            )
+            await _emit_bound_runtime(
+                message="技术说明书生成失败，正在回传错误信息...",
+                current_phase="finalize",
+                stage_transition=True,
+            )
+        raise RuntimeError(
+            f"technical_description_llm_failed: {generation_error or 'unknown_error'}"
+        )
+
+    sections = llm_sections
+    generation_mode = "llm"
 
     if runtime is not None:
+        section_values = [
+            section
+            for section in sections.values()
+            if isinstance(section, dict)
+        ]
         upsert_runtime_block(
             runtime,
             {
@@ -461,16 +473,15 @@ async def build_technical_description_payload(
                         "description": str(section.get("content") or "")[:220],
                         "meta": str(section.get("source") or generation_mode),
                     }
-                    for section in sections[:8]
-                    if isinstance(section, dict)
+                    for section in section_values[:8]
                 ],
             },
         )
         append_runtime_activity(
             runtime,
             title="说明书章节已生成",
-            description=f"已输出 {len(sections)} 个技术说明书章节。",
-            tone="success" if generation_mode == "llm" else "warning",
+            description=f"已输出 {len(section_values)} 个技术说明书章节。",
+            tone="success",
         )
         await _emit_bound_runtime(
             message="正在整理技术说明书产物...",
@@ -498,12 +509,12 @@ async def build_technical_description_payload(
         },
         "generation_mode": generation_mode,
         "model_id": model_id,
-        "generation_error": generation_error,
+        "generation_error": None,
         "sections": sections,
         "generated_at": _utc_now_iso(),
         "upgrade": {
-            "auto_upgrade": True,
-            "can_regenerate_with_llm": generation_mode == "template_fallback",
-            "last_error": generation_error,
+            "auto_upgrade": False,
+            "can_regenerate_with_llm": False,
+            "last_error": None,
         },
     }

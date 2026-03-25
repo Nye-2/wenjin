@@ -470,10 +470,13 @@ class TestArtifactCreation:
 
         artifacts = skill._create_artifacts(
             "test-workspace",
+            "test query",
             sample_papers,
             patterns,
+            [],
             gaps,
             ideas,
+            "Synthesis summary",
         )
 
         assert len(artifacts) > 0
@@ -482,29 +485,32 @@ class TestArtifactCreation:
             assert artifact.workspace_id == "test-workspace"
             assert artifact.created_by_skill == "deep-research"
 
-    def test_create_artifacts_includes_literature_review(
+    def test_create_artifacts_includes_deep_research_report(
         self,
         skill: DeepResearchSkill,
         sample_papers: list[Paper],
     ):
-        """Test that literature review artifact is created."""
+        """Test that canonical deep research report artifact is created."""
         artifacts = skill._create_artifacts(
             "test-workspace",
+            "test query",
             sample_papers,
             [],
             [],
             [],
+            [],
+            "Synthesis summary",
         )
 
         artifact_types = [a.type for a in artifacts]
-        assert "literature_review" in artifact_types
+        assert "deep_research_report" in artifact_types
 
-    def test_create_artifacts_includes_research_ideas(
+    def test_create_artifacts_embeds_research_ideas(
         self,
         skill: DeepResearchSkill,
         sample_papers: list[Paper],
     ):
-        """Test that research ideas artifact is created when ideas exist."""
+        """Test that research ideas are embedded in the canonical report."""
         ideas = [
             ResearchIdea(
                 title="Test Idea",
@@ -517,21 +523,25 @@ class TestArtifactCreation:
 
         artifacts = skill._create_artifacts(
             "test-workspace",
+            "test query",
             sample_papers,
             [],
             [],
+            [],
             ideas,
+            "Synthesis summary",
         )
 
-        artifact_types = [a.type for a in artifacts]
-        assert "research_ideas" in artifact_types
+        assert len(artifacts) == 1
+        assert artifacts[0].type == "deep_research_report"
+        assert artifacts[0].content["ideas"][0]["title"] == "Test Idea"
 
-    def test_create_artifacts_includes_gap_analysis(
+    def test_create_artifacts_embeds_gap_analysis(
         self,
         skill: DeepResearchSkill,
         sample_papers: list[Paper],
     ):
-        """Test that gap analysis artifact is created when gaps exist."""
+        """Test that gap analysis is embedded in the canonical report."""
         gaps = [
             ResearchGap(
                 description="Test Gap",
@@ -542,14 +552,18 @@ class TestArtifactCreation:
 
         artifacts = skill._create_artifacts(
             "test-workspace",
+            "test query",
             sample_papers,
+            [],
             [],
             gaps,
             [],
+            "Synthesis summary",
         )
 
-        artifact_types = [a.type for a in artifacts]
-        assert "gap_analysis" in artifact_types
+        assert len(artifacts) == 1
+        assert artifacts[0].type == "deep_research_report"
+        assert artifacts[0].content["gaps"][0]["description"] == "Test Gap"
 
 
 # ============================================================================
@@ -791,7 +805,7 @@ class TestDeepResearchIntegration:
         # Verify artifacts
         assert len(output.artifacts) >= 1
         artifact_types = {a.type for a in output.artifacts}
-        assert "literature_review" in artifact_types
+        assert "deep_research_report" in artifact_types
 
         # Verify metadata
         assert output.metadata["papers_analyzed"] == len(sample_papers)

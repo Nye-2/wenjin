@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, Search } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { Search } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeatureTaskRunner } from "@/hooks/useFeatureTaskRunner";
 import {
+  FeatureWorkbenchShell,
   TaskFeedbackBanner,
   TaskRuntimePanel,
 } from "@/components/workspace";
@@ -27,12 +27,28 @@ import { cn } from "@/lib/utils";
 
 export default function LiteratureSearchPage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params.id as string;
   const { workspace, artifacts } = useWorkspaceStore();
+  const querySeed = searchParams.get("query");
+  const disciplineSeed = searchParams.get("discipline");
 
-  const [query, setQuery] = useState("");
-  const [discipline, setDiscipline] = useState("");
+  const [query, setQuery] = useState(() => querySeed || "");
+  const [discipline, setDiscipline] = useState(() => disciplineSeed || "");
+
+  useEffect(() => {
+    if (querySeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setQuery(querySeed);
+    }
+  }, [querySeed]);
+
+  useEffect(() => {
+    if (disciplineSeed !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with route seed
+      setDiscipline(disciplineSeed);
+    }
+  }, [disciplineSeed]);
 
   useEffect(() => {
     if (workspace && !query) {
@@ -134,39 +150,16 @@ export default function LiteratureSearchPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)]">
-      <header className="h-14 flex items-center gap-4 px-4 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push(`/workspaces/${workspaceId}`)}
-          className={cn(
-            "p-2 rounded-lg",
-            "bg-[var(--bg-surface)]",
-            "hover:bg-[var(--bg-muted)]",
-            "text-[var(--text-secondary)]",
-            "transition-colors"
-          )}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </motion.button>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-emerald-500/10">
-            <Search className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[var(--text-primary)]">文献检索</h1>
-            <p className="text-xs text-[var(--text-muted)]">生成结构化检索结果与推荐命中</p>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 flex overflow-hidden">
-        <aside className="w-80 border-r border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-          <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">检索参数</h2>
-
-          <div className="space-y-4">
+    <FeatureWorkbenchShell
+      workspaceId={workspaceId}
+      title="文献检索"
+      description="生成结构化检索结果与推荐命中"
+      icon={Search}
+      iconBgClass="bg-emerald-500/10"
+      iconClass="text-emerald-600 dark:text-emerald-400"
+      sidebarTitle="检索参数"
+      sidebar={
+        <div className="space-y-4">
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">检索关键词</label>
               <input
@@ -217,27 +210,18 @@ export default function LiteratureSearchPage() {
               error={error}
               onRetry={handleSearch}
             />
-          </div>
-        </aside>
-
-        <div className="flex-1 p-6 overflow-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <TaskRuntimePanel
-              runtime={runtime}
-              isRunning={isRunning}
-              status={status}
-              error={error}
-              title="文献检索运行面板"
-              emptyDescription="执行后，这里会显示检索阶段、上下文和候选文献命中。"
-            />
-            <WorkspaceResultPanel viewModel={resultViewModel} />
-          </motion.div>
         </div>
-      </main>
-    </div>
+      }
+    >
+      <TaskRuntimePanel
+        runtime={runtime}
+        isRunning={isRunning}
+        status={status}
+        error={error}
+        title="文献检索运行面板"
+        emptyDescription="执行后，这里会显示检索阶段、上下文和候选文献命中。"
+      />
+      <WorkspaceResultPanel viewModel={resultViewModel} />
+    </FeatureWorkbenchShell>
   );
 }

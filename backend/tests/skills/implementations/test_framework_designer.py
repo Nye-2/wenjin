@@ -602,46 +602,53 @@ class TestFrameworkDesignerMemoryEnhanced:
     """Tests for the memory-enhanced Framework Designer Skill V2."""
 
     @pytest.fixture
-    def skill_v2(self, tmp_path):
-        """Create a FrameworkDesignerSkillV2 instance with temporary memory storage."""
+    def skill_v2(self):
+        """Create a FrameworkDesignerSkillV2 instance."""
         from src.skills.implementations.framework_designer import FrameworkDesignerSkillV2
 
-        memory_path = str(tmp_path / "memory.json")
-        return FrameworkDesignerSkillV2(memory_storage_path=memory_path)
+        return FrameworkDesignerSkillV2()
 
     @pytest.fixture
-    def skill_v2_with_model(self, tmp_path):
+    def skill_v2_with_model(self):
         """Create a FrameworkDesignerSkillV2 with a specific model ID."""
         from src.skills.implementations.framework_designer import FrameworkDesignerSkillV2
 
-        memory_path = str(tmp_path / "memory.json")
-        return FrameworkDesignerSkillV2(model_id="test-model", memory_storage_path=memory_path)
+        return FrameworkDesignerSkillV2(model_id="test-model")
 
     @pytest.mark.asyncio
     async def test_injects_memory_context(self, skill_v2):
         """Framework Designer should inject memory context."""
-        context = skill_v2._prepare_memory_context()
+        state = ThreadState(
+            messages=[],
+            workspace_id="ws",
+            memory_context=(
+                "<academic_memory>\n"
+                "研究上下文:\n"
+                "- 正在准备多智能体系统论文 (置信度: 0.9)\n"
+                "</academic_memory>"
+            ),
+        )
+        context = skill_v2._prepare_memory_context(state)
         assert context is not None
         assert isinstance(context, dict)
+        assert context["research_context"]["summary"] == "正在准备多智能体系统论文"
 
     @pytest.mark.asyncio
-    async def test_memory_context_includes_user_data(self, skill_v2, tmp_path):
+    async def test_memory_context_includes_user_data(self, skill_v2):
         """Memory context should include user research context."""
-        import json
+        state = ThreadState(
+            messages=[],
+            workspace_id="ws",
+            memory_context=(
+                "<academic_memory>\n"
+                "研究上下文:\n"
+                "- Focus on machine learning applications (置信度: 0.9)\n"
+                "</academic_memory>"
+            ),
+        )
 
-        from src.agents.memory.updater import create_default_memory
-
-        # Create memory with user context
-        memory_data = create_default_memory()
-        memory_data["user"]["researchContext"] = {
-            "summary": "Focus on machine learning applications",
-            "updatedAt": "2026-03-10T00:00:00Z"
-        }
-        memory_path = tmp_path / "memory.json"
-        memory_path.write_text(json.dumps(memory_data))
-
-        context = skill_v2._prepare_memory_context()
-        assert "research_context" in context or "user" in context
+        context = skill_v2._prepare_memory_context(state)
+        assert context["research_context"]["summary"] == "Focus on machine learning applications"
 
     @pytest.mark.asyncio
     async def test_enhanced_framework_includes_glossary(self, skill_v2):
@@ -687,27 +694,21 @@ class TestFrameworkDesignerMemoryEnhanced:
         assert isinstance(dependencies, dict)
 
     @pytest.mark.asyncio
-    async def test_memory_context_with_writing_preferences(self, skill_v2, tmp_path):
+    async def test_memory_context_with_writing_preferences(self, skill_v2):
         """Memory context should include writing preferences."""
-        import json
+        state = ThreadState(
+            messages=[],
+            workspace_id="ws",
+            memory_context=(
+                "<academic_memory>\n"
+                "用户偏好:\n"
+                "- Prefers APA style, formal tone (置信度: 0.9)\n"
+                "</academic_memory>"
+            ),
+        )
 
-        from src.agents.memory.updater import create_default_memory
-
-        # Create memory with writing preferences
-        memory_data = create_default_memory()
-        memory_data["user"]["writingPreferences"] = {
-            "summary": "Prefers APA style, formal tone",
-            "updatedAt": "2026-03-10T00:00:00Z"
-        }
-        memory_path = tmp_path / "memory.json"
-        memory_path.write_text(json.dumps(memory_data))
-
-        # Reload memory
-        from src.agents.memory.updater import reload_memory_data
-        reload_memory_data(str(memory_path))
-
-        context = skill_v2._prepare_memory_context()
-        assert context is not None
+        context = skill_v2._prepare_memory_context(state)
+        assert context["writing_preferences"]["summary"] == "Prefers APA style, formal tone"
 
     def test_backward_compatibility_alias(self):
         """FrameworkDesignerSkill should be aliased to FrameworkDesignerSkillV2."""
