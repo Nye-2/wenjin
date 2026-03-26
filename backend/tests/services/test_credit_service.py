@@ -171,3 +171,31 @@ async def test_refund_consumption_releases_free_chat_tokens(
     assert refund.amount == 0
     assert await credit_service.get_balance("user-1") == 3
     assert await credit_service.get_consumed_chat_tokens("user-1") == 0
+
+
+@pytest.mark.asyncio
+async def test_consume_for_chat_usage_allows_single_turn_overdraft_then_blocks_next_turn(
+    db_session: AsyncSession,
+    credit_service: CreditService,
+) -> None:
+    await _create_user(db_session, credits=1)
+    await _create_chat_transaction(
+        db_session,
+        user_id="user-1",
+        amount=0,
+        total_tokens=100000,
+        balance_after=1,
+    )
+
+    result = await credit_service.consume_for_chat_usage(
+        user_id="user-1",
+        token_usage={"input_tokens": 15000, "output_tokens": 5000, "total_tokens": 20000},
+        model_name="gpt-4o",
+        thread_id="thread-1",
+    )
+
+    assert result.credits_charged == 2
+    assert result.balance_after == -1
+    assert result.charged is True
+    assert await credit_service.get_balance("user-1") == -1
+    assert await credit_service.can_start_chat_turn("user-1") is False

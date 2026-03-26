@@ -331,27 +331,18 @@ async def _apply_chat_turn_billing(
         return None
 
     from src.database import get_db_session
-    from src.services.credit_service import CreditService, InsufficientCreditsError
+    from src.services.credit_service import CreditService
 
-    try:
-        async with get_db_session() as db:
-            credit_service = CreditService(db)
-            billing = await credit_service.consume_for_chat_usage(
-                user_id=str(current_user.id),
-                token_usage=normalized_usage,
-                model_name=usage_metadata.get("model_name") if usage_metadata else None,
-                workspace_id=thread.workspace_id,
-                thread_id=thread.id,
-                metadata={"source": usage_metadata.get("source", "chat")},
-            )
-    except InsufficientCreditsError as exc:
-        raise HTTPException(
-            status_code=402,
-            detail=(
-                f"积分不足：当前 {exc.current_balance}，"
-                f"本轮 Chat 需要 {exc.required}"
-            ),
-        ) from exc
+    async with get_db_session() as db:
+        credit_service = CreditService(db)
+        billing = await credit_service.consume_for_chat_usage(
+            user_id=str(current_user.id),
+            token_usage=normalized_usage,
+            model_name=usage_metadata.get("model_name") if usage_metadata else None,
+            workspace_id=thread.workspace_id,
+            thread_id=thread.id,
+            metadata={"source": usage_metadata.get("source", "chat")},
+        )
 
     reply.metadata = dict(reply.metadata or {})
     reply.metadata["billing"] = billing.as_metadata()

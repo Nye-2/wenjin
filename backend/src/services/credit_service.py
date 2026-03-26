@@ -321,9 +321,7 @@ class CreditService:
         )
 
         user = await self._get_user_for_update(user_id)
-        if user.credits < credits_to_charge:
-            raise InsufficientCreditsError(int(user.credits), credits_to_charge)
-
+        balance_before = int(user.credits)
         if credits_to_charge > 0:
             user.credits -= credits_to_charge
             user.total_credits_spent += credits_to_charge
@@ -331,6 +329,7 @@ class CreditService:
         tx_metadata = {
             "token_usage": normalized_usage,
             "thread_id": thread_id,
+            "balance_before": balance_before,
             "policy": {
                 "free_tokens": policy.free_tokens,
                 "tokens_per_credit": policy.tokens_per_credit,
@@ -340,6 +339,7 @@ class CreditService:
             "free_tokens_applied": free_tokens_applied,
             "billable_tokens": billable_tokens,
             "model_name": model_name,
+            "overdraft_credits": max(credits_to_charge - max(balance_before, 0), 0),
         }
         if metadata:
             tx_metadata.update(metadata)
