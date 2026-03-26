@@ -68,7 +68,10 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   const recommendedFeatureIds = useDashboardStore(
     (state) => state.summary?.recommended_actions.map((action) => action.feature_id) ?? []
   );
+  const fetchDashboard = useDashboardStore((state) => state.fetchDashboard);
   const { workspace, artifacts } = useWorkspaceStore();
+  const fetchPapers = useWorkspaceStore((state) => state.fetchPapers);
+  const fetchArtifacts = useWorkspaceStore((state) => state.fetchArtifacts);
   const {
     startTask,
     isExecuting,
@@ -314,6 +317,14 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
           )
         );
         uploadedAttachments = uploadResults.flatMap((result) => result.files);
+        const refreshJobs: Promise<void>[] = [fetchDashboard(workspaceId)];
+        if (uploadedAttachments.some((attachment) => attachment.paper_id)) {
+          refreshJobs.push(fetchPapers(workspaceId));
+        }
+        if (uploadedAttachments.some((attachment) => attachment.artifact_id)) {
+          refreshJobs.push(fetchArtifacts(workspaceId));
+        }
+        await Promise.allSettled(refreshJobs);
       }
 
       setInputValue("");

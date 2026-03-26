@@ -714,6 +714,44 @@ class TestChatMessages:
 
         assert exc_info.value.status_code == 402
 
+    @pytest.mark.asyncio
+    async def test_generate_chat_response_disables_middleware_memory_capture(self):
+        """Chat router should rely on persisted-turn capture, not middleware double capture."""
+        request = chat.ChatRequest(message="继续对话", workspace_id="ws-1")
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="gpt-4o",
+        )
+        current_user = create_mock_user("user-1")
+        fake_agent = MagicMock()
+        fake_agent.ainvoke = AsyncMock(
+            return_value={"messages": [MagicMock(content="已收到")]}
+        )
+        build_pipeline = MagicMock(return_value=[])
+
+        with patch(
+            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.gateway.routers.chat._ensure_chat_turn_budget",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.gateway.routers.chat.route_chat_model",
+            return_value="gpt-4o",
+        ), patch(
+            "src.agents.lead_agent.agent.build_pipeline",
+            build_pipeline,
+        ), patch(
+            "src.agents.lead_agent.agent.make_lead_agent",
+            return_value=fake_agent,
+        ):
+            await chat._generate_chat_response(request, thread, current_user)
+
+        assert build_pipeline.call_args.kwargs["memory_capture_enabled"] is False
+
     def test_thread_agent_status_defaults_to_idle(self):
         """Threads expose a default idle execution status for unified UI polling."""
         service = FakeChatThreadService()

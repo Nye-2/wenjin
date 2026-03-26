@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -33,11 +34,13 @@ from src.services.workspace_uploads import (
     sanitize_upload_filename,
     workspace_upload_public_url,
 )
+from src.workspace_events import publish_workspace_event
 
 router = APIRouter(prefix="/threads/{thread_id}/uploads", tags=["uploads"])
 
 _PERSISTED_UPLOAD_ROOT = DEFAULT_WORKSPACE_UPLOAD_ROOT
 _MEMORY_PREVIEW_MAX_CHARS = 280
+logger = logging.getLogger(__name__)
 
 
 class ThreadUploadResponse(BaseModel):
@@ -80,6 +83,11 @@ def _build_attachment(
         artifact_id=artifact_id,
         metadata=metadata or {},
     )
+
+
+def _ordered_refresh_targets(targets: set[str]) -> list[str]:
+    preferred_order = ("dashboard", "papers", "artifacts")
+    return [target for target in preferred_order if target in targets]
 
 
 async def _require_owned_thread(
@@ -156,6 +164,7 @@ async def upload_thread_files(
     uploads_dir = _thread_upload_dir(thread_id)
     knowledge_service = KnowledgeService(db)
     stored_files: list[ChatAttachment] = []
+    refresh_targets: set[str] = set()
 
     for upload in files:
         try:
@@ -242,6 +251,7 @@ async def upload_thread_files(
                 metadata["page_count"] = document_preview["page_count"]
             if document_preview.get("text_preview"):
                 metadata["text_preview"] = document_preview["text_preview"]
+            refresh_targets.update({"dashboard", "papers"})
 
         if kind == "workspace_context" and resolved_workspace_id:
             persistent_path = persist_workspace_upload(
@@ -292,21 +302,30 @@ async def upload_thread_files(
                 knowledge_text += f" 文档标题：{document_preview['title']}。"
             if text_preview:
                 knowledge_text += f" 内容摘要：{text_preview[:_MEMORY_PREVIEW_MAX_CHARS]}"
-            await knowledge_service.upsert(
-                str(current_user.id),
-                KnowledgeCategory.CONTEXT,
-                knowledge_text,
-                confidence=0.85,
-                source="chat_upload.workspace_context",
-                workspace_context=resolved_workspace_id,
-            )
-            await db.commit()
+            try:
+                await knowledge_service.upsert(
+                    str(current_user.id),
+                    KnowledgeCategory.CONTEXT,
+                    knowledge_text,
+                    confidence=0.85,
+                    source="chat_upload.workspace_context",
+                    workspace_context=resolved_workspace_id,
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                logger.warning(
+                    "Failed to persist workspace-context upload memory for workspace %s",
+                    resolved_workspace_id,
+                    exc_info=True,
+                )
             metadata["stored_path"] = str(persistent_path)
             metadata["stored_url"] = workspace_upload_public_url(
                 resolved_workspace_id,
                 persistent_path,
                 root=_PERSISTED_UPLOAD_ROOT,
             )
+            refresh_targets.update({"dashboard", "artifacts"})
 
         stored_files.append(
             _build_attachment(
@@ -319,6 +338,13 @@ async def upload_thread_files(
                 artifact_id=artifact_id,
                 metadata=metadata,
             )
+        )
+
+    if resolved_workspace_id and refresh_targets:
+        await publish_workspace_event(
+            resolved_workspace_id,
+            "workspace.refresh",
+            {"refresh_targets": _ordered_refresh_targets(refresh_targets)},
         )
 
     return ThreadUploadResponse(

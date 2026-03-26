@@ -126,6 +126,9 @@ def test_transient_upload_returns_attachment_metadata(client):
 
 def test_literature_upload_persists_pdf_to_paper_center(client):
     with _patch_storage_roots(client.app), patch(
+        "src.gateway.routers.uploads.publish_workspace_event",
+        AsyncMock(),
+    ) as publish_workspace_event, patch(
         "src.gateway.routers.uploads.extract_document_preview",
         return_value={
             "title": "Transformer Paper",
@@ -172,6 +175,11 @@ def test_literature_upload_persists_pdf_to_paper_center(client):
             "thread_id": "thread-1",
         },
     )
+    publish_workspace_event.assert_awaited_once_with(
+        "ws-1",
+        "workspace.refresh",
+        {"refresh_targets": ["dashboard", "papers"]},
+    )
 
 
 def test_literature_upload_keeps_success_when_extraction_queue_fails(client):
@@ -205,6 +213,9 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     mock_knowledge_service.upsert = AsyncMock()
 
     with _patch_storage_roots(client.app), patch(
+        "src.gateway.routers.uploads.publish_workspace_event",
+        AsyncMock(),
+    ) as publish_workspace_event, patch(
         "src.gateway.routers.uploads.KnowledgeService",
         return_value=mock_knowledge_service,
     ), patch(
@@ -237,3 +248,45 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     assert "内容摘要" in knowledge_args[2]
     assert "proposal" in knowledge_args[2]
     client.app.state.db.commit.assert_awaited()
+    publish_workspace_event.assert_awaited_once_with(
+        "ws-1",
+        "workspace.refresh",
+        {"refresh_targets": ["dashboard", "artifacts"]},
+    )
+
+
+def test_workspace_context_upload_degrades_when_memory_write_fails(client):
+    mock_knowledge_service = MagicMock()
+    mock_knowledge_service.upsert = AsyncMock(side_effect=RuntimeError("memory offline"))
+
+    with _patch_storage_roots(client.app), patch(
+        "src.gateway.routers.uploads.publish_workspace_event",
+        AsyncMock(),
+    ) as publish_workspace_event, patch(
+        "src.gateway.routers.uploads.KnowledgeService",
+        return_value=mock_knowledge_service,
+    ), patch(
+        "src.gateway.routers.uploads.extract_document_preview",
+        return_value={
+            "title": "Opening Proposal",
+            "authors": [],
+            "page_count": None,
+            "text_preview": "# proposal",
+        },
+    ):
+        response = client.post(
+            "/api/threads/thread-1/uploads",
+            data={"kind": "workspace_context", "workspace_id": "ws-1"},
+            files=[("files", ("proposal.md", io.BytesIO(b"# proposal"), "text/markdown"))],
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["files"][0]["artifact_id"] == "artifact-1"
+    client.app.state.artifact_service.create.assert_awaited_once()
+    client.app.state.db.rollback.assert_awaited_once()
+    publish_workspace_event.assert_awaited_once_with(
+        "ws-1",
+        "workspace.refresh",
+        {"refresh_targets": ["dashboard", "artifacts"]},
+    )

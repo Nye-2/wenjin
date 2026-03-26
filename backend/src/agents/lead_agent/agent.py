@@ -431,6 +431,7 @@ def build_pipeline(
     paper_service=None,
     sandbox_provider=None,
     memory_queue=None,
+    memory_capture_enabled: bool = True,
 ) -> list:
     """Build the middleware pipeline for the lead agent.
 
@@ -529,7 +530,7 @@ def build_pipeline(
                 queue=memory_queue,
                 enabled=True,
                 inject_enabled=getattr(memory_config, "injection_enabled", True),
-                capture_enabled=True,
+                capture_enabled=memory_capture_enabled,
             )
         )
 

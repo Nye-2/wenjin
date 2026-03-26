@@ -470,6 +470,7 @@ async def _generate_chat_response(
         index_service=literature_service,
         artifact_service=artifact_service,
         paper_service=paper_service,
+        memory_capture_enabled=False,
     )
 
     try:
