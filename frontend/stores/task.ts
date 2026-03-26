@@ -43,6 +43,7 @@ interface TaskState {
   completeTask: () => void;
   cancelTask: () => void;
   failTask: (error: string) => void;
+  clearCurrentTask: () => void;
   clearRecentCompleted: () => void;
 }
 
@@ -199,9 +200,17 @@ export const useTaskStore = create<TaskState>((set, get) => ({
             ...state.currentTask,
             status: 'failed',
             thinking: `错误: ${error}`,
+            completedAt: new Date().toISOString(),
           }
         : null,
     }));
+  },
+
+  clearCurrentTask: () => {
+    set({
+      isExecuting: false,
+      currentTask: null,
+    });
   },
 
   clearRecentCompleted: () => {

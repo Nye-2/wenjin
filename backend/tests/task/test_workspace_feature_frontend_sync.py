@@ -16,6 +16,7 @@ CHAT_SKILLS_FILE = FRONTEND_DIR / "lib" / "workspace-chat-skills.ts"
 EXECUTION_FILE = FRONTEND_DIR / "lib" / "workspace-feature-execution.ts"
 FEATURE_RUNNER_FILE = FRONTEND_DIR / "hooks" / "useFeatureTaskRunner.ts"
 CHAT_EXPORT_FILE = FRONTEND_DIR / "lib" / "chat-export.ts"
+WORKSPACE_API_FILE = FRONTEND_DIR / "lib" / "api" / "workspace.ts"
 CHAT_PANEL_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "ChatPanel.tsx"
 )
@@ -214,6 +215,17 @@ def test_chat_and_knowledge_submission_flow_use_shared_execution_helper() -> Non
     assert "executeWorkspaceFeature(" not in knowledge_body
 
     assert "ensureWorkspaceFeatureTaskCreated(resp" in feature_runner_body
+
+
+def test_agent_status_bar_uses_backend_cancel_api_and_failed_task_branch() -> None:
+    api_body = _read_text(WORKSPACE_API_FILE)
+    body = _read_text(AGENT_STATUS_BAR_FILE)
+
+    assert "export async function cancelTask(taskId: string): Promise<void>" in api_body
+    assert 'await apiClient.delete(`/tasks/${taskId}`);' in api_body
+
+    assert 'currentTask?.status === "failed"' in body
+    assert "await cancelTaskRequest(currentTask.id);" in body
 
 
 def test_workspace_event_stream_applies_thread_activity_incrementally() -> None:

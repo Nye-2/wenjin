@@ -158,6 +158,10 @@ export async function getTaskStatus(taskId: string): Promise<TaskStatus> {
   return response.data;
 }
 
+export async function cancelTask(taskId: string): Promise<void> {
+  await apiClient.delete(`/tasks/${taskId}`);
+}
+
 export async function getWorkspaceDashboard(
   workspaceId: string
 ): Promise<DashboardData> {

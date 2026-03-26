@@ -3,9 +3,21 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Loader2, X, ChevronDown, ChevronUp, Bot } from "lucide-react";
+import {
+  AlertCircle,
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
-import { getThreadAgentStatus, type ThreadAgentStatus } from "@/lib/api";
+import {
+  cancelTask as cancelTaskRequest,
+  getThreadAgentStatus,
+  type ThreadAgentStatus,
+} from "@/lib/api";
 import { formatWorkspaceChatSkillLabel } from "@/lib/workspace-chat-skills";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chat";
@@ -74,11 +86,18 @@ function StageConnector({ isCompleted }: StageConnectorProps) {
 }
 
 export function AgentStatusBar() {
-  const { currentTask, recentCompleted, cancelTask, clearRecentCompleted } =
-    useTaskStore();
+  const {
+    currentTask,
+    recentCompleted,
+    cancelTask,
+    clearCurrentTask,
+    clearRecentCompleted,
+  } = useTaskStore();
   const { threadId, currentSkill, isStreaming, threadStatuses, setThreadStatus } = useChatStore();
   const { workspace } = useWorkspaceStore();
   const [isExpanded, setIsExpanded] = useState(true);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [taskActionError, setTaskActionError] = useState<string | null>(null);
   const threadStatus: ThreadAgentStatus | null = threadId ? threadStatuses[threadId] ?? null : null;
 
   useEffect(() => {
@@ -106,6 +125,35 @@ export function AgentStatusBar() {
     };
   }, [threadId, threadStatus, setThreadStatus]);
 
+  useEffect(() => {
+    setTaskActionError(null);
+    setIsCancelling(false);
+  }, [currentTask?.id, currentTask?.status]);
+
+  const handleDismissFailedTask = () => {
+    setTaskActionError(null);
+    clearCurrentTask();
+  };
+
+  const handleCancelCurrentTask = async () => {
+    if (!currentTask || currentTask.status !== "running" || isCancelling) {
+      return;
+    }
+
+    setTaskActionError(null);
+    setIsCancelling(true);
+    try {
+      await cancelTaskRequest(currentTask.id);
+      cancelTask();
+    } catch (error) {
+      setTaskActionError(
+        error instanceof Error ? error.message : "取消任务失败，请稍后重试"
+      );
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
   // 完成状态提示
   if (recentCompleted) {
     return (
@@ -129,6 +177,38 @@ export function AgentStatusBar() {
         >
           <X className="w-4 h-4" />
         </button>
+      </motion.div>
+    );
+  }
+
+  if (currentTask?.status === "failed") {
+    const failureMessage = currentTask.thinking.replace(/^错误:\s*/, "").trim();
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3"
+      >
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-500/15">
+            <AlertCircle className="h-4 w-4 text-red-500" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-red-700">任务失败</p>
+            <p className="text-xs text-red-600/80">{currentTask.agentLabel}</p>
+            <p className="mt-1 text-xs leading-5 text-red-700/90">
+              {failureMessage || "任务执行失败，请稍后重试。"}
+            </p>
+          </div>
+          <button
+            onClick={handleDismissFailedTask}
+            className="rounded-lg p-1.5 text-red-600/70 transition-colors hover:bg-red-500/10 hover:text-red-600"
+            aria-label="关闭"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </motion.div>
     );
   }
@@ -233,11 +313,12 @@ export function AgentStatusBar() {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              cancelTask();
+              void handleCancelCurrentTask();
             }}
-            className="text-xs text-[var(--text-muted)] hover:text-red-500 transition-colors px-2.5 py-1 rounded-lg hover:bg-red-500/10"
+            disabled={isCancelling}
+            className="text-xs text-[var(--text-muted)] hover:text-red-500 transition-colors px-2.5 py-1 rounded-lg hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            取消
+            {isCancelling ? "取消中..." : "取消"}
           </button>
           {isExpanded ? (
             <ChevronUp className="w-4 h-4 text-[var(--text-muted)]" />
@@ -248,6 +329,11 @@ export function AgentStatusBar() {
       </div>
 
       {/* 展开内容 */}
+      {taskActionError && (
+        <div className="mx-4 mb-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-700">
+          {taskActionError}
+        </div>
+      )}
       <AnimatePresence>
         {isExpanded && (
           <motion.div
