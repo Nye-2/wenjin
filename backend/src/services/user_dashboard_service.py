@@ -22,9 +22,15 @@ class UserDashboardService:
         if user is None:
             raise ValueError("User not found")
 
+        credit_service = CreditService(self.db)
         workspace_stats = await self._get_workspace_stats(user_id)
         task_stats, recent_tasks = await self._get_task_stats(user_id)
         recent_credit_transactions = await self._get_recent_credit_transactions(user_id)
+        chat_credit_status = await self._get_chat_credit_status(
+            user_id,
+            credit_service=credit_service,
+            current_balance=int(user.credits),
+        )
 
         return {
             "profile": {
@@ -41,6 +47,7 @@ class UserDashboardService:
                 "total_earned": int(user.total_credits_earned),
                 "total_spent": int(user.total_credits_spent),
                 "costs": CreditService.get_workflow_costs(),
+                "chat": chat_credit_status,
             },
             "workspaces": workspace_stats,
             "tasks": task_stats,
@@ -133,7 +140,31 @@ class UserDashboardService:
                 "balance_after": int(tx.balance_after),
                 "description": tx.description,
                 "feature_id": tx.feature_id,
+                "metadata": tx.tx_metadata or {},
                 "created_at": tx.created_at.isoformat() if tx.created_at else None,
             }
             for tx in rows
         ]
+
+    async def _get_chat_credit_status(
+        self,
+        user_id: str,
+        *,
+        credit_service: CreditService,
+        current_balance: int,
+    ) -> dict[str, Any]:
+        """Build chat-specific credit status for dashboard display."""
+        policy = credit_service.get_chat_billing_policy()
+        consumed_tokens = await credit_service.get_consumed_chat_tokens(user_id)
+        remaining_free_tokens = max(policy.free_tokens - consumed_tokens, 0)
+        can_start_chat = await credit_service.can_start_chat_turn(user_id)
+
+        return {
+            "enabled": policy.enabled,
+            "free_tokens": policy.free_tokens,
+            "tokens_per_credit": policy.tokens_per_credit,
+            "consumed_tokens": consumed_tokens,
+            "remaining_free_tokens": remaining_free_tokens,
+            "can_start_chat": can_start_chat,
+            "overdraft_credits": max(-current_balance, 0),
+        }

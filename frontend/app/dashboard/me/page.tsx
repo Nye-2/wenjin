@@ -5,11 +5,17 @@ import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw, CreditCard, FolderKanban, ListChecks, TrendingUp } from "lucide-react";
 
 import { Header } from "@/components/layout/header";
+import {
+  formatCreditCostLabel,
+  formatCreditTransactionType,
+  getChatCreditStatus,
+  renderCostValue,
+  summarizeCreditTransaction,
+} from "@/lib/credit-display";
 import { useAuthStore } from "@/stores/auth";
 import {
   getMyCreditHistory,
   getMyDashboard,
-  type CreditCostValue,
   type CreditTransactionItem,
   type UserDashboardData,
 } from "@/lib/api";
@@ -19,14 +25,6 @@ function formatDate(dateText: string | null | undefined): string {
   const date = new Date(dateText);
   if (Number.isNaN(date.getTime())) return dateText;
   return date.toLocaleString();
-}
-
-function renderCostValue(value: CreditCostValue): string {
-  if (typeof value === "number") return `${value}`;
-  const parts = Object.entries(value).map(([k, v]) =>
-    `${k}: ${typeof v === "boolean" ? (v ? "on" : "off") : v}`
-  );
-  return parts.join(" | ");
 }
 
 export default function MyDashboardPage() {
@@ -84,6 +82,8 @@ export default function MyDashboardPage() {
   }
 
   const costs = dashboard?.credits.costs ?? {};
+  const creditBalance = dashboard?.credits.balance ?? 0;
+  const chatCredit = getChatCreditStatus(dashboard?.credits);
   const completionRate = ((dashboard?.tasks.completion_rate ?? 0) * 100).toFixed(1);
   const recentTasks = dashboard?.recent_tasks ?? [];
 
@@ -115,17 +115,32 @@ export default function MyDashboardPage() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <div
+            className={`rounded-2xl border p-5 ${
+              creditBalance < 0
+                ? "border-rose-500/30 bg-rose-500/10"
+                : "border-[var(--border-default)] bg-[var(--bg-elevated)]"
+            }`}
+          >
             <div className="flex items-center justify-between">
               <span className="text-sm text-[var(--text-secondary)]">当前积分</span>
               <CreditCard className="w-5 h-5 text-[var(--accent-primary)]" />
             </div>
-            <div className="mt-3 text-3xl font-bold text-[var(--text-primary)]">
-              {dashboard?.credits.balance ?? 0}
+            <div
+              className={`mt-3 text-3xl font-bold ${
+                creditBalance < 0 ? "text-rose-600" : "text-[var(--text-primary)]"
+              }`}
+            >
+              {creditBalance}
             </div>
             <div className="mt-1 text-xs text-[var(--text-muted)]">
               累计获得 {dashboard?.credits.total_earned ?? 0} / 累计消费 {dashboard?.credits.total_spent ?? 0}
             </div>
+            {chatCredit?.overdraft_credits ? (
+              <div className="mt-2 text-xs text-rose-600">
+                已透支 {chatCredit.overdraft_credits} 积分，充值后可恢复 Chat。
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
@@ -168,6 +183,60 @@ export default function MyDashboardPage() {
           </div>
         </div>
 
+        {chatCredit?.enabled ? (
+          <section
+            className={`rounded-2xl border p-5 ${
+              chatCredit.can_start_chat
+                ? "border-[var(--border-default)] bg-[var(--bg-elevated)]"
+                : "border-amber-500/30 bg-amber-500/10"
+            }`}
+          >
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-[var(--text-primary)]">Chat 计费状态</h2>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                  前 {chatCredit.free_tokens.toLocaleString()} tokens 免费，之后每{" "}
+                  {chatCredit.tokens_per_credit.toLocaleString()} tokens 扣 1 积分。
+                </p>
+              </div>
+              <div
+                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
+                  chatCredit.can_start_chat
+                    ? "bg-emerald-500/10 text-emerald-600"
+                    : "bg-rose-500/10 text-rose-600"
+                }`}
+              >
+                {chatCredit.can_start_chat ? "Chat 可用" : "Chat 已暂停"}
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
+                <div className="text-xs text-[var(--text-muted)]">免费额度已用</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+                  {chatCredit.consumed_tokens.toLocaleString()} / {chatCredit.free_tokens.toLocaleString()}
+                </div>
+              </div>
+              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
+                <div className="text-xs text-[var(--text-muted)]">剩余免费额度</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+                  {chatCredit.remaining_free_tokens.toLocaleString()} tokens
+                </div>
+              </div>
+              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
+                <div className="text-xs text-[var(--text-muted)]">当前透支</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+                  {chatCredit.overdraft_credits.toLocaleString()} 积分
+                </div>
+              </div>
+            </div>
+            {!chatCredit.can_start_chat ? (
+              <div className="mt-4 text-sm text-rose-600">
+                当前轮次已允许结算，但下一次 Chat 会被拦截。请先补充积分后再继续对话。
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">模块积分标准</h2>
@@ -182,7 +251,7 @@ export default function MyDashboardPage() {
                 <tbody>
                   {Object.entries(costs).map(([key, value]) => (
                     <tr key={key} className="border-b border-[var(--border-default)]/50">
-                      <td className="py-2 text-[var(--text-primary)]">{key}</td>
+                      <td className="py-2 text-[var(--text-primary)]">{formatCreditCostLabel(key)}</td>
                       <td className="py-2 text-[var(--text-secondary)]">{renderCostValue(value)}</td>
                     </tr>
                   ))}
@@ -233,7 +302,7 @@ export default function MyDashboardPage() {
                 {history.map((item) => (
                   <tr key={item.id} className="border-b border-[var(--border-default)]/50">
                     <td className="py-2 text-[var(--text-secondary)]">{formatDate(item.created_at)}</td>
-                    <td className="py-2 text-[var(--text-primary)]">{item.type}</td>
+                    <td className="py-2 text-[var(--text-primary)]">{formatCreditTransactionType(item.type)}</td>
                     <td
                       className={`py-2 font-medium ${
                         item.amount >= 0 ? "text-emerald-600" : "text-rose-600"
@@ -241,8 +310,16 @@ export default function MyDashboardPage() {
                     >
                       {item.amount >= 0 ? `+${item.amount}` : item.amount}
                     </td>
-                    <td className="py-2 text-[var(--text-primary)]">{item.balance_after}</td>
-                    <td className="py-2 text-[var(--text-secondary)]">{item.description ?? "-"}</td>
+                    <td
+                      className={`py-2 ${
+                        item.balance_after < 0 ? "text-rose-600" : "text-[var(--text-primary)]"
+                      }`}
+                    >
+                      {item.balance_after}
+                    </td>
+                    <td className="py-2 text-[var(--text-secondary)]">
+                      {summarizeCreditTransaction(item)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

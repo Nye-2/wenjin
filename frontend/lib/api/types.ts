@@ -386,10 +386,21 @@ export interface CreditTransactionItem {
   balance_after: number;
   description?: string | null;
   feature_id?: string | null;
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 
 export type CreditCostValue = number | Record<string, number | boolean>;
+
+export interface ChatCreditStatus {
+  enabled: boolean;
+  free_tokens: number;
+  tokens_per_credit: number;
+  consumed_tokens: number;
+  remaining_free_tokens: number;
+  can_start_chat: boolean;
+  overdraft_credits: number;
+}
 
 export interface UserDashboardData {
   profile: {
@@ -406,6 +417,7 @@ export interface UserDashboardData {
     total_earned: number;
     total_spent: number;
     costs: Record<string, CreditCostValue>;
+    chat?: ChatCreditStatus;
   };
   workspaces: {
     total: number;

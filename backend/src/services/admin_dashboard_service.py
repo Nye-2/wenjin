@@ -414,6 +414,7 @@ class AdminDashboardService:
                 "balance_after": int(tx.balance_after),
                 "description": tx.description,
                 "feature_id": tx.feature_id,
+                "metadata": tx.tx_metadata or {},
                 "created_at": tx.created_at.isoformat() if tx.created_at else None,
             }
             for tx, email, name in rows.all()

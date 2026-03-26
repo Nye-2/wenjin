@@ -33,6 +33,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  formatCreditTransactionType,
+  summarizeCreditTransaction,
+} from "@/lib/credit-display";
 import { useAuthStore } from "@/stores/auth";
 import {
   adminDeductCredits,
@@ -424,10 +428,10 @@ export default function AdminDashboardPage() {
         item.created_at,
         item.user_email ?? "",
         item.user_id ?? "",
-        item.type,
+        formatCreditTransactionType(item.type),
         item.amount,
         item.balance_after,
-        item.description ?? "",
+        summarizeCreditTransaction(item),
       ])
     );
   };
@@ -1445,7 +1449,7 @@ export default function AdminDashboardPage() {
                   <tr key={item.id} className="border-b border-[var(--border-default)]/50">
                     <td className="py-2 text-[var(--text-secondary)]">{formatDate(item.created_at)}</td>
                     <td className="py-2 text-[var(--text-primary)]">{item.user_email ?? item.user_id ?? "-"}</td>
-                    <td className="py-2 text-[var(--text-secondary)]">{item.type}</td>
+                    <td className="py-2 text-[var(--text-secondary)]">{formatCreditTransactionType(item.type)}</td>
                     <td
                       className={`py-2 font-medium ${
                         item.amount >= 0 ? "text-emerald-600" : "text-rose-600"
@@ -1453,8 +1457,14 @@ export default function AdminDashboardPage() {
                     >
                       {item.amount >= 0 ? `+${item.amount}` : item.amount}
                     </td>
-                    <td className="py-2 text-[var(--text-primary)]">{item.balance_after}</td>
-                    <td className="py-2 text-[var(--text-secondary)]">{item.description ?? "-"}</td>
+                    <td
+                      className={`py-2 ${
+                        item.balance_after < 0 ? "text-rose-600" : "text-[var(--text-primary)]"
+                      }`}
+                    >
+                      {item.balance_after}
+                    </td>
+                    <td className="py-2 text-[var(--text-secondary)]">{summarizeCreditTransaction(item)}</td>
                   </tr>
                 ))}
               </tbody>
