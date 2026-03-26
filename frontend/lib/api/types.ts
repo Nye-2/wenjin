@@ -504,18 +504,12 @@ export interface AdminDashboardData {
       total_issued: number;
       total_spent: number;
       in_circulation: number;
+      manual_deductions: number;
+      overdraft_users: number;
+      overdraft_credits_total: number;
       total_transactions: number;
     };
   };
-  recent_users: AdminUserItem[];
-  top_spenders: Array<{
-    id: string;
-    email: string;
-    name: string | null;
-    total_spent: number;
-    balance: number;
-  }>;
-  recent_admin_logs: AdminLogItem[];
   updated_at: string;
 }
 

@@ -12,6 +12,7 @@ from src.database import (
     AdminLog,
     Artifact,
     CreditTransaction,
+    CreditTransactionType,
     TaskRecord,
     User,
     Workspace,
@@ -97,14 +98,46 @@ class AdminDashboardService:
             ).scalar()
             or 0
         )
+        credit_balance_total = int(
+            (
+                await self.db.execute(
+                    select(func.coalesce(func.sum(User.credits), 0))
+                )
+            ).scalar()
+            or 0
+        )
+        overdraft_users = int(
+            (
+                await self.db.execute(
+                    select(func.count()).where(User.credits < 0)
+                )
+            ).scalar()
+            or 0
+        )
+        overdraft_credits_total = int(
+            (
+                await self.db.execute(
+                    select(func.coalesce(func.sum(func.abs(User.credits)), 0)).where(
+                        User.credits < 0
+                    )
+                )
+            ).scalar()
+            or 0
+        )
+        manual_deductions_total = int(
+            (
+                await self.db.execute(
+                    select(func.coalesce(func.sum(func.abs(CreditTransaction.amount)), 0)).where(
+                        CreditTransaction.transaction_type == CreditTransactionType.ADMIN_DEDUCT
+                    )
+                )
+            ).scalar()
+            or 0
+        )
         tx_total = int(
             (await self.db.execute(select(func.count()).select_from(CreditTransaction))).scalar()
             or 0
         )
-
-        recent_users = await self._get_recent_users()
-        top_spenders = await self._get_top_spenders()
-        recent_admin_logs = await self._get_recent_admin_logs()
 
         return {
             "summary": {
@@ -128,13 +161,13 @@ class AdminDashboardService:
                 "credits": {
                     "total_issued": credits_issued,
                     "total_spent": credits_spent,
-                    "in_circulation": credits_issued - credits_spent,
+                    "in_circulation": credit_balance_total,
+                    "manual_deductions": manual_deductions_total,
+                    "overdraft_users": overdraft_users,
+                    "overdraft_credits_total": overdraft_credits_total,
                     "total_transactions": tx_total,
                 },
             },
-            "recent_users": recent_users,
-            "top_spenders": top_spenders,
-            "recent_admin_logs": recent_admin_logs,
             "updated_at": now.isoformat(),
         }
 
@@ -368,46 +401,6 @@ class AdminDashboardService:
             )
 
         return items, total
-
-    async def _get_recent_users(self) -> list[dict[str, Any]]:
-        rows = await self.db.execute(
-            select(User).order_by(desc(User.created_at)).limit(10)
-        )
-        return [self._user_to_dict(user) for user in rows.scalars().all()]
-
-    async def _get_top_spenders(self) -> list[dict[str, Any]]:
-        rows = await self.db.execute(
-            select(User)
-            .where(User.total_credits_spent > 0)
-            .order_by(desc(User.total_credits_spent))
-            .limit(10)
-        )
-        return [
-            {
-                "id": str(user.id),
-                "email": user.email,
-                "name": user.name,
-                "total_spent": int(user.total_credits_spent),
-                "balance": int(user.credits),
-            }
-            for user in rows.scalars().all()
-        ]
-
-    async def _get_recent_admin_logs(self) -> list[dict[str, Any]]:
-        rows = await self.db.execute(
-            select(AdminLog).order_by(desc(AdminLog.created_at)).limit(15)
-        )
-        return [
-            {
-                "id": str(log.id),
-                "admin_id": str(log.admin_id),
-                "action": log.action.value,
-                "target_user_id": log.target_user_id,
-                "details": log.details or {},
-                "created_at": log.created_at.isoformat() if log.created_at else None,
-            }
-            for log in rows.scalars().all()
-        ]
 
     def _user_to_dict(
         self,

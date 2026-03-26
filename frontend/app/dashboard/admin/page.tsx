@@ -405,13 +405,27 @@ export default function AdminDashboardPage() {
   const exportUsersCsv = () => {
     exportRowsToCsv(
       `admin-users-${new Date().toISOString().slice(0, 10)}.csv`,
-      ["email", "name", "role", "is_active", "credits", "workspace_count", "task_count", "created_at", "last_login"],
+      [
+        "email",
+        "name",
+        "role",
+        "is_active",
+        "credits",
+        "is_overdraft",
+        "overdraft_credits",
+        "workspace_count",
+        "task_count",
+        "created_at",
+        "last_login",
+      ],
       users.map((item) => [
         item.email,
         item.name ?? "",
         item.role,
         item.is_active ? "active" : "inactive",
         item.credits,
+        item.credits < 0 ? "yes" : "no",
+        item.credits < 0 ? Math.abs(item.credits) : 0,
         item.workspace_count,
         item.task_count,
         item.created_at ?? "",
@@ -577,6 +591,10 @@ export default function AdminDashboardPage() {
   const isFailed = (s: string) => s === "failed" || s === "missing";
   const visibleCoreChecks = releaseGateFilterFailed ? coreChecks.filter((c) => isFailed(c.status)) : coreChecks;
   const visibleExtendedChecks = releaseGateFilterFailed ? extendedChecks.filter((c) => isFailed(c.status)) : extendedChecks;
+  const overdraftUsers = dashboard?.summary.credits.overdraft_users ?? 0;
+  const overdraftCreditsTotal = dashboard?.summary.credits.overdraft_credits_total ?? 0;
+  const manualDeductions = dashboard?.summary.credits.manual_deductions ?? 0;
+  const hasOverdraftUsers = overdraftUsers > 0;
   let mcpDraftPreviewError: string | null = null;
   try {
     parseMcpServersDraft(mcpDraft);
@@ -615,7 +633,7 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
           <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-[var(--text-secondary)]">总用户数</span>
@@ -642,16 +660,52 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <div
+            className={`rounded-2xl border p-5 ${
+              hasOverdraftUsers
+                ? "border-rose-500/30 bg-rose-500/10"
+                : "border-[var(--border-default)] bg-[var(--bg-elevated)]"
+            }`}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--text-secondary)]">积分流通</span>
+              <span className="text-sm text-[var(--text-secondary)]">积分余额池</span>
               <CreditCard className="w-5 h-5 text-[var(--accent-primary)]" />
             </div>
-            <div className="mt-3 text-3xl font-bold text-[var(--text-primary)]">
+            <div
+              className={`mt-3 text-3xl font-bold ${
+                hasOverdraftUsers ? "text-rose-600" : "text-[var(--text-primary)]"
+              }`}
+            >
               {dashboard?.summary.credits.in_circulation ?? 0}
             </div>
             <div className="mt-1 text-xs text-[var(--text-muted)]">
               发放 {dashboard?.summary.credits.total_issued ?? 0} / 消费 {dashboard?.summary.credits.total_spent ?? 0}
+            </div>
+            <div className="mt-1 text-xs text-[var(--text-muted)]">
+              管理员扣减 {manualDeductions}
+            </div>
+          </div>
+
+          <div
+            className={`rounded-2xl border p-5 ${
+              hasOverdraftUsers
+                ? "border-rose-500/30 bg-rose-500/10"
+                : "border-[var(--border-default)] bg-[var(--bg-elevated)]"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-[var(--text-secondary)]">透支用户</span>
+              <TriangleAlert className="w-5 h-5 text-[var(--accent-primary)]" />
+            </div>
+            <div
+              className={`mt-3 text-3xl font-bold ${
+                hasOverdraftUsers ? "text-rose-600" : "text-[var(--text-primary)]"
+              }`}
+            >
+              {overdraftUsers}
+            </div>
+            <div className="mt-1 text-xs text-[var(--text-muted)]">
+              累计透支 {overdraftCreditsTotal} 积分
             </div>
           </div>
 
@@ -668,6 +722,13 @@ export default function AdminDashboardPage() {
             </div>
           </div>
         </div>
+
+        {hasOverdraftUsers ? (
+          <section className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-700">
+            当前有 {overdraftUsers} 个账号处于负余额，总计透支 {overdraftCreditsTotal} 积分。
+            这些用户当前轮次允许完成结算，但下一次纯 Chat 会被拦截；要恢复使用，直接补发积分即可。
+          </section>
+        ) : null}
 
         <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
@@ -1228,9 +1289,24 @@ export default function AdminDashboardPage() {
               <tbody>
                 {users.map((item) => {
                   const busy = actionLoadingUserId === item.id;
+                  const isOverdraft = item.credits < 0;
                   return (
-                    <tr key={item.id} className="border-b border-[var(--border-default)]/50">
-                      <td className="py-2 text-[var(--text-primary)]">{item.email}</td>
+                    <tr
+                      key={item.id}
+                      className={`border-b border-[var(--border-default)]/50 ${
+                        isOverdraft ? "bg-rose-500/5" : ""
+                      }`}
+                    >
+                      <td className="py-2 text-[var(--text-primary)]">
+                        <div className="flex items-center gap-2">
+                          <span>{item.email}</span>
+                          {isOverdraft ? (
+                            <span className="rounded-md bg-rose-500/10 px-2 py-1 text-xs text-rose-600">
+                              透支
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                       <td className="py-2 text-[var(--text-secondary)]">{item.role}</td>
                       <td className="py-2">
                         <span
@@ -1243,7 +1319,13 @@ export default function AdminDashboardPage() {
                           {item.is_active ? "正常" : "禁用"}
                         </span>
                       </td>
-                      <td className="py-2 text-[var(--text-primary)]">{item.credits}</td>
+                      <td
+                        className={`py-2 font-medium ${
+                          isOverdraft ? "text-rose-600" : "text-[var(--text-primary)]"
+                        }`}
+                      >
+                        {item.credits}
+                      </td>
                       <td className="py-2 text-[var(--text-primary)]">{item.workspace_count}</td>
                       <td className="py-2 text-[var(--text-primary)]">{item.task_count}</td>
                       <td className="py-2 text-[var(--text-secondary)]">{formatDate(item.created_at)}</td>

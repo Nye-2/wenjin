@@ -500,13 +500,12 @@ class CreditService:
             raise ValueError("Amount must be positive")
 
         user = await self._get_user_for_update(target_user_id)
-        deducted = min(amount, int(user.credits))
-        user.credits = max(0, int(user.credits) - amount)
+        user.credits = int(user.credits) - amount
 
         tx = CreditTransaction(
             user_id=target_user_id,
             transaction_type=CreditTransactionType.ADMIN_DEDUCT,
-            amount=-deducted,
+            amount=-amount,
             balance_after=user.credits,
             description=description,
             admin_id=admin_id,

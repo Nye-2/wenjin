@@ -199,3 +199,23 @@ async def test_consume_for_chat_usage_allows_single_turn_overdraft_then_blocks_n
     assert result.charged is True
     assert await credit_service.get_balance("user-1") == -1
     assert await credit_service.can_start_chat_turn("user-1") is False
+
+
+@pytest.mark.asyncio
+async def test_admin_deduct_keeps_direction_correct_for_negative_balances(
+    db_session: AsyncSession,
+    credit_service: CreditService,
+) -> None:
+    await _create_user(db_session, credits=-1)
+
+    tx = await credit_service.admin_deduct(
+        admin_id="admin-1",
+        target_user_id="user-1",
+        amount=5,
+        description="manual adjustment",
+    )
+
+    assert tx.amount == -5
+    assert tx.balance_after == -6
+    assert tx.tx_metadata["requested_amount"] == 5
+    assert await credit_service.get_balance("user-1") == -6
