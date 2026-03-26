@@ -4,6 +4,7 @@ import {
   type ChatMessageBlock,
   type Thread,
   type ThreadSummary,
+  type WorkspaceTaskEvent,
 } from "@/lib/api";
 import { trackWorkspaceFeatureTask } from "@/lib/workspace-feature-execution";
 import { useFeaturesStore } from "@/stores/features";
@@ -116,6 +117,78 @@ export function toStoreMessages(detail: Thread): Message[] {
       blocks: Array.isArray(message.blocks) ? message.blocks : [],
       metadata: message.metadata ?? null,
     }));
+}
+
+export function syncAttachmentExtractionsWithTask(
+  messages: Message[],
+  task: WorkspaceTaskEvent["task"]
+): Message[] {
+  if (!task.thread_id) {
+    return messages;
+  }
+
+  let changed = false;
+
+  const nextMessages = messages.map((message) => {
+    const attachments = message.metadata?.attachments;
+    if (!Array.isArray(attachments) || attachments.length === 0) {
+      return message;
+    }
+
+    let messageChanged = false;
+    const nextAttachments = attachments.map((attachment) => {
+      if (!attachment || typeof attachment !== "object") {
+        return attachment;
+      }
+
+      const attachmentRecord = attachment as Record<string, unknown>;
+      const metadata =
+        attachmentRecord.metadata && typeof attachmentRecord.metadata === "object"
+          ? { ...(attachmentRecord.metadata as Record<string, unknown>) }
+          : null;
+      const extraction =
+        metadata?.extraction && typeof metadata.extraction === "object"
+          ? { ...(metadata.extraction as Record<string, unknown>) }
+          : null;
+
+      if (!metadata || !extraction || extraction.task_id !== task.task_id) {
+        return attachment;
+      }
+
+      extraction.status = task.status;
+      extraction.progress = task.progress;
+      extraction.current_step = task.current_step ?? null;
+      extraction.message =
+        task.error || task.message || (typeof extraction.message === "string" ? extraction.message : null);
+      if (task.error) {
+        extraction.error = task.error;
+      } else if (task.status === "success") {
+        delete extraction.error;
+      }
+
+      metadata.extraction = extraction;
+      messageChanged = true;
+      changed = true;
+      return {
+        ...attachmentRecord,
+        metadata,
+      };
+    });
+
+    if (!messageChanged) {
+      return message;
+    }
+
+    return {
+      ...message,
+      metadata: {
+        ...(message.metadata ?? {}),
+        attachments: nextAttachments,
+      },
+    };
+  });
+
+  return changed ? nextMessages : messages;
 }
 
 function readStructuredTaskDescriptor(

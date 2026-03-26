@@ -39,6 +39,9 @@ export interface PaperExtractionSubmission {
   workspace_id?: string | null;
   tier?: number | null;
   message?: string | null;
+  progress?: number | null;
+  current_step?: string | null;
+  error?: string | null;
   reused_existing_task?: boolean;
 }
 

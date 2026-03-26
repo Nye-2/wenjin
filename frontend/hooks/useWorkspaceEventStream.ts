@@ -43,6 +43,9 @@ function handleWorkspaceEvent(workspaceId: string, event: WorkspaceEvent) {
       if (event.activity) {
         workspaceStore.upsertActivity(event.activity);
       }
+      if (event.task.task_type === "paper_extraction") {
+        chatStore.syncAttachmentExtractionTask(event.task);
+      }
       const currentTask = taskStore.currentTask;
       if (currentTask?.id === event.task.task_id) {
         if (event.task.status === "running" || event.task.status === "pending") {

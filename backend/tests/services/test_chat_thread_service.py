@@ -193,6 +193,92 @@ class TestChatThreadService:
         mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
+    async def test_update_attachment_extraction_state_updates_matching_attachment(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Extraction task state should be written back into the matching attachment."""
+        thread = _make_thread()
+        thread.messages = [
+            {
+                "role": "user",
+                "content": "please read this paper",
+                "metadata": {
+                    "attachments": [
+                        {
+                            "name": "paper.pdf",
+                            "metadata": {
+                                "extraction": {
+                                    "task_id": "task-paper-1",
+                                    "status": "scheduled",
+                                    "message": "queued",
+                                }
+                            },
+                        }
+                    ]
+                },
+            }
+        ]
+
+        updated = await service.update_attachment_extraction_state(
+            thread,
+            task_id="task-paper-1",
+            status="success",
+            message="Paper extraction completed",
+            progress=100,
+            current_step="complete",
+        )
+
+        assert updated is True
+        extraction = thread.messages[0]["metadata"]["attachments"][0]["metadata"]["extraction"]
+        assert extraction["status"] == "success"
+        assert extraction["message"] == "Paper extraction completed"
+        assert extraction["progress"] == 100
+        assert extraction["current_step"] == "complete"
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_update_attachment_extraction_state_returns_false_when_missing_task(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Non-matching attachments should not trigger writes."""
+        thread = _make_thread()
+        thread.messages = [
+            {
+                "role": "user",
+                "content": "hello",
+                "metadata": {
+                    "attachments": [
+                        {
+                            "name": "paper.pdf",
+                            "metadata": {
+                                "extraction": {
+                                    "task_id": "another-task",
+                                    "status": "scheduled",
+                                }
+                            },
+                        }
+                    ]
+                },
+            }
+        ]
+
+        updated = await service.update_attachment_extraction_state(
+            thread,
+            task_id="task-paper-1",
+            status="failed",
+            error="boom",
+        )
+
+        assert updated is False
+        mock_db_session.commit.assert_not_awaited()
+        mock_db_session.refresh.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_set_title_if_empty_only_updates_opening_exchange(
         self,
         service,

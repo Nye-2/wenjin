@@ -6,6 +6,8 @@ from collections.abc import Mapping
 
 from celery import shared_task
 
+from src.task.registry import PAPER_EXTRACTION_TASK
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,6 +28,9 @@ async def _append_task_chat_message(
     error: str | None = None,
 ) -> None:
     """Best-effort task result write-back into the originating chat thread."""
+    if task_type == PAPER_EXTRACTION_TASK:
+        return
+
     thread_id = str(payload.get("thread_id") or "").strip()
     if not thread_id:
         return
@@ -73,6 +78,51 @@ async def _append_task_chat_message(
     except Exception:
         logger.warning(
             "Failed to append task result to thread %s",
+            thread_id,
+            exc_info=True,
+        )
+
+
+async def _sync_paper_extraction_attachment_state(
+    *,
+    db,
+    task_id: str,
+    task_type: str,
+    payload: dict,
+    status: str,
+    message: str | None = None,
+    progress: int | None = None,
+    current_step: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Best-effort persistence of extraction task state onto source attachments."""
+    if task_type != PAPER_EXTRACTION_TASK:
+        return
+
+    thread_id = str(payload.get("thread_id") or "").strip()
+    if not thread_id:
+        return
+
+    try:
+        from src.services.chat_thread_service import ChatThreadService
+
+        chat_thread_service = ChatThreadService(db)
+        thread = await chat_thread_service.get_by_id(thread_id)
+        if thread is None:
+            return
+
+        await chat_thread_service.update_attachment_extraction_state(
+            thread,
+            task_id=task_id,
+            status=status,
+            message=message,
+            progress=progress,
+            current_step=current_step,
+            error=error,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to sync paper extraction attachment state for thread %s",
             thread_id,
             exc_info=True,
         )
@@ -172,6 +222,22 @@ async def _execute_task_async(
             # mark_task_completed → DB + Redis (authoritative)
             # progress.complete  → Redis + Pub/Sub (SSE notification only)
             await store.mark_task_completed(task_id, success=True, result=result)
+            success_message = (
+                str(result.get("message"))
+                if isinstance(result, Mapping) and result.get("message")
+                else "Paper extraction completed"
+            )
+            await progress.complete(success_message)
+            await _sync_paper_extraction_attachment_state(
+                db=db,
+                task_id=task_id,
+                task_type=task_type,
+                payload=payload,
+                status="success",
+                message=success_message,
+                progress=100,
+                current_step="complete",
+            )
             await _append_task_chat_message(
                 db=db,
                 task_id=task_id,
@@ -179,7 +245,6 @@ async def _execute_task_async(
                 payload=payload,
                 result=result,
             )
-            await progress.complete("Task completed successfully")
 
             return result
 
@@ -229,6 +294,16 @@ async def _execute_task_async(
 
             # Terminal state: single DB write + Pub/Sub broadcast
             await store.mark_task_completed(task_id, success=False, error=str(e))
+            await progress.fail(str(e))
+            await _sync_paper_extraction_attachment_state(
+                db=db,
+                task_id=task_id,
+                task_type=task_type,
+                payload=payload,
+                status="failed",
+                message=str(e),
+                error=str(e),
+            )
             await _append_task_chat_message(
                 db=db,
                 task_id=task_id,
@@ -236,7 +311,6 @@ async def _execute_task_async(
                 payload=payload,
                 error=str(e),
             )
-            await progress.fail(str(e))
             raise
 
 

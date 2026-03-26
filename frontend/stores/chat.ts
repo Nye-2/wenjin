@@ -23,6 +23,7 @@ import {
   createStoreAssistantMessage,
   findLastAssistantMessage,
   maybeStartStructuredTask,
+  syncAttachmentExtractionsWithTask,
   toStoreMessages,
   toThreadSummary,
   upsertTrailingAssistantMessage,
@@ -68,6 +69,9 @@ interface ChatState {
   upsertThreadSummary: (summary: ThreadSummary) => void;
   removeThread: (threadId: string) => void;
   setThreadStatus: (status: ThreadAgentStatus) => void;
+  syncAttachmentExtractionTask: (
+    task: import("@/lib/api").WorkspaceTaskEvent["task"]
+  ) => void;
   startNewThread: () => void;
   setCurrentSkill: (skill: string | null) => void;
   clearMessages: () => void;
@@ -364,6 +368,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
         [status.thread_id]: status,
       },
     }));
+  },
+
+  syncAttachmentExtractionTask: (task) => {
+    if (!task.thread_id) {
+      return;
+    }
+
+    set((state) => {
+      if (state.threadId !== task.thread_id) {
+        return state;
+      }
+
+      const nextMessages = syncAttachmentExtractionsWithTask(state.messages, task);
+      if (nextMessages === state.messages) {
+        return state;
+      }
+
+      return {
+        messages: nextMessages,
+      };
+    });
   },
 
   startNewThread: () => {

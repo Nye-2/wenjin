@@ -1,5 +1,6 @@
 """Service layer for persisted chat threads."""
 
+import copy
 from collections.abc import Mapping
 from datetime import UTC, datetime
 import logging
@@ -160,6 +161,70 @@ class ChatThreadService:
         await self.db.commit()
         await self.db.refresh(thread)
         return message
+
+    async def update_attachment_extraction_state(
+        self,
+        thread: ChatThread,
+        *,
+        task_id: str,
+        status: str,
+        message: str | None = None,
+        progress: int | None = None,
+        current_step: str | None = None,
+        error: str | None = None,
+    ) -> bool:
+        """Update extraction metadata for attachment(s) associated with a task."""
+        resolved_task_id = task_id.strip()
+        if not resolved_task_id:
+            return False
+
+        messages = copy.deepcopy(list(thread.messages or []))
+        changed = False
+
+        for message_item in messages:
+            if not isinstance(message_item, dict):
+                continue
+            metadata = message_item.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            attachments = metadata.get("attachments")
+            if not isinstance(attachments, list):
+                continue
+
+            for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
+                attachment_metadata = attachment.get("metadata")
+                if not isinstance(attachment_metadata, dict):
+                    continue
+                extraction = attachment_metadata.get("extraction")
+                if not isinstance(extraction, dict):
+                    continue
+                if extraction.get("task_id") != resolved_task_id:
+                    continue
+
+                extraction["status"] = status
+                if message:
+                    extraction["message"] = message
+                if progress is not None:
+                    extraction["progress"] = progress
+                if current_step:
+                    extraction["current_step"] = current_step
+                elif current_step == "":
+                    extraction.pop("current_step", None)
+                if error:
+                    extraction["error"] = error
+                elif status == "success":
+                    extraction.pop("error", None)
+                changed = True
+
+        if not changed:
+            return False
+
+        thread.messages = messages
+        await self.db.commit()
+        await self.db.refresh(thread)
+        return True
 
     async def set_title_if_empty(self, thread: ChatThread, first_message: str) -> None:
         """Derive the thread title from the opening user message."""

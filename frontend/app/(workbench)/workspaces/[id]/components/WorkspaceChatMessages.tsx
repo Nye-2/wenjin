@@ -172,6 +172,9 @@ function readAttachmentExtraction(
     workspace_id: readStringValue(payload.workspace_id),
     tier: readNumberValue(payload.tier),
     message: readStringValue(payload.message),
+    progress: readNumberValue(payload.progress),
+    current_step: readStringValue(payload.current_step),
+    error: readStringValue(payload.error),
     reused_existing_task: Boolean(payload.reused_existing_task),
   };
 }
@@ -182,8 +185,16 @@ function formatExtractionLabel(status: string): string {
       return "抽取已排队";
     case "existing":
       return "复用抽取任务";
+    case "pending":
+      return "等待抽取";
+    case "running":
+      return "正在抽取";
+    case "success":
+      return "抽取完成";
     case "failed":
-      return "抽取排队失败";
+      return "抽取失败";
+    case "cancelled":
+      return "抽取已取消";
     default:
       return status;
   }
@@ -215,11 +226,11 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
         const storageLabel = formatAttachmentStorage(attachment);
 
         const extractionTone =
-          extraction?.status === "failed"
+          extraction?.status === "failed" || extraction?.status === "cancelled"
             ? isUser
               ? "bg-red-500/15 text-white"
               : "bg-red-500/10 text-red-600"
-            : extraction?.status === "existing"
+            : extraction?.status === "existing" || extraction?.status === "success"
               ? isUser
                 ? "bg-sky-500/20 text-white"
                 : "bg-sky-500/10 text-sky-600"
@@ -300,7 +311,10 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                     >
                       {extraction.status === "failed" ? (
                         <AlertCircle className="h-3 w-3" />
-                      ) : extraction.status === "existing" ? (
+                      ) : extraction.status === "cancelled" ? (
+                        <AlertCircle className="h-3 w-3" />
+                      ) : extraction.status === "existing" ||
+                        extraction.status === "success" ? (
                         <CheckCircle2 className="h-3 w-3" />
                       ) : (
                         <Clock3 className="h-3 w-3" />
@@ -322,11 +336,24 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                   </div>
                 ) : null}
 
+                {typeof extraction?.progress === "number" &&
+                extraction.status === "running" ? (
+                  <p
+                    className={cn(
+                      "mt-2 text-[11px]",
+                      isUser ? "text-white/85" : "text-[var(--text-secondary)]"
+                    )}
+                  >
+                    进度 {Math.max(0, Math.min(100, extraction.progress))}%
+                    {extraction.current_step ? ` · ${extraction.current_step}` : ""}
+                  </p>
+                ) : null}
+
                 {extraction?.message ? (
                   <p
                     className={cn(
                       "mt-2 text-[11px]",
-                      extraction.status === "failed"
+                      extraction.status === "failed" || extraction.status === "cancelled"
                         ? isUser
                           ? "text-white/90"
                           : "text-red-600/90"
