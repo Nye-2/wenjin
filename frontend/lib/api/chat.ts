@@ -1,9 +1,7 @@
 import { apiClient } from "@/lib/api/client";
 import type {
   ChatAttachment,
-  ChatMessage,
   ChatUploadKind,
-  ChatRequest,
   Thread,
   ThreadAgentStatus,
   ThreadSummary,
@@ -71,14 +69,5 @@ export async function getThreadAgentStatus(
   threadId: string
 ): Promise<ThreadAgentStatus> {
   const response = await apiClient.get(`/threads/${threadId}/agent-status`);
-  return response.data;
-}
-
-export async function sendMessage(data: ChatRequest): Promise<{
-  thread_id: string;
-  message: ChatMessage;
-  workspace_id?: string;
-}> {
-  const response = await apiClient.post("/chat", data);
   return response.data;
 }

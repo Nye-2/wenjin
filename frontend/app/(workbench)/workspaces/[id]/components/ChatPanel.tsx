@@ -56,6 +56,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     isStreaming,
     isThreadsLoading,
     currentSkill,
+    error: chatError,
     threadId,
     threads,
     deleteThread,
@@ -429,6 +430,8 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     );
   };
 
+  const composerError = actionError ?? chatError;
+
   return (
     <div className="flex-1 h-full flex flex-col">
       <input
@@ -472,7 +475,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
       </div>
 
       <WorkspaceChatComposer
-        actionError={actionError}
+        actionError={composerError}
         isExecuting={isExecuting}
         recommendedFeatureIds={recommendedFeatureIds}
         onQuickAction={(featureId) => void handleQuickAction(featureId)}

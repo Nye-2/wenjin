@@ -97,6 +97,22 @@ export function upsertTrailingAssistantMessage(
   return nextMessages;
 }
 
+export function removeTrailingEmptyAssistantMessage(
+  messages: Message[]
+): Message[] {
+  const lastMessage = messages[messages.length - 1];
+  if (
+    !lastMessage ||
+    lastMessage.role !== "assistant" ||
+    lastMessage.content.trim().length > 0 ||
+    lastMessage.blocks.length > 0 ||
+    lastMessage.metadata
+  ) {
+    return messages;
+  }
+  return messages.slice(0, -1);
+}
+
 export function findLastAssistantMessage(
   messages: Message[]
 ): Message | undefined {

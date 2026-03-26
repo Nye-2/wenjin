@@ -23,6 +23,7 @@ import {
   createStoreAssistantMessage,
   findLastAssistantMessage,
   maybeStartStructuredTask,
+  removeTrailingEmptyAssistantMessage,
   syncAttachmentExtractionsWithTask,
   toStoreMessages,
   toThreadSummary,
@@ -172,7 +173,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         maybeStartStructuredTask(hydratedMessage);
       },
       (error) => {
-        set({ error, isStreaming: false });
+        set((state) => ({
+          error,
+          isStreaming: false,
+          isSkillSelectionPending: false,
+          messages: removeTrailingEmptyAssistantMessage(state.messages),
+        }));
       },
       () => {
         set({ isStreaming: false });
