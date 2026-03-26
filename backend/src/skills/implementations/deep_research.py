@@ -6,7 +6,7 @@ This skill performs deep research on a topic by:
 3. Identifying research gaps
 4. Generating novel research ideas
 
-The V2 implementation uses ParallelExecutor for phased subagent execution:
+It uses ParallelExecutor for phased subagent execution:
 - Phase 1 (parallel): Scout x2 + Trend Spotter -> papers[], trends[]
 - Phase 2 (depends on 1): Gap Miner -> gaps[]
 - Phase 3 (depends on 2): Synthesizer -> ideas[]
@@ -76,7 +76,7 @@ class ResearchTrend:
     paper_count: int = 0
 
 
-class DeepResearchSkillV2(BaseSkill):
+class DeepResearchSkill(BaseSkill):
     """Comprehensive literature analysis with parallel subagent execution.
 
     This skill performs deep research analysis using a phased parallel execution model:
@@ -311,7 +311,7 @@ class DeepResearchSkillV2(BaseSkill):
     def execute(self, input: SkillInput, state: ThreadState) -> SkillOutput:
         """Execute the deep research skill synchronously.
 
-        This method wraps the async execution for backward compatibility.
+        This method exposes the async pipeline through the synchronous skill interface.
 
         Args:
             input: The skill input containing workspace_id, user_query, and context.
@@ -1571,7 +1571,3 @@ class DeepResearchSkillV2(BaseSkill):
                 sections.append("")
 
         return "\n".join(sections)
-
-
-# Backward compatibility alias
-DeepResearchSkill = DeepResearchSkillV2

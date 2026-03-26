@@ -109,7 +109,10 @@ async def get_workspace_features(
     if str(workspace.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    workspace_type = resolve_workspace_type(workspace)
+    try:
+        workspace_type = resolve_workspace_type(workspace)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     features = [
         _feature_to_response(feature)
         for feature in list_workspace_features(workspace_type)

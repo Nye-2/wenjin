@@ -28,12 +28,16 @@ async def get_owned_workspace(
 
 def workspace_type_value(
     workspace: Workspace,
-    *,
-    default: str | None = None,
-) -> str | None:
-    """Read the enum value for a workspace type with a fallback."""
-
-    return workspace.type.value if workspace.type else default
+) -> str:
+    """Read the enum value for a workspace type."""
+    workspace_type = getattr(workspace, "type", None)
+    if workspace_type is None:
+        raise ValueError("Workspace type is not configured")
+    resolved = workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type)
+    resolved = resolved.strip()
+    if not resolved:
+        raise ValueError("Workspace type is not configured")
+    return resolved
 
 
 async def create_workspace_events_response(workspace_id: str) -> StreamingResponse:

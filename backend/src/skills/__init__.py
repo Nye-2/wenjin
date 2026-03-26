@@ -11,7 +11,7 @@ from .loader import Skill, load_skills
 from .parser import ParsedSkill, SkillParser
 
 __all__ = [
-    # Legacy loader
+    # Loader
     "load_skills",
     "Skill",
     # Base skill classes

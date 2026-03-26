@@ -9,13 +9,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from src.academic.services import ArtifactService, PaperService, WorkspaceService
 from src.agents.lead_agent.feature_bridge import maybe_bridge_workspace_feature
 from src.agents.middlewares.thread_data import get_thread_data_root
-from src.agents.thread_state import ThreadState
 from src.config import get_model_config
 from src.config.config_loader import get_app_config
 from src.database import ChatThread, User
@@ -51,9 +49,6 @@ from src.gateway.routers.chat_runtime import (
     build_langchain_messages as _build_langchain_messages,
 )
 from src.gateway.routers.chat_runtime import (
-    coerce_generated_reply as _coerce_generated_reply,
-)
-from src.gateway.routers.chat_runtime import (
     resolve_workspace_id as _resolve_workspace_id,
 )
 from src.gateway.routers.chat_serializers import (
@@ -78,9 +73,9 @@ from src.gateway.routers.chat_streaming import (
     stream_thread_context_event as _stream_thread_context_event,
 )
 from src.models import route_chat_model
+from src.models.router import InvalidRequestedModelError
 from src.services import ChatThreadService
 from src.services.chat_billing import (
-    extract_message_usage,
     extract_usage_from_agent_result,
     normalize_token_usage,
     usage_to_metadata,
@@ -242,21 +237,6 @@ def _attachment_state_for_chat_turn(
             logger.debug("Failed to load uploaded image attachment: %s", actual_path, exc_info=True)
 
     return uploaded_files, viewed_images
-
-
-def _build_fallback_messages(
-    *,
-    prepared_state: ThreadState,
-    config: RunnableConfig,
-    apply_prompt_template,
-) -> list[object]:
-    """Build a fallback simple-model prompt using the same enriched state."""
-    fallback_prompt = apply_prompt_template(ThreadState(**prepared_state), config)
-    return [
-        SystemMessage(content=fallback_prompt),
-        *list(prepared_state.get("messages", [])),
-    ]
-
 
 def _coerce_message_content(content: Any) -> str:
     """Normalize LangChain message content into plain text."""
@@ -437,10 +417,8 @@ async def _generate_chat_response(
 ) -> GeneratedChatReply:
     """Generate a chat response through the unified lead-agent pipeline."""
     from src.agents.lead_agent.agent import (
-        apply_prompt_template,
         build_pipeline,
         make_lead_agent,
-        middleware_before_model,
     )
 
     workspace_id = _resolve_workspace_id(request, thread)
@@ -473,75 +451,30 @@ async def _generate_chat_response(
         memory_capture_enabled=False,
     )
 
-    try:
-        bridged = await maybe_bridge_workspace_feature(
-            message=request.message,
-            workspace_id=workspace_id,
-            thread_id=thread.id,
-            user_id=str(current_user.id),
-            selected_skill=effective_skill,
-        )
-        if bridged is not None:
-            return GeneratedChatReply(
-                content=bridged.content,
-                blocks=bridged.blocks,
-                metadata=bridged.metadata,
-            )
-
-        await _ensure_chat_turn_budget(str(current_user.id))
-        agent = make_lead_agent(config, middlewares=middlewares)
-        result = await agent.ainvoke(initial_state, config=config)
-        reply = _reply_from_agent_result(result, thread_id=thread.id)
-        return _attach_usage_metadata(
-            reply,
-            extract_usage_from_agent_result(result),
-            model_name=effective_model,
-            source="chat_agent",
+    bridged = await maybe_bridge_workspace_feature(
+        message=request.message,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        user_id=str(current_user.id),
+        selected_skill=effective_skill,
+    )
+    if bridged is not None:
+        return GeneratedChatReply(
+            content=bridged.content,
+            blocks=bridged.blocks,
+            metadata=bridged.metadata,
         )
 
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Agent failed, falling back to simple model")
-        from src.models.factory import create_chat_model
-
-        prepared_state = _build_chat_initial_state(
-            thread,
-            workspace_id=workspace_id,
-            effective_skill=effective_skill,
-            attachments=request.attachments,
-        )
-        try:
-            prepared_state = await middleware_before_model(
-                ThreadState(**prepared_state),
-                config,
-                middlewares,
-            )
-        except Exception:
-            logger.debug(
-                "Failed to prepare middleware-enriched fallback context",
-                exc_info=True,
-            )
-
-        model = create_chat_model(
-            effective_model,
-            thinking_enabled=request.thinking_enabled,
-            reasoning_effort=request.reasoning_effort,
-        )
-        response = await model.ainvoke(
-            _build_fallback_messages(
-                prepared_state=ThreadState(**prepared_state),
-                config=config,
-                apply_prompt_template=apply_prompt_template,
-            )
-        )
-        reply = GeneratedChatReply(content=response.content)
-        return _attach_usage_metadata(
-            reply,
-            extract_message_usage(response),
-            model_name=effective_model,
-            source="chat_fallback",
-        )
+    await _ensure_chat_turn_budget(str(current_user.id))
+    agent = make_lead_agent(config, middlewares=middlewares)
+    result = await agent.ainvoke(initial_state, config=config)
+    reply = _reply_from_agent_result(result, thread_id=thread.id)
+    return _attach_usage_metadata(
+        reply,
+        extract_usage_from_agent_result(result),
+        model_name=effective_model,
+        source="chat_agent",
+    )
 
 
 @router.post("/threads", response_model=ThreadResponse)
@@ -551,13 +484,16 @@ async def create_thread(
     chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
 ):
     """Create a new chat thread."""
-    thread = await chat_thread_service.create_thread(
-        user_id=str(current_user.id),
-        workspace_id=request.workspace_id,
-        title=request.title,
-        model=request.model,
-        skill=request.skill,
-    )
+    try:
+        thread = await chat_thread_service.create_thread(
+            user_id=str(current_user.id),
+            workspace_id=request.workspace_id,
+            title=request.title,
+            model=request.model,
+            skill=request.skill,
+        )
+    except InvalidRequestedModelError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     await publish_thread_updated(thread)
     return _thread_to_response(thread, include_messages=False)
 
@@ -611,16 +547,14 @@ async def chat(
     )
 
     try:
-        reply = _coerce_generated_reply(
-            await _generate_chat_response(
-                request,
-                thread,
-                current_user,
-                workspace_service=workspace_service,
-                literature_service=literature_service,
-                artifact_service=artifact_service,
-                paper_service=paper_service,
-            )
+        reply = await _generate_chat_response(
+            request,
+            thread,
+            current_user,
+            workspace_service=workspace_service,
+            literature_service=literature_service,
+            artifact_service=artifact_service,
+            paper_service=paper_service,
         )
         billing_metadata = await _apply_chat_turn_billing(
             reply,
@@ -672,16 +606,14 @@ async def chat_stream(
         yield _stream_thread_context_event(thread_id=thread.id, skill=thread.skill)
 
         try:
-            reply = _coerce_generated_reply(
-                await _generate_chat_response(
-                    request,
-                    thread,
-                    current_user,
-                    workspace_service=workspace_service,
-                    literature_service=literature_service,
-                    artifact_service=artifact_service,
-                    paper_service=paper_service,
-                )
+            reply = await _generate_chat_response(
+                request,
+                thread,
+                current_user,
+                workspace_service=workspace_service,
+                literature_service=literature_service,
+                artifact_service=artifact_service,
+                paper_service=paper_service,
             )
             billing_metadata = await _apply_chat_turn_billing(
                 reply,

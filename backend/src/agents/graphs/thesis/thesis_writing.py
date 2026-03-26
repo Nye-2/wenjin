@@ -9,7 +9,7 @@ from typing import Any
 
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.agents.workspace_lead_agent import register_feature_graph
-from src.models.router import route_writing_model
+from src.models.router import route_writing_model, validate_requested_model
 from src.task.progress import emit_runtime_update, get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
@@ -48,11 +48,13 @@ _MAX_REVISION_ROUNDS = 2
 
 
 def _resolve_writing_model(requested_model: str | None) -> str:
-    """Resolve a writing model with safe fallback."""
-    try:
-        return route_writing_model(requested_model=requested_model)
-    except Exception:
-        return requested_model or "default"
+    """Resolve a writing model without silently rerouting invalid selections."""
+    requested = validate_requested_model(
+        requested_model,
+        allowed_categories=("gen", "tool"),
+        require_tools=False,
+    )
+    return route_writing_model(requested_model=requested)
 
 
 def _coerce_int(value: Any, default: int) -> int:

@@ -25,42 +25,28 @@ if TYPE_CHECKING:
 
 _LOCAL_PROVIDER_PATH: Final[str] = "src.sandbox.providers.local:LocalSandboxProvider"
 _DOCKER_PROVIDER_PATH: Final[str] = "src.sandbox.providers.docker:DockerSandboxProvider"
-_PROVIDER_PATH_COMPAT: Final[dict[str, str]] = {
-    "src.sandbox.local:LocalSandboxProvider": "src.sandbox.providers.local:LocalSandboxProvider",
-    "src.sandbox.docker:DockerSandboxProvider": "src.sandbox.providers.docker:DockerSandboxProvider",
-}
 
 _provider_lock = threading.Lock()
 _provider: SandboxProvider | None = None
 _provider_initialized = False
 
 
-def _normalize_provider_path(provider_path: str) -> str:
-    """Translate legacy provider paths to the current module layout."""
-    return _PROVIDER_PATH_COMPAT.get(provider_path, provider_path)
-
-
 def _resolve_provider_path(provider_path: str | None) -> str | None:
-    """Resolve the effective provider path from config + sandbox mode settings.
-
-    Built-in local/docker providers can be switched via ``SANDBOX_MODE`` without
-    editing ``config.yaml``. Custom provider paths remain authoritative.
-    """
+    """Resolve the effective provider path from config + sandbox mode settings."""
     settings = get_sandbox_settings()
     mode = getattr(settings, "mode", "local")
-    normalized = _normalize_provider_path(provider_path) if provider_path else None
     builtin_paths = {_LOCAL_PROVIDER_PATH, _DOCKER_PROVIDER_PATH}
 
-    if normalized is None or normalized in builtin_paths:
+    if provider_path is None or provider_path in builtin_paths:
         return _DOCKER_PROVIDER_PATH if mode == "docker" else _LOCAL_PROVIDER_PATH
 
-    return normalized
+    return provider_path
 
 
 def _build_provider(provider_path: str) -> SandboxProvider:
     """Instantiate a sandbox provider from config."""
     provider_cls = resolve_class(
-        _normalize_provider_path(provider_path),
+        provider_path,
         base_class=SandboxProvider,
     )
 
@@ -82,7 +68,7 @@ def _build_provider(provider_path: str) -> SandboxProvider:
 
 
 def get_sandbox_provider() -> SandboxProvider | None:
-    """Return the process-wide sandbox provider if sandboxing is configured."""
+    """Return the process-wide sandbox provider."""
     global _provider_initialized, _provider
 
     if _provider_initialized:
@@ -92,19 +78,13 @@ def get_sandbox_provider() -> SandboxProvider | None:
         if _provider_initialized:
             return _provider
 
-        try:
-            app_config = get_app_config()
-            sandbox_config = getattr(app_config, "sandbox", None)
-            provider_path = _resolve_provider_path(
-                getattr(sandbox_config, "use", None) if sandbox_config else None
-            )
-            if provider_path:
-                _provider = _build_provider(provider_path)
-        except Exception as exc:
-            logger.warning("Failed to initialize sandbox provider: %s", exc, exc_info=True)
-            _provider = None
-        finally:
-            _provider_initialized = True
+        app_config = get_app_config()
+        sandbox_config = getattr(app_config, "sandbox", None)
+        provider_path = _resolve_provider_path(
+            getattr(sandbox_config, "use", None) if sandbox_config else None
+        )
+        _provider = _build_provider(provider_path) if provider_path else None
+        _provider_initialized = True
 
     return _provider
 

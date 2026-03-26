@@ -8,7 +8,7 @@ The current tests validate individual subagent components that will form chains.
 import pytest
 
 from src.subagents.executor import SubagentExecutor, SubagentStatus
-from src.subagents.registry import SubagentConfig, registry
+from src.subagents.academic.registry import SubagentConfig, registry
 
 
 class TestSubagentChainIntegration:

@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.middlewares.memory import (
@@ -130,6 +131,7 @@ class TestMessageSerialization:
 
 
 class TestLoadUserMemory:
+    @pytest.mark.asyncio
     @patch("src.database.get_db_session")
     async def test_returns_empty_on_error(self, mock_session):
         mock_session.side_effect = Exception("DB error")
@@ -138,19 +140,29 @@ class TestLoadUserMemory:
 
 
 class TestExtractAndPersistKnowledge:
+    @pytest.mark.asyncio
     @patch("src.models.factory.create_chat_model")
+    @patch("src.models.router.route_model", return_value="default")
     @patch("src.database.get_db_session")
-    async def test_returns_zero_on_llm_failure(self, mock_session, mock_model):
+    async def test_returns_zero_on_llm_failure(
+        self,
+        mock_session,
+        _mock_route_model,
+        mock_model,
+    ):
         mock_model.side_effect = Exception("LLM unavailable")
         count = await extract_and_persist_knowledge("user1", "some text")
         assert count == 0
 
+    @pytest.mark.asyncio
     @patch("src.services.knowledge_service.KnowledgeService")
     @patch("src.models.factory.create_chat_model")
+    @patch("src.models.router.route_model", return_value="default")
     @patch("src.database.get_db_session")
     async def test_invalid_confidence_does_not_abort_all_items(
         self,
         mock_session,
+        _mock_route_model,
         mock_model,
         mock_knowledge_service,
     ):

@@ -279,32 +279,20 @@ class ExtractionService:
     def _get_llm(self):
         """Get LLM instance for Tier 2 extraction.
 
-        Attempts to create a model via the project's ``create_chat_model``
-        factory. Falls back to the configured default model id from
-        ``backend/.env`` when the fast extraction model is unavailable.
-        Returns ``None`` when no LLM can be created, allowing callers
-        to degrade gracefully.
+        Attempts to create the configured fast extraction model via the
+        project's ``create_chat_model`` factory. Returns ``None`` when no
+        LLM can be created, allowing callers to degrade gracefully.
         """
         try:
             from src.models.factory import create_chat_model
+
             return create_chat_model(self.LLM_MODEL_FAST, temperature=0)
         except Exception:
-            logger.debug(
-                "create_chat_model failed for %s, trying default model fallback",
+            logger.warning(
+                "No LLM available for Tier 2 extraction with model %s",
                 self.LLM_MODEL_FAST,
+                exc_info=True,
             )
-        try:
-            from src.config import get_default_model_id
-            from src.models.factory import create_chat_model
-
-            fallback_model_id = get_default_model_id()
-            logger.debug(
-                "Falling back to default extraction model: %s",
-                fallback_model_id,
-            )
-            return create_chat_model(fallback_model_id, temperature=0)
-        except Exception:
-            logger.warning("No LLM available for Tier 2 extraction")
             return None
 
     async def _extract_section_summaries(

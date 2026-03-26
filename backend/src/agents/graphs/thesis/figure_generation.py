@@ -13,7 +13,7 @@ from src.agents.workspace_lead_agent import register_feature_graph
 from src.execution.capabilities import execution_type_readiness
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.execution.types import ExecutionType
-from src.models.router import route_writing_model
+from src.models.router import route_writing_model, validate_requested_model
 from src.task.progress import emit_runtime_update, get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
@@ -45,11 +45,13 @@ async def _emit_bound_runtime(
 
 
 def _resolve_writing_model(requested_model: str | None) -> str:
-    """Resolve a writing model with safe fallback."""
-    try:
-        return route_writing_model(requested_model=requested_model)
-    except Exception:
-        return requested_model or "default"
+    """Resolve a writing model without silently rerouting invalid selections."""
+    requested = validate_requested_model(
+        requested_model,
+        allowed_categories=("gen", "tool"),
+        require_tools=False,
+    )
+    return route_writing_model(requested_model=requested)
 
 # ---------------------------------------------------------------------------
 # Strategy mapping (mirrors thesis_feature_service)

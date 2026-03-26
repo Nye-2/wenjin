@@ -220,7 +220,7 @@ export async function createLiterature(
 
 export async function importLiterature(
   workspaceId: string,
-  data: { source: string; artifact_ids?: string[]; paper_ids?: string[] }
+  data: { source: string; artifact_ids?: string[] }
 ): Promise<{ imported: number }> {
   const response = await apiClient.post(
     `/workspaces/${workspaceId}/literature/import`,

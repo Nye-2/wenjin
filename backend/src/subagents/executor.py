@@ -15,11 +15,9 @@ from src.subagents.academic.registry import SubagentConfig
 from src.subagents.models import SubagentStatus
 
 
-# Note: ExecutorSubagentResult is different from SubagentResult in models.py
-# This class tracks internal execution state with timing and message history
 @dataclass
-class ExecutorSubagentResult:
-    """Internal execution state tracking (different from final SubagentResult)."""
+class SubagentResult:
+    """Internal execution state tracking for executor-managed runs."""
     task_id: str
     status: SubagentStatus = SubagentStatus.PENDING
     result: str | None = None
@@ -27,10 +25,6 @@ class ExecutorSubagentResult:
     started_at: datetime | None = None
     completed_at: datetime | None = None
     ai_messages: list[dict[str, Any]] = field(default_factory=list)
-
-
-# Alias for backward compatibility
-SubagentResult = ExecutorSubagentResult
 
 
 # Global thread pools

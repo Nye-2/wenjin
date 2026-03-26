@@ -1,7 +1,5 @@
 """Tests for academic subagent registry."""
 
-from types import MappingProxyType
-
 import pytest
 
 from src.subagents.academic.prompts import (
@@ -11,7 +9,6 @@ from src.subagents.academic.prompts import (
     WRITER_PROMPT,
 )
 from src.subagents.academic.registry import (
-    SUBAGENT_REGISTRY,
     SubagentConfig,
     get_all_subagent_types,
     get_subagent_config,
@@ -104,7 +101,6 @@ class TestSubagentRegistry:
         assert config is not None
         assert config.name == "Scout"
         assert "semantic_scholar_search" in config.tools
-        assert config.allowed_tools == ("semantic_scholar_search",)
         assert config.max_turns == 10
 
     def test_get_writer_config(self):
@@ -148,15 +144,6 @@ class TestSubagentRegistry:
             assert isinstance(config.tools, list)
             assert len(config.tools) > 0
             assert config.max_turns > 0
-
-    def test_registry_export_is_read_only_live_view(self):
-        """Legacy registry export should not allow mutation of canonical state."""
-        assert isinstance(SUBAGENT_REGISTRY, MappingProxyType)
-        assert sorted(SUBAGENT_REGISTRY.keys()) == get_all_subagent_types()
-
-        with pytest.raises(TypeError):
-            SUBAGENT_REGISTRY["rogue"] = get_subagent_config("scout")
-
 
 class TestSubagentToolAssignments:
     """Tests for correct tool assignments to subagents."""

@@ -15,7 +15,7 @@ from src.subagents.executor import (
     SubagentStatus,
     get_background_task_result,
 )
-from src.subagents.registry import SubagentConfig
+from src.subagents.academic.registry import SubagentConfig
 
 
 async def _async_iterator(items):

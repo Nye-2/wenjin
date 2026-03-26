@@ -523,7 +523,7 @@ start_langgraph() {
 # 启动后端
 start_backend() {
     if is_running "$BACKEND_PID_FILE"; then
-        if is_http_ready "http://localhost:8001/health"; then
+        if is_http_ready "http://localhost:8001/readyz"; then
             log_warn "后端服务已在运行中 (PID: $(cat $BACKEND_PID_FILE))"
             return 0
         fi
@@ -546,7 +546,7 @@ start_backend() {
         echo $! > "$BACKEND_PID_FILE"
     fi
 
-    if is_running "$BACKEND_PID_FILE" && wait_for_service "http://localhost:8001/health" "后端服务"; then
+    if is_running "$BACKEND_PID_FILE" && wait_for_service "http://localhost:8001/readyz" "后端服务"; then
         log_success "后端服务已启动 (PID: $(cat $BACKEND_PID_FILE))"
         log_info "后端地址: http://localhost:8001"
         log_info "API 文档: http://localhost:8001/docs"
@@ -619,7 +619,7 @@ show_status() {
     echo "         AcademiaGPT-V2 状态"
     echo "======================================"
 
-    if is_running "$BACKEND_PID_FILE" && is_http_ready "http://localhost:8001/health"; then
+    if is_running "$BACKEND_PID_FILE" && is_http_ready "http://localhost:8001/readyz"; then
         echo -e "后端服务:   ${GREEN}运行中${NC} (PID: $(cat $BACKEND_PID_FILE))"
         echo "           http://localhost:8001"
     else

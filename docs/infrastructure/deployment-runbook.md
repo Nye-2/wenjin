@@ -106,7 +106,7 @@ docker compose up -d --build
 curl -f http://localhost:2026/health
 curl -f http://localhost:2026/langgraph/info
 docker compose ps
-docker compose exec gateway curl -f http://localhost:8001/health
+docker compose exec gateway curl -f http://localhost:8001/readyz
 docker compose exec langgraph curl -f http://localhost:2024/info
 ```
 

@@ -50,13 +50,13 @@ class DashboardService(
         }
 
     async def _get_workspace_type(self, workspace_id: str) -> str:
-        """Resolve workspace type from DB with thesis as safe fallback."""
+        """Resolve workspace type from DB without guessing a fallback type."""
         result = await self.db.execute(
             select(Workspace.type).where(Workspace.id == workspace_id)
         )
         workspace_type = result.scalar_one_or_none()
         if workspace_type is None:
-            return "thesis"
+            raise ValueError(f"Workspace not found: {workspace_id}")
         return (
             workspace_type.value
             if hasattr(workspace_type, "value")

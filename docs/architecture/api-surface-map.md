@@ -7,7 +7,8 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 
 | Method | Path | Status | Notes |
 |---|---|---|---|
-| GET | `/health` | Active | Gateway health check |
+| GET | `/livez` | Active | Gateway liveness check |
+| GET | `/readyz` | Active | Gateway readiness check |
 
 ## Active Route Groups
 
@@ -33,6 +34,7 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 |---|---|---|
 | Thesis API | `/api/thesis/*` | Removed |
 | Academic router (legacy `/academic/papers`) | `/api/*` | Removed |
+| Health alias | `/health` | Removed |
 
 ## Notes for API Consumers
 

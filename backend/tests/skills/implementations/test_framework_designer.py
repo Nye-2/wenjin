@@ -125,7 +125,7 @@ class TestFrameworkDesignerSkillInit:
         """Test default skill initialization."""
         skill = FrameworkDesignerSkill()
         assert skill.name == "framework-designer"
-        # V2 has enhanced description
+        # Current implementation has enhanced description
         assert "memory context" in skill.description.lower() or "abstract" in skill.description.lower()
         assert skill.version == "2.0.0"
         assert skill.model_id is None
@@ -327,7 +327,7 @@ class TestArtifactCreation:
         assert artifact.content["abstract"] == "This is the abstract"
         assert artifact.content["outline"] == "1. Introduction\n2. Methods"
         assert artifact.content["research_idea"] == "The research idea"
-        # V2 uses enhanced_imrad as structure_type
+        # Current implementation uses enhanced_imrad as structure_type
         assert artifact.content["structure_type"] == "enhanced_imrad"
         assert artifact.created_by_skill == "framework-designer"
         assert artifact.id.startswith("framework-outline-")
@@ -599,24 +599,24 @@ class TestEdgeCases:
 
 
 class TestFrameworkDesignerMemoryEnhanced:
-    """Tests for the memory-enhanced Framework Designer Skill V2."""
+    """Tests for the memory-enhanced Framework Designer Skill."""
 
     @pytest.fixture
-    def skill_v2(self):
-        """Create a FrameworkDesignerSkillV2 instance."""
-        from src.skills.implementations.framework_designer import FrameworkDesignerSkillV2
+    def skill(self):
+        """Create a FrameworkDesignerSkill instance."""
+        from src.skills.implementations.framework_designer import FrameworkDesignerSkill
 
-        return FrameworkDesignerSkillV2()
+        return FrameworkDesignerSkill()
 
     @pytest.fixture
-    def skill_v2_with_model(self):
-        """Create a FrameworkDesignerSkillV2 with a specific model ID."""
-        from src.skills.implementations.framework_designer import FrameworkDesignerSkillV2
+    def skill_with_model(self):
+        """Create a FrameworkDesignerSkill with a specific model ID."""
+        from src.skills.implementations.framework_designer import FrameworkDesignerSkill
 
-        return FrameworkDesignerSkillV2(model_id="test-model")
+        return FrameworkDesignerSkill(model_id="test-model")
 
     @pytest.mark.asyncio
-    async def test_injects_memory_context(self, skill_v2):
+    async def test_injects_memory_context(self, skill):
         """Framework Designer should inject memory context."""
         state = ThreadState(
             messages=[],
@@ -628,13 +628,13 @@ class TestFrameworkDesignerMemoryEnhanced:
                 "</academic_memory>"
             ),
         )
-        context = skill_v2._prepare_memory_context(state)
+        context = skill._prepare_memory_context(state)
         assert context is not None
         assert isinstance(context, dict)
         assert context["research_context"]["summary"] == "正在准备多智能体系统论文"
 
     @pytest.mark.asyncio
-    async def test_memory_context_includes_user_data(self, skill_v2):
+    async def test_memory_context_includes_user_data(self, skill):
         """Memory context should include user research context."""
         state = ThreadState(
             messages=[],
@@ -647,11 +647,11 @@ class TestFrameworkDesignerMemoryEnhanced:
             ),
         )
 
-        context = skill_v2._prepare_memory_context(state)
+        context = skill._prepare_memory_context(state)
         assert context["research_context"]["summary"] == "Focus on machine learning applications"
 
     @pytest.mark.asyncio
-    async def test_enhanced_framework_includes_glossary(self, skill_v2):
+    async def test_enhanced_framework_includes_glossary(self, skill):
         """Enhanced framework should include terminology glossary."""
         outline = {
             "abstract": "Test abstract",
@@ -659,12 +659,12 @@ class TestFrameworkDesignerMemoryEnhanced:
                 "1": {"title": "Introduction", "points": ["Background"]}
             }
         }
-        enhanced = skill_v2._create_enhanced_framework(outline, "machine learning")
+        enhanced = skill._create_enhanced_framework(outline, "machine learning")
         assert "terminology_glossary" in enhanced
         assert "chapter_dependencies" in enhanced
 
     @pytest.mark.asyncio
-    async def test_enhanced_framework_glossary_has_key_terms(self, skill_v2):
+    async def test_enhanced_framework_glossary_has_key_terms(self, skill):
         """Enhanced framework glossary should contain key terms."""
         outline = {
             "abstract": "Test abstract about neural networks",
@@ -672,14 +672,14 @@ class TestFrameworkDesignerMemoryEnhanced:
                 "1": {"title": "Introduction", "points": ["Deep learning background"]}
             }
         }
-        enhanced = skill_v2._create_enhanced_framework(outline, "deep learning neural networks")
+        enhanced = skill._create_enhanced_framework(outline, "deep learning neural networks")
         glossary = enhanced.get("terminology_glossary", {})
         assert isinstance(glossary, dict)
         # Glossary should have 5-10 terms as per requirement
         assert len(glossary) >= 1
 
     @pytest.mark.asyncio
-    async def test_enhanced_framework_includes_dependencies(self, skill_v2):
+    async def test_enhanced_framework_includes_dependencies(self, skill):
         """Enhanced framework should include chapter dependencies."""
         outline = {
             "abstract": "Test abstract",
@@ -689,12 +689,12 @@ class TestFrameworkDesignerMemoryEnhanced:
                 "3": {"title": "Methodology"}
             }
         }
-        enhanced = skill_v2._create_enhanced_framework(outline, "research topic")
+        enhanced = skill._create_enhanced_framework(outline, "research topic")
         dependencies = enhanced.get("chapter_dependencies", {})
         assert isinstance(dependencies, dict)
 
     @pytest.mark.asyncio
-    async def test_memory_context_with_writing_preferences(self, skill_v2):
+    async def test_memory_context_with_writing_preferences(self, skill):
         """Memory context should include writing preferences."""
         state = ThreadState(
             messages=[],
@@ -707,35 +707,26 @@ class TestFrameworkDesignerMemoryEnhanced:
             ),
         )
 
-        context = skill_v2._prepare_memory_context(state)
+        context = skill._prepare_memory_context(state)
         assert context["writing_preferences"]["summary"] == "Prefers APA style, formal tone"
 
-    def test_backward_compatibility_alias(self):
-        """FrameworkDesignerSkill should be aliased to FrameworkDesignerSkillV2."""
-        from src.skills.implementations.framework_designer import (
-            FrameworkDesignerSkill,
-            FrameworkDesignerSkillV2,
-        )
-        # They should be the same class
-        assert FrameworkDesignerSkill is FrameworkDesignerSkillV2
-
-    @patch("src.skills.implementations.framework_designer.FrameworkDesignerSkillV2._get_model")
-    def test_execute_includes_memory_context(self, mock_get_model, skill_v2, skill_input, thread_state, mock_model):
+    @patch("src.skills.implementations.framework_designer.FrameworkDesignerSkill._get_model")
+    def test_execute_includes_memory_context(self, mock_get_model, skill, skill_input, thread_state, mock_model):
         """Execute should use memory context in generation."""
         mock_get_model.return_value = mock_model
 
-        output = skill_v2.execute(skill_input, thread_state)
+        output = skill.execute(skill_input, thread_state)
 
         assert output.success is True
         # Verify the skill ran successfully with memory integration
         assert output.artifacts[0].type == "framework_outline"
 
-    @patch("src.skills.implementations.framework_designer.FrameworkDesignerSkillV2._get_model")
-    def test_enhanced_artifact_structure(self, mock_get_model, skill_v2, skill_input, thread_state, mock_model):
+    @patch("src.skills.implementations.framework_designer.FrameworkDesignerSkill._get_model")
+    def test_enhanced_artifact_structure(self, mock_get_model, skill, skill_input, thread_state, mock_model):
         """Enhanced artifact should include glossary and dependencies."""
         mock_get_model.return_value = mock_model
 
-        output = skill_v2.execute(skill_input, thread_state)
+        output = skill.execute(skill_input, thread_state)
 
         assert output.success is True
         artifact = output.artifacts[0]

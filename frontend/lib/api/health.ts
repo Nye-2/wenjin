@@ -6,7 +6,7 @@ export async function healthCheck(): Promise<{
   status: string;
   version: string;
 }> {
-  const response = await axios.get(`${API_SERVER_BASE_URL}/health`, {
+  const response = await axios.get(`${API_SERVER_BASE_URL}/readyz`, {
     timeout: 30000,
   });
   return response.data;

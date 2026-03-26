@@ -125,13 +125,6 @@ async def readiness_check():
         return JSONResponse(status_code=503, content=report)
     return report
 
-
-@app.get("/health", include_in_schema=False)
-async def health_check():
-    """Backward-compatible readiness alias."""
-    return await readiness_check()
-
-
 # Include routers (imported after app creation to avoid circular imports)
 from src.api.subagents import router as subagents_router  # noqa: E402
 

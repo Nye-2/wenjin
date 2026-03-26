@@ -20,14 +20,14 @@ from .graph import (
 from .manager import GlobalSubagentManager, ThreadContext
 from .models import SubagentEvent, SubagentResult, SubagentStatus, SubagentTask
 from .parallel import ExecutionPhase, ParallelExecutor, PhasedPlan, PhaseResult
-from .registry import SubagentConfig as SubagentTypeConfig
-from .registry import SubagentRegistry
+from .academic.registry import SubagentConfig as SubagentTypeConfig
+from .academic.registry import SubagentRegistry
 from .task_tool import task_tool
 
 __all__ = [
     "SubagentRegistry",
-    "SubagentTypeConfig",  # Legacy: Subagent type configuration (dataclass)
-    "SubagentConfig",  # New: System configuration (Pydantic)
+    "SubagentTypeConfig",
+    "SubagentConfig",
     "SubagentStatus",
     "SubagentTask",
     "SubagentEvent",

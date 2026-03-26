@@ -48,8 +48,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._redis = redis_client
         self._storage: dict[str, list[float]] = {}
         self._excluded_paths = {
-            "/health",
-            "/health/",
             "/livez",
             "/livez/",
             "/readyz",

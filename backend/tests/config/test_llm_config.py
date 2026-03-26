@@ -299,7 +299,7 @@ class TestCaching:
 
 
 class TestDefaultModelResolution:
-    """Test default and fallback model resolution helpers."""
+    """Test default model resolution helpers."""
 
     @pytest.fixture(autouse=True)
     def reset_cache(self) -> Generator[None, None, None]:
@@ -340,7 +340,26 @@ class TestDefaultModelResolution:
             reload_models()
             assert get_default_model_id() == "gen-a"
 
-    def test_get_default_model_falls_back_to_first_tool_model(self) -> None:
+    def test_get_default_model_prefers_first_tool_model_when_env_not_set(self) -> None:
+        tool_models = json.dumps([
+            {
+                "id": "tool-primary",
+                "model": "provider/tool-primary",
+                "api_key": "sk-tool",
+                "base_url": "https://example.com/v1",
+            }
+        ])
+        with patch.dict(
+            os.environ,
+            {"LLM_TOOL_MODELS": tool_models, "LLM_DEFAULT_MODEL": ""},
+            clear=False,
+        ):
+            from src.config.llm_config import get_default_model_id, reload_models
+
+            reload_models()
+            assert get_default_model_id() == "tool-primary"
+
+    def test_get_default_model_raises_for_invalid_explicit_env(self) -> None:
         tool_models = json.dumps([
             {
                 "id": "tool-primary",
@@ -357,9 +376,10 @@ class TestDefaultModelResolution:
             from src.config.llm_config import get_default_model_id, reload_models
 
             reload_models()
-            assert get_default_model_id() == "tool-primary"
+            with pytest.raises(ValueError, match="LLM_DEFAULT_MODEL is not configured: missing-model"):
+                get_default_model_id()
 
-    def test_resolve_model_id_falls_back_for_unknown_requested_model(self) -> None:
+    def test_resolve_model_id_raises_for_unknown_requested_model(self) -> None:
         gen_models = json.dumps([
             {
                 "id": "gen-default",
@@ -376,4 +396,5 @@ class TestDefaultModelResolution:
             from src.config.llm_config import reload_models, resolve_model_id
 
             reload_models()
-            assert resolve_model_id("unknown-model") == "gen-default"
+            with pytest.raises(ValueError, match="Unknown model id: unknown-model"):
+                resolve_model_id("unknown-model")

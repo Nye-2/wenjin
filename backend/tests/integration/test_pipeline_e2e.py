@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.agents.lead_agent.agent import build_pipeline
-from src.agents.thread_state import ThreadState
 from src.config.config_loader import MemoryConfig, MiddlewaresConfig, SummarizationConfig
 
 
@@ -28,7 +27,7 @@ class TestPipelineE2E:
 
     def test_pipeline_order_correct(self):
         """Pipeline should have correct middleware order."""
-        config = {"configurable": {"subagent_enabled": True}}
+        config = {"configurable": {"model_name": "gpt-4o", "subagent_enabled": True}}
         with patch("src.config.config_loader.get_app_config", return_value=_mock_app_config()):
             pipeline = build_pipeline(config)
         type_names = [type(m).__name__ for m in pipeline]

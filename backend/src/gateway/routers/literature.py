@@ -55,9 +55,6 @@ class BatchImportRequest(BaseModel):
     """Request model for batch importing literature."""
 
     source: str
-    # Backward compatibility: paper_ids used by existing clients.
-    paper_ids: list[str] = Field(default_factory=list)
-    # Preferred name for deep-research imports (artifact ids).
     artifact_ids: list[str] = Field(default_factory=list)
 
 
@@ -221,12 +218,10 @@ async def batch_import_literature(
         workspace_service=workspace_service,
     )
 
-    import_ids = request.artifact_ids or request.paper_ids
-
     result = await literature_service.batch_import(
         workspace_id=workspace_id,
         source=request.source,
-        paper_ids=import_ids,
+        paper_ids=request.artifact_ids,
     )
     return BatchImportResponse(**result)
 

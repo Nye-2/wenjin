@@ -53,8 +53,12 @@ def resolve_workspace_type(workspace: Any) -> str:
     """Normalize workspace.type across enum and string shapes."""
     workspace_type = getattr(workspace, "type", None)
     if workspace_type is None:
-        return "thesis"
-    return workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type)
+        raise ValueError("Workspace type is not configured")
+    resolved = workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type)
+    resolved = resolved.strip()
+    if not resolved:
+        raise ValueError("Workspace type is not configured")
+    return resolved
 
 
 def build_task_payload(
@@ -149,7 +153,10 @@ class FeatureExecutionHandler:
             raise AccessDeniedError("Access denied")
 
         # 2. Resolve workspace type and feature
-        workspace_type = resolve_workspace_type(workspace)
+        try:
+            workspace_type = resolve_workspace_type(workspace)
+        except ValueError as exc:
+            raise InternalServiceError(str(exc)) from exc
         feature = get_workspace_feature(workspace_type, feature_id)
         if not feature:
             raise NotFoundError(

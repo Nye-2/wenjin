@@ -1,7 +1,7 @@
-"""Bootstrap Alembic migrations for legacy databases.
+"""Bootstrap Alembic migrations for pre-Alembic databases.
 
 This module handles a migration edge case:
-- legacy deployments created tables via SQLAlchemy ``create_all``;
+- earlier deployments created tables via SQLAlchemy ``create_all``;
 - no ``alembic_version`` table exists;
 - a direct ``alembic upgrade head`` fails on duplicate table creation.
 
@@ -19,7 +19,7 @@ from enum import StrEnum
 
 import asyncpg
 
-LEGACY_STAMP_REVISION = "007_chat_thread_model_default"
+BOOTSTRAP_STAMP_REVISION = "007_chat_thread_model_default"
 
 
 class MigrationBootstrapMode(StrEnum):
@@ -88,10 +88,10 @@ def main() -> int:
 
     if mode is MigrationBootstrapMode.STAMP_THEN_UPGRADE:
         print(
-            "[migration-bootstrap] Legacy schema detected without alembic_version; "
-            f"stamping {LEGACY_STAMP_REVISION} before upgrade."
+            "[migration-bootstrap] Existing schema detected without alembic_version; "
+            f"stamping {BOOTSTRAP_STAMP_REVISION} before upgrade."
         )
-        _run_alembic("stamp", LEGACY_STAMP_REVISION)
+        _run_alembic("stamp", BOOTSTRAP_STAMP_REVISION)
 
     _run_alembic("upgrade", "head")
     return 0

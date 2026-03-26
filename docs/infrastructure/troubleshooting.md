@@ -59,7 +59,7 @@ docker compose logs -f gateway
 排查命令:
 
 ```bash
-curl -i http://localhost:8001/health
+curl -i http://localhost:8001/readyz
 curl -i http://localhost:2026/health
 curl -i http://localhost:2026/langgraph/info
 curl -i http://localhost:2026/api/auth/me

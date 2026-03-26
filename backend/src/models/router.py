@@ -2,13 +2,17 @@
 
 from collections.abc import Iterable
 
-from src.config import get_all_models, get_default_model_id, resolve_model_id
+from src.config import get_all_models, get_default_model_id, get_model_config, resolve_model_id
 from src.config.llm_config import ModelConfig
 
 _ALL_CATEGORIES: tuple[str, ...] = ("tool", "gen", "utility", "image")
 _USER_TEXT_CATEGORIES: tuple[str, ...] = ("tool", "gen")
 _WRITING_TEXT_CATEGORIES: tuple[str, ...] = ("gen", "tool")
 _USER_ALL_CATEGORIES: tuple[str, ...] = ("tool", "gen", "image")
+
+
+class InvalidRequestedModelError(ValueError):
+    """Raised when an explicit user-selected model id is unknown or disallowed."""
 
 
 def _supports_vision(model: ModelConfig) -> bool:
@@ -83,11 +87,60 @@ def _resolve_allowed_model_id(
     if not requested:
         return None
 
-    resolved_id = resolve_model_id(requested)
+    try:
+        resolved_id = resolve_model_id(requested)
+    except ValueError:
+        return None
     category = category_by_id.get(resolved_id)
     if category is None or category not in allowed_categories:
         return None
     return resolved_id
+
+
+def validate_requested_model(
+    raw_model_id: str | None,
+    *,
+    allowed_categories: Iterable[str] = _USER_TEXT_CATEGORIES,
+    require_tools: bool = False,
+    require_vision: bool = False,
+) -> str | None:
+    """Validate an explicit user-selected model id without silently rerouting it.
+
+    This helper is intended for request-entry validation. Automatic routing may still
+    choose defaults when no explicit model was selected, but once a user provides a
+    model id we either honor that exact selection (including the ``default`` alias)
+    or raise an explicit error.
+    """
+    requested = (raw_model_id or "").strip()
+    if not requested:
+        return None
+    if requested == "default":
+        return requested
+
+    model = get_model_config(requested)
+    if model is None:
+        raise InvalidRequestedModelError(f"Unknown model id: {requested}")
+
+    grouped = _grouped_models()
+    allowed = {category for category in allowed_categories if category in _ALL_CATEGORIES}
+    category = _category_map(grouped).get(requested)
+    if category is None or category not in allowed:
+        allowed_text = ", ".join(sorted(allowed)) or "none"
+        raise InvalidRequestedModelError(
+            f"Model '{requested}' is not allowed for categories: {allowed_text}"
+        )
+
+    if require_tools and not (model.supports_tools or category == "tool"):
+        raise InvalidRequestedModelError(
+            f"Model '{requested}' does not support required tool execution"
+        )
+
+    if require_vision and not _supports_vision(model):
+        raise InvalidRequestedModelError(
+            f"Model '{requested}' does not support required vision inputs"
+        )
+
+    return requested
 
 
 def get_model_category(model_id: str) -> str | None:
@@ -236,4 +289,3 @@ def route_image_model(
         require_tools=False,
         require_vision=False,
     )
-

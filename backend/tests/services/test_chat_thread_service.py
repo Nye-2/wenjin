@@ -1,11 +1,12 @@
 """Tests for ChatThreadService."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.database import ChatThread
+from src.models.router import InvalidRequestedModelError
 from src.services.chat_thread_service import ChatThreadAccessError, ChatThreadService
 
 
@@ -41,8 +42,8 @@ def _make_thread(
         model="gpt-4o",
         skill=skill,
         messages=[],
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
     thread.id = "thread-1"
     return thread
@@ -54,13 +55,20 @@ class TestChatThreadService:
     @pytest.mark.asyncio
     async def test_create_thread_persists_defaults(self, service, mock_db_session):
         """Creating a thread initializes the persisted contract."""
-        thread = await service.create_thread(
-            user_id="user-1",
-            workspace_id="ws-1",
-            title="Draft thread",
-            model="gpt-4o-mini",
-            skill="deep-research",
-        )
+        with patch(
+            "src.services.chat_thread_service.validate_requested_model",
+            return_value="gpt-4o-mini",
+        ), patch(
+            "src.services.chat_thread_service.route_model",
+            return_value="gpt-4o-mini",
+        ):
+            thread = await service.create_thread(
+                user_id="user-1",
+                workspace_id="ws-1",
+                title="Draft thread",
+                model="gpt-4o-mini",
+                skill="deep-research",
+            )
 
         mock_db_session.add.assert_called_once_with(thread)
         mock_db_session.commit.assert_awaited_once()
@@ -83,6 +91,22 @@ class TestChatThreadService:
 
         assert thread.model == "resolved-model-id"
         assert thread.skill is None
+
+    @pytest.mark.asyncio
+    async def test_create_thread_rejects_invalid_explicit_model(self, service, mock_db_session):
+        """Invalid explicit model ids should fail instead of being silently persisted."""
+        with patch(
+            "src.services.chat_thread_service.validate_requested_model",
+            side_effect=InvalidRequestedModelError("Unknown model id: bad-model"),
+        ):
+            with pytest.raises(InvalidRequestedModelError, match="Unknown model id: bad-model"):
+                await service.create_thread(
+                    user_id="user-1",
+                    model="bad-model",
+                )
+
+        mock_db_session.add.assert_not_called()
+        mock_db_session.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_get_or_create_thread_reuses_owned_thread(self, service, mock_db_session):
@@ -116,6 +140,9 @@ class TestChatThreadService:
         mock_db_session.execute.return_value = result
 
         with patch(
+            "src.services.chat_thread_service.validate_requested_model",
+            return_value="some-user-selected-model",
+        ), patch(
             "src.services.chat_thread_service.route_model",
             return_value="resolved-model-id",
         ):

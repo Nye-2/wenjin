@@ -263,36 +263,23 @@ class TestExtractEntities:
 class TestGetLlm:
     def test_returns_none_when_all_factories_fail(self):
         service = _make_service()
-        with (
-            patch(
-                "src.models.factory.create_chat_model",
-                side_effect=Exception("no config"),
-            ),
-            patch(
-                "src.config.get_default_model_id",
-                side_effect=Exception("no default"),
-            ),
+        with patch(
+            "src.models.factory.create_chat_model",
+            side_effect=Exception("no config"),
         ):
             result = service._get_llm()
         assert result is None
 
-    def test_falls_back_to_default_model_when_fast_model_fails(self):
+    def test_returns_none_when_fast_model_fails(self):
         service = _make_service()
-        mock_model = MagicMock()
-        with (
-            patch(
-                "src.models.factory.create_chat_model",
-                side_effect=[Exception("fast missing"), mock_model],
-            ) as mock_create,
-            patch(
-                "src.config.get_default_model_id",
-                return_value="qwen3.5-plus",
-            ),
-        ):
+        with patch(
+            "src.models.factory.create_chat_model",
+            side_effect=Exception("fast missing"),
+        ) as mock_create:
             result = service._get_llm()
 
-        assert result is mock_model
-        assert mock_create.call_count == 2
+        assert result is None
+        mock_create.assert_called_once()
 
     def test_returns_model_from_factory(self):
         service = _make_service()

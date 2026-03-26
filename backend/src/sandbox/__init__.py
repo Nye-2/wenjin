@@ -30,12 +30,6 @@ from .providers.base import SandboxProvider
 from .providers.docker import DockerSandbox, DockerSandboxProvider
 from .providers.local import LocalSandbox, LocalSandboxProvider
 
-# Legacy imports (backward compatibility)
-try:
-    from .executor import ExecutionResult, SandboxConfig, SandboxExecutor
-except ImportError:
-    pass
-
 __all__ = [
     # Core
     "Sandbox",
@@ -62,8 +56,4 @@ __all__ = [
     "DockerSandboxProvider",
     "LocalSandbox",
     "LocalSandboxProvider",
-    # Legacy
-    "SandboxExecutor",
-    "SandboxConfig",
-    "ExecutionResult",
 ]

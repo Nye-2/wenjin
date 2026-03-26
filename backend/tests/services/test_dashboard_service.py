@@ -217,6 +217,16 @@ async def test_get_dashboard_patent_uses_workspace_specific_modules():
 
 
 @pytest.mark.asyncio
+async def test_get_dashboard_raises_when_workspace_type_missing():
+    db = AsyncMock()
+    db.execute.return_value = _ScalarOneOrNoneResult(None)
+    service = DashboardService(db)
+
+    with pytest.raises(ValueError, match="Workspace not found: missing-ws"):
+        await service.get_dashboard("missing-ws")
+
+
+@pytest.mark.asyncio
 async def test_opening_research_status_filters_by_opening_handler():
     db = AsyncMock()
     db.execute = AsyncMock(

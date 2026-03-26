@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from src.sandbox.providers.docker import DockerSandboxProvider
 from src.sandbox.providers.local import LocalSandboxProvider
 from src.sandbox.runtime import (
@@ -37,10 +39,7 @@ def test_resolve_provider_path_defaults_to_local_mode():
 def test_resolve_provider_path_promotes_builtin_provider_to_docker_mode():
     with patch("src.sandbox.runtime.get_sandbox_settings", return_value=_settings("docker")):
         assert _resolve_provider_path(_LOCAL_PROVIDER_PATH) == _DOCKER_PROVIDER_PATH
-        assert (
-            _resolve_provider_path("src.sandbox.local:LocalSandboxProvider")
-            == _DOCKER_PROVIDER_PATH
-        )
+        assert _resolve_provider_path(_DOCKER_PROVIDER_PATH) == _DOCKER_PROVIDER_PATH
 
 
 def test_resolve_provider_path_preserves_custom_provider():
@@ -77,5 +76,20 @@ def test_get_sandbox_provider_uses_local_provider_when_mode_is_local():
             provider = get_sandbox_provider()
 
         assert isinstance(provider, LocalSandboxProvider)
+    finally:
+        reset_sandbox_provider()
+
+
+def test_get_sandbox_provider_rejects_legacy_provider_path():
+    reset_sandbox_provider()
+    app_config = SimpleNamespace(sandbox=SimpleNamespace(use="src.sandbox.local:LocalSandboxProvider"))
+
+    try:
+        with patch("src.sandbox.runtime.get_app_config", return_value=app_config), patch(
+            "src.sandbox.runtime.get_sandbox_settings",
+            return_value=_settings("local"),
+        ):
+            with pytest.raises(ImportError, match="Missing dependency 'src'"):
+                get_sandbox_provider()
     finally:
         reset_sandbox_provider()

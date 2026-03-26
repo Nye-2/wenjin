@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from src.gateway.routers import chat
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.chat import GeneratedChatReply
+from src.models.router import InvalidRequestedModelError
 from src.services.chat_thread_service import ChatThreadAccessError
 
 
@@ -229,6 +230,22 @@ class TestChatThreads:
         assert response.status_code == 200
         assert response.json()["id"] == thread_id
 
+    def test_create_thread_rejects_invalid_model_selection(self):
+        """Explicit invalid model ids should fail instead of silently rerouting."""
+        service = FakeChatThreadService()
+        service.create_thread = AsyncMock(
+            side_effect=InvalidRequestedModelError("Unknown model id: bad-model")
+        )
+        client = create_client("user-1", service)
+
+        response = client.post(
+            "/threads",
+            json={"workspace_id": "ws-1", "model": "bad-model"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Unknown model id: bad-model"
+
 
 class TestChatThreadsContinuation:
     """Additional thread ownership and lifecycle tests."""
@@ -411,6 +428,22 @@ class TestChatMessages:
             "user",
             "assistant",
         ]
+
+    def test_chat_rejects_invalid_model_selection_before_generation(self):
+        """Chat turn startup should reject invalid explicit model ids."""
+        service = FakeChatThreadService()
+        service.get_or_create_thread = AsyncMock(
+            side_effect=InvalidRequestedModelError("Unknown model id: bad-model")
+        )
+        client = create_client("user-1", service)
+
+        response = client.post(
+            "/chat",
+            json={"message": "Hello", "workspace_id": "ws-1", "model": "bad-model"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Unknown model id: bad-model"
 
     def test_chat_persists_selected_skill_on_thread(self):
         """Chat requests persist the selected skill on the thread."""
@@ -772,8 +805,8 @@ class TestChatMessages:
         assert payload["current_skill"] == "deep-research"
 
     @pytest.mark.asyncio
-    async def test_generate_chat_response_forwards_reasoning_effort_to_fallback_model(self):
-        """Fallback model invocations preserve the selected reasoning effort."""
+    async def test_generate_chat_response_propagates_agent_failures_without_fallback(self):
+        """Lead-agent failures should surface instead of silently switching execution paths."""
         request = chat.ChatRequest(
             message="Hello",
             workspace_id="ws-1",
@@ -788,8 +821,6 @@ class TestChatMessages:
             messages=[{"role": "user", "content": "Hello"}],
         )
         current_user = create_mock_user("user-1")
-        fallback_model = MagicMock()
-        fallback_model.ainvoke = AsyncMock(return_value=MagicMock(content="fallback"))
 
         with patch(
             "src.gateway.routers.chat.maybe_bridge_workspace_feature",
@@ -805,67 +836,27 @@ class TestChatMessages:
             side_effect=RuntimeError("boom"),
         ), patch(
             "src.models.factory.create_chat_model",
-            return_value=fallback_model,
         ) as create_chat_model:
-            reply = await chat._generate_chat_response(request, thread, current_user)
+            with pytest.raises(RuntimeError, match="boom"):
+                await chat._generate_chat_response(request, thread, current_user)
 
-        assert reply.content == "fallback"
-        create_chat_model.assert_called_once_with(
-            "glm-5",
-            thinking_enabled=False,
-            reasoning_effort="high",
-        )
+        create_chat_model.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_fallback_model_receives_memory_enriched_system_prompt(self):
-        """Fallback responses should still include injected long-term memory context."""
-        request = chat.ChatRequest(
-            message="Hello",
-            workspace_id="ws-1",
-        )
-        thread = FakeThread(
-            id="thread-1",
-            user_id="user-1",
-            workspace_id="ws-1",
-            title="Thread 1",
-            model="glm-5",
-            messages=[{"role": "user", "content": "Hello"}],
-        )
-        current_user = create_mock_user("user-1")
-        fallback_model = MagicMock()
-        fallback_model.ainvoke = AsyncMock(return_value=MagicMock(content="fallback"))
-        app_config = MagicMock()
-        app_config.middlewares.summarization.enabled = False
-        app_config.memory.enabled = True
-        app_config.memory.injection_enabled = True
-        app_config.subagents.enabled = True
-        app_config.subagents.max_concurrent = 3
+    async def test_streaming_chat_surfaces_generation_errors_as_sse_error_event(self):
+        """Streaming route should still expose generation failures explicitly."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
 
         with patch(
-            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
-            AsyncMock(return_value=None),
-        ), patch(
-            "src.gateway.routers.chat._ensure_chat_turn_budget",
-            AsyncMock(return_value=None),
-        ), patch(
-            "src.gateway.routers.chat.route_chat_model",
-            return_value="glm-5",
-        ), patch(
-            "src.agents.lead_agent.agent.make_lead_agent",
-            side_effect=RuntimeError("boom"),
-        ), patch(
-            "src.agents.lead_agent.agent.get_app_config",
-            return_value=app_config,
-        ), patch(
-            "src.agents.middlewares.memory.build_memory_context",
-            AsyncMock(return_value="<academic_memory>\n- 偏好 IEEE\n</academic_memory>"),
-        ), patch(
-            "src.models.factory.create_chat_model",
-            return_value=fallback_model,
+            "src.gateway.routers.chat._generate_chat_response",
+            AsyncMock(side_effect=RuntimeError("agent boom")),
         ):
-            reply = await chat._generate_chat_response(request, thread, current_user)
+            response = client.post(
+                "/chat/stream",
+                json={"message": "Hello", "workspace_id": "ws-1"},
+            )
 
-        assert reply.content == "fallback"
-        messages = fallback_model.ainvoke.await_args.args[0]
-        assert messages[0].content
-        assert "偏好 IEEE" in messages[0].content
+        assert response.status_code == 200
+        assert '"type": "error"' in response.text
+        assert "agent boom" in response.text

@@ -54,6 +54,10 @@ async def test_generate_outline_action(monkeypatch: pytest.MonkeyPatch):
         "src.agents.graphs.thesis.thesis_writing.build_outline_payload",
         _fake_build_outline_payload,
     )
+    monkeypatch.setattr(
+        "src.agents.graphs.thesis.thesis_writing._resolve_writing_model",
+        lambda _requested_model: "mock-model",
+    )
 
     result = await thesis_writing_graph(
         initial_state={},
@@ -84,6 +88,10 @@ async def test_write_chapter_action(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         "src.agents.graphs.thesis.thesis_writing.build_chapter_payload",
         _fake_build_chapter_payload,
+    )
+    monkeypatch.setattr(
+        "src.agents.graphs.thesis.thesis_writing._resolve_writing_model",
+        lambda _requested_model: "mock-model",
     )
 
     result = await thesis_writing_graph(

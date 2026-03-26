@@ -323,6 +323,11 @@ async def test_compile_export_graph_passes_llm_abstract_to_compile_payload(
     )
     monkeypatch.setattr(
         compile_export,
+        "_resolve_writing_model",
+        lambda _requested_model: "mock-model",
+    )
+    monkeypatch.setattr(
+        compile_export,
         "build_compile_payload",
         _fake_build_compile_payload,
     )

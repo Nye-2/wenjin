@@ -17,13 +17,13 @@ import pytest
 from src.agents.thread_state import AcademicArtifact, ThreadState
 from src.skills.base import SkillInput
 from src.skills.implementations.deep_research import (
-    DeepResearchSkillV2,
+    DeepResearchSkill,
     Paper,
     ResearchGap,
     ResearchIdea,
 )
-from src.skills.implementations.framework_designer import FrameworkDesignerSkillV2
-from src.skills.implementations.fullpaper_writer import FullpaperWriterSkillV2
+from src.skills.implementations.framework_designer import FrameworkDesignerSkill
+from src.skills.implementations.fullpaper_writer import FullpaperWriterSkill
 
 
 # ============================================================================
@@ -161,7 +161,7 @@ class TestEndToEndAcademicWorkflow:
     ):
         """Deep Research output should flow to Framework Designer."""
         # Setup: Mock Deep Research to produce artifacts
-        deep_research = DeepResearchSkillV2()
+        deep_research = DeepResearchSkill()
 
         with patch.object(deep_research, "_executor") as mock_executor:
             # Mock the parallel executor to return empty results
@@ -216,7 +216,7 @@ class TestEndToEndAcademicWorkflow:
         thread_state["academic_artifacts"] = [framework_artifact]
 
         # Execute Paper Writer
-        paper_writer = FullpaperWriterSkillV2()
+        paper_writer = FullpaperWriterSkill()
 
         skill_input = SkillInput(
             workspace_id="test-workspace",
@@ -243,7 +243,7 @@ class TestEndToEndAcademicWorkflow:
     ):
         """Complete workflow: Research -> Framework -> Paper."""
         # Step 1: Execute Deep Research
-        deep_research = DeepResearchSkillV2()
+        deep_research = DeepResearchSkill()
 
         with patch.object(deep_research, "_executor") as mock_executor:
             mock_executor.execute_plan = AsyncMock(return_value=[])
@@ -267,7 +267,7 @@ class TestEndToEndAcademicWorkflow:
         thread_state["literature_context"] = research_output.content[:500]
 
         # Step 2: Execute Framework Designer (with mocked LLM)
-        framework_designer = FrameworkDesignerSkillV2()
+        framework_designer = FrameworkDesignerSkill()
 
         mock_model = MagicMock()
         mock_model.invoke.side_effect = [
@@ -292,7 +292,7 @@ class TestEndToEndAcademicWorkflow:
         thread_state["academic_artifacts"].extend(framework_output.artifacts)
 
         # Step 3: Execute Paper Writer
-        paper_writer = FullpaperWriterSkillV2()
+        paper_writer = FullpaperWriterSkill()
 
         paper_input = SkillInput(
             workspace_id="test-workspace",
@@ -340,7 +340,7 @@ class TestEndToEndAcademicWorkflow:
         )
 
         # Execute Paper Writer with terminology
-        paper_writer = FullpaperWriterSkillV2()
+        paper_writer = FullpaperWriterSkill()
 
         skill_input = SkillInput(
             workspace_id="test-workspace",
@@ -407,7 +407,7 @@ class TestEndToEndAcademicWorkflow:
         assert "framework_outline" in artifact_types
 
         # Step 3: Paper Writer creates paper_draft
-        paper_writer = FullpaperWriterSkillV2()
+        paper_writer = FullpaperWriterSkill()
         skill_input = SkillInput(
             workspace_id="test-workspace",
             user_query="Write paper",
@@ -437,7 +437,7 @@ class TestEndToEndAcademicWorkflow:
         thread_state["cited_papers"] = initial_citations
 
         # Execute Framework Designer
-        framework_designer = FrameworkDesignerSkillV2()
+        framework_designer = FrameworkDesignerSkill()
         mock_model = MagicMock()
         mock_model.invoke.return_value = MagicMock(content="Generated content")
 
@@ -455,7 +455,7 @@ class TestEndToEndAcademicWorkflow:
             framework_designer.execute(framework_input, thread_state)
 
         # Execute Paper Writer
-        paper_writer = FullpaperWriterSkillV2()
+        paper_writer = FullpaperWriterSkill()
 
         framework_content = {
             "abstract": "Test abstract",
@@ -487,7 +487,7 @@ class TestEndToEndAcademicWorkflow:
         thread_state["workspace_type"] = "sci"
 
         # Verify Framework Designer can access context
-        framework_designer = FrameworkDesignerSkillV2()
+        framework_designer = FrameworkDesignerSkill()
         mock_model = MagicMock()
         mock_model.invoke.return_value = MagicMock(content="Generated abstract and outline")
 
@@ -518,7 +518,7 @@ class TestWorkflowErrorHandling:
         thread_state: ThreadState,
     ):
         """Framework Designer should handle missing research gracefully."""
-        framework_designer = FrameworkDesignerSkillV2()
+        framework_designer = FrameworkDesignerSkill()
         mock_model = MagicMock()
         mock_model.invoke.return_value = MagicMock(content="Generated content")
 
@@ -540,7 +540,7 @@ class TestWorkflowErrorHandling:
         thread_state: ThreadState,
     ):
         """Paper Writer should handle incomplete framework."""
-        paper_writer = FullpaperWriterSkillV2()
+        paper_writer = FullpaperWriterSkill()
 
         # Minimal framework
         minimal_framework = {
@@ -566,7 +566,7 @@ class TestWorkflowErrorHandling:
     ):
         """Workflow should be able to continue after a skill fails."""
         # Simulate a failed research skill
-        deep_research = DeepResearchSkillV2()
+        deep_research = DeepResearchSkill()
 
         with patch.object(deep_research, "_executor") as mock_executor:
             mock_executor.execute_plan = AsyncMock(return_value=[])
@@ -583,7 +583,7 @@ class TestWorkflowErrorHandling:
                 assert research_output.success is True
 
         # Framework should still work
-        framework_designer = FrameworkDesignerSkillV2()
+        framework_designer = FrameworkDesignerSkill()
         mock_model = MagicMock()
         mock_model.invoke.return_value = MagicMock(content="Generated content")
 
@@ -610,7 +610,7 @@ class TestWorkflowPerformance:
         """Deep Research should complete in under 5 seconds."""
         import time
 
-        deep_research = DeepResearchSkillV2()
+        deep_research = DeepResearchSkill()
 
         with patch.object(deep_research, "_executor") as mock_executor:
             mock_executor.execute_plan = AsyncMock(return_value=[])
@@ -635,7 +635,7 @@ class TestWorkflowPerformance:
         """Framework Designer should complete in under 5 seconds."""
         import time
 
-        framework_designer = FrameworkDesignerSkillV2()
+        framework_designer = FrameworkDesignerSkill()
         mock_model = MagicMock()
         mock_model.invoke.return_value = MagicMock(content="Generated content")
 
@@ -660,7 +660,7 @@ class TestWorkflowPerformance:
         """Paper Writer should complete in under 5 seconds."""
         import time
 
-        paper_writer = FullpaperWriterSkillV2()
+        paper_writer = FullpaperWriterSkill()
 
         framework_content = {
             "abstract": "Test abstract",

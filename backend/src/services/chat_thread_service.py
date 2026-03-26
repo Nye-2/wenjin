@@ -1,9 +1,9 @@
 """Service layer for persisted chat threads."""
 
 import copy
+import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
-import logging
 from typing import Any
 
 from sqlalchemy import select
@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.middlewares.thread_data import delete_thread_directory
 from src.database import ChatThread
-from src.models.router import route_model
+from src.models.router import route_model, validate_requested_model
 
 logger = logging.getLogger(__name__)
 
@@ -33,19 +33,18 @@ class ChatThreadService:
 
     @staticmethod
     def _resolve_model(model: str | None) -> str:
-        """Resolve model id through env-backed config with graceful fallback."""
-        requested = (model or "").strip() or None
-        try:
-            return route_model(
-                requested_model=requested,
-                preferred_categories=("tool", "gen"),
-                allowed_categories=("tool", "gen"),
-                require_tools=False,
-            )
-        except Exception:
-            if requested:
-                return requested
-            return "default"
+        """Resolve model id through env-backed config without silent user fallback."""
+        requested = validate_requested_model(
+            model,
+            allowed_categories=("tool", "gen"),
+            require_tools=False,
+        )
+        return route_model(
+            requested_model=requested,
+            preferred_categories=("tool", "gen"),
+            allowed_categories=("tool", "gen"),
+            require_tools=False,
+        )
 
     async def create_thread(
         self,

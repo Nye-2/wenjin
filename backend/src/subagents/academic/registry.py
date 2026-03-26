@@ -1,15 +1,9 @@
-"""Canonical academic subagent registry.
-
-This module is the single source of truth for subagent type definitions.
-Legacy imports from ``src.subagents.registry`` are compatibility aliases that
-re-export the data structures defined here.
-"""
+"""Canonical academic subagent registry."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from types import MappingProxyType
 
 from .prompts import (
     ANALYST_PROMPT,
@@ -61,11 +55,6 @@ class SubagentConfig:
     def __post_init__(self) -> None:
         self.tools = _normalize_tool_names(self.tools)
         self.disallowed_tools = _normalize_tool_names(self.disallowed_tools)
-
-    @property
-    def allowed_tools(self) -> tuple[str, ...]:
-        """Compatibility alias used by legacy executor code."""
-        return tuple(self.tools)
 
     def copy_with(
         self,
@@ -236,12 +225,6 @@ class SubagentRegistry:
 
 
 registry = SubagentRegistry(DEFAULT_SUBAGENTS)
-
-# Legacy export name used by existing imports. Expose a read-only live view so
-# compatibility callers cannot mutate canonical registry state by accident.
-SUBAGENT_REGISTRY = MappingProxyType(registry._subagents)
-
-
 def get_subagent_config(subagent_type: str) -> SubagentConfig:
     """Get subagent configuration by type."""
     return registry.require(subagent_type)

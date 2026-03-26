@@ -84,7 +84,7 @@ def create_chat_model(
         >>> model = create_chat_model("deepseek-v3", temperature=0.7)
         >>> model = create_chat_model("claude-sonnet-4", thinking_enabled=True)
     """
-    # Resolve legacy/default aliases and get full model configuration
+    # Resolve the configured/default alias and get full model configuration
     resolved_model_id = resolve_model_id(model_id)
 
     # Get the full configuration for this model

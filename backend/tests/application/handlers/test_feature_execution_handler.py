@@ -88,14 +88,16 @@ class TestResolveWorkspaceType:
         ws.type = "sci"
         assert resolve_workspace_type(ws) == "sci"
 
-    def test_none_defaults_to_thesis(self):
+    def test_none_raises(self):
         ws = MagicMock(spec=[])
         ws.type = None
-        assert resolve_workspace_type(ws) == "thesis"
+        with pytest.raises(ValueError, match="Workspace type is not configured"):
+            resolve_workspace_type(ws)
 
-    def test_missing_type_defaults_to_thesis(self):
+    def test_missing_type_raises(self):
         ws = object()
-        assert resolve_workspace_type(ws) == "thesis"
+        with pytest.raises(ValueError, match="Workspace type is not configured"):
+            resolve_workspace_type(ws)
 
 
 # ============ Unit Tests: build_task_payload ============
@@ -196,6 +198,18 @@ class TestFeatureExecutionHandler:
         with pytest.raises(AccessDeniedError) as exc_info:
             await handler.execute("ws-1", "some_feature")
         assert "Access denied" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    async def test_raises_500_when_workspace_type_missing(self):
+        ws = _make_workspace()
+        ws.type = None
+        ws_service = AsyncMock()
+        ws_service.get.return_value = ws
+        handler = _make_handler(workspace_service=ws_service)
+
+        with pytest.raises(InternalServiceError) as exc_info:
+            await handler.execute("ws-1", "some_feature")
+        assert "Workspace type is not configured" in exc_info.value.message
 
     @pytest.mark.asyncio
     @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")

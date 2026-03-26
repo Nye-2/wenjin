@@ -288,9 +288,9 @@ class TestSkillWithTools:
     @pytest.mark.asyncio
     async def test_deep_research_uses_tools(self):
         """Deep Research skill should have tool integration."""
-        from src.skills.implementations.deep_research import DeepResearchSkillV2
+        from src.skills.implementations.deep_research import DeepResearchSkill
 
-        skill = DeepResearchSkillV2()
+        skill = DeepResearchSkill()
         # Verify skill has required interface
         assert hasattr(skill, "execute")
         assert hasattr(skill, "execute_async")
@@ -301,9 +301,9 @@ class TestSkillWithTools:
         """Deep Research skill should create artifacts."""
         from src.agents.thread_state import ThreadState
         from src.skills.base import SkillInput
-        from src.skills.implementations.deep_research import DeepResearchSkillV2, Paper
+        from src.skills.implementations.deep_research import DeepResearchSkill, Paper
 
-        skill = DeepResearchSkillV2()
+        skill = DeepResearchSkill()
         thread_state = ThreadState(
             messages=[],
             workspace_id="test-workspace",

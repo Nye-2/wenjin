@@ -7,6 +7,8 @@ import pytest
 from src.database.models.knowledge import KnowledgeCategory, UserKnowledge
 from src.services.knowledge_service import KnowledgeService
 
+pytestmark = pytest.mark.asyncio
+
 
 @pytest.fixture
 def mock_db():

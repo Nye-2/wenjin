@@ -17,8 +17,8 @@ def _make_rate_limited_app(requests_per_minute: int = 3, window_seconds: int = 6
     async def test_endpoint():
         return {"ok": True}
 
-    @app.get("/health")
-    async def health():
+    @app.get("/readyz")
+    async def readiness():
         return {"status": "healthy"}
 
     # Use memory backend (no Redis needed for tests)
@@ -49,7 +49,7 @@ class TestRateLimiting:
         resp = client.get("/test")
         assert resp.status_code == 429
 
-    def test_health_endpoint_excluded_from_rate_limit(self):
+    def test_readiness_endpoint_excluded_from_rate_limit(self):
         app = _make_rate_limited_app(requests_per_minute=1)
         client = TestClient(app)
 
@@ -58,7 +58,7 @@ class TestRateLimiting:
         assert resp.status_code == 200
 
         # Health should still work
-        resp = client.get("/health")
+        resp = client.get("/readyz")
         assert resp.status_code == 200
 
     def test_rate_limit_headers_present(self):

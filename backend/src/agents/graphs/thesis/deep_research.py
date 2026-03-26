@@ -10,7 +10,7 @@ from typing import Any
 
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.agents.workspace_lead_agent import register_feature_graph
-from src.models.router import route_model
+from src.models.router import route_model, validate_requested_model
 from src.task.progress import emit_runtime_update, get_runtime_state
 from src.task.runtime_blocks import (
     advance_runtime_phase,
@@ -42,15 +42,17 @@ async def _emit_bound_runtime(
 
 def _resolve_research_model(requested_model: str | None) -> str:
     """Resolve a chat/research model for deep-research tasks."""
-    try:
-        return route_model(
-            requested_model=requested_model,
-            preferred_categories=("tool", "gen"),
-            allowed_categories=("tool", "gen"),
-            require_tools=False,
-        )
-    except Exception:
-        return requested_model or "default"
+    requested = validate_requested_model(
+        requested_model,
+        allowed_categories=("tool", "gen"),
+        require_tools=False,
+    )
+    return route_model(
+        requested_model=requested,
+        preferred_categories=("tool", "gen"),
+        allowed_categories=("tool", "gen"),
+        require_tools=False,
+    )
 
 
 def _combine_discovery_papers(discovery: dict[str, Any]) -> list[dict[str, Any]]:

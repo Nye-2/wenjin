@@ -17,7 +17,6 @@ from src.agents.thread_state import AcademicArtifact, ThreadState
 from src.skills.base import SkillInput
 from src.skills.implementations.deep_research import (
     DeepResearchSkill,
-    DeepResearchSkillV2,
     Paper,
     ResearchGap,
     ResearchIdea,
@@ -147,8 +146,7 @@ class TestDeepResearchSkillMetadata:
 
     def test_skill_has_version(self, skill: DeepResearchSkill):
         """Test that skill has a version."""
-        # Version can be 1.0.0 (legacy) or 2.0.0 (with parallel execution)
-        assert skill.version in ["1.0.0", "2.0.0"]
+        assert skill.version == "2.0.0"
 
     def test_skill_has_default_config(self, skill: DeepResearchSkill):
         """Test that skill has default configuration values."""

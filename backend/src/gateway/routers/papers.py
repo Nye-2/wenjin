@@ -45,18 +45,11 @@ __all__ = [
     "section_to_response",
 ]
 
-
-# Re-export validators as request models for backward compatibility
-CreatePaperRequest = CreatePaperValidator
-UpdatePaperRequest = UpdatePaperValidator
-SearchPapersRequest = SearchPapersValidator
-
-
 # ============ Endpoints ============
 
 @router.post("", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
 async def create_paper(
-    request: CreatePaperRequest,
+    request: CreatePaperValidator,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
 ):
@@ -159,7 +152,7 @@ async def get_paper(
 @router.put("/{paper_id}", response_model=PaperResponse)
 async def update_paper(
     paper_id: str,
-    request: UpdatePaperRequest,
+    request: UpdatePaperValidator,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
 ):
@@ -283,7 +276,7 @@ async def get_paper_sections(
 
 @router.post("/search")
 async def search_papers(
-    request: SearchPapersRequest,
+    request: SearchPapersValidator,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
 ):

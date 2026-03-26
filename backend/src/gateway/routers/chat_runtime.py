@@ -2,24 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import HTTPException
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from src.database import ChatThread, User
+from src.models.router import InvalidRequestedModelError
 from src.services import ChatThreadAccessError, ChatThreadService
 
-from .chat_contracts import ChatRequest, GeneratedChatReply
-
-
-def coerce_generated_reply(reply: GeneratedChatReply | str | Any) -> GeneratedChatReply:
-    """Normalize legacy string replies into the structured reply container."""
-    if isinstance(reply, GeneratedChatReply):
-        return reply
-    if isinstance(reply, str):
-        return GeneratedChatReply(content=reply)
-    return GeneratedChatReply(content=str(reply or ""))
+from .chat_contracts import ChatRequest
 
 
 def resolve_workspace_id(request: ChatRequest, thread: ChatThread) -> str | None:
@@ -57,3 +47,5 @@ async def get_or_create_owned_thread(
         )
     except ChatThreadAccessError as exc:
         raise HTTPException(status_code=404, detail="Thread not found") from exc
+    except InvalidRequestedModelError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

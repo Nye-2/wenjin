@@ -17,7 +17,7 @@ def test_decide_bootstrap_mode_upgrade_only_when_version_table_exists() -> None:
     assert decide_bootstrap_mode(table_names) is MigrationBootstrapMode.UPGRADE_ONLY
 
 
-def test_decide_bootstrap_mode_stamp_for_legacy_schema_without_version_table() -> None:
+def test_decide_bootstrap_mode_stamp_for_existing_schema_without_version_table() -> None:
     table_names = {"users", "workspaces", "papers"}
     assert decide_bootstrap_mode(table_names) is MigrationBootstrapMode.STAMP_THEN_UPGRADE
 

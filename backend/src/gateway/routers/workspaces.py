@@ -322,7 +322,10 @@ async def get_workspace_dashboard(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    workspace_type = workspace_type_value(workspace)
+    try:
+        workspace_type = workspace_type_value(workspace)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return await dashboard_service.get_dashboard(
         workspace_id,
         workspace_type=workspace_type,
@@ -342,7 +345,10 @@ async def get_workspace_summary(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    workspace_type = workspace_type_value(workspace, default="thesis")
+    try:
+        workspace_type = workspace_type_value(workspace)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     payload = await summary_service.get_summary(
         workspace_id,
         workspace_type=workspace_type,

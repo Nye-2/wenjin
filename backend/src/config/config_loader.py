@@ -75,7 +75,7 @@ class MemoryConfig(BaseModel):
 
 class SandboxConfig(BaseModel):
     """Sandbox configuration."""
-    use: str  # e.g., "src.sandbox.local:LocalSandboxProvider"
+    use: str  # e.g., "src.sandbox.providers.local:LocalSandboxProvider"
 
 
 class SkillsConfig(BaseModel):

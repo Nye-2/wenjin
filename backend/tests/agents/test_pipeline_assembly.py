@@ -22,17 +22,22 @@ def _mock_app_config(
     return mock_config
 
 
+def _pipeline_config(*, subagent_enabled: bool, workspace_id: str | None = None) -> dict:
+    configurable = {
+        "model_name": "gpt-4o",
+        "subagent_enabled": subagent_enabled,
+    }
+    if workspace_id is not None:
+        configurable["workspace_id"] = workspace_id
+    return {"configurable": configurable}
+
+
 class TestPipelineAssembly:
     def test_builds_16_layer_pipeline(self):
         """Full pipeline should have 16 layers when all features enabled."""
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = {
-            "configurable": {
-                "subagent_enabled": True,
-                "workspace_id": "ws-123",
-            }
-        }
+        config = _pipeline_config(subagent_enabled=True, workspace_id="ws-123")
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -54,10 +59,8 @@ class TestPipelineAssembly:
     def test_pipeline_order(self):
         """Infrastructure middlewares should come before academic middlewares."""
         from src.agents.lead_agent.agent import build_pipeline
-        from src.agents.middlewares.thread_data import ThreadDataMiddleware
-        from src.agents.middlewares.clarification import ClarificationMiddleware
 
-        config = {"configurable": {"subagent_enabled": False}}
+        config = _pipeline_config(subagent_enabled=False)
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -78,9 +81,8 @@ class TestPipelineAssembly:
 
     def test_subagent_limit_included_when_enabled(self):
         from src.agents.lead_agent.agent import build_pipeline
-        from src.agents.middlewares.subagent_limit import SubagentLimitMiddleware
 
-        config = {"configurable": {"subagent_enabled": True}}
+        config = _pipeline_config(subagent_enabled=True)
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -97,7 +99,7 @@ class TestPipelineAssembly:
     def test_subagent_limit_excluded_when_disabled(self):
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = {"configurable": {"subagent_enabled": False}}
+        config = _pipeline_config(subagent_enabled=False)
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -115,7 +117,7 @@ class TestPipelineAssembly:
         """SummarizationMiddleware should be included when enabled."""
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = {"configurable": {"subagent_enabled": False}}
+        config = _pipeline_config(subagent_enabled=False)
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=True)), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -133,7 +135,7 @@ class TestPipelineAssembly:
         """SummarizationMiddleware should be excluded when disabled."""
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = {"configurable": {"subagent_enabled": False}}
+        config = _pipeline_config(subagent_enabled=False)
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=False)), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -150,7 +152,7 @@ class TestPipelineAssembly:
     def test_sandbox_middleware_is_auto_included_when_provider_available(self):
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = {"configurable": {"subagent_enabled": False}}
+        config = _pipeline_config(subagent_enabled=False)
         mock_provider = object()
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
@@ -168,7 +170,7 @@ class TestPipelineAssembly:
     def test_execution_middleware_is_included_when_execution_service_available(self):
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = {"configurable": {"subagent_enabled": False}}
+        config = _pipeline_config(subagent_enabled=False)
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -185,7 +187,7 @@ class TestPipelineAssembly:
     def test_memory_capture_is_enabled_without_explicit_queue(self):
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = {"configurable": {"subagent_enabled": False}}
+        config = _pipeline_config(subagent_enabled=False)
 
         with patch(
             "src.agents.lead_agent.agent.get_app_config",

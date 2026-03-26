@@ -8,7 +8,13 @@ from unittest.mock import patch
 import pytest
 
 from src.config.llm_config import reload_models
-from src.models.router import list_user_selectable_models, route_chat_model, route_writing_model
+from src.models.router import (
+    InvalidRequestedModelError,
+    list_user_selectable_models,
+    route_chat_model,
+    route_writing_model,
+    validate_requested_model,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -94,6 +100,58 @@ def test_route_ignores_utility_model_for_chat_selection() -> None:
         reload_models()
         model_id = route_chat_model(requested_model="qwen-flash")
         assert model_id == "tool-primary"
+
+
+def test_validate_requested_model_rejects_unknown_model() -> None:
+    tool_models = json.dumps([
+        {
+            "id": "tool-primary",
+            "model": "provider/tool-primary",
+            "api_key": "sk-tool",
+            "base_url": "https://example.com/v1",
+            "supports_tools": True,
+        }
+    ])
+    with patch.dict(
+        os.environ,
+        {"LLM_TOOL_MODELS": tool_models, "LLM_DEFAULT_MODEL": "tool-primary"},
+        clear=False,
+    ):
+        reload_models()
+        with pytest.raises(InvalidRequestedModelError, match="Unknown model id"):
+            validate_requested_model("missing-model", allowed_categories=("tool", "gen"))
+
+
+def test_validate_requested_model_rejects_disallowed_category() -> None:
+    tool_models = json.dumps([
+        {
+            "id": "tool-primary",
+            "model": "provider/tool-primary",
+            "api_key": "sk-tool",
+            "base_url": "https://example.com/v1",
+            "supports_tools": True,
+        }
+    ])
+    utility_models = json.dumps([
+        {
+            "id": "qwen-flash",
+            "model": "qwen-flash",
+            "api_key": "sk-util",
+            "base_url": "https://example.com/v1",
+        }
+    ])
+    with patch.dict(
+        os.environ,
+        {
+            "LLM_TOOL_MODELS": tool_models,
+            "LLM_UTILITY_MODELS": utility_models,
+            "LLM_DEFAULT_MODEL": "tool-primary",
+        },
+        clear=False,
+    ):
+        reload_models()
+        with pytest.raises(InvalidRequestedModelError, match="not allowed"):
+            validate_requested_model("qwen-flash", allowed_categories=("tool", "gen"))
 
 
 def test_route_picks_first_tool_capable_candidate_when_no_selection() -> None:

@@ -123,6 +123,24 @@ class TestCreateChatModel:
             reload_models()
 
             with pytest.raises(ValueError, match="No models configured"):
+                create_chat_model(model_id="default", temperature=0.7)
+
+    def test_error_when_requested_model_is_unknown(self, openai_compatible_config: str) -> None:
+        """Unknown model ids should fail instead of silently rerouting to default."""
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_GEN_MODELS": openai_compatible_config,
+                "LLM_DEFAULT_MODEL": "deepseek-v3",
+            },
+            clear=False,
+        ):
+            from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
+
+            reload_models()
+
+            with pytest.raises(ValueError, match="Unknown model id: nonexistent-model"):
                 create_chat_model(model_id="nonexistent-model", temperature=0.7)
 
     def test_temperature_override(self, openai_compatible_config: str) -> None:

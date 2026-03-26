@@ -55,18 +55,12 @@ def _model_supports_vision(model_name: str | None) -> bool:
 
 def _default_subagent_enabled() -> bool:
     """Resolve the default subagent toggle from app config."""
-    try:
-        return bool(get_app_config().subagents.enabled)
-    except Exception:
-        return True
+    return bool(get_app_config().subagents.enabled)
 
 
 def _default_model_name() -> str:
     """Resolve the default model id used by the lead agent."""
-    try:
-        return get_default_model_id()
-    except Exception:
-        return "default"
+    return get_default_model_id()
 
 
 def _normalize_runtime_config(config: RunnableConfig | None) -> RunnableConfig:
@@ -480,11 +474,7 @@ def build_pipeline(
 
     # Sandbox (3) - resolve default provider when sandboxing is configured
     if sandbox_provider is None:
-        try:
-            sandbox_provider = get_sandbox_provider()
-        except Exception as exc:
-            logger.warning("Failed to resolve sandbox provider: %s", exc, exc_info=True)
-            sandbox_provider = None
+        sandbox_provider = get_sandbox_provider()
 
     if sandbox_provider:
         pipeline.append(SandboxMiddleware(sandbox_provider))

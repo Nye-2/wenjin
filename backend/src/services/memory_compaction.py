@@ -73,23 +73,19 @@ async def compact_user_memory(
             from src.models.factory import create_chat_model
             from src.models.router import route_model
 
-            try:
-                model_id = route_model(
-                    preferred_categories=("utility", "gen", "tool"),
-                    allowed_categories=("utility", "gen", "tool"),
-                    require_tools=False,
-                )
-            except Exception:
-                model_id = "default"
+            model_id = route_model(
+                preferred_categories=("utility", "gen", "tool"),
+                allowed_categories=("utility", "gen", "tool"),
+                require_tools=False,
+            )
             model = create_chat_model(model_id, temperature=0.1)
             prompt = COMPACT_PROMPT.format(entries_json=json.dumps(entries_data, ensure_ascii=False))
             response = await model.ainvoke(prompt)
             content = response.content if hasattr(response, "content") else str(response)
             result = _parse_compact_result(content)
         except Exception:
-            logger.exception("LLM compaction failed, falling back to archive-only")
-            archived = await service.archive_low_confidence(user_id, threshold=0.5)
-            return {"compacted_count": 0, "archived_count": archived, "summary": ""}
+            logger.exception("LLM compaction failed")
+            raise
 
         # Deactivate all current entries
         for entry in entries:

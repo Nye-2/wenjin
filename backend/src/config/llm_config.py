@@ -436,10 +436,7 @@ def get_default_model_id() -> str:
     if explicit:
         if get_model_config(explicit) is not None:
             return explicit
-        logger.warning(
-            "LLM_DEFAULT_MODEL=%s is not configured, falling back to first available model",
-            explicit,
-        )
+        raise ValueError(f"LLM_DEFAULT_MODEL is not configured: {explicit}")
 
     gen_models, tool_models, utility_models, image_models = _get_cached_models()
     for model_map in (tool_models, gen_models, utility_models, image_models):
@@ -452,7 +449,7 @@ def get_default_model_id() -> str:
 
 
 def resolve_model_id(model_id: str | None) -> str:
-    """Normalize requested model id with safe fallback to configured default."""
+    """Normalize requested model id without silently rerouting unknown ids."""
     requested = (model_id or "").strip()
     if not requested or requested == "default":
         return get_default_model_id()
@@ -460,10 +457,4 @@ def resolve_model_id(model_id: str | None) -> str:
     if get_model_config(requested) is not None:
         return requested
 
-    fallback = get_default_model_id()
-    logger.warning(
-        "Requested model id '%s' is not configured, falling back to '%s'",
-        requested,
-        fallback,
-    )
-    return fallback
+    raise ValueError(f"Unknown model id: {requested}")
