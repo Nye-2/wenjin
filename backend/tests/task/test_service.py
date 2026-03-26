@@ -335,3 +335,54 @@ class TestTaskService:
         )
 
         assert found_task_id is None
+
+    @pytest.mark.asyncio
+    async def test_find_active_task_matches_full_workspace_feature_params(self, task_service):
+        """Workspace feature dedupe must not collide across different params."""
+        mock_executor = AsyncMock()
+
+        with patch("src.task.service.get_executor", return_value=mock_executor):
+            first_task_id = await task_service.submit_task(
+                user_id="user-feature-dedupe",
+                task_type="workspace_feature",
+                payload={
+                    "workspace_id": "ws-1",
+                    "feature_id": "literature_search",
+                    "params": {"query": "agent planning", "limit": 10},
+                },
+            )
+            second_task_id = await task_service.submit_task(
+                user_id="user-feature-dedupe",
+                task_type="workspace_feature",
+                payload={
+                    "workspace_id": "ws-1",
+                    "feature_id": "literature_search",
+                    "params": {"query": "multi-agent systems", "limit": 10},
+                },
+            )
+
+        first_match = await task_service.find_active_task(
+            user_id="user-feature-dedupe",
+            task_type="workspace_feature",
+            workspace_id="ws-1",
+            feature_id="literature_search",
+            params={"query": "agent planning", "limit": 10},
+        )
+        second_match = await task_service.find_active_task(
+            user_id="user-feature-dedupe",
+            task_type="workspace_feature",
+            workspace_id="ws-1",
+            feature_id="literature_search",
+            params={"query": "multi-agent systems", "limit": 10},
+        )
+        missing_match = await task_service.find_active_task(
+            user_id="user-feature-dedupe",
+            task_type="workspace_feature",
+            workspace_id="ws-1",
+            feature_id="literature_search",
+            params={"query": "unseen topic", "limit": 10},
+        )
+
+        assert first_match == first_task_id
+        assert second_match == second_task_id
+        assert missing_match is None

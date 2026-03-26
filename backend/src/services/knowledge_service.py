@@ -171,14 +171,18 @@ class KnowledgeService:
         normalized_category = self._normalize_category(category)
 
         # Check for existing similar entry
-        stmt = select(UserKnowledge).where(
-            and_(
-                UserKnowledge.user_id == user_id,
-                UserKnowledge.category == normalized_category,
-                UserKnowledge.content == content,
-                UserKnowledge.is_active == True,  # noqa: E712
-            )
-        )
+        conditions = [
+            UserKnowledge.user_id == user_id,
+            UserKnowledge.category == normalized_category,
+            UserKnowledge.content == content,
+            UserKnowledge.is_active == True,  # noqa: E712
+        ]
+        if workspace_context is None:
+            conditions.append(UserKnowledge.workspace_context.is_(None))
+        else:
+            conditions.append(UserKnowledge.workspace_context == workspace_context)
+
+        stmt = select(UserKnowledge).where(and_(*conditions))
         result = await self._db.execute(stmt)
         existing = result.scalar_one_or_none()
 

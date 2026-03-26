@@ -1,7 +1,9 @@
 """Task service for task management operations."""
 
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from src.config.app_config import celery_settings
@@ -14,6 +16,7 @@ from src.task import celery_app
 from src.task.executor import cancel_local_task, get_executor
 from src.task.registry import TaskStatus, get_task_config, is_valid_task_type
 from src.task.store import TaskStore
+from src.task.workspace_feature_params import coerce_workspace_feature_params
 from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
@@ -70,6 +73,20 @@ class TaskService:
             return None
         workspace_id = payload.get("workspace_id")
         return str(workspace_id) if workspace_id else None
+
+    @classmethod
+    def _normalize_params(cls, value: Any) -> Any:
+        """Normalize nested params for stable equality checks."""
+        if isinstance(value, Mapping):
+            return {
+                str(key): cls._normalize_params(item)
+                for key, item in sorted(value.items(), key=lambda item: str(item[0]))
+            }
+        if isinstance(value, tuple):
+            return [cls._normalize_params(item) for item in value]
+        if isinstance(value, list):
+            return [cls._normalize_params(item) for item in value]
+        return value
 
     async def submit_task(
         self,
@@ -191,6 +208,7 @@ class TaskService:
         workspace_id: str,
         feature_id: str,
         action: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> str | None:
         """Find an active (pending/running) task for the same context.
 
@@ -207,11 +225,18 @@ class TaskService:
             if record.status not in active_statuses:
                 continue
             payload = record.payload or {}
+            if not isinstance(payload, dict):
+                continue
             if (
                 payload.get("workspace_id") == workspace_id
                 and payload.get("feature_id") == feature_id
             ):
-                payload_action = (payload.get("params") or {}).get("action")
+                payload_params = coerce_workspace_feature_params(payload)
+                if params is not None:
+                    if self._normalize_params(payload_params) == self._normalize_params(params):
+                        return record.id
+                    continue
+                payload_action = payload_params.get("action")
                 if payload_action == action:
                     return record.id
         return None

@@ -312,11 +312,15 @@ class GlobalSubagentManager:
                 configurable["workspace_id"] = str(workspace_id)
             if user_id is not None:
                 configurable["user_id"] = str(user_id)
+            run_config: dict[str, object] = {
+                "configurable": configurable,
+                "recursion_limit": task.max_turns,
+            }
 
             result = await asyncio.wait_for(
                 graph.ainvoke(
                     {"messages": [HumanMessage(content=task.prompt)]},
-                    config={"configurable": configurable},
+                    config=run_config,
                 ),
                 timeout=task.timeout,
             )

@@ -214,6 +214,7 @@ class TestGlobalSubagentManager:
             prompt="Test",
             created_at=datetime.now(),
             timeout=60,
+            max_turns=7,
             metadata={"workspace_id": "ws-1", "user_id": "user-1"},
         )
 
@@ -227,6 +228,7 @@ class TestGlobalSubagentManager:
 
         assert result.status == SubagentStatus.COMPLETED
         assert mock_graph.ainvoke.await_args.kwargs["config"] == {
+            "recursion_limit": 7,
             "configurable": {
                 "thread_id": "thread-ctx",
                 "workspace_id": "ws-1",

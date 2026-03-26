@@ -331,8 +331,13 @@ def get_available_tools(
     try:
         from src.academic.tools.semantic_scholar import semantic_scholar_search_tool
         tools.append(semantic_scholar_search_tool)
-    except ImportError:
-        pass  # Academic tools not yet implemented
+    except ImportError as exc:
+        logger.warning(
+            "Semantic Scholar tool unavailable; skipping academic search registration: %s",
+            exc,
+        )
+    except Exception as exc:
+        logger.error("Failed to load Semantic Scholar tool: %s", exc)
 
     # Literature navigation tools (TOC-driven)
     # NOTE: These tools require AsyncSession injection (InjectedToolArg) which
@@ -342,8 +347,13 @@ def get_available_tools(
     try:
         from src.academic.literature.tools import search_external
         tools.append(search_external)
-    except (ImportError, Exception):
-        pass
+    except ImportError as exc:
+        logger.warning(
+            "Literature navigation tools unavailable; skipping external search registration: %s",
+            exc,
+        )
+    except Exception as exc:
+        logger.error("Failed to load external literature search tool: %s", exc)
 
     # Citation management tools (skip DB-dependent ones)
     # format_citation and format_bibliography also require AsyncSession injection;

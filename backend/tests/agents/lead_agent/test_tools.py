@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import builtins
+from unittest.mock import ANY, patch
 
 from src.agents.lead_agent.agent import get_available_tools
 
@@ -55,3 +56,47 @@ def test_get_available_tools_can_include_execution_tools():
 
     tool_names = {tool.name for tool in tools}
     assert "compile_latex_tool" in tool_names
+
+
+def test_get_available_tools_logs_semantic_scholar_import_error():
+    original_import = builtins.__import__
+
+    def _import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "src.academic.tools.semantic_scholar":
+            raise ImportError("missing semantic scholar")
+        return original_import(name, globals, locals, fromlist, level)
+
+    with patch("src.agents.lead_agent.agent.logger") as mock_logger, patch(
+        "builtins.__import__",
+        side_effect=_import,
+    ):
+        tools = get_available_tools(include_mcp=False, subagent_enabled=False)
+
+    tool_names = {tool.name for tool in tools}
+    assert "semantic_scholar_search" not in tool_names
+    mock_logger.warning.assert_any_call(
+        "Semantic Scholar tool unavailable; skipping academic search registration: %s",
+        ANY,
+    )
+
+
+def test_get_available_tools_logs_external_search_load_error():
+    original_import = builtins.__import__
+
+    def _import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "src.academic.literature.tools":
+            raise RuntimeError("schema failure")
+        return original_import(name, globals, locals, fromlist, level)
+
+    with patch("src.agents.lead_agent.agent.logger") as mock_logger, patch(
+        "builtins.__import__",
+        side_effect=_import,
+    ):
+        tools = get_available_tools(include_mcp=False, subagent_enabled=False)
+
+    tool_names = {tool.name for tool in tools}
+    assert "search_external" not in tool_names
+    mock_logger.error.assert_any_call(
+        "Failed to load external literature search tool: %s",
+        ANY,
+    )

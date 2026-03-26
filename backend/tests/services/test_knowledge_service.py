@@ -72,6 +72,37 @@ class TestUpsert:
         )
         assert result.confidence == pytest.approx(0.8)
 
+    async def test_duplicate_lookup_includes_workspace_context(self, service, mock_db):
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_result
+
+        await service.upsert(
+            "user1",
+            KnowledgeCategory.CONTEXT,
+            "Opening report uploaded",
+            workspace_context="ws-1",
+        )
+
+        stmt = mock_db.execute.call_args.args[0]
+        assert "workspace_context" in str(stmt)
+        assert "= :workspace_context_1" in str(stmt)
+
+    async def test_global_duplicate_lookup_requires_null_workspace_context(self, service, mock_db):
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_result
+
+        await service.upsert(
+            "user1",
+            KnowledgeCategory.CONTEXT,
+            "Global preference",
+            workspace_context=None,
+        )
+
+        stmt = mock_db.execute.call_args.args[0]
+        assert "workspace_context IS NULL" in str(stmt)
+
 
 class TestArchiveLowConfidence:
     async def test_deactivates_below_threshold(self, service, mock_db):

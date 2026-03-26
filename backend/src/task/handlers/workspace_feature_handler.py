@@ -81,8 +81,8 @@ async def _try_langgraph_execution(
     feature_id: str,
     payload: dict[str, Any],
     progress: ProgressTracker,
-) -> dict[str, Any] | None:
-    """Attempt LangGraph sub-graph execution. Returns None on failure."""
+) -> dict[str, Any]:
+    """Attempt LangGraph sub-graph execution and surface the root cause on failure."""
     from src.agents.workspace_lead_agent import execute_feature_graph
 
     user_id = payload.get("user_id") or payload.get("created_by")
@@ -160,14 +160,18 @@ async def _try_langgraph_execution(
         else:
             await progress.update(100, "LangGraph 增强处理完成")
         return wrapped
-    except Exception:
+    except Exception as exc:
         logger.warning(
             "LangGraph execution failed for feature '%s' in workspace '%s'",
             feature_id,
             workspace_type,
             exc_info=True,
         )
-        return None
+        detail = str(exc).strip() or exc.__class__.__name__
+        raise RuntimeError(
+            f"LangGraph execution failed for feature '{feature_id}' "
+            f"in workspace '{workspace_type}': {detail}"
+        ) from exc
 
 
 def _schedule_memory_extraction(
@@ -249,11 +253,5 @@ async def execute_workspace_feature(
         progress,
     )
 
-    if result is not None:
-        _schedule_memory_extraction(workspace_type, effective_payload, result)
-        return result
-
-    # If LangGraph failed, raise error (no fallback to handler per handoff doc)
-    raise RuntimeError(
-        f"LangGraph execution failed for feature '{feature_id}' in workspace '{workspace_type}'"
-    )
+    _schedule_memory_extraction(workspace_type, effective_payload, result)
+    return result

@@ -183,6 +183,7 @@ class FeatureExecutionHandler:
             workspace_id=workspace_id,
             feature_id=feature_id,
             action=str(action) if action is not None else None,
+            params=params,
         )
         if existing_task_id:
             logger.info(
@@ -272,6 +273,7 @@ class FeatureExecutionHandler:
                 workspace_id=workspace_id,
                 feature_id=feature_id,
                 action=str(action) if action is not None else None,
+                params=params,
             )
             if existing_task_id:
                 # Refund credit if we already billed

@@ -109,3 +109,28 @@ async def test_execute_workspace_feature_emits_runtime_for_feature(
     block_ids = {block.get("id") for block in runtime.get("blocks", []) if isinstance(block, dict)}
     assert expected_block_ids.issubset(block_ids)
     assert runtime.get("current_phase")
+
+
+@pytest.mark.asyncio
+async def test_execute_workspace_feature_surfaces_langgraph_root_cause() -> None:
+    progress = AsyncMock()
+    payload = {
+        "workspace_id": "ws-1",
+        "workspace_type": "thesis",
+        "workspace_name": "Workspace Name",
+        "workspace_description": "Workspace Description",
+        "workspace_discipline": "computer_science",
+        "feature_id": "deep_research",
+        "params": {"topic": "Agent planning"},
+    }
+
+    with patch(
+        "src.agents.workspace_lead_agent.execute_feature_graph",
+        new=AsyncMock(side_effect=ValueError("planner exploded")),
+    ), patch(
+        "src.task.handlers.workspace_feature_handler._schedule_memory_extraction"
+    ) as mock_schedule:
+        with pytest.raises(RuntimeError, match="planner exploded"):
+            await execute_workspace_feature(payload, progress)
+
+    mock_schedule.assert_not_called()
