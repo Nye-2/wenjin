@@ -1,12 +1,12 @@
 """Parallel subagent execution with phased dependencies."""
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable
 from typing import Any
 
+from src.subagents.academic.registry import registry
 from src.subagents.executor import SubagentExecutor, SubagentStatus
-from src.subagents.registry import registry
 
 
 @dataclass

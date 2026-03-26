@@ -11,8 +11,8 @@ from typing import Any
 from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 
+from src.subagents.academic.registry import SubagentConfig
 from src.subagents.models import SubagentStatus
-from src.subagents.registry import SubagentConfig
 
 
 # Note: ExecutorSubagentResult is different from SubagentResult in models.py
@@ -89,7 +89,7 @@ class SubagentExecutor:
         self.trace_id = trace_id or str(uuid.uuid4())[:12]
         self.tools = _filter_tools(
             tools,
-            list(config.allowed_tools) if config.allowed_tools else None,
+            list(config.tools) if config.tools else None,
             list(config.disallowed_tools) if config.disallowed_tools else None,
         )
 

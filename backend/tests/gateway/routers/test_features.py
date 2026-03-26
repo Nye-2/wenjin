@@ -174,7 +174,6 @@ class TestWorkspaceFeaturesRouter:
             "handler_key": "software_copyright.copyright_materials",
             "thread_id": "thread-9",
             "params": {"project_name": "Alpha"},
-            "project_name": "Alpha",
         }
 
     @pytest.mark.asyncio
@@ -261,8 +260,12 @@ class TestWorkspaceFeaturesRouter:
         assert submit_kwargs["payload"]["handler_key"] == (
             "software_copyright.technical_description"
         )
-        assert submit_kwargs["payload"]["software_name"] == "Academic Assistant"
-        assert submit_kwargs["payload"]["version"] == "V2.2"
+        assert submit_kwargs["payload"]["params"] == {
+            "software_name": "Academic Assistant",
+            "version": "V2.2",
+        }
+        assert "software_name" not in submit_kwargs["payload"]
+        assert "version" not in submit_kwargs["payload"]
 
     def test_execute_prior_art_search_submits_canonical_task_payload(self):
         """Patent prior_art_search feature should be routed with canonical metadata."""
@@ -295,8 +298,12 @@ class TestWorkspaceFeaturesRouter:
         assert submit_kwargs["payload"]["workspace_type"] == "patent"
         assert submit_kwargs["payload"]["feature_id"] == "prior_art_search"
         assert submit_kwargs["payload"]["handler_key"] == "patent.prior_art_search"
-        assert submit_kwargs["payload"]["keywords"] == ["调度优化", "强化学习"]
-        assert submit_kwargs["payload"]["time_range"] == "近3年"
+        assert submit_kwargs["payload"]["params"] == {
+            "keywords": ["调度优化", "强化学习"],
+            "time_range": "近3年",
+        }
+        assert "keywords" not in submit_kwargs["payload"]
+        assert "time_range" not in submit_kwargs["payload"]
 
     def test_execute_feature_params_cannot_override_canonical_context(self):
         """User params should not overwrite routing-critical task payload fields."""
@@ -331,7 +338,8 @@ class TestWorkspaceFeaturesRouter:
             "software_copyright.copyright_materials"
         )
         assert submit_kwargs["payload"]["agent"] == "writer"
-        assert submit_kwargs["payload"]["software_name"] == "SafeName"
+        assert submit_kwargs["payload"]["params"]["software_name"] == "SafeName"
+        assert "software_name" not in submit_kwargs["payload"]
 
     def test_execute_sci_literature_search_submits_expected_payload(self):
         """SCI literature search should route through canonical sci handler key."""
@@ -354,7 +362,8 @@ class TestWorkspaceFeaturesRouter:
         assert submit_kwargs["payload"]["workspace_type"] == "sci"
         assert submit_kwargs["payload"]["feature_id"] == "literature_search"
         assert submit_kwargs["payload"]["handler_key"] == "sci.literature_search"
-        assert submit_kwargs["payload"]["query"] == "vision transformer"
+        assert submit_kwargs["payload"]["params"] == {"query": "vision transformer"}
+        assert "query" not in submit_kwargs["payload"]
 
     def test_execute_sci_writing_submits_expected_payload(self):
         """SCI writing should route through canonical sci writing handler key."""
@@ -383,9 +392,14 @@ class TestWorkspaceFeaturesRouter:
         assert submit_kwargs["payload"]["workspace_type"] == "sci"
         assert submit_kwargs["payload"]["feature_id"] == "writing"
         assert submit_kwargs["payload"]["handler_key"] == "sci.writing"
-        assert submit_kwargs["payload"]["paper_title"] == "Diffusion Models in Vision"
-        assert submit_kwargs["payload"]["section_type"] == "introduction"
-        assert submit_kwargs["payload"]["target_words"] == 1200
+        assert submit_kwargs["payload"]["params"] == {
+            "paper_title": "Diffusion Models in Vision",
+            "section_type": "introduction",
+            "target_words": 1200,
+        }
+        assert "paper_title" not in submit_kwargs["payload"]
+        assert "section_type" not in submit_kwargs["payload"]
+        assert "target_words" not in submit_kwargs["payload"]
 
     def test_execute_proposal_outline_submits_expected_payload(self):
         """Proposal outline should route through canonical proposal handler key."""
@@ -414,7 +428,12 @@ class TestWorkspaceFeaturesRouter:
         assert submit_kwargs["payload"]["workspace_type"] == "proposal"
         assert submit_kwargs["payload"]["feature_id"] == "proposal_outline"
         assert submit_kwargs["payload"]["handler_key"] == "proposal.proposal_outline"
-        assert submit_kwargs["payload"]["topic"] == "智能制造关键技术研究"
+        assert submit_kwargs["payload"]["params"] == {
+            "topic": "智能制造关键技术研究",
+            "proposal_type": "provincial",
+            "period_months": 24,
+        }
+        assert "topic" not in submit_kwargs["payload"]
 
 
 class TestExecuteResponseModel:

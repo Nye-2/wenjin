@@ -4,8 +4,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
+from src.subagents.academic.registry import get_all_subagent_types, get_subagent_config
 from src.subagents.executor import SubagentExecutor, SubagentStatus
-from src.subagents.registry import registry
 
 
 class TaskInput(BaseModel):
@@ -43,19 +43,14 @@ async def task_tool(
     Returns:
         Results from the subagent
     """
-    subagent_config = registry.get(subagent_type)
-    if not subagent_config:
-        available = list(registry._subagents.keys())
+    try:
+        subagent_config = get_subagent_config(subagent_type)
+    except ValueError:
+        available = get_all_subagent_types()
         return f"Error: Unknown subagent type '{subagent_type}'. Available: {available}"
 
     if max_turns is not None:
-        subagent_config = type(subagent_config)(
-            name=subagent_config.name,
-            description=subagent_config.description,
-            system_prompt=subagent_config.system_prompt,
-            allowed_tools=subagent_config.allowed_tools,
-            max_turns=max_turns,
-        )
+        subagent_config = subagent_config.copy_with(max_turns=max_turns)
 
     from src.agents.lead_agent.agent import get_available_tools
     tools = get_available_tools(include_execution=True, subagent_enabled=False)

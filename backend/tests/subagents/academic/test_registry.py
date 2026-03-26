@@ -1,5 +1,7 @@
 """Tests for academic subagent registry."""
 
+from types import MappingProxyType
+
 import pytest
 
 from src.subagents.academic.prompts import (
@@ -9,6 +11,7 @@ from src.subagents.academic.prompts import (
     WRITER_PROMPT,
 )
 from src.subagents.academic.registry import (
+    SUBAGENT_REGISTRY,
     SubagentConfig,
     get_all_subagent_types,
     get_subagent_config,
@@ -84,12 +87,16 @@ class TestSubagentRegistry:
         assert "writer" in all_types
         assert "synthesizer" in all_types
         assert "analyst" in all_types
+        # Research workflow specialists migrated from the legacy registry
+        assert "gap_miner" in all_types
+        assert "trend_spotter" in all_types
+        assert "reviewer" in all_types
         # Thesis-specific subagents
         assert "thesis_writer" in all_types
         assert "librarian" in all_types
         assert "figure_planner" in all_types
-        # Ensure we have at least 7 subagents
-        assert len(all_types) >= 7
+        # Ensure the unified registry preserves the full role set
+        assert len(all_types) >= 10
 
     def test_get_scout_config(self):
         """Test getting scout subagent configuration."""
@@ -97,6 +104,7 @@ class TestSubagentRegistry:
         assert config is not None
         assert config.name == "Scout"
         assert "semantic_scholar_search" in config.tools
+        assert config.allowed_tools == ("semantic_scholar_search",)
         assert config.max_turns == 10
 
     def test_get_writer_config(self):
@@ -140,6 +148,14 @@ class TestSubagentRegistry:
             assert isinstance(config.tools, list)
             assert len(config.tools) > 0
             assert config.max_turns > 0
+
+    def test_registry_export_is_read_only_live_view(self):
+        """Legacy registry export should not allow mutation of canonical state."""
+        assert isinstance(SUBAGENT_REGISTRY, MappingProxyType)
+        assert sorted(SUBAGENT_REGISTRY.keys()) == get_all_subagent_types()
+
+        with pytest.raises(TypeError):
+            SUBAGENT_REGISTRY["rogue"] = get_subagent_config("scout")
 
 
 class TestSubagentToolAssignments:

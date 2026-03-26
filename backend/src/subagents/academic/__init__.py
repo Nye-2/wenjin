@@ -14,12 +14,14 @@ from .errors import (
 )
 from .prompts import (
     ANALYST_PROMPT,
+    GAP_MINER_PROMPT,
+    REVIEWER_PROMPT,
     SCOUT_PROMPT,
     SYNTHESIZER_PROMPT,
+    TREND_SPOTTER_PROMPT,
     WRITER_PROMPT,
 )
 from .registry import (
-    SUBAGENT_REGISTRY,
     SubagentConfig,
     get_all_subagent_types,
     get_subagent_config,
@@ -41,12 +43,14 @@ __all__ = [
     "WRITER_PROMPT",
     "SYNTHESIZER_PROMPT",
     "ANALYST_PROMPT",
+    "GAP_MINER_PROMPT",
+    "TREND_SPOTTER_PROMPT",
+    "REVIEWER_PROMPT",
     "THESIS_WRITER_PROMPT",
     "LIBRARIAN_PROMPT",
     "FIGURE_PLANNER_PROMPT",
     # Registry
     "SubagentConfig",
-    "SUBAGENT_REGISTRY",
     "get_subagent_config",
     "get_all_subagent_types",
     # Resolver

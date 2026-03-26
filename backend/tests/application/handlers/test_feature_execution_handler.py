@@ -126,6 +126,30 @@ class TestBuildTaskPayload:
         }
         assert "extra" not in payload
 
+    def test_business_params_stay_nested_without_top_level_mirroring(self):
+        ws = _make_workspace()
+        feature = _make_feature("my_feature", "My Feature")
+
+        payload = build_task_payload(
+            workspace=ws,
+            workspace_id="ws-1",
+            workspace_type="thesis",
+            feature=feature,
+            params={
+                "action": "write_all",
+                "topic": "LLM planning",
+                "context_artifact_ids": ["artifact-1"],
+            },
+            thread_id="t-1",
+        )
+
+        assert payload["params"]["action"] == "write_all"
+        assert payload["params"]["topic"] == "LLM planning"
+        assert payload["params"]["context_artifact_ids"] == ["artifact-1"]
+        assert "action" not in payload
+        assert "topic" not in payload
+        assert "context_artifact_ids" not in payload
+
     def test_includes_workspace_metadata(self):
         ws = _make_workspace()
         feature = _make_feature()
@@ -311,6 +335,7 @@ class TestFeatureExecutionHandler:
 
         submit_payload = task_service.submit_task.await_args.kwargs["payload"]
         assert submit_payload["params"]["action"] == "write_all"
+        assert "action" not in submit_payload
 
     @pytest.mark.asyncio
     @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")

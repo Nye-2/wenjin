@@ -11,7 +11,12 @@ class UnknownSubagentTypeError(AcademicAgentError):
 
     def __init__(self, subagent_type: str):
         self.subagent_type = subagent_type
-        valid_types = ["scout", "writer", "synthesizer", "analyst"]
+        try:
+            from .registry import get_all_subagent_types
+
+            valid_types = get_all_subagent_types()
+        except Exception:
+            valid_types = ["scout", "writer", "synthesizer", "analyst"]
         super().__init__(
             f"Unknown subagent type: {subagent_type}. "
             f"Valid types: {', '.join(valid_types)}"

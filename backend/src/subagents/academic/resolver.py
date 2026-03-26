@@ -72,13 +72,7 @@ class AcademicAgentResolver:
         else:
             tools = self._merge_default_tools(base_config.tools)
 
-        return SubagentConfig(
-            name=base_config.name,
-            description=base_config.description,
-            system_prompt=base_config.system_prompt,
-            tools=tools,
-            max_turns=base_config.max_turns,
-        )
+        return base_config.copy_with(tools=tools)
 
     def _validate_tools(self, tool_names: list[str]) -> list[str]:
         """Validate and return only available tools.

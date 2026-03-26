@@ -231,6 +231,9 @@ class TestFiveWorkspaceSmoke:
             assert payload["params"][key] == value, (
                 f"param '{key}' not forwarded: expected {value!r}, got {payload['params'].get(key)!r}"
             )
+            assert key not in payload, (
+                f"param '{key}' leaked to top-level payload, which reintroduces dual config sources"
+            )
 
     # ---- Step 4b: Duplicate submission guard ----
 

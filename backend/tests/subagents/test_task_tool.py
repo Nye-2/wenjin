@@ -64,6 +64,8 @@ class TestTaskTool:
 
             assert "completed" in result.lower() or "done" in result.lower()
             _, kwargs = MockExec.call_args
+            assert kwargs["config"].name == "Scout"
+            assert kwargs["config"].tools == ["semantic_scholar_search"]
             assert kwargs["thread_id"] == "thread-1"
             assert kwargs["workspace_id"] == "ws-1"
             assert kwargs["user_id"] == "user-1"

@@ -24,8 +24,8 @@ class TestCreateAcademicAgentGraph:
 
     def test_creates_graph_with_tools_and_prompt(self):
         """Test that graph is created with tools and system prompt."""
-        from src.subagents.graph import create_academic_agent_graph
         from src.agents.lead_agent.dynamic_tools import DynamicToolNode
+        from src.subagents.graph import create_academic_agent_graph
 
         mock_llm = MagicMock()
         mock_tools = [_make_test_tool("tool1"), _make_test_tool("tool2")]
@@ -79,8 +79,9 @@ class TestRegisterAcademicTemplates:
             "get_paper_toc": _make_test_tool("get_paper_toc"),
         }
 
-    def test_registers_four_academic_templates(self, mock_tools):
-        """Test that all academic templates are registered."""
+    def test_registers_all_unified_academic_templates(self, mock_tools):
+        """Test that the unified registry is fully registered into graph templates."""
+        from src.subagents.academic.registry import get_all_subagent_types
         from src.subagents.graph import register_academic_templates
 
         registry = GraphTemplateRegistry()
@@ -98,8 +99,14 @@ class TestRegisterAcademicTemplates:
         assert registry.has("academic_writer")
         assert registry.has("academic_synthesizer")
         assert registry.has("academic_analyst")
+        assert registry.has("academic_gap_miner")
+        assert registry.has("academic_trend_spotter")
+        assert registry.has("academic_reviewer")
+        assert registry.has("academic_thesis_writer")
+        assert registry.has("academic_librarian")
+        assert registry.has("academic_figure_planner")
         # Verify all templates are registered
-        assert registry.count == 7
+        assert registry.count == len(get_all_subagent_types())
 
     def test_uses_correct_tools_for_scout(self, mock_tools):
         """Test that scout template uses correct tools."""
@@ -136,5 +143,7 @@ class TestRegisterAcademicTemplates:
             mock_create.return_value = MagicMock()
             register_academic_templates(registry, mock_llm, limited_tools)
 
-            # Should still register all 7 templates
-            assert registry.count == 7
+            from src.subagents.academic.registry import get_all_subagent_types
+
+            # Missing tools should shrink each template's toolset, not the template registry.
+            assert registry.count == len(get_all_subagent_types())

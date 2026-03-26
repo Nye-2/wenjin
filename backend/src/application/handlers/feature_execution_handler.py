@@ -38,7 +38,6 @@ from src.gateway.deps import (
 from src.services.credit_service import CreditService, InsufficientCreditsError
 from src.services.literature_service import LiteratureService
 from src.task.service import ConcurrencyLimitError, TaskService
-from src.task.workspace_feature_params import mirror_workspace_feature_params
 from src.workspace_features import get_workspace_feature
 
 logger = logging.getLogger(__name__)
@@ -69,7 +68,7 @@ def build_task_payload(
 ) -> dict[str, Any]:
     """Build the canonical task payload for workspace feature execution."""
     sanitized_params = dict(params)
-    payload: dict[str, Any] = {
+    return {
         "workspace_id": workspace_id,
         "workspace_type": workspace_type,
         "workspace_name": getattr(workspace, "name", ""),
@@ -84,8 +83,6 @@ def build_task_payload(
         "thread_id": thread_id,
         "params": sanitized_params,
     }
-    mirror_workspace_feature_params(payload, sanitized_params)
-    return payload
 
 
 class FeatureExecutionHandler:

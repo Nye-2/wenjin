@@ -1,11 +1,16 @@
-"""Shared parameter mirroring rules for workspace feature task payloads."""
+"""Workspace feature param helpers.
+
+New task payloads must keep business params exclusively under ``payload["params"]``.
+The mirrored key list below exists only to recover params from legacy persisted
+tasks that were created before the canonical nested contract was enforced.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Mapping
 from typing import Any
 
-MIRRORED_WORKSPACE_PARAM_KEYS: tuple[str, ...] = (
+LEGACY_WORKSPACE_PARAM_KEYS: tuple[str, ...] = (
     "action",
     "topic",
     "query",
@@ -56,24 +61,8 @@ MIRRORED_WORKSPACE_PARAM_KEYS: tuple[str, ...] = (
 )
 
 
-def mirror_workspace_feature_params(
-    payload: MutableMapping[str, Any],
-    params: Mapping[str, Any] | None,
-) -> None:
-    """Mirror selected business params to the top level without overriding canonical fields."""
-    if not isinstance(params, Mapping):
-        return
-
-    for key in MIRRORED_WORKSPACE_PARAM_KEYS:
-        if key in payload:
-            continue
-        value = params.get(key)
-        if value is not None:
-            payload[key] = value
-
-
 def coerce_workspace_feature_params(payload: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Recover canonical workspace feature params from nested or mirrored payload shapes."""
+    """Recover canonical workspace feature params from new or legacy payload shapes."""
     if not isinstance(payload, Mapping):
         return {}
 
@@ -82,7 +71,7 @@ def coerce_workspace_feature_params(payload: Mapping[str, Any] | None) -> dict[s
         return dict(params)
 
     fallback: dict[str, Any] = {}
-    for key in MIRRORED_WORKSPACE_PARAM_KEYS:
+    for key in LEGACY_WORKSPACE_PARAM_KEYS:
         value = payload.get(key)
         if value is not None:
             fallback[key] = value

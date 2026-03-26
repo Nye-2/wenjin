@@ -12,7 +12,11 @@ from .academic import (
     UnknownSubagentTypeError,
 )
 from .config import SubagentConfig
-from .graph import GraphTemplateRegistry, create_academic_agent_graph, register_academic_templates
+from .graph import (
+    GraphTemplateRegistry,
+    create_academic_agent_graph,
+    register_academic_templates,
+)
 from .manager import GlobalSubagentManager, ThreadContext
 from .models import SubagentEvent, SubagentResult, SubagentStatus, SubagentTask
 from .parallel import ExecutionPhase, ParallelExecutor, PhasedPlan, PhaseResult
@@ -23,7 +27,7 @@ from .task_tool import task_tool
 __all__ = [
     "SubagentRegistry",
     "SubagentTypeConfig",  # Legacy: Subagent type configuration (dataclass)
-    "SubagentConfig",      # New: System configuration (Pydantic)
+    "SubagentConfig",  # New: System configuration (Pydantic)
     "SubagentStatus",
     "SubagentTask",
     "SubagentEvent",

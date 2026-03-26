@@ -281,6 +281,22 @@ def test_coerce_task_params_preserves_rerun_fields_used_by_frontend_actions() ->
     assert params["section"] == "discussion"
 
 
+def test_coerce_task_params_reads_legacy_top_level_payloads_for_backfill_tasks() -> None:
+    params = feature_bridge._coerce_task_params(
+        {
+            "proposal_type": "nsfc",
+            "period_months": 36,
+            "paper_title": "Agent Paper",
+        }
+    )
+
+    assert params == {
+        "proposal_type": "nsfc",
+        "period_months": 36,
+        "paper_title": "Agent Paper",
+    }
+
+
 def test_build_feature_task_failure_card_exposes_retry_actions() -> None:
     reply = build_feature_task_failure_card(
         feature_id="peer_review",
