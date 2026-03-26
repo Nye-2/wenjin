@@ -68,6 +68,9 @@ class MemoryConfig(BaseModel):
     max_facts: int = 100
     fact_confidence_threshold: float = 0.7
     max_injection_tokens: int = 2000
+    max_context_turns: int = 3
+    similarity_weight: float = 0.6
+    confidence_weight: float = 0.4
 
 
 class SandboxConfig(BaseModel):

@@ -36,13 +36,15 @@ class ExecutionMiddleware(Middleware):
         # "generate_image_tool": ExecutionType.AI_IMAGE,
     }
 
-    def __init__(self, execution_service: Any):
+    def __init__(self, execution_service: Any, *, paper_service: Any | None = None):
         """Initialize middleware.
 
         Args:
             execution_service: ExecutionService instance.
+            paper_service: Optional PaperService for citation bibliography lookup.
         """
         self.execution_service = execution_service
+        self.paper_service = paper_service
 
     async def before_model(
         self,
@@ -111,11 +113,30 @@ class ExecutionMiddleware(Middleware):
 
         if citation_ids and not explicit_bib:
             db: AsyncSession | None = configurable.get("db")
+            if db is None and self.paper_service is not None:
+                db = getattr(self.paper_service, "db", None)
             if db:
                 bibliography = await self._generate_bibliography(db, citation_ids)
                 if bibliography:
                     tool_args = {**tool_args, "bibliography": bibliography}
                     logger.info(f"Generated bibliography for {len(citation_ids)} citations")
+            else:
+                try:
+                    from src.database import get_db_session
+
+                    async with get_db_session() as session:
+                        bibliography = await self._generate_bibliography(session, citation_ids)
+                    if bibliography:
+                        tool_args = {**tool_args, "bibliography": bibliography}
+                        logger.info(
+                            "Generated bibliography for %s citations via ad-hoc session",
+                            len(citation_ids),
+                        )
+                except Exception:
+                    logger.debug(
+                        "Failed to resolve ad-hoc DB session for bibliography generation",
+                        exc_info=True,
+                    )
 
         # Build execution request
         request = self._build_request(

@@ -1,6 +1,6 @@
 """Tests for MemoryMiddleware."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from unittest.mock import patch
 
 import pytest
@@ -64,6 +64,33 @@ class TestMemoryMiddleware:
 
         assert "memory_context" in result
         assert "偏好 IEEE" in result["memory_context"]
+
+    @pytest.mark.asyncio
+    async def test_before_model_passes_recent_conversation_context(self, middleware, config):
+        """Recent human/final-AI turns should be used to rank injected memory."""
+        state = {
+            "messages": [
+                HumanMessage(content="帮我给 FastAPI 项目设计 pytest 回归测试"),
+                AIMessage(content="先确认接口和依赖边界。"),
+                AIMessage(
+                    content="调用工具中",
+                    tool_calls=[{"name": "read_file", "id": "call-1", "args": {}}],
+                ),
+                ToolMessage(content="tool output", tool_call_id="call-1"),
+            ]
+        }
+        build_memory_context = AsyncMock(return_value="<academic_memory></academic_memory>")
+
+        with patch(
+            "src.agents.middlewares.memory.build_memory_context",
+            build_memory_context,
+        ):
+            await middleware.before_model(state, config)
+
+        current_context = build_memory_context.await_args.kwargs["current_context"]
+        assert "FastAPI" in current_context
+        assert "pytest" in current_context
+        assert "调用工具中" not in current_context
 
     @pytest.mark.asyncio
     async def test_after_model_enqueues_conversation(self, middleware, mock_queue, config):

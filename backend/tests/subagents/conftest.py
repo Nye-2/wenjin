@@ -3,10 +3,20 @@
 from unittest.mock import MagicMock
 
 import pytest
+from langchain_core.tools import tool
 
 from src.subagents.config import SubagentConfig
 from src.subagents.events import SubagentEventStream
 from src.subagents.graph import GraphTemplateRegistry
+
+
+def make_test_tool(name: str):
+    @tool(name)
+    def _test_tool(query: str) -> str:
+        """Return the provided query for test assertions."""
+        return query
+
+    return _test_tool
 
 
 @pytest.fixture
@@ -18,7 +28,7 @@ def mock_llm():
 @pytest.fixture
 def mock_tools():
     """Create mock tools."""
-    return [MagicMock(), MagicMock()]
+    return [make_test_tool("tool1"), make_test_tool("tool2")]
 
 
 @pytest.fixture

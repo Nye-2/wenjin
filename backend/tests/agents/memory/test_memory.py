@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.config.config_loader import MemoryConfig
-from src.services.user_memory_service import build_memory_context, format_knowledge_for_prompt
+from src.services.user_memory_service import (
+    _rank_knowledge_items,
+    build_memory_context,
+    format_knowledge_for_prompt,
+)
 
 
 class TestFormatKnowledgeForPrompt:
@@ -90,3 +94,26 @@ class TestBuildMemoryContext:
         assert "<academic_memory>" in result
         assert "偏好正式学术语气" in result
         assert "当前在写 LLM 论文综述" in result
+
+    def test_ranks_contextually_relevant_memory_ahead_of_irrelevant_high_confidence_items(self):
+        items = [
+            {
+                "category": "behavior",
+                "content": "偏好 Docker 部署脚本",
+                "confidence": 0.95,
+                "workspace_context": None,
+            },
+            {
+                "category": "preference",
+                "content": "偏好 pytest 测试风格",
+                "confidence": 0.72,
+                "workspace_context": None,
+            },
+        ]
+
+        ranked = _rank_knowledge_items(
+            items,
+            current_context="我正在给 FastAPI 项目补 pytest 回归测试",
+        )
+
+        assert ranked[0]["content"] == "偏好 pytest 测试风格"

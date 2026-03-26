@@ -72,7 +72,10 @@ def _build_default_manager_config():
     try:
         from src.agents.lead_agent.agent import get_available_tools
 
-        config.default_tools = get_available_tools(subagent_enabled=False)
+        config.default_tools = get_available_tools(
+            include_execution=True,
+            subagent_enabled=False,
+        )
     except Exception as exc:
         logger.warning("Failed to initialize default subagent tools: %s", exc)
         config.default_tools = []

@@ -17,6 +17,7 @@ from src.agents.middlewares import (
     ClarificationMiddleware,
     DanglingToolCallMiddleware,
     DisciplineContextMiddleware,
+    ExecutionMiddleware,
     KnowledgeContextMiddleware,
     LiteratureContextMiddleware,
     MemoryMiddleware,
@@ -262,6 +263,7 @@ You have access to specialized tools and subagents for:
 def get_available_tools(
     groups: list[str] | None = None,
     include_mcp: bool = True,
+    include_execution: bool = False,
     model_name: str | None = None,
     subagent_enabled: bool = True,
 ) -> list[BaseTool]:
@@ -270,6 +272,7 @@ def get_available_tools(
     Args:
         groups: Tool groups to include (None = all)
         include_mcp: Include MCP tools
+        include_execution: Include execution tools that require tool middleware
         model_name: Model name for model-specific tools
         subagent_enabled: Include subagent delegation tool
 
@@ -313,6 +316,16 @@ def get_available_tools(
 
     # Output tools
     tools.append(present_files_tool)
+
+    if include_execution:
+        try:
+            from src.tools.execution import get_execution_tools
+
+            _extend_unique_tools(tools, get_execution_tools())
+        except ImportError:
+            logger.warning("Execution tools unavailable; skipping execution tool registration")
+        except Exception as exc:
+            logger.error("Failed to load execution tools: %s", exc)
 
     # Academic tools
     try:
@@ -409,25 +422,26 @@ def build_pipeline(
     sandbox_provider=None,
     memory_queue=None,
 ) -> list:
-    """Build the 16-layer middleware pipeline.
+    """Build the middleware pipeline for the lead agent.
 
     Order:
     1.  ThreadDataMiddleware       - Infrastructure
     2.  UploadsMiddleware          - Infrastructure
     3.  SandboxMiddleware          - Infrastructure (new)
-    4.  DanglingToolCallMiddleware - Fix
-    5.  SummarizationMiddleware    - Context management (conditional)
-    6.  MemoryMiddleware           - Context management (new, conditional)
-    7.  WorkspaceContextMiddleware - Academic (conditional)
-    8.  LiteratureContextMiddleware - Academic (conditional)
-    9.  KnowledgeContextMiddleware - Academic (conditional)
-    10. DisciplineContextMiddleware - Academic
-    11. TodoListMiddleware         - Interaction (new, conditional)
-    12. ViewImageMiddleware        - Interaction (new)
-    13. SubagentLimitMiddleware    - Control (conditional)
-    14. TitleMiddleware            - Post-processing
-    15. CitationContextMiddleware  - Post-processing (conditional)
-    16. ClarificationMiddleware    - Control (MUST BE LAST)
+    4.  ExecutionMiddleware        - Tool execution routing (conditional)
+    5.  DanglingToolCallMiddleware - Fix
+    6.  SummarizationMiddleware    - Context management (conditional)
+    7.  MemoryMiddleware           - Context management (conditional)
+    8.  WorkspaceContextMiddleware - Academic (conditional)
+    9.  LiteratureContextMiddleware - Academic (conditional)
+    10. KnowledgeContextMiddleware - Academic (conditional)
+    11. DisciplineContextMiddleware - Academic
+    12. TodoListMiddleware         - Interaction (conditional)
+    13. ViewImageMiddleware        - Interaction
+    14. SubagentLimitMiddleware    - Control (conditional)
+    15. TitleMiddleware            - Post-processing
+    16. CitationContextMiddleware  - Post-processing (conditional)
+    17. ClarificationMiddleware    - Control (MUST BE LAST)
     """
     config = _normalize_runtime_config(config)
     configurable = config.get("configurable", {})
@@ -464,10 +478,27 @@ def build_pipeline(
     if sandbox_provider:
         pipeline.append(SandboxMiddleware(sandbox_provider))
 
-    # --- Fix layer (4) ---
+    # Execution (4) - compile / render tools routed through ExecutionService
+    try:
+        from src.thesis.execution import get_execution_service
+
+        execution_service = get_execution_service()
+    except Exception as exc:
+        logger.warning("Failed to resolve execution service: %s", exc)
+        execution_service = None
+
+    if execution_service is not None:
+        pipeline.append(
+            ExecutionMiddleware(
+                execution_service,
+                paper_service=paper_service,
+            )
+        )
+
+    # --- Fix layer (5) ---
     pipeline.append(DanglingToolCallMiddleware())
 
-    # --- Context management layer (5-6) ---
+    # --- Context management layer (6-7) ---
     if mw_config.summarization.enabled:
         # Safely parse trigger and keep values
         try:
@@ -488,11 +519,11 @@ def build_pipeline(
                 queue=memory_queue,
                 enabled=True,
                 inject_enabled=getattr(memory_config, "injection_enabled", True),
-                capture_enabled=memory_queue is not None,
+                capture_enabled=True,
             )
         )
 
-    # --- Academic context layer (7-10) ---
+    # --- Academic context layer (8-11) ---
     if workspace_service:
         pipeline.append(WorkspaceContextMiddleware(workspace_service))
     if index_service:
@@ -501,15 +532,15 @@ def build_pipeline(
         pipeline.append(KnowledgeContextMiddleware(artifact_service))
     pipeline.append(DisciplineContextMiddleware())
 
-    # --- Interaction layer (11-13) ---
-    # TodoList (11) - plan mode only
+    # --- Interaction layer (12-14) ---
+    # TodoList (12) - plan mode only
     if is_plan_mode:
         pipeline.append(TodoListMiddleware())
 
-    # ViewImage (12) - always present, handles vision internally
+    # ViewImage (13) - always present, handles vision internally
     pipeline.append(ViewImageMiddleware())
 
-    # SubagentLimit (13) - subagents enabled
+    # SubagentLimit (14) - subagents enabled
     if subagent_enabled:
         max_concurrent = configurable.get(
             "max_concurrent_subagents",
@@ -517,7 +548,7 @@ def build_pipeline(
         )
         pipeline.append(SubagentLimitMiddleware(max_concurrent=max_concurrent))
 
-    # --- Post-processing layer (14-16) ---
+    # --- Post-processing layer (15-17) ---
     pipeline.append(TitleMiddleware())
 
     if paper_service:
@@ -614,20 +645,6 @@ def make_lead_agent(
         reasoning_effort=reasoning_effort,
     )
 
-    def _load_tools() -> list[BaseTool]:
-        return get_available_tools(
-            subagent_enabled=subagent_enabled,
-            model_name=model_name,
-        )
-
-    tool_node = DynamicToolNode(_load_tools)
-
-    def _resolve_model(_state, _runtime):
-        current_tools = tool_node.list_available_tools()
-        if not current_tools:
-            return base_model
-        return base_model.bind_tools(current_tools)
-
     # Use provided middlewares or build pipeline
     if middlewares is None:
         middlewares = build_pipeline(
@@ -639,6 +656,26 @@ def make_lead_agent(
             sandbox_provider=sandbox_provider,
             memory_queue=memory_queue,
         )
+
+    include_execution_tools = any(
+        isinstance(middleware, ExecutionMiddleware)
+        for middleware in (middlewares or [])
+    )
+
+    def _load_tools() -> list[BaseTool]:
+        return get_available_tools(
+            include_execution=include_execution_tools,
+            subagent_enabled=subagent_enabled,
+            model_name=model_name,
+        )
+
+    tool_node = DynamicToolNode(_load_tools, middlewares=middlewares)
+
+    def _resolve_model(_state, _runtime):
+        current_tools = tool_node.list_available_tools()
+        if not current_tools:
+            return base_model
+        return base_model.bind_tools(current_tools)
 
     # Build system prompt for the agent
     def prompt_fn(state):

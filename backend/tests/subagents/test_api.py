@@ -202,6 +202,9 @@ class TestSpawnWithSubagentType:
         data = response.json()
         assert "task_id" in data
         assert data["status"] == "pending"
+        task = mock_manager_with_tools.spawn.await_args.args[0]
+        assert task.metadata["system_prompt"]
+        assert "semantic_scholar_search" in set(task.tools)
         app.dependency_overrides = {}
 
     def test_spawn_with_valid_subagent_type_and_list_backed_tools(

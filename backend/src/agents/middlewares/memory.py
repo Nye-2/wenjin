@@ -90,9 +90,27 @@ class MemoryMiddleware(Middleware):
             return {}
 
         workspace_id = state.get("workspace_id") or configurable.get("workspace_id")
+        max_context_turns = 3
+        try:
+            from src.config.config_loader import get_app_config
+
+            memory_config = getattr(get_app_config(), "memory", None)
+            max_context_turns = max(
+                1,
+                int(getattr(memory_config, "max_context_turns", 3) or 3),
+            )
+        except Exception:
+            logger.debug("Failed to load memory max_context_turns", exc_info=True)
+
+        filtered_messages = _filter_messages_for_memory(list(state.get("messages", [])))
+        conversation_context = messages_to_conversation_text(
+            filtered_messages,
+            limit=max_context_turns * 2,
+        )
         memory_context = await build_memory_context(
             str(user_id),
             str(workspace_id) if workspace_id else None,
+            current_context=conversation_context or None,
         )
         if not memory_context:
             return {}

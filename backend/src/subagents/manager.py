@@ -15,7 +15,11 @@ from src.services.workspace_activity_contracts import (
 
 from .config import SubagentConfig
 from .events import SubagentEventStream
-from .graph import GraphTemplateRegistry, create_default_subagent_graph
+from .graph import (
+    GraphTemplateRegistry,
+    create_academic_agent_graph,
+    create_default_subagent_graph,
+)
 from .limiter import DualLayerLimiter
 from .models import SubagentResult, SubagentStatus, SubagentTask
 
@@ -108,6 +112,49 @@ class GlobalSubagentManager:
         self._llm = config.llm
         self._tools = config.default_tools
         self._lock = asyncio.Lock()
+
+    def _resolve_task_tools(self, task: SubagentTask):
+        """Resolve the task's requested tool names against the configured tool pool."""
+        if not task.tools:
+            return self._tools
+
+        if isinstance(self._tools, dict):
+            return [self._tools[name] for name in task.tools if name in self._tools]
+
+        available_tools = {
+            getattr(tool, "name", None): tool
+            for tool in self._tools
+            if getattr(tool, "name", None)
+        }
+        return [available_tools[name] for name in task.tools if name in available_tools]
+
+    @staticmethod
+    def _build_graph_cache_key(task: SubagentTask) -> str:
+        """Build a cache key that isolates per-task graph overrides."""
+        system_prompt = task.metadata.get("system_prompt")
+        if not system_prompt and not task.tools:
+            return task.graph_template
+
+        payload = {
+            "template": task.graph_template,
+            "system_prompt": system_prompt,
+            "tools": list(task.tools),
+            "max_turns": task.max_turns,
+        }
+        return f"{task.graph_template}:{json.dumps(payload, sort_keys=True)}"
+
+    def _create_task_graph(self, task: SubagentTask):
+        """Create a graph tailored to the task-level prompt and tool selection."""
+        task_tools = self._resolve_task_tools(task)
+        system_prompt = task.metadata.get("system_prompt")
+        if system_prompt:
+            return create_academic_agent_graph(
+                self._llm,
+                task_tools,
+                system_prompt,
+                task.max_turns,
+            )
+        return create_default_subagent_graph(self._llm, task_tools, task.max_turns)
 
     @classmethod
     def get_instance(cls) -> "GlobalSubagentManager":
@@ -251,14 +298,26 @@ class GlobalSubagentManager:
             ))
 
             # Get or create graph
-            graph = self._graph_registry.get(task.graph_template)
+            graph_cache_key = self._build_graph_cache_key(task)
+            graph = self._graph_registry.get(graph_cache_key)
             if graph is None:
-                graph = create_default_subagent_graph(self._llm, self._tools, task.max_turns)
-                self._graph_registry.register(task.graph_template, graph)
+                graph = self._create_task_graph(task)
+                self._graph_registry.register(graph_cache_key, graph)
 
             # Execute with timeout
+            configurable: dict[str, str] = {"thread_id": task.thread_id}
+            workspace_id = task.metadata.get("workspace_id")
+            user_id = task.metadata.get("user_id")
+            if workspace_id is not None:
+                configurable["workspace_id"] = str(workspace_id)
+            if user_id is not None:
+                configurable["user_id"] = str(user_id)
+
             result = await asyncio.wait_for(
-                graph.ainvoke({"messages": [HumanMessage(content=task.prompt)]}),
+                graph.ainvoke(
+                    {"messages": [HumanMessage(content=task.prompt)]},
+                    config={"configurable": configurable},
+                ),
                 timeout=task.timeout,
             )
 

@@ -44,3 +44,14 @@ def test_get_available_tools_uses_canonical_runtime_tool_names():
     assert "present_files" in tool_names
     assert "run_workspace_feature" in tool_names
     assert "task" in tool_names
+
+
+def test_get_available_tools_can_include_execution_tools():
+    tools = get_available_tools(
+        include_mcp=False,
+        include_execution=True,
+        subagent_enabled=False,
+    )
+
+    tool_names = {tool.name for tool in tools}
+    assert "compile_latex_tool" in tool_names

@@ -77,11 +77,15 @@ class SubagentExecutor:
         tools: list[BaseTool],
         parent_model: str | None = None,
         thread_id: str | None = None,
+        workspace_id: str | None = None,
+        user_id: str | None = None,
         trace_id: str | None = None,
     ):
         self.config = config
         self.parent_model = parent_model
         self.thread_id = thread_id
+        self.workspace_id = workspace_id
+        self.user_id = user_id
         self.trace_id = trace_id or str(uuid.uuid4())[:12]
         self.tools = _filter_tools(
             tools,
@@ -103,11 +107,13 @@ class SubagentExecutor:
 
         model = create_chat_model(model_name, thinking_enabled=False)
 
-        from langgraph.prebuilt import create_react_agent
-        return create_react_agent(
+        from src.subagents.graph import create_academic_agent_graph
+
+        return create_academic_agent_graph(
             model,
             self.tools,
-            prompt=self.config.system_prompt,
+            system_prompt=self.config.system_prompt,
+            max_turns=self.config.max_turns,
         )
 
     @staticmethod
@@ -173,8 +179,17 @@ class SubagentExecutor:
         try:
             agent = self._create_agent()
             run_config: dict[str, Any] = {"recursion_limit": self.config.max_turns}
+            configurable: dict[str, Any] = {}
             if self.thread_id:
-                run_config["configurable"] = {"thread_id": self.thread_id}
+                configurable["thread_id"] = self.thread_id
+            if self.workspace_id:
+                configurable["workspace_id"] = self.workspace_id
+            if self.user_id:
+                configurable["user_id"] = self.user_id
+            if self.parent_model:
+                configurable["model_name"] = self.parent_model
+            if configurable:
+                run_config["configurable"] = configurable
 
             final_state: dict[str, Any] | None = None
             async for chunk in agent.astream(

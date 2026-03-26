@@ -39,6 +39,9 @@ class MemoryConfigResponse(BaseModel):
     fact_confidence_threshold: float
     injection_enabled: bool
     max_injection_tokens: int
+    max_context_turns: int
+    similarity_weight: float
+    confidence_weight: float
 
 
 class MemoryStatusResponse(BaseModel):
@@ -62,6 +65,9 @@ def _memory_config_response() -> MemoryConfigResponse:
         fact_confidence_threshold=config.fact_confidence_threshold,
         injection_enabled=config.injection_enabled,
         max_injection_tokens=config.max_injection_tokens,
+        max_context_turns=config.max_context_turns,
+        similarity_weight=config.similarity_weight,
+        confidence_weight=config.confidence_weight,
     )
 
 

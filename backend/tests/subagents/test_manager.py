@@ -5,6 +5,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from langchain_core.tools import tool
 
 from src.subagents.manager import (
     GlobalSubagentManager,
@@ -17,6 +18,15 @@ from src.subagents.models import (
     SubagentStatus,
     SubagentTask,
 )
+
+
+def _make_test_tool(name: str):
+    @tool(name)
+    def _test_tool(query: str) -> str:
+        """Return the provided query for test assertions."""
+        return query
+
+    return _test_tool
 
 
 class TestThreadContext:
@@ -194,6 +204,68 @@ class TestGlobalSubagentManager:
             assert result is not None
             assert result.status == SubagentStatus.COMPLETED
             assert result.output == "Success"
+
+    @pytest.mark.asyncio
+    async def test_execute_task_passes_runtime_context(self, manager):
+        """Manager execution should forward canonical runtime ids into graph config."""
+        task = SubagentTask(
+            task_id="ctx-test",
+            thread_id="thread-ctx",
+            prompt="Test",
+            created_at=datetime.now(),
+            timeout=60,
+            metadata={"workspace_id": "ws-1", "user_id": "user-1"},
+        )
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(
+            return_value={"messages": [MagicMock(content="Success")]}
+        )
+
+        with patch.object(manager._graph_registry, "get", return_value=mock_graph):
+            result = await manager._execute_task(task)
+
+        assert result.status == SubagentStatus.COMPLETED
+        assert mock_graph.ainvoke.await_args.kwargs["config"] == {
+            "configurable": {
+                "thread_id": "thread-ctx",
+                "workspace_id": "ws-1",
+                "user_id": "user-1",
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_execute_task_uses_task_specific_prompt_and_tool_subset(self, manager):
+        """Manager should honor per-task system prompts and resolved tool subsets."""
+        task = SubagentTask(
+            task_id="agent-specific",
+            thread_id="thread-ctx",
+            prompt="Search papers",
+            created_at=datetime.now(),
+            timeout=60,
+            tools=["semantic_scholar_search"],
+            metadata={"system_prompt": "You are Scout."},
+        )
+        manager._tools = {
+            "semantic_scholar_search": _make_test_tool("semantic_scholar_search"),
+            "read_file": _make_test_tool("read_file"),
+        }
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(
+            return_value={"messages": [MagicMock(content="Success")]}
+        )
+
+        with patch.object(manager._graph_registry, "get", return_value=None), patch(
+            "src.subagents.manager.create_academic_agent_graph",
+            return_value=mock_graph,
+        ) as mock_create:
+            result = await manager._execute_task(task)
+
+        assert result.status == SubagentStatus.COMPLETED
+        mock_create.assert_called_once()
+        assert mock_create.call_args.args[1] == [manager._tools["semantic_scholar_search"]]
+        assert mock_create.call_args.args[2] == "You are Scout."
 
     @pytest.mark.asyncio
     async def test_get_result_nonexistent(self, manager):

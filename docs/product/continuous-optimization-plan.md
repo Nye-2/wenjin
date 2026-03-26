@@ -1,6 +1,6 @@
 # Continuous Optimization Plan
 
-更新时间: 2026-03-25
+更新时间: 2026-03-26
 状态: Active
 适用项目: `academiagpt-v2`
 
@@ -39,6 +39,22 @@
 3. chat 虽已恢复为驾驶舱主入口，但“自动补参 + 自动调度 feature + 结果结构化回写”仍需继续打磨。
 4. 基础设施层已显露出单例生命周期、双事实源、重复入口、历史兼容残留这类长期债务风险。
 5. 文档、测试、代码边界需要形成持续同步机制，而不是靠阶段性回顾补漏。
+
+### 2.1 2026-03-26 Checkpoint
+
+本轮新增确认与修复:
+
+1. `ExecutionMiddleware` 已从“实现存在但未接线”修成 lead agent 真正可用的 tool runtime。
+2. `DynamicToolNode` 已支持 tool 级 middleware hook，`before_tool/after_tool` 不再是空接口。
+3. lead agent 可以按 middleware 能力选择性暴露 execution tools，避免污染 subagent 运行时。
+4. memory runtime 已补齐 chat capture 默认开启、recent-context 排序和精确 token 预算。
+5. subagent graph / executor / API 默认配置已统一切到带 execution middleware 的 runtime。
+6. task 级 `system_prompt/tools` 现在会真实进入 subagent graph，而不是只停留在 payload。
+7. backend 全量回归当前为 `2282 passed, 6 skipped`。
+
+本轮详细 review 记录见:
+
+- `docs/product/migration-phase-review-2026-03-26.md`
 
 ## 3. 非协商规则
 

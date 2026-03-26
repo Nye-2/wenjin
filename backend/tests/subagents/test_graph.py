@@ -3,6 +3,16 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from langchain_core.tools import tool
+
+
+def _make_test_tool(name: str):
+    @tool(name)
+    def _test_tool(query: str) -> str:
+        """Return the provided query for test assertions."""
+        return query
+
+    return _test_tool
 
 
 class TestGraphTemplateRegistry:
@@ -101,17 +111,24 @@ class TestCreateDefaultSubagentGraph:
     def test_create_graph_with_llm_and_tools(self):
         """Should create graph with LLM and tools."""
         from src.subagents.graph import create_default_subagent_graph
+        from src.agents.lead_agent.dynamic_tools import DynamicToolNode
 
         mock_llm = MagicMock(name="llm")
-        mock_tools = [MagicMock(name="tool1"), MagicMock(name="tool2")]
+        mock_tools = [_make_test_tool("tool1"), _make_test_tool("tool2")]
 
-        with patch("langgraph.prebuilt.create_react_agent") as mock_create:
+        with patch(
+            "src.subagents.graph.build_subagent_tool_middlewares",
+            return_value=[],
+        ), patch("langgraph.prebuilt.create_react_agent") as mock_create:
             mock_graph = MagicMock(name="graph")
             mock_create.return_value = mock_graph
 
             result = create_default_subagent_graph(mock_llm, mock_tools)
 
-            mock_create.assert_called_once_with(mock_llm, tools=mock_tools)
+            mock_create.assert_called_once()
+            args, _ = mock_create.call_args
+            assert callable(args[0])
+            assert isinstance(args[1], DynamicToolNode)
             assert result is mock_graph
 
     def test_create_graph_with_max_turns_parameter(self):
@@ -121,7 +138,10 @@ class TestCreateDefaultSubagentGraph:
         mock_llm = MagicMock(name="llm")
         mock_tools = []
 
-        with patch("langgraph.prebuilt.create_react_agent") as mock_create:
+        with patch(
+            "src.subagents.graph.build_subagent_tool_middlewares",
+            return_value=[],
+        ), patch("langgraph.prebuilt.create_react_agent") as mock_create:
             mock_graph = MagicMock(name="graph")
             mock_create.return_value = mock_graph
 
@@ -155,3 +175,21 @@ class TestCreateDefaultSubagentGraph:
 
         sig = inspect.signature(create_default_subagent_graph)
         assert sig.parameters["max_turns"].default == 10
+
+    def test_create_graph_wires_subagent_tool_middlewares(self):
+        """Subagent graph should pass tool middlewares into DynamicToolNode."""
+        from src.subagents.graph import create_default_subagent_graph
+
+        mock_llm = MagicMock(name="llm")
+        middleware = MagicMock(name="middleware")
+
+        with patch(
+            "src.subagents.graph.build_subagent_tool_middlewares",
+            return_value=[middleware],
+        ), patch("langgraph.prebuilt.create_react_agent") as mock_create:
+            mock_create.return_value = MagicMock(name="graph")
+
+            create_default_subagent_graph(mock_llm, [])
+
+            args, _ = mock_create.call_args
+            assert args[1]._middlewares == [middleware]

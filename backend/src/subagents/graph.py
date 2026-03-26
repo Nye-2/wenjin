@@ -4,6 +4,54 @@ import threading
 from typing import Any
 
 
+def build_subagent_tool_middlewares() -> list[Any]:
+    """Build tool middlewares that are safe for subagent runtime use."""
+    middlewares: list[Any] = []
+
+    try:
+        from src.agents.middlewares.execution import ExecutionMiddleware
+        from src.thesis.execution import get_execution_service
+
+        execution_service = get_execution_service()
+    except Exception:
+        execution_service = None
+
+    if execution_service is not None:
+        middlewares.append(ExecutionMiddleware(execution_service))
+
+    return middlewares
+
+
+def _create_subagent_react_agent(
+    llm: Any,
+    tools: list,
+    *,
+    system_prompt: str | None = None,
+) -> Any:
+    """Create a subagent react graph with middleware-aware tools."""
+    from langgraph.prebuilt import create_react_agent
+
+    from src.agents.lead_agent.dynamic_tools import DynamicToolNode
+
+    fixed_tools = list(tools or [])
+    tool_node = DynamicToolNode(
+        lambda: fixed_tools,
+        middlewares=build_subagent_tool_middlewares(),
+    )
+
+    def _resolve_model(_state, _runtime):
+        current_tools = tool_node.list_available_tools()
+        if not current_tools:
+            return llm
+        return llm.bind_tools(current_tools)
+
+    kwargs: dict[str, Any] = {}
+    if system_prompt:
+        kwargs["prompt"] = system_prompt
+
+    return create_react_agent(_resolve_model, tool_node, **kwargs)
+
+
 class GraphTemplateRegistry:
     """Registry for graph templates used by subagents."""
 
@@ -68,13 +116,11 @@ def create_default_subagent_graph(llm: Any, tools: list, max_turns: int = 10) ->
         ImportError: If langgraph is not installed
     """
     try:
-        from langgraph.prebuilt import create_react_agent
+        return _create_subagent_react_agent(llm, tools)
     except ImportError as exc:
         raise ImportError(
             "langgraph is required. Install with: pip install langgraph"
         ) from exc
-
-    return create_react_agent(llm, tools=tools)
 
 
 def create_academic_agent_graph(
@@ -98,17 +144,15 @@ def create_academic_agent_graph(
         ImportError: If langgraph is not installed
     """
     try:
-        from langgraph.prebuilt import create_react_agent
+        return _create_subagent_react_agent(
+            llm,
+            tools,
+            system_prompt=system_prompt,
+        )
     except ImportError as exc:
         raise ImportError(
             "langgraph is required. Install with: pip install langgraph"
         ) from exc
-
-    return create_react_agent(
-        llm,
-        tools=tools,
-        state_modifier=system_prompt
-    )
 
 
 def register_academic_templates(

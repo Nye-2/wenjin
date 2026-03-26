@@ -170,7 +170,15 @@ class TestExtractAndPersistKnowledge:
         service = mock_knowledge_service.return_value
         service.upsert = AsyncMock()
 
-        count = await extract_and_persist_knowledge("user1", "conversation")
+        with patch(
+            "src.services.user_memory_service._load_memory_config",
+            return_value=SimpleNamespace(
+                enabled=True,
+                fact_confidence_threshold=0.7,
+                max_facts=100,
+            ),
+        ):
+            count = await extract_and_persist_knowledge("user1", "conversation")
 
         # At least one valid item should be persisted even if another has bad confidence.
         assert count >= 1

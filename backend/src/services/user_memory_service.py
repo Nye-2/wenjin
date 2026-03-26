@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
+from collections import Counter
 from typing import Any
 
 from src.database.models.knowledge import KnowledgeCategory
 
 logger = logging.getLogger(__name__)
+_SIMILARITY_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]")
+_SIMILARITY_STOPWORDS = {"user", "assistant"}
 
 KNOWLEDGE_EXTRACTION_PROMPT = """从以下对话中提取学术相关知识点。返回 JSON 数组:
 [
@@ -77,10 +82,109 @@ def _format_memory_line(content: str, confidence: float) -> str:
     return f"- {content} (置信度: {confidence:.1f})"
 
 
+def _count_tokens(text: str) -> int:
+    """Count prompt tokens using the same tokenizer family as chat models."""
+    normalized = str(text or "").strip()
+    if not normalized:
+        return 0
+
+    try:
+        import tiktoken
+
+        encoding = tiktoken.get_encoding("cl100k_base")
+        return len(encoding.encode(normalized))
+    except Exception:
+        # Fallback keeps the system usable even if tokenizer loading fails.
+        return max(1, len(normalized) // 4)
+
+
+def _normalize_similarity_tokens(text: str) -> list[str]:
+    """Normalize text into lightweight lexical tokens for relevance scoring."""
+    normalized = str(text or "").lower()
+    tokens: list[str] = []
+    for token in _SIMILARITY_TOKEN_RE.findall(normalized):
+        value = token.strip()
+        if not value or value in _SIMILARITY_STOPWORDS:
+            continue
+        tokens.append(value)
+    return tokens
+
+
+def _similarity_score(current_context: str, content: str) -> float:
+    """Compute a lightweight cosine similarity between current context and memory."""
+    context_tokens = Counter(_normalize_similarity_tokens(current_context))
+    content_tokens = Counter(_normalize_similarity_tokens(content))
+    if not context_tokens or not content_tokens:
+        return 0.0
+
+    overlap = set(context_tokens) & set(content_tokens)
+    if not overlap:
+        return 0.0
+
+    numerator = sum(context_tokens[token] * content_tokens[token] for token in overlap)
+    context_norm = math.sqrt(sum(value * value for value in context_tokens.values()))
+    content_norm = math.sqrt(sum(value * value for value in content_tokens.values()))
+    if context_norm == 0 or content_norm == 0:
+        return 0.0
+    return numerator / (context_norm * content_norm)
+
+
+def _rank_knowledge_items(
+    knowledge_items: list[dict[str, Any]],
+    *,
+    current_context: str | None = None,
+    workspace_id: str | None = None,
+    similarity_weight: float = 0.6,
+    confidence_weight: float = 0.4,
+) -> list[dict[str, Any]]:
+    """Rank memory items by workspace match, contextual similarity and confidence."""
+    if not knowledge_items:
+        return []
+
+    normalized_similarity_weight = max(0.0, float(similarity_weight))
+    normalized_confidence_weight = max(0.0, float(confidence_weight))
+    total_weight = normalized_similarity_weight + normalized_confidence_weight
+    if total_weight <= 0:
+        normalized_similarity_weight = 0.6
+        normalized_confidence_weight = 0.4
+        total_weight = 1.0
+
+    similarity_ratio = normalized_similarity_weight / total_weight
+    confidence_ratio = normalized_confidence_weight / total_weight
+    normalized_context = " ".join(str(current_context or "").split())
+
+    def _score(item: dict[str, Any]) -> tuple[float, float, float]:
+        confidence = _coerce_confidence(item.get("confidence", 0.7))
+        similarity = (
+            _similarity_score(normalized_context, str(item.get("content") or ""))
+            if normalized_context
+            else 0.0
+        )
+        workspace_match = (
+            workspace_id is not None
+            and item.get("workspace_context") == workspace_id
+        )
+        combined = similarity * similarity_ratio + confidence * confidence_ratio
+        if workspace_match:
+            combined += 0.15
+        return (
+            combined,
+            similarity,
+            confidence,
+        )
+
+    return sorted(
+        knowledge_items,
+        key=lambda item: _score(item),
+        reverse=True,
+    )
+
+
 def format_knowledge_for_prompt(
     knowledge_items: list[dict[str, Any]],
     *,
     max_chars: int | None = None,
+    max_tokens: int | None = None,
 ) -> str:
     """Format knowledge entries into a compact prompt block."""
     if not knowledge_items:
@@ -108,8 +212,19 @@ def format_knowledge_for_prompt(
         "goal": "研究目标",
     }
 
+    def _fits_budget(parts: list[str], candidate: str | None = None) -> bool:
+        candidate_parts = [*parts]
+        if candidate is not None:
+            candidate_parts.append(candidate)
+        candidate_parts.append("</academic_memory>")
+        rendered = "\n".join(candidate_parts)
+        if max_tokens is not None and _count_tokens(rendered) > max_tokens:
+            return False
+        if max_chars is not None and len(rendered) > max_chars:
+            return False
+        return True
+
     parts: list[str] = ["<academic_memory>"]
-    current_chars = len(parts[0]) + len("</academic_memory>")
     truncated = False
 
     for cat, label in label_map.items():
@@ -117,23 +232,21 @@ def format_knowledge_for_prompt(
             continue
 
         header = f"\n{label}:"
-        if max_chars is not None and current_chars + len(header) > max_chars:
+        if not _fits_budget(parts, header):
             truncated = True
             break
         parts.append(header)
-        current_chars += len(header)
 
         for line in sections[cat]:
-            if max_chars is not None and current_chars + len(line) + 1 > max_chars:
+            if not _fits_budget(parts, line):
                 truncated = True
                 break
             parts.append(line)
-            current_chars += len(line) + 1
 
         if truncated:
             break
 
-    if truncated:
+    if truncated and _fits_budget(parts, "- ..."):
         parts.append("- ...")
 
     parts.append("</academic_memory>")
@@ -189,6 +302,8 @@ async def load_user_memory(
 async def build_memory_context(
     user_id: str | None,
     workspace_id: str | None = None,
+    *,
+    current_context: str | None = None,
 ) -> str:
     """Load and format user memory for prompt injection."""
     if not user_id:
@@ -204,8 +319,15 @@ async def build_memory_context(
     if not items:
         return ""
 
-    max_chars = max(400, int(getattr(config, "max_injection_tokens", 2000)) * 4)
-    return format_knowledge_for_prompt(items, max_chars=max_chars)
+    ranked_items = _rank_knowledge_items(
+        items,
+        current_context=current_context,
+        workspace_id=workspace_id,
+        similarity_weight=float(getattr(config, "similarity_weight", 0.6) or 0.6),
+        confidence_weight=float(getattr(config, "confidence_weight", 0.4) or 0.4),
+    )
+    max_tokens = max(64, int(getattr(config, "max_injection_tokens", 2000) or 2000))
+    return format_knowledge_for_prompt(ranked_items, max_tokens=max_tokens)
 
 
 async def _maybe_compact_memory(
@@ -308,4 +430,3 @@ async def extract_and_persist_knowledge(
     except Exception:
         logger.exception("Failed to extract knowledge")
         return 0
-

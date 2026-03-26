@@ -58,7 +58,7 @@ async def task_tool(
         )
 
     from src.agents.lead_agent.agent import get_available_tools
-    tools = get_available_tools(subagent_enabled=False)
+    tools = get_available_tools(include_execution=True, subagent_enabled=False)
     runtime_config = config or {}
     configurable = runtime_config.get("configurable", {})
 
@@ -67,6 +67,8 @@ async def task_tool(
         tools=tools,
         parent_model=configurable.get("model_name"),
         thread_id=configurable.get("thread_id"),
+        workspace_id=configurable.get("workspace_id"),
+        user_id=configurable.get("user_id"),
     )
     result = await executor.aexecute(prompt)
 

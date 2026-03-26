@@ -68,7 +68,14 @@ class TestSubagentExecutor:
 
     @pytest.mark.asyncio
     async def test_aexecute_collects_final_result_and_messages(self):
-        executor = SubagentExecutor(config=_config(), tools=[], thread_id="thread-1")
+        executor = SubagentExecutor(
+            config=_config(),
+            tools=[],
+            thread_id="thread-1",
+            workspace_id="ws-1",
+            user_id="user-1",
+            parent_model="gpt-4o",
+        )
         msg1 = _ai("First response", "msg-1")
         msg2 = _ai("Final response", "msg-2")
 
@@ -93,7 +100,12 @@ class TestSubagentExecutor:
         assert [message["id"] for message in result.ai_messages] == ["msg-1", "msg-2"]
         assert recorded["kwargs"]["config"] == {
             "recursion_limit": 10,
-            "configurable": {"thread_id": "thread-1"},
+            "configurable": {
+                "thread_id": "thread-1",
+                "workspace_id": "ws-1",
+                "user_id": "user-1",
+                "model_name": "gpt-4o",
+            },
         }
         assert recorded["kwargs"]["stream_mode"] == "values"
 
