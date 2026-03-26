@@ -11,17 +11,6 @@ import pytest
 from src.services.user_dashboard_service import UserDashboardService
 
 
-class _ScalarsResult:
-    def __init__(self, items):
-        self._items = items
-
-    def scalars(self):
-        return self
-
-    def all(self):
-        return self._items
-
-
 @pytest.mark.asyncio
 async def test_get_dashboard_includes_chat_credit_status() -> None:
     db = AsyncMock()
@@ -56,7 +45,6 @@ async def test_get_dashboard_includes_chat_credit_status() -> None:
             [],
         )
     )
-    service._get_recent_credit_transactions = AsyncMock(return_value=[])
 
     with patch(
         "src.services.user_dashboard_service.CreditService.get_chat_billing_policy",
@@ -67,7 +55,7 @@ async def test_get_dashboard_includes_chat_credit_status() -> None:
     ), patch(
         "src.services.user_dashboard_service.CreditService.can_start_chat_turn",
         AsyncMock(return_value=False),
-    ):
+    ) as can_start_chat_turn:
         payload = await service.get_dashboard("user-1")
 
     assert payload["credits"]["chat"] == {
@@ -79,30 +67,4 @@ async def test_get_dashboard_includes_chat_credit_status() -> None:
         "can_start_chat": False,
         "overdraft_credits": 2,
     }
-
-
-@pytest.mark.asyncio
-async def test_recent_credit_transactions_include_metadata() -> None:
-    db = AsyncMock()
-    db.execute = AsyncMock(
-        return_value=_ScalarsResult(
-            [
-                SimpleNamespace(
-                    id="tx-1",
-                    transaction_type=SimpleNamespace(value="chat_token_consume"),
-                    amount=-1,
-                    balance_after=-1,
-                    description="Chat token 扣费",
-                    feature_id="chat",
-                    tx_metadata={"overdraft_credits": 1, "token_usage": {"total_tokens": 20000}},
-                    created_at=datetime(2026, 3, 26, tzinfo=UTC),
-                )
-            ]
-        )
-    )
-
-    service = UserDashboardService(db)
-    items = await service._get_recent_credit_transactions("user-1")
-
-    assert items[0]["metadata"]["overdraft_credits"] == 1
-    assert items[0]["metadata"]["token_usage"]["total_tokens"] == 20000
+    can_start_chat_turn.assert_not_called()

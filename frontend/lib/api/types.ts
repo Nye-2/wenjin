@@ -433,7 +433,6 @@ export interface UserDashboardData {
     cancelled: number;
     completion_rate: number;
   };
-  recent_credit_transactions: CreditTransactionItem[];
   recent_tasks: Array<{
     id: string;
     task_type: string;
@@ -516,7 +515,6 @@ export interface AdminDashboardData {
     total_spent: number;
     balance: number;
   }>;
-  recent_credit_transactions: CreditTransactionItem[];
   recent_admin_logs: AdminLogItem[];
   updated_at: string;
 }

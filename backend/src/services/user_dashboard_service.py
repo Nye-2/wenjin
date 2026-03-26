@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import CreditTransaction, TaskRecord, User, Workspace
+from src.database import TaskRecord, User, Workspace
 from src.services.credit_service import CreditService
 
 
@@ -25,7 +25,6 @@ class UserDashboardService:
         credit_service = CreditService(self.db)
         workspace_stats = await self._get_workspace_stats(user_id)
         task_stats, recent_tasks = await self._get_task_stats(user_id)
-        recent_credit_transactions = await self._get_recent_credit_transactions(user_id)
         chat_credit_status = await self._get_chat_credit_status(
             user_id,
             credit_service=credit_service,
@@ -51,7 +50,6 @@ class UserDashboardService:
             },
             "workspaces": workspace_stats,
             "tasks": task_stats,
-            "recent_credit_transactions": recent_credit_transactions,
             "recent_tasks": recent_tasks,
             "updated_at": datetime.now(UTC).isoformat(),
         }
@@ -124,28 +122,6 @@ class UserDashboardService:
             recent_tasks,
         )
 
-    async def _get_recent_credit_transactions(self, user_id: str) -> list[dict[str, Any]]:
-        result = await self.db.execute(
-            select(CreditTransaction)
-            .where(CreditTransaction.user_id == user_id)
-            .order_by(CreditTransaction.created_at.desc())
-            .limit(12)
-        )
-        rows = result.scalars().all()
-        return [
-            {
-                "id": str(tx.id),
-                "type": tx.transaction_type.value,
-                "amount": int(tx.amount),
-                "balance_after": int(tx.balance_after),
-                "description": tx.description,
-                "feature_id": tx.feature_id,
-                "metadata": tx.tx_metadata or {},
-                "created_at": tx.created_at.isoformat() if tx.created_at else None,
-            }
-            for tx in rows
-        ]
-
     async def _get_chat_credit_status(
         self,
         user_id: str,
@@ -157,7 +133,11 @@ class UserDashboardService:
         policy = credit_service.get_chat_billing_policy()
         consumed_tokens = await credit_service.get_consumed_chat_tokens(user_id)
         remaining_free_tokens = max(policy.free_tokens - consumed_tokens, 0)
-        can_start_chat = await credit_service.can_start_chat_turn(user_id)
+        can_start_chat = (
+            (not policy.enabled)
+            or consumed_tokens < policy.free_tokens
+            or current_balance > 0
+        )
 
         return {
             "enabled": policy.enabled,

@@ -104,7 +104,6 @@ class AdminDashboardService:
 
         recent_users = await self._get_recent_users()
         top_spenders = await self._get_top_spenders()
-        recent_credit_transactions = await self._get_recent_credit_transactions()
         recent_admin_logs = await self._get_recent_admin_logs()
 
         return {
@@ -135,7 +134,6 @@ class AdminDashboardService:
             },
             "recent_users": recent_users,
             "top_spenders": top_spenders,
-            "recent_credit_transactions": recent_credit_transactions,
             "recent_admin_logs": recent_admin_logs,
             "updated_at": now.isoformat(),
         }
@@ -393,31 +391,6 @@ class AdminDashboardService:
                 "balance": int(user.credits),
             }
             for user in rows.scalars().all()
-        ]
-
-    async def _get_recent_credit_transactions(self) -> list[dict[str, Any]]:
-        user_alias = aliased(User)
-        rows = await self.db.execute(
-            select(CreditTransaction, user_alias.email, user_alias.name)
-            .join(user_alias, CreditTransaction.user_id == user_alias.id)
-            .order_by(desc(CreditTransaction.created_at))
-            .limit(15)
-        )
-        return [
-            {
-                "id": str(tx.id),
-                "user_id": str(tx.user_id),
-                "user_email": email,
-                "user_name": name,
-                "type": tx.transaction_type.value,
-                "amount": int(tx.amount),
-                "balance_after": int(tx.balance_after),
-                "description": tx.description,
-                "feature_id": tx.feature_id,
-                "metadata": tx.tx_metadata or {},
-                "created_at": tx.created_at.isoformat() if tx.created_at else None,
-            }
-            for tx, email, name in rows.all()
         ]
 
     async def _get_recent_admin_logs(self) -> list[dict[str, Any]]:
