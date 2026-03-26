@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from src.gateway.routers import chat
@@ -155,6 +155,29 @@ class FakeChatThreadService:
             return False
         del self.threads[thread_id]
         return True
+
+
+class _FakeDbContext:
+    """Tiny async context manager used to stub get_db_session."""
+
+    def __init__(self, db: object) -> None:
+        self._db = db
+
+    async def __aenter__(self) -> object:
+        return self._db
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+class _FakeBillingResult:
+    """Billing result shim matching ChatCreditConsumption.as_metadata()."""
+
+    def __init__(self, metadata: dict[str, object]) -> None:
+        self._metadata = metadata
+
+    def as_metadata(self) -> dict[str, object]:
+        return dict(self._metadata)
 
 
 def create_client(user_id: str, service: FakeChatThreadService) -> TestClient:
@@ -498,6 +521,71 @@ class TestChatMessages:
         thread = service.threads[payload["thread_id"]]
         assert thread.messages[-1]["blocks"][0]["title"] == "论文写作"
 
+    def test_chat_persists_usage_and_billing_metadata(self):
+        """Chat replies persist token usage and settled billing summaries."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+        fake_credit_service = MagicMock()
+        fake_credit_service.consume_for_chat_usage = AsyncMock(
+            return_value=_FakeBillingResult(
+                {
+                    "type": "chat_token_billing",
+                    "token_usage": {
+                        "input_tokens": 800,
+                        "output_tokens": 200,
+                        "total_tokens": 1000,
+                    },
+                    "model_name": "gpt-4o",
+                    "free_tokens_applied": 1000,
+                    "billable_tokens": 0,
+                    "credits_charged": 0,
+                    "historical_tokens_before": 0,
+                    "historical_tokens_after": 1000,
+                    "transaction_id": "tx-chat-1",
+                    "balance_after": 100,
+                    "charged": False,
+                }
+            )
+        )
+
+        with patch(
+            "src.gateway.routers.chat._generate_chat_response",
+            AsyncMock(
+                return_value=GeneratedChatReply(
+                    content="assistant reply",
+                    metadata={
+                        "usage": {
+                            "input_tokens": 800,
+                            "output_tokens": 200,
+                            "total_tokens": 1000,
+                            "source": "chat_agent",
+                            "model_name": "gpt-4o",
+                        }
+                    },
+                )
+            ),
+        ), patch(
+            "src.database.get_db_session",
+            return_value=_FakeDbContext(MagicMock()),
+        ), patch(
+            "src.services.credit_service.CreditService",
+            return_value=fake_credit_service,
+        ):
+            response = client.post(
+                "/chat",
+                json={"message": "Hello", "workspace_id": "ws-1"},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        message_metadata = payload["message"]["metadata"]
+        assert message_metadata["usage"]["total_tokens"] == 1000
+        assert message_metadata["billing"]["transaction_id"] == "tx-chat-1"
+        assert message_metadata["billing"]["credits_charged"] == 0
+        thread = service.threads[payload["thread_id"]]
+        assert thread.messages[-1]["metadata"]["billing"]["historical_tokens_after"] == 1000
+        fake_credit_service.consume_for_chat_usage.assert_awaited_once()
+
     @pytest.mark.asyncio
     async def test_generate_chat_response_preserves_structured_tool_state(self):
         """Structured tool updates should survive the agent chat path."""
@@ -514,7 +602,12 @@ class TestChatMessages:
         fake_agent = MagicMock()
         fake_agent.ainvoke = AsyncMock(
             return_value={
-                "messages": [MagicMock(content="模块已启动")],
+                "messages": [
+                    MagicMock(
+                        content="模块已启动",
+                        usage_metadata={"input_tokens": 120, "output_tokens": 30},
+                    )
+                ],
                 "response_blocks": [{"type": "task", "title": "框架设计"}],
                 "response_metadata": {
                     "orchestration": {"feature_id": "framework_outline", "task_id": "task-1"}
@@ -524,6 +617,9 @@ class TestChatMessages:
 
         with patch(
             "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.gateway.routers.chat._ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
             "src.gateway.routers.chat.route_chat_model",
@@ -540,6 +636,8 @@ class TestChatMessages:
         assert reply.content == "模块已启动"
         assert reply.blocks[0]["type"] == "task"
         assert reply.metadata["orchestration"]["task_id"] == "task-1"
+        assert reply.metadata["usage"]["total_tokens"] == 150
+        assert reply.metadata["usage"]["source"] == "chat_agent"
 
     @pytest.mark.asyncio
     async def test_generate_chat_response_builds_artifact_block_from_agent_state(self):
@@ -565,6 +663,9 @@ class TestChatMessages:
             "src.gateway.routers.chat.maybe_bridge_workspace_feature",
             AsyncMock(return_value=None),
         ), patch(
+            "src.gateway.routers.chat._ensure_chat_turn_budget",
+            AsyncMock(return_value=None),
+        ), patch(
             "src.gateway.routers.chat.route_chat_model",
             return_value="gpt-4o",
         ), patch(
@@ -581,6 +682,37 @@ class TestChatMessages:
             "/api/threads/thread-1/artifacts/mnt/user-data/outputs/report.md"
         )
         assert reply.content == "已生成 1 个文件，可直接打开查看。"
+
+    @pytest.mark.asyncio
+    async def test_generate_chat_response_propagates_budget_http_errors(self):
+        """Budget failures must not be swallowed by the agent fallback path."""
+        request = chat.ChatRequest(message="继续对话", workspace_id="ws-1")
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="gpt-4o",
+        )
+        current_user = create_mock_user("user-1")
+
+        with patch(
+            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.gateway.routers.chat._ensure_chat_turn_budget",
+            AsyncMock(side_effect=HTTPException(status_code=402, detail="余额不足")),
+        ), patch(
+            "src.gateway.routers.chat.route_chat_model",
+            return_value="gpt-4o",
+        ), patch(
+            "src.agents.lead_agent.agent.build_pipeline",
+            return_value=[],
+        ):
+            with pytest.raises(HTTPException, match="余额不足") as exc_info:
+                await chat._generate_chat_response(request, thread, current_user)
+
+        assert exc_info.value.status_code == 402
 
     def test_thread_agent_status_defaults_to_idle(self):
         """Threads expose a default idle execution status for unified UI polling."""
@@ -623,6 +755,9 @@ class TestChatMessages:
 
         with patch(
             "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.gateway.routers.chat._ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
             "src.gateway.routers.chat.route_chat_model",
@@ -670,6 +805,9 @@ class TestChatMessages:
 
         with patch(
             "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.gateway.routers.chat._ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
             "src.gateway.routers.chat.route_chat_model",

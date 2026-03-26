@@ -79,11 +79,17 @@ from src.gateway.routers.chat_streaming import (
 )
 from src.models import route_chat_model
 from src.services import ChatThreadService
-from src.services.literature_service import LiteratureService
+from src.services.chat_billing import (
+    extract_message_usage,
+    extract_usage_from_agent_result,
+    normalize_token_usage,
+    usage_to_metadata,
+)
 from src.services.chat_thread_events import (
     publish_thread_deleted,
     publish_thread_updated,
 )
+from src.services.literature_service import LiteratureService
 from src.tools.builtins.artifacts import (
     build_presented_artifact_items,
     build_presented_artifacts_block,
@@ -267,6 +273,117 @@ def _coerce_message_content(content: Any) -> str:
     return str(content or "")
 
 
+def _attach_usage_metadata(
+    reply: GeneratedChatReply,
+    usage: Any,
+    *,
+    model_name: str | None,
+    source: str,
+) -> GeneratedChatReply:
+    """Attach normalized token usage metadata to a reply when available."""
+    normalized_usage = usage if hasattr(usage, "as_dict") else normalize_token_usage(usage)
+    if normalized_usage is None:
+        return reply
+
+    reply.metadata = dict(reply.metadata or {})
+    reply.metadata["usage"] = usage_to_metadata(
+        normalized_usage,
+        model_name=model_name,
+        source=source,
+    )
+    return reply
+
+
+async def _ensure_chat_turn_budget(user_id: str) -> None:
+    """Reject pure chat turns once free quota is exhausted and credits are empty."""
+    from src.database import get_db_session
+    from src.services.credit_service import CreditService
+
+    async with get_db_session() as db:
+        credit_service = CreditService(db)
+        allowed = await credit_service.can_start_chat_turn(user_id)
+        if allowed:
+            return
+        policy = credit_service.get_chat_billing_policy()
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"Chat 免费额度已用尽。当前策略为前 {policy.free_tokens} tokens 免费，"
+                "后续按 token 扣积分，请先补充积分。"
+            ),
+        )
+
+
+async def _apply_chat_turn_billing(
+    reply: GeneratedChatReply,
+    *,
+    current_user: User,
+    thread: ChatThread,
+) -> dict[str, Any] | None:
+    """Persist chat token usage and attach billing metadata to the reply."""
+    usage_metadata = (
+        dict(reply.metadata.get("usage"))
+        if isinstance(reply.metadata, dict) and isinstance(reply.metadata.get("usage"), dict)
+        else None
+    )
+    normalized_usage = normalize_token_usage(usage_metadata)
+    if normalized_usage is None:
+        return None
+
+    from src.database import get_db_session
+    from src.services.credit_service import CreditService, InsufficientCreditsError
+
+    try:
+        async with get_db_session() as db:
+            credit_service = CreditService(db)
+            billing = await credit_service.consume_for_chat_usage(
+                user_id=str(current_user.id),
+                token_usage=normalized_usage,
+                model_name=usage_metadata.get("model_name") if usage_metadata else None,
+                workspace_id=thread.workspace_id,
+                thread_id=thread.id,
+                metadata={"source": usage_metadata.get("source", "chat")},
+            )
+    except InsufficientCreditsError as exc:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"积分不足：当前 {exc.current_balance}，"
+                f"本轮 Chat 需要 {exc.required}"
+            ),
+        ) from exc
+
+    reply.metadata = dict(reply.metadata or {})
+    reply.metadata["billing"] = billing.as_metadata()
+    return billing.as_metadata()
+
+
+async def _refund_chat_turn_billing(
+    *,
+    current_user: User,
+    billing_metadata: dict[str, Any] | None,
+) -> None:
+    """Refund chat token billing when reply persistence fails after settlement."""
+    transaction_id = (
+        str(billing_metadata.get("transaction_id"))
+        if isinstance(billing_metadata, dict) and billing_metadata.get("transaction_id")
+        else None
+    )
+    if not transaction_id:
+        return
+
+    from src.database import get_db_session
+    from src.services.credit_service import CreditService
+
+    async with get_db_session() as db:
+        credit_service = CreditService(db)
+        await credit_service.refund_consumption(
+            user_id=str(current_user.id),
+            original_transaction_id=transaction_id,
+            reason="聊天回复失败退款",
+        )
+
+
 def _reply_from_agent_result(
     result: dict[str, Any],
     *,
@@ -379,10 +496,19 @@ async def _generate_chat_response(
                 metadata=bridged.metadata,
             )
 
+        await _ensure_chat_turn_budget(str(current_user.id))
         agent = make_lead_agent(config, middlewares=middlewares)
         result = await agent.ainvoke(initial_state, config=config)
-        return _reply_from_agent_result(result, thread_id=thread.id)
+        reply = _reply_from_agent_result(result, thread_id=thread.id)
+        return _attach_usage_metadata(
+            reply,
+            extract_usage_from_agent_result(result),
+            model_name=effective_model,
+            source="chat_agent",
+        )
 
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Agent failed, falling back to simple model")
         from src.models.factory import create_chat_model
@@ -417,7 +543,13 @@ async def _generate_chat_response(
                 apply_prompt_template=apply_prompt_template,
             )
         )
-        return GeneratedChatReply(content=response.content)
+        reply = GeneratedChatReply(content=response.content)
+        return _attach_usage_metadata(
+            reply,
+            extract_message_usage(response),
+            model_name=effective_model,
+            source="chat_fallback",
+        )
 
 
 @router.post("/threads", response_model=ThreadResponse)
@@ -498,6 +630,11 @@ async def chat(
                 paper_service=paper_service,
             )
         )
+        billing_metadata = await _apply_chat_turn_billing(
+            reply,
+            current_user=current_user,
+            thread=thread,
+        )
         assistant_message = await _persist_chat_reply(
             thread=thread,
             current_user=current_user,
@@ -506,6 +643,10 @@ async def chat(
             chat_thread_service=chat_thread_service,
         )
     except Exception:
+        await _refund_chat_turn_billing(
+            current_user=current_user,
+            billing_metadata=locals().get("billing_metadata"),
+        )
         await _fail_chat_turn(thread)
         raise
 
@@ -550,6 +691,11 @@ async def chat_stream(
                     paper_service=paper_service,
                 )
             )
+            billing_metadata = await _apply_chat_turn_billing(
+                reply,
+                current_user=current_user,
+                thread=thread,
+            )
             if reply.content:
                 yield _stream_content_event(reply.content)
 
@@ -565,8 +711,13 @@ async def chat_stream(
 
         except Exception as exc:
             logger.exception("Streaming chat failed")
+            await _refund_chat_turn_billing(
+                current_user=current_user,
+                billing_metadata=locals().get("billing_metadata"),
+            )
             await _fail_chat_turn(thread)
-            yield _stream_error_event(str(exc))
+            error_message = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            yield _stream_error_event(error_message)
 
     return StreamingResponse(
         generate(),

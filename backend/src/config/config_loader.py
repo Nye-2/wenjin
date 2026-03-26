@@ -125,6 +125,20 @@ class RedisConfig(BaseModel):
     url: str = ""
 
 
+class ChatBillingConfig(BaseModel):
+    """Chat token billing configuration."""
+
+    enabled: bool = True
+    free_tokens: int = 100000
+    tokens_per_credit: int = 10000
+
+
+class BillingConfig(BaseModel):
+    """Billing configuration."""
+
+    chat: ChatBillingConfig = Field(default_factory=ChatBillingConfig)
+
+
 class AppConfig(BaseModel):
     """Unified application configuration loaded from config.yaml."""
     models: list[ModelConfig] = Field(default_factory=list)
@@ -146,6 +160,7 @@ class AppConfig(BaseModel):
     middlewares: MiddlewaresConfig = Field(default_factory=MiddlewaresConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
+    billing: BillingConfig = Field(default_factory=BillingConfig)
 
     def get_model_config(self, name: str) -> ModelConfig | None:
         """Find a model by name."""

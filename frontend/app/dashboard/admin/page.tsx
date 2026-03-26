@@ -63,6 +63,7 @@ type CreditTypeFilter =
   | "admin_grant"
   | "admin_deduct"
   | "workflow_consume"
+  | "chat_token_consume"
   | "registration_bonus"
   | "refund";
 type LogActionFilter =
@@ -1372,6 +1373,7 @@ export default function AdminDashboardPage() {
                     <SelectItem value="admin_grant">admin_grant</SelectItem>
                     <SelectItem value="admin_deduct">admin_deduct</SelectItem>
                     <SelectItem value="workflow_consume">workflow_consume</SelectItem>
+                    <SelectItem value="chat_token_consume">chat_token_consume</SelectItem>
                     <SelectItem value="registration_bonus">registration_bonus</SelectItem>
                     <SelectItem value="refund">refund</SelectItem>
                   </SelectContent>

@@ -4,6 +4,7 @@ import type {
   AdminLogItem,
   AdminReleaseGateReport,
   AdminUserItem,
+  CreditCostValue,
   CreditTransactionItem,
   McpConfigResponse,
   UserDashboardData,
@@ -32,7 +33,7 @@ export async function getMyCreditHistory(params?: {
 }
 
 export async function getWorkflowCreditCosts(): Promise<{
-  costs: Record<string, number | Record<string, number>>;
+  costs: Record<string, CreditCostValue>;
 }> {
   const response = await apiClient.get("/dashboard/me/credits/costs");
   return response.data;

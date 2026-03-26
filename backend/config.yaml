@@ -135,3 +135,9 @@ database:
 
 redis:
   url: $REDIS_URL
+
+billing:
+  chat:
+    enabled: true
+    free_tokens: 100000
+    tokens_per_credit: 10000

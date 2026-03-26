@@ -389,6 +389,8 @@ export interface CreditTransactionItem {
   created_at: string;
 }
 
+export type CreditCostValue = number | Record<string, number | boolean>;
+
 export interface UserDashboardData {
   profile: {
     id: string;
@@ -403,7 +405,7 @@ export interface UserDashboardData {
     balance: number;
     total_earned: number;
     total_spent: number;
-    costs: Record<string, number | Record<string, number>>;
+    costs: Record<string, CreditCostValue>;
   };
   workspaces: {
     total: number;

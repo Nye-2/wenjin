@@ -9,6 +9,7 @@ import { useAuthStore } from "@/stores/auth";
 import {
   getMyCreditHistory,
   getMyDashboard,
+  type CreditCostValue,
   type CreditTransactionItem,
   type UserDashboardData,
 } from "@/lib/api";
@@ -20,9 +21,11 @@ function formatDate(dateText: string | null | undefined): string {
   return date.toLocaleString();
 }
 
-function renderCostValue(value: number | Record<string, number>): string {
+function renderCostValue(value: CreditCostValue): string {
   if (typeof value === "number") return `${value}`;
-  const parts = Object.entries(value).map(([k, v]) => `${k}: ${v}`);
+  const parts = Object.entries(value).map(([k, v]) =>
+    `${k}: ${typeof v === "boolean" ? (v ? "on" : "off") : v}`
+  );
   return parts.join(" | ");
 }
 

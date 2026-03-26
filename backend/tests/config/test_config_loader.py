@@ -1,19 +1,12 @@
 """Tests for unified config.yaml loader."""
 
-import tempfile
 from pathlib import Path
 
 import yaml
 
 from src.config.config_loader import (
     AppConfig,
-    MemoryConfig,
     ModelConfig,
-    SandboxConfig,
-    SkillsConfig,
-    SubagentTypeConfig,
-    SubagentsConfig,
-    ToolConfig,
     load_config,
 )
 
@@ -68,6 +61,25 @@ class TestConfigLoader:
         assert config.subagents.enabled is False
         assert config.memory.enabled is False
         assert config.sandbox is None
+        assert config.billing.chat.enabled is True
+        assert config.billing.chat.free_tokens == 100000
+        assert config.billing.chat.tokens_per_credit == 10000
+
+    def test_load_chat_billing_config(self, tmp_path):
+        cfg_path = self._write_config(tmp_path, {
+            "models": [],
+            "billing": {
+                "chat": {
+                    "enabled": False,
+                    "free_tokens": 2048,
+                    "tokens_per_credit": 512,
+                }
+            },
+        })
+        config = load_config(str(cfg_path))
+        assert config.billing.chat.enabled is False
+        assert config.billing.chat.free_tokens == 2048
+        assert config.billing.chat.tokens_per_credit == 512
 
 
 class TestModelConfig:

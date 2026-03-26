@@ -31,6 +31,7 @@ class CreditTransactionType(StrEnum):
     ADMIN_GRANT = "admin_grant"
     ADMIN_DEDUCT = "admin_deduct"
     WORKFLOW_CONSUME = "workflow_consume"
+    CHAT_TOKEN_CONSUME = "chat_token_consume"
     REGISTRATION_BONUS = "registration_bonus"
     REFUND = "refund"
 
