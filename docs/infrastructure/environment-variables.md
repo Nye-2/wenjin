@@ -56,7 +56,6 @@
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | Gateway API 基路径 | 开发环境默认 `http://localhost:8001/api`，生产默认 `/api` |
 | `NEXT_PUBLIC_LANGGRAPH_BASE_URL` | LangGraph 反向代理路径 | `/langgraph` |
-| `NEXT_PUBLIC_BACKEND_BASE_URL` | 兼容变量 | `/api` |
 
 ## 3. 配置建议
 

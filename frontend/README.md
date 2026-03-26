@@ -68,7 +68,6 @@ frontend/
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `NEXT_PUBLIC_API_URL` | Backend API base (e.g. `/api` or `http://localhost:8001/api`) | Optional |
-| `NEXT_PUBLIC_BACKEND_BASE_URL` | Legacy alias for `NEXT_PUBLIC_API_URL` | Optional |
 | `NEXT_PUBLIC_LANGGRAPH_BASE_URL` | LangGraph proxy base | Optional |
 
 Notes:
