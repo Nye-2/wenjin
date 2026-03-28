@@ -12,7 +12,7 @@ def _defines_emit_bound_runtime(path: Path) -> bool:
     """Return True if the file defines _emit_bound_runtime itself (not imports it)."""
     tree = ast.parse(path.read_text())
     return any(
-        isinstance(node, ast.AsyncFunctionDef) and node.name == "_emit_bound_runtime"
+        isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)) and node.name == "_emit_bound_runtime"
         for node in ast.walk(tree)
     )
 
