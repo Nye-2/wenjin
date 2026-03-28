@@ -5,13 +5,35 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.subagents.executor import SubagentStatus
+from src.subagents.models import SubagentResult, SubagentStatus
 from src.subagents.parallel import (
     ExecutionPhase,
     ParallelExecutor,
     PhasedPlan,
     PhaseResult,
 )
+
+
+def _make_manager(
+    *,
+    status: SubagentStatus = SubagentStatus.COMPLETED,
+    output=None,
+    error: str | None = None,
+):
+    manager = MagicMock()
+    manager._llm = object()
+    manager._config.default_timeout = 900
+    manager._config.max_turns_limit = 50
+    manager.spawn = AsyncMock(return_value="task-123")
+    manager.wait_for_completion = AsyncMock(
+        return_value=SubagentResult(
+            task_id="task-123",
+            status=status,
+            output=output,
+            error=error,
+        )
+    )
+    return manager
 
 
 class TestParallelExecutor:
@@ -41,8 +63,6 @@ class TestParallelExecutor:
     @pytest.mark.asyncio
     async def test_parallel_executor_runs_phases(self):
         """ParallelExecutor should execute phases in order."""
-        from unittest.mock import MagicMock, patch
-
         executor = ParallelExecutor()
 
         plan = PhasedPlan(
@@ -56,18 +76,14 @@ class TestParallelExecutor:
             ],
         )
 
-        with patch("src.subagents.parallel.SubagentExecutor") as mock_executor_class:
-            mock_executor = mock_executor_class.return_value
-            mock_result = MagicMock()
-            mock_result.status = SubagentStatus.COMPLETED
-            mock_result.result = "test result"
-            mock_result.error = None
-            mock_executor.aexecute = AsyncMock(return_value=mock_result)
+        mock_manager = _make_manager(output="test result")
 
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
             results = await executor.execute_plan(plan, context={"workspace_id": "test"})
 
-            assert len(results) == 1
-            assert results[0].phase_name == "discovery"
+        assert len(results) == 1
+        assert results[0].phase_name == "discovery"
+        assert mock_manager.spawn.await_count == 1
 
     @pytest.mark.asyncio
     async def test_execute_plan_invokes_phase_callback(self):
@@ -92,14 +108,9 @@ class TestParallelExecutor:
         async def phase_callback(result: PhaseResult) -> None:
             received.append(result.phase_name)
 
-        with patch("src.subagents.parallel.SubagentExecutor") as mock_executor_class:
-            mock_executor = mock_executor_class.return_value
-            mock_result = MagicMock()
-            mock_result.status = SubagentStatus.COMPLETED
-            mock_result.result = {"ok": True}
-            mock_result.error = None
-            mock_executor.aexecute = AsyncMock(return_value=mock_result)
+        mock_manager = _make_manager(output='{"ok": true}')
 
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
             results = await executor.execute_plan(
                 plan,
                 context={"workspace_id": "test"},
@@ -108,6 +119,33 @@ class TestParallelExecutor:
 
         assert len(results) == 2
         assert received == ["discovery", "synthesis"]
+
+    @pytest.mark.asyncio
+    async def test_execute_plan_merges_plan_context_and_runtime_context(self):
+        """Plan context should merge with runtime context before spawning tasks."""
+        executor = ParallelExecutor()
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="discovery",
+                    tasks=[{"subagent_type": "scout", "prompt": "test search"}],
+                ),
+            ],
+            context={"thread_id": "thread-1", "user_id": "user-1", "model_name": "gpt-4o"},
+        )
+        mock_manager = _make_manager(output='{"papers": []}')
+
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
+            await executor.execute_plan(
+                plan,
+                context={"workspace_id": "ws-1"},
+            )
+
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.thread_id == "thread-1"
+        assert task.metadata["workspace_id"] == "ws-1"
+        assert task.metadata["user_id"] == "user-1"
+        assert task.metadata["model_name"] == "gpt-4o"
 
 
 class TestExecutionPhase:
@@ -166,6 +204,74 @@ class TestPhaseResult:
         assert result.success is False
 
 
+class TestParallelExecutorTimeout:
+    @pytest.mark.asyncio
+    async def test_phase_timeout_raises_on_slow_task(self):
+        """Phase execution should return error when phase_timeout is exceeded."""
+        executor = ParallelExecutor(phase_timeout=0.1)
+
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="slow_phase",
+                    tasks=[{"subagent_type": "scout", "prompt": "slow task"}],
+                ),
+            ],
+        )
+
+        mock_manager = _make_manager(output="result")
+
+        async def _slow_wait(*a, **kw):
+            await asyncio.sleep(10)
+
+        mock_manager.wait_for_completion = AsyncMock(side_effect=_slow_wait)
+
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
+            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+
+        assert results[0].success is False
+        assert "timed out" in results[0].error.lower()
+
+    @pytest.mark.asyncio
+    async def test_phase_timeout_default_is_none(self):
+        """Default phase_timeout should be None (no timeout)."""
+        executor = ParallelExecutor()
+        assert executor.phase_timeout is None
+
+    @pytest.mark.asyncio
+    async def test_phase_completes_within_timeout(self):
+        """Phase should succeed when completing within timeout."""
+        executor = ParallelExecutor(phase_timeout=10.0)
+
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="fast_phase",
+                    tasks=[{"subagent_type": "scout", "prompt": "fast task"}],
+                ),
+            ],
+        )
+
+        mock_manager = _make_manager(output="quick result")
+
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
+            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+
+        assert results[0].success is True
+
+
+class TestParallelExecutorNormalization:
+    def test_normalize_result_payload_parses_json_object(self):
+        payload = ParallelExecutor._normalize_result_payload('{"papers": [{"title": "A"}]}')
+        assert payload == {"papers": [{"title": "A"}]}
+
+    def test_normalize_result_payload_parses_fenced_json(self):
+        payload = ParallelExecutor._normalize_result_payload(
+            "Here is the result:\n```json\n{\"ideas\": [{\"title\": \"A\"}]}\n```"
+        )
+        assert payload == {"ideas": [{"title": "A"}]}
+
+
 class TestParallelExecutorIntegration:
     @pytest.mark.asyncio
     async def test_dependency_wait_with_event(self):
@@ -187,15 +293,9 @@ class TestParallelExecutorIntegration:
         )
 
         # Mock the subagent executor
-        with patch("src.subagents.parallel.SubagentExecutor") as mock_executor_class:
-            mock_executor = mock_executor_class.return_value
-            mock_result = MagicMock()
-            mock_result.status = MagicMock()
-            mock_result.status.value = "completed"
-            mock_result.result = "test result"
-            mock_result.error = None
-            mock_executor.aexecute = AsyncMock(return_value=mock_result)
+        mock_manager = _make_manager(output="test result")
 
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
             # Track time to verify we're not using busy wait
             start_time = asyncio.get_event_loop().time()
             results = await executor.execute_plan(plan, context={"workspace_id": "test"})
@@ -206,6 +306,23 @@ class TestParallelExecutorIntegration:
             assert len(results) == 2
             assert results[0].phase_name == "phase1"
             assert results[1].phase_name == "phase2"
+
+    @pytest.mark.asyncio
+    async def test_missing_phase_dependency_raises_value_error(self):
+        """Unknown phase dependencies should fail fast instead of busy waiting forever."""
+        executor = ParallelExecutor()
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="phase1",
+                    tasks=[{"subagent_type": "scout", "prompt": "first task"}],
+                    depends_on=["missing-phase"],
+                ),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="Unknown phase dependencies"):
+            await executor.execute_plan(plan, context={"workspace_id": "test"})
 
     @pytest.mark.asyncio
     async def test_unknown_subagent_type_error_handling(self):
@@ -253,21 +370,15 @@ class TestParallelExecutorIntegration:
         )
 
         # Mock the subagent executor
-        with patch("src.subagents.parallel.SubagentExecutor") as mock_executor_class:
-            mock_executor = mock_executor_class.return_value
-            mock_result = MagicMock()
-            mock_result.status = SubagentStatus.COMPLETED
-            mock_result.result = "test result"
-            mock_result.error = None
-            mock_executor.aexecute = AsyncMock(return_value=mock_result)
+        mock_manager = _make_manager(output="test result")
 
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
             results = await executor.execute_plan(plan, context={"workspace_id": "test"})
 
-            assert len(results) == 1
-            assert results[0].success is True
-            assert len(results[0].task_results) == 3
-            # Verify all tasks were executed
-            assert mock_executor.aexecute.call_count == 3
+        assert len(results) == 1
+        assert results[0].success is True
+        assert len(results[0].task_results) == 3
+        assert mock_manager.spawn.await_count == 3
 
     @pytest.mark.asyncio
     async def test_mixed_success_in_parallel_tasks(self):
@@ -287,27 +398,29 @@ class TestParallelExecutorIntegration:
         )
 
         # Mock different results for different tasks
-        with patch("src.subagents.parallel.SubagentExecutor") as mock_executor_class:
-            mock_executor = mock_executor_class.return_value
+        mock_manager = _make_manager()
+        mock_manager.wait_for_completion = AsyncMock(
+            side_effect=[
+                SubagentResult(
+                    task_id="task-1",
+                    status=SubagentStatus.COMPLETED,
+                    output="success 1",
+                    error=None,
+                ),
+                SubagentResult(
+                    task_id="task-2",
+                    status=SubagentStatus.FAILED,
+                    output=None,
+                    error="Task failed",
+                ),
+            ]
+        )
 
-            # First call succeeds
-            mock_result1 = MagicMock()
-            mock_result1.status = SubagentStatus.COMPLETED
-            mock_result1.result = "success 1"
-            mock_result1.error = None
-
-            # Second call fails
-            mock_result2 = MagicMock()
-            mock_result2.status = SubagentStatus.FAILED
-            mock_result2.result = None
-            mock_result2.error = "Task failed"
-
-            mock_executor.aexecute = AsyncMock(side_effect=[mock_result1, mock_result2])
-
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
             results = await executor.execute_plan(plan, context={"workspace_id": "test"})
 
-            assert len(results) == 1
-            assert results[0].success is False  # Phase should fail if any task fails
-            assert len(results[0].task_results) == 2
-            assert results[0].task_results[0]["success"] is True
-            assert results[0].task_results[1]["success"] is False
+        assert len(results) == 1
+        assert results[0].success is False  # Phase should fail if any task fails
+        assert len(results[0].task_results) == 2
+        assert results[0].task_results[0]["success"] is True
+        assert results[0].task_results[1]["success"] is False
