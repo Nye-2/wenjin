@@ -1,7 +1,8 @@
 """Graph template registry for subagent graphs."""
 
 import threading
-from typing import Any
+from collections import OrderedDict
+from typing import Any, cast
 
 
 def build_subagent_tool_middlewares() -> list[Any]:
@@ -24,7 +25,7 @@ def build_subagent_tool_middlewares() -> list[Any]:
 
 def _create_subagent_react_agent(
     llm: Any,
-    tools: list,
+    tools: list[Any],
     *,
     system_prompt: str | None = None,
 ) -> Any:
@@ -39,7 +40,7 @@ def _create_subagent_react_agent(
         middlewares=build_subagent_tool_middlewares(),
     )
 
-    def _resolve_model(_state, _runtime):
+    def _resolve_model(_state: object, _runtime: object) -> Any:
         current_tools = tool_node.list_available_tools()
         if not current_tools:
             return llm
@@ -49,16 +50,33 @@ def _create_subagent_react_agent(
     if system_prompt:
         kwargs["prompt"] = system_prompt
 
-    return create_react_agent(_resolve_model, tool_node, **kwargs)
+    return cast(Any, create_react_agent)(_resolve_model, tool_node, **kwargs)
 
 
 class GraphTemplateRegistry:
-    """Registry for graph templates used by subagents."""
+    """LRU-evicting registry for compiled subagent graph templates.
 
-    def __init__(self):
-        """Initialize an empty registry."""
-        self._templates: dict[str, Any] = {}
+    Prevents unbounded memory growth by evicting the least-recently-used
+    entry when the registry reaches max_size.
+    """
+
+    def __init__(self, max_size: int = 50) -> None:
+        """Initialize with a size cap.
+
+        Args:
+            max_size: Maximum number of graphs to keep. The LRU entry is
+                      evicted when this limit is reached. Default: 50.
+        """
+        if max_size < 1:
+            raise ValueError(f"max_size must be >= 1, got {max_size}")
+        self._templates: OrderedDict[str, Any] = OrderedDict()
         self._lock = threading.Lock()
+        self._max_size = max_size
+
+    @property
+    def max_size(self) -> int:
+        """Return the configured maximum registry size."""
+        return self._max_size
 
     @property
     def count(self) -> int:
@@ -67,41 +85,31 @@ class GraphTemplateRegistry:
             return len(self._templates)
 
     def register(self, name: str, graph: Any) -> None:
-        """Register a graph template.
-
-        Args:
-            name: Template name.
-            graph: Graph object to register.
-        """
+        """Register a graph template, evicting the LRU entry if at capacity."""
         with self._lock:
-            self._templates[name] = graph
+            if name in self._templates:
+                self._templates.move_to_end(name)
+                self._templates[name] = graph
+            else:
+                if len(self._templates) >= self._max_size:
+                    self._templates.popitem(last=False)
+                self._templates[name] = graph
 
     def get(self, name: str) -> Any | None:
-        """Get a registered graph template.
-
-        Args:
-            name: Template name.
-
-        Returns:
-            Graph object if found, None otherwise.
-        """
+        """Get a registered template and mark it as recently used."""
         with self._lock:
-            return self._templates.get(name)
+            if name not in self._templates:
+                return None
+            self._templates.move_to_end(name)
+            return self._templates[name]
 
     def has(self, name: str) -> bool:
-        """Check if a template is registered.
-
-        Args:
-            name: Template name.
-
-        Returns:
-            True if registered, False otherwise.
-        """
+        """Check if a template is registered."""
         with self._lock:
             return name in self._templates
 
 
-def create_default_subagent_graph(llm: Any, tools: list, max_turns: int = 10) -> Any:
+def create_default_subagent_graph(llm: Any, tools: list[Any], max_turns: int = 10) -> Any:
     """Create a default ReAct-style subagent graph.
 
     Args:
@@ -125,7 +133,7 @@ def create_default_subagent_graph(llm: Any, tools: list, max_turns: int = 10) ->
 
 def create_academic_agent_graph(
     llm: Any,
-    tools: list,
+    tools: list[Any],
     system_prompt: str,
     max_turns: int = 10,
 ) -> Any:
@@ -158,7 +166,7 @@ def create_academic_agent_graph(
 def register_academic_templates(
     registry: GraphTemplateRegistry,
     llm: Any,
-    tools: dict
+    tools: dict[str, Any],
 ) -> None:
     """Register academic agent graph templates.
 

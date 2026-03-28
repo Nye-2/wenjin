@@ -193,3 +193,52 @@ class TestCreateDefaultSubagentGraph:
 
             args, _ = mock_create.call_args
             assert args[1]._middlewares == [middleware]
+
+
+def test_registry_evicts_oldest_entry_at_max_size():
+    """Registry must evict the LRU (oldest) entry when max_size is reached."""
+    from unittest.mock import MagicMock
+    from src.subagents.graph import GraphTemplateRegistry
+
+    registry = GraphTemplateRegistry(max_size=3)
+    g1, g2, g3, g4 = MagicMock(), MagicMock(), MagicMock(), MagicMock()
+
+    registry.register("a", g1)
+    registry.register("b", g2)
+    registry.register("c", g3)
+    assert registry.count == 3
+
+    # Adding a 4th entry must evict the oldest ("a")
+    registry.register("d", g4)
+    assert registry.count == 3
+    assert registry.get("a") is None, "Oldest entry 'a' must have been evicted"
+    assert registry.get("d") is g4
+
+
+def test_registry_get_moves_entry_to_most_recent():
+    """Accessing an entry must make it the most recently used (not evicted next)."""
+    from unittest.mock import MagicMock
+    from src.subagents.graph import GraphTemplateRegistry
+
+    registry = GraphTemplateRegistry(max_size=2)
+    g1, g2, g3 = MagicMock(), MagicMock(), MagicMock()
+
+    registry.register("a", g1)
+    registry.register("b", g2)
+
+    # Access "a" to mark it as recently used
+    assert registry.get("a") is g1
+
+    # Adding "c" must evict "b" (LRU), not "a"
+    registry.register("c", g3)
+    assert registry.get("b") is None, "'b' should have been evicted as LRU"
+    assert registry.get("a") is g1, "'a' should survive (was recently accessed)"
+    assert registry.get("c") is g3
+
+
+def test_registry_default_max_size_is_50():
+    """Default max_size must be 50."""
+    from src.subagents.graph import GraphTemplateRegistry
+
+    registry = GraphTemplateRegistry()
+    assert registry.max_size == 50
