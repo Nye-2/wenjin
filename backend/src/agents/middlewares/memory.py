@@ -92,6 +92,20 @@ class MemoryMiddleware(Middleware):
         # arbitrary string IDs that may contain ':'.
         return f"{user_id}:{workspace_id or ''}"
 
+    def _cache_set(self, key: str, value: str) -> None:
+        """Store *value* under *key* in the LRU cache.
+
+        If *key* already exists it is promoted to MRU position.  When the
+        cache is at capacity the least-recently-used entry is evicted and a
+        debug log is emitted for operational observability.
+        """
+        if key in self._memory_cache:
+            self._memory_cache.move_to_end(key)
+        elif len(self._memory_cache) >= self._max_cache_size:
+            evicted_key, _ = self._memory_cache.popitem(last=False)
+            logger.debug("Memory cache evicted key: %s", evicted_key)
+        self._memory_cache[key] = (value, time.monotonic())
+
     async def before_model(
         self,
         state: ThreadState,
@@ -152,9 +166,7 @@ class MemoryMiddleware(Middleware):
             return {}
         if not memory_context:
             return {}
-        if len(self._memory_cache) >= self._max_cache_size:
-            self._memory_cache.popitem(last=False)
-        self._memory_cache[cache_key] = (memory_context, time.monotonic())
+        self._cache_set(cache_key, memory_context)
         return {"memory_context": memory_context}
 
     async def after_model(

@@ -162,3 +162,20 @@ async def test_lru_promotion_saves_recently_hit_entry():
     assert "user-A:ws-1" in mw._memory_cache, "Promoted entry (user-A) must be retained"
     assert "user-C:ws-1" in mw._memory_cache
     assert len(mw._memory_cache) == 2
+
+
+def test_cache_set_with_eviction_logs(caplog):
+    """Evicting a cache entry should emit a debug log."""
+    import logging
+    import time
+
+    middleware = MemoryMiddleware(queue=None, enabled=True, max_cache_size=1)
+    # Pre-populate cache
+    middleware._memory_cache["old-key"] = ("old-context", time.monotonic())
+
+    with caplog.at_level(logging.DEBUG, logger="src.agents.middlewares.memory"):
+        middleware._cache_set("new-key", "new-context")
+
+    assert any("evict" in r.message.lower() for r in caplog.records)
+    assert "old-key" not in middleware._memory_cache
+    assert "new-key" in middleware._memory_cache
