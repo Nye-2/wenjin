@@ -63,10 +63,18 @@ THESIS_ACTION_LABELS: dict[str, str] = {
 
 
 def get_feature_cost(feature_id: str, action: str | None = None) -> int:
-    """Resolve credit cost for a feature and optional action."""
-    config = FEATURE_COSTS.get(feature_id, 0)
-    if isinstance(config, Mapping):
-        if action and action in config:
-            return int(config[action])
-        return int(config.get("default", 0))
-    return int(config)
+    """Resolve credit cost from the feature registry.
+
+    Falls back to 0 for unknown features.
+    """
+    from src.workspace_features.registry import iter_workspace_features  # noqa: PLC0415
+
+    for feature in iter_workspace_features():
+        if feature.id == feature_id:
+            cost = feature.credit_cost
+            if isinstance(cost, dict):
+                if action and action in cost:
+                    return cost[action]
+                return cost.get("default", 0)
+            return cost or 0
+    return 0
