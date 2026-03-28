@@ -254,7 +254,12 @@ class CreditService:
         return total
 
     async def can_start_chat_turn(self, user_id: str) -> bool:
-        """Return whether the user can start a billable chat turn."""
+        """Return whether the user can start a billable chat turn.
+
+        Uses ``SELECT ... FOR UPDATE`` on the user row so that concurrent
+        requests serialise on the same balance, preventing two callers from
+        both passing the check before either deducts credits.
+        """
         policy = self.get_chat_billing_policy()
         if not policy.enabled:
             return True
@@ -263,8 +268,10 @@ class CreditService:
         if consumed_tokens < policy.free_tokens:
             return True
 
-        balance = await self.get_balance(user_id)
-        return balance > 0
+        # Lock the user row to prevent concurrent budget checks from both
+        # passing before either has a chance to deduct credits.
+        user = await self._get_user_for_update(user_id)
+        return int(user.credits) > 0
 
     async def consume_for_chat_usage(
         self,
