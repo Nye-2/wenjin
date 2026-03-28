@@ -170,6 +170,7 @@ def _collect_imports(path: Path) -> list[str]:
 
 def test_application_handlers_have_no_http_imports():
     """Application handlers must not import FastAPI, Starlette, or gateway deps."""
+    assert _HANDLERS_DIR.is_dir(), f"Handlers directory not found: {_HANDLERS_DIR}"
     violations: list[str] = []
     for py_file in _HANDLERS_DIR.glob("*.py"):
         if py_file.name.startswith("_"):
