@@ -85,15 +85,18 @@ class GraphTemplateRegistry:
             return len(self._templates)
 
     def register(self, name: str, graph: Any) -> None:
-        """Register a graph template, evicting the LRU entry if at capacity."""
+        """Register a graph template, evicting the LRU entry if at capacity.
+
+        Args:
+            name: Cache key.
+            graph: Compiled LangGraph object.
+        """
         with self._lock:
             if name in self._templates:
                 self._templates.move_to_end(name)
-                self._templates[name] = graph
-            else:
-                if len(self._templates) >= self._max_size:
-                    self._templates.popitem(last=False)
-                self._templates[name] = graph
+            elif len(self._templates) >= self._max_size:
+                self._templates.popitem(last=False)
+            self._templates[name] = graph
 
     def get(self, name: str) -> Any | None:
         """Get a registered template and mark it as recently used."""
@@ -104,7 +107,17 @@ class GraphTemplateRegistry:
             return self._templates[name]
 
     def has(self, name: str) -> bool:
-        """Check if a template is registered."""
+        """Check if a template is registered.
+
+        Note: unlike ``get()``, this method does **not** promote the entry to
+        most-recently-used. Use ``get()`` when you intend to access the graph.
+
+        Args:
+            name: Template name.
+
+        Returns:
+            True if registered, False otherwise.
+        """
         with self._lock:
             return name in self._templates
 

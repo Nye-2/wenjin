@@ -242,3 +242,11 @@ def test_registry_default_max_size_is_50():
 
     registry = GraphTemplateRegistry()
     assert registry.max_size == 50
+
+
+def test_registry_rejects_invalid_max_size():
+    """GraphTemplateRegistry must raise ValueError for max_size < 1."""
+    from src.subagents.graph import GraphTemplateRegistry
+
+    with pytest.raises(ValueError, match="max_size must be >= 1"):
+        GraphTemplateRegistry(max_size=0)
