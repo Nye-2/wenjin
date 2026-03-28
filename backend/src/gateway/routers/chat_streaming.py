@@ -36,3 +36,8 @@ def stream_error_event(error: str) -> str:
 
 def stream_done_event() -> str:
     return encode_sse_event({"type": "done"})
+
+
+def stream_heartbeat_event() -> str:
+    """SSE comment line — keeps the connection alive without triggering data handlers."""
+    return ": heartbeat\n\n"

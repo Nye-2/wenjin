@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 
@@ -36,6 +37,7 @@ from src.gateway.routers.chat_streaming import (
     stream_content_event,
     stream_done_event,
     stream_error_event,
+    stream_heartbeat_event,
     stream_thread_context_event,
 )
 from src.models.router import InvalidRequestedModelError
@@ -150,29 +152,66 @@ async def chat_stream(
     """Send a message and get a streaming response."""
 
     async def generate() -> AsyncGenerator[str, None]:
-        try:
-            prepared = await handler.prepare_turn(
-                _to_turn_request(request),
-                actor_id=str(current_user.id),
-            )
-            yield stream_thread_context_event(
-                thread_id=prepared.thread.id,
-                skill=prepared.thread.skill,
-            )
+        result_queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-            completed = await handler.complete_turn(
-                prepared,
-                actor_id=str(current_user.id),
-            )
-            if completed.reply.content:
-                yield stream_content_event(completed.reply.content)
-            yield stream_assistant_message_event(completed.assistant_message)
-            yield stream_done_event()
-        except ApplicationError as exc:
-            yield stream_error_event(exc.message)
-        except Exception as exc:
-            logger.exception("Streaming chat failed")
-            yield stream_error_event(str(exc))
+        async def _heartbeat() -> None:
+            """Send periodic SSE comment lines to keep connection alive."""
+            try:
+                while True:
+                    await asyncio.sleep(15)
+                    await result_queue.put(stream_heartbeat_event())
+            except asyncio.CancelledError:
+                pass
+
+        async def _process() -> None:
+            """Run the actual chat turn and enqueue SSE events."""
+            try:
+                prepared = await handler.prepare_turn(
+                    _to_turn_request(request),
+                    actor_id=str(current_user.id),
+                )
+                await result_queue.put(
+                    stream_thread_context_event(
+                        thread_id=prepared.thread.id,
+                        skill=prepared.thread.skill,
+                    )
+                )
+                completed = await handler.complete_turn(
+                    prepared,
+                    actor_id=str(current_user.id),
+                )
+                if completed.reply.content:
+                    await result_queue.put(stream_content_event(completed.reply.content))
+                await result_queue.put(
+                    stream_assistant_message_event(completed.assistant_message)
+                )
+                await result_queue.put(stream_done_event())
+            except ApplicationError as exc:
+                await result_queue.put(stream_error_event(exc.message))
+            except Exception as exc:
+                logger.exception("Streaming chat failed")
+                await result_queue.put(stream_error_event(str(exc)))
+            finally:
+                await result_queue.put(None)  # sentinel to stop yielding
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        process_task = asyncio.create_task(_process())
+
+        try:
+            while True:
+                event = await result_queue.get()
+                if event is None:
+                    break
+                yield event
+        finally:
+            heartbeat_task.cancel()
+            if not process_task.done():
+                process_task.cancel()
+            for task in (heartbeat_task, process_task):
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
     return StreamingResponse(
         generate(),
