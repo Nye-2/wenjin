@@ -1,11 +1,15 @@
 """Literature context middleware for index-based TOC navigation."""
 
+import asyncio
+import logging
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
+
+logger = logging.getLogger(__name__)
 
 
 class LiteratureContextMiddleware(Middleware):
@@ -23,14 +27,16 @@ class LiteratureContextMiddleware(Middleware):
     If no workspace_id is present, the middleware skips loading context.
     """
 
-    def __init__(self, index_service):
+    def __init__(self, index_service, timeout: float = 5.0):
         """Initialize with index service.
 
         Args:
             index_service: Service for index-based literature navigation
                           (IndexService instance)
+            timeout: Seconds to wait for the service call before giving up
         """
         self.index_service = index_service
+        self._timeout = timeout
 
     async def before_model(
         self,
@@ -56,7 +62,18 @@ class LiteratureContextMiddleware(Middleware):
             return dict(state)
 
         # Get TOC summary for workspace
-        toc_summary = await self.index_service.get_workspace_toc_summary(workspace_id)
+        try:
+            toc_summary = await asyncio.wait_for(
+                self.index_service.get_workspace_toc_summary(workspace_id),
+                timeout=self._timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "LiteratureContextMiddleware: timed out loading TOC for workspace %s (%.1fs)",
+                workspace_id,
+                self._timeout,
+            )
+            return {}
 
         # Only inject if we have content
         if not toc_summary:

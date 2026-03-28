@@ -1,11 +1,15 @@
 """Workspace context middleware for loading workspace configuration."""
 
+import asyncio
+import logging
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
+
+logger = logging.getLogger(__name__)
 
 
 class WorkspaceContextMiddleware(Middleware):
@@ -17,13 +21,15 @@ class WorkspaceContextMiddleware(Middleware):
     3. Injects workspace type, discipline, and config into state
     """
 
-    def __init__(self, workspace_service):
+    def __init__(self, workspace_service, timeout: float = 5.0):
         """Initialize with workspace service.
 
         Args:
             workspace_service: Service for workspace CRUD operations
+            timeout: Seconds to wait for the service call before giving up
         """
         self.workspace_service = workspace_service
+        self._timeout = timeout
 
     async def before_model(
         self,
@@ -35,7 +41,18 @@ class WorkspaceContextMiddleware(Middleware):
         if not workspace_id:
             return dict(state)
 
-        workspace = await self.workspace_service.get(workspace_id)
+        try:
+            workspace = await asyncio.wait_for(
+                self.workspace_service.get(workspace_id),
+                timeout=self._timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "WorkspaceContextMiddleware: timed out loading workspace %s (%.1fs)",
+                workspace_id,
+                self._timeout,
+            )
+            return {}
         if not workspace:
             return dict(state)
 

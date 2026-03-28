@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import logging
 import time
@@ -128,11 +129,21 @@ class MemoryMiddleware(Middleware):
             filtered_messages,
             limit=max_context_turns * 2,
         )
-        memory_context = await build_memory_context(
-            str(user_id),
-            str(workspace_id) if workspace_id else None,
-            current_context=conversation_context or None,
-        )
+        try:
+            memory_context = await asyncio.wait_for(
+                build_memory_context(
+                    str(user_id),
+                    str(workspace_id) if workspace_id else None,
+                    current_context=conversation_context or None,
+                ),
+                timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "MemoryMiddleware: timed out loading memory context for user %s (5.0s)",
+                user_id,
+            )
+            return {}
         if not memory_context:
             return {}
         if len(self._memory_cache) >= self._max_cache_size:

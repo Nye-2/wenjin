@@ -1,11 +1,15 @@
 """Knowledge context middleware for injecting academic artifacts."""
 
+import asyncio
+import logging
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
+
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeContextMiddleware(Middleware):
@@ -17,13 +21,15 @@ class KnowledgeContextMiddleware(Middleware):
     3. Injects into state for context
     """
 
-    def __init__(self, artifact_service):
+    def __init__(self, artifact_service, timeout: float = 5.0):
         """Initialize with artifact service.
 
         Args:
             artifact_service: Service for artifact CRUD operations
+            timeout: Seconds to wait for the service call before giving up
         """
         self.artifact_service = artifact_service
+        self._timeout = timeout
 
     def _build_knowledge_graph(self, artifacts: list) -> str:
         """Build knowledge graph context from artifacts."""
@@ -75,7 +81,18 @@ class KnowledgeContextMiddleware(Middleware):
             return dict(state)
 
         # Load artifacts
-        artifacts = await self.artifact_service.list_by_workspace(workspace_id)
+        try:
+            artifacts = await asyncio.wait_for(
+                self.artifact_service.list_by_workspace(workspace_id),
+                timeout=self._timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "KnowledgeContextMiddleware: timed out loading artifacts for workspace %s (%.1fs)",
+                workspace_id,
+                self._timeout,
+            )
+            return {}
 
         # Build context
         knowledge_context = self._build_knowledge_graph(artifacts)
