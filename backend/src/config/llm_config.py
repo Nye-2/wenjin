@@ -33,6 +33,7 @@ class LLMSettings:
     TEMPERATURE: float = 0.7
     TIMEOUT: float = 120.0
     MAX_RETRIES: int = 3
+    AGENT_TIMEOUT: float = 300.0
 
     @classmethod
     def load(cls) -> None:
@@ -50,6 +51,11 @@ class LLMSettings:
         if retries := os.environ.get("LLM_MAX_RETRIES"):
             try:
                 cls.MAX_RETRIES = int(retries)
+            except ValueError:
+                pass
+        if agent_timeout := os.environ.get("LLM_AGENT_TIMEOUT"):
+            try:
+                cls.AGENT_TIMEOUT = float(agent_timeout)
             except ValueError:
                 pass
 

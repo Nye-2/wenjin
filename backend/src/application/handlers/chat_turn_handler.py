@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import mimetypes
@@ -17,7 +18,7 @@ from src.academic.services import ArtifactService, PaperService, WorkspaceServic
 from src.agents.lead_agent.feature_bridge import maybe_bridge_workspace_feature
 from src.agents.middlewares.thread_data import get_thread_data_root
 from src.agents.memory.capture import enqueue_memory_capture
-from src.application.errors import BadRequestError, NotFoundError, PaymentRequiredError
+from src.application.errors import ApplicationError, BadRequestError, NotFoundError, PaymentRequiredError
 from src.application.results import (
     ChatTurnAttachment,
     ChatTurnRequest,
@@ -26,6 +27,7 @@ from src.application.results import (
     PreparedChatTurn,
 )
 from src.config import get_model_config
+from src.config.llm_config import LLMSettings
 from src.config.config_loader import get_app_config
 from src.database import ChatThread, get_db_session
 from src.models import route_chat_model
@@ -600,7 +602,18 @@ async def generate_chat_response(
 
     await ensure_chat_turn_budget(actor_id)
     agent = cast(Any, make_lead_agent(config, middlewares=middlewares))
-    result = await agent.ainvoke(initial_state, config=config)
+    try:
+        result = await asyncio.wait_for(
+            agent.ainvoke(initial_state, config=config),
+            timeout=LLMSettings.AGENT_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "Agent timed out after %.0fs for thread %s",
+            LLMSettings.AGENT_TIMEOUT,
+            thread.id,
+        )
+        raise ApplicationError("AI 响应超时，请稍后重试或简化您的问题。")
     reply = _reply_from_agent_result(result, thread_id=thread.id)
     return _attach_usage_metadata(
         reply,
