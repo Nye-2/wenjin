@@ -34,6 +34,8 @@ class LLMSettings:
     TIMEOUT: float = 120.0
     MAX_RETRIES: int = 3
     AGENT_TIMEOUT: float = 300.0
+    TOOL_TIMEOUT: float = 60.0          # per-tool execution timeout in seconds
+    TOOL_OUTPUT_MAX_CHARS: int = 10000   # truncate tool output above this
 
     @classmethod
     def load(cls) -> None:
@@ -56,6 +58,16 @@ class LLMSettings:
         if agent_timeout := os.environ.get("LLM_AGENT_TIMEOUT"):
             try:
                 cls.AGENT_TIMEOUT = float(agent_timeout)
+            except ValueError:
+                pass
+        if tool_timeout := os.environ.get("LLM_TOOL_TIMEOUT"):
+            try:
+                cls.TOOL_TIMEOUT = float(tool_timeout)
+            except ValueError:
+                pass
+        if tool_max := os.environ.get("LLM_TOOL_OUTPUT_MAX_CHARS"):
+            try:
+                cls.TOOL_OUTPUT_MAX_CHARS = int(tool_max)
             except ValueError:
                 pass
 

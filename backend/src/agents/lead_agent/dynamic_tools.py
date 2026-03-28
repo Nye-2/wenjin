@@ -27,6 +27,7 @@ from langgraph.types import Command
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState, create_thread_state
+from src.config.llm_config import LLMSettings
 
 ToolLoader = Callable[[], Sequence[BaseTool]]
 ToolNodeInputType: TypeAlias = Literal["list", "dict", "tool_calls"]
@@ -376,7 +377,22 @@ class DynamicToolNode(ToolNode):
             if invalid_tool_message := self._validate_tool_call(updated_call):
                 return invalid_tool_message
             call_args = {**updated_call, **{"type": "tool_call"}}
-            response = await self.tools_by_name[updated_call["name"]].ainvoke(call_args, config)
+            try:
+                response = await asyncio.wait_for(
+                    self.tools_by_name[updated_call["name"]].ainvoke(call_args, config),
+                    timeout=LLMSettings.TOOL_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Tool %s timed out after %.0fs",
+                    updated_call["name"],
+                    LLMSettings.TOOL_TIMEOUT,
+                )
+                return ToolMessage(
+                    content=f"Tool '{updated_call['name']}' timed out after {LLMSettings.TOOL_TIMEOUT:.0f}s. Please try a simpler request.",
+                    name=str(updated_call["name"]),
+                    tool_call_id=str(call["id"]),
+                )
         except GraphBubbleUp as exc:
             raise exc
         except Exception as exc:  # noqa: BLE001
@@ -388,6 +404,12 @@ class DynamicToolNode(ToolNode):
             call=updated_call,
             response=response,
         )
+
+        # Truncate oversized output
+        if isinstance(response, ToolMessage) and isinstance(response.content, str):
+            max_chars = LLMSettings.TOOL_OUTPUT_MAX_CHARS
+            if len(response.content) > max_chars:
+                response.content = response.content[:max_chars] + "\n...[truncated]"
 
         if isinstance(response, Command):
             return cast(
