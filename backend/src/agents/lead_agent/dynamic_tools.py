@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 from collections.abc import Callable, Coroutine, Sequence
 from typing import Any, Literal, TypeAlias, TypeVar, cast
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.messages import AnyMessage, ToolCall, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -108,6 +111,13 @@ class DynamicToolNode(ToolNode):
             asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(coroutine)
+
+        logger.warning(
+            "DynamicToolNode._run_coroutine_sync: called inside a running event loop. "
+            "Spawning a daemon thread to avoid nested-loop deadlock. "
+            "This is safe for stateless middleware but may fail if the coroutine "
+            "uses thread-local DB sessions. Prefer ainvoke() over invoke()."
+        )
 
         result: dict[str, Any] = {}
         error: dict[str, BaseException] = {}

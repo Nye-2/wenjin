@@ -143,3 +143,25 @@ def test_invalidate_tool_cache_forces_rebuild():
     node._refresh_tools()  # Must reload because cache was invalidated
 
     assert call_count == 2, "Loader must be called again after cache invalidation"
+
+
+def test_run_coroutine_sync_warns_when_loop_is_running(caplog):
+    """_run_coroutine_sync must emit a WARNING when called inside a running event loop."""
+    import logging
+    import asyncio
+
+    async def _check_warning():
+        async def noop():
+            return 42
+
+        with caplog.at_level(logging.WARNING, logger="src.agents.lead_agent.dynamic_tools"):
+            # We're inside an event loop here; this should trigger the warning
+            result = DynamicToolNode._run_coroutine_sync(noop())
+        return result
+
+    result = asyncio.run(_check_warning())
+    assert result == 42
+    assert any("sync" in record.message.lower() or "thread" in record.message.lower()
+               for record in caplog.records), (
+        "Expected a WARNING log when _run_coroutine_sync spawns a thread inside a running loop"
+    )
