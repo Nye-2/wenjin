@@ -271,6 +271,7 @@ export interface WorkspaceFeature {
   panel?: string | null;
   stages: FeatureStage[];
   color?: string;
+  followUpPrompt?: string | null;
 }
 
 export interface ExecuteWorkspaceFeatureResponse {
