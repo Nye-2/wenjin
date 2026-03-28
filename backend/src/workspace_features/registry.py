@@ -37,6 +37,8 @@ class WorkspaceFeatureDefinition:
     panel: str | None = None
     stages: tuple[FeatureStageDefinition, ...] = field(default_factory=tuple)
     color: str | None = None
+    credit_cost: int | dict[str, int] | None = None
+    runtime_profile_key: str | None = None
 
     def to_api_dict(self) -> dict:
         """Serialize to the frontend API contract."""
@@ -79,6 +81,8 @@ THESIS_FEATURES = (
             _stage("analyze", "分析信息"),
             _stage("synthesize", "综合整理"),
         ),
+        credit_cost=100,
+        runtime_profile_key="deep_research",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="thesis",
@@ -92,6 +96,8 @@ THESIS_FEATURES = (
         panel=None,
         stages=(),
         color="emerald",
+        credit_cost=20,
+        runtime_profile_key="literature_management",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="thesis",
@@ -109,6 +115,8 @@ THESIS_FEATURES = (
             _stage("outline", "生成大纲"),
             _stage("refine", "完善内容"),
         ),
+        credit_cost=15,
+        runtime_profile_key="opening_research",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="thesis",
@@ -126,6 +134,13 @@ THESIS_FEATURES = (
             _stage("write", "撰写内容"),
             _stage("revise", "修订完善"),
         ),
+        credit_cost={
+            "generate_outline": 20,
+            "write_chapter": 60,
+            "write_all": 200,
+            "default": 200,
+        },
+        runtime_profile_key="thesis_writing_outline",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="thesis",
@@ -143,6 +158,8 @@ THESIS_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
+        credit_cost=30,
+        runtime_profile_key="figure_generation",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="thesis",
@@ -160,6 +177,8 @@ THESIS_FEATURES = (
             _stage("preview", "预览检查"),
             _stage("export", "导出文件"),
         ),
+        credit_cost=10,
+        runtime_profile_key="compile_export",
     ),
 )
 
@@ -179,6 +198,8 @@ SCI_FEATURES = (
             _stage("search", "检索文献"),
             _stage("filter", "筛选结果"),
         ),
+        credit_cost=20,
+        runtime_profile_key="literature_search",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="sci",
@@ -196,6 +217,8 @@ SCI_FEATURES = (
             _stage("analyze", "深度分析"),
             _stage("summarize", "生成摘要"),
         ),
+        credit_cost=25,
+        runtime_profile_key="paper_analysis",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="sci",
@@ -213,6 +236,8 @@ SCI_FEATURES = (
             _stage("write", "撰写内容"),
             _stage("revise", "修订完善"),
         ),
+        credit_cost=60,
+        runtime_profile_key="writing",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="sci",
@@ -230,6 +255,8 @@ SCI_FEATURES = (
             _stage("synthesize", "综合观点"),
             _stage("draft", "生成综述"),
         ),
+        credit_cost=20,
+        runtime_profile_key="literature_review",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="sci",
@@ -247,6 +274,8 @@ SCI_FEATURES = (
             _stage("outline", "生成框架"),
             _stage("abstract", "补摘要"),
         ),
+        credit_cost=20,
+        runtime_profile_key="framework_outline",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="sci",
@@ -264,6 +293,8 @@ SCI_FEATURES = (
             _stage("score", "评估质量"),
             _stage("advise", "生成建议"),
         ),
+        credit_cost=25,
+        runtime_profile_key="peer_review",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="sci",
@@ -281,6 +312,8 @@ SCI_FEATURES = (
             _stage("match", "匹配期刊"),
             _stage("rank", "输出建议"),
         ),
+        credit_cost=20,
+        runtime_profile_key="journal_recommend",
     ),
 )
 
@@ -300,6 +333,8 @@ PROPOSAL_FEATURES = (
             _stage("analyze", "分析要求"),
             _stage("generate", "生成大纲"),
         ),
+        credit_cost=30,
+        runtime_profile_key="proposal_outline",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="proposal",
@@ -316,6 +351,8 @@ PROPOSAL_FEATURES = (
             _stage("search", "搜索资料"),
             _stage("summarize", "整理归纳"),
         ),
+        credit_cost=20,
+        runtime_profile_key="background_research",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="proposal",
@@ -333,6 +370,8 @@ PROPOSAL_FEATURES = (
             _stage("variables", "设计变量"),
             _stage("evaluation", "规划评估"),
         ),
+        credit_cost=30,
+        runtime_profile_key="experiment_design",
     ),
 )
 
@@ -353,6 +392,8 @@ SOFTWARE_COPYRIGHT_FEATURES = (
             _stage("organize", "整理说明"),
             _stage("review", "核对格式"),
         ),
+        credit_cost=15,
+        runtime_profile_key="copyright_materials",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="software_copyright",
@@ -370,6 +411,8 @@ SOFTWARE_COPYRIGHT_FEATURES = (
             _stage("draft", "生成说明"),
             _stage("revise", "优化内容"),
         ),
+        credit_cost=30,
+        runtime_profile_key="technical_description",
     ),
 )
 
@@ -390,6 +433,8 @@ PATENT_FEATURES = (
             _stage("structure", "生成框架"),
             _stage("refine", "完善结构"),
         ),
+        credit_cost=40,
+        runtime_profile_key="patent_outline",
     ),
     WorkspaceFeatureDefinition(
         workspace_type="patent",
@@ -406,6 +451,8 @@ PATENT_FEATURES = (
             _stage("search", "检索材料"),
             _stage("compare", "对比分析"),
         ),
+        credit_cost=30,
+        runtime_profile_key="prior_art_search",
     ),
 )
 
