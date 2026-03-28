@@ -1,0 +1,77 @@
+disciplines:
+  computer_science:
+    citation_style: IEEE
+    structure:
+      - Abstract
+      - Introduction
+      - Related Work
+      - Methodology
+      - Experiments
+      - Results
+      - Discussion
+      - Conclusion
+    terminology:
+      deep learning: Deep Learning
+      machine learning: Machine Learning
+      neural network: Neural Network
+      natural language processing: Natural Language Processing (NLP)
+    writing_style: technical and precise
+
+  biology:
+    citation_style: APA
+    structure:
+      - Abstract
+      - Introduction
+      - Methods
+      - Results
+      - Discussion
+      - Conclusion
+    terminology: {}
+    writing_style: descriptive and detailed
+
+  physics:
+    citation_style: APS
+    structure:
+      - Abstract
+      - Introduction
+      - Theory
+      - Methods
+      - Results
+      - Discussion
+      - Conclusion
+    terminology: {}
+    writing_style: mathematical and rigorous
+
+  psychology:
+    citation_style: APA
+    structure:
+      - Abstract
+      - Introduction
+      - Method
+      - Results
+      - Discussion
+      - References
+    terminology: {}
+    writing_style: empirical and evidence-based
+
+workspace_types:
+  sci:
+    paper_length: "6000-8000 words"
+    sections: 8
+    figures: "3-5"
+  thesis:
+    paper_length: "30000-50000 words"
+    sections: 6
+    figures: "10-20"
+  proposal:
+    paper_length: "2000-4000 words"
+    sections: 5
+    figures: "2-3"
+  software_copyright:
+    paper_length: "3000-6000 words"
+    sections: 5
+    figures: "2-4"
+  patent:
+    paper_length: "4000-8000 words"
+    sections: 6
+    figures: "3-5"

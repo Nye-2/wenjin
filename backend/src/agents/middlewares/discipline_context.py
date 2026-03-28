@@ -1,107 +1,50 @@
 """Discipline context middleware for injecting academic norms."""
 
+import logging
+from pathlib import Path
 from typing import Any
 
+import yaml
 from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
 
-# Discipline-specific norms database
-DISCIPLINE_NORMS = {
-    "computer_science": {
-        "citation_style": "IEEE",
-        "structure": [
-            "Abstract",
-            "Introduction",
-            "Related Work",
-            "Methodology",
-            "Experiments",
-            "Results",
-            "Discussion",
-            "Conclusion",
-        ],
-        "terminology": {
-            "deep learning": "Deep Learning",
-            "machine learning": "Machine Learning",
-            "neural network": "Neural Network",
-            "natural language processing": "Natural Language Processing (NLP)",
-        },
-        "writing_style": "technical and precise",
-    },
-    "biology": {
-        "citation_style": "APA",
-        "structure": [
-            "Abstract",
-            "Introduction",
-            "Methods",
-            "Results",
-            "Discussion",
-            "Conclusion",
-        ],
-        "terminology": {},
-        "writing_style": "descriptive and detailed",
-    },
-    "physics": {
-        "citation_style": "APS",
-        "structure": [
-            "Abstract",
-            "Introduction",
-            "Theory",
-            "Methods",
-            "Results",
-            "Discussion",
-            "Conclusion",
-        ],
-        "terminology": {},
-        "writing_style": "mathematical and rigorous",
-    },
-    "psychology": {
-        "citation_style": "APA",
-        "structure": [
-            "Abstract",
-            "Introduction",
-            "Method",
-            "Results",
-            "Discussion",
-            "References",
-        ],
-        "terminology": {},
-        "writing_style": "empirical and evidence-based",
-    },
-}
+logger = logging.getLogger(__name__)
 
-WORKSPACE_TYPE_CONFIGS = {
-    "sci": {
-        "paper_length": "6000-8000 words",
-        "sections": 8,
-        "figures": "3-5",
-    },
-    "thesis": {
-        "paper_length": "30000-50000 words",
-        "sections": 6,
-        "figures": "10-20",
-    },
-    "proposal": {
-        "paper_length": "2000-4000 words",
-        "sections": 5,
-        "figures": "2-3",
-    },
-    "software_copyright": {
-        "paper_length": "3000-6000 words",
-        "sections": 5,
-        "figures": "2-4",
-    },
-    "patent": {
-        "paper_length": "4000-8000 words",
-        "sections": 6,
-        "figures": "3-5",
-    },
-}
+DISCIPLINE_NORMS_PATH = Path(__file__).parent / "discipline_norms.yaml"
+
+_DEFAULT_DISCIPLINE = "computer_science"
+
+
+def _load_norms_config() -> dict[str, Any]:
+    """Load discipline norms from the YAML config file.
+
+    Returns:
+        Dict with 'disciplines' and 'workspace_types' keys.
+    """
+    try:
+        text = DISCIPLINE_NORMS_PATH.read_text(encoding="utf-8")
+        config = yaml.safe_load(text)
+        if not isinstance(config, dict):
+            logger.warning("discipline_norms.yaml did not parse as a dict, using empty config")
+            return {"disciplines": {}, "workspace_types": {}}
+        return config
+    except FileNotFoundError:
+        logger.warning("discipline_norms.yaml not found at %s, using empty config", DISCIPLINE_NORMS_PATH)
+        return {"disciplines": {}, "workspace_types": {}}
+    except yaml.YAMLError as exc:
+        logger.error("Failed to parse discipline_norms.yaml: %s", exc)
+        return {"disciplines": {}, "workspace_types": {}}
 
 
 class DisciplineRegistry:
     """Registry for discipline-specific norms and configurations."""
+
+    def __init__(self) -> None:
+        config = _load_norms_config()
+        self._disciplines: dict[str, Any] = config.get("disciplines", {})
+        self._workspace_types: dict[str, Any] = config.get("workspace_types", {})
 
     def get_norms(self, discipline: str, workspace_type: str | None = None) -> dict:
         """Get norms for a discipline and workspace type.
@@ -114,11 +57,12 @@ class DisciplineRegistry:
             Dict with citation_style, structure, terminology, writing_style
         """
         # Get base discipline norms
-        norms = DISCIPLINE_NORMS.get(discipline, DISCIPLINE_NORMS["computer_science"])
+        default = self._disciplines.get(_DEFAULT_DISCIPLINE, {})
+        norms = self._disciplines.get(discipline, default)
 
         # Add workspace type config
         if workspace_type:
-            type_config = WORKSPACE_TYPE_CONFIGS.get(workspace_type, {})
+            type_config = self._workspace_types.get(workspace_type, {})
             norms = {**norms, **type_config}
 
         return norms
