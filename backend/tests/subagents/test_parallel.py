@@ -424,3 +424,56 @@ class TestParallelExecutorIntegration:
         assert len(results[0].task_results) == 2
         assert results[0].task_results[0]["success"] is True
         assert results[0].task_results[1]["success"] is False
+
+
+class TestParallelExecutorFailFast:
+    @pytest.mark.asyncio
+    async def test_fail_fast_skips_dependent_phases(self):
+        """When fail_fast=True, phases depending on a failed phase should be skipped."""
+        executor = ParallelExecutor(fail_fast=True)
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(name="phase1", tasks=[{"subagent_type": "scout", "prompt": "task"}]),
+                ExecutionPhase(name="phase2", tasks=[{"subagent_type": "synthesizer", "prompt": "task"}], depends_on=["phase1"]),
+            ],
+        )
+        mock_manager = _make_manager(status=SubagentStatus.FAILED, output=None, error="task failed")
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
+            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+        assert len(results) == 2
+        assert results[0].success is False
+        assert results[1].success is False
+        assert "skipped" in results[1].error.lower()
+
+    @pytest.mark.asyncio
+    async def test_fail_fast_default_is_false(self):
+        """Default fail_fast should be False."""
+        executor = ParallelExecutor()
+        assert executor.fail_fast is False
+
+    @pytest.mark.asyncio
+    async def test_fail_fast_false_continues_after_failure(self):
+        """When fail_fast=False, dependent phases still execute."""
+        executor = ParallelExecutor(fail_fast=False)
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(name="phase1", tasks=[{"subagent_type": "scout", "prompt": "task"}]),
+                ExecutionPhase(name="phase2", tasks=[{"subagent_type": "scout", "prompt": "task"}], depends_on=["phase1"]),
+            ],
+        )
+        call_count = 0
+
+        async def varying_result(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return SubagentResult(task_id="t1", status=SubagentStatus.FAILED, output=None, error="failed")
+            return SubagentResult(task_id="t2", status=SubagentStatus.COMPLETED, output="ok", error=None)
+
+        mock_manager = _make_manager()
+        mock_manager.wait_for_completion = AsyncMock(side_effect=varying_result)
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
+            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+        assert len(results) == 2
+        assert results[0].success is False
+        assert results[1].success is True  # Still executed

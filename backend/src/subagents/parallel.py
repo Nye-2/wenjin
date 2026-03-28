@@ -80,16 +80,19 @@ class PhasedPlan:
 class ParallelExecutor:
     """Executes subagent tasks in parallel with phased dependencies."""
 
-    def __init__(self, max_concurrent: int = 4, phase_timeout: float | None = None):
+    def __init__(self, max_concurrent: int = 4, phase_timeout: float | None = None, fail_fast: bool = False):
         """Initialize parallel executor.
 
         Args:
             max_concurrent: Maximum concurrent subagent executions
             phase_timeout: Optional timeout in seconds for each phase execution.
                           If ``None`` (the default), phases run without a timeout.
+            fail_fast: If ``True``, phases whose dependencies failed will be
+                      skipped immediately instead of being executed.
         """
         self.max_concurrent = max_concurrent
         self.phase_timeout = phase_timeout
+        self.fail_fast = fail_fast
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._phase_events: dict[str, asyncio.Event] = {}
 
@@ -135,14 +138,37 @@ class ParallelExecutor:
             trace_suffix = context.get("trace_id") or uuid4()
             context["_subagent_thread_id"] = f"parallel-plan-{trace_suffix}"
 
+        failed_phases: set[str] = set()
+
         for phase in plan.phases:
             # Wait for dependencies
             for dep in phase.depends_on:
                 await self._phase_events[dep].wait()
 
+            # If fail_fast is enabled, skip phases whose dependencies failed
+            if self.fail_fast:
+                failed_deps = [dep for dep in phase.depends_on if dep in failed_phases]
+                if failed_deps:
+                    phase_result = PhaseResult(
+                        phase_name=phase.name,
+                        task_results=[],
+                        error=f"Skipped: dependency phase(s) {', '.join(failed_deps)} failed",
+                    )
+                    results[phase.name] = phase_result
+                    failed_phases.add(phase.name)
+
+                    if phase_callback is not None:
+                        await phase_callback(phase_result)
+
+                    self._phase_events[phase.name].set()
+                    continue
+
             # Execute phase
             phase_result = await self._execute_phase(phase, context)
             results[phase.name] = phase_result
+
+            if not phase_result.success:
+                failed_phases.add(phase.name)
 
             if phase_callback is not None:
                 await phase_callback(phase_result)
