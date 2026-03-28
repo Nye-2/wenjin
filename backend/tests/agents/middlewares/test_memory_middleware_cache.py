@@ -128,3 +128,37 @@ async def test_cache_evicts_oldest_entry_at_capacity():
     assert "user-B:ws-1" in mw._memory_cache
     assert "user-C:ws-1" in mw._memory_cache
     assert len(mw._memory_cache) == 2
+
+
+def test_invalid_max_cache_size_raises():
+    """Constructing MemoryMiddleware with max_cache_size < 1 must raise ValueError."""
+    with pytest.raises(ValueError, match="max_cache_size must be >= 1"):
+        MemoryMiddleware(max_cache_size=0)
+
+
+@pytest.mark.asyncio
+async def test_lru_promotion_saves_recently_hit_entry():
+    """A cache hit promotes an entry to MRU; on eviction the true LRU is removed."""
+    mw = MemoryMiddleware(enabled=True, inject_enabled=True, cache_ttl=300, max_cache_size=2)
+
+    state = {"messages": [], "workspace_id": "ws-1"}
+    config_a = {"configurable": {"user_id": "user-A", "workspace_id": "ws-1"}}
+    config_b = {"configurable": {"user_id": "user-B", "workspace_id": "ws-1"}}
+    config_c = {"configurable": {"user_id": "user-C", "workspace_id": "ws-1"}}
+
+    with patch(
+        "src.agents.middlewares.memory.build_memory_context",
+        new_callable=AsyncMock,
+        side_effect=["ctx-A", "ctx-B", "ctx-C"],
+    ):
+        await mw.before_model(state, config_a)   # insert user-A (size=1)
+        await mw.before_model(state, config_b)   # insert user-B (size=2, full)
+        # Hit user-A — promotes it to MRU; user-B is now the LRU
+        await mw.before_model(state, config_a)   # cache hit, no new build_memory_context call
+        # Insert user-C — should evict user-B (the LRU), not user-A
+        await mw.before_model(state, config_c)   # insert user-C, evicts user-B
+
+    assert "user-B:ws-1" not in mw._memory_cache, "LRU entry (user-B) must be evicted"
+    assert "user-A:ws-1" in mw._memory_cache, "Promoted entry (user-A) must be retained"
+    assert "user-C:ws-1" in mw._memory_cache
+    assert len(mw._memory_cache) == 2
