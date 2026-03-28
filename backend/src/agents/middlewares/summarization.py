@@ -73,7 +73,12 @@ class SummarizationMiddleware(Middleware):
 
         Heuristic: 3 bytes ≈ 1 token. This handles CJK content significantly
         better than the naive chars//4 approach (a single Chinese character is
-        3 UTF-8 bytes and roughly 1 token, whereas chars//4 would give 0.25).
+        3 UTF-8 bytes and roughly 1 token, whereas chars//4 rounds down to 0
+        for any CJK run shorter than 4 characters).
+
+        Note: compared to the old chars//4 heuristic, this fires summarization
+        ~25% sooner for pure-ASCII conversations. That is intentional — the old
+        heuristic under-counted tokens, so summarization triggered too late.
         """
         total_bytes = 0
         for msg in messages:
