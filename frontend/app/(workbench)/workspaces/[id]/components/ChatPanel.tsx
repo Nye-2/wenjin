@@ -388,10 +388,12 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
       typeof orchestration?.feature_id === "string"
         ? orchestration.feature_id
         : resolveBlockFeatureId(message);
+    const feature = featureId ? getFeatureById(featureId) : undefined;
 
     return resolveWorkspaceFeatureActionContext({
       workspaceId,
       featureId,
+      feature: feature ?? null,
       workspace,
       artifacts,
       orchestrationParams: readWorkspaceFeatureOrchestrationParams(

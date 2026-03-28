@@ -36,6 +36,7 @@ interface WorkspaceActivityTimelineProps {
   onFilterChange: (filter: ActivityFilter) => void;
   onModuleFilterChange: (moduleId: string) => void;
   resolveFeatureName: (featureId: string) => string | undefined;
+  resolveFeature?: (featureId: string) => { id: string; followUpPrompt?: string | null } | undefined;
   resolveActivityTitle: (
     item: WorkspaceActivityItem,
     featureName?: string
@@ -67,6 +68,7 @@ export function WorkspaceActivityTimeline({
   onFilterChange,
   onModuleFilterChange,
   resolveFeatureName,
+  resolveFeature,
   resolveActivityTitle,
   resolveSkillLabel,
   onSelectArtifact,
@@ -153,9 +155,11 @@ export function WorkspaceActivityTimeline({
                   ? resolveFeatureName(featureId)
                   : undefined;
                 const title = resolveActivityTitle(item, featureName);
+                const feature = featureId && resolveFeature ? resolveFeature(featureId) : undefined;
                 const actionContext = resolveWorkspaceFeatureActionContext({
                   workspaceId,
                   featureId,
+                  feature: feature ?? null,
                   workspace,
                   artifacts,
                   orchestrationParams: readWorkspaceFeatureOrchestrationParams(

@@ -199,6 +199,447 @@ def select_feature_by_message(
     return None
 
 
+# ---------------------------------------------------------------------------
+# Per-feature param resolver type.
+# Each resolver has the same kwargs as resolve_feature_params minus feature_id.
+# ---------------------------------------------------------------------------
+
+_ParamResolverFn = Callable[..., Awaitable[tuple[dict[str, Any], str | None, str | None]]]
+_PARAM_RESOLVERS: dict[str, _ParamResolverFn] = {}
+
+
+def _resolver(feature_id: str) -> Callable[[_ParamResolverFn], _ParamResolverFn]:
+    """Decorator: register an async param resolver for a feature."""
+    def decorator(fn: _ParamResolverFn) -> _ParamResolverFn:
+        _PARAM_RESOLVERS[feature_id] = fn
+        return fn
+    return decorator
+
+
+@_resolver("deep_research")
+async def _resolve_deep_research(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    query = topic or workspace_description or workspace_name
+    if query:
+        next_params.setdefault("topic", query)
+    return next_params, None, None
+
+
+@_resolver("literature_search")
+async def _resolve_literature_search(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    query = topic or workspace_description or workspace_name
+    if query:
+        next_params.setdefault("query", query)
+    return next_params, None, None
+
+
+@_resolver("literature_review")
+async def _resolve_literature_review(
+    *,
+    params: dict[str, Any],
+    workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    query = topic or workspace_description or workspace_name
+    if query:
+        next_params.setdefault("topic", query)
+    if workspace_type == "thesis":
+        next_params.setdefault("report_type", "literature_review")
+    return next_params, None, None
+
+
+@_resolver("literature_management")
+async def _resolve_literature_management(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    next_params.setdefault(
+        "topic",
+        topic or workspace_description or workspace_name or "研究主题",
+    )
+    return next_params, None, None
+
+
+@_resolver("paper_analysis")
+async def _resolve_paper_analysis(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    next_params.setdefault("paper_title", topic or workspace_name or "未命名论文")
+    if workspace_description:
+        next_params.setdefault("paper_abstract", workspace_description)
+    return next_params, None, None
+
+
+@_resolver("writing")
+async def _resolve_writing(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    next_params.setdefault("paper_title", workspace_name or topic or "未命名论文")
+    next_params.setdefault("section_type", extract_section_type(message) or "introduction")
+    next_params.setdefault("target_words", extract_target_words(message) or 1200)
+    return next_params, None, None
+
+
+@_resolver("framework_outline")
+async def _resolve_framework_outline(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    next_params.setdefault("paper_title", topic or workspace_name or "未命名论文")
+    next_params.setdefault(
+        "topic",
+        topic or workspace_description or workspace_name or "研究主题",
+    )
+    next_params.setdefault("target_words", extract_target_words(message) or 6000)
+    return next_params, None, None
+
+
+@_resolver("thesis_writing")
+async def _resolve_thesis_writing(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    action = str(next_params.get("action") or "").strip().lower()
+    if not action:
+        lowered = message.lower()
+        if "章节" in lowered or "chapter" in lowered:
+            action = "write_chapter"
+        elif "大纲" in lowered or "outline" in lowered:
+            action = "generate_outline"
+        else:
+            action = "write_all"
+        next_params["action"] = action
+    next_params.setdefault("paper_title", workspace_name or "未命名论文")
+    if action == "generate_outline":
+        next_params.setdefault("target_words", extract_target_words(message) or 20000)
+    elif action == "write_all":
+        next_params.setdefault("target_words", extract_target_words(message) or 12000)
+    elif action == "write_chapter":
+        chapter_title = extract_chapter_title(message)
+        if not chapter_title:
+            return next_params, "要直接写章节，还需要告诉我章节标题。", None
+        next_params["chapter_title"] = chapter_title
+        next_params.setdefault("target_words", extract_target_words(message) or 2500)
+    return next_params, None, None
+
+
+@_resolver("figure_generation")
+async def _resolve_figure_generation(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    description = topic or workspace_description or ""
+    if not description or description == workspace_name:
+        return (
+            next_params,
+            '图表生成需要更具体的图意描述，例如\u201c系统架构图\u201d或\u201c实验结果柱状图\u201d。',
+            None,
+        )
+    next_params.setdefault("description", description)
+    next_params.setdefault("fig_type", "flowchart")
+    return next_params, None, None
+
+
+@_resolver("compile_export")
+async def _resolve_compile_export(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    next_params.setdefault("target", "pdf")
+    return next_params, None, None
+
+
+@_resolver("opening_research")
+async def _resolve_opening_research(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    next_params.setdefault(
+        "topic",
+        topic or workspace_description or workspace_name or "研究主题",
+    )
+    next_params.setdefault("report_type", "opening_report")
+    return next_params, None, None
+
+
+@_resolver("peer_review")
+async def _resolve_peer_review(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    title, excerpt = await load_latest_draft_summary(str(getattr(workspace, "id", "")))
+    if title:
+        next_params.setdefault("paper_title", title)
+    if excerpt:
+        next_params.setdefault("manuscript_excerpt", excerpt)
+    if not next_params.get("manuscript_excerpt"):
+        return (
+            next_params,
+            "同行评审需要已有稿件内容。你可以先生成大纲/草稿，或者直接把要评审的文本贴给我。",
+            "framework_outline",
+        )
+    return next_params, None, None
+
+
+@_resolver("journal_recommend")
+async def _resolve_journal_recommend(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    title, excerpt = await load_latest_draft_summary(str(getattr(workspace, "id", "")))
+    next_params.setdefault("paper_title", title or topic or workspace_name or "未命名论文")
+    if excerpt:
+        next_params.setdefault("abstract", excerpt)
+    elif workspace_description:
+        next_params.setdefault("abstract", workspace_description)
+    if not next_params.get("abstract"):
+        return next_params, "期刊推荐至少需要论文摘要或研究简介。", "framework_outline"
+    return next_params, None, None
+
+
+@_resolver("experiment_design")
+async def _resolve_experiment_design(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    objective = topic or workspace_description or workspace_name
+    if not objective:
+        return next_params, "实验设计需要至少一个研究目标或任务主题。", None
+    next_params.setdefault("topic", objective)
+    next_params.setdefault("objective", objective)
+    return next_params, None, None
+
+
+@_resolver("proposal_outline")
+async def _resolve_proposal_outline(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    next_params.setdefault("topic", topic or workspace_name or "研究课题")
+    next_params.setdefault("period_months", 24)
+    return next_params, None, None
+
+
+@_resolver("background_research")
+async def _resolve_background_research(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    next_params.setdefault(
+        "keywords",
+        topic or workspace_name or workspace_description or "研究主题",
+    )
+    next_params.setdefault("industry_scope", workspace_description or "相关领域")
+    next_params.setdefault("time_range", "近5年")
+    return next_params, None, None
+
+
+@_resolver("copyright_materials")
+async def _resolve_copyright_materials(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    next_params.setdefault("software_name", workspace_name or "待确认软件")
+    next_params.setdefault("version", "V1.0")
+    if workspace_description:
+        next_params.setdefault("highlights", split_keywords(workspace_description))
+    return next_params, None, None
+
+
+@_resolver("technical_description")
+async def _resolve_technical_description(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    next_params.setdefault("software_name", workspace_name or "待确认软件")
+    next_params.setdefault("version", "V1.0")
+    next_params.setdefault("deployment_architecture", "B/S架构")
+    return next_params, None, None
+
+
+@_resolver("patent_outline")
+async def _resolve_patent_outline(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    innovation_description = topic or workspace_description or workspace_name
+    if not innovation_description:
+        return next_params, "专利框架至少需要一个创新点描述或发明主题。", None
+    next_params.setdefault("innovation_description", innovation_description)
+    discipline = str(getattr(workspace, "discipline", "") or "").strip()
+    if discipline:
+        next_params.setdefault("technical_field", discipline)
+    if workspace_description:
+        next_params.setdefault("application_scenario", workspace_description)
+    return next_params, None, None
+
+
+@_resolver("prior_art_search")
+async def _resolve_prior_art_search(
+    *,
+    params: dict[str, Any],
+    _workspace_type: str,
+    workspace: Any,
+    message: str,
+    load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    next_params = dict(params)
+    topic = extract_topic_from_message(message)
+    workspace_name = str(getattr(workspace, "name", "") or "").strip()
+    workspace_description = str(getattr(workspace, "description", "") or "").strip()
+    keyword_seed = topic or workspace_name or workspace_description
+    keyword_list = split_keywords(keyword_seed)
+    if not keyword_list:
+        return next_params, "现有技术检索需要至少一个关键词或技术主题。", None
+    next_params.setdefault("keywords", keyword_list)
+    next_params.setdefault("time_range", "近5年")
+    return next_params, None, None
+
+
 async def resolve_feature_params(
     *,
     feature_id: str,
@@ -208,161 +649,14 @@ async def resolve_feature_params(
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
 ) -> tuple[dict[str, Any], str | None, str | None]:
-    """Fill default params and missing-info diagnostics for a feature intent."""
-    next_params = dict(params)
-    topic = extract_topic_from_message(message)
-    workspace_name = str(getattr(workspace, "name", "") or "").strip()
-    workspace_description = str(getattr(workspace, "description", "") or "").strip()
-
-    if feature_id in {"deep_research", "literature_search", "literature_review"}:
-        query = topic or workspace_description or workspace_name
-        if query:
-            if feature_id == "literature_search":
-                next_params.setdefault("query", query)
-            else:
-                next_params.setdefault("topic", query)
-
-    if feature_id == "literature_management":
-        next_params.setdefault(
-            "topic",
-            topic or workspace_description or workspace_name or "研究主题",
-        )
-
-    if feature_id == "paper_analysis":
-        next_params.setdefault("paper_title", topic or workspace_name or "未命名论文")
-        if workspace_description:
-            next_params.setdefault("paper_abstract", workspace_description)
-
-    if feature_id == "writing":
-        next_params.setdefault("paper_title", workspace_name or topic or "未命名论文")
-        next_params.setdefault("section_type", extract_section_type(message) or "introduction")
-        next_params.setdefault("target_words", extract_target_words(message) or 1200)
-
-    if feature_id == "framework_outline":
-        next_params.setdefault("paper_title", topic or workspace_name or "未命名论文")
-        next_params.setdefault(
-            "topic",
-            topic or workspace_description or workspace_name or "研究主题",
-        )
-        next_params.setdefault("target_words", extract_target_words(message) or 6000)
-
-    if feature_id == "thesis_writing":
-        action = str(next_params.get("action") or "").strip().lower()
-        if not action:
-            lowered = message.lower()
-            if "章节" in lowered or "chapter" in lowered:
-                action = "write_chapter"
-            elif "大纲" in lowered or "outline" in lowered:
-                action = "generate_outline"
-            else:
-                action = "write_all"
-            next_params["action"] = action
-        next_params.setdefault("paper_title", workspace_name or "未命名论文")
-        if action == "generate_outline":
-            next_params.setdefault("target_words", extract_target_words(message) or 20000)
-        elif action == "write_all":
-            next_params.setdefault("target_words", extract_target_words(message) or 12000)
-        elif action == "write_chapter":
-            chapter_title = extract_chapter_title(message)
-            if not chapter_title:
-                return next_params, "要直接写章节，还需要告诉我章节标题。", None
-            next_params["chapter_title"] = chapter_title
-            next_params.setdefault("target_words", extract_target_words(message) or 2500)
-
-    if feature_id == "figure_generation":
-        description = topic or workspace_description or ""
-        if not description or description == workspace_name:
-            return (
-                next_params,
-                "图表生成需要更具体的图意描述，例如“系统架构图”或“实验结果柱状图”。",
-                None,
-            )
-        next_params.setdefault("description", description)
-        next_params.setdefault("fig_type", "flowchart")
-
-    if feature_id == "compile_export":
-        next_params.setdefault("target", "pdf")
-
-    if feature_id == "opening_research":
-        next_params.setdefault(
-            "topic",
-            topic or workspace_description or workspace_name or "研究主题",
-        )
-        next_params.setdefault("report_type", "opening_report")
-
-    if feature_id == "peer_review":
-        title, excerpt = await load_latest_draft_summary(str(getattr(workspace, "id", "")))
-        if title:
-            next_params.setdefault("paper_title", title)
-        if excerpt:
-            next_params.setdefault("manuscript_excerpt", excerpt)
-        if not next_params.get("manuscript_excerpt"):
-            return (
-                next_params,
-                "同行评审需要已有稿件内容。你可以先生成大纲/草稿，或者直接把要评审的文本贴给我。",
-                "framework_outline",
-            )
-
-    if feature_id == "journal_recommend":
-        title, excerpt = await load_latest_draft_summary(str(getattr(workspace, "id", "")))
-        next_params.setdefault("paper_title", title or topic or workspace_name or "未命名论文")
-        if excerpt:
-            next_params.setdefault("abstract", excerpt)
-        elif workspace_description:
-            next_params.setdefault("abstract", workspace_description)
-        if not next_params.get("abstract"):
-            return next_params, "期刊推荐至少需要论文摘要或研究简介。", "framework_outline"
-
-    if feature_id == "experiment_design":
-        objective = topic or workspace_description or workspace_name
-        if not objective:
-            return next_params, "实验设计需要至少一个研究目标或任务主题。", None
-        next_params.setdefault("topic", objective)
-        next_params.setdefault("objective", objective)
-
-    if feature_id == "proposal_outline":
-        next_params.setdefault("topic", topic or workspace_name or "研究课题")
-        next_params.setdefault("period_months", 24)
-
-    if feature_id == "background_research":
-        next_params.setdefault(
-            "keywords",
-            topic or workspace_name or workspace_description or "研究主题",
-        )
-        next_params.setdefault("industry_scope", workspace_description or "相关领域")
-        next_params.setdefault("time_range", "近5年")
-
-    if feature_id == "copyright_materials":
-        next_params.setdefault("software_name", workspace_name or "待确认软件")
-        next_params.setdefault("version", "V1.0")
-        if workspace_description:
-            next_params.setdefault("highlights", split_keywords(workspace_description))
-
-    if feature_id == "technical_description":
-        next_params.setdefault("software_name", workspace_name or "待确认软件")
-        next_params.setdefault("version", "V1.0")
-        next_params.setdefault("deployment_architecture", "B/S架构")
-
-    if feature_id == "patent_outline":
-        innovation_description = topic or workspace_description or workspace_name
-        if not innovation_description:
-            return next_params, "专利框架至少需要一个创新点描述或发明主题。", None
-        next_params.setdefault("innovation_description", innovation_description)
-        discipline = str(getattr(workspace, "discipline", "") or "").strip()
-        if discipline:
-            next_params.setdefault("technical_field", discipline)
-        if workspace_description:
-            next_params.setdefault("application_scenario", workspace_description)
-
-    if feature_id == "prior_art_search":
-        keyword_seed = topic or workspace_name or workspace_description
-        keyword_list = split_keywords(keyword_seed)
-        if not keyword_list:
-            return next_params, "现有技术检索需要至少一个关键词或技术主题。", None
-        next_params.setdefault("keywords", keyword_list)
-        next_params.setdefault("time_range", "近5年")
-
-    if feature_id == "literature_review" and workspace_type == "thesis":
-        next_params.setdefault("report_type", "literature_review")
-
-    return next_params, None, None
+    """Resolve and fill params for a feature by dispatching to its registered resolver."""
+    resolver = _PARAM_RESOLVERS.get(feature_id)
+    if resolver is None:
+        return params, None, None
+    return await resolver(
+        params=params,
+        workspace_type=workspace_type,
+        workspace=workspace,
+        message=message,
+        load_latest_draft_summary=load_latest_draft_summary,
+    )

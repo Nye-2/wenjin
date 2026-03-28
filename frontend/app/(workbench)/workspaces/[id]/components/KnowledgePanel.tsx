@@ -102,13 +102,14 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
     return resolveWorkspaceFeatureActionContext({
       workspaceId,
       featureId: selectedActivityFeatureId,
+      feature: selectedActivityFeature ?? null,
       workspace,
       artifacts,
       orchestrationParams: readWorkspaceFeatureOrchestrationParams(
         selectedActivityMeta.params
       ),
     });
-  }, [workspaceId, selectedActivityFeatureId, workspace, artifacts, selectedActivityMeta]);
+  }, [workspaceId, selectedActivityFeatureId, selectedActivityFeature, workspace, artifacts, selectedActivityMeta]);
   const selectedActivityArtifact =
     selectedActivity?.artifact_id
       ? artifacts.find((candidate) => candidate.id === selectedActivity.artifact_id) ?? null
@@ -209,6 +210,7 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
         onFilterChange={setFilter}
         onModuleFilterChange={setModuleFilter}
         resolveFeatureName={(featureId) => getFeatureById(featureId)?.name}
+        resolveFeature={(featureId) => getFeatureById(featureId)}
         resolveActivityTitle={resolveActivityTitle}
         resolveSkillLabel={resolveSkillLabel}
         onSelectArtifact={setSelectedArtifact}

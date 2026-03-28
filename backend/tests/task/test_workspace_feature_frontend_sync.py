@@ -55,22 +55,16 @@ def _extract_route_map() -> dict[str, str]:
     }
 
 
-def _extract_followup_prompt_keys() -> set[str]:
+def _followup_prompt_reads_from_api() -> bool:
+    """Return True if getFeatureFollowUpPrompt reads followUpPrompt from a feature object (API-driven)."""
     content = ACTIONS_FILE.read_text(encoding="utf-8")
-    block = re.search(
-        r"export function getFeatureFollowUpPrompt\(featureId: string\): string \{\s*return \{(?P<body>.*?)\}\[featureId\]",
-        content,
-        flags=re.DOTALL,
-    )
-    assert block is not None, "getFeatureFollowUpPrompt mapping not found"
-    return {
-        key
-        for key in re.findall(
-            r"^\s*([a-z_]+):\s*$",
-            block.group("body"),
-            flags=re.MULTILINE,
+    return bool(
+        re.search(
+            r"export function getFeatureFollowUpPrompt\(",
+            content,
         )
-    }
+        and re.search(r"followUpPrompt", content)
+    )
 
 
 def _extract_action_case_keys() -> set[str]:
@@ -152,13 +146,16 @@ def test_workspace_feature_routes_have_pages() -> None:
 
 def test_workspace_feature_actions_explicitly_cover_all_features() -> None:
     registry_feature_ids = _registry_feature_ids()
-    prompt_keys = _extract_followup_prompt_keys()
     action_case_keys = _extract_action_case_keys()
 
-    missing_prompts = sorted(registry_feature_ids - prompt_keys)
-    missing_action_cases = sorted(registry_feature_ids - action_case_keys)
+    # Follow-up prompts live in the backend registry (see test_registry_spec.py::test_every_feature_has_follow_up_prompt).
+    # Verify the frontend reads them from the API rather than a hardcoded dict.
+    assert _followup_prompt_reads_from_api(), (
+        "getFeatureFollowUpPrompt must read followUpPrompt from the feature object (API-driven). "
+        "See backend/src/workspace_features/registry.py."
+    )
 
-    assert not missing_prompts, f"Missing follow-up prompts for: {missing_prompts}"
+    missing_action_cases = sorted(registry_feature_ids - action_case_keys)
     assert not missing_action_cases, f"Missing action-state cases for: {missing_action_cases}"
 
 

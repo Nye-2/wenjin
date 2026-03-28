@@ -26,11 +26,12 @@ export function readWorkspaceFeatureOrchestrationParams(
 export function resolveWorkspaceFeatureActionContext(options: {
   workspaceId: string;
   featureId: string | null | undefined;
+  feature?: { id: string; followUpPrompt?: string | null } | null;
   workspace: Workspace | null | undefined;
   artifacts: Artifact[];
   orchestrationParams?: Record<string, unknown> | null;
 }): WorkspaceFeatureActionContext {
-  const { workspaceId, featureId, workspace, artifacts, orchestrationParams } = options;
+  const { workspaceId, featureId, feature, workspace, artifacts, orchestrationParams } = options;
   if (!featureId) {
     return {
       featureId: null,
@@ -44,6 +45,7 @@ export function resolveWorkspaceFeatureActionContext(options: {
 
   const actionState = resolveFeatureActionState({
     featureId,
+    feature: feature ?? null,
     workspace: workspace ?? null,
     artifacts,
     orchestrationParams: orchestrationParams ?? null,

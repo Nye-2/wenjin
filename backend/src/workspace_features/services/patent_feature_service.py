@@ -15,9 +15,10 @@ from typing import Any
 
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
-from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
+    emit_bound_runtime as _emit_bound_runtime,
     runtime_progress_for_phase,
     upsert_runtime_block,
 )
@@ -25,24 +26,6 @@ from src.task.runtime_blocks import (
 logger = logging.getLogger(__name__)
 
 PATENT_OUTPUT_LANGUAGE = "zh"
-
-
-async def _emit_bound_runtime(
-    *,
-    message: str,
-    current_phase: str,
-    stage_transition: bool = False,
-) -> None:
-    runtime = get_runtime_state()
-    if runtime is None:
-        return
-    await emit_runtime_update(
-        progress_value=max(runtime_progress_for_phase(runtime), 5),
-        message=message,
-        current_phase=current_phase,
-        runtime=runtime,
-        stage_transition=stage_transition,
-    )
 
 
 def _utc_now_iso() -> str:

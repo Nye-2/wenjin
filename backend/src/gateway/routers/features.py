@@ -13,15 +13,11 @@ from pydantic import BaseModel, Field
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.application.errors import ApplicationError
-from src.application.handlers.feature_execution_handler import (
-    FeatureExecutionHandler,
-    get_feature_execution_handler,
-    resolve_workspace_type,
-)
+from src.application.handlers.feature_execution_handler import FeatureExecutionHandler, resolve_workspace_type
 from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps import get_workspace_service
+from src.gateway.deps import get_feature_execution_handler, get_workspace_service
 from src.gateway.error_mapping import to_http_exception
 from src.task.registry import WORKSPACE_FEATURE_TASK
 from src.workspace_features import list_workspace_features
@@ -55,6 +51,7 @@ class WorkspaceFeature(BaseModel):
     panel: str | None = None
     stages: list[FeatureStage] = Field(default_factory=list)
     color: str | None = None
+    followUpPrompt: str | None = None
 
 
 class FeaturesResponse(BaseModel):
@@ -84,7 +81,7 @@ class ExecuteResponse(BaseModel):
 # ============ Helpers ============
 
 
-def _feature_to_response(feature) -> WorkspaceFeature:
+def _feature_to_response(feature: Any) -> WorkspaceFeature:
     """Convert registry definitions to the public API model."""
     return WorkspaceFeature(**feature.to_api_dict())
 
@@ -152,23 +149,34 @@ async def execute_feature(
         raise to_http_exception(exc) from exc
 
     if isinstance(result, FeatureTaskSubmission):
-        payload = {
-            "task_id": result.task_id,
-            "status": "pending",
-            "feature_id": result.feature_id,
-            "message": result.message,
-            "warning": None,
-            "detail": None,
-        }
-    elif isinstance(result, FeatureExecutionAdvisory):
-        payload = {
-            "task_id": None,
-            "status": "warning",
-            "feature_id": result.feature_id,
-            "message": result.message,
-            "warning": result.code,
-            "detail": result.context,
-        }
-    else:
-        payload = result
-    return ExecuteResponse(**payload)
+        return ExecuteResponse(
+            task_id=result.task_id,
+            status="pending",
+            feature_id=result.feature_id,
+            message=result.message,
+            warning=None,
+            detail=None,
+        )
+
+    if isinstance(result, FeatureExecutionAdvisory):
+        return ExecuteResponse(
+            task_id=None,
+            status="warning",
+            feature_id=result.feature_id,
+            message=result.message,
+            warning=result.code,
+            detail=result.context,
+        )
+
+    return ExecuteResponse(
+        task_id=result.get("task_id"),
+        status=str(result.get("status", "success")),
+        feature_id=str(result.get("feature_id", feature_id)),
+        message=str(result.get("message", "")),
+        warning=(
+            str(result["warning"])
+            if result.get("warning") is not None
+            else None
+        ),
+        detail=result.get("detail") if isinstance(result.get("detail"), dict) else None,
+    )
