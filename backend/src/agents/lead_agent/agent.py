@@ -2,8 +2,8 @@
 
 import asyncio
 import logging
-from collections.abc import Callable, Sequence
-from typing import Any, TypeAlias, cast
+from collections.abc import Sequence
+from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -12,7 +12,6 @@ from langgraph.prebuilt import create_react_agent
 
 from src.agents.lead_agent.chat_skill_catalog import list_workspace_chat_skills
 from src.agents.lead_agent.dynamic_tools import DynamicToolNode
-from src.agents.middlewares.base import Middleware
 from src.agents.middlewares import (
     CitationContextMiddleware,
     ClarificationMiddleware,
@@ -32,6 +31,7 @@ from src.agents.middlewares import (
     ViewImageMiddleware,
     WorkspaceContextMiddleware,
 )
+from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState, create_thread_state, merge_thread_state
 from src.config import get_default_model_id, get_model_config
 from src.config.config_loader import get_app_config
@@ -39,8 +39,7 @@ from src.sandbox.runtime import get_sandbox_provider
 
 logger = logging.getLogger(__name__)
 
-JsonObject: TypeAlias = dict[str, Any]
-MiddlewareFactory: TypeAlias = Callable[..., Middleware]
+JsonObject = dict[str, Any]
 
 
 def _runtime_dict(config: RunnableConfig | None) -> JsonObject:
@@ -416,24 +415,24 @@ def build_middlewares(
 
     if workspace_service:
         middlewares.append(
-            cast(MiddlewareFactory, WorkspaceContextMiddleware)(workspace_service)
+            WorkspaceContextMiddleware(workspace_service)
         )
 
     if index_service:
         middlewares.append(
-            cast(MiddlewareFactory, LiteratureContextMiddleware)(index_service)
+            LiteratureContextMiddleware(index_service)
         )
 
     if artifact_service:
         middlewares.append(
-            cast(MiddlewareFactory, KnowledgeContextMiddleware)(artifact_service)
+            KnowledgeContextMiddleware(artifact_service)
         )
 
     middlewares.append(DisciplineContextMiddleware())
 
     if paper_service:
         middlewares.append(
-            cast(MiddlewareFactory, CitationContextMiddleware)(paper_service)
+            CitationContextMiddleware(paper_service)
         )
 
     return middlewares
@@ -564,15 +563,15 @@ def build_pipeline(
     # --- Academic context layer (8-11) ---
     if workspace_service:
         pipeline.append(
-            cast(MiddlewareFactory, WorkspaceContextMiddleware)(workspace_service)
+            WorkspaceContextMiddleware(workspace_service)
         )
     if index_service:
         pipeline.append(
-            cast(MiddlewareFactory, LiteratureContextMiddleware)(index_service)
+            LiteratureContextMiddleware(index_service)
         )
     if artifact_service:
         pipeline.append(
-            cast(MiddlewareFactory, KnowledgeContextMiddleware)(artifact_service)
+            KnowledgeContextMiddleware(artifact_service)
         )
     pipeline.append(DisciplineContextMiddleware())
 
@@ -597,7 +596,7 @@ def build_pipeline(
 
     if paper_service:
         pipeline.append(
-            cast(MiddlewareFactory, CitationContextMiddleware)(paper_service)
+            CitationContextMiddleware(paper_service)
         )
 
     # --- MUST BE LAST (16) ---
