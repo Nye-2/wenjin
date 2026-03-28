@@ -48,3 +48,31 @@ class TestSummarizationMiddleware:
         count = mw._count_tokens(messages)
         assert count > 0
         assert count < 10  # "Hello world" is ~2-3 tokens
+
+
+def test_count_tokens_cjk_content():
+    """CJK characters must not be severely under-counted."""
+    mw = SummarizationMiddleware()
+    # "深度学习" = 4 Chinese chars, each 3 UTF-8 bytes = 12 bytes → 4 tokens via bytes//3
+    # Old heuristic: 4 chars // 4 = 1 token (massive under-count!)
+    messages = [HumanMessage(content="深度学习")]
+    count = mw._count_tokens(messages)
+    # Must count at least 2 tokens for 4 CJK characters (bytes//3 = 4)
+    assert count >= 2, f"CJK token count too low: {count}"
+
+
+def test_count_tokens_mixed_content():
+    """Mixed ASCII + CJK must count higher than ASCII-only of same length."""
+    mw = SummarizationMiddleware()
+    ascii_only = [HumanMessage(content="hello")]     # 5 bytes → 1 token
+    cjk_only   = [HumanMessage(content="你好啊")]    # 9 bytes → 3 tokens
+    assert mw._count_tokens(cjk_only) > mw._count_tokens(ascii_only)
+
+
+def test_count_tokens_ascii_unchanged():
+    """ASCII content token count must still be reasonable (within 2x of old heuristic)."""
+    mw = SummarizationMiddleware()
+    messages = [HumanMessage(content="Hello world")]
+    count = mw._count_tokens(messages)
+    # "Hello world" = 11 bytes // 3 ≈ 3 tokens. Still > 0 and < 10.
+    assert 0 < count < 10

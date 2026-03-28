@@ -69,15 +69,17 @@ class SummarizationMiddleware(Middleware):
         return {}
 
     def _count_tokens(self, messages: list) -> int:
-        """Approximate token count for messages.
+        """Estimate token count using UTF-8 byte length.
 
-        Uses a simple heuristic: ~4 characters per token.
+        Heuristic: 3 bytes ≈ 1 token. This handles CJK content significantly
+        better than the naive chars//4 approach (a single Chinese character is
+        3 UTF-8 bytes and roughly 1 token, whereas chars//4 would give 0.25).
         """
-        total_chars = 0
+        total_bytes = 0
         for msg in messages:
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            total_chars += len(content)
-        return total_chars // 4
+            total_bytes += len(content.encode("utf-8"))
+        return total_bytes // 3
 
     async def _summarize(self, messages: list) -> str | None:
         """Generate a summary of the messages."""
