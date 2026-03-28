@@ -184,12 +184,19 @@ class DynamicToolNode(ToolNode):
         tool_args = _coerce_json_object(updated_call.get("args") or {})
 
         for middleware in self._middlewares:
-            tool_name, tool_args = await middleware.before_tool(
-                state,
-                config,
-                tool_name,
-                tool_args,
-            )
+            try:
+                tool_name, tool_args = await middleware.before_tool(
+                    state,
+                    config,
+                    tool_name,
+                    tool_args,
+                )
+            except Exception:
+                logger.exception(
+                    "Middleware %s.before_tool failed for tool %s, skipping",
+                    type(middleware).__name__,
+                    tool_name,
+                )
 
         updated_call["name"] = tool_name
         updated_call["args"] = tool_args
@@ -205,12 +212,19 @@ class DynamicToolNode(ToolNode):
     ) -> Any:
         result: Any = response.content if isinstance(response, ToolMessage) else response
         for middleware in self._middlewares:
-            result = await middleware.after_tool(
-                state,
-                config,
-                str(call["name"]),
-                result,
-            )
+            try:
+                result = await middleware.after_tool(
+                    state,
+                    config,
+                    str(call["name"]),
+                    result,
+                )
+            except Exception:
+                logger.exception(
+                    "Middleware %s.after_tool failed for tool %s, skipping",
+                    type(middleware).__name__,
+                    str(call["name"]),
+                )
 
         if isinstance(result, (ToolMessage, Command)):
             return result

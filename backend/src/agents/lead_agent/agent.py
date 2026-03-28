@@ -623,10 +623,16 @@ async def middleware_before_model(
     """
     current_state = state
     for middleware in middlewares:
-        updates = await middleware.before_model(current_state, config)
-        if isinstance(updates, dict):
-            # Merge updates into state (ThreadState is dict-like)
-            current_state = merge_thread_state(current_state, updates)
+        try:
+            updates = await middleware.before_model(current_state, config)
+            if isinstance(updates, dict):
+                # Merge updates into state (ThreadState is dict-like)
+                current_state = merge_thread_state(current_state, updates)
+        except Exception:
+            logger.exception(
+                "Middleware %s.before_model failed, skipping",
+                type(middleware).__name__,
+            )
     return current_state
 
 
@@ -647,9 +653,15 @@ async def middleware_after_model(
     """
     current_state = state
     for middleware in middlewares:
-        updates = await middleware.after_model(current_state, config)
-        if isinstance(updates, dict):
-            current_state = merge_thread_state(current_state, updates)
+        try:
+            updates = await middleware.after_model(current_state, config)
+            if isinstance(updates, dict):
+                current_state = merge_thread_state(current_state, updates)
+        except Exception:
+            logger.exception(
+                "Middleware %s.after_model failed, skipping",
+                type(middleware).__name__,
+            )
     return current_state
 
 
