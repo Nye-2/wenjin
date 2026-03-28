@@ -9,6 +9,7 @@ import pytest
 
 from src.agents.middlewares.knowledge_context import KnowledgeContextMiddleware
 from src.agents.middlewares.literature_context import LiteratureContextMiddleware
+from src.agents.middlewares.memory import MemoryMiddleware
 from src.agents.middlewares.workspace_context import WorkspaceContextMiddleware
 
 
@@ -63,8 +64,6 @@ async def test_knowledge_context_timeout_returns_empty():
 @pytest.mark.asyncio
 async def test_memory_context_timeout_returns_empty():
     """MemoryMiddleware must return {} on build_memory_context timeout."""
-    from src.agents.middlewares.memory import MemoryMiddleware
-
     with patch(
         "src.agents.middlewares.memory.build_memory_context",
         side_effect=_slow_coro,

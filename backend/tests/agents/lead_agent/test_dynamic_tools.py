@@ -188,5 +188,9 @@ def test_run_coroutine_sync_raises_on_thread_timeout(monkeypatch):
     async def noop():
         return 42
 
-    with pytest.raises(TimeoutError, match="30 s"):
-        DynamicToolNode._run_coroutine_sync(noop())
+    coro = noop()
+    try:
+        with pytest.raises(TimeoutError, match="30 s"):
+            DynamicToolNode._run_coroutine_sync(coro)
+    finally:
+        coro.close()
