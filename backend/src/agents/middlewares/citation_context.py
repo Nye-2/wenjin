@@ -1,9 +1,12 @@
 """Citation context middleware for tracking and validating citations."""
 
+import logging
 import re
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
+
+logger = logging.getLogger(__name__)
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
@@ -62,7 +65,10 @@ class CitationContextMiddleware(Middleware):
                 else:
                     citations.append(match)
 
-        return list(set(citations))
+        unique = list(set(citations))
+        if unique:
+            logger.debug("Extracted %d citation(s) from response", len(unique))
+        return unique
 
     async def _validate_citations(self, citations: list[str], workspace_id: str) -> list[str]:
         """Validate citations against workspace papers.
