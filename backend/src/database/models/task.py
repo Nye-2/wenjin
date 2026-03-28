@@ -37,6 +37,13 @@ class TaskRecord(Base):
     )
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     task_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+
+    # Structured context fields — populated from payload at task creation
+    workspace_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    feature_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    thread_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    action: Mapped[str | None] = mapped_column(String, nullable=True)
+
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -74,6 +81,7 @@ class TaskRecord(Base):
     __table_args__ = (
         Index("ix_task_records_user_status", "user_id", "status"),
         Index("ix_task_records_created_at", "created_at"),
+        Index("ix_task_workspace_feature_status", "workspace_id", "feature_id", "status"),
     )
 
     def __repr__(self) -> str:

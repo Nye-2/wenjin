@@ -11,6 +11,7 @@ violations are introduced.
 import ast
 import importlib
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -139,3 +140,46 @@ class TestAuthDependency:
         assert "get_current_user" in source, (
             f"{module_name} does not use get_current_user"
         )
+
+
+# ---------------------------------------------------------------------------
+# Enforce ADR-platform-boundaries: application handlers must not import HTTP layer.
+# ---------------------------------------------------------------------------
+
+_HANDLERS_DIR = Path(__file__).parents[2] / "src" / "application" / "handlers"
+
+FORBIDDEN_MODULES = (
+    "fastapi",
+    "starlette",
+    "src.gateway",
+)
+
+
+def _collect_imports(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text())
+    modules: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                modules.append(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                modules.append(node.module)
+    return modules
+
+
+def test_application_handlers_have_no_http_imports():
+    """Application handlers must not import FastAPI, Starlette, or gateway deps."""
+    assert _HANDLERS_DIR.is_dir(), f"Handlers directory not found: {_HANDLERS_DIR}"
+    violations: list[str] = []
+    for py_file in _HANDLERS_DIR.glob("*.py"):
+        if py_file.name.startswith("_"):
+            continue
+        for module in _collect_imports(py_file):
+            for forbidden in FORBIDDEN_MODULES:
+                if module == forbidden or module.startswith(forbidden + "."):
+                    violations.append(f"{py_file.name}: imports {module!r}")
+    assert not violations, (
+        "Application handlers must not import HTTP/gateway modules:\n"
+        + "\n".join(violations)
+    )

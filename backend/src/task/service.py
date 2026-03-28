@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeAlias, cast
 from uuid import uuid4
 
 from src.config.app_config import celery_settings
@@ -20,6 +20,8 @@ from src.task.workspace_feature_params import coerce_workspace_feature_params
 from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
+
+JsonObject: TypeAlias = dict[str, Any]
 
 
 class ConcurrencyLimitError(Exception):
@@ -39,7 +41,11 @@ class TaskService:
     def __init__(self, store: TaskStore):
         self._store = store
 
-    def _serialize_task_status(self, record, runtime_state: dict | None = None) -> dict:
+    def _serialize_task_status(
+        self,
+        record: Any,
+        runtime_state: JsonObject | None = None,
+    ) -> JsonObject:
         """Merge persisted task data with runtime state."""
         status = runtime_state.get("status", record.status) if runtime_state else record.status
         progress = runtime_state.get("progress", record.progress) if runtime_state else record.progress
@@ -67,7 +73,7 @@ class TaskService:
         }
 
     @staticmethod
-    def _workspace_id_from_payload(payload: dict | None) -> str | None:
+    def _workspace_id_from_payload(payload: JsonObject | None) -> str | None:
         """Extract workspace id from a task payload if present."""
         if not isinstance(payload, dict):
             return None
@@ -92,7 +98,7 @@ class TaskService:
         self,
         user_id: str,
         task_type: str,
-        payload: dict,
+        payload: JsonObject,
         priority: int = 5,
     ) -> str:
         """Submit a new task.
@@ -219,6 +225,9 @@ class TaskService:
             task_type=task_type,
             status=None,
             limit=50,
+            workspace_id=workspace_id,
+            feature_id=feature_id,
+            action=action,
         )
         active_statuses = {TaskStatus.PENDING.value, TaskStatus.RUNNING.value}
         for record in records:
@@ -227,18 +236,14 @@ class TaskService:
             payload = record.payload or {}
             if not isinstance(payload, dict):
                 continue
-            if (
-                payload.get("workspace_id") == workspace_id
-                and payload.get("feature_id") == feature_id
-            ):
-                payload_params = coerce_workspace_feature_params(payload)
-                if params is not None:
-                    if self._normalize_params(payload_params) == self._normalize_params(params):
-                        return record.id
-                    continue
-                payload_action = payload_params.get("action")
-                if payload_action == action:
+            payload_params = coerce_workspace_feature_params(payload)
+            if params is not None:
+                if self._normalize_params(payload_params) == self._normalize_params(params):
                     return record.id
+                continue
+            payload_action = payload_params.get("action")
+            if payload_action == action:
+                return record.id
         return None
 
     async def find_active_task_by_payload(
@@ -246,7 +251,7 @@ class TaskService:
         *,
         user_id: str,
         task_type: str,
-        payload_filters: dict[str, object],
+        payload_filters: JsonObject,
         limit: int = 50,
     ) -> str | None:
         """Find an active task whose payload matches the provided key/value filters."""
@@ -267,7 +272,11 @@ class TaskService:
                 return record.id
         return None
 
-    async def get_task_status(self, task_id: str, user_id: str) -> dict | None:
+    async def get_task_status(
+        self,
+        task_id: str,
+        user_id: str,
+    ) -> JsonObject | None:
         """Get task status.
 
         Args:
@@ -295,7 +304,7 @@ class TaskService:
         status: str | None = None,
         task_type: str | None = None,
         limit: int = 20,
-    ) -> list[dict]:
+    ) -> list[JsonObject]:
         """List tasks for a user."""
         records = await self._store.list_user_tasks(
             user_id=user_id,
@@ -303,7 +312,7 @@ class TaskService:
             task_type=task_type,
             limit=limit,
         )
-        serialized: list[dict] = []
+        serialized: list[JsonObject] = []
         for record in records:
             runtime_state = await self._store.get_task_state(record.id)
             serialized.append(self._serialize_task_status(record, runtime_state))
@@ -315,7 +324,7 @@ class TaskService:
         status: str | None = None,
         task_type: str | None = None,
         limit: int = 20,
-    ) -> list:
+    ) -> list[Any]:
         """List persisted task records for a user."""
         return await self._store.list_user_tasks(
             user_id=user_id,
@@ -344,7 +353,7 @@ class TaskService:
 
         # Cancel backend task
         if celery_settings.enabled:
-            celery_app.control.revoke(task_id, terminate=True)
+            cast(Any, celery_app).control.revoke(task_id, terminate=True)
         else:
             if not cancel_local_task(task_id):
                 logger.warning("Local task %s not found or already finished", task_id)

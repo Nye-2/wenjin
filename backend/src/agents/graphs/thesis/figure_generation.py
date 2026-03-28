@@ -22,6 +22,9 @@ from src.task.runtime_blocks import (
 )
 from src.thesis.execution import get_execution_service
 from src.thesis.execution.figure_tool import generate_figure
+from src.workspace_features.services.thesis_feature_service import (
+    _FIGURE_STRATEGY_BY_TYPE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,21 +55,6 @@ def _resolve_writing_model(requested_model: str | None) -> str:
         require_tools=False,
     )
     return route_writing_model(requested_model=requested)
-
-# ---------------------------------------------------------------------------
-# Strategy mapping (mirrors thesis_feature_service)
-# ---------------------------------------------------------------------------
-_FIGURE_STRATEGY_BY_TYPE: dict[str, str] = {
-    "flowchart": "mermaid",
-    "architecture": "mermaid",
-    "diagram": "mermaid",
-    "data_visualization": "python",
-    "data_chart": "python",
-    "chart": "python",
-    "graph": "python",
-    "concept_map": "kling",
-    "concept": "kling",
-}
 
 _VALID_STRATEGIES = {"mermaid", "python", "kling"}
 _STRATEGY_TO_EXECUTION_TYPE: dict[str, ExecutionType] = {

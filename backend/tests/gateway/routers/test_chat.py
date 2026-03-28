@@ -8,9 +8,19 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from src.application.errors import PaymentRequiredError
+from src.application.handlers.chat_turn_handler import (
+    ChatTurnHandler,
+    build_chat_initial_state,
+    build_chat_runtime_config,
+    generate_chat_response,
+)
+from src.application.results import (
+    ChatTurnRequest,
+    GeneratedChatReply,
+)
 from src.gateway.routers import chat
 from src.gateway.routers.auth import get_current_user
-from src.gateway.routers.chat import GeneratedChatReply
 from src.models.router import InvalidRequestedModelError
 from src.services.chat_thread_service import ChatThreadAccessError
 
@@ -191,17 +201,16 @@ def create_client(user_id: str, service: FakeChatThreadService) -> TestClient:
     async def override_get_chat_thread_service():
         return service
 
-    async def _return_none():
-        return None
+    async def override_get_chat_turn_handler():
+        return ChatTurnHandler(chat_thread_service=service)
 
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[chat.get_chat_thread_service] = (
         override_get_chat_thread_service
     )
-    app.dependency_overrides[chat.get_workspace_service] = _return_none
-    app.dependency_overrides[chat.get_literature_service] = _return_none
-    app.dependency_overrides[chat.get_artifact_service] = _return_none
-    app.dependency_overrides[chat.get_paper_service] = _return_none
+    app.dependency_overrides[chat.get_chat_turn_handler] = (
+        override_get_chat_turn_handler
+    )
     app.include_router(chat.router)
     return TestClient(app)
 
@@ -332,7 +341,11 @@ class TestChatRuntimeConfig:
     """Runtime config assembly for chat-agent invocations."""
 
     def test_runtime_config_includes_vision_and_subagent_flags(self):
-        request = chat.ChatRequest(message="Hello", workspace_id="ws-1")
+        request = ChatTurnRequest(
+            message="Hello",
+            workspace_id="ws-1",
+            attachments=(),
+        )
         thread = FakeThread(
             id="thread-1",
             user_id="user-1",
@@ -340,19 +353,18 @@ class TestChatRuntimeConfig:
             title="Thread 1",
             model="gpt-4o",
         )
-        current_user = create_mock_user("user-1")
 
         with patch(
-            "src.gateway.routers.chat.get_model_config",
+            "src.application.handlers.chat_turn_handler.get_model_config",
             return_value=MagicMock(model="gpt-4o"),
         ), patch(
-            "src.gateway.routers.chat.get_app_config",
+            "src.application.handlers.chat_turn_handler.get_app_config",
             return_value=MagicMock(subagents=MagicMock(enabled=True, max_concurrent=4)),
         ):
-            config = chat._build_chat_runtime_config(
+            config = build_chat_runtime_config(
                 request=request,
                 thread=thread,
-                current_user=current_user,
+                actor_id="user-1",
                 workspace_id="ws-1",
                 effective_skill=None,
                 effective_model="gpt-4o",
@@ -363,7 +375,9 @@ class TestChatRuntimeConfig:
         assert config["configurable"]["max_concurrent_subagents"] == 4
 
     def test_initial_state_includes_uploaded_files_and_viewed_images(self, tmp_path):
-        request_attachment = chat.ChatAttachment(
+        from src.application.results import ChatTurnAttachment
+
+        attachment = ChatTurnAttachment(
             name="figure.png",
             path="/mnt/user-data/uploads/figure.png",
             kind="transient",
@@ -383,14 +397,14 @@ class TestChatRuntimeConfig:
         (uploads_dir / "figure.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
         with patch(
-            "src.gateway.routers.chat.get_thread_data_root",
+            "src.application.handlers.chat_turn_handler.get_thread_data_root",
             return_value=thread_root,
         ):
-            state = chat._build_chat_initial_state(
+            state = build_chat_initial_state(
                 thread,
                 workspace_id="ws-1",
                 effective_skill=None,
-                attachments=[request_attachment],
+                attachments=(attachment,),
             )
 
         assert state["uploaded_files"][0]["name"] == "figure.png"
@@ -406,7 +420,7 @@ class TestChatMessages:
         client = create_client("user-1", service)
 
         with patch(
-            "src.gateway.routers.chat._generate_chat_response",
+            "src.application.handlers.chat_turn_handler.generate_chat_response",
             AsyncMock(return_value=GeneratedChatReply(content="assistant reply")),
         ):
             response = client.post(
@@ -451,7 +465,7 @@ class TestChatMessages:
         client = create_client("user-1", service)
 
         with patch(
-            "src.gateway.routers.chat._generate_chat_response",
+            "src.application.handlers.chat_turn_handler.generate_chat_response",
             AsyncMock(return_value=GeneratedChatReply(content="assistant reply")),
         ):
             response = client.post(
@@ -482,7 +496,7 @@ class TestChatMessages:
         client = create_client("user-1", service)
 
         with patch(
-            "src.gateway.routers.chat._generate_chat_response",
+            "src.application.handlers.chat_turn_handler.generate_chat_response",
             AsyncMock(return_value=GeneratedChatReply(content="assistant reply")),
         ):
             response = client.post(
@@ -504,7 +518,7 @@ class TestChatMessages:
         client = create_client("user-1", service)
 
         with patch(
-            "src.gateway.routers.chat._generate_chat_response",
+            "src.application.handlers.chat_turn_handler.generate_chat_response",
             AsyncMock(return_value=GeneratedChatReply(content="stream reply")),
         ):
             response = client.post(
@@ -533,7 +547,7 @@ class TestChatMessages:
         client = create_client("user-1", service)
 
         with patch(
-            "src.gateway.routers.chat._generate_chat_response",
+            "src.application.handlers.chat_turn_handler.generate_chat_response",
             AsyncMock(
                 return_value=GeneratedChatReply(
                     content="已启动任务",
@@ -582,7 +596,7 @@ class TestChatMessages:
         )
 
         with patch(
-            "src.gateway.routers.chat._generate_chat_response",
+            "src.application.handlers.chat_turn_handler.generate_chat_response",
             AsyncMock(
                 return_value=GeneratedChatReply(
                     content="assistant reply",
@@ -598,10 +612,10 @@ class TestChatMessages:
                 )
             ),
         ), patch(
-            "src.database.get_db_session",
+            "src.application.handlers.chat_turn_handler.get_db_session",
             return_value=_FakeDbContext(MagicMock()),
         ), patch(
-            "src.services.credit_service.CreditService",
+            "src.application.handlers.chat_turn_handler.CreditService",
             return_value=fake_credit_service,
         ):
             response = client.post(
@@ -622,7 +636,11 @@ class TestChatMessages:
     @pytest.mark.asyncio
     async def test_generate_chat_response_preserves_structured_tool_state(self):
         """Structured tool updates should survive the agent chat path."""
-        request = chat.ChatRequest(message="启动模块", workspace_id="ws-1")
+        request = ChatTurnRequest(
+            message="启动模块",
+            workspace_id="ws-1",
+            attachments=(),
+        )
         thread = FakeThread(
             id="thread-1",
             user_id="user-1",
@@ -631,7 +649,6 @@ class TestChatMessages:
             model="gpt-4o",
             skill="framework-designer",
         )
-        current_user = create_mock_user("user-1")
         fake_agent = MagicMock()
         fake_agent.ainvoke = AsyncMock(
             return_value={
@@ -649,13 +666,13 @@ class TestChatMessages:
         )
 
         with patch(
-            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
             AsyncMock(return_value=None),
         ), patch(
-            "src.gateway.routers.chat._ensure_chat_turn_budget",
+            "src.application.handlers.chat_turn_handler.ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
-            "src.gateway.routers.chat.route_chat_model",
+            "src.application.handlers.chat_turn_handler.route_chat_model",
             return_value="gpt-4o",
         ), patch(
             "src.agents.lead_agent.agent.build_pipeline",
@@ -664,7 +681,7 @@ class TestChatMessages:
             "src.agents.lead_agent.agent.make_lead_agent",
             return_value=fake_agent,
         ):
-            reply = await chat._generate_chat_response(request, thread, current_user)
+            reply = await generate_chat_response(request, thread, actor_id="user-1")
 
         assert reply.content == "模块已启动"
         assert reply.blocks[0]["type"] == "task"
@@ -675,7 +692,11 @@ class TestChatMessages:
     @pytest.mark.asyncio
     async def test_generate_chat_response_builds_artifact_block_from_agent_state(self):
         """Agent-presented files should become structured chat artifacts."""
-        request = chat.ChatRequest(message="导出文件", workspace_id="ws-1")
+        request = ChatTurnRequest(
+            message="导出文件",
+            workspace_id="ws-1",
+            attachments=(),
+        )
         thread = FakeThread(
             id="thread-1",
             user_id="user-1",
@@ -683,7 +704,6 @@ class TestChatMessages:
             title="Thread 1",
             model="gpt-4o",
         )
-        current_user = create_mock_user("user-1")
         fake_agent = MagicMock()
         fake_agent.ainvoke = AsyncMock(
             return_value={
@@ -693,13 +713,13 @@ class TestChatMessages:
         )
 
         with patch(
-            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
             AsyncMock(return_value=None),
         ), patch(
-            "src.gateway.routers.chat._ensure_chat_turn_budget",
+            "src.application.handlers.chat_turn_handler.ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
-            "src.gateway.routers.chat.route_chat_model",
+            "src.application.handlers.chat_turn_handler.route_chat_model",
             return_value="gpt-4o",
         ), patch(
             "src.agents.lead_agent.agent.build_pipeline",
@@ -708,7 +728,7 @@ class TestChatMessages:
             "src.agents.lead_agent.agent.make_lead_agent",
             return_value=fake_agent,
         ):
-            reply = await chat._generate_chat_response(request, thread, current_user)
+            reply = await generate_chat_response(request, thread, actor_id="user-1")
 
         assert reply.blocks[0]["type"] == "artifacts"
         assert reply.metadata["artifacts"][0]["url"].endswith(
@@ -719,7 +739,11 @@ class TestChatMessages:
     @pytest.mark.asyncio
     async def test_generate_chat_response_propagates_budget_http_errors(self):
         """Budget failures must not be swallowed by the agent fallback path."""
-        request = chat.ChatRequest(message="继续对话", workspace_id="ws-1")
+        request = ChatTurnRequest(
+            message="继续对话",
+            workspace_id="ws-1",
+            attachments=(),
+        )
         thread = FakeThread(
             id="thread-1",
             user_id="user-1",
@@ -727,30 +751,33 @@ class TestChatMessages:
             title="Thread 1",
             model="gpt-4o",
         )
-        current_user = create_mock_user("user-1")
 
         with patch(
-            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
             AsyncMock(return_value=None),
         ), patch(
-            "src.gateway.routers.chat._ensure_chat_turn_budget",
+            "src.application.handlers.chat_turn_handler.ensure_chat_turn_budget",
             AsyncMock(side_effect=HTTPException(status_code=402, detail="余额不足")),
         ), patch(
-            "src.gateway.routers.chat.route_chat_model",
+            "src.application.handlers.chat_turn_handler.route_chat_model",
             return_value="gpt-4o",
         ), patch(
             "src.agents.lead_agent.agent.build_pipeline",
             return_value=[],
         ):
             with pytest.raises(HTTPException, match="余额不足") as exc_info:
-                await chat._generate_chat_response(request, thread, current_user)
+                await generate_chat_response(request, thread, actor_id="user-1")
 
         assert exc_info.value.status_code == 402
 
     @pytest.mark.asyncio
     async def test_generate_chat_response_disables_middleware_memory_capture(self):
         """Chat router should rely on persisted-turn capture, not middleware double capture."""
-        request = chat.ChatRequest(message="继续对话", workspace_id="ws-1")
+        request = ChatTurnRequest(
+            message="继续对话",
+            workspace_id="ws-1",
+            attachments=(),
+        )
         thread = FakeThread(
             id="thread-1",
             user_id="user-1",
@@ -758,7 +785,6 @@ class TestChatMessages:
             title="Thread 1",
             model="gpt-4o",
         )
-        current_user = create_mock_user("user-1")
         fake_agent = MagicMock()
         fake_agent.ainvoke = AsyncMock(
             return_value={"messages": [MagicMock(content="已收到")]}
@@ -766,13 +792,13 @@ class TestChatMessages:
         build_pipeline = MagicMock(return_value=[])
 
         with patch(
-            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
             AsyncMock(return_value=None),
         ), patch(
-            "src.gateway.routers.chat._ensure_chat_turn_budget",
+            "src.application.handlers.chat_turn_handler.ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
-            "src.gateway.routers.chat.route_chat_model",
+            "src.application.handlers.chat_turn_handler.route_chat_model",
             return_value="gpt-4o",
         ), patch(
             "src.agents.lead_agent.agent.build_pipeline",
@@ -781,7 +807,7 @@ class TestChatMessages:
             "src.agents.lead_agent.agent.make_lead_agent",
             return_value=fake_agent,
         ):
-            await chat._generate_chat_response(request, thread, current_user)
+            await generate_chat_response(request, thread, actor_id="user-1")
 
         assert build_pipeline.call_args.kwargs["memory_capture_enabled"] is False
 
@@ -807,10 +833,11 @@ class TestChatMessages:
     @pytest.mark.asyncio
     async def test_generate_chat_response_propagates_agent_failures_without_fallback(self):
         """Lead-agent failures should surface instead of silently switching execution paths."""
-        request = chat.ChatRequest(
+        request = ChatTurnRequest(
             message="Hello",
             workspace_id="ws-1",
             reasoning_effort="high",
+            attachments=(),
         )
         thread = FakeThread(
             id="thread-1",
@@ -820,16 +847,15 @@ class TestChatMessages:
             model="glm-5",
             messages=[{"role": "user", "content": "Hello"}],
         )
-        current_user = create_mock_user("user-1")
 
         with patch(
-            "src.gateway.routers.chat.maybe_bridge_workspace_feature",
+            "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
             AsyncMock(return_value=None),
         ), patch(
-            "src.gateway.routers.chat._ensure_chat_turn_budget",
+            "src.application.handlers.chat_turn_handler.ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
-            "src.gateway.routers.chat.route_chat_model",
+            "src.application.handlers.chat_turn_handler.route_chat_model",
             return_value="glm-5",
         ), patch(
             "src.agents.lead_agent.agent.make_lead_agent",
@@ -838,7 +864,7 @@ class TestChatMessages:
             "src.models.factory.create_chat_model",
         ) as create_chat_model:
             with pytest.raises(RuntimeError, match="boom"):
-                await chat._generate_chat_response(request, thread, current_user)
+                await generate_chat_response(request, thread, actor_id="user-1")
 
         create_chat_model.assert_not_called()
 
@@ -849,7 +875,7 @@ class TestChatMessages:
         client = create_client("user-1", service)
 
         with patch(
-            "src.gateway.routers.chat._generate_chat_response",
+            "src.application.handlers.chat_turn_handler.generate_chat_response",
             AsyncMock(side_effect=RuntimeError("agent boom")),
         ):
             response = client.post(

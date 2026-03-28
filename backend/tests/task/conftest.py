@@ -43,6 +43,13 @@ class FixtureTaskRecord(TestBase):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     task_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+
+    # Structured context fields — populated from payload at task creation
+    workspace_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    feature_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    thread_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    action: Mapped[str | None] = mapped_column(String, nullable=True)
+
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
