@@ -11,7 +11,7 @@ def test_every_feature_has_credit_cost():
     missing = []
     for feature in iter_workspace_features():
         if not hasattr(feature, "credit_cost") or feature.credit_cost is None:
-            missing.append(feature.feature_id)
+            missing.append(feature.id)
     assert not missing, f"Features missing credit_cost: {missing}"
 
 
