@@ -3,6 +3,8 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.config.config_loader import MemoryConfig, MiddlewaresConfig, SummarizationConfig
 
 
@@ -207,3 +209,65 @@ class TestPipelineAssembly:
             if type(middleware).__name__ == "MemoryMiddleware"
         )
         assert memory_middleware._capture_enabled is True
+
+    def test_pipeline_validates_ordering_constraints(self):
+        """validate_pipeline should accept a correctly ordered pipeline."""
+        from src.agents.lead_agent.agent import build_pipeline, validate_pipeline
+
+        config = _pipeline_config(subagent_enabled=False)
+
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.lead_agent.agent.get_sandbox_provider",
+            return_value=None,
+        ), patch(
+            "src.thesis.execution.get_execution_service",
+            side_effect=RuntimeError("execution disabled"),
+        ):
+            pipeline = build_pipeline(config=config)
+
+        # Should not raise
+        validate_pipeline(pipeline)
+
+    def test_pipeline_validation_rejects_wrong_clarification_position(self):
+        """ClarificationMiddleware not last should raise ValueError."""
+        from src.agents.lead_agent.agent import validate_pipeline
+        from src.agents.middlewares import ClarificationMiddleware, ThreadDataMiddleware
+        from src.agents.middlewares.base import Middleware
+
+        class DummyMiddleware(Middleware):
+            async def before_model(self, state, config):
+                return {}
+
+        # ClarificationMiddleware placed before the dummy → not last
+        pipeline = [ThreadDataMiddleware(), ClarificationMiddleware(), DummyMiddleware()]
+
+        with pytest.raises(ValueError, match="ClarificationMiddleware must be last"):
+            validate_pipeline(pipeline)
+
+    def test_pipeline_validation_rejects_wrong_thread_data_position(self):
+        """ThreadDataMiddleware not first should raise ValueError."""
+        from src.agents.lead_agent.agent import validate_pipeline
+        from src.agents.middlewares import ClarificationMiddleware, ThreadDataMiddleware
+        from src.agents.middlewares.base import Middleware
+
+        class DummyMiddleware(Middleware):
+            async def before_model(self, state, config):
+                return {}
+
+        # ThreadDataMiddleware placed after the dummy → not first
+        pipeline = [DummyMiddleware(), ThreadDataMiddleware(), ClarificationMiddleware()]
+
+        with pytest.raises(ValueError, match="ThreadDataMiddleware must be first"):
+            validate_pipeline(pipeline)
+
+    def test_middleware_ordering_metadata(self):
+        """position class attribute should exist on boundary middlewares."""
+        from src.agents.middlewares import ClarificationMiddleware, ThreadDataMiddleware
+        from src.agents.middlewares.base import Middleware
+
+        # Base class default
+        assert Middleware.position is None
+
+        # Boundary middlewares
+        assert ThreadDataMiddleware.position == "first"
+        assert ClarificationMiddleware.position == "last"

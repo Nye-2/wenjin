@@ -38,6 +38,8 @@ def delete_thread_directory(
 class ThreadDataMiddleware(Middleware):
     """Creates workspace/uploads/outputs directories for each thread."""
 
+    position = "first"
+
     def __init__(self, base_dir: str | None = None, lazy_init: bool = True):
         self._base_dir = base_dir or DEFAULT_THREAD_DATA_BASE_DIR
         self._lazy_init = lazy_init

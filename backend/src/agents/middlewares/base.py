@@ -14,6 +14,8 @@ class Middleware(ABC):
     Middlewares can intercept and modify state before/after model calls.
     """
 
+    position: str | None = None  # "first", "last", or None
+
     @abstractmethod
     async def before_model(
         self,

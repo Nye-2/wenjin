@@ -2,8 +2,8 @@
 
 import asyncio
 import logging
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Sequence
+from typing import Any, TypeAlias, cast
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -12,6 +12,7 @@ from langgraph.prebuilt import create_react_agent
 
 from src.agents.lead_agent.chat_skill_catalog import list_workspace_chat_skills
 from src.agents.lead_agent.dynamic_tools import DynamicToolNode
+from src.agents.middlewares.base import Middleware
 from src.agents.middlewares import (
     CitationContextMiddleware,
     ClarificationMiddleware,
@@ -31,12 +32,25 @@ from src.agents.middlewares import (
     ViewImageMiddleware,
     WorkspaceContextMiddleware,
 )
-from src.agents.thread_state import ThreadState
+from src.agents.thread_state import ThreadState, create_thread_state, merge_thread_state
 from src.config import get_default_model_id, get_model_config
 from src.config.config_loader import get_app_config
 from src.sandbox.runtime import get_sandbox_provider
 
 logger = logging.getLogger(__name__)
+
+JsonObject: TypeAlias = dict[str, Any]
+MiddlewareFactory: TypeAlias = Callable[..., Middleware]
+
+
+def _runtime_dict(config: RunnableConfig | None) -> JsonObject:
+    """Return a mutable runtime-config mapping."""
+    return dict(config) if isinstance(config, dict) else {}
+
+
+def _coerce_json_object(value: object) -> JsonObject:
+    """Normalize arbitrary config payloads to a JSON-like mapping."""
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _model_supports_vision(model_name: str | None) -> bool:
@@ -65,8 +79,8 @@ def _default_model_name() -> str:
 
 def _normalize_runtime_config(config: RunnableConfig | None) -> RunnableConfig:
     """Fill runtime defaults expected by the middleware/tool stack."""
-    normalized = dict(config or {})
-    configurable = dict(normalized.get("configurable", {}))
+    normalized = _runtime_dict(config)
+    configurable = _coerce_json_object(normalized.get("configurable", {}))
 
     configurable["model_name"] = configurable.get("model_name") or _default_model_name()
     configurable.setdefault("subagent_enabled", _default_subagent_enabled())
@@ -75,7 +89,7 @@ def _normalize_runtime_config(config: RunnableConfig | None) -> RunnableConfig:
     configurable.setdefault("supports_vision", _model_supports_vision(configurable["model_name"]))
 
     normalized["configurable"] = configurable
-    return normalized
+    return cast(RunnableConfig, normalized)
 
 
 def _merge_runtime_config(
@@ -84,15 +98,15 @@ def _merge_runtime_config(
 ) -> RunnableConfig:
     """Merge a default runtime config with a request-specific override."""
     if base is None and override is None:
-        return {}
+        return cast(RunnableConfig, {})
     if base is None:
-        return dict(override or {})
+        return cast(RunnableConfig, _runtime_dict(override))
     if override is None:
-        return dict(base)
+        return cast(RunnableConfig, _runtime_dict(base))
 
-    merged = {**base, **override}
-    base_configurable = dict(base.get("configurable", {}))
-    override_configurable = dict(override.get("configurable", {}))
+    merged = {**_runtime_dict(base), **_runtime_dict(override)}
+    base_configurable = _coerce_json_object(base.get("configurable", {}))
+    override_configurable = _coerce_json_object(override.get("configurable", {}))
     merged_configurable = {
         **base_configurable,
         **override_configurable,
@@ -106,7 +120,7 @@ def _merge_runtime_config(
         merged_configurable.pop("supports_vision", None)
 
     merged["configurable"] = merged_configurable
-    return merged
+    return cast(RunnableConfig, merged)
 
 
 def _render_workspace_available_skills(workspace_type: str | None) -> str:
@@ -375,11 +389,11 @@ def get_available_tools(
 
 
 def build_middlewares(
-    workspace_service=None,
-    index_service=None,
-    artifact_service=None,
-    paper_service=None,
-) -> list:
+    workspace_service: Any | None = None,
+    index_service: Any | None = None,
+    artifact_service: Any | None = None,
+    paper_service: Any | None = None,
+) -> list[Middleware]:
     """Build middleware chain for the agent.
 
     Order matters! Middlewares execute in order:
@@ -398,35 +412,58 @@ def build_middlewares(
     Returns:
         List of middleware instances
     """
-    middlewares = []
+    middlewares: list[Middleware] = []
 
     if workspace_service:
-        middlewares.append(WorkspaceContextMiddleware(workspace_service))
+        middlewares.append(
+            cast(MiddlewareFactory, WorkspaceContextMiddleware)(workspace_service)
+        )
 
     if index_service:
-        middlewares.append(LiteratureContextMiddleware(index_service))
+        middlewares.append(
+            cast(MiddlewareFactory, LiteratureContextMiddleware)(index_service)
+        )
 
     if artifact_service:
-        middlewares.append(KnowledgeContextMiddleware(artifact_service))
+        middlewares.append(
+            cast(MiddlewareFactory, KnowledgeContextMiddleware)(artifact_service)
+        )
 
     middlewares.append(DisciplineContextMiddleware())
 
     if paper_service:
-        middlewares.append(CitationContextMiddleware(paper_service))
+        middlewares.append(
+            cast(MiddlewareFactory, CitationContextMiddleware)(paper_service)
+        )
 
     return middlewares
 
 
+def validate_pipeline(pipeline: list[Middleware]) -> None:
+    """Validate middleware ordering constraints.
+
+    Raises ValueError if constraints are violated.
+    """
+    if not pipeline:
+        return
+
+    for i, mw in enumerate(pipeline):
+        if getattr(mw, "position", None) == "first" and i != 0:
+            raise ValueError(f"{type(mw).__name__} must be first in the pipeline, found at index {i}")
+        if getattr(mw, "position", None) == "last" and i != len(pipeline) - 1:
+            raise ValueError(f"{type(mw).__name__} must be last in the pipeline, found at index {i}")
+
+
 def build_pipeline(
-    config: dict,
-    workspace_service=None,
-    index_service=None,
-    artifact_service=None,
-    paper_service=None,
-    sandbox_provider=None,
-    memory_queue=None,
+    config: RunnableConfig | None,
+    workspace_service: Any | None = None,
+    index_service: Any | None = None,
+    artifact_service: Any | None = None,
+    paper_service: Any | None = None,
+    sandbox_provider: Any | None = None,
+    memory_queue: Any | None = None,
     memory_capture_enabled: bool = True,
-) -> list:
+) -> list[Middleware]:
     """Build the middleware pipeline for the lead agent.
 
     Order:
@@ -449,14 +486,14 @@ def build_pipeline(
     17. ClarificationMiddleware    - Control (MUST BE LAST)
     """
     config = _normalize_runtime_config(config)
-    configurable = config.get("configurable", {})
+    configurable = _coerce_json_object(config.get("configurable", {}))
     is_plan_mode = configurable.get("is_plan_mode", False)
     subagent_enabled = configurable.get("subagent_enabled", _default_subagent_enabled())
 
     # Get middleware config with error handling
     try:
-        app_config = get_app_config()
-        mw_config = app_config.middlewares
+        app_config: Any = get_app_config()
+        mw_config: Any = app_config.middlewares
     except Exception as e:
         logger.warning(f"Failed to load app config, using defaults: {e}")
         # Create a minimal default config
@@ -466,7 +503,7 @@ def build_pipeline(
         )
         app_config = SimpleNamespace(middlewares=mw_config, memory=None)
 
-    pipeline = []
+    pipeline: list[Middleware] = []
 
     # --- Infrastructure layer (1-3) ---
     pipeline.append(ThreadDataMiddleware())
@@ -526,11 +563,17 @@ def build_pipeline(
 
     # --- Academic context layer (8-11) ---
     if workspace_service:
-        pipeline.append(WorkspaceContextMiddleware(workspace_service))
+        pipeline.append(
+            cast(MiddlewareFactory, WorkspaceContextMiddleware)(workspace_service)
+        )
     if index_service:
-        pipeline.append(LiteratureContextMiddleware(index_service))
+        pipeline.append(
+            cast(MiddlewareFactory, LiteratureContextMiddleware)(index_service)
+        )
     if artifact_service:
-        pipeline.append(KnowledgeContextMiddleware(artifact_service))
+        pipeline.append(
+            cast(MiddlewareFactory, KnowledgeContextMiddleware)(artifact_service)
+        )
     pipeline.append(DisciplineContextMiddleware())
 
     # --- Interaction layer (12-14) ---
@@ -553,18 +596,21 @@ def build_pipeline(
     pipeline.append(TitleMiddleware())
 
     if paper_service:
-        pipeline.append(CitationContextMiddleware(paper_service))
+        pipeline.append(
+            cast(MiddlewareFactory, CitationContextMiddleware)(paper_service)
+        )
 
     # --- MUST BE LAST (16) ---
     pipeline.append(ClarificationMiddleware())
 
+    validate_pipeline(pipeline)
     return pipeline
 
 
 async def middleware_before_model(
     state: ThreadState,
     config: RunnableConfig,
-    middlewares: list,
+    middlewares: Sequence[Middleware],
 ) -> ThreadState:
     """Execute all middlewares before model call.
 
@@ -581,14 +627,14 @@ async def middleware_before_model(
         updates = await middleware.before_model(current_state, config)
         if isinstance(updates, dict):
             # Merge updates into state (ThreadState is dict-like)
-            current_state = ThreadState(**{**current_state, **updates})
+            current_state = merge_thread_state(current_state, updates)
     return current_state
 
 
 async def middleware_after_model(
     state: ThreadState,
     config: RunnableConfig,
-    middlewares: list,
+    middlewares: Sequence[Middleware],
 ) -> ThreadState:
     """Execute all middlewares after model call.
 
@@ -604,21 +650,21 @@ async def middleware_after_model(
     for middleware in middlewares:
         updates = await middleware.after_model(current_state, config)
         if isinstance(updates, dict):
-            current_state = ThreadState(**{**current_state, **updates})
+            current_state = merge_thread_state(current_state, updates)
     return current_state
 
 
 def make_lead_agent(
     config: RunnableConfig,
-    middlewares: list | None = None,
+    middlewares: Sequence[Middleware] | None = None,
     *,
-    workspace_service=None,
-    index_service=None,
-    artifact_service=None,
-    paper_service=None,
-    sandbox_provider=None,
-    memory_queue=None,
-) -> Callable:
+    workspace_service: Any | None = None,
+    index_service: Any | None = None,
+    artifact_service: Any | None = None,
+    paper_service: Any | None = None,
+    sandbox_provider: Any | None = None,
+    memory_queue: Any | None = None,
+) -> "_MiddlewareWrappedAgent":
     """Factory function to create the lead agent.
 
     This is the entry point registered in langgraph.json.
@@ -633,7 +679,7 @@ def make_lead_agent(
     """
     # Get configuration
     config = _normalize_runtime_config(config)
-    configurable = config.get("configurable", {})
+    configurable = _coerce_json_object(config.get("configurable", {}))
     model_name = configurable["model_name"]
     thinking_enabled = configurable.get("thinking_enabled", False)
     reasoning_effort = configurable.get("reasoning_effort")
@@ -672,20 +718,20 @@ def make_lead_agent(
 
     tool_node = DynamicToolNode(_load_tools, middlewares=middlewares)
 
-    def _resolve_model(_state, _runtime):
+    def _resolve_model(_state: ThreadState, _runtime: RunnableConfig) -> Any:
         current_tools = tool_node.list_available_tools()
         if not current_tools:
             return base_model
         return base_model.bind_tools(current_tools)
 
     # Build system prompt for the agent
-    def prompt_fn(state):
+    def prompt_fn(state: JsonObject) -> str:
         """Generate system prompt from state and config."""
-        return apply_prompt_template(ThreadState(**state), config)
+        return apply_prompt_template(create_thread_state(state), config)
 
     # Create react agent
     agent = create_react_agent(
-        _resolve_model,
+        cast(Any, _resolve_model),
         tool_node,
         prompt=prompt_fn,
         checkpointer=MemorySaver(),
@@ -705,28 +751,38 @@ class _MiddlewareWrappedAgent:
         self,
         agent: Any,
         *,
-        middlewares: list | None,
+        middlewares: Sequence[Middleware] | None,
         default_config: RunnableConfig,
     ) -> None:
         self._agent = agent
         self._middlewares = middlewares or []
         self._default_config = default_config
 
-    async def ainvoke(self, input: dict[str, Any], config: RunnableConfig | None = None, **kwargs):
+    async def ainvoke(
+        self,
+        input: dict[str, Any],
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
+    ) -> Any:
         runtime_config = _normalize_runtime_config(
             _merge_runtime_config(self._default_config, config)
         )
-        state = ThreadState(**(input or {}))
+        state = create_thread_state(input or {})
         if self._middlewares:
             state = await middleware_before_model(state, runtime_config, self._middlewares)
         result = await self._agent.ainvoke(state, config=runtime_config, **kwargs)
         return await self._apply_after_model(result, runtime_config)
 
-    def invoke(self, input: dict[str, Any], config: RunnableConfig | None = None, **kwargs):
+    def invoke(
+        self,
+        input: dict[str, Any],
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
+    ) -> Any:
         runtime_config = _normalize_runtime_config(
             _merge_runtime_config(self._default_config, config)
         )
-        state = ThreadState(**(input or {}))
+        state = create_thread_state(input or {})
         if self._middlewares:
             state = asyncio.run(
                 middleware_before_model(state, runtime_config, self._middlewares)
@@ -745,7 +801,7 @@ class _MiddlewareWrappedAgent:
     ) -> Any:
         if not self._middlewares or not isinstance(result, dict):
             return result
-        state = ThreadState(**result)
+        state = create_thread_state(result)
         return await middleware_after_model(state, runtime_config, self._middlewares)
 
     def __getattr__(self, name: str) -> Any:

@@ -15,6 +15,8 @@ class ClarificationMiddleware(Middleware):
     MUST be the last middleware in the chain.
     """
 
+    position = "last"
+
     async def before_model(
         self,
         state: ThreadState,
