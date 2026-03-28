@@ -220,7 +220,7 @@ def _resolver(feature_id: str) -> Callable[[_ParamResolverFn], _ParamResolverFn]
 async def _resolve_deep_research(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -239,7 +239,7 @@ async def _resolve_deep_research(
 async def _resolve_literature_search(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -279,7 +279,7 @@ async def _resolve_literature_review(
 async def _resolve_literature_management(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -299,7 +299,7 @@ async def _resolve_literature_management(
 async def _resolve_paper_analysis(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -318,7 +318,7 @@ async def _resolve_paper_analysis(
 async def _resolve_writing(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -336,7 +336,7 @@ async def _resolve_writing(
 async def _resolve_framework_outline(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -358,7 +358,7 @@ async def _resolve_framework_outline(
 async def _resolve_thesis_writing(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -393,7 +393,7 @@ async def _resolve_thesis_writing(
 async def _resolve_figure_generation(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -418,7 +418,7 @@ async def _resolve_figure_generation(
 async def _resolve_compile_export(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -432,7 +432,7 @@ async def _resolve_compile_export(
 async def _resolve_opening_research(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -453,7 +453,7 @@ async def _resolve_opening_research(
 async def _resolve_peer_review(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -477,7 +477,7 @@ async def _resolve_peer_review(
 async def _resolve_journal_recommend(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -501,7 +501,7 @@ async def _resolve_journal_recommend(
 async def _resolve_experiment_design(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -522,7 +522,7 @@ async def _resolve_experiment_design(
 async def _resolve_proposal_outline(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -539,7 +539,7 @@ async def _resolve_proposal_outline(
 async def _resolve_background_research(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -561,7 +561,7 @@ async def _resolve_background_research(
 async def _resolve_copyright_materials(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -580,7 +580,7 @@ async def _resolve_copyright_materials(
 async def _resolve_technical_description(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -597,7 +597,7 @@ async def _resolve_technical_description(
 async def _resolve_patent_outline(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
@@ -622,7 +622,7 @@ async def _resolve_patent_outline(
 async def _resolve_prior_art_search(
     *,
     params: dict[str, Any],
-    workspace_type: str,
+    _workspace_type: str,
     workspace: Any,
     message: str,
     load_latest_draft_summary: Callable[[str], Awaitable[tuple[str | None, str | None]]],
