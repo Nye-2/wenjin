@@ -69,6 +69,8 @@ class MemoryMiddleware(Middleware):
         self._capture_enabled = capture_enabled
         self._cache_ttl = cache_ttl
         self._max_cache_size = max_cache_size
+        if max_cache_size < 1:
+            raise ValueError(f"max_cache_size must be >= 1, got {max_cache_size}")
         self._memory_cache: collections.OrderedDict[str, tuple[str, float]] = collections.OrderedDict()  # key → (context, cached_at)
 
     @property
@@ -106,6 +108,7 @@ class MemoryMiddleware(Middleware):
         cache_key = self._cache_key(str(user_id), str(workspace_id) if workspace_id else None)
         cached_context, cached_at = self._memory_cache.get(cache_key, ("", 0.0))
         if cached_context and time.monotonic() - cached_at < self._cache_ttl:
+            self._memory_cache.move_to_end(cache_key)   # promote to MRU position
             return {"memory_context": cached_context}
 
         max_context_turns = 3

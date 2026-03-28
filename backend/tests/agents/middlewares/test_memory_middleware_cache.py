@@ -103,3 +103,28 @@ async def test_different_users_have_separate_cache_entries():
     assert mock_build.call_count == 2
     assert result_a.get("memory_context") == "ctx-A"
     assert result_b.get("memory_context") == "ctx-B"
+
+
+@pytest.mark.asyncio
+async def test_cache_evicts_oldest_entry_at_capacity():
+    """When cache reaches max_cache_size, the oldest entry is evicted (LRU)."""
+    mw = MemoryMiddleware(enabled=True, inject_enabled=True, cache_ttl=300, max_cache_size=2)
+
+    state = {"messages": [], "workspace_id": "ws-1"}
+    config_a = {"configurable": {"user_id": "user-A", "workspace_id": "ws-1"}}
+    config_b = {"configurable": {"user_id": "user-B", "workspace_id": "ws-1"}}
+    config_c = {"configurable": {"user_id": "user-C", "workspace_id": "ws-1"}}
+
+    with patch(
+        "src.agents.middlewares.memory.build_memory_context",
+        new_callable=AsyncMock,
+        side_effect=["ctx-A", "ctx-B", "ctx-C"],
+    ):
+        await mw.before_model(state, config_a)  # inserts user-A (size=1)
+        await mw.before_model(state, config_b)  # inserts user-B (size=2, at capacity)
+        await mw.before_model(state, config_c)  # evicts LRU (user-A), inserts user-C
+
+    assert "user-A:ws-1" not in mw._memory_cache, "Oldest entry must be evicted"
+    assert "user-B:ws-1" in mw._memory_cache
+    assert "user-C:ws-1" in mw._memory_cache
+    assert len(mw._memory_cache) == 2
