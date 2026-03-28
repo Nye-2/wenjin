@@ -39,6 +39,8 @@ from src.gateway.routers.chat_streaming import (
     stream_thread_context_event,
 )
 from src.models.router import InvalidRequestedModelError
+from src.academic.cache.redis_client import redis_client
+from src.config import redis_settings
 from src.services import ChatThreadService
 from src.services.chat_thread_events import publish_thread_deleted, publish_thread_updated
 
@@ -212,9 +214,6 @@ async def get_thread_agent_status(
     thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-
-    from src.academic.cache.redis_client import redis_client
-    from src.config import redis_settings
 
     payload = {
         "thread_id": thread_id,
