@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from src.task.progress import emit_runtime_update, get_runtime_state
+
 _FEATURE_RUNTIME_CONFIG: dict[str, dict[str, Any]] = {
     "deep_research": {
         "title": "深度调研",
@@ -298,4 +300,29 @@ def runtime_progress_for_phase(runtime: dict[str, Any]) -> int:
         return 0
     return int(
         sum(int(phase.get("progress", 0) or 0) for phase in phases) / len(phases)
+    )
+
+
+async def emit_bound_runtime(
+    *,
+    message: str,
+    current_phase: str,
+    stage_transition: bool = False,
+) -> None:
+    """Emit the currently bound runtime state if available.
+
+    Canonical single implementation; import as ``_emit_bound_runtime`` at call
+    sites to preserve the existing internal naming convention::
+
+        from src.task.runtime_blocks import emit_bound_runtime as _emit_bound_runtime
+    """
+    runtime = get_runtime_state()
+    if runtime is None:
+        return
+    await emit_runtime_update(
+        progress_value=max(runtime_progress_for_phase(runtime), 5),
+        message=message,
+        current_phase=current_phase,
+        runtime=runtime,
+        stage_transition=stage_transition,
     )

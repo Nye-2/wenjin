@@ -10,33 +10,16 @@ from typing import Any
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_writing_model, validate_requested_model
-from src.task.progress import emit_runtime_update, get_runtime_state
+from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     advance_runtime_phase,
     append_runtime_activity,
+    emit_bound_runtime as _emit_bound_runtime,
     runtime_progress_for_phase,
     upsert_runtime_block,
 )
 
 logger = logging.getLogger(__name__)
-
-
-async def _emit_bound_runtime(
-    *,
-    message: str,
-    current_phase: str,
-    stage_transition: bool = False,
-) -> None:
-    runtime = get_runtime_state()
-    if runtime is None:
-        return
-    await emit_runtime_update(
-        progress_value=max(runtime_progress_for_phase(runtime), 5),
-        message=message,
-        current_phase=current_phase,
-        runtime=runtime,
-        stage_transition=stage_transition,
-    )
 
 
 def _resolve_writing_model(requested_model: str | None) -> str:
