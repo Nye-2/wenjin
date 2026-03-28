@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Callable, Sequence
-from typing import Any, cast
+import time
+from collections.abc import Callable, Coroutine, Sequence
+from typing import Any, Literal, TypeAlias, TypeVar, cast
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AnyMessage, ToolCall, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.errors import GraphBubbleUp
 from langgraph.prebuilt.tool_node import (
@@ -20,9 +22,18 @@ from langgraph.prebuilt.tool_node import (
 )
 from langgraph.types import Command
 
-from src.agents.thread_state import ThreadState
+from src.agents.middlewares.base import Middleware
+from src.agents.thread_state import ThreadState, create_thread_state
 
 ToolLoader = Callable[[], Sequence[BaseTool]]
+ToolNodeInputType: TypeAlias = Literal["list", "dict", "tool_calls"]
+ToolRunOutput: TypeAlias = ToolMessage | Command[Any]
+T = TypeVar("T")
+
+
+def _coerce_json_object(value: object) -> dict[str, Any]:
+    """Normalize arbitrary tool payloads into dict form."""
+    return dict(value) if isinstance(value, dict) else {}
 
 
 class DynamicToolNode(ToolNode):
@@ -33,21 +44,29 @@ class DynamicToolNode(ToolNode):
         tool_loader: ToolLoader,
         *,
         name: str = "tools",
-        middlewares: Sequence[Any] | None = None,
+        middlewares: Sequence[Middleware] | None = None,
         tags: list[str] | None = None,
         handle_tool_errors: bool | str | Callable[..., str] | tuple[type[Exception], ...] = True,
         messages_key: str = "messages",
+        refresh_interval: float = 60.0,
     ) -> None:
         self._tool_loader = tool_loader
         self._refresh_lock = threading.RLock()
         self._middlewares = list(middlewares or [])
+        self._refresh_interval = refresh_interval
+        self._last_refresh: float = 0.0
+        self._last_tool_names: frozenset[str] = frozenset()
+        initial_tools = list(tool_loader())
         super().__init__(
-            list(tool_loader()),
+            initial_tools,
             name=name,
             tags=tags,
             handle_tool_errors=handle_tool_errors,
             messages_key=messages_key,
         )
+        # Record the initial load so _refresh_tools respects the TTL from construction
+        self._last_tool_names = frozenset(t.name for t in initial_tools)
+        self._last_refresh = time.monotonic()
 
     def list_available_tools(self) -> list[BaseTool]:
         """Return the latest tool registry snapshot."""
@@ -56,7 +75,15 @@ class DynamicToolNode(ToolNode):
 
     def _refresh_tools(self) -> None:
         with self._refresh_lock:
+            now = time.monotonic()
+            if now - self._last_refresh < self._refresh_interval:
+                return  # Within TTL: skip full reload
             tools = list(self._tool_loader())
+            new_names = frozenset(tool.name for tool in tools)
+            if new_names == self._last_tool_names and self._last_refresh > 0:
+                self._last_refresh = now  # Reset TTL without rebuilding
+                return
+            # Rebuild tool maps
             self.tools_by_name = {tool.name: tool for tool in tools}
             self.tool_to_state_args = {
                 tool.name: _get_state_args(tool)
@@ -66,9 +93,16 @@ class DynamicToolNode(ToolNode):
                 tool.name: _get_store_arg(tool)
                 for tool in tools
             }
+            self._last_tool_names = new_names
+            self._last_refresh = now
+
+    def invalidate_tool_cache(self) -> None:
+        """Force a full tool reload on the next invocation (e.g. after MCP reconnect)."""
+        with self._refresh_lock:
+            self._last_refresh = 0.0
 
     @staticmethod
-    def _run_coroutine_sync(coroutine):
+    def _run_coroutine_sync(coroutine: Coroutine[Any, Any, T]) -> T:
         """Run an async middleware hook from a synchronous tool path."""
         try:
             asyncio.get_running_loop()
@@ -90,41 +124,46 @@ class DynamicToolNode(ToolNode):
 
         if "value" in error:
             raise error["value"]
-        return result.get("value")
+        return cast(T, result.get("value"))
 
-    def _build_tool_config(self, config: Any, *, tool_call_id: str) -> Any:
+    def _build_tool_config(
+        self,
+        config: RunnableConfig | None,
+        *,
+        tool_call_id: str,
+    ) -> RunnableConfig:
         """Create a per-tool-call config so middleware state does not collide."""
         tool_config = dict(config or {})
-        configurable = dict(tool_config.get("configurable", {}))
+        configurable = _coerce_json_object(tool_config.get("configurable", {}))
         configurable["tool_call_id"] = tool_call_id
         tool_config["configurable"] = configurable
-        return tool_config
+        return cast(RunnableConfig, tool_config)
 
     def _build_state(self, input: Any) -> ThreadState:
         """Best-effort conversion from ToolNode input to ThreadState."""
         if isinstance(input, dict):
-            return ThreadState(**input)
+            return create_thread_state(input)
         if isinstance(input, list):
-            return ThreadState(messages=input)
+            return create_thread_state(messages=cast(list[AnyMessage], input))
         if hasattr(input, "model_dump"):
             payload = input.model_dump()
             if isinstance(payload, dict):
-                return ThreadState(**payload)
+                return create_thread_state(payload)
         messages = getattr(input, self.messages_key, None)
         if isinstance(messages, list):
-            return ThreadState(messages=messages)
-        return ThreadState(messages=[])
+            return create_thread_state(messages=cast(list[AnyMessage], messages))
+        return create_thread_state()
 
     async def _apply_before_tool(
         self,
         *,
         state: ThreadState,
-        config: Any,
-        call: dict[str, Any],
-    ) -> dict[str, Any]:
+        config: RunnableConfig,
+        call: ToolCall,
+    ) -> ToolCall:
         updated_call = dict(call)
         tool_name = str(updated_call["name"])
-        tool_args = dict(updated_call.get("args") or {})
+        tool_args = _coerce_json_object(updated_call.get("args") or {})
 
         for middleware in self._middlewares:
             tool_name, tool_args = await middleware.before_tool(
@@ -136,14 +175,14 @@ class DynamicToolNode(ToolNode):
 
         updated_call["name"] = tool_name
         updated_call["args"] = tool_args
-        return updated_call
+        return cast(ToolCall, updated_call)
 
     async def _apply_after_tool(
         self,
         *,
         state: ThreadState,
-        config: Any,
-        call: dict[str, Any],
+        config: RunnableConfig,
+        call: ToolCall,
         response: Any,
     ) -> Any:
         result: Any = response.content if isinstance(response, ToolMessage) else response
@@ -159,11 +198,11 @@ class DynamicToolNode(ToolNode):
             return result
 
         if isinstance(response, ToolMessage):
-            response.content = cast(str | list, msg_content_output(result))
+            response.content = cast(str | list[Any], msg_content_output(result))
             return response
 
         return ToolMessage(
-            content=cast(str | list, msg_content_output(result)),
+            content=cast(str | list[Any], msg_content_output(result)),
             name=str(call["name"]),
             tool_call_id=str(call["id"]),
         )
@@ -171,7 +210,7 @@ class DynamicToolNode(ToolNode):
     def _coerce_tool_error_message(
         self,
         *,
-        call: dict[str, Any],
+        call: ToolCall,
         error: Exception,
     ) -> ToolMessage:
         if isinstance(self.handle_tool_errors, tuple):
@@ -192,7 +231,13 @@ class DynamicToolNode(ToolNode):
             status="error",
         )
 
-    def _func(self, input: Any, config, *, store=None) -> Any:
+    def _func(
+        self,
+        input: Any,
+        config: RunnableConfig,
+        *,
+        store: Any = None,
+    ) -> Any:
         self._refresh_tools()
         tool_calls, input_type = self._parse_input(input, store)
         state = self._build_state(input)
@@ -205,9 +250,15 @@ class DynamicToolNode(ToolNode):
             )
             for call in tool_calls
         ]
-        return self._combine_tool_outputs(outputs, input_type)
+        return self._combine_tool_outputs(cast(list[ToolMessage], outputs), input_type)
 
-    async def _afunc(self, input: Any, config, *, store=None) -> Any:
+    async def _afunc(
+        self,
+        input: Any,
+        config: RunnableConfig,
+        *,
+        store: Any = None,
+    ) -> Any:
         self._refresh_tools()
         tool_calls, input_type = self._parse_input(input, store)
         state = self._build_state(input)
@@ -222,16 +273,16 @@ class DynamicToolNode(ToolNode):
                 for call in tool_calls
             )
         )
-        return self._combine_tool_outputs(outputs, input_type)
+        return self._combine_tool_outputs(cast(list[ToolMessage], outputs), input_type)
 
     def _run_one_with_middlewares(
         self,
         *,
-        call: dict[str, Any],
-        input_type: str,
-        config: Any,
+        call: ToolCall,
+        input_type: ToolNodeInputType,
+        config: RunnableConfig,
         state: ThreadState,
-    ) -> ToolMessage:
+    ) -> ToolRunOutput:
         if invalid_tool_message := self._validate_tool_call(call):
             return invalid_tool_message
 
@@ -262,9 +313,12 @@ class DynamicToolNode(ToolNode):
         )
 
         if isinstance(response, Command):
-            return self._validate_tool_command(response, updated_call, input_type)
+            return cast(
+                ToolRunOutput,
+                self._validate_tool_command(response, updated_call, input_type),
+            )
         if isinstance(response, ToolMessage):
-            response.content = cast(str | list, msg_content_output(response.content))
+            response.content = cast(str | list[Any], msg_content_output(response.content))
             return response
         raise TypeError(
             f"Tool {updated_call['name']} returned unexpected type: {type(response)}"
@@ -273,11 +327,11 @@ class DynamicToolNode(ToolNode):
     async def _arun_one_with_middlewares(
         self,
         *,
-        call: dict[str, Any],
-        input_type: str,
-        config: Any,
+        call: ToolCall,
+        input_type: ToolNodeInputType,
+        config: RunnableConfig,
         state: ThreadState,
-    ) -> ToolMessage:
+    ) -> ToolRunOutput:
         if invalid_tool_message := self._validate_tool_call(call):
             return invalid_tool_message
 
@@ -304,9 +358,12 @@ class DynamicToolNode(ToolNode):
         )
 
         if isinstance(response, Command):
-            return self._validate_tool_command(response, updated_call, input_type)
+            return cast(
+                ToolRunOutput,
+                self._validate_tool_command(response, updated_call, input_type),
+            )
         if isinstance(response, ToolMessage):
-            response.content = cast(str | list, msg_content_output(response.content))
+            response.content = cast(str | list[Any], msg_content_output(response.content))
             return response
         raise TypeError(
             f"Tool {updated_call['name']} returned unexpected type: {type(response)}"
