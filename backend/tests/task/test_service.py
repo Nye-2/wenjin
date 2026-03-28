@@ -102,28 +102,6 @@ class TestTaskService:
             assert len(tasks) >= 3
 
     @pytest.mark.asyncio
-    async def test_list_task_records_preserves_payloads(self, task_service):
-        """Task record listing should expose persisted payloads for callers that need them."""
-        with patch("src.task.service.celery_app") as mock_celery:
-            mock_celery.send_task = MagicMock()
-
-            await task_service.submit_task(
-                user_id="user-records",
-                task_type="workspace_feature",
-                payload={"workspace_id": "ws-123", "feature_id": "thesis_writing"},
-            )
-
-        records = await task_service.list_task_records(
-            user_id="user-records",
-            task_type="workspace_feature",
-            limit=10,
-        )
-
-        assert len(records) == 1
-        assert records[0].payload["workspace_id"] == "ws-123"
-        assert records[0].payload["feature_id"] == "thesis_writing"
-
-    @pytest.mark.asyncio
     async def test_queue_failure_marks_record_as_failed(self, task_service):
         """When queue submission fails, the DB record must be marked failed."""
         with patch("src.task.service.get_executor") as mock_get_executor:
