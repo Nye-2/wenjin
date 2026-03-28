@@ -73,10 +73,10 @@ def test_tool_refresh_skips_rebuild_within_ttl():
         return [echo_tool]
 
     node = DynamicToolNode(counting_loader, refresh_interval=60.0)
-    node._refresh_tools()   # first call: load
-    node._refresh_tools()   # second call: should skip (within TTL, names unchanged)
+    node._refresh_tools()   # constructor already loaded; this should skip (within TTL)
+    node._refresh_tools()   # also skips within TTL
 
-    assert call_count == 1, "Loader must only be called once within TTL when tools unchanged"
+    assert call_count == 1, "Loader must only be called once (at construction) within TTL when tools unchanged"
 
 
 def test_tool_refresh_reloads_after_ttl(monkeypatch):
@@ -126,3 +126,20 @@ def test_tool_refresh_forced_when_tools_change():
     node._refresh_tools()  # detects new tool, rebuilds
 
     assert "extra_tool" in node.tools_by_name
+
+
+def test_invalidate_tool_cache_forces_rebuild():
+    """invalidate_tool_cache() must cause a full reload on the next invocation."""
+    call_count = 0
+
+    def counting_loader():
+        nonlocal call_count
+        call_count += 1
+        return [echo_tool]
+
+    node = DynamicToolNode(counting_loader, refresh_interval=60.0)
+    # Constructor already called loader once; cache is warm
+    node.invalidate_tool_cache()
+    node._refresh_tools()  # Must reload because cache was invalidated
+
+    assert call_count == 2, "Loader must be called again after cache invalidation"
