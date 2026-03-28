@@ -15,7 +15,7 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
-from src.config.llm_config import get_model_full_config, resolve_model_id
+from src.config.llm_config import LLMSettings, get_model_full_config, resolve_model_id
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +171,8 @@ def _create_openai_compatible_model(
         "base_url": base_url,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "timeout": LLMSettings.TIMEOUT,
+        "max_retries": LLMSettings.MAX_RETRIES,
     }
     if reasoning_effort:
         kwargs["reasoning_effort"] = reasoning_effort
@@ -216,6 +218,8 @@ def _create_anthropic_model(
         "api_key": api_key,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "default_request_timeout": LLMSettings.TIMEOUT,
+        "max_retries": LLMSettings.MAX_RETRIES,
     }
 
     # LangChain Anthropic expects extended thinking under the `thinking` field.

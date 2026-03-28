@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
+from src.config.llm_config import LLMSettings
+
 
 class TestCreateChatModel:
     """Test create_chat_model function."""
@@ -276,3 +278,88 @@ class TestDynamicConfigIntegration:
 
             assert model is not None
             assert model.model_name == "test/integration-model"
+
+
+class TestTimeoutAndRetrySettings:
+    """Verify that LLMSettings.TIMEOUT and MAX_RETRIES are wired into model instances."""
+
+    @pytest.fixture(autouse=True)
+    def reset_cache(self) -> Generator[None, None, None]:
+        """Reset the LLM config cache before and after each test."""
+        from src.config.llm_config import reload_models
+        reload_models()
+        yield
+        reload_models()
+
+    @pytest.fixture
+    def openai_config(self) -> str:
+        return json.dumps([
+            {
+                "id": "test-openai",
+                "model": "test/openai-model",
+                "api_key": "sk-test-openai",
+                "base_url": "https://api.openai-compat.test",
+            }
+        ])
+
+    @pytest.fixture
+    def anthropic_config(self) -> str:
+        return json.dumps([
+            {
+                "id": "test-claude",
+                "model": "claude-test-model",
+                "api_key": "sk-test-anthropic",
+                "base_url": "https://api.anthropic.com",
+            }
+        ])
+
+    def test_openai_compatible_model_receives_timeout_and_max_retries(
+        self, openai_config: str
+    ) -> None:
+        """OpenAI-compatible models must be created with timeout and max_retries from LLMSettings."""
+        with patch.dict(os.environ, {"LLM_GEN_MODELS": openai_config}, clear=False):
+            from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
+            reload_models()
+
+            model = create_chat_model(model_id="test-openai")
+
+            # ChatOpenAI stores these on the instance
+            assert model.request_timeout == LLMSettings.TIMEOUT
+            assert model.max_retries == LLMSettings.MAX_RETRIES
+
+    def test_anthropic_model_receives_timeout_and_max_retries(
+        self, anthropic_config: str
+    ) -> None:
+        """Anthropic models must be created with timeout and max_retries from LLMSettings."""
+        with patch.dict(os.environ, {"LLM_GEN_MODELS": anthropic_config}, clear=False):
+            from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
+            reload_models()
+
+            model = create_chat_model(model_id="test-claude")
+
+            # ChatAnthropic stores these on the instance
+            assert model.default_request_timeout == LLMSettings.TIMEOUT
+            assert model.max_retries == LLMSettings.MAX_RETRIES
+
+    def test_custom_llm_settings_are_propagated(self, openai_config: str) -> None:
+        """When LLMSettings values are changed, models should reflect the new values."""
+        original_timeout = LLMSettings.TIMEOUT
+        original_retries = LLMSettings.MAX_RETRIES
+        try:
+            LLMSettings.TIMEOUT = 60.0
+            LLMSettings.MAX_RETRIES = 5
+
+            with patch.dict(os.environ, {"LLM_GEN_MODELS": openai_config}, clear=False):
+                from src.config.llm_config import reload_models
+                from src.models.factory import create_chat_model
+                reload_models()
+
+                model = create_chat_model(model_id="test-openai")
+
+                assert model.request_timeout == 60.0
+                assert model.max_retries == 5
+        finally:
+            LLMSettings.TIMEOUT = original_timeout
+            LLMSettings.MAX_RETRIES = original_retries
