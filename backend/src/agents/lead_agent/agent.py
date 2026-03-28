@@ -599,7 +599,7 @@ def build_pipeline(
             CitationContextMiddleware(paper_service)
         )
 
-    # --- MUST BE LAST (16) ---
+    # --- MUST BE LAST (17) ---
     pipeline.append(ClarificationMiddleware())
 
     validate_pipeline(pipeline)
