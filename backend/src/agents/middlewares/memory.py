@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import collections
 import logging
 import time
 from typing import Any
@@ -48,6 +48,7 @@ class MemoryMiddleware(Middleware):
         inject_enabled: bool = True,
         capture_enabled: bool = True,
         cache_ttl: float = 300.0,
+        max_cache_size: int = 1000,
     ):
         """Initialize MemoryMiddleware.
 
@@ -59,6 +60,7 @@ class MemoryMiddleware(Middleware):
             inject_enabled: Whether to inject long-term memory before model calls
             capture_enabled: Whether to capture turns back into long-term memory
             cache_ttl: Seconds before a cached memory context expires (default: 300)
+            max_cache_size: Maximum number of entries in the memory cache (default: 1000)
         """
         self._queue = queue or get_default_memory_queue()
         self._enabled = enabled
@@ -66,7 +68,8 @@ class MemoryMiddleware(Middleware):
         self._inject_enabled = inject_enabled
         self._capture_enabled = capture_enabled
         self._cache_ttl = cache_ttl
-        self._memory_cache: dict[str, tuple[str, float]] = {}  # key → (context, cached_at)
+        self._max_cache_size = max_cache_size
+        self._memory_cache: collections.OrderedDict[str, tuple[str, float]] = collections.OrderedDict()  # key → (context, cached_at)
 
     @property
     def queue(self) -> MemoryQueue:
@@ -129,6 +132,8 @@ class MemoryMiddleware(Middleware):
         )
         if not memory_context:
             return {}
+        if len(self._memory_cache) >= self._max_cache_size:
+            self._memory_cache.popitem(last=False)
         self._memory_cache[cache_key] = (memory_context, time.monotonic())
         return {"memory_context": memory_context}
 
