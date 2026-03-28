@@ -227,6 +227,7 @@ class TaskService:
             limit=50,
             workspace_id=workspace_id,
             feature_id=feature_id,
+            action=action,
         )
         active_statuses = {TaskStatus.PENDING.value, TaskStatus.RUNNING.value}
         for record in records:

@@ -221,6 +221,7 @@ class TaskStore:
         limit: int = 20,
         workspace_id: str | None = None,
         feature_id: str | None = None,
+        action: str | None = None,
     ) -> list[TaskRecord]:
         """List tasks for a user."""
         record_model = self._record_model()
@@ -234,6 +235,8 @@ class TaskStore:
             query = query.where(record_model.workspace_id == workspace_id)
         if feature_id is not None:
             query = query.where(record_model.feature_id == feature_id)
+        if action is not None:
+            query = query.where(record_model.action == action)
 
         query = query.order_by(record_model.created_at.desc()).limit(limit)
         result = await self._db.execute(query)
