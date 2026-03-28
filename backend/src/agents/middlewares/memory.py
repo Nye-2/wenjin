@@ -50,6 +50,7 @@ class MemoryMiddleware(Middleware):
         capture_enabled: bool = True,
         cache_ttl: float = 300.0,
         max_cache_size: int = 1000,
+        timeout: float = 5.0,
     ):
         """Initialize MemoryMiddleware.
 
@@ -62,6 +63,7 @@ class MemoryMiddleware(Middleware):
             capture_enabled: Whether to capture turns back into long-term memory
             cache_ttl: Seconds before a cached memory context expires (default: 300)
             max_cache_size: Maximum number of entries in the memory cache (default: 1000)
+            timeout: Seconds to wait for memory context load before giving up (default: 5.0)
         """
         self._queue = queue or get_default_memory_queue()
         self._enabled = enabled
@@ -69,6 +71,7 @@ class MemoryMiddleware(Middleware):
         self._inject_enabled = inject_enabled
         self._capture_enabled = capture_enabled
         self._cache_ttl = cache_ttl
+        self._timeout = timeout
         if max_cache_size < 1:
             raise ValueError(f"max_cache_size must be >= 1, got {max_cache_size}")
         self._max_cache_size = max_cache_size
@@ -136,12 +139,13 @@ class MemoryMiddleware(Middleware):
                     str(workspace_id) if workspace_id else None,
                     current_context=conversation_context or None,
                 ),
-                timeout=5.0,
+                timeout=self._timeout,
             )
         except asyncio.TimeoutError:
             logger.warning(
-                "MemoryMiddleware: timed out loading memory context for user %s (5.0s)",
+                "MemoryMiddleware: timed out loading memory context for user %s (%.1fs)",
                 user_id,
+                self._timeout,
             )
             return {}
         if not memory_context:

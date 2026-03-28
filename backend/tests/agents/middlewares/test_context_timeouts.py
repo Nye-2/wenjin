@@ -29,7 +29,7 @@ async def test_workspace_context_timeout_returns_empty():
     config = {"configurable": {}}
 
     result = await mw.before_model(state, config)
-    assert result == {} or result.get("workspace_type") is None
+    assert result == {}
 
 
 @pytest.mark.asyncio
@@ -43,7 +43,7 @@ async def test_literature_context_timeout_returns_empty():
     config = {"configurable": {}}
 
     result = await mw.before_model(state, config)
-    assert "literature_context" not in result or result["literature_context"] == ""
+    assert result == {}
 
 
 @pytest.mark.asyncio
@@ -57,4 +57,4 @@ async def test_knowledge_context_timeout_returns_empty():
     config = {"configurable": {}}
 
     result = await mw.before_model(state, config)
-    assert result == {} or result.get("knowledge_context") == ""
+    assert result == {}
