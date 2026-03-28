@@ -75,10 +75,9 @@ def test_every_feature_has_follow_up_prompt():
 
 
 def test_api_dict_includes_follow_up_prompt():
-    """to_api_dict() must include followUpPrompt key."""
+    """to_api_dict() must include a non-None followUpPrompt key for every feature."""
     from src.workspace_features.registry import iter_workspace_features
     for feature in iter_workspace_features():
         api = feature.to_api_dict()
         assert "followUpPrompt" in api, f"{feature.id} missing followUpPrompt in to_api_dict()"
         assert api["followUpPrompt"] is not None, f"{feature.id} followUpPrompt is None"
-        break  # one is enough for contract test
