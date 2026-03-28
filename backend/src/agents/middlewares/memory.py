@@ -88,6 +88,8 @@ class MemoryMiddleware(Middleware):
         return self._enabled
 
     def _cache_key(self, user_id: str, workspace_id: str | None) -> str:
+        # Safe when IDs are UUIDs or integers (no colons); do not use with
+        # arbitrary string IDs that may contain ':'.
         return f"{user_id}:{workspace_id or ''}"
 
     async def before_model(

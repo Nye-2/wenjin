@@ -93,10 +93,10 @@ class GraphTemplateRegistry:
         """
         with self._lock:
             if name in self._templates:
-                self._templates.move_to_end(name)
+                self._templates.move_to_end(name)  # promote to MRU
             elif len(self._templates) >= self._max_size:
-                self._templates.popitem(last=False)
-            self._templates[name] = graph
+                self._templates.popitem(last=False)  # evict LRU
+            self._templates[name] = graph  # insert or update value in both cases
 
     def get(self, name: str) -> Any | None:
         """Get a registered template and mark it as recently used."""
