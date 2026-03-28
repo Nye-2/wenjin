@@ -138,7 +138,11 @@ class DynamicToolNode(ToolNode):
 
         if error_box:
             raise error_box[0]
-        return cast(T, result_box[0] if result_box else None)
+        if not result_box:
+            raise RuntimeError(
+                "DynamicToolNode._run_coroutine_sync: thread completed but produced no result"
+            )
+        return cast(T, result_box[0])
 
     def _build_tool_config(
         self,

@@ -165,3 +165,28 @@ def test_run_coroutine_sync_warns_when_loop_is_running(caplog):
                for record in caplog.records), (
         "Expected a WARNING log when _run_coroutine_sync spawns a thread inside a running loop"
     )
+
+
+def test_run_coroutine_sync_raises_on_thread_timeout(monkeypatch):
+    """_run_coroutine_sync must raise TimeoutError if thread does not finish within 30s."""
+    import asyncio
+    import threading
+    import src.agents.lead_agent.dynamic_tools as dt_module
+
+    def patched_join(self, timeout=None):
+        # Simulate a join that returns immediately (as if timeout expired)
+        # but the thread never completes, so is_alive() returns True
+        pass
+
+    # Make is_alive always return True to simulate a timed-out thread
+    monkeypatch.setattr(threading.Thread, "join", patched_join)
+    monkeypatch.setattr(threading.Thread, "is_alive", lambda self: True)
+
+    # Simulate being inside a running event loop so the thread path is taken
+    monkeypatch.setattr(dt_module.asyncio, "get_running_loop", lambda: object())
+
+    async def noop():
+        return 42
+
+    with pytest.raises(TimeoutError, match="30 s"):
+        DynamicToolNode._run_coroutine_sync(noop())
