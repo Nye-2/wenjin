@@ -119,22 +119,26 @@ class DynamicToolNode(ToolNode):
             "uses thread-local DB sessions. Prefer ainvoke() over invoke()."
         )
 
-        result: dict[str, Any] = {}
-        error: dict[str, BaseException] = {}
+        result_box: list[Any] = []
+        error_box: list[BaseException] = []
 
         def _runner() -> None:
             try:
-                result["value"] = asyncio.run(coroutine)
+                result_box.append(asyncio.run(coroutine))
             except BaseException as exc:  # noqa: BLE001
-                error["value"] = exc
+                error_box.append(exc)
 
         thread = threading.Thread(target=_runner, daemon=True)
         thread.start()
-        thread.join()
+        thread.join(timeout=30.0)
+        if thread.is_alive():
+            raise TimeoutError(
+                "DynamicToolNode._run_coroutine_sync: thread did not complete within 30 s"
+            )
 
-        if "value" in error:
-            raise error["value"]
-        return cast(T, result.get("value"))
+        if error_box:
+            raise error_box[0]
+        return cast(T, result_box[0] if result_box else None)
 
     def _build_tool_config(
         self,
