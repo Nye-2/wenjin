@@ -5,14 +5,45 @@ algorithm with Redis as the backend storage.
 """
 
 import time
-from collections.abc import Callable
 from ipaddress import ip_address
+from typing import Protocol, cast
 
-from fastapi import Request, Response, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
 
 from src.config import redis_settings
+
+
+class RedisPipelineProtocol(Protocol):
+    """Minimal async Redis pipeline surface used by the middleware."""
+
+    def zremrangebyscore(self, key: str, start: float | int, end: float | int) -> object: ...
+
+    def zcard(self, key: str) -> object: ...
+
+    def zadd(self, key: str, values: dict[str, float]) -> object: ...
+
+    def expire(self, key: str, ttl_seconds: int) -> object: ...
+
+    async def execute(self) -> list[object]: ...
+
+
+class RedisBackendProtocol(Protocol):
+    """Minimal Redis backend surface used by the middleware."""
+
+    def pipeline(self) -> RedisPipelineProtocol: ...
+
+
+class RedisClientWrapperProtocol(Protocol):
+    """Compatibility wrapper exposing an underlying Redis client via `.client`."""
+
+    @property
+    def client(self) -> RedisBackendProtocol: ...
+
+
+RedisLike = RedisBackendProtocol | RedisClientWrapperProtocol
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -29,11 +60,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app,
+        app: ASGIApp,
         requests_per_minute: int = 60,
         window_seconds: int = 60,
-        redis_client=None,
-    ):
+        redis_client: RedisLike | None = None,
+    ) -> None:
         """Initialize rate limiting middleware.
 
         Args:
@@ -47,7 +78,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.window_seconds = window_seconds
         self._redis = redis_client
         self._storage: dict[str, list[float]] = {}
-        self._excluded_paths = {
+        self._excluded_paths: set[str] = {
             "/livez",
             "/livez/",
             "/readyz",
@@ -57,7 +88,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "/openapi.json",
         }
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Process request through rate limiter.
 
         Args:
@@ -151,15 +182,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _is_trusted_proxy(cls, host: str | None) -> bool:
         if not cls._is_valid_ip(host):
             return False
+        assert host is not None
         parsed = ip_address(host)
         return parsed.is_loopback or parsed.is_private or parsed.is_link_local
 
-    def _resolve_redis_backend(self):
-        if self._redis is None:
+    def _resolve_redis_backend(self) -> RedisBackendProtocol | None:
+        backend = self._redis
+        if backend is None:
             return None
-        if hasattr(self._redis, "client"):
-            return self._redis.client
-        return self._redis
+        client = getattr(backend, "client", None)
+        if client is not None:
+            return cast(RedisBackendProtocol, client)
+        return cast(RedisBackendProtocol, backend)
 
     async def _check_redis(self, key: str) -> bool:
         """Check rate limit using Redis.
@@ -196,7 +230,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             pipe.expire(key, self.window_seconds + 1)
 
             results = await pipe.execute()
-            current_count = results[1]
+            current_count_raw = results[1] if len(results) > 1 else 0
+            if not isinstance(current_count_raw, (int, float)):
+                return self._check_memory(key)
+            current_count = int(current_count_raw)
 
             return current_count < self.requests_per_minute
 
@@ -236,7 +273,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return True
 
 
-def setup_rate_limiting(app, redis_client=None):
+def setup_rate_limiting(app: FastAPI, redis_client: RedisLike | None = None) -> None:
     """Setup rate limiting middleware for a FastAPI app.
 
     Args:

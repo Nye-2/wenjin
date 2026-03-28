@@ -2,9 +2,10 @@
 
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any, cast
 
-from celery import shared_task
+from celery import Task, shared_task
 
 from src.task.registry import PAPER_EXTRACTION_TASK
 
@@ -20,11 +21,11 @@ def _resolve_thread_skill(payload: Mapping[str, object], task_type: str) -> str:
 
 async def _append_task_chat_message(
     *,
-    db,
+    db: Any,
     task_id: str,
     task_type: str,
-    payload: dict,
-    result: dict | None = None,
+    payload: dict[str, Any],
+    result: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> None:
     """Best-effort task result write-back into the originating chat thread."""
@@ -85,10 +86,10 @@ async def _append_task_chat_message(
 
 async def _sync_paper_extraction_attachment_state(
     *,
-    db,
+    db: Any,
     task_id: str,
     task_type: str,
-    payload: dict,
+    payload: dict[str, Any],
     status: str,
     message: str | None = None,
     progress: int | None = None,
@@ -128,8 +129,12 @@ async def _sync_paper_extraction_attachment_state(
         )
 
 
-@shared_task(bind=True, name="src.task.tasks.execute_task")
-def execute_task(self, task_id: str, task_type: str, payload: dict) -> dict:
+def _execute_task_entry(
+    self: Task,
+    task_id: str,
+    task_type: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     """Execute a task based on its type.
 
     This is the main entry point for all async tasks.
@@ -146,15 +151,25 @@ def execute_task(self, task_id: str, task_type: str, payload: dict) -> dict:
     """
     from src.task.worker import run_worker_coroutine
 
-    return run_worker_coroutine(_execute_task_async(self, task_id, task_type, payload))
+    runner = cast(
+        Callable[[Awaitable[dict[str, Any]]], dict[str, Any]],
+        run_worker_coroutine,
+    )
+    return runner(_execute_task_async(self, task_id, task_type, payload))
+
+
+execute_task = shared_task(
+    bind=True,
+    name="src.task.tasks.execute_task",
+)(_execute_task_entry)
 
 
 async def _execute_task_async(
-    celery_task,
+    celery_task: Task,
     task_id: str,
     task_type: str,
-    payload: dict,
-) -> dict:
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     """Async task execution logic."""
     from src.academic.cache.redis_client import redis_client
     from src.database import get_db_session
@@ -314,7 +329,11 @@ async def _execute_task_async(
             raise
 
 
-async def _dispatch_task(task_type: str, payload: dict, progress) -> dict:
+async def _dispatch_task(
+    task_type: str,
+    payload: dict[str, Any],
+    progress: Any,
+) -> dict[str, Any]:
     """Dispatch task to appropriate handler.
 
     Routes task execution to canonical task handlers.

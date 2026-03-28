@@ -1,5 +1,7 @@
 """APA 7th Edition citation formatter."""
 
+from typing import Any
+
 from .base import CitationFormatter
 
 
@@ -10,7 +12,7 @@ class APAFormatter(CitationFormatter):
     def style_name(self) -> str:
         return "APA"
 
-    def format_authors(self, authors: list[dict]) -> str:
+    def format_authors(self, authors: list[dict[str, Any]]) -> str:
         """APA author format: Smith, J. A., & Jones, B. C."""
         if not authors:
             return ""
@@ -33,7 +35,7 @@ class APAFormatter(CitationFormatter):
         else:
             return ", ".join(formatted[:-1]) + ", & " + formatted[-1]
 
-    def format_citation(self, paper: dict, in_text: bool = False) -> str:
+    def format_citation(self, paper: dict[str, Any], in_text: bool = False) -> str:
         """Format APA citation.
 
         In-text: (Smith, 2024) or (Vaswani et al., 2017)
@@ -50,7 +52,7 @@ class APAFormatter(CitationFormatter):
 
         return self.format_bibliography_entry(paper)
 
-    def format_bibliography_entry(self, paper: dict) -> str:
+    def format_bibliography_entry(self, paper: dict[str, Any]) -> str:
         """Format APA bibliography entry."""
         parts = []
 
@@ -78,7 +80,7 @@ class APAFormatter(CitationFormatter):
 
         return " ".join(parts)
 
-    def _get_first_author_lastname(self, authors: list[dict]) -> str:
+    def _get_first_author_lastname(self, authors: list[dict[str, Any]]) -> str:
         """Get last name of first author."""
         if not authors:
             return "Unknown"

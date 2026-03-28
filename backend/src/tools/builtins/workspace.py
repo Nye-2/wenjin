@@ -67,7 +67,7 @@ async def run_workspace_feature_tool(
     feature_id: str,
     params: dict[str, Any] | None = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = "",
-) -> Command:
+) -> Command[Any]:
     """Run a canonical workspace feature and return structured execution metadata."""
     reply = await execute_workspace_feature_request(
         workspace_id=workspace_id,

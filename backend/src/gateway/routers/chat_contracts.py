@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+from src.application.results import GeneratedChatReply
 
 ReasoningEffort = Literal["minimal", "low", "medium", "high"]
 ChatUploadKind = Literal["literature", "workspace_context", "transient"]
@@ -110,12 +111,3 @@ class ThreadAgentStatusResponse(BaseModel):
     status: str
     current_skill: str | None = None
     subagent_count: int = 0
-
-
-@dataclass(slots=True)
-class GeneratedChatReply:
-    """Internal reply container supporting structured chat cards."""
-
-    content: str
-    blocks: list[dict[str, Any]] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)

@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from src.artifacts.types import ArtifactType
+from src.services.dashboard.shared import DashboardStatusSharedMixin
 
 
-class DashboardInnovationStatusMixin:
+class DashboardInnovationStatusMixin(DashboardStatusSharedMixin):
     """Feature status builders for IP-oriented workspace modules."""
 
     db: Any

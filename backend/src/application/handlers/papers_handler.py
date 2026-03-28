@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-from fastapi import Depends, UploadFile
 
 from src.academic.services.paper_service import PaperService
 from src.academic.services.workspace_service import WorkspaceService
@@ -18,11 +17,6 @@ from src.application.errors import (
 )
 from src.application.results import PaperExtractionTaskSubmission
 from src.database import Paper, PaperSection
-from src.gateway.deps import (
-    get_paper_service,
-    get_task_service,
-    get_workspace_service,
-)
 from src.services.workspace_uploads import (
     DEFAULT_WORKSPACE_UPLOAD_ROOT,
     extract_document_preview,
@@ -36,6 +30,15 @@ from src.task.service import ConcurrencyLimitError, TaskService
 
 _PERSISTED_UPLOAD_ROOT = DEFAULT_WORKSPACE_UPLOAD_ROOT
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class UploadedPaperPayload:
+    """Transport-agnostic uploaded paper content."""
+
+    filename: str | None
+    content_type: str | None
+    content: bytes
 
 
 class PapersHandler:
@@ -87,7 +90,7 @@ class PapersHandler:
         *,
         workspace_id: str,
         user_id: str,
-        file: UploadFile,
+        upload: UploadedPaperPayload,
     ) -> dict[str, object]:
         """Upload a PDF and create its initial paper record inside a workspace."""
         await self._require_owned_workspace(
@@ -96,14 +99,14 @@ class PapersHandler:
         )
 
         try:
-            filename = sanitize_upload_filename(file.filename)
+            filename = sanitize_upload_filename(upload.filename)
         except ValueError as exc:
             raise BadRequestError(str(exc)) from exc
 
-        if not is_pdf_upload(filename, file.content_type):
+        if not is_pdf_upload(filename, upload.content_type):
             raise BadRequestError("Only PDF files are accepted")
 
-        content = await file.read()
+        content = upload.content
         if not content:
             raise BadRequestError("Uploaded file is empty")
 
@@ -112,9 +115,11 @@ class PapersHandler:
         try:
             document_preview = extract_document_preview(
                 filename,
-                file.content_type,
+                upload.content_type,
                 content=content,
             )
+            preview_authors = document_preview.get("authors")
+            author_names = preview_authors if isinstance(preview_authors, list) else []
             persistent_path = persist_workspace_upload(
                 workspace_id=workspace_id,
                 bucket="papers",
@@ -130,7 +135,7 @@ class PapersHandler:
                 ),
                 authors=[
                     {"name": name}
-                    for name in document_preview.get("authors", [])
+                    for name in author_names
                     if isinstance(name, str) and name.strip()
                 ],
                 file_path=str(persistent_path),
@@ -150,7 +155,7 @@ class PapersHandler:
             "paper_id": str(paper.id),
             "filename": persistent_path.name,
             "original_filename": filename,
-            "content_type": file.content_type,
+            "content_type": upload.content_type,
             "size_bytes": size_bytes,
             "workspace_id": workspace_id,
             "file_path": str(persistent_path),
@@ -433,16 +438,3 @@ class PapersHandler:
             raise NotFoundError("Workspace not found")
         if str(workspace.user_id) != user_id:
             raise AccessDeniedError("Access denied")
-
-
-async def get_papers_handler(
-    paper_service: PaperService = Depends(get_paper_service),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    task_service: TaskService = Depends(get_task_service),
-) -> PapersHandler:
-    """Get papers application handler."""
-    return PapersHandler(
-        paper_service=paper_service,
-        workspace_service=workspace_service,
-        task_service=task_service,
-    )

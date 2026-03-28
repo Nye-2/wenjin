@@ -1,37 +1,36 @@
 """Smaller dependency modules grouped by domain."""
 
-from src.gateway.deps.academic import (
-    get_artifact_service,
-    get_literature_service,
-    get_paper_service,
-    get_workspace_service,
-)
-from src.gateway.deps.chat import get_chat_thread_service
-from src.gateway.deps.core import get_db
-from src.gateway.deps.dashboard import (
-    get_admin_dashboard_service,
-    get_credit_service,
-    get_dashboard_service,
-    get_release_gate_service,
-    get_user_dashboard_service,
-    get_workspace_activity_service,
-    get_workspace_summary_service,
-)
-from src.gateway.deps.tasks import get_task_service
+from __future__ import annotations
 
-__all__ = [
-    "get_admin_dashboard_service",
-    "get_artifact_service",
-    "get_chat_thread_service",
-    "get_credit_service",
-    "get_dashboard_service",
-    "get_db",
-    "get_literature_service",
-    "get_paper_service",
-    "get_release_gate_service",
-    "get_task_service",
-    "get_user_dashboard_service",
-    "get_workspace_activity_service",
-    "get_workspace_summary_service",
-    "get_workspace_service",
-]
+from importlib import import_module
+
+_EXPORT_MODULES = {
+    "get_admin_dashboard_service": "src.gateway.deps.dashboard",
+    "get_artifact_service": "src.gateway.deps.academic",
+    "get_chat_thread_service": "src.gateway.deps.chat",
+    "get_chat_turn_handler": "src.gateway.deps.application",
+    "get_credit_service": "src.gateway.deps.dashboard",
+    "get_dashboard_service": "src.gateway.deps.dashboard",
+    "get_db": "src.gateway.deps.core",
+    "get_feature_execution_handler": "src.gateway.deps.application",
+    "get_literature_service": "src.gateway.deps.academic",
+    "get_paper_service": "src.gateway.deps.academic",
+    "get_papers_handler": "src.gateway.deps.application",
+    "get_release_gate_service": "src.gateway.deps.dashboard",
+    "get_task_service": "src.gateway.deps.tasks",
+    "get_user_dashboard_service": "src.gateway.deps.dashboard",
+    "get_workspace_activity_service": "src.gateway.deps.dashboard",
+    "get_workspace_service": "src.gateway.deps.academic",
+    "get_workspace_summary_service": "src.gateway.deps.dashboard",
+}
+
+__all__ = sorted(_EXPORT_MODULES)
+
+
+def __getattr__(name: str):
+    module_name = _EXPORT_MODULES.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(module_name), name)
+    globals()[name] = value
+    return value

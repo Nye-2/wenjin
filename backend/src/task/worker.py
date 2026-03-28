@@ -1,13 +1,24 @@
 """Celery worker configuration and entry point."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import sys
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 from celery.signals import worker_process_init, worker_process_shutdown
 
 from src.config.app_config import celery_settings
 from src.task.celery_app import celery_app
+
+if TYPE_CHECKING:
+    from langchain_core.tools import BaseTool
+
+    from src.academic.cache.redis_client import RedisClient
+    from src.config.extensions_config import ExtensionsConfig
+    from src.mcp.manager import MCPManager
 
 # Configure logging
 logging.basicConfig(
@@ -18,9 +29,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _worker_runner: asyncio.Runner | None = None
+T = TypeVar("T")
+
+InitSentryFn: TypeAlias = Callable[[], None]
+ResetDbEngineFn: TypeAlias = Callable[..., Awaitable[None]]
+InitDbFn: TypeAlias = Callable[[], Awaitable[None]]
+CloseDbFn: TypeAlias = Callable[[], Awaitable[None]]
+GetExtensionsConfigFn: TypeAlias = Callable[[], "ExtensionsConfig"]
+ActivateMcpRuntimeFn: TypeAlias = Callable[
+    ...,
+    Awaitable[tuple["MCPManager", list["BaseTool"]]],
+]
+ShutdownMcpRuntimeFn: TypeAlias = Callable[[], Awaitable[None]]
 
 
-def _load_worker_runtime_dependencies():
+def _load_worker_runtime_dependencies() -> tuple[
+    InitSentryFn,
+    ResetDbEngineFn,
+    InitDbFn,
+    RedisClient,
+    GetExtensionsConfigFn,
+    ActivateMcpRuntimeFn,
+]:
     """Load bootstrap-time dependencies lazily to keep imports localized."""
     from src.academic.cache.redis_client import redis_client
     from src.config import get_extensions_config
@@ -38,7 +68,11 @@ def _load_worker_runtime_dependencies():
     )
 
 
-def _load_worker_shutdown_dependencies():
+def _load_worker_shutdown_dependencies() -> tuple[
+    ShutdownMcpRuntimeFn,
+    RedisClient,
+    CloseDbFn,
+]:
     """Load shutdown-time dependencies lazily."""
     from src.academic.cache.redis_client import redis_client
     from src.database import close_db
@@ -105,18 +139,17 @@ async def _shutdown_worker_runtime() -> None:
         await close_db()
 
 
-def _run_async(coro) -> None:
+def _run_async(coro: Coroutine[Any, Any, object]) -> None:
     """Run an async coroutine on the worker process runner."""
     _get_worker_runner().run(coro)
 
 
-def run_worker_coroutine(coro):
+def run_worker_coroutine(coro: Coroutine[Any, Any, T]) -> T:
     """Run an async coroutine on the shared worker process loop."""
     return _get_worker_runner().run(coro)
 
 
-@worker_process_init.connect
-def _on_worker_process_init(**_kwargs) -> None:
+def _on_worker_process_init(**_kwargs: object) -> None:
     """Bootstrap runtime inside each Celery worker process."""
     try:
         _run_async(_bootstrap_worker_runtime())
@@ -126,8 +159,7 @@ def _on_worker_process_init(**_kwargs) -> None:
         raise
 
 
-@worker_process_shutdown.connect
-def _on_worker_process_shutdown(**_kwargs) -> None:
+def _on_worker_process_shutdown(**_kwargs: object) -> None:
     """Best-effort runtime shutdown for each Celery worker process."""
     try:
         _run_async(_shutdown_worker_runtime())
@@ -137,11 +169,15 @@ def _on_worker_process_shutdown(**_kwargs) -> None:
         close_worker_runner()
 
 
+worker_process_init.connect(_on_worker_process_init)
+worker_process_shutdown.connect(_on_worker_process_shutdown)
+
+
 def start_worker(
     concurrency: int | None = None,
     loglevel: str = "info",
     queues: list[str] | None = None,
-):
+) -> None:
     """Start a Celery worker.
 
     Args:
@@ -152,7 +188,7 @@ def start_worker(
     concurrency = concurrency or celery_settings.worker_concurrency
     logger.info(f"Starting Celery worker with concurrency={concurrency}, loglevel={loglevel}")
 
-    argv = [
+    argv: list[str] = [
         "worker",
         f"--concurrency={concurrency}",
         f"--loglevel={loglevel}",
@@ -166,7 +202,7 @@ def start_worker(
     celery_app.worker_main(argv=argv)
 
 
-def start_flower(port: int = 5555):
+def start_flower(port: int = 5555) -> None:
     """Start Flower (Celery monitoring UI).
 
     Args:

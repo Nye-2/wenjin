@@ -1,6 +1,7 @@
 """Base class for citation formatters."""
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class CitationFormatter(ABC):
@@ -21,7 +22,7 @@ class CitationFormatter(ABC):
         pass
 
     @abstractmethod
-    def format_citation(self, paper: dict, in_text: bool = False) -> str:
+    def format_citation(self, paper: dict[str, Any], in_text: bool = False) -> str:
         """Format a single citation.
 
         Args:
@@ -34,7 +35,7 @@ class CitationFormatter(ABC):
         pass
 
     @abstractmethod
-    def format_bibliography_entry(self, paper: dict) -> str:
+    def format_bibliography_entry(self, paper: dict[str, Any]) -> str:
         """Format a bibliography/reference list entry.
 
         Args:
@@ -45,7 +46,7 @@ class CitationFormatter(ABC):
         """
         pass
 
-    def format_authors(self, authors: list[dict]) -> str:
+    def format_authors(self, authors: list[dict[str, Any]]) -> str:
         """Format author list.
 
         Default implementation - subclasses may override.

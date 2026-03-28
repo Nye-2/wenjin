@@ -1,10 +1,10 @@
-"""Tests for the task delegation tool with real executor."""
+"""Tests for the task delegation tool."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.subagents.executor import SubagentStatus
+from src.subagents.models import SubagentResult, SubagentStatus
 from src.subagents.task_tool import task_tool
 
 
@@ -21,33 +21,46 @@ class TestTaskTool:
     @pytest.mark.asyncio
     async def test_known_type_delegates(self):
         """Known subagent type should attempt delegation."""
-        with patch("src.subagents.task_tool.SubagentExecutor") as MockExec:
-            mock_result = MagicMock()
-            mock_result.status = SubagentStatus.COMPLETED
-            mock_result.result = "Task done"
-            mock_result.error = None
-            MockExec.return_value.aexecute = AsyncMock(return_value=mock_result)
+        mock_manager = MagicMock()
+        mock_manager._config.default_timeout = 900
+        mock_manager._config.max_turns_limit = 50
+        mock_manager.spawn = AsyncMock(return_value="task-123")
+        mock_manager.wait_for_completion = AsyncMock(
+            return_value=SubagentResult(
+                task_id="task-123",
+                status=SubagentStatus.COMPLETED,
+                output="Task done",
+                error=None,
+            )
+        )
 
+        with patch("src.subagents.task_tool.get_manager", return_value=mock_manager):
             result = await task_tool.ainvoke({
                 "description": "Search papers",
                 "prompt": "Find LLM alignment papers",
                 "subagent_type": "scout",
             })
-            assert "completed" in result.lower() or "done" in result.lower()
+        assert "completed" in result.lower() or "done" in result.lower()
+        mock_manager.spawn.assert_awaited_once()
+        mock_manager.wait_for_completion.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_known_type_forwards_thread_context(self):
         """Delegated subagents should inherit the parent thread runtime context."""
-        with patch("src.subagents.task_tool.SubagentExecutor") as MockExec, patch(
-            "src.agents.lead_agent.agent.get_available_tools",
-            return_value=[],
-        ) as mock_tools:
-            mock_result = MagicMock()
-            mock_result.status = SubagentStatus.COMPLETED
-            mock_result.result = "Task done"
-            mock_result.error = None
-            MockExec.return_value.aexecute = AsyncMock(return_value=mock_result)
+        mock_manager = MagicMock()
+        mock_manager._config.default_timeout = 900
+        mock_manager._config.max_turns_limit = 50
+        mock_manager.spawn = AsyncMock(return_value="task-123")
+        mock_manager.wait_for_completion = AsyncMock(
+            return_value=SubagentResult(
+                task_id="task-123",
+                status=SubagentStatus.COMPLETED,
+                output="Task done",
+                error=None,
+            )
+        )
 
+        with patch("src.subagents.task_tool.get_manager", return_value=mock_manager):
             result = await task_tool.coroutine(
                 description="Search papers",
                 prompt="Find LLM alignment papers",
@@ -62,15 +75,47 @@ class TestTaskTool:
                 },
             )
 
-            assert "completed" in result.lower() or "done" in result.lower()
-            _, kwargs = MockExec.call_args
-            assert kwargs["config"].name == "Scout"
-            assert kwargs["config"].tools == ["semantic_scholar_search"]
-            assert kwargs["thread_id"] == "thread-1"
-            assert kwargs["workspace_id"] == "ws-1"
-            assert kwargs["user_id"] == "user-1"
-            assert kwargs["parent_model"] == "gpt-4o"
-            mock_tools.assert_called_once_with(
-                include_execution=True,
-                subagent_enabled=False,
+        assert "completed" in result.lower() or "done" in result.lower()
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.thread_id == "thread-1"
+        assert task.max_turns == 10
+        assert task.timeout == 900
+        assert task.tools == ["semantic_scholar_search"]
+        assert task.metadata["subagent_type"] == "scout"
+        assert task.metadata["system_prompt"]
+        assert task.metadata["workspace_id"] == "ws-1"
+        assert task.metadata["user_id"] == "user-1"
+        assert task.metadata["model_name"] == "gpt-4o"
+        assert mock_manager.wait_for_completion.await_args.args == ("thread-1", task.task_id)
+        assert mock_manager.wait_for_completion.await_args.kwargs == {"user_id": "user-1"}
+
+    @pytest.mark.asyncio
+    async def test_known_type_without_parent_thread_uses_isolated_context(self):
+        """Detached task-tool runs should not require thread ownership state."""
+        mock_manager = MagicMock()
+        mock_manager._config.default_timeout = 900
+        mock_manager._config.max_turns_limit = 50
+        mock_manager.spawn = AsyncMock(return_value="task-123")
+        mock_manager.wait_for_completion = AsyncMock(
+            return_value=SubagentResult(
+                task_id="task-123",
+                status=SubagentStatus.TIMED_OUT,
+                output=None,
+                error="Exceeded time limit",
             )
+        )
+
+        with patch("src.subagents.task_tool.get_manager", return_value=mock_manager):
+            result = await task_tool.coroutine(
+                description="Search papers",
+                prompt="Find LLM alignment papers",
+                subagent_type="scout",
+                config={"configurable": {"model_name": "gpt-4o"}},
+            )
+
+        assert "timed out" in result.lower()
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.thread_id.startswith("subagent-tool-")
+        assert "user_id" not in task.metadata
+        assert "workspace_id" not in task.metadata
+        assert task.metadata["model_name"] == "gpt-4o"

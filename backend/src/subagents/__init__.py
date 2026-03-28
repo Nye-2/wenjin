@@ -11,6 +11,8 @@ from .academic import (
     InvalidToolError,
     UnknownSubagentTypeError,
 )
+from .academic.registry import SubagentConfig as SubagentTypeConfig
+from .academic.registry import SubagentRegistry
 from .config import SubagentConfig
 from .graph import (
     GraphTemplateRegistry,
@@ -20,8 +22,6 @@ from .graph import (
 from .manager import GlobalSubagentManager, ThreadContext
 from .models import SubagentEvent, SubagentResult, SubagentStatus, SubagentTask
 from .parallel import ExecutionPhase, ParallelExecutor, PhasedPlan, PhaseResult
-from .academic.registry import SubagentConfig as SubagentTypeConfig
-from .academic.registry import SubagentRegistry
 from .task_tool import task_tool
 
 __all__ = [

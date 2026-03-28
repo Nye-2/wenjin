@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterable, Awaitable, Callable
 
 from fastapi.responses import StreamingResponse
 
@@ -54,12 +54,13 @@ async def create_workspace_events_response(workspace_id: str) -> StreamingRespon
 async def create_workspace_events_response_with_stream(
     *,
     workspace_id: str,
-    stream_factory: Callable[[str], Awaitable[object]],
+    stream_factory: Callable[[str], Awaitable[AsyncIterable[str]]],
 ) -> StreamingResponse:
     """Create the shared SSE response envelope for workspace-scoped events."""
 
+    stream = await stream_factory(workspace_id)
     return StreamingResponse(
-        await stream_factory(workspace_id),
+        stream,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

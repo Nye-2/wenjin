@@ -3,9 +3,11 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.config.app_config import get_settings
 from src.gateway.middleware.correlation import correlation_middleware
@@ -106,7 +108,7 @@ app.add_middleware(
 
 
 @app.get("/livez", include_in_schema=False)
-async def live_check():
+async def live_check() -> dict[str, str]:
     """Process liveness endpoint."""
     from src.gateway.health import build_liveness_report
 
@@ -114,10 +116,8 @@ async def live_check():
 
 
 @app.get("/readyz", include_in_schema=False)
-async def readiness_check():
+async def readiness_check() -> Any:
     """Dependency-aware readiness endpoint."""
-    from fastapi.responses import JSONResponse
-
     from src.gateway.health import build_readiness_report
 
     report = await build_readiness_report()

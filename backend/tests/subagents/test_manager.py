@@ -87,6 +87,12 @@ class TestGlobalSubagentManager:
     def manager(self, subagent_config):
         GlobalSubagentManager.reset()
         manager = GlobalSubagentManager(subagent_config)
+        manager._load_thread_binding = AsyncMock(
+            side_effect=lambda thread_id: {
+                "owner_user_id": "user-1",
+                "workspace_id": "ws-1" if thread_id == "thread-ctx" else None,
+            }
+        )
         GlobalSubagentManager._instance = manager
         yield manager
         GlobalSubagentManager.reset()
@@ -206,6 +212,30 @@ class TestGlobalSubagentManager:
             assert result.output == "Success"
 
     @pytest.mark.asyncio
+    async def test_wait_for_completion_returns_terminal_result(self, manager):
+        """Waiting on a spawned task should yield the persisted terminal result."""
+        task = SubagentTask(
+            task_id="wait-test",
+            thread_id="thread-result",
+            prompt="Test",
+            created_at=datetime.now(),
+            timeout=60,
+        )
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(
+            return_value={"messages": [MagicMock(content="Success")]}
+        )
+
+        with patch.object(manager._graph_registry, "get", return_value=mock_graph):
+            await manager.spawn(task)
+            result = await manager.wait_for_completion("thread-result", "wait-test")
+
+        assert result is not None
+        assert result.status == SubagentStatus.COMPLETED
+        assert result.output == "Success"
+
+    @pytest.mark.asyncio
     async def test_execute_task_passes_runtime_context(self, manager):
         """Manager execution should forward canonical runtime ids into graph config."""
         task = SubagentTask(
@@ -215,7 +245,11 @@ class TestGlobalSubagentManager:
             created_at=datetime.now(),
             timeout=60,
             max_turns=7,
-            metadata={"workspace_id": "ws-1", "user_id": "user-1"},
+            metadata={
+                "workspace_id": "ws-1",
+                "user_id": "user-1",
+                "model_name": "gpt-4o",
+            },
         )
 
         mock_graph = MagicMock()
@@ -233,8 +267,49 @@ class TestGlobalSubagentManager:
                 "thread_id": "thread-ctx",
                 "workspace_id": "ws-1",
                 "user_id": "user-1",
+                "model_name": "gpt-4o",
+                "subagent_enabled": False,
             }
         }
+
+    def test_build_graph_cache_key_includes_model_name(self):
+        """Task graph cache must isolate runs with different models."""
+        task = SubagentTask(
+            task_id="cache-test",
+            thread_id="thread-ctx",
+            prompt="Test",
+            created_at=datetime.now(),
+            metadata={"model_name": "gpt-4o"},
+        )
+
+        cache_key = GlobalSubagentManager._build_graph_cache_key(task)
+
+        assert "gpt-4o" in cache_key
+
+    @pytest.mark.asyncio
+    async def test_create_task_graph_uses_task_specific_model(self, manager):
+        """Per-task model overrides should bypass the manager default model."""
+        task = SubagentTask(
+            task_id="model-override",
+            thread_id="thread-ctx",
+            prompt="Test",
+            created_at=datetime.now(),
+            metadata={"model_name": "gpt-4o"},
+        )
+
+        custom_llm = MagicMock()
+
+        with patch(
+            "src.models.factory.create_chat_model",
+            return_value=custom_llm,
+        ) as mock_create_model, patch(
+            "src.subagents.manager.create_default_subagent_graph",
+            return_value=MagicMock(),
+        ) as mock_create_graph:
+            manager._create_task_graph(task)
+
+        mock_create_model.assert_called_once_with("gpt-4o", thinking_enabled=False)
+        assert mock_create_graph.call_args.args[0] is custom_llm
 
     @pytest.mark.asyncio
     async def test_execute_task_uses_task_specific_prompt_and_tool_subset(self, manager):
@@ -554,6 +629,43 @@ class TestGlobalSubagentManager:
             await manager.spawn(first_task)
             with pytest.raises(SubagentAccessError, match="Thread not found"):
                 await manager.spawn(second_task)
+
+    @pytest.mark.asyncio
+    async def test_spawn_rejects_missing_canonical_thread(self, manager):
+        """Manager should not seed context from a missing thread id."""
+        task = SubagentTask(
+            task_id="missing-thread-task",
+            thread_id="missing-thread",
+            prompt="Test",
+            created_at=datetime.now(),
+            timeout=60,
+            metadata={"user_id": "user-1"},
+        )
+        manager._load_thread_binding = AsyncMock(return_value=None)
+
+        with pytest.raises(SubagentAccessError, match="Thread not found"):
+            await manager.spawn(task)
+
+    @pytest.mark.asyncio
+    async def test_spawn_rejects_workspace_mismatch_against_thread_binding(self, manager):
+        """Task metadata workspace must match the canonical thread binding."""
+        task = SubagentTask(
+            task_id="workspace-mismatch-task",
+            thread_id="thread-ctx",
+            prompt="Test",
+            created_at=datetime.now(),
+            timeout=60,
+            metadata={"user_id": "user-1", "workspace_id": "ws-2"},
+        )
+        manager._load_thread_binding = AsyncMock(
+            return_value={
+                "owner_user_id": "user-1",
+                "workspace_id": "ws-1",
+            }
+        )
+
+        with pytest.raises(SubagentAccessError, match="Thread not found"):
+            await manager.spawn(task)
 
     @pytest.mark.asyncio
     async def test_global_event_subscription_filters_by_owner(self, manager):

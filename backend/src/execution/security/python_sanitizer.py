@@ -171,10 +171,10 @@ FORBIDDEN_FUNCTIONS: set[str] = {
 class SecurityVisitor(ast.NodeVisitor):
     """AST visitor that checks for security violations."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.violations: list[str] = []
 
-    def visit_Import(self, node: ast.Import):
+    def visit_Import(self, node: ast.Import) -> None:
         """Check import statements."""
         for alias in node.names:
             module_name = alias.name.split('.')[0]  # Get top-level module
@@ -185,7 +185,7 @@ class SecurityVisitor(ast.NodeVisitor):
                 self.violations.append(f"Module not in allowed list: {alias.name}")
         self.generic_visit(node)
 
-    def visit_ImportFrom(self, node: ast.ImportFrom):
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         """Check from ... import statements."""
         if node.module:
             module_name = node.module.split('.')[0]
@@ -195,7 +195,7 @@ class SecurityVisitor(ast.NodeVisitor):
                 self.violations.append(f"Module not in allowed list: {node.module}")
         self.generic_visit(node)
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> None:
         """Check function calls."""
         func_name = self._get_function_name(node)
         if func_name and func_name in FORBIDDEN_FUNCTIONS:
@@ -208,7 +208,7 @@ class SecurityVisitor(ast.NodeVisitor):
 
         self.generic_visit(node)
 
-    def visit_Attribute(self, node: ast.Attribute):
+    def visit_Attribute(self, node: ast.Attribute) -> None:
         """Check attribute access for dangerous patterns."""
         # Block access to __class__, __bases__, __subclasses__, etc.
         if node.attr.startswith('__') and node.attr.endswith('__'):

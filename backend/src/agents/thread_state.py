@@ -9,8 +9,9 @@ langchain 1.2.x (langchain.agents.__init__ -> langchain.schema ->
 langchain_core.memory which was removed in langchain_core >= 1.2).
 """
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Annotated, Any, NotRequired, TypedDict
+from typing import Annotated, Any, NotRequired, TypedDict, cast
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
@@ -58,7 +59,7 @@ class AcademicArtifact(BaseModel):
     id: str
     workspace_id: str
     type: str  # research_idea, methodology, framework_outline, abstract, paper_draft
-    content: dict
+    content: dict[str, Any]
     created_by_skill: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -214,8 +215,8 @@ class ThreadState(AgentState):
     artifacts: Annotated[list[str], merge_artifacts]
     response_blocks: Annotated[list[dict[str, Any]], merge_response_blocks]
     response_metadata: Annotated[dict[str, Any], merge_response_metadata]
-    todos: NotRequired[list | None]
-    uploaded_files: NotRequired[list[dict] | None]
+    todos: NotRequired[list[Any] | None]
+    uploaded_files: NotRequired[list[dict[str, Any]] | None]
     viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]
 
     # Academic context fields (formerly private attrs)
@@ -236,4 +237,32 @@ class ThreadState(AgentState):
     cited_papers: Annotated[list[str], merge_cited_papers]
 
     # Subagent tracking
-    subagent_tasks: NotRequired[dict | None]
+    subagent_tasks: NotRequired[dict[str, Any] | None]
+
+
+def create_thread_state(
+    initial: Mapping[str, Any] | None = None,
+    **overrides: Any,
+) -> ThreadState:
+    """Build a ThreadState with required reducer-backed fields initialized."""
+    payload: dict[str, Any] = {
+        "messages": [],
+        "artifacts": [],
+        "response_blocks": [],
+        "response_metadata": {},
+        "viewed_images": {},
+        "academic_artifacts": [],
+        "cited_papers": [],
+    }
+    if initial is not None:
+        payload.update(dict(initial))
+    payload.update(overrides)
+    return cast(ThreadState, payload)
+
+
+def merge_thread_state(
+    state: ThreadState,
+    updates: Mapping[str, Any],
+) -> ThreadState:
+    """Merge a partial update into an existing ThreadState."""
+    return create_thread_state(state, **dict(updates))

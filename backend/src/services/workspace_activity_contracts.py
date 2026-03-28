@@ -4,6 +4,15 @@ from datetime import datetime
 from typing import Any
 
 
+def _serialize_timestamp(value: datetime | str | None) -> str | None:
+    """Serialize datelike values into event-safe strings."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
 def truncate_activity_preview(content: str | None, limit: int = 120) -> str | None:
     """Collapse multi-line text into a short single-line preview."""
     normalized = " ".join((content or "").split())
@@ -49,11 +58,7 @@ def serialize_activity_item(item: dict[str, Any]) -> dict[str, Any]:
         "workspace_id": (
             str(item["workspace_id"]) if item.get("workspace_id") is not None else None
         ),
-        "occurred_at": (
-            occurred_at.isoformat()
-            if hasattr(occurred_at, "isoformat")
-            else str(occurred_at or "")
-        ),
+        "occurred_at": _serialize_timestamp(occurred_at) or "",
         "title": str(item.get("title") or "Activity"),
         "summary": item.get("summary"),
         "status": item.get("status"),
@@ -148,13 +153,9 @@ def build_task_activity_item(
             "result": result,
             "action": params.get("action") if isinstance(params, dict) else None,
             "params": params if isinstance(params, dict) else None,
-            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
-            "started_at": started_at.isoformat() if hasattr(started_at, "isoformat") else started_at,
-            "completed_at": (
-                completed_at.isoformat()
-                if hasattr(completed_at, "isoformat")
-                else completed_at
-            ),
+            "created_at": _serialize_timestamp(created_at),
+            "started_at": _serialize_timestamp(started_at),
+            "completed_at": _serialize_timestamp(completed_at),
         },
     }
 

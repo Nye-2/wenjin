@@ -1,7 +1,7 @@
 """LLM tools for citation management."""
 
 import logging
-from typing import Literal
+from typing import Annotated, Any, Literal, TypeAlias
 
 from langchain_core.tools import InjectedToolArg, tool
 from sqlalchemy import select
@@ -16,8 +16,16 @@ from .service import CitationService
 
 logger = logging.getLogger(__name__)
 
-# Formatter registry
-FORMATTERS = {
+InjectedSession = Annotated[AsyncSession, InjectedToolArg]
+JsonObject: TypeAlias = dict[str, Any]
+FormatterClass: TypeAlias = (
+    type[APAFormatter]
+    | type[MLAFormatter]
+    | type[ChicagoFormatter]
+    | type[IEEEFormatter]
+)
+
+FORMATTERS: dict[str, FormatterClass] = {
     "apa": APAFormatter,
     "mla": MLAFormatter,
     "chicago": ChicagoFormatter,
@@ -25,7 +33,7 @@ FORMATTERS = {
 }
 
 
-def _paper_to_dict(paper: Paper) -> dict:
+def _paper_to_dict(paper: Paper) -> JsonObject:
     """Convert Paper model to dict for formatter."""
     return {
         "title": paper.title,
@@ -40,9 +48,9 @@ def _paper_to_dict(paper: Paper) -> dict:
 @tool
 async def format_citation(
     paper_id: str,
+    db: InjectedSession,
     style: Literal["apa", "mla", "chicago", "ieee"] = "apa",
     in_text: bool = False,
-    db: AsyncSession = InjectedToolArg,
 ) -> str:
     """Format a paper citation in specified style.
 
@@ -62,15 +70,15 @@ async def format_citation(
     if not paper:
         return f"Paper {paper_id} not found"
 
-    formatter = FORMATTERS.get(style, APAFormatter)()
+    formatter = FORMATTERS[style]()
     return formatter.format_citation(_paper_to_dict(paper), in_text=in_text)
 
 
 @tool
 async def format_bibliography(
     workspace_id: str,
+    db: InjectedSession,
     style: Literal["apa", "mla", "chicago", "ieee"] = "apa",
-    db: AsyncSession = InjectedToolArg,
 ) -> str:
     """Format bibliography for all papers in workspace.
 
@@ -92,8 +100,8 @@ async def format_bibliography(
     if not papers:
         return "No papers in workspace"
 
-    formatter = FORMATTERS.get(style, APAFormatter)()
-    entries = []
+    formatter = FORMATTERS[style]()
+    entries: list[str] = []
 
     for i, paper in enumerate(papers, 1):
         entry = formatter.format_bibliography_entry(_paper_to_dict(paper))
@@ -105,7 +113,7 @@ async def format_bibliography(
 @tool
 async def export_bibtex(
     workspace_id: str,
-    db: AsyncSession = InjectedToolArg,
+    db: InjectedSession,
 ) -> str:
     """Export workspace papers as BibTeX.
 
@@ -135,7 +143,7 @@ async def export_bibtex(
 async def import_bibtex(
     bibtex_content: str,
     workspace_id: str,
-    db: AsyncSession = InjectedToolArg,
+    db: InjectedSession,
 ) -> str:
     """Import papers from BibTeX content.
 
@@ -154,12 +162,19 @@ async def import_bibtex(
 
     paper_service = PaperService(db)
     imported = 0
-    errors = []
+    errors: list[str] = []
 
     for entry in entries:
         try:
             paper_dict = parser.to_paper_dict(entry)
-            paper = await paper_service.create(**paper_dict)
+            paper = await paper_service.create(
+                title=paper_dict["title"],
+                authors=paper_dict["authors"],
+                doi=paper_dict["doi"],
+                year=paper_dict["year"],
+                venue=paper_dict["venue"],
+                source=paper_dict["source"],
+            )
             await paper_service.add_to_workspace(
                 paper_id=str(paper.id),
                 workspace_id=workspace_id,
@@ -179,9 +194,9 @@ async def import_bibtex(
 @tool
 async def get_citation_graph(
     paper_id: str,
+    db: InjectedSession,
     depth: int = 1,
-    db: AsyncSession = InjectedToolArg,
-) -> dict:
+) -> JsonObject:
     """Get citation graph for a paper.
 
     Args:
@@ -212,7 +227,7 @@ async def get_citation_graph(
 
     # Use set to deduplicate node IDs
     node_ids = {paper_id}
-    edges = []
+    edges: list[JsonObject] = []
 
     for citation in outgoing:
         node_ids.add(str(citation.cited_paper_id))
@@ -231,7 +246,7 @@ async def get_citation_graph(
         })
 
     # Convert set to list of node dicts
-    nodes = [{"id": nid} for nid in node_ids]
+    nodes: list[JsonObject] = [{"id": nid} for nid in node_ids]
 
     return {"nodes": nodes, "edges": edges}
 
@@ -241,7 +256,7 @@ async def add_citation(
     paper_id: str,
     cited_paper_id: str,
     workspace_id: str,
-    db: AsyncSession = InjectedToolArg,
+    db: InjectedSession,
     citation_context: str | None = None,
     section: str | None = None,
 ) -> str:

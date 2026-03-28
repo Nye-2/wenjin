@@ -1,5 +1,7 @@
 """Async task system package."""
 
+from typing import Any
+
 from src.task.celery_app import celery_app
 from src.task.progress import ProgressTracker, get_progress_tracker
 from src.task.registry import (
@@ -15,14 +17,14 @@ from src.task.service import TaskService
 from src.task.store import TaskStore
 
 
-def start_worker(*args, **kwargs):
+def start_worker(*args: Any, **kwargs: Any) -> Any:
     """Lazily import and start the Celery worker entrypoint."""
     from src.task.worker import start_worker as _start_worker
 
     return _start_worker(*args, **kwargs)
 
 
-def start_flower(*args, **kwargs):
+def start_flower(*args: Any, **kwargs: Any) -> Any:
     """Lazily import and start the Flower entrypoint."""
     from src.task.worker import start_flower as _start_flower
 

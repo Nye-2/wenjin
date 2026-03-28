@@ -5,6 +5,7 @@ with restrictions on file system access, network access, and system calls.
 """
 
 import asyncio
+import builtins
 import io
 import traceback
 from contextlib import redirect_stdout
@@ -24,7 +25,7 @@ class SandboxConfig:
 
     timeout: int = 30
     max_memory_mb: int = 256
-    allowed_imports: set | None = None
+    allowed_imports: set[str] | None = None
 
 
 @dataclass
@@ -45,7 +46,7 @@ class ExecutionResult:
 
 
 # Default set of safe modules that can be imported
-DEFAULT_SAFE_IMPORTS = {
+DEFAULT_SAFE_IMPORTS: set[str] = {
     "math",
     "random",
     "statistics",
@@ -78,7 +79,7 @@ DEFAULT_SAFE_IMPORTS = {
 }
 
 # Dangerous builtins to remove
-DANGEROUS_BUILTINS = {
+DANGEROUS_BUILTINS: set[str] = {
     "open",
     "exec",
     "eval",
@@ -91,73 +92,6 @@ DANGEROUS_BUILTINS = {
     "locals",
     "vars",
 }
-
-
-class RestrictedImporter:
-    """Custom import hook that restricts module imports."""
-
-    def __init__(self, allowed_imports: set[str]):
-        self.allowed_imports = allowed_imports
-        self.blocked_modules = {
-            "subprocess",
-            "os",
-            "sys",
-            "socket",
-            "ctypes",
-            "multiprocessing",
-            "threading",
-            "signal",
-            "posix",
-            "nt",
-            "builtins",
-            "importlib",
-            "shutil",
-            "tempfile",
-            "pathlib",
-            "code",
-            "codeop",
-            "commands",
-            "popen2",
-            "popen3",
-            "popen4",
-            "pty",
-            "fcntl",
-            "pipes",
-            "posixfile",
-            "resource",
-            "select",
-            "selectors",
-        }
-
-    def find_module(self, name: str, path=None):
-        """Check if module import should be blocked."""
-        # Get the top-level module name
-        top_level = name.split(".")[0]
-
-        if top_level in self.blocked_modules:
-            return self
-        if self.allowed_imports is not None and top_level not in self.allowed_imports:
-            return self
-        return None
-
-    def load_module(self, name: str):
-        """Raise ImportError for blocked modules."""
-        raise ImportError(f"Import of module '{name}' is not allowed in sandbox")
-
-
-class SafeDict(dict):
-    """Dictionary that prevents access to dangerous builtins."""
-
-    def __getitem__(self, key):
-        if key in DANGEROUS_BUILTINS:
-            raise NameError(f"'{key}' is not allowed in sandbox")
-        return super().__getitem__(key)
-
-    def __contains__(self, key):
-        if key in DANGEROUS_BUILTINS:
-            return False
-        return super().__contains__(key)
-
 
 class SandboxExecutor:
     """Executes Python code in a restricted sandbox environment.
@@ -176,22 +110,31 @@ class SandboxExecutor:
             config: Sandbox configuration. Uses defaults if not provided.
         """
         self.config = config or SandboxConfig()
+        self._safe_globals: dict[str, Any] = {}
         self._setup_safe_globals()
 
     def _setup_safe_globals(self) -> None:
         """Set up the safe global namespace for execution."""
         # Start with safe builtins
-        safe_builtins = {}
-        for name, obj in __builtins__.items() if isinstance(__builtins__, dict) else vars(__builtins__).items():
+        safe_builtins: dict[str, Any] = {}
+        for name, obj in vars(builtins).items():
             if name not in DANGEROUS_BUILTINS:
                 safe_builtins[name] = obj
 
         # Create a custom __import__ that respects restrictions
-        allowed = self.config.allowed_imports
-        if allowed is None:
-            allowed = DEFAULT_SAFE_IMPORTS
+        allowed = (
+            DEFAULT_SAFE_IMPORTS
+            if self.config.allowed_imports is None
+            else self.config.allowed_imports
+        )
 
-        def safe_import(name: str, globals=None, locals=None, fromlist=(), level=0):
+        def safe_import(
+            name: str,
+            globals_dict: dict[str, Any] | None = None,
+            locals_dict: dict[str, Any] | None = None,
+            fromlist: tuple[str, ...] = (),
+            level: int = 0,
+        ) -> Any:
             """Restricted import function."""
             top_level = name.split(".")[0]
 
@@ -229,7 +172,7 @@ class SandboxExecutor:
                 return self._create_safe_os_module()
 
             # Use the real import for allowed modules
-            return __builtins__["__import__"](name, globals, locals, fromlist, level)
+            return builtins.__import__(name, globals_dict, locals_dict, fromlist, level)
 
         safe_builtins["__import__"] = safe_import
 
@@ -259,22 +202,22 @@ class SandboxExecutor:
             name = os.name
 
             # Explicitly block dangerous functions
-            def system(self, *args, **kwargs):
+            def system(self, *args: object, **kwargs: object) -> None:
                 raise PermissionError("os.system is not allowed in sandbox")
 
-            def popen(self, *args, **kwargs):
+            def popen(self, *args: object, **kwargs: object) -> None:
                 raise PermissionError("os.popen is not allowed in sandbox")
 
-            def spawn(self, *args, **kwargs):
+            def spawn(self, *args: object, **kwargs: object) -> None:
                 raise PermissionError("os.spawn is not allowed in sandbox")
 
-            def fork(self, *args, **kwargs):
+            def fork(self, *args: object, **kwargs: object) -> None:
                 raise PermissionError("os.fork is not allowed in sandbox")
 
-            def exec(self, *args, **kwargs):
+            def exec(self, *args: object, **kwargs: object) -> None:
                 raise PermissionError("os.exec is not allowed in sandbox")
 
-            def kill(self, *args, **kwargs):
+            def kill(self, *args: object, **kwargs: object) -> None:
                 raise PermissionError("os.kill is not allowed in sandbox")
 
         return SafeOS()
@@ -308,13 +251,13 @@ class SandboxExecutor:
         stdout_capture = io.StringIO()
 
         # Create execution namespace
-        exec_globals = dict(self._safe_globals)
+        exec_globals: dict[str, Any] = dict(self._safe_globals)
         exec_locals: dict[str, Any] = {}
 
         # Container for exceptions from the thread
         execution_error: Exception | None = None
 
-        def run_code_sync():
+        def run_code_sync() -> None:
             """Run code synchronously in a separate thread."""
             nonlocal execution_error
             try:
@@ -330,7 +273,7 @@ class SandboxExecutor:
 
         try:
             # Run in a thread pool to allow timeout enforcement
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = loop.run_in_executor(executor, run_code_sync)
                 await asyncio.wait_for(future, timeout=self.config.timeout)

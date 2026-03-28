@@ -115,7 +115,7 @@ async def list_literature(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
-):
+) -> LiteratureListResponse:
     """List literature entries for a workspace.
 
     Args:
@@ -156,7 +156,7 @@ async def create_literature(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
-):
+) -> LiteratureResponse:
     """Create a new literature entry.
 
     Args:
@@ -200,7 +200,7 @@ async def batch_import_literature(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
-):
+) -> BatchImportResponse:
     """Batch import literature entries.
 
     Args:
@@ -237,7 +237,7 @@ async def update_literature(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
-):
+) -> LiteratureResponse:
     """Update a literature entry.
 
     Args:
@@ -285,7 +285,7 @@ async def delete_literature(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
-):
+) -> None:
     """Delete a literature entry.
 
     Args:
@@ -324,7 +324,7 @@ async def get_literature_count(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     literature_service: LiteratureService = Depends(get_literature_service),
-):
+) -> LiteratureCountResponse:
     """Get literature count for a workspace.
 
     Args:

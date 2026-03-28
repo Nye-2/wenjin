@@ -37,7 +37,7 @@ def _make_handler(*, task_service=None, credit_service=None):
     literature_service = AsyncMock()
 
     return FeatureExecutionHandler(
-        user=user,
+        actor_id=str(user.id),
         workspace_service=workspace_service,
         task_service=task_service,
         literature_service=literature_service,

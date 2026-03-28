@@ -1,9 +1,5 @@
 """FastAPI routes for subagent operations."""
 
-import logging
-from datetime import UTC, datetime
-from uuid import uuid4
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -11,16 +7,19 @@ from pydantic import BaseModel
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_chat_thread_service
+from src.services import ChatThreadService
 from src.subagents import (
     GlobalSubagentManager,
     SubagentResult,
     SubagentStatus,
-    SubagentTask,
 )
 from src.subagents.manager import SubagentAccessError
-from src.services import ChatThreadService
-
-logger = logging.getLogger(__name__)
+from src.subagents.runtime import get_manager
+from src.subagents.task_builder import (
+    SubagentRuntimeContext,
+    build_subagent_metadata,
+    build_subagent_task,
+)
 
 router = APIRouter(prefix="/subagents", tags=["subagents"])
 
@@ -52,46 +51,6 @@ class TaskStatusResponse(BaseModel):
 class CancelResponse(BaseModel):
     """Response after cancelling a task."""
     success: bool
-
-
-def _build_default_manager_config():
-    """Build a default subagent manager configuration lazily."""
-    from src.subagents.config import SubagentConfig
-
-    config = SubagentConfig.from_env()
-
-    try:
-        from src.config import get_default_model_id
-        from src.models.factory import create_chat_model
-
-        config.llm = create_chat_model(get_default_model_id())
-    except Exception as exc:
-        logger.warning("Failed to initialize default subagent model: %s", exc)
-        config.llm = None
-
-    try:
-        from src.agents.lead_agent.agent import get_available_tools
-
-        config.default_tools = get_available_tools(
-            include_execution=True,
-            subagent_enabled=False,
-        )
-    except Exception as exc:
-        logger.warning("Failed to initialize default subagent tools: %s", exc)
-        config.default_tools = []
-
-    return config
-
-
-def get_manager() -> GlobalSubagentManager:
-    """Get the GlobalSubagentManager instance."""
-    try:
-        return GlobalSubagentManager.get_instance()
-    except RuntimeError:
-        try:
-            return GlobalSubagentManager.initialize(_build_default_manager_config())
-        except RuntimeError:
-            return GlobalSubagentManager.get_instance()
 
 
 @router.post("/threads/{thread_id}/spawn", response_model=SpawnResponse)
@@ -158,23 +117,32 @@ async def spawn_subagent(
             ) from e
 
     thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
-    workspace_id = thread.workspace_id if thread else None
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    workspace_id = thread.workspace_id
 
-    task = SubagentTask(
-        task_id=str(uuid4()),
+    runtime_context = SubagentRuntimeContext(
         thread_id=thread_id,
+        workspace_id=str(workspace_id) if workspace_id is not None else None,
+        user_id=str(current_user.id),
+    )
+
+    task = build_subagent_task(
+        manager._config,
         prompt=request.prompt,
-        created_at=datetime.now(UTC),
-        max_turns=min(request.max_turns, manager._config.max_turns_limit),
-        timeout=min(request.timeout, manager._config.max_timeout),
+        thread_id=thread_id,
+        fallback_max_turns=request.max_turns,
+        requested_max_turns=request.max_turns,
+        requested_timeout=request.timeout,
         graph_template=request.graph_template,
         tools=resolved_tools if resolved_tools is not None else (request.tools or []),
-        metadata={
-            "subagent_type": request.subagent_type,
-            "system_prompt": system_prompt,
-            "user_id": str(current_user.id),
-            "workspace_id": workspace_id,
-        }
+        metadata=build_subagent_metadata(
+            subagent_type=request.subagent_type,
+            system_prompt=system_prompt,
+            runtime_context=runtime_context,
+            include_workspace=True,
+            include_user=True,
+        ),
     )
     try:
         await manager.spawn(task)

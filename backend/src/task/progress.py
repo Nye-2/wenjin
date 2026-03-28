@@ -9,8 +9,9 @@ Write strategy (Phase 3 optimization):
 
 import json
 import logging
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from datetime import UTC, datetime
+from typing import Any
 
 from src.config.task_config import task_settings
 from src.services.workspace_activity_contracts import (
@@ -25,7 +26,7 @@ _CURRENT_PROGRESS_TRACKER: ContextVar["ProgressTracker | None"] = ContextVar(
     "current_progress_tracker",
     default=None,
 )
-_CURRENT_RUNTIME_STATE: ContextVar[dict | None] = ContextVar(
+_CURRENT_RUNTIME_STATE: ContextVar[dict[str, Any] | None] = ContextVar(
     "current_runtime_state",
     default=None,
 )
@@ -41,14 +42,14 @@ class ProgressTracker:
 
     def __init__(
         self,
-        redis_client,
+        redis_client: Any,
         task_id: str,
         *,
         workspace_id: str | None = None,
         thread_id: str | None = None,
         task_type: str | None = None,
         feature_id: str | None = None,
-    ):
+    ) -> None:
         self._redis = redis_client
         self._task_id = task_id
         self._workspace_id = workspace_id
@@ -69,7 +70,7 @@ class ProgressTracker:
         status: str,
         progress: int,
         message: str | None,
-        metadata: dict | None,
+        metadata: dict[str, Any] | None,
         occurred_at: str,
     ) -> dict[str, object] | None:
         if not self._workspace_id:
@@ -101,7 +102,7 @@ class ProgressTracker:
         progress: int,
         message: str | None = None,
         current_step: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
         *,
         now: str | None = None,
     ) -> None:
@@ -126,7 +127,7 @@ class ProgressTracker:
         progress: int,
         message: str | None = None,
         current_step: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
         *,
         now: str | None = None,
     ) -> None:
@@ -179,7 +180,7 @@ class ProgressTracker:
         progress: int,
         message: str | None = None,
         current_step: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
         *,
         stage_transition: bool = False,
     ) -> None:
@@ -234,7 +235,7 @@ class ProgressTracker:
 
         logger.debug(f"Task {self._task_id}: {progress}% - {message}")
 
-    async def complete(self, message: str = "Task completed", metadata: dict | None = None) -> None:
+    async def complete(self, message: str = "Task completed", metadata: dict[str, Any] | None = None) -> None:
         """Mark task as completed in Redis + Pub/Sub.
 
         DB update is handled by ``TaskStore.mark_task_completed()``.
@@ -255,7 +256,7 @@ class ProgressTracker:
             now=ts,
         )
 
-    async def fail(self, error: str, metadata: dict | None = None) -> None:
+    async def fail(self, error: str, metadata: dict[str, Any] | None = None) -> None:
         """Mark task as failed in Redis + Pub/Sub.
 
         DB update is handled by ``TaskStore.mark_task_completed()``.
@@ -281,27 +282,27 @@ class ProgressTracker:
         )
 
 
-def bind_progress_tracker(progress: ProgressTracker):
+def bind_progress_tracker(progress: ProgressTracker) -> Token[ProgressTracker | None]:
     """Bind the current progress tracker for nested service/graph helpers."""
     return _CURRENT_PROGRESS_TRACKER.set(progress)
 
 
-def reset_progress_tracker(token) -> None:
+def reset_progress_tracker(token: Token[ProgressTracker | None]) -> None:
     """Reset the current bound progress tracker."""
     _CURRENT_PROGRESS_TRACKER.reset(token)
 
 
-def bind_runtime_state(runtime: dict):
+def bind_runtime_state(runtime: dict[str, Any]) -> Token[dict[str, Any] | None]:
     """Bind the current mutable runtime state for nested helpers."""
     return _CURRENT_RUNTIME_STATE.set(runtime)
 
 
-def reset_runtime_state(token) -> None:
+def reset_runtime_state(token: Token[dict[str, Any] | None]) -> None:
     """Reset the current bound runtime state."""
     _CURRENT_RUNTIME_STATE.reset(token)
 
 
-def get_runtime_state() -> dict | None:
+def get_runtime_state() -> dict[str, Any] | None:
     """Return the currently bound runtime state."""
     return _CURRENT_RUNTIME_STATE.get()
 
@@ -311,7 +312,7 @@ async def emit_runtime_update(
     progress_value: int,
     message: str,
     current_phase: str | None = None,
-    runtime: dict | None = None,
+    runtime: dict[str, Any] | None = None,
     stage_transition: bool = False,
 ) -> None:
     """Emit a structured runtime update using the currently bound tracker."""

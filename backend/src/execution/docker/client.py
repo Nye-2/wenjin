@@ -7,9 +7,10 @@ proper error handling, and volume management.
 import asyncio
 import logging
 import os
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, Protocol, cast
 
 from docker.errors import APIError, DockerException, ImageNotFound
 
@@ -21,6 +22,68 @@ logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="docker-")
 _LATEX_IMAGE = "academiagpt/texlive:2024"
 _LATEX_IMAGE_ARCHIVE = "academiagpt-texlive-2024.tar"
+
+
+class DockerImagesProtocol(Protocol):
+    """Subset of Docker image operations used by the wrapper."""
+
+    def get(self, image: str) -> object: ...
+
+    def pull(self, image: str) -> object: ...
+
+
+class DockerArchiveAPIProtocol(Protocol):
+    """Subset of low-level Docker API used for image loading."""
+
+    def load_image(self, data: BinaryIO, quiet: bool = True) -> Iterable[object] | None: ...
+
+
+class DockerContainerHandleProtocol(Protocol):
+    """Subset of container methods used by the wrapper."""
+
+    id: str
+
+    def wait(self, timeout: int | None = None) -> dict[str, object]: ...
+
+    def logs(self, *, stdout: bool, stderr: bool) -> bytes: ...
+
+    def kill(self) -> object: ...
+
+    def remove(self, force: bool = False) -> object: ...
+
+
+class DockerContainersProtocol(Protocol):
+    """Subset of container management methods used by the wrapper."""
+
+    def run(
+        self,
+        *,
+        image: str,
+        command: list[str] | None = None,
+        volumes: dict[str, dict[str, str]] | None = None,
+        working_dir: str | None = None,
+        environment: dict[str, str] | None = None,
+        detach: bool = True,
+        **kwargs: Any,
+    ) -> DockerContainerHandleProtocol: ...
+
+
+class DockerSDKProtocol(Protocol):
+    """Subset of Docker SDK client surface used by the wrapper."""
+
+    images: DockerImagesProtocol
+    api: DockerArchiveAPIProtocol
+    containers: DockerContainersProtocol
+
+    def version(self) -> dict[str, object]: ...
+
+    def close(self) -> object: ...
+
+
+def _create_docker_client() -> DockerSDKProtocol:
+    """Create a Docker SDK client through the dynamically imported module."""
+    from_env = cast(Callable[[], DockerSDKProtocol], getattr(docker, "from_env"))
+    return from_env()
 
 
 class DockerExecutionError(Exception):
@@ -44,10 +107,10 @@ class DockerClient:
 
     def __init__(self) -> None:
         """Initialize DockerClient without immediate connection."""
-        self._client: docker.DockerClient | None = None
+        self._client: DockerSDKProtocol | None = None
 
     @property
-    def client(self) -> docker.DockerClient:
+    def client(self) -> DockerSDKProtocol:
         """Get Docker client, creating it lazily.
 
         Returns:
@@ -58,7 +121,7 @@ class DockerClient:
         """
         if self._client is None:
             try:
-                self._client = docker.from_env()
+                self._client = _create_docker_client()
                 logger.debug("Docker client initialized")
             except DockerException as e:
                 raise DockerExecutionError(
@@ -245,7 +308,12 @@ class DockerClient:
                 # Wait for completion with timeout
                 try:
                     result = container.wait(timeout=timeout)
-                    exit_code = result.get("StatusCode", -1)
+                    exit_code_raw = result.get("StatusCode", -1)
+                    exit_code = (
+                        int(exit_code_raw)
+                        if isinstance(exit_code_raw, (int, float))
+                        else -1
+                    )
                 except Exception as e:
                     # Kill container on timeout
                     try:
@@ -292,10 +360,12 @@ class DockerClient:
         def _check() -> dict[str, Any]:
             try:
                 version_info = self.client.version()
+                version = version_info.get("Version")
+                api_version = version_info.get("ApiVersion")
                 return {
                     "healthy": True,
-                    "version": version_info.get("Version", "unknown"),
-                    "api_version": version_info.get("ApiVersion", "unknown"),
+                    "version": str(version or "unknown"),
+                    "api_version": str(api_version or "unknown"),
                 }
             except DockerException as e:
                 return {

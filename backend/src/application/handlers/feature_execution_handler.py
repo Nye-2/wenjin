@@ -14,8 +14,6 @@ Responsibilities:
 import logging
 from typing import Any
 
-from fastapi import Depends
-
 from src.academic.services.workspace_service import WorkspaceService
 from src.application.errors import (
     AccessDeniedError,
@@ -26,14 +24,6 @@ from src.application.results import (
     FeatureExecutionAdvisory,
     FeatureExecutionOutcome,
     FeatureTaskSubmission,
-)
-from src.database import User
-from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps import (
-    get_credit_service,
-    get_literature_service,
-    get_task_service,
-    get_workspace_service,
 )
 from src.services.credit_service import CreditService, InsufficientCreditsError
 from src.services.literature_service import LiteratureService
@@ -95,13 +85,13 @@ class FeatureExecutionHandler:
     def __init__(
         self,
         *,
-        user: User,
+        actor_id: str,
         workspace_service: WorkspaceService,
         task_service: TaskService,
         literature_service: LiteratureService,
         credit_service: CreditService,
     ) -> None:
-        self.user = user
+        self.actor_id = actor_id
         self.workspace_service = workspace_service
         self.task_service = task_service
         self.literature_service = literature_service
@@ -130,7 +120,7 @@ class FeatureExecutionHandler:
 
         # 0. Idempotency-Key check (before any side effects)
         if idempotency_key and redis_client:
-            idem_redis_key = f"idempotency:{self.user.id}:{idempotency_key}"
+            idem_redis_key = f"idempotency:{self.actor_id}:{idempotency_key}"
             cached_task_id = await redis_client.client.get(idem_redis_key)
             if cached_task_id:
                 logger.info(
@@ -149,7 +139,7 @@ class FeatureExecutionHandler:
         workspace = await self.workspace_service.get(workspace_id)
         if not workspace:
             raise NotFoundError("Workspace not found")
-        if str(workspace.user_id) != str(self.user.id):
+        if str(workspace.user_id) != self.actor_id:
             raise AccessDeniedError("Access denied")
 
         # 2. Resolve workspace type and feature
@@ -185,7 +175,7 @@ class FeatureExecutionHandler:
         # 4. Idempotency: reuse existing active task
         action = params.get("action")
         existing_task_id = await self.task_service.find_active_task(
-            user_id=str(self.user.id),
+            user_id=self.actor_id,
             task_type=feature.task_type,
             workspace_id=workspace_id,
             feature_id=feature_id,
@@ -210,7 +200,7 @@ class FeatureExecutionHandler:
         credit_transaction = None
         try:
             credit_transaction = await self.credit_service.consume_for_feature(
-                user_id=str(self.user.id),
+                user_id=self.actor_id,
                 feature_id=feature_id,
                 action=str(action) if action is not None else None,
                 workspace_id=workspace_id,
@@ -275,7 +265,7 @@ class FeatureExecutionHandler:
         async def _do_submit() -> dict[str, Any]:
             # Re-check for active task inside lock (atomic dedup)
             existing_task_id = await self.task_service.find_active_task(
-                user_id=str(self.user.id),
+                user_id=self.actor_id,
                 task_type=feature.task_type,
                 workspace_id=workspace_id,
                 feature_id=feature_id,
@@ -286,7 +276,7 @@ class FeatureExecutionHandler:
                 # Refund credit if we already billed
                 if credit_transaction is not None:
                     await self.credit_service.refund_failed_task(
-                        user_id=str(self.user.id),
+                        user_id=self.actor_id,
                         original_transaction_id=str(credit_transaction.id),
                         reason="分布式锁内发现重复任务退款",
                     )
@@ -313,19 +303,19 @@ class FeatureExecutionHandler:
             # Submit task
             try:
                 task_id = await self.task_service.submit_task(
-                    user_id=str(self.user.id),
+                    user_id=self.actor_id,
                     task_type=feature.task_type,
                     payload=task_payload,
                 )
             except ConcurrencyLimitError as exc:
                 logger.warning(
                     "[Features] Concurrency limit for user %s: %s",
-                    self.user.id,
+                    self.actor_id,
                     exc,
                 )
                 if credit_transaction is not None:
                     await self.credit_service.refund_failed_task(
-                        user_id=str(self.user.id),
+                        user_id=self.actor_id,
                         original_transaction_id=str(credit_transaction.id),
                         reason="并发任务上限退款",
                     )
@@ -346,7 +336,7 @@ class FeatureExecutionHandler:
                 )
                 if credit_transaction is not None:
                     await self.credit_service.refund_failed_task(
-                        user_id=str(self.user.id),
+                        user_id=self.actor_id,
                         original_transaction_id=str(credit_transaction.id),
                         reason="任务排队失败退款",
                     )
@@ -359,7 +349,7 @@ class FeatureExecutionHandler:
 
             # Store idempotency key → task_id mapping
             if idempotency_key and redis_client:
-                idem_redis_key = f"idempotency:{self.user.id}:{idempotency_key}"
+                idem_redis_key = f"idempotency:{self.actor_id}:{idempotency_key}"
                 await redis_client.client.set(
                     idem_redis_key, task_id, nx=True, ex=IDEMPOTENCY_KEY_TTL
                 )
@@ -392,7 +382,7 @@ class FeatureExecutionHandler:
                     # Refund credit since we cannot proceed
                     if credit_transaction is not None:
                         await self.credit_service.refund_failed_task(
-                            user_id=str(self.user.id),
+                            user_id=self.actor_id,
                             original_transaction_id=str(credit_transaction.id),
                             reason="工作区锁竞争退款",
                         )
@@ -410,20 +400,3 @@ class FeatureExecutionHandler:
                 return await _do_submit()
         else:
             return await _do_submit()
-
-
-async def get_feature_execution_handler(
-    current_user: User = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    task_service: TaskService = Depends(get_task_service),
-    literature_service: LiteratureService = Depends(get_literature_service),
-    credit_service: CreditService = Depends(get_credit_service),
-) -> FeatureExecutionHandler:
-    """Construct a FeatureExecutionHandler with request-scoped dependencies."""
-    return FeatureExecutionHandler(
-        user=current_user,
-        workspace_service=workspace_service,
-        task_service=task_service,
-        literature_service=literature_service,
-        credit_service=credit_service,
-    )

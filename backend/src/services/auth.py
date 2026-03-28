@@ -5,6 +5,7 @@ Migrated from AcademiaGPT v1 backend/services/auth.py
 
 import hashlib
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Protocol, TypeAlias, cast
 from uuid import uuid4
 
 from jose import JWTError, jwt
@@ -13,6 +14,18 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.app_config import jwt_settings
+
+if TYPE_CHECKING:
+    from src.database import User
+
+JwtPayload: TypeAlias = dict[str, object]
+
+
+class RefreshTokenUser(Protocol):
+    """User fields required for refresh-token persistence and verification."""
+
+    refresh_token_hash: str | None
+    refresh_token_expires_at: datetime | None
 
 # 密码哈希上下文
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -36,7 +49,7 @@ class Token(BaseModel):
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    return pwd_context.verify(plain_password, hashed_password)
+    return bool(pwd_context.verify(plain_password, hashed_password))
 
 
 def hash_password(password: str) -> str:
@@ -64,7 +77,7 @@ def hash_password(password: str) -> str:
     if len(password) < 8:
         raise ValueError("密码过短，请使用至少8个字符的密码")
 
-    return pwd_context.hash(password)
+    return cast(str, pwd_context.hash(password))
 
 
 def hash_token(token: str) -> str:
@@ -94,11 +107,11 @@ def create_access_token(
         "type": "access"
     }
 
-    return jwt.encode(
+    return cast(str, jwt.encode(
         to_encode,
         jwt_settings.secret_key,
         algorithm="HS256"
-    )
+    ))
 
 
 def create_refresh_token(
@@ -121,11 +134,11 @@ def create_refresh_token(
         "type": "refresh"
     }
 
-    return jwt.encode(
+    return cast(str, jwt.encode(
         to_encode,
         jwt_settings.secret_key,
         algorithm="HS256"
-    )
+    ))
 
 
 def create_tokens(user_id: str, email: str, role: str = "user") -> Token:
@@ -140,7 +153,7 @@ def create_tokens(user_id: str, email: str, role: str = "user") -> Token:
     )
 
 
-def decode_token(token: str) -> dict | None:
+def decode_token(token: str) -> JwtPayload | None:
     """解码令牌"""
     try:
         payload = jwt.decode(
@@ -148,7 +161,7 @@ def decode_token(token: str) -> dict | None:
             jwt_settings.secret_key,
             algorithms=["HS256"]
         )
-        return payload
+        return cast(JwtPayload, payload) if isinstance(payload, dict) else None
     except JWTError:
         return None
 
@@ -166,13 +179,13 @@ def verify_access_token(token: str) -> TokenData | None:
     email = payload.get("email")
     role = payload.get("role", "user")
 
-    if not user_id or not email:
+    if not isinstance(user_id, str) or not isinstance(email, str):
         return None
 
     return TokenData(
         user_id=user_id,
         email=email,
-        role=role,
+        role=role if isinstance(role, str) else "user",
         exp=_coerce_expiry(payload.get("exp")),
     )
 
@@ -186,7 +199,8 @@ def verify_refresh_token(token: str) -> str | None:
     if payload.get("type") != "refresh":
         return None
 
-    return payload.get("sub")
+    user_id = payload.get("sub")
+    return user_id if isinstance(user_id, str) else None
 
 
 def _coerce_expiry(value: object) -> datetime | None:
@@ -203,17 +217,17 @@ def _coerce_expiry(value: object) -> datetime | None:
 async def _get_user_record(
     db: AsyncSession,
     user_id: str,
-):
+) -> "User | None":
     """Load the concrete user record lazily to avoid circular imports."""
     from src.database import User
 
-    return await db.get(User, user_id)
+    return cast("User | None", await db.get(User, user_id))
 
 
 async def persist_refresh_token(
     db: AsyncSession,
     *,
-    user,
+    user: RefreshTokenUser,
     refresh_token: str,
 ) -> None:
     """Persist the currently active refresh token hash for a user."""
@@ -230,7 +244,7 @@ async def persist_refresh_token(
 async def revoke_refresh_token(
     db: AsyncSession,
     *,
-    user,
+    user: RefreshTokenUser,
 ) -> None:
     """Revoke the currently active refresh token for a user."""
     user.refresh_token_hash = None
@@ -245,7 +259,7 @@ async def create_and_persist_tokens(
     user_id: str,
     email: str,
     role: str = "user",
-    user=None,
+    user: RefreshTokenUser | None = None,
 ) -> Token:
     """Create JWTs and persist the active refresh token hash."""
     tokens = create_tokens(user_id=user_id, email=email, role=role)
@@ -261,7 +275,7 @@ async def create_and_persist_tokens(
 async def verify_refresh_token_recorded(
     db: AsyncSession,
     token: str,
-):
+) -> "User | None":
     """Verify refresh token against its persisted hash and expiry."""
     user_id = verify_refresh_token(token)
     if not user_id:

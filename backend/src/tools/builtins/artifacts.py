@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import quote
 
 from langchain_core.messages import ToolMessage
@@ -129,7 +129,7 @@ async def present_files_tool(
     state: Annotated[ThreadState, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig,
-) -> Command:
+) -> Command[Any]:
     """Present output files to the user.
 
     Use this tool to make generated files visible and downloadable for the user.

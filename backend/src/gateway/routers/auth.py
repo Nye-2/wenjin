@@ -18,7 +18,7 @@ from src.gateway.auth_dependencies import (
     get_current_user_optional,
     security,
 )
-from src.gateway.deps import get_db
+from src.gateway.deps.core import get_db
 from src.services.auth import (
     create_and_persist_tokens,
     verify_refresh_token_recorded,
@@ -93,7 +93,7 @@ class SendVerificationCodeResponse(BaseModel):
 async def send_verification_code(
     request: SendVerificationCodeRequest,
     req: Request,
-):
+) -> SendVerificationCodeResponse:
     """Send verification code to email.
 
     - Rate limit: One request per 60 seconds
@@ -140,7 +140,7 @@ async def send_verification_code(
 async def register(
     request: RegisterRequest,
     db: AsyncSession = Depends(get_db),
-):
+) -> TokenResponse:
     """Register a new user.
 
     Creates a new user account and returns authentication tokens.
@@ -228,7 +228,7 @@ async def register(
 async def login(
     request: LoginRequest,
     db: AsyncSession = Depends(get_db),
-):
+) -> TokenResponse:
     """Login with email and password.
 
     Authenticates user credentials and returns authentication tokens.
@@ -279,7 +279,7 @@ async def login(
 async def refresh_token(
     request: RefreshRequest,
     db: AsyncSession = Depends(get_db),
-):
+) -> TokenResponse:
     """Refresh access token using refresh token.
 
     Validates the refresh token and issues new tokens.
@@ -331,7 +331,7 @@ async def refresh_token(
 @router.get("/auth/me", response_model=UserResponse)
 async def get_me(
     current_user: User = Depends(get_current_user),
-):
+) -> UserResponse:
     """Get current authenticated user info.
 
     Returns the authenticated user's profile information.

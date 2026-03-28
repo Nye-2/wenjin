@@ -211,7 +211,7 @@ def _create_anthropic_model(
         thinking_enabled,
     )
 
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "model": model_string,
         "api_key": api_key,
         "temperature": temperature,

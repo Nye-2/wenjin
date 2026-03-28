@@ -32,12 +32,6 @@ from src.task.service import ConcurrencyLimitError
 # ============ Test Helpers ============
 
 
-def _make_user(user_id="user-1"):
-    user = MagicMock()
-    user.id = user_id
-    return user
-
-
 def _make_workspace(user_id="user-1", workspace_type_value="thesis"):
     ws = MagicMock()
     ws.id = "ws-1"
@@ -61,12 +55,12 @@ def _make_feature(feature_id="test_feature", name="Test Feature"):
     return feature
 
 
-def _make_handler(user=None, **overrides):
+def _make_handler(actor_id: str = "user-1", **overrides):
     credit_service = overrides.get("credit_service", AsyncMock())
     if not hasattr(credit_service, "db"):
         credit_service.db = AsyncMock()
     return FeatureExecutionHandler(
-        user=user or _make_user(),
+        actor_id=actor_id,
         workspace_service=overrides.get("workspace_service", AsyncMock()),
         task_service=overrides.get("task_service", AsyncMock()),
         literature_service=overrides.get("literature_service", AsyncMock()),

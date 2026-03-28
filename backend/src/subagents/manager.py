@@ -4,9 +4,10 @@ import asyncio
 import json
 import logging
 import threading
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from src.services.workspace_activity_contracts import (
     build_subagent_activity_item,
@@ -38,7 +39,7 @@ class ThreadContext:
     max_concurrent: int
     owner_user_id: str | None = None
     workspace_id: str | None = None
-    _tasks: dict[str, asyncio.Task] = field(default_factory=dict)
+    _tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
     _task_defs: dict[str, SubagentTask] = field(default_factory=dict)
     _results: dict[str, SubagentResult] = field(default_factory=dict)
     _active_task_ids: set[str] = field(default_factory=set)
@@ -95,7 +96,7 @@ class GlobalSubagentManager:
     _instance: Optional["GlobalSubagentManager"] = None
     _init_lock = threading.Lock()  # Class-level lock for singleton initialization
 
-    def __init__(self, config: SubagentConfig):
+    def __init__(self, config: SubagentConfig) -> None:
         """Initialize the manager.
 
         Args:
@@ -113,7 +114,7 @@ class GlobalSubagentManager:
         self._tools = config.default_tools
         self._lock = asyncio.Lock()
 
-    def _resolve_task_tools(self, task: SubagentTask):
+    def _resolve_task_tools(self, task: SubagentTask) -> list[Any]:
         """Resolve the task's requested tool names against the configured tool pool."""
         if not task.tools:
             return self._tools
@@ -128,11 +129,24 @@ class GlobalSubagentManager:
         }
         return [available_tools[name] for name in task.tools if name in available_tools]
 
+    def _resolve_task_llm(self, task: SubagentTask) -> Any:
+        """Resolve the chat model for a specific task."""
+        model_name = self._get_task_model_name(task)
+        if model_name is None:
+            if self._llm is None:
+                raise RuntimeError("Subagent manager has no configured chat model")
+            return self._llm
+
+        from src.models.factory import create_chat_model
+
+        return create_chat_model(model_name, thinking_enabled=False)
+
     @staticmethod
     def _build_graph_cache_key(task: SubagentTask) -> str:
         """Build a cache key that isolates per-task graph overrides."""
         system_prompt = task.metadata.get("system_prompt")
-        if not system_prompt and not task.tools:
+        model_name = task.metadata.get("model_name")
+        if not system_prompt and not task.tools and model_name is None:
             return task.graph_template
 
         payload = {
@@ -140,21 +154,23 @@ class GlobalSubagentManager:
             "system_prompt": system_prompt,
             "tools": list(task.tools),
             "max_turns": task.max_turns,
+            "model_name": model_name,
         }
         return f"{task.graph_template}:{json.dumps(payload, sort_keys=True)}"
 
-    def _create_task_graph(self, task: SubagentTask):
+    def _create_task_graph(self, task: SubagentTask) -> Any:
         """Create a graph tailored to the task-level prompt and tool selection."""
+        task_llm = self._resolve_task_llm(task)
         task_tools = self._resolve_task_tools(task)
         system_prompt = task.metadata.get("system_prompt")
         if system_prompt:
             return create_academic_agent_graph(
-                self._llm,
+                task_llm,
                 task_tools,
                 system_prompt,
                 task.max_turns,
             )
-        return create_default_subagent_graph(self._llm, task_tools, task.max_turns)
+        return create_default_subagent_graph(task_llm, task_tools, task.max_turns)
 
     @classmethod
     def get_instance(cls) -> "GlobalSubagentManager":
@@ -205,11 +221,11 @@ class GlobalSubagentManager:
         """
         logger.info(f"Spawning subagent task {task.task_id} for thread {task.thread_id}")
         owner_user_id = self._get_task_owner_user_id(task)
-        workspace_id = self._get_task_workspace_id(task)
+        workspace_id = await self._validate_thread_binding(task)
         async with self._lock:
             ctx = self._get_or_create_context(task.thread_id, owner_user_id, workspace_id)
 
-        async def run_with_limiter():
+        async def run_with_limiter() -> SubagentResult:
             thread_terminal_status = "completed"
             subagent_status = "completed"
             final_result: SubagentResult | None = None
@@ -273,6 +289,57 @@ class GlobalSubagentManager:
         )
         return task.task_id
 
+    async def _validate_thread_binding(
+        self,
+        task: SubagentTask,
+    ) -> str | None:
+        """Validate that a task references a real, owned chat thread.
+
+        When the caller provides a user-scoped thread id, the manager must
+        refuse to seed in-memory thread context from an unknown or foreign
+        thread. This keeps API and non-API entry points aligned on the same
+        ownership invariant.
+        """
+        owner_user_id = self._get_task_owner_user_id(task)
+        workspace_id = self._get_task_workspace_id(task)
+        if owner_user_id is None:
+            return workspace_id
+
+        binding = await self._load_thread_binding(task.thread_id)
+        if binding is None:
+            raise SubagentAccessError("Thread not found")
+
+        bound_owner_user_id = binding.get("owner_user_id")
+        if bound_owner_user_id is not None and str(bound_owner_user_id) != owner_user_id:
+            raise SubagentAccessError("Thread not found")
+
+        bound_workspace_id = binding.get("workspace_id")
+        normalized_bound_workspace = (
+            str(bound_workspace_id) if bound_workspace_id is not None else None
+        )
+        if workspace_id is not None and normalized_bound_workspace != workspace_id:
+            raise SubagentAccessError("Thread not found")
+
+        return normalized_bound_workspace or workspace_id
+
+    async def _load_thread_binding(
+        self,
+        thread_id: str,
+    ) -> dict[str, str | None] | None:
+        """Load canonical thread ownership/workspace facts from the database."""
+        from src.database import ChatThread, get_db_session
+
+        async with get_db_session() as db:
+            thread = await db.get(ChatThread, thread_id)
+
+        if thread is None:
+            return None
+
+        return {
+            "owner_user_id": str(thread.user_id),
+            "workspace_id": str(thread.workspace_id) if thread.workspace_id is not None else None,
+        }
+
     async def _execute_task(self, task: SubagentTask) -> SubagentResult:
         """Execute a subagent task using LangGraph.
 
@@ -305,13 +372,17 @@ class GlobalSubagentManager:
                 self._graph_registry.register(graph_cache_key, graph)
 
             # Execute with timeout
-            configurable: dict[str, str] = {"thread_id": task.thread_id}
+            configurable: dict[str, object] = {"thread_id": task.thread_id}
             workspace_id = task.metadata.get("workspace_id")
             user_id = task.metadata.get("user_id")
+            model_name = task.metadata.get("model_name")
             if workspace_id is not None:
                 configurable["workspace_id"] = str(workspace_id)
             if user_id is not None:
                 configurable["user_id"] = str(user_id)
+            if model_name is not None:
+                configurable["model_name"] = str(model_name)
+            configurable["subagent_enabled"] = False
             run_config: dict[str, object] = {
                 "configurable": configurable,
                 "recursion_limit": task.max_turns,
@@ -468,12 +539,75 @@ class GlobalSubagentManager:
                 return None
             return ctx.get_result(task_id)
 
+    async def wait_for_completion(
+        self,
+        thread_id: str,
+        task_id: str,
+        user_id: str | None = None,
+    ) -> SubagentResult | None:
+        """Wait for a task to reach a terminal state and return its result."""
+        async with self._lock:
+            ctx = self._get_accessible_context(thread_id, user_id)
+            if not ctx:
+                return None
+
+            cached_result = ctx.get_result(task_id)
+            if cached_result is not None:
+                return cached_result
+
+            async_task = ctx._tasks.get(task_id)
+
+        if async_task is None:
+            return None
+
+        try:
+            awaited_result = await asyncio.shield(async_task)
+        except asyncio.CancelledError:
+            if async_task.cancelled():
+                cancelled_result = SubagentResult(
+                    task_id=task_id,
+                    status=SubagentStatus.CANCELLED,
+                    output=None,
+                    error=None,
+                )
+                async with self._lock:
+                    ctx = self._get_accessible_context(thread_id, user_id)
+                    if ctx is not None:
+                        ctx.store_result(task_id, cancelled_result)
+                return cancelled_result
+            raise
+        except Exception as exc:
+            logger.exception(
+                "Subagent task %s failed while waiting for completion",
+                task_id,
+            )
+            failed_result = SubagentResult(
+                task_id=task_id,
+                status=SubagentStatus.FAILED,
+                output=None,
+                error=str(exc),
+            )
+            async with self._lock:
+                ctx = self._get_accessible_context(thread_id, user_id)
+                if ctx is not None:
+                    ctx.store_result(task_id, failed_result)
+            return failed_result
+
+        if isinstance(awaited_result, SubagentResult):
+            return awaited_result
+
+        async with self._lock:
+            ctx = self._get_accessible_context(thread_id, user_id)
+            if ctx is None:
+                return None
+            return ctx.get_result(task_id)
+
     async def list_thread_tasks(
         self,
         thread_id: str,
         user_id: str | None = None,
         limit: int = 20,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """List recent subagent tasks for a thread."""
         async with self._lock:
             ctx = self._get_accessible_context(thread_id, user_id)
@@ -486,7 +620,7 @@ class GlobalSubagentManager:
             reverse=True,
         )[:limit]
 
-        items: list[dict] = []
+        items: list[dict[str, Any]] = []
         for task in ordered_tasks:
             result = ctx.get_result(task.task_id)
             status = ctx.get_task_status(task.task_id)
@@ -508,7 +642,7 @@ class GlobalSubagentManager:
         self,
         thread_id: str | None = None,
         user_id: str | None = None,
-    ):
+    ) -> AsyncIterator[str]:
         """Subscribe to event stream.
 
         Args:
@@ -685,7 +819,7 @@ class GlobalSubagentManager:
         *,
         user_id: str | None,
         limit: int,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         try:
             from src.database import get_db_session
             from src.subagents.store import SubagentTaskStore
@@ -774,6 +908,12 @@ class GlobalSubagentManager:
         """Extract workspace id from task metadata."""
         workspace_id = task.metadata.get("workspace_id")
         return str(workspace_id) if workspace_id is not None else None
+
+    @staticmethod
+    def _get_task_model_name(task: SubagentTask) -> str | None:
+        """Extract model id from task metadata."""
+        model_name = task.metadata.get("model_name")
+        return str(model_name) if model_name is not None else None
 
     @staticmethod
     def _extract_thread_id_from_sse(event_str: str) -> str | None:

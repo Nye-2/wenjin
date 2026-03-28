@@ -4,17 +4,31 @@ import asyncio
 import inspect
 import threading
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeAlias
+
+MessageBatch: TypeAlias = list[Any]
+MemoryQueueCallback: TypeAlias = Callable[[str, MessageBatch], object | Awaitable[Any]]
+
+
+async def _await_delivery(result: Awaitable[Any]) -> None:
+    """Await a queue delivery callback result inside ``asyncio.run``."""
+    await result
 
 
 class MemoryQueue:
     """Debounced queue for batching memory updates per thread."""
 
-    def __init__(self, debounce_seconds: float = 30.0, default_callback=None):
+    def __init__(
+        self,
+        debounce_seconds: float = 30.0,
+        default_callback: MemoryQueueCallback | None = None,
+    ) -> None:
         self._debounce = debounce_seconds
-        self._pending: dict[str, list] = defaultdict(list)
+        self._pending: dict[str, MessageBatch] = defaultdict(list)
         self._lock = threading.Lock()
         self._timers: dict[str, threading.Timer] = {}
-        self._callbacks: dict[str, object] = {}
+        self._callbacks: dict[str, MemoryQueueCallback] = {}
         self._default_callback = default_callback
 
     @property
@@ -22,21 +36,30 @@ class MemoryQueue:
         """Expose the active debounce interval."""
         return self._debounce
 
-    def _resolve_callback(self, thread_id: str, callback):
+    def _resolve_callback(
+        self,
+        thread_id: str,
+        callback: MemoryQueueCallback | None,
+    ) -> MemoryQueueCallback | None:
         if callback is not None:
             self._callbacks[thread_id] = callback
             return callback
         return self._callbacks.get(thread_id) or self._default_callback
 
-    def _deliver(self, thread_id: str, callback) -> None:
+    def _deliver(self, thread_id: str, callback: MemoryQueueCallback) -> None:
         messages = self.flush(thread_id)
         if not messages:
             return
         result = callback(thread_id, messages)
         if inspect.isawaitable(result):
-            asyncio.run(result)
+            asyncio.run(_await_delivery(result))
 
-    def enqueue(self, thread_id: str, messages: list, callback=None) -> None:
+    def enqueue(
+        self,
+        thread_id: str,
+        messages: MessageBatch,
+        callback: MemoryQueueCallback | None = None,
+    ) -> None:
         """Add messages to update queue for a thread."""
         with self._lock:
             self._pending[thread_id].extend(messages)
@@ -56,7 +79,7 @@ class MemoryQueue:
                 self._timers[thread_id] = timer
                 timer.start()
 
-    def flush(self, thread_id: str) -> list:
+    def flush(self, thread_id: str) -> MessageBatch:
         """Get and clear pending messages for a thread."""
         with self._lock:
             messages = self._pending.pop(thread_id, [])

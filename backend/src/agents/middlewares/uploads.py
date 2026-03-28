@@ -17,7 +17,9 @@ class UploadsMiddleware(Middleware):
     """Tracks current-thread uploads and prepends them to the last HumanMessage."""
 
     @staticmethod
-    def _normalize_uploaded_files(uploaded_files: list[dict] | None) -> list[dict[str, Any]]:
+    def _normalize_uploaded_files(
+        uploaded_files: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for item in uploaded_files or []:
             if not isinstance(item, dict):

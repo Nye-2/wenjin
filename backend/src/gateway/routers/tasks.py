@@ -1,5 +1,7 @@
 """Task API router for task status, streaming, listing, and cancellation."""
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -19,9 +21,9 @@ class TaskStatusResponse(BaseModel):
     status: str
     progress: int
     message: str | None = None
-    result: dict | None = None
+    result: dict[str, Any] | None = None
     error: str | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
     created_at: str
     started_at: str | None = None
     completed_at: str | None = None
@@ -45,7 +47,7 @@ async def get_task_status(
     task_id: str,
     user_id: str = Depends(get_current_user_id),
     task_service: TaskService = Depends(get_task_service),
-):
+) -> TaskStatusResponse:
     """Get task status."""
     status = await task_service.get_task_status(task_id, user_id)
     if not status:
@@ -58,7 +60,7 @@ async def stream_task_progress(
     task_id: str,
     user_id: str = Depends(get_current_user_id),
     task_service: TaskService = Depends(get_task_service),
-):
+) -> StreamingResponse:
     """Stream task progress via SSE."""
     # Verify access
     status = await task_service.get_task_status(task_id, user_id)
@@ -84,7 +86,7 @@ async def list_tasks(
     limit: int = Query(20, ge=1, le=100, description="Max results"),
     user_id: str = Depends(get_current_user_id),
     task_service: TaskService = Depends(get_task_service),
-):
+) -> TaskListResponse:
     """List tasks for current user."""
     tasks = await task_service.list_tasks(
         user_id=user_id,
@@ -103,7 +105,7 @@ async def cancel_task(
     task_id: str,
     user_id: str = Depends(get_current_user_id),
     task_service: TaskService = Depends(get_task_service),
-):
+) -> dict[str, bool | str]:
     """Cancel a task."""
     success = await task_service.cancel_task(task_id, user_id)
     if not success:

@@ -8,9 +8,10 @@ from sqlalchemy import func, select
 
 from src.artifacts.types import ArtifactType
 from src.database import Artifact, WorkspaceLiterature
+from src.services.dashboard.shared import DashboardStatusSharedMixin
 
 
-class DashboardThesisStatusMixin:
+class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
     """Feature status builders for thesis workspace modules."""
 
     db: Any

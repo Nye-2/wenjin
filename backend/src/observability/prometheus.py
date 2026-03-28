@@ -3,6 +3,7 @@
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request
 from starlette.responses import Response
@@ -12,13 +13,13 @@ from src.config.app_config import get_prometheus_settings
 logger = logging.getLogger(__name__)
 
 # Lazy-initialized metrics (only created when Prometheus is enabled)
-_http_requests_total = None
-_http_request_duration_seconds = None
-_active_tasks_gauge = None
-_task_duration_seconds = None
+_http_requests_total: Any | None = None
+_http_request_duration_seconds: Any | None = None
+_active_tasks_gauge: Any | None = None
+_task_duration_seconds: Any | None = None
 
 
-def _init_metrics():
+def _init_metrics() -> None:
     """Initialize Prometheus metric objects (idempotent)."""
     global _http_requests_total, _http_request_duration_seconds
     global _active_tasks_gauge, _task_duration_seconds
@@ -52,8 +53,10 @@ def _init_metrics():
 def get_path_template(request: Request) -> str:
     """Extract the route path template instead of the actual path."""
     route = request.scope.get("route")
-    if route and hasattr(route, "path"):
-        return route.path
+    if route is not None:
+        path = getattr(route, "path", None)
+        if isinstance(path, str):
+            return path
     return request.url.path
 
 
@@ -70,10 +73,15 @@ async def prometheus_middleware(
     duration = time.perf_counter() - start
 
     path_template = get_path_template(request)
-    _http_requests_total.labels(
+    request_counter = _http_requests_total
+    duration_histogram = _http_request_duration_seconds
+    if request_counter is None or duration_histogram is None:
+        return response
+
+    request_counter.labels(
         method=method, path_template=path_template, status=response.status_code
     ).inc()
-    _http_request_duration_seconds.labels(
+    duration_histogram.labels(
         method=method, path_template=path_template
     ).observe(duration)
 
@@ -96,7 +104,7 @@ def setup_prometheus(app: FastAPI) -> None:
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
     @app.get("/metrics", include_in_schema=False)
-    async def metrics_endpoint():
+    async def metrics_endpoint() -> Response:
         from starlette.responses import Response as StarletteResponse
 
         return StarletteResponse(
@@ -108,13 +116,13 @@ def setup_prometheus(app: FastAPI) -> None:
 
 
 # Public helpers for task-level instrumentation
-def track_task_start():
+def track_task_start() -> None:
     """Increment active tasks gauge."""
     if _active_tasks_gauge is not None:
         _active_tasks_gauge.inc()
 
 
-def track_task_end(task_type: str, duration: float):
+def track_task_end(task_type: str, duration: float) -> None:
     """Decrement active tasks gauge and record task duration."""
     if _active_tasks_gauge is not None:
         _active_tasks_gauge.dec()

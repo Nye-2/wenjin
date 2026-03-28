@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from src.database import ChatThread, User
 from src.models.router import InvalidRequestedModelError
@@ -17,9 +17,9 @@ def resolve_workspace_id(request: ChatRequest, thread: ChatThread) -> str | None
     return request.workspace_id or thread.workspace_id
 
 
-def build_langchain_messages(thread: ChatThread) -> list:
+def build_langchain_messages(thread: ChatThread) -> list[BaseMessage]:
     """Convert stored thread messages into LangChain message objects."""
-    messages = []
+    messages: list[BaseMessage] = []
     for msg in thread.messages or []:
         if msg["role"] == "user":
             messages.append(HumanMessage(content=msg["content"]))

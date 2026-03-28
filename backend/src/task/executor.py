@@ -5,11 +5,27 @@ from __future__ import annotations
 import asyncio
 import logging
 from types import SimpleNamespace
-from typing import Protocol
+from typing import Any, Protocol, TypeAlias
 
 from src.config.app_config import celery_settings
 
 logger = logging.getLogger(__name__)
+
+JsonObject: TypeAlias = dict[str, Any]
+
+
+class CeleryAppProtocol(Protocol):
+    """Minimal Celery app surface used by the executor."""
+
+    def send_task(
+        self,
+        name: str,
+        *,
+        args: list[object],
+        queue: str,
+        priority: int,
+        task_id: str,
+    ) -> object: ...
 
 
 class TaskExecutor(Protocol):
@@ -19,7 +35,7 @@ class TaskExecutor(Protocol):
         self,
         task_id: str,
         task_type: str,
-        payload: dict,
+        payload: JsonObject,
         queue: str,
         *,
         priority: int = 5,
@@ -29,7 +45,7 @@ class TaskExecutor(Protocol):
 class CeleryExecutor:
     """Submit tasks to Celery broker queue."""
 
-    def __init__(self, celery_app=None):
+    def __init__(self, celery_app: CeleryAppProtocol | None = None) -> None:
         if celery_app is None:
             from src.task import celery_app as _app
             celery_app = _app
@@ -39,7 +55,7 @@ class CeleryExecutor:
         self,
         task_id: str,
         task_type: str,
-        payload: dict,
+        payload: JsonObject,
         queue: str,
         *,
         priority: int = 5,
@@ -58,13 +74,13 @@ class LocalExecutor:
 
     def __init__(self, max_concurrency: int = 3):
         self._semaphore = asyncio.Semaphore(max_concurrency)
-        self._tasks: dict[str, asyncio.Task] = {}
+        self._tasks: dict[str, asyncio.Task[None]] = {}
 
     async def execute(
         self,
         task_id: str,
         task_type: str,
-        payload: dict,
+        payload: JsonObject,
         queue: str,
         *,
         priority: int = 5,
@@ -72,12 +88,17 @@ class LocalExecutor:
         task = asyncio.create_task(self._guarded_run(task_id, task_type, payload))
         self._tasks[task_id] = task
 
-        def _cleanup(_done: asyncio.Task) -> None:
+        def _cleanup(_done: asyncio.Task[None]) -> None:
             self._tasks.pop(task_id, None)
 
         task.add_done_callback(_cleanup)
 
-    async def _guarded_run(self, task_id: str, task_type: str, payload: dict) -> None:
+    async def _guarded_run(
+        self,
+        task_id: str,
+        task_type: str,
+        payload: JsonObject,
+    ) -> None:
         async with self._semaphore:
             await _run_task_locally(task_id, task_type, payload)
 
@@ -90,7 +111,11 @@ class LocalExecutor:
         return True
 
 
-async def _run_task_locally(task_id: str, task_type: str, payload: dict) -> None:
+async def _run_task_locally(
+    task_id: str,
+    task_type: str,
+    payload: JsonObject,
+) -> None:
     """Run a task in-process via the same shared execution flow as Celery."""
     from src.task.tasks.base import _execute_task_async
 

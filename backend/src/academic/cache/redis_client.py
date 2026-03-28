@@ -6,6 +6,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any, cast
 
 import redis.asyncio as redis
 
@@ -17,15 +18,15 @@ logger = logging.getLogger(__name__)
 class RedisClient:
     """Redis client for academic caching operations."""
 
-    def __init__(self, url: str = None):
+    def __init__(self, url: str | None = None) -> None:
         self.url = url or redis_settings.url
         self._settings = redis_settings
-        self._client: redis.Redis | None = None
+        self._client: Any | None = None
         self._owner_pid = os.getpid()
 
-    def _build_client(self) -> redis.Redis:
+    def _build_client(self) -> Any:
         """Build a fresh Redis client for the current process."""
-        return redis.from_url(
+        return cast(Any, redis.from_url)(
             self.url,
             decode_responses=True,
             max_connections=self._settings.max_connections,
@@ -85,7 +86,7 @@ class RedisClient:
         return bool(await self.client.ping())
 
     @property
-    def client(self) -> redis.Redis:
+    def client(self) -> Any:
         """Get Redis client, connecting if necessary."""
         if self._client is None:
             raise RuntimeError("Redis not connected. Call connect() first.")
@@ -113,14 +114,25 @@ class RedisClient:
         return "tier2:extraction:queue"
 
     # RAG Cache operations
-    async def get_rag_cache(self, workspace_id: str, query_hash: str) -> dict | None:
+    async def get_rag_cache(
+        self,
+        workspace_id: str,
+        query_hash: str,
+    ) -> dict[str, Any] | None:
         """Get cached RAG results."""
         key = self._rag_cache_key(workspace_id, query_hash)
         data = await self.client.get(key)
-        return json.loads(data) if data else None
+        if not data:
+            return None
+        parsed = json.loads(data)
+        return parsed if isinstance(parsed, dict) else None
 
     async def set_rag_cache(
-        self, workspace_id: str, query_hash: str, results: dict, ttl: int = None
+        self,
+        workspace_id: str,
+        query_hash: str,
+        results: dict[str, Any],
+        ttl: int | None = None,
     ) -> None:
         """Cache RAG results with TTL."""
         key = self._rag_cache_key(workspace_id, query_hash)
@@ -144,11 +156,11 @@ class RedisClient:
             mapping["subagent_count"] = subagent_count
         await self.client.hset(key, mapping=mapping)
 
-    async def get_agent_status(self, thread_id: str) -> dict | None:
+    async def get_agent_status(self, thread_id: str) -> dict[str, str] | None:
         """Get agent status for a thread."""
         key = self._agent_status_key(thread_id)
         data = await self.client.hgetall(key)
-        return data if data else None
+        return cast(dict[str, str], data) if data else None
 
     # SSE buffer operations
     async def append_sse_event(self, thread_id: str, event: str, max_size: int = 100) -> None:
@@ -161,11 +173,15 @@ class RedisClient:
     async def get_sse_buffer(self, thread_id: str, count: int = 50) -> list[str]:
         """Get recent SSE events from buffer."""
         key = self._sse_buffer_key(thread_id)
-        return await self.client.lrange(key, 0, count - 1)
+        return cast(list[str], await self.client.lrange(key, 0, count - 1))
 
     # Workspace lock operations
     @asynccontextmanager
-    async def workspace_lock(self, workspace_id: str, timeout: int = None) -> AsyncGenerator[None, None]:
+    async def workspace_lock(
+        self,
+        workspace_id: str,
+        timeout: int | None = None,
+    ) -> AsyncGenerator[None, None]:
         """Acquire workspace write lock as context manager."""
         key = self._workspace_lock_key(workspace_id)
         timeout = timeout or self._settings.generation_lock_ttl
@@ -198,7 +214,7 @@ class RedisClient:
 
     async def dequeue_extraction(self, timeout: int = 5) -> str | None:
         """Get next paper from Tier2 extraction queue (blocking)."""
-        result = await self.client.blpop(self._tier2_queue_key(), timeout=timeout)
+        result = await self.client.blpop([self._tier2_queue_key()], timeout=timeout)
         return result[1] if result else None
 
 

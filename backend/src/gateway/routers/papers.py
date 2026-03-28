@@ -8,10 +8,12 @@ This module provides REST endpoints for:
 - Paper search functionality
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 
 from src.application.errors import ApplicationError
-from src.application.handlers.papers_handler import PapersHandler, get_papers_handler
+from src.application.handlers.papers_handler import PapersHandler, UploadedPaperPayload
 from src.database import (
     User,
 )
@@ -25,6 +27,7 @@ from src.gateway.contracts.paper import (
     section_to_response,
 )
 from src.gateway.deps import (
+    get_papers_handler,
     get_paper_service,
     get_workspace_service,
 )
@@ -52,7 +55,7 @@ async def create_paper(
     request: CreatePaperValidator,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
-):
+) -> PaperResponse:
     """Create a new paper manually.
 
     Args:
@@ -81,13 +84,17 @@ async def upload_paper(
     workspace_id: str = Form(...),
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
-):
+) -> Any:
     """Upload a paper PDF into a workspace."""
     try:
         return await handler.upload_paper(
             workspace_id=workspace_id,
             user_id=str(current_user.id),
-            file=file,
+            upload=UploadedPaperPayload(
+                filename=file.filename,
+                content_type=file.content_type,
+                content=await file.read(),
+            ),
         )
     except ApplicationError as exc:
         raise to_http_exception(exc) from exc
@@ -99,7 +106,7 @@ async def list_papers(
     limit: int = 20,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
-):
+) -> list[PaperResponse]:
     """List papers, optionally filtered by workspace.
 
     Args:
@@ -126,7 +133,7 @@ async def get_paper(
     paper_id: str,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
-):
+) -> PaperResponse:
     """Get paper by ID.
 
     Args:
@@ -155,7 +162,7 @@ async def update_paper(
     request: UpdatePaperValidator,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
-):
+) -> PaperResponse:
     """Update paper metadata.
 
     Args:
@@ -186,7 +193,7 @@ async def delete_paper(
     paper_id: str,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
-):
+) -> dict[str, bool | str]:
     """Delete paper.
 
     Args:
@@ -217,7 +224,7 @@ async def extract_paper(
     tier: int = 1,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
-):
+) -> PaperExtractionTaskResponse:
     """Queue paper extraction.
 
     Args:
@@ -249,7 +256,7 @@ async def get_paper_sections(
     workspace_id: str | None = None,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
-):
+) -> list[SectionResponse]:
     """Get paper sections.
 
     Args:
@@ -279,7 +286,7 @@ async def search_papers(
     request: SearchPapersValidator,
     current_user: User = Depends(get_current_user),
     handler: PapersHandler = Depends(get_papers_handler),
-):
+) -> dict[str, Any]:
     """Search papers by title, authors, or content.
 
     Args:

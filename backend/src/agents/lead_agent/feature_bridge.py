@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from types import SimpleNamespace
 from typing import Any
 
 from src.academic.cache.redis_client import redis_client
@@ -172,7 +171,7 @@ async def _execute_workspace_feature_request(
     literature_service = LiteratureService(db)
     credit_service = CreditService(db)
     handler = FeatureExecutionHandler(
-        user=SimpleNamespace(id=user_id),
+        actor_id=str(user_id),
         workspace_service=workspace_service,
         task_service=task_service,
         literature_service=literature_service,

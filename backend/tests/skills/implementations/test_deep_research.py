@@ -21,7 +21,6 @@ from src.skills.implementations.deep_research import (
     ResearchGap,
     ResearchIdea,
     ResearchPattern,
-    ResearchTrend,
 )
 from src.subagents.parallel import PhaseResult
 
@@ -926,6 +925,37 @@ class TestDeepResearchParallelExecution:
 
             assert output.success is True
             assert output.metadata.get("papers_analyzed", 0) == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_async_forwards_runtime_context_to_parallel_executor(self):
+        """Deep research should preserve runtime ids when dispatching parallel subagents."""
+        from unittest.mock import AsyncMock, patch
+
+        skill = DeepResearchSkill()
+
+        with patch.object(skill, "_executor") as mock_executor:
+            mock_executor.execute_plan = AsyncMock(return_value=[])
+
+            state = {"messages": [], "cited_papers": []}
+            input_data = SkillInput(
+                workspace_id="test-ws",
+                user_query="machine learning",
+                context={
+                    "thread_id": "thread-1",
+                    "user_id": "user-1",
+                    "model_name": "gpt-4o",
+                    "trace_id": "trace-1",
+                },
+            )
+
+            await skill.execute_async(input_data, state)
+
+        passed_context = mock_executor.execute_plan.await_args.args[1]
+        assert passed_context["workspace_id"] == "test-ws"
+        assert passed_context["thread_id"] == "thread-1"
+        assert passed_context["user_id"] == "user-1"
+        assert passed_context["model_name"] == "gpt-4o"
+        assert passed_context["trace_id"] == "trace-1"
 
     @pytest.mark.asyncio
     async def test_execute_async_emits_runtime_blocks_via_progress_callback(self):

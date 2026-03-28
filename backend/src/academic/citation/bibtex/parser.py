@@ -1,6 +1,18 @@
 """BibTeX parser for importing references."""
 
 import re
+from typing import Any, TypedDict
+
+
+class BibTeXPaperPayload(TypedDict):
+    """Structured payload compatible with ``PaperService.create``."""
+
+    title: str
+    authors: list[dict[str, Any]]
+    year: int | None
+    venue: str
+    doi: str | None
+    source: str
 
 
 class BibTeXParser:
@@ -16,7 +28,7 @@ class BibTeXParser:
         re.MULTILINE
     )
 
-    def parse(self, content: str) -> list[dict]:
+    def parse(self, content: str) -> list[dict[str, str]]:
         """Parse BibTeX content into list of entries.
 
         Args:
@@ -59,7 +71,7 @@ class BibTeXParser:
 
         return entries
 
-    def to_paper_dict(self, bibtex_entry: dict) -> dict:
+    def to_paper_dict(self, bibtex_entry: dict[str, str]) -> BibTeXPaperPayload:
         """Convert BibTeX entry to Paper-compatible dict.
 
         Args:
@@ -77,7 +89,7 @@ class BibTeXParser:
             "source": "bibtex_import",
         }
 
-    def _parse_authors(self, author_str: str) -> list[dict]:
+    def _parse_authors(self, author_str: str) -> list[dict[str, str]]:
         """Parse BibTeX author string to list of dicts."""
         authors = []
         for name in author_str.split(" and "):

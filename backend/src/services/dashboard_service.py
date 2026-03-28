@@ -10,14 +10,12 @@ from src.services.dashboard import (
     DashboardInnovationStatusMixin,
     DashboardProposalStatusMixin,
     DashboardSciStatusMixin,
-    DashboardStatusSharedMixin,
     DashboardThesisStatusMixin,
 )
 from src.workspace_features import list_workspace_features
 
 
 class DashboardService(
-    DashboardStatusSharedMixin,
     DashboardThesisStatusMixin,
     DashboardSciStatusMixin,
     DashboardProposalStatusMixin,

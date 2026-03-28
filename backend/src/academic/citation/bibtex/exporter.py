@@ -1,7 +1,9 @@
 """BibTeX exporter for exporting references."""
 
+from typing import Any
 
-def generate_citation_key(paper: dict) -> str:
+
+def generate_citation_key(paper: dict[str, Any]) -> str:
     """Generate BibTeX citation key in simple format: FirstAuthorYear.
 
     This format (e.g., Smith2024) is designed for easy use with LaTeX \\cite{}.
@@ -40,7 +42,7 @@ def generate_citation_key(paper: dict) -> str:
 class BibTeXExporter:
     """Export papers to BibTeX format."""
 
-    def export(self, papers: list[dict]) -> str:
+    def export(self, papers: list[dict[str, Any]]) -> str:
         """Export papers to BibTeX format.
 
         Args:
@@ -57,7 +59,7 @@ class BibTeXExporter:
 
         return "\n\n".join(entries)
 
-    def _format_entry(self, paper: dict) -> str:
+    def _format_entry(self, paper: dict[str, Any]) -> str:
         """Format single paper as BibTeX entry."""
         entry_type = self._determine_type(paper)
         key = self._generate_key(paper)
@@ -94,7 +96,7 @@ class BibTeXExporter:
 
         return "\n".join(lines)
 
-    def _determine_type(self, paper: dict) -> str:
+    def _determine_type(self, paper: dict[str, Any]) -> str:
         """Determine BibTeX entry type from paper metadata."""
         venue = (paper.get("venue") or "").lower()
         if "conference" in venue or "workshop" in venue or "proceedings" in venue:
@@ -103,6 +105,6 @@ class BibTeXExporter:
             return "article"
         return "misc"
 
-    def _generate_key(self, paper: dict) -> str:
+    def _generate_key(self, paper: dict[str, Any]) -> str:
         """Generate BibTeX citation key using standardized format."""
         return generate_citation_key(paper)

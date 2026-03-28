@@ -6,6 +6,7 @@ Provides two levels of concurrency control:
 """
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 
@@ -43,7 +44,7 @@ class ConcurrencyLimiter:
         return max(0, self._max_concurrent - self._active_count)
 
     @asynccontextmanager
-    async def acquire(self):
+    async def acquire(self) -> AsyncIterator[None]:
         """Acquire a slot asynchronously.
 
         Yields control while holding the slot.
@@ -137,7 +138,7 @@ class DualLayerLimiter:
                 del self._thread_limiters[thread_id]
 
     @asynccontextmanager
-    async def acquire(self, thread_id: str):
+    async def acquire(self, thread_id: str) -> AsyncIterator[None]:
         """Acquire both global and thread-specific slots.
 
         Acquires global slot first, then thread-specific slot.

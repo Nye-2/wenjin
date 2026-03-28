@@ -4,6 +4,7 @@ import logging
 import random
 import string
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from src.config.app_config import smtp_settings
 
@@ -46,16 +47,16 @@ return {1, "验证成功"}
 class EmailService:
     """邮件服务类"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.settings = smtp_settings
-        self._smtp_client = None
+        self._smtp_client: Any | None = None
 
-    async def _get_redis(self):
+    async def _get_redis(self) -> Any:
         """获取 Redis 客户端"""
         from src.academic.cache.redis_client import redis_client
         return redis_client.client
 
-    async def _get_smtp_client(self):
+    async def _get_smtp_client(self) -> Any | None:
         """延迟初始化 SMTP 客户端"""
         if self._smtp_client is None and self.settings.enabled:
             import aiosmtplib

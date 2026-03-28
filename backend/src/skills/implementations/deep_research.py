@@ -16,10 +16,11 @@ import asyncio
 import copy
 import re
 import uuid
+from collections.abc import Awaitable, Callable
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypedDict
 
 from src.agents.thread_state import AcademicArtifact, ThreadState
 from src.config import settings
@@ -76,6 +77,18 @@ class ResearchTrend:
     paper_count: int = 0
 
 
+class RuntimePhaseConfig(TypedDict):
+    """Typed runtime metadata for a UI execution phase."""
+
+    label: str
+    description: str
+    start_progress: int
+    end_progress: int
+
+
+ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
+
+
 class DeepResearchSkill(BaseSkill):
     """Comprehensive literature analysis with parallel subagent execution.
 
@@ -98,7 +111,7 @@ class DeepResearchSkill(BaseSkill):
     DEFAULT_SEARCH_LIMIT = 20
     MIN_PAPERS_FOR_ANALYSIS = 5
     KEYWORD_EXTRACTION_MIN_FREQ = 2
-    RUNTIME_PHASES = {
+    RUNTIME_PHASES: dict[str, RuntimePhaseConfig] = {
         "discovery": {
             "label": "文献发现",
             "description": "并行检索相关论文并提炼趋势",
@@ -119,7 +132,7 @@ class DeepResearchSkill(BaseSkill):
         },
     }
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the skill with a ParallelExecutor."""
         super().__init__()
         self._executor = ParallelExecutor(max_concurrent=4)
@@ -285,7 +298,7 @@ class DeepResearchSkill(BaseSkill):
 
     async def _emit_runtime(
         self,
-        progress_callback,
+        progress_callback: ProgressCallback | None,
         runtime: dict[str, Any],
         *,
         progress: int,
@@ -323,7 +336,7 @@ class DeepResearchSkill(BaseSkill):
         try:
             # Try to get existing event loop
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 # If we have a running loop, run in a new thread
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -346,7 +359,7 @@ class DeepResearchSkill(BaseSkill):
         self,
         input: SkillInput,
         state: ThreadState,
-        progress_callback=None,
+        progress_callback: ProgressCallback | None = None,
     ) -> SkillOutput:
         """Execute the deep research skill asynchronously with parallel subagents.
 
@@ -388,12 +401,15 @@ class DeepResearchSkill(BaseSkill):
             )
 
             # Execute the plan with context
-            context = {
-                "workspace_id": input.workspace_id,
-                "user_query": input.user_query,
-                "search_limit": search_limit,
-                "year_range": year_range,
-            }
+            context = dict(input.context)
+            context.update(
+                {
+                    "workspace_id": input.workspace_id,
+                    "user_query": input.user_query,
+                    "search_limit": search_limit,
+                    "year_range": year_range,
+                }
+            )
 
             async def handle_phase_result(phase_result: PhaseResult) -> None:
                 if phase_result.phase_name == "discovery":
@@ -738,20 +754,23 @@ class DeepResearchSkill(BaseSkill):
                     "subagent_type": "scout",
                     "prompt": f"Search for highly-cited papers about '{query}'{year_filter}. "
                     f"Find {search_limit} relevant papers. Focus on seminal works and foundational research. "
-                    "Return a structured list with title, authors, year, venue, abstract, citations, url, and doi.",
+                    "Return JSON only with shape "
+                    '{"papers":[{"title":"","authors":[],"year":null,"venue":"","abstract":"","citations":0,"url":"","doi":""}]}.',
                 },
                 {
                     "subagent_type": "scout",
                     "prompt": f"Search for recent papers about '{query}' from the last 2-3 years. "
                     "Focus on cutting-edge research and emerging directions. "
-                    "Return a structured list with title, authors, year, venue, abstract, citations, url, and doi.",
+                    "Return JSON only with shape "
+                    '{"papers":[{"title":"","authors":[],"year":null,"venue":"","abstract":"","citations":0,"url":"","doi":""}]}.',
                 },
                 {
                     "subagent_type": "trend_spotter",
                     "prompt": f"Analyze research trends for '{query}'. "
                     "Identify: 1) Hot topics gaining traction, 2) Declining areas, "
                     "3) Emerging methodologies, 4) Future directions. "
-                    "Provide specific paper counts and growth rates where possible.",
+                    "Provide specific paper counts and growth rates where possible. "
+                    'Return JSON only with shape {"trends":[{"topic":"","description":"","growth_rate":0,"paper_count":0}]}.',
                 },
             ],
             depends_on=[],
@@ -766,7 +785,8 @@ class DeepResearchSkill(BaseSkill):
                     "prompt": f"Based on the literature about '{query}', identify 3-5 significant research gaps. "
                     "For each gap provide: 1) Clear description, 2) Supporting evidence from existing work, "
                     "3) Potential impact of addressing this gap. "
-                    "Focus on actionable gaps with clear research potential.",
+                    "Focus on actionable gaps with clear research potential. "
+                    'Return JSON only with shape {"gaps":[{"description":"","supporting_evidence":[],"potential_impact":""}]}.',
                 },
             ],
             depends_on=["discovery"],
@@ -782,7 +802,8 @@ class DeepResearchSkill(BaseSkill):
                     "Generate 2-3 novel research ideas that address the gaps. "
                     "For each idea include: 1) Title, 2) Description, 3) Methodology hints, "
                     "4) Related papers, 5) Novelty score (0-1). "
-                    "Focus on ideas with high potential impact and feasibility.",
+                    "Focus on ideas with high potential impact and feasibility. "
+                    'Return JSON only with shape {"ideas":[{"title":"","description":"","methodology_hints":[],"related_papers":[],"novelty_score":0.0}]}.',
                 },
             ],
             depends_on=["gap_mining"],
@@ -872,7 +893,7 @@ class DeepResearchSkill(BaseSkill):
         Returns:
             List of ResearchGap objects extracted from results.
         """
-        gaps = []
+        gaps: list[ResearchGap] = []
 
         for phase in phase_results:
             if phase.phase_name == "gap_mining":
@@ -899,7 +920,7 @@ class DeepResearchSkill(BaseSkill):
         Returns:
             List of ResearchIdea objects extracted from results.
         """
-        ideas = []
+        ideas: list[ResearchIdea] = []
 
         for phase in phase_results:
             if phase.phase_name == "synthesis":
@@ -1167,7 +1188,7 @@ class DeepResearchSkill(BaseSkill):
         Returns:
             List of identified research gaps.
         """
-        gaps = []
+        gaps: list[ResearchGap] = []
 
         if len(papers) < self.MIN_PAPERS_FOR_ANALYSIS:
             return gaps
@@ -1272,7 +1293,7 @@ class DeepResearchSkill(BaseSkill):
         Returns:
             List of generated research ideas.
         """
-        ideas = []
+        ideas: list[ResearchIdea] = []
 
         if len(papers) < self.MIN_PAPERS_FOR_ANALYSIS:
             return ideas
@@ -1566,8 +1587,8 @@ class DeepResearchSkill(BaseSkill):
                         sections.append(f"  - {hint}")
                 if idea.related_papers:
                     sections.append("**Related Papers:**")
-                    for paper in idea.related_papers:
-                        sections.append(f"  - {paper}")
+                    for related_paper in idea.related_papers:
+                        sections.append(f"  - {related_paper}")
                 sections.append("")
 
         return "\n".join(sections)

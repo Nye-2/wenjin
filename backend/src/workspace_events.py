@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -52,7 +53,7 @@ async def publish_workspace_event(
         return
 
 
-async def stream_workspace_events(workspace_id: str):
+async def stream_workspace_events(workspace_id: str) -> AsyncGenerator[str, None]:
     """Subscribe to workspace events as an SSE generator."""
     if redis_client._client is None:
         raise RuntimeError("Redis not connected")
@@ -66,19 +67,19 @@ async def stream_workspace_events(workspace_id: str):
         {"message": "Workspace event stream connected"},
     )
 
-    async def _generator():
+    async def _generator() -> AsyncGenerator[str, None]:
         try:
             yield f"data: {ready_payload}\n\n"
 
             timeout = 3600
-            start_time = asyncio.get_event_loop().time()
+            start_time = asyncio.get_running_loop().time()
             last_ping = start_time
 
             async for message in pubsub.listen():
                 if message["type"] == "message":
                     yield f"data: {message['data']}\n\n"
 
-                now = asyncio.get_event_loop().time()
+                now = asyncio.get_running_loop().time()
                 if now - last_ping > 30:
                     yield ": ping\n\n"
                     last_ping = now

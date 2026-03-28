@@ -15,7 +15,9 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import Any, TypeAlias
 
+from langchain_core.language_models import BaseChatModel
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +25,35 @@ from src.academic.literature.extraction.pdf_extractor import PDFExtractor
 from src.database import Paper, PaperExtraction, PaperSection
 
 logger = logging.getLogger(__name__)
+
+JsonObject: TypeAlias = dict[str, Any]
+TOCEntry: TypeAlias = dict[str, Any]
+AcademicEntity: TypeAlias = dict[str, str]
+
+
+def _coerce_toc_entries(value: object) -> list[TOCEntry]:
+    """Normalize a serialized TOC payload into dict entries."""
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _message_content_to_text(content: object) -> str:
+    """Convert LangChain message content payloads into a plain string."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "\n".join(parts)
+    return str(content)
 
 
 class ExtractionError(Exception):
@@ -215,14 +246,19 @@ class ExtractionService:
             # Run Tier 1 first if not available
             tier1 = await self._extract_tier1(paper_id, file_path)
 
-        base_data = tier1.structured_data
-        full_text = base_data.get("full_text", "")
-        toc = base_data.get("toc", [])
+        base_data = (
+            dict(tier1.structured_data)
+            if isinstance(tier1.structured_data, dict)
+            else {}
+        )
+        full_text_value = base_data.get("full_text", "")
+        full_text = full_text_value if isinstance(full_text_value, str) else ""
+        toc = _coerce_toc_entries(base_data.get("toc", []))
 
         # LLM-based extraction (graceful — failures produce empty fields)
-        section_summaries: dict = {}
-        key_concepts: list = []
-        entities: list = []
+        section_summaries: dict[str, str] = {}
+        key_concepts: list[str] = []
+        entities: list[AcademicEntity] = []
 
         if full_text:
             try:
@@ -276,7 +312,7 @@ class ExtractionService:
     # Tier 2 LLM helper methods
     # ------------------------------------------------------------------
 
-    def _get_llm(self):
+    def _get_llm(self) -> BaseChatModel | None:
         """Get LLM instance for Tier 2 extraction.
 
         Attempts to create the configured fast extraction model via the
@@ -298,8 +334,8 @@ class ExtractionService:
     async def _extract_section_summaries(
         self,
         full_text: str,
-        toc: list[dict],
-    ) -> dict:
+        toc: list[TOCEntry],
+    ) -> dict[str, str]:
         """Generate 2-3 sentence summaries for each section using LLM.
 
         For every entry in *toc* that can be located in *full_text*,
@@ -340,7 +376,9 @@ class ExtractionService:
                         content=f"Section: {title}\n\nContent:\n{section_text}",
                     ),
                 ])
-                summaries[title] = response.content.strip()
+                response_text = _message_content_to_text(response.content).strip()
+                if response_text:
+                    summaries[title] = response_text
             except Exception:
                 logger.debug("Failed to summarize section: %s", title)
 
@@ -374,23 +412,24 @@ class ExtractionService:
             ),
             HumanMessage(content=text_sample),
         ])
+        response_text = _message_content_to_text(response.content).strip()
 
         try:
-            concepts = json.loads(response.content.strip())
+            concepts = json.loads(response_text)
             if isinstance(concepts, list):
                 return [str(c) for c in concepts[:20]]
         except (json.JSONDecodeError, ValueError):
             # Fallback: parse as newline-separated list
             lines = [
                 line.strip().strip("-").strip("\u2022").strip()
-                for line in response.content.strip().split("\n")
+                for line in response_text.split("\n")
                 if line.strip()
             ]
             return lines[:20]
 
         return []
 
-    async def _extract_entities(self, full_text: str) -> list[dict]:
+    async def _extract_entities(self, full_text: str) -> list[AcademicEntity]:
         """Extract academic entities: methods, datasets, baselines, metrics.
 
         Returns:
@@ -421,12 +460,13 @@ class ExtractionService:
             ),
             HumanMessage(content=text_sample),
         ])
+        response_text = _message_content_to_text(response.content).strip()
 
         try:
-            entities = json.loads(response.content.strip())
+            entities = json.loads(response_text)
             if isinstance(entities, list):
                 return [
-                    e
+                    {"type": str(e["type"]), "name": str(e["name"])}
                     for e in entities
                     if isinstance(e, dict) and "type" in e and "name" in e
                 ][:30]
@@ -479,20 +519,20 @@ class ExtractionService:
             raw_sections = self.pdf_extractor.split_into_sections(file_path, toc)
 
             # Create PaperSection records
-            paper_sections = []
-            for idx, section in enumerate(raw_sections):
+            paper_sections: list[PaperSection] = []
+            for idx, raw_section in enumerate(raw_sections):
                 # Generate section path (e.g., "1", "1.1", "1.1.1")
                 section_path = self._generate_section_path(idx, toc)
 
                 paper_section = PaperSection(
                     paper_id=paper_id,
                     workspace_id=workspace_id,
-                    section_title=section["title"],
+                    section_title=raw_section["title"],
                     section_path=section_path,
-                    page_start=section["page_start"],
-                    page_end=section["page_end"],
-                    content=section["content"],
-                    level=section["level"],
+                    page_start=raw_section["page_start"],
+                    page_end=raw_section["page_end"],
+                    content=raw_section["content"],
+                    level=raw_section["level"],
                 )
                 paper_sections.append(paper_section)
                 self.db.add(paper_section)
@@ -500,8 +540,8 @@ class ExtractionService:
             await self.db.commit()
 
             # Refresh all sections
-            for section in paper_sections:
-                await self.db.refresh(section)
+            for paper_section in paper_sections:
+                await self.db.refresh(paper_section)
 
             logger.info(
                 "Extracted %d sections for paper %s in workspace %s",
@@ -517,7 +557,7 @@ class ExtractionService:
             logger.error("Section extraction failed for paper %s: %s", paper_id, e)
             raise ExtractionError(f"Section extraction failed: {e}") from e
 
-    def _generate_section_path(self, index: int, toc: list[dict]) -> str:
+    def _generate_section_path(self, index: int, toc: list[TOCEntry]) -> str:
         """Generate hierarchical section path.
 
         Creates paths like "1", "1.1", "1.1.1" based on TOC structure.
@@ -533,8 +573,8 @@ class ExtractionService:
             return str(index + 1)
 
         # Track section counters at each level
-        counters = {}
-        result_parts = []
+        counters: dict[int, int] = {}
+        result_parts: list[str] = []
 
         for i in range(index + 1):
             level = toc[i]["level"]

@@ -22,10 +22,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.application.handlers.feature_execution_handler import (
-    get_credit_service,
-    get_literature_service,
-)
+from src.gateway.deps import get_credit_service, get_literature_service
 from src.database import WorkspaceType
 from src.gateway.routers import features
 from src.gateway.routers.auth import get_current_user

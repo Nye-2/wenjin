@@ -10,7 +10,7 @@ This skill analyzes research ideas and literature context to generate:
 import logging
 import re
 import uuid
-from typing import Any
+from typing import Any, TypeAlias
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -21,6 +21,38 @@ from src.models.factory import create_chat_model
 from src.skills.base import BaseSkill, SkillInput, SkillOutput
 
 logger = logging.getLogger(__name__)
+
+JsonObject: TypeAlias = dict[str, Any]
+
+
+def _message_content_to_text(content: object) -> str:
+    """Convert LangChain message payloads into plain text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "\n".join(parts)
+    return str(content)
+
+
+def _coerce_text_field(payload: JsonObject, *keys: str) -> str:
+    """Return the first present field coerced to string."""
+    for key in keys:
+        value = payload.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            return value
+        return str(value)
+    return ""
 
 
 # Default outline structure following IMRaD format
@@ -153,7 +185,7 @@ class FrameworkDesignerSkill(BaseSkill):
                 self._model = create_chat_model(models[0].id, temperature=0.7)
         return self._model
 
-    def _prepare_memory_context_from_prompt(self, memory_prompt: str) -> dict[str, Any]:
+    def _prepare_memory_context_from_prompt(self, memory_prompt: str) -> JsonObject:
         """Convert prompt-form memory into the structured context used by the skill."""
         context: dict[str, Any] = {
             "research_context": {"summary": ""},
@@ -187,7 +219,7 @@ class FrameworkDesignerSkill(BaseSkill):
 
         return context
 
-    def _prepare_memory_context(self, state: ThreadState | None = None) -> dict[str, Any]:
+    def _prepare_memory_context(self, state: ThreadState | None = None) -> JsonObject:
         """Prepare memory context for injection into prompts.
 
         Extracts research context, writing preferences, and other
@@ -210,7 +242,7 @@ class FrameworkDesignerSkill(BaseSkill):
             "top_facts": [],
         }
 
-    def _format_memory_for_prompt(self, memory_context: dict) -> str:
+    def _format_memory_for_prompt(self, memory_context: JsonObject) -> str:
         """Format memory context for inclusion in prompts.
 
         Args:
@@ -219,20 +251,29 @@ class FrameworkDesignerSkill(BaseSkill):
         Returns:
             Formatted string for prompt injection.
         """
-        parts = []
+        parts: list[str] = []
 
-        research_ctx = memory_context.get("research_context", {})
-        if research_ctx.get("summary"):
-            parts.append(f"Research Context: {research_ctx['summary']}")
+        research_ctx = memory_context.get("research_context")
+        if isinstance(research_ctx, dict):
+            summary = _coerce_text_field(dict(research_ctx), "summary")
+            if summary:
+                parts.append(f"Research Context: {summary}")
 
-        writing_prefs = memory_context.get("writing_preferences", {})
-        if writing_prefs.get("summary"):
-            parts.append(f"Writing Preferences: {writing_prefs['summary']}")
+        writing_prefs = memory_context.get("writing_preferences")
+        if isinstance(writing_prefs, dict):
+            summary = _coerce_text_field(dict(writing_prefs), "summary")
+            if summary:
+                parts.append(f"Writing Preferences: {summary}")
 
-        top_facts = memory_context.get("top_facts", [])
-        if top_facts:
-            facts_str = ", ".join(f.get("content", "") for f in top_facts[:3])
-            parts.append(f"Key Facts: {facts_str}")
+        top_facts = memory_context.get("top_facts")
+        if isinstance(top_facts, list):
+            facts_str = ", ".join(
+                _coerce_text_field(dict(fact), "content")
+                for fact in top_facts[:3]
+                if isinstance(fact, dict)
+            )
+            if facts_str:
+                parts.append(f"Key Facts: {facts_str}")
 
         return "\n".join(parts) if parts else ""
 
@@ -250,7 +291,7 @@ class FrameworkDesignerSkill(BaseSkill):
         if "research_idea" in input.context:
             idea = input.context["research_idea"]
             if isinstance(idea, dict):
-                return idea.get("content", idea.get("description", str(idea)))
+                return _coerce_text_field(dict(idea), "content", "description")
             return str(idea)
 
         # Check state academic_artifacts for research_idea type
@@ -258,7 +299,7 @@ class FrameworkDesignerSkill(BaseSkill):
             if artifact.type == "research_idea":
                 content = artifact.content
                 if isinstance(content, dict):
-                    return content.get("content", content.get("description", str(content)))
+                    return _coerce_text_field(dict(content), "content", "description")
                 return str(content)
 
         # Fall back to user query
@@ -286,9 +327,9 @@ class FrameworkDesignerSkill(BaseSkill):
 
     def _create_enhanced_framework(
         self,
-        outline: dict,
+        outline: JsonObject,
         topic: str,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """Create enhanced framework with terminology glossary and dependencies.
 
         Args:
@@ -312,7 +353,7 @@ class FrameworkDesignerSkill(BaseSkill):
             "structure_type": "enhanced_imrad",
         }
 
-    def _generate_terminology_glossary(self, topic: str, outline: dict) -> dict[str, str]:
+    def _generate_terminology_glossary(self, topic: str, outline: JsonObject) -> dict[str, str]:
         """Generate a terminology glossary based on topic and outline.
 
         Args:
@@ -323,7 +364,7 @@ class FrameworkDesignerSkill(BaseSkill):
             Dictionary of term -> definition pairs.
         """
         # Extract key terms from topic
-        terms = {}
+        terms: dict[str, str] = {}
 
         # Common academic terms with definitions based on context
         topic_lower = topic.lower()
@@ -358,7 +399,7 @@ class FrameworkDesignerSkill(BaseSkill):
 
         return terms
 
-    def _generate_chapter_dependencies(self, outline: dict) -> dict[str, list[str]]:
+    def _generate_chapter_dependencies(self, outline: JsonObject) -> dict[str, list[str]]:
         """Generate chapter dependencies for optimal writing order.
 
         Args:
@@ -367,7 +408,8 @@ class FrameworkDesignerSkill(BaseSkill):
         Returns:
             Dictionary mapping chapter to its dependencies.
         """
-        sections = outline.get("sections", {})
+        sections_value = outline.get("sections", {})
+        sections = sections_value if isinstance(sections_value, dict) else {}
 
         # Default IMRaD dependencies
         dependencies = {
@@ -383,14 +425,14 @@ class FrameworkDesignerSkill(BaseSkill):
 
         # If outline has custom sections, derive dependencies
         if sections:
-            section_titles = []
+            section_titles: list[str] = []
             for section_key, section_data in sections.items():
                 if isinstance(section_data, dict):
-                    title = section_data.get("title", str(section_key))
+                    title = _coerce_text_field(dict(section_data), "title") or str(section_key)
                     section_titles.append(title)
 
             # Build dependencies based on section order
-            custom_deps = {}
+            custom_deps: dict[str, list[str]] = {}
             for i, title in enumerate(section_titles):
                 # Each section depends on previous ones
                 custom_deps[title] = section_titles[:i] if i > 0 else []
@@ -404,7 +446,7 @@ class FrameworkDesignerSkill(BaseSkill):
         research_idea: str,
         literature_context: str,
         model: BaseChatModel,
-        memory_context: dict | None = None,
+        memory_context: JsonObject | None = None,
     ) -> str:
         """Generate an abstract using the LLM with memory context.
 
@@ -442,7 +484,7 @@ class FrameworkDesignerSkill(BaseSkill):
         ]
 
         response = model.invoke(messages)
-        return response.content.strip()
+        return _message_content_to_text(response.content).strip()
 
     def _generate_outline(
         self,
@@ -450,7 +492,7 @@ class FrameworkDesignerSkill(BaseSkill):
         abstract: str,
         literature_context: str,
         model: BaseChatModel,
-        memory_context: dict | None = None,
+        memory_context: JsonObject | None = None,
     ) -> str:
         """Generate a detailed outline using the LLM with memory context.
 
@@ -490,9 +532,9 @@ class FrameworkDesignerSkill(BaseSkill):
         ]
 
         response = model.invoke(messages)
-        return response.content.strip()
+        return _message_content_to_text(response.content).strip()
 
-    def _parse_outline_to_dict(self, outline_text: str) -> dict:
+    def _parse_outline_to_dict(self, outline_text: str) -> JsonObject:
         """Parse outline text into structured dictionary.
 
         Args:
@@ -501,9 +543,9 @@ class FrameworkDesignerSkill(BaseSkill):
         Returns:
             Structured dictionary of sections.
         """
-        sections = {}
-        current_section = None
-        current_points = []
+        sections: JsonObject = {}
+        current_section: str | None = None
+        current_points: list[str] = []
 
         for line in outline_text.split("\n"):
             line = line.strip()
@@ -529,7 +571,7 @@ class FrameworkDesignerSkill(BaseSkill):
         abstract: str,
         outline: str,
         research_idea: str,
-        enhanced_framework: dict | None = None,
+        enhanced_framework: JsonObject | None = None,
     ) -> AcademicArtifact:
         """Create the enhanced framework outline artifact.
 
@@ -543,7 +585,7 @@ class FrameworkDesignerSkill(BaseSkill):
         Returns:
             The created artifact.
         """
-        content = {
+        content: JsonObject = {
             "abstract": abstract,
             "outline": outline,
             "research_idea": research_idea,

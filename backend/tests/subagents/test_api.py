@@ -84,6 +84,22 @@ class TestSpawnEndpoint:
         assert task.metadata["user_id"] == "user-123"
         app.dependency_overrides = {}
 
+    def test_spawn_rejects_missing_thread(self, client, mock_manager, app):
+        """Spawn should fail fast when the user does not own the thread."""
+        chat_thread_service = MagicMock()
+        chat_thread_service.get_thread = AsyncMock(return_value=None)
+        app.dependency_overrides[get_manager] = lambda: mock_manager
+        app.dependency_overrides[subagents.get_chat_thread_service] = lambda: chat_thread_service
+
+        response = client.post(
+            "/subagents/threads/thread-404/spawn",
+            json={"prompt": "Test prompt"},
+        )
+
+        assert response.status_code == 404
+        mock_manager.spawn.assert_not_awaited()
+        app.dependency_overrides = {}
+
     def test_spawn_requires_auth(self, app, mock_manager):
         """Anonymous callers should not reach the subagent API."""
         app.dependency_overrides.pop(get_current_user, None)

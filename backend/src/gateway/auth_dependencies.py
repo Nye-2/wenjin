@@ -5,7 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
-from src.gateway.deps import get_db
+from src.gateway.deps.core import get_db
 from src.services.auth import verify_access_token
 from src.services.user_service import UserService
 

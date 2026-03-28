@@ -1,19 +1,39 @@
-"""Task delegation tool using SubagentExecutor."""
+"""Task delegation tool backed by the global subagent manager."""
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from src.subagents.academic.registry import get_all_subagent_types, get_subagent_config
-from src.subagents.executor import SubagentExecutor, SubagentStatus
+from src.subagents.manager import SubagentAccessError
+from src.subagents.models import SubagentStatus
+from src.subagents.runtime import get_manager
+from src.subagents.task_builder import (
+    SubagentRuntimeContext,
+    build_subagent_metadata,
+    build_subagent_task,
+)
 
 
 class TaskInput(BaseModel):
     """Input for task tool."""
+
     description: str = Field(description="Brief description of the task")
     prompt: str = Field(description="Detailed instructions for the subagent")
     subagent_type: str = Field(description="Type of subagent to use (scout, writer, synthesizer, analyst)")
     max_turns: int | None = Field(default=None, description="Maximum turns for the subagent")
+
+
+def _format_subagent_result(name: str, status: SubagentStatus, body: str | None) -> str:
+    """Format tool-facing output from a manager-backed subagent run."""
+    content = body or "Unknown error"
+    if status == SubagentStatus.COMPLETED:
+        return f"[{name} completed]\n{content}"
+    if status == SubagentStatus.TIMED_OUT:
+        return f"[{name} timed out]\n{content}"
+    if status == SubagentStatus.CANCELLED:
+        return f"[{name} failed]\nCancelled"
+    return f"[{name} failed]\n{content}"
 
 
 @tool("task", args_schema=TaskInput)
@@ -49,27 +69,49 @@ async def task_tool(
         available = get_all_subagent_types()
         return f"Error: Unknown subagent type '{subagent_type}'. Available: {available}"
 
-    if max_turns is not None:
-        subagent_config = subagent_config.copy_with(max_turns=max_turns)
-
-    from src.agents.lead_agent.agent import get_available_tools
-    tools = get_available_tools(include_execution=True, subagent_enabled=False)
     runtime_config = config or {}
-    configurable = runtime_config.get("configurable", {})
-
-    executor = SubagentExecutor(
-        config=subagent_config,
-        tools=tools,
-        parent_model=configurable.get("model_name"),
-        thread_id=configurable.get("thread_id"),
-        workspace_id=configurable.get("workspace_id"),
-        user_id=configurable.get("user_id"),
+    runtime_context = SubagentRuntimeContext.from_mapping(
+        runtime_config.get("configurable", {})
     )
-    result = await executor.aexecute(prompt)
+    manager = get_manager()
+
+    task = build_subagent_task(
+        manager._config,
+        prompt=prompt,
+        thread_id=runtime_context.resolve_thread_id(fallback_prefix="subagent-tool"),
+        fallback_max_turns=subagent_config.max_turns,
+        requested_max_turns=max_turns,
+        tools=subagent_config.tools,
+        metadata=build_subagent_metadata(
+            description=description,
+            subagent_type=subagent_type,
+            system_prompt=subagent_config.system_prompt,
+            runtime_context=runtime_context,
+            include_workspace=runtime_context.thread_id is not None,
+            include_user=runtime_context.thread_id is not None,
+        ),
+    )
+    try:
+        await manager.spawn(task)
+    except SubagentAccessError:
+        return _format_subagent_result(
+            subagent_config.name,
+            SubagentStatus.FAILED,
+            "Thread not found",
+        )
+
+    result = await manager.wait_for_completion(
+        task.thread_id,
+        task.task_id,
+        user_id=task.metadata.get("user_id"),
+    )
+    if result is None:
+        return _format_subagent_result(
+            subagent_config.name,
+            SubagentStatus.FAILED,
+            "Subagent task could not be loaded",
+        )
 
     if result.status == SubagentStatus.COMPLETED:
-        return f"[{subagent_config.name} completed]\n{result.result}"
-    elif result.status == SubagentStatus.TIMED_OUT:
-        return f"[{subagent_config.name} timed out]\n{result.error or 'Exceeded time limit'}"
-    else:
-        return f"[{subagent_config.name} failed]\n{result.error or 'Unknown error'}"
+        return _format_subagent_result(subagent_config.name, result.status, result.output)
+    return _format_subagent_result(subagent_config.name, result.status, result.error)

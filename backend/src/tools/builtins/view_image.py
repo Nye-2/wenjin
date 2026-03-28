@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import mimetypes
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -49,9 +49,10 @@ def _resolve_thread_virtual_path(
         raise ValueError(f"Image path must stay under {_VIRTUAL_USER_DATA_ROOT}: {virtual_path}")
 
     thread_data = state.get("thread_data") or {}
+    workspace_path = thread_data.get("workspace_path")
     base_root = (
-        Path(thread_data["workspace_path"]).parent
-        if thread_data.get("workspace_path")
+        Path(workspace_path).parent
+        if isinstance(workspace_path, str) and workspace_path.strip()
         else get_thread_data_root(thread_id)
     )
     thread_root = base_root.resolve()
@@ -68,7 +69,7 @@ async def view_image_tool(
     state: Annotated[ThreadState, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig,
-) -> Command:
+) -> Command[Any]:
     """Load one image file into thread state so a vision-capable model can inspect it."""
     configurable = config.get("configurable", {})
     thread_id = str(configurable.get("thread_id") or "").strip() or None

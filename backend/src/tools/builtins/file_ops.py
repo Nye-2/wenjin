@@ -10,6 +10,7 @@ from langgraph.prebuilt import InjectedState
 from pydantic import BaseModel, Field
 
 from src.agents.thread_state import ThreadState
+from src.sandbox import Sandbox
 from src.sandbox.runtime import resolve_runtime_sandbox
 
 VIRTUAL_USER_DATA_PREFIX = "/mnt/user-data"
@@ -77,7 +78,7 @@ def _to_virtual_path(raw_path: str, *, default_dir: str = VIRTUAL_WORKSPACE_PREF
 async def _get_sandbox(
     state: ThreadState | None,
     config: RunnableConfig | None,
-):
+) -> Sandbox:
     return await resolve_runtime_sandbox(state, config)
 
 

@@ -1,6 +1,9 @@
 """Workspaces router for workspace management API endpoints."""
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from src.academic.services.paper_service import PaperService
 from src.academic.services.workspace_service import WorkspaceService
@@ -47,7 +50,7 @@ async def create_workspace(
     request: CreateWorkspaceRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> WorkspaceResponse:
     """Create a new workspace.
 
     Args:
@@ -82,7 +85,7 @@ async def create_workspace(
 async def list_workspaces(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> WorkspacesListResponse:
     """List workspaces for current user.
 
     Args:
@@ -93,7 +96,9 @@ async def list_workspaces(
         List of workspaces for the user
     """
     workspaces = await workspace_service.list_by_user(str(current_user.id))
-    return {"workspaces": [workspace_to_response(w) for w in workspaces]}
+    return WorkspacesListResponse(
+        workspaces=[workspace_to_response(w) for w in workspaces]
+    )
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
@@ -101,7 +106,7 @@ async def get_workspace(
     workspace_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> WorkspaceResponse:
     """Get workspace by ID.
 
     Args:
@@ -128,7 +133,7 @@ async def update_workspace(
     request: UpdateWorkspaceRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> WorkspaceResponse:
     """Update workspace.
 
     Args:
@@ -163,7 +168,7 @@ async def delete_workspace(
     workspace_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> dict[str, bool]:
     """Delete workspace.
 
     Args:
@@ -198,7 +203,7 @@ async def list_workspace_papers(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     paper_service: PaperService = Depends(get_paper_service),
-):
+) -> PapersListResponse:
     """List papers in workspace.
 
     Args:
@@ -233,7 +238,7 @@ async def add_paper_to_workspace(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     paper_service: PaperService = Depends(get_paper_service),
-):
+) -> dict[str, bool | str]:
     """Add paper to workspace.
 
     Args:
@@ -268,7 +273,7 @@ async def remove_paper_from_workspace(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     paper_service: PaperService = Depends(get_paper_service),
-):
+) -> dict[str, bool]:
     """Remove paper from workspace.
 
     Args:
@@ -303,7 +308,7 @@ async def get_workspace_dashboard(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dashboard_service: DashboardService = Depends(get_dashboard_service),
-):
+) -> dict[str, Any]:
     """Get workspace dashboard overview.
 
     Args:
@@ -338,7 +343,7 @@ async def get_workspace_summary(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     summary_service: WorkspaceSummaryService = Depends(get_workspace_summary_service),
-):
+) -> WorkspaceSummaryResponse:
     """Get workspace cockpit summary with phase, recommendation, and risk data."""
     workspace = await get_owned_workspace(
         workspace_id=workspace_id,
@@ -364,7 +369,7 @@ async def get_workspace_activity(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     activity_service: WorkspaceActivityService = Depends(get_workspace_activity_service),
-):
+) -> WorkspaceActivityResponse:
     """Get a unified recent activity timeline for the workspace."""
     await get_owned_workspace(
         workspace_id=workspace_id,
@@ -388,7 +393,7 @@ async def subscribe_workspace_events(
     workspace_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> StreamingResponse:
     """Subscribe to workspace-scoped live events via SSE."""
     await get_owned_workspace(
         workspace_id=workspace_id,

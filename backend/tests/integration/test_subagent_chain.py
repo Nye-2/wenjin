@@ -5,10 +5,15 @@ in sequence) will be added in Phase 3 as part of the Deep Research Skill rewrite
 The current tests validate individual subagent components that will form chains.
 """
 
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
-from src.subagents.executor import SubagentExecutor, SubagentStatus
-from src.subagents.academic.registry import SubagentConfig, registry
+from src.subagents.academic.registry import registry
+from src.subagents.config import SubagentConfig
+from src.subagents.manager import GlobalSubagentManager
+from src.subagents.models import SubagentStatus, SubagentTask
 
 
 class TestSubagentChainIntegration:
@@ -19,29 +24,30 @@ class TestSubagentChainIntegration:
         assert registry.get("synthesizer") is not None
 
     @pytest.mark.asyncio
-    async def test_executor_completes_without_legacy_event_stream(self):
-        """Executor should focus on execution while manager owns event publication."""
-        from unittest.mock import MagicMock, patch
-
-        config = SubagentConfig(
-            name="Test",
-            description="Test",
-            system_prompt="Reply with OK",
+    async def test_manager_completes_subagent_with_canonical_runtime(self):
+        """Manager-backed execution should replace the retired executor path."""
+        manager = GlobalSubagentManager(
+            SubagentConfig(llm=MagicMock(), default_tools=[])
         )
-        executor = SubagentExecutor(config=config, tools=[])
+        task = SubagentTask(
+            task_id="task-1",
+            thread_id="thread-1",
+            prompt="test task",
+            created_at=datetime.now(),
+            timeout=60,
+        )
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(
+            return_value={"messages": [MagicMock(content="OK")]}
+        )
 
-        with patch.object(executor, "_create_agent") as mock_create:
-            mock_agent = MagicMock()
-            async def _astream(*args, **kwargs):
-                yield {"messages": [MagicMock(content="OK")]}
+        with patch.object(manager._graph_registry, "get", return_value=mock_graph):
+            await manager.spawn(task)
+            result = await manager.wait_for_completion("thread-1", "task-1")
 
-            mock_agent.astream = _astream
-            mock_create.return_value = mock_agent
-
-            result = await executor.aexecute("test task")
-
-            assert result.status == SubagentStatus.COMPLETED
-            assert result.result == "OK"
+        assert result is not None
+        assert result.status == SubagentStatus.COMPLETED
+        assert result.output == "OK"
 
     def test_subagent_config_model_instantiation(self):
         """Subagent config models should instantiate with expected values."""

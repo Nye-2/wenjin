@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
@@ -95,7 +96,7 @@ async def _require_owned_thread(
     thread_id: str,
     user_id: str,
     chat_thread_service: ChatThreadService,
-):
+) -> Any:
     thread = await chat_thread_service.get_thread(thread_id, user_id)
     if thread is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
@@ -106,8 +107,8 @@ async def _require_owned_workspace(
     *,
     workspace_id: str,
     user_id: str,
-    workspace_service,
-):
+    workspace_service: Any,
+) -> Any:
     workspace = await workspace_service.get(workspace_id)
     if workspace is None or str(workspace.user_id) != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
@@ -122,10 +123,10 @@ async def upload_thread_files(
     workspace_id: str | None = Form(default=None),
     current_user: User = Depends(get_current_user),
     chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
-    workspace_service=Depends(get_workspace_service),
-    paper_service=Depends(get_paper_service),
-    artifact_service=Depends(get_artifact_service),
-    task_service=Depends(get_task_service),
+    workspace_service: Any = Depends(get_workspace_service),
+    paper_service: Any = Depends(get_paper_service),
+    artifact_service: Any = Depends(get_artifact_service),
+    task_service: Any = Depends(get_task_service),
     db: AsyncSession = Depends(get_db),
 ) -> ThreadUploadResponse:
     """Upload one or more files into a thread-scoped sandbox uploads directory."""
@@ -212,9 +213,11 @@ async def upload_thread_files(
                 str(document_preview.get("title") or "").strip()
                 or persistent_path.stem
             )
+            authors_value = document_preview.get("authors")
+            author_names = authors_value if isinstance(authors_value, list) else []
             paper_authors = [
                 {"name": name}
-                for name in document_preview.get("authors", [])
+                for name in author_names
                 if isinstance(name, str) and name.strip()
             ]
             paper = await paper_service.create_in_workspace(

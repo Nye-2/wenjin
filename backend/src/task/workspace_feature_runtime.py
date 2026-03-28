@@ -11,6 +11,28 @@ from src.task.runtime_blocks import (
 )
 
 
+def _list_length(value: object) -> int:
+    """Return the length of a list-like payload when available."""
+    return len(value) if isinstance(value, list) else 0
+
+
+def _as_dict(value: object) -> dict[str, Any]:
+    """Normalize mixed result payloads to a string-keyed mapping."""
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items()}
+
+
+def _build_milestone_item(value: dict[str, Any] | str) -> dict[str, str]:
+    """Normalize milestone payloads that may be structured objects or plain labels."""
+    if isinstance(value, dict):
+        return {
+            "title": str(value.get("name") or "里程碑"),
+            "description": str(value.get("description") or ""),
+        }
+    return {"title": str(value), "description": ""}
+
+
 def build_feature_runtime(
     feature_id: str,
     payload: dict[str, Any],
@@ -121,11 +143,7 @@ def build_feature_runtime(
                 },
                 {
                     "label": "上下文 Artifact",
-                    "value": str(
-                        len(params.get("context_artifact_ids"))
-                        if isinstance(params.get("context_artifact_ids"), list)
-                        else 0
-                    ),
+                    "value": str(_list_length(params.get("context_artifact_ids"))),
                 },
             ],
         )
@@ -152,11 +170,7 @@ def build_feature_runtime(
                 },
                 {
                     "label": "上下文 Artifact",
-                    "value": str(
-                        len(params.get("context_artifact_ids"))
-                        if isinstance(params.get("context_artifact_ids"), list)
-                        else 0
-                    ),
+                    "value": str(_list_length(params.get("context_artifact_ids"))),
                 },
             ],
         )
@@ -444,16 +458,12 @@ def enrich_runtime_with_result(
     ]
 
     if feature_id == "deep_research":
-        corpus = result.get("corpus") if isinstance(result.get("corpus"), dict) else {}
-        discovery = result.get("discovery") if isinstance(result.get("discovery"), dict) else {}
+        corpus = _as_dict(result.get("corpus"))
+        discovery = _as_dict(result.get("discovery"))
         ideas = result.get("ideas")
         gaps = result.get("gaps")
         recommended_actions = result.get("recommended_actions")
-        cross_validation = (
-            result.get("cross_validation")
-            if isinstance(result.get("cross_validation"), dict)
-            else {}
-        )
+        cross_validation = _as_dict(result.get("cross_validation"))
         result_metrics.insert(1, {"label": "文献数", "value": str(corpus.get("paper_count") or 0)})
         result_metrics.insert(
             2,
@@ -550,27 +560,15 @@ def enrich_runtime_with_result(
                     "entries": [
                         {
                             "label": "经典文献",
-                            "value": str(
-                                len(discovery.get("seminal_works"))
-                                if isinstance(discovery.get("seminal_works"), list)
-                                else 0
-                            ),
+                            "value": str(_list_length(discovery.get("seminal_works"))),
                         },
                         {
                             "label": "近期文献",
-                            "value": str(
-                                len(discovery.get("recent_works"))
-                                if isinstance(discovery.get("recent_works"), list)
-                                else 0
-                            ),
+                            "value": str(_list_length(discovery.get("recent_works"))),
                         },
                         {
                             "label": "趋势",
-                            "value": str(
-                                len(discovery.get("trends"))
-                                if isinstance(discovery.get("trends"), list)
-                                else 0
-                            ),
+                            "value": str(_list_length(discovery.get("trends"))),
                         },
                     ],
                 },
@@ -757,10 +755,7 @@ def enrich_runtime_with_result(
                 "kind": "list",
                 "title": "里程碑",
                 "items": [
-                    {
-                        "title": str(item.get("name") or item),
-                        "description": str(item.get("description") or ""),
-                    }
+                    _build_milestone_item(item)
                     for item in (result.get("milestones") or [])[:5]
                     if isinstance(item, dict) or isinstance(item, str)
                 ],
@@ -975,7 +970,7 @@ def enrich_runtime_with_result(
                 },
             )
     elif feature_id == "literature_management":
-        summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+        summary = _as_dict(result.get("summary"))
         top_cited = result.get("top_cited")
         recommendations = result.get("recommended_actions") or result.get("smart_recommendations")
         upsert_runtime_block(
@@ -1086,7 +1081,7 @@ def enrich_runtime_with_result(
                     },
                 )
         elif action == "write_chapter":
-            chapter = result.get("chapter") if isinstance(result.get("chapter"), dict) else {}
+            chapter = _as_dict(result.get("chapter"))
             content_text = str(chapter.get("markdown") or chapter.get("content") or "")
             upsert_runtime_block(
                 runtime,

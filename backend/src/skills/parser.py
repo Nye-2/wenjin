@@ -3,8 +3,21 @@
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
+
+
+def _coerce_text(value: object, default: str = "") -> str:
+    """Normalize YAML scalar values to strings for ParsedSkill fields."""
+    return value if isinstance(value, str) else default
+
+
+def _coerce_string_list(value: object) -> list[str]:
+    """Normalize YAML list values to a string-only list."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 @dataclass
@@ -17,7 +30,7 @@ class ParsedSkill:
     prompt: str = ""
     source_path: str | None = None
 
-    def get_subagent_calls(self) -> list[dict]:
+    def get_subagent_calls(self) -> list[dict[str, str]]:
         """Extract subagent call patterns from the prompt.
 
         Returns:
@@ -46,10 +59,10 @@ class SkillParser:
         frontmatter, prompt = self._extract_frontmatter(content)
 
         if frontmatter:
-            skill.name = frontmatter.get("name", "unknown")
-            skill.description = frontmatter.get("description", "")
-            skill.license = frontmatter.get("license", "MIT")
-            skill.allowed_tools = frontmatter.get("allowed-tools", [])
+            skill.name = _coerce_text(frontmatter.get("name"), "unknown")
+            skill.description = _coerce_text(frontmatter.get("description"))
+            skill.license = _coerce_text(frontmatter.get("license"), "MIT")
+            skill.allowed_tools = _coerce_string_list(frontmatter.get("allowed-tools"))
 
         skill.prompt = prompt
         return skill
@@ -68,7 +81,7 @@ class SkillParser:
         skill.source_path = str(path)
         return skill
 
-    def _extract_frontmatter(self, content: str) -> tuple[dict, str]:
+    def _extract_frontmatter(self, content: str) -> tuple[dict[str, Any], str]:
         """Extract YAML frontmatter from content.
 
         Returns:
@@ -86,7 +99,12 @@ class SkillParser:
         remaining = content[end_match.end() + 3:]
 
         try:
-            frontmatter = yaml.safe_load(frontmatter_str) or {}
+            loaded = yaml.safe_load(frontmatter_str)
+            frontmatter = (
+                {str(key): value for key, value in loaded.items()}
+                if isinstance(loaded, dict)
+                else {}
+            )
         except yaml.YAMLError:
             frontmatter = {}
 

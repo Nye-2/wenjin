@@ -1,5 +1,7 @@
 """Chicago 17th Edition citation formatter."""
 
+from typing import Any
+
 from .base import CitationFormatter
 
 
@@ -10,7 +12,7 @@ class ChicagoFormatter(CitationFormatter):
     def style_name(self) -> str:
         return "Chicago"
 
-    def format_authors(self, authors: list[dict]) -> str:
+    def format_authors(self, authors: list[dict[str, Any]]) -> str:
         """Chicago author format: Smith, John, and Jane Doe.
 
         Same as MLA:
@@ -43,7 +45,7 @@ class ChicagoFormatter(CitationFormatter):
         else:
             return ", ".join(formatted[:-1]) + ", and " + formatted[-1]
 
-    def format_citation(self, paper: dict, in_text: bool = False) -> str:
+    def format_citation(self, paper: dict[str, Any], in_text: bool = False) -> str:
         """Format Chicago citation.
 
         In-text: (Smith 2024) - Author-Date style
@@ -60,7 +62,7 @@ class ChicagoFormatter(CitationFormatter):
 
         return self.format_bibliography_entry(paper)
 
-    def format_bibliography_entry(self, paper: dict) -> str:
+    def format_bibliography_entry(self, paper: dict[str, Any]) -> str:
         """Format Chicago bibliography entry."""
         parts = []
 
@@ -94,7 +96,7 @@ class ChicagoFormatter(CitationFormatter):
         result += "."
         return result
 
-    def _get_first_author_lastname(self, authors: list[dict]) -> str:
+    def _get_first_author_lastname(self, authors: list[dict[str, Any]]) -> str:
         """Get last name of first author."""
         if not authors:
             return "Unknown"

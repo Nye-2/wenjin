@@ -2,27 +2,12 @@
 
 from __future__ import annotations
 
-import io
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from starlette.datastructures import Headers, UploadFile
 
-from src.application.handlers.papers_handler import PapersHandler
-
-
-def _make_upload_file(
-    filename: str,
-    content: bytes,
-    content_type: str | None,
-) -> UploadFile:
-    headers = Headers({"content-type": content_type}) if content_type else Headers()
-    return UploadFile(
-        filename=filename,
-        file=io.BytesIO(content),
-        headers=headers,
-    )
+from src.application.handlers.papers_handler import PapersHandler, UploadedPaperPayload
 
 
 @pytest.fixture
@@ -52,7 +37,11 @@ def handler():
 @pytest.mark.asyncio
 async def test_upload_paper_persists_pdf_and_records_file_path(tmp_path, handler):
     papers_handler, paper_service, task_service = handler
-    upload = _make_upload_file("paper.pdf", b"%PDF-1.4 body", "application/pdf")
+    upload = UploadedPaperPayload(
+        filename="paper.pdf",
+        content=b"%PDF-1.4 body",
+        content_type="application/pdf",
+    )
 
     with patch(
         "src.application.handlers.papers_handler._PERSISTED_UPLOAD_ROOT",
@@ -69,7 +58,7 @@ async def test_upload_paper_persists_pdf_and_records_file_path(tmp_path, handler
         response = await papers_handler.upload_paper(
             workspace_id="ws-1",
             user_id="user-1",
-            file=upload,
+            upload=upload,
         )
 
     stored_path = tmp_path / "workspace_uploads" / "ws-1" / "papers" / "paper.pdf"
@@ -105,7 +94,11 @@ async def test_upload_paper_persists_pdf_and_records_file_path(tmp_path, handler
 @pytest.mark.asyncio
 async def test_upload_paper_accepts_pdf_by_extension_without_content_type(tmp_path, handler):
     papers_handler, paper_service, _task_service = handler
-    upload = _make_upload_file("extension-only.pdf", b"%PDF-1.4 body", None)
+    upload = UploadedPaperPayload(
+        filename="extension-only.pdf",
+        content=b"%PDF-1.4 body",
+        content_type=None,
+    )
 
     with patch(
         "src.application.handlers.papers_handler._PERSISTED_UPLOAD_ROOT",
@@ -122,7 +115,7 @@ async def test_upload_paper_accepts_pdf_by_extension_without_content_type(tmp_pa
         response = await papers_handler.upload_paper(
             workspace_id="ws-1",
             user_id="user-1",
-            file=upload,
+            upload=upload,
         )
 
     kwargs = paper_service.create_in_workspace.await_args.kwargs
@@ -137,7 +130,11 @@ async def test_upload_paper_renames_duplicates_before_persisting(tmp_path, handl
     target_dir = tmp_path / "workspace_uploads" / "ws-1" / "papers"
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / "paper.pdf").write_bytes(b"old")
-    upload = _make_upload_file("paper.pdf", b"%PDF-1.4 new body", "application/pdf")
+    upload = UploadedPaperPayload(
+        filename="paper.pdf",
+        content=b"%PDF-1.4 new body",
+        content_type="application/pdf",
+    )
 
     with patch(
         "src.application.handlers.papers_handler._PERSISTED_UPLOAD_ROOT",
@@ -154,7 +151,7 @@ async def test_upload_paper_renames_duplicates_before_persisting(tmp_path, handl
         response = await papers_handler.upload_paper(
             workspace_id="ws-1",
             user_id="user-1",
-            file=upload,
+            upload=upload,
         )
 
     stored_path = target_dir / "paper-2.pdf"
@@ -169,7 +166,11 @@ async def test_upload_paper_renames_duplicates_before_persisting(tmp_path, handl
 async def test_upload_paper_keeps_success_when_extraction_scheduling_fails(tmp_path, handler):
     papers_handler, _paper_service, task_service = handler
     task_service.submit_task = AsyncMock(side_effect=RuntimeError("queue offline"))
-    upload = _make_upload_file("paper.pdf", b"%PDF-1.4 body", "application/pdf")
+    upload = UploadedPaperPayload(
+        filename="paper.pdf",
+        content=b"%PDF-1.4 body",
+        content_type="application/pdf",
+    )
 
     with patch(
         "src.application.handlers.papers_handler._PERSISTED_UPLOAD_ROOT",
@@ -186,7 +187,7 @@ async def test_upload_paper_keeps_success_when_extraction_scheduling_fails(tmp_p
         response = await papers_handler.upload_paper(
             workspace_id="ws-1",
             user_id="user-1",
-            file=upload,
+            upload=upload,
         )
 
     assert response["success"] is True
