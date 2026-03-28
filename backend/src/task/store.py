@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from sqlalchemy import func as sa_func
 from sqlalchemy import select, text
@@ -24,13 +25,13 @@ logger = logging.getLogger(__name__)
 class TaskStore:
     """Manages task state in Redis and PostgreSQL."""
 
-    def __init__(self, redis_client, db_session: AsyncSession):
+    def __init__(self, redis_client: Any, db_session: AsyncSession) -> None:
         self._redis = redis_client
         self._db = db_session
 
-    def _record_model(self):
+    def _record_model(self) -> type[TaskRecord]:
         """Return the SQLAlchemy model used for task persistence."""
-        return getattr(self, "_model", getattr(self, "_test_model", TaskRecord))
+        return cast(type[TaskRecord], getattr(self, "_model", getattr(self, "_test_model", TaskRecord)))
 
     @staticmethod
     def _advisory_lock_key(user_id: str) -> int:
@@ -52,7 +53,7 @@ class TaskStore:
         message: str | None = None,
         current_step: str | None = None,
         worker_id: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Set task state in Redis."""
         key = self._task_key(task_id)
@@ -69,7 +70,7 @@ class TaskStore:
         await self._redis.client.hset(key, mapping=data)
         await self._redis.client.expire(key, task_settings.task_redis_ttl)
 
-    async def get_task_state(self, task_id: str) -> dict | None:
+    async def get_task_state(self, task_id: str) -> dict[str, Any] | None:
         """Get task state from Redis."""
         key = self._task_key(task_id)
         data = await self._redis.client.hgetall(key)
@@ -105,10 +106,12 @@ class TaskStore:
         user_id: str,
         task_type: str,
         priority: int,
-        payload: dict,
+        payload: dict[str, Any],
     ) -> TaskRecord:
         """Create a new task record in PostgreSQL."""
         record_model = self._record_model()
+        _payload = payload or {}
+        _params = _payload.get("params", {}) if isinstance(_payload, dict) else {}
         record = record_model(
             id=task_id,
             user_id=user_id,
@@ -116,6 +119,10 @@ class TaskStore:
             status="pending",
             priority=priority,
             payload=payload,
+            workspace_id=_payload.get("workspace_id") or _params.get("workspace_id"),
+            feature_id=_payload.get("feature_id"),
+            thread_id=_payload.get("thread_id"),
+            action=_payload.get("action") or _params.get("action"),
         )
         self._db.add(record)
         await self._db.commit()
@@ -129,7 +136,7 @@ class TaskStore:
         user_id: str,
         task_type: str,
         priority: int,
-        payload: dict,
+        payload: dict[str, Any],
         concurrency_limit: int,
     ) -> tuple[TaskRecord | None, int]:
         """Atomically enforce per-user active-task limit and create the task record."""
@@ -160,6 +167,8 @@ class TaskStore:
             if active_count >= concurrency_limit:
                 return None, active_count
 
+            _payload = payload or {}
+            _params = _payload.get("params", {}) if isinstance(_payload, dict) else {}
             record = record_model(
                 id=task_id,
                 user_id=user_id,
@@ -167,6 +176,10 @@ class TaskStore:
                 status=TaskStatus.PENDING.value,
                 priority=priority,
                 payload=payload,
+                workspace_id=_payload.get("workspace_id") or _params.get("workspace_id"),
+                feature_id=_payload.get("feature_id"),
+                thread_id=_payload.get("thread_id"),
+                action=_payload.get("action") or _params.get("action"),
             )
             self._db.add(record)
             await self._db.flush()
@@ -185,7 +198,7 @@ class TaskStore:
     async def update_task_record(
         self,
         task_id: str,
-        **updates,
+        **updates: Any,
     ) -> TaskRecord | None:
         """Update task record in PostgreSQL."""
         record = await self.get_task_record(task_id)
@@ -206,6 +219,8 @@ class TaskStore:
         status: str | None = None,
         task_type: str | None = None,
         limit: int = 20,
+        workspace_id: str | None = None,
+        feature_id: str | None = None,
     ) -> list[TaskRecord]:
         """List tasks for a user."""
         record_model = self._record_model()
@@ -215,6 +230,10 @@ class TaskStore:
             query = query.where(record_model.status == status)
         if task_type:
             query = query.where(record_model.task_type == task_type)
+        if workspace_id is not None:
+            query = query.where(record_model.workspace_id == workspace_id)
+        if feature_id is not None:
+            query = query.where(record_model.feature_id == feature_id)
 
         query = query.order_by(record_model.created_at.desc()).limit(limit)
         result = await self._db.execute(query)
@@ -279,9 +298,9 @@ class TaskStore:
                 },
             )
 
-    async def persist_runtime_state(self, task_id: str, metadata: dict | None) -> None:
+    async def persist_runtime_state(self, task_id: str, metadata: dict[str, Any] | None) -> None:
         """Persist task runtime metadata to PostgreSQL for refresh/reconnect recovery."""
-        runtime_state = None
+        runtime_state: dict[str, Any] | None = None
         if isinstance(metadata, dict):
             runtime_candidate = metadata.get("runtime")
             if isinstance(runtime_candidate, dict):
@@ -292,7 +311,7 @@ class TaskStore:
         self,
         task_id: str,
         success: bool,
-        result: dict | None = None,
+        result: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> None:
         """Mark task as completed (success or failed)."""

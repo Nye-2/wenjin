@@ -69,7 +69,7 @@ class WorkspaceActivityService:
     ) -> list[dict[str, Any]]:
         result = await self.db.execute(
             select(TaskRecord)
-            .where(TaskRecord.payload["workspace_id"].as_string() == workspace_id)
+            .where(TaskRecord.workspace_id == workspace_id)
             .order_by(
                 func.coalesce(
                     TaskRecord.completed_at,

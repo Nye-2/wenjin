@@ -58,9 +58,9 @@ class DashboardStatusSharedMixin:
     ) -> int:
         result = await self.db.execute(
             select(func.count())
-            .where(TaskRecord.payload["workspace_id"].as_string() == workspace_id)
+            .where(TaskRecord.workspace_id == workspace_id)
             .where(TaskRecord.task_type == WORKSPACE_FEATURE_TASK)
-            .where(TaskRecord.payload["feature_id"].as_string() == feature_id)
+            .where(TaskRecord.feature_id == feature_id)
             .where(TaskRecord.status.in_(["pending", "running"]))
         )
         return int(result.scalar() or 0)
@@ -72,9 +72,9 @@ class DashboardStatusSharedMixin:
     ) -> str | None:
         result = await self.db.execute(
             select(TaskRecord.status)
-            .where(TaskRecord.payload["workspace_id"].as_string() == workspace_id)
+            .where(TaskRecord.workspace_id == workspace_id)
             .where(TaskRecord.task_type == WORKSPACE_FEATURE_TASK)
-            .where(TaskRecord.payload["feature_id"].as_string() == feature_id)
+            .where(TaskRecord.feature_id == feature_id)
             .order_by(TaskRecord.created_at.desc())
             .limit(1)
         )
