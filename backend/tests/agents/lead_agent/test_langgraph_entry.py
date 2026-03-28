@@ -1,7 +1,6 @@
 """Tests for lazy MCP bootstrap in langgraph entry."""
 
-import importlib
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 
 def test_module_import_does_not_call_activate_mcp():
