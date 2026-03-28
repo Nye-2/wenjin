@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -45,6 +47,7 @@ class MemoryMiddleware(Middleware):
         min_messages: int = 2,
         inject_enabled: bool = True,
         capture_enabled: bool = True,
+        cache_ttl: float = 300.0,
     ):
         """Initialize MemoryMiddleware.
 
@@ -55,12 +58,15 @@ class MemoryMiddleware(Middleware):
             min_messages: Minimum message count to trigger enqueue (default: 2)
             inject_enabled: Whether to inject long-term memory before model calls
             capture_enabled: Whether to capture turns back into long-term memory
+            cache_ttl: Seconds before a cached memory context expires (default: 300)
         """
         self._queue = queue or get_default_memory_queue()
         self._enabled = enabled
         self._min_messages = min_messages
         self._inject_enabled = inject_enabled
         self._capture_enabled = capture_enabled
+        self._cache_ttl = cache_ttl
+        self._memory_cache: dict[str, tuple[str, float]] = {}  # key → (context, cached_at)
 
     @property
     def queue(self) -> MemoryQueue:
@@ -71,6 +77,9 @@ class MemoryMiddleware(Middleware):
     def enabled(self) -> bool:
         """Check if memory persistence is enabled."""
         return self._enabled
+
+    def _cache_key(self, user_id: str, workspace_id: str | None) -> str:
+        return f"{user_id}:{workspace_id or ''}"
 
     async def before_model(
         self,
@@ -90,6 +99,12 @@ class MemoryMiddleware(Middleware):
             return {}
 
         workspace_id = state.get("workspace_id") or configurable.get("workspace_id")
+
+        cache_key = self._cache_key(str(user_id), str(workspace_id) if workspace_id else None)
+        cached_context, cached_at = self._memory_cache.get(cache_key, ("", 0.0))
+        if cached_context and time.monotonic() - cached_at < self._cache_ttl:
+            return {"memory_context": cached_context}
+
         max_context_turns = 3
         try:
             from src.config.config_loader import get_app_config
@@ -114,6 +129,7 @@ class MemoryMiddleware(Middleware):
         )
         if not memory_context:
             return {}
+        self._memory_cache[cache_key] = (memory_context, time.monotonic())
         return {"memory_context": memory_context}
 
     async def after_model(
@@ -164,6 +180,13 @@ class MemoryMiddleware(Middleware):
             source="chat.middleware",
             queue=self._queue,
         )
+
+        # Invalidate cache so the next request fetches fresh context
+        cache_key = self._cache_key(
+            str(user_id) if user_id else "",
+            str(workspace_id) if workspace_id else None,
+        )
+        self._memory_cache.pop(cache_key, None)
 
         logger.debug(
             f"Enqueued {len(filtered_messages)} messages for memory update "
