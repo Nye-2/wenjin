@@ -1,5 +1,5 @@
 /**
- * Workspace Store for AcademiaGPT
+ * Workspace Store for Guanlan (观澜)
  * Manages workspace list, details, artifacts, and papers state
  */
 

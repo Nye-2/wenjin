@@ -168,7 +168,7 @@ def apply_prompt_template(
         System prompt string
     """
     # Base system prompt
-    base_prompt = """You are AcademiaGPT, an expert academic research and writing assistant.
+    base_prompt = """You are Guanlan (观澜), an expert academic research and writing assistant.
 
 You help researchers with:
 - Literature research and analysis

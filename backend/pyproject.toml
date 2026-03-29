@@ -1,11 +1,11 @@
 [project]
-name = "academiagpt"
+name = "guanlan"
 version = "2.0.0"
-description = "Academic AI Assistant with Lead Agent + Middleware + Skills architecture"
+description = "观澜 Guanlan — Academic AI Assistant with Lead Agent + Middleware + Skills architecture"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "AcademiaGPT Team" }]
+authors = [{ name = "Guanlan Team" }]
 dependencies = [
     "langgraph>=0.2.60",
     "langchain>=0.3.0",

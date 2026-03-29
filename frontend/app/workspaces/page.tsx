@@ -152,7 +152,7 @@ export default function WorkspacesPage() {
 
             <motion.button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-6 py-3.5 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] font-medium hover:shadow-xl transition-shadow"
+              className="flex items-center gap-2 px-6 py-3.5 rounded-xl text-white bg-gradient-to-r from-[var(--guanlan-wave)] to-[var(--guanlan-crest)] font-medium hover:shadow-xl hover:shadow-[var(--guanlan-crest)]/15 transition-shadow"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
@@ -336,7 +336,7 @@ export default function WorkspacesPage() {
                     <motion.button
                       onClick={handleCreateWorkspace}
                       disabled={!newWorkspace.name.trim() || isWorkspaceMutating}
-                      className="flex-1 px-6 py-3.5 rounded-xl text-white bg-gradient-to-r from-[var(--accent-primary)] to-[#2563EB] hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all font-medium"
+                      className="flex-1 px-6 py-3.5 rounded-xl text-white bg-gradient-to-r from-[var(--guanlan-wave)] to-[var(--guanlan-crest)] hover:shadow-xl hover:shadow-[var(--guanlan-crest)]/15 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all font-medium"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >

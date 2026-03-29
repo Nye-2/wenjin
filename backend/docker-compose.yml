@@ -3,7 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: academiagpt-db
+    container_name: guanlan-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -20,7 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: academiagpt-redis
+    container_name: guanlan-redis
     ports:
       - "6379:6379"
     volumes:

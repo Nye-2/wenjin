@@ -86,7 +86,7 @@ class ExtensionsConfig(BaseModel):
                 )
             return explicit_path
 
-        env_var = "ACADEMIAGPT_EXTENSIONS_CONFIG_PATH"
+        env_var = "GUANLAN_EXTENSIONS_CONFIG_PATH"
         env_path = os.getenv(env_var)
         if env_path:
             candidate = Path(env_path).expanduser()

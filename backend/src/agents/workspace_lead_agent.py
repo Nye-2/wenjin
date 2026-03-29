@@ -216,7 +216,7 @@ def _build_system_prompt(
 ) -> str:
     """Build system prompt with memory injection."""
     parts = [
-        f"你是 AcademiaGPT {workspace_type.upper()} 工作区的智能助手。",
+        f"你是观澜 (Guanlan) {workspace_type.upper()} 工作区的智能助手。",
         f"当前工作区：{workspace_name}",
     ]
     if discipline:

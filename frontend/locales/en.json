@@ -19,8 +19,8 @@
     "logout": "Logout"
   },
   "home": {
-    "title": "AcademiaGPT",
-    "subtitle": "Your AI-powered academic research and writing assistant. From literature review to paper submission, we help you every step of the way.",
+    "title": "Guanlan",
+    "subtitle": "Your AI-powered academic research and writing assistant. Standing at the crest of intelligence, we guide you from literature review to paper submission.",
     "getStarted": "Get Started",
     "learnMore": "Learn More",
     "features": {
@@ -173,7 +173,7 @@
   },
   "auth": {
     "login": {
-      "title": "AcademiaGPT",
+      "title": "Guanlan",
       "subtitle": "Sign in to your account to continue",
       "email": "Email",
       "emailPlaceholder": "your@email.com",
@@ -186,7 +186,7 @@
     },
     "register": {
       "title": "Create Account",
-      "subtitle": "Sign up to get started with AcademiaGPT",
+      "subtitle": "Sign up to get started with Guanlan",
       "name": "Name",
       "namePlaceholder": "Enter your name",
       "verificationCode": "Verification Code",

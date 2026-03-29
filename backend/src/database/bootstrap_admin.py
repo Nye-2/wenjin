@@ -1,11 +1,11 @@
-"""Bootstrap admin user for AcademiaGPT.
+"""Bootstrap admin user for Guanlan (观澜).
 
 This module creates the default admin account on first deployment.
 It is designed to be idempotent - safe to run multiple times.
 
 Environment variables:
     DATABASE_URL: PostgreSQL connection string (required)
-    ADMIN_EMAIL: Admin email (default: admin@academiagpt.com)
+    ADMIN_EMAIL: Admin email (default: admin@guanlan.ai)
     ADMIN_PASSWORD: Admin password (default: admin123)
     ADMIN_NAME: Admin display name (default: Admin)
 """
@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 # Default admin credentials
-DEFAULT_ADMIN_EMAIL = "admin@academiagpt.com"
+DEFAULT_ADMIN_EMAIL = "admin@guanlan.ai"
 DEFAULT_ADMIN_PASSWORD = "admin123"
 DEFAULT_ADMIN_NAME = "Admin"
 

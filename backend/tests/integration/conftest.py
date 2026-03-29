@@ -337,7 +337,7 @@ async def test_app(test_engine, test_session):
         yield
 
     app = FastAPI(
-        title="Test AcademiaGPT API",
+        title="Test Guanlan API",
         version="2.0.0",
         lifespan=lifespan,
     )

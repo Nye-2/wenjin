@@ -1,5 +1,5 @@
 /**
- * Chat Store for AcademiaGPT
+ * Chat Store for Guanlan (观澜)
  * Manages chat messages and streaming state
  */
 

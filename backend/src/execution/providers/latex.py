@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# NOTE: Registry name intentionally preserved — update when guanlan/texlive image is published.
 DEFAULT_LATEX_DOCKER_IMAGE = "academiagpt/texlive:2024"
 
 
@@ -43,7 +44,7 @@ class LaTeXProvider(ExecutionProvider):
     @property
     def docker_image(self) -> str | None:
         """Docker image name."""
-        return os.getenv("ACADEMIAGPT_TEXLIVE_IMAGE", self._docker_image)
+        return os.getenv("GUANLAN_TEXLIVE_IMAGE", self._docker_image)
 
     def build_command(self, content: str, options: dict) -> list[str]:
         """Build Docker command for LaTeX compilation.

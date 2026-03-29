@@ -13,6 +13,7 @@ class PythonVizProvider(ExecutionProvider):
     """Python data visualization provider using matplotlib."""
 
     _execution_type = "python_plot"
+    # NOTE: Registry name intentionally preserved — update when guanlan/python-viz image is published.
     _docker_image = "academiagpt/python-viz:1.0"
 
     @property

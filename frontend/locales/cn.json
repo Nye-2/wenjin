@@ -19,8 +19,8 @@
     "logout": "退出登录"
   },
   "home": {
-    "title": "AcademiaGPT",
-    "subtitle": "您的AI学术研究与写作助手。从文献综述到论文投稿，我们全程为您提供支持。",
+    "title": "观澜",
+    "subtitle": "观水必观其澜。立潮头处，与智同行——AI驱动的学术研究与写作助手，全程为您提供支持。",
     "getStarted": "开始使用",
     "learnMore": "了解更多",
     "features": {
@@ -173,7 +173,7 @@
   },
   "auth": {
     "login": {
-      "title": "AcademiaGPT",
+      "title": "观澜",
       "subtitle": "登录您的账户以继续",
       "email": "邮箱",
       "emailPlaceholder": "your@email.com",
@@ -186,7 +186,7 @@
     },
     "register": {
       "title": "创建账户",
-      "subtitle": "注册以开始使用 AcademiaGPT",
+      "subtitle": "注册以开始使用观澜",
       "name": "姓名",
       "namePlaceholder": "输入您的姓名",
       "verificationCode": "验证码",

@@ -1,9 +1,9 @@
 # TeXLive Docker image for LaTeX compilation
-# Used by AcademiaGPT execution service for compiling academic papers
+# Used by Guanlan (观澜) execution service for compiling academic papers
 
 FROM ubuntu:22.04
 
-LABEL maintainer="AcademiaGPT Team"
+LABEL maintainer="Guanlan Team"
 LABEL description="TeXLive 2024 for academic paper compilation"
 LABEL version="2024"
 

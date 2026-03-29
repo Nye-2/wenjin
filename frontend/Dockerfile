@@ -1,4 +1,4 @@
-# AcademiaGPT v2 - Frontend Dockerfile
+# Guanlan (观澜) - Frontend Dockerfile
 # Next.js 16 with standalone output
 
 ARG NODE_IMAGE=node:20-alpine

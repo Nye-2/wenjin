@@ -6,7 +6,7 @@ from src.config.task_config import task_settings
 
 # Create Celery app
 celery_app = Celery(
-    "academiagpt",
+    "guanlan",
     broker=task_settings.celery_broker_url,
     backend=task_settings.celery_result_backend,
 )

@@ -1,6 +1,6 @@
-# AcademiaGPT v2 Frontend
+# 观澜 Guanlan Frontend
 
-Next.js frontend for AcademiaGPT v2 - an Academic AI Assistant.
+Next.js frontend for Guanlan (观澜) — Academic AI Assistant.
 
 ## Tech Stack
 

@@ -1,4 +1,4 @@
-"""Centralized error handling middleware for AcademiaGPT."""
+"""Centralized error handling middleware for Guanlan."""
 
 import logging
 
@@ -7,19 +7,19 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse
 
 from src.gateway.exceptions import (
-    AcademiaGPTException,
+    GuanlanException,
     map_exception_to_status,
 )
 
 logger = logging.getLogger(__name__)
 
 
-async def academia_exception_handler(request: Request, exc: AcademiaGPTException) -> JSONResponse:
-    """Handle all AcademiaGPT custom exceptions.
+async def guanlan_exception_handler(request: Request, exc: GuanlanException) -> JSONResponse:
+    """Handle all Guanlan custom exceptions.
 
     Args:
         request: The FastAPI request object.
-        exc: The AcademiaGPT exception that was raised.
+        exc: The Guanlan exception that was raised.
 
     Returns:
         JSONResponse with error details.
@@ -27,7 +27,7 @@ async def academia_exception_handler(request: Request, exc: AcademiaGPTException
     status_code = map_exception_to_status(exc)
 
     logger.warning(
-        "AcademiaGPT exception: %s - %s (path: %s)",
+        "Guanlan exception: %s - %s (path: %s)",
         exc.code,
         exc.message,
         request.url.path,
@@ -155,7 +155,7 @@ def register_error_handlers(app: FastAPI) -> None:
     Args:
         app: The FastAPI application instance.
     """
-    app.add_exception_handler(AcademiaGPTException, academia_exception_handler)
+    app.add_exception_handler(GuanlanException, guanlan_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)
     app.add_exception_handler(Exception, generic_exception_handler)

@@ -31,11 +31,11 @@ const typeLabels = {
 };
 
 const typeColors = {
-  sci: { bg: "bg-[#1E3A8A]", text: "text-white" },
-  thesis: { bg: "bg-[#7C3AED]", text: "text-white" },
-  proposal: { bg: "bg-[#059669]", text: "text-white" },
-  software_copyright: { bg: "bg-[#8B5CF6]", text: "text-white" },
-  patent: { bg: "bg-[#EC4899]", text: "text-white" },
+  sci: { bg: "bg-[var(--guanlan-wave)]", text: "text-white" },
+  thesis: { bg: "bg-[var(--guanlan-deep)]", text: "text-white" },
+  proposal: { bg: "bg-[var(--guanlan-gold)]", text: "text-white" },
+  software_copyright: { bg: "bg-[var(--guanlan-crest)]", text: "text-white" },
+  patent: { bg: "bg-[var(--guanlan-foam)]", text: "text-[var(--guanlan-ink)]" },
 };
 
 const typeBadgeColors = {

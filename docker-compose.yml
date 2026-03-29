@@ -1,4 +1,4 @@
-# AcademiaGPT v2 - Docker Compose Configuration
+# 观澜 Guanlan - Docker Compose Configuration
 # Production deployment on port 2026
 
 x-backend-gateway-build: &backend_gateway_build
@@ -28,7 +28,7 @@ services:
   # PostgreSQL 16 with pgvector extension
   postgres:
     image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
-    container_name: academiagpt-postgres
+    container_name: guanlan-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -43,12 +43,12 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - academiagpt-network
+      - guanlan-network
 
   # Redis 7 with AOF persistence (REQUIRED)
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
-    container_name: academiagpt-redis
+    container_name: guanlan-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --appendfsync everysec
     volumes:
@@ -60,13 +60,13 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - academiagpt-network
+      - guanlan-network
 
   # FastAPI Gateway Service
   migrate:
-    image: ${BACKEND_GATEWAY_IMAGE:-academiagpt-v2-backend}
+    image: ${BACKEND_GATEWAY_IMAGE:-guanlan-backend}
     build: *backend_gateway_build
-    container_name: academiagpt-migrate
+    container_name: guanlan-migrate
     env_file:
       - ./backend/.env
     environment:
@@ -80,18 +80,18 @@ services:
         condition: service_healthy
     restart: "no"
     networks:
-      - academiagpt-network
+      - guanlan-network
 
   # Bootstrap Admin User (runs once after migration)
   bootstrap-admin:
-    image: ${BACKEND_GATEWAY_IMAGE:-academiagpt-v2-backend}
+    image: ${BACKEND_GATEWAY_IMAGE:-guanlan-backend}
     build: *backend_gateway_build
-    container_name: academiagpt-bootstrap-admin
+    container_name: guanlan-bootstrap-admin
     env_file:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/academiagpt
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@academiagpt.com}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@guanlan.ai}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
     command: ["uv", "run", "python", "-m", "src.database.bootstrap_admin"]
@@ -100,13 +100,13 @@ services:
         condition: service_completed_successfully
     restart: "no"
     networks:
-      - academiagpt-network
+      - guanlan-network
 
   # FastAPI Gateway Service
   gateway:
-    image: ${BACKEND_GATEWAY_IMAGE:-academiagpt-v2-backend}
+    image: ${BACKEND_GATEWAY_IMAGE:-guanlan-backend}
     build: *backend_gateway_build
-    container_name: academiagpt-gateway
+    container_name: guanlan-gateway
     restart: unless-stopped
     env_file:
       - ./backend/.env
@@ -139,12 +139,12 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - academiagpt-network
+      - guanlan-network
 
   worker:
-    image: ${BACKEND_GATEWAY_IMAGE:-academiagpt-v2-backend}
+    image: ${BACKEND_GATEWAY_IMAGE:-guanlan-backend}
     build: *backend_gateway_build
-    container_name: academiagpt-worker
+    container_name: guanlan-worker
     restart: unless-stopped
     env_file:
       - ./backend/.env
@@ -179,13 +179,13 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - academiagpt-network
+      - guanlan-network
 
   # LangGraph Agent Server
   langgraph:
-    image: ${LANGGRAPH_IMAGE:-academiagpt-v2-langgraph}
+    image: ${LANGGRAPH_IMAGE:-guanlan-langgraph}
     build: *langgraph_build
-    container_name: academiagpt-langgraph
+    container_name: guanlan-langgraph
     restart: unless-stopped
     env_file:
       - ./backend/.env
@@ -215,13 +215,13 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - academiagpt-network
+      - guanlan-network
 
   # Next.js Frontend
   frontend:
-    image: ${FRONTEND_IMAGE:-academiagpt-v2-frontend}
+    image: ${FRONTEND_IMAGE:-guanlan-frontend}
     build: *frontend_build
-    container_name: academiagpt-frontend
+    container_name: guanlan-frontend
     restart: unless-stopped
     environment:
       - NODE_ENV=production
@@ -239,12 +239,12 @@ services:
       langgraph:
         condition: service_healthy
     networks:
-      - academiagpt-network
+      - guanlan-network
 
   # Nginx Reverse Proxy
   nginx:
     image: ${NGINX_IMAGE:-nginx:alpine}
-    container_name: academiagpt-nginx
+    container_name: guanlan-nginx
     restart: unless-stopped
     ports:
       - "2026:80"
@@ -268,12 +268,12 @@ services:
       timeout: 10s
       retries: 3
     networks:
-      - academiagpt-network
+      - guanlan-network
 
   # Prometheus metrics collection (Sprint 2)
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:latest}
-    container_name: academiagpt-prometheus
+    container_name: guanlan-prometheus
     restart: unless-stopped
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -282,12 +282,12 @@ services:
       gateway:
         condition: service_healthy
     networks:
-      - academiagpt-network
+      - guanlan-network
 
   # Grafana dashboards (Sprint 2)
   grafana:
     image: ${GRAFANA_IMAGE:-grafana/grafana:latest}
-    container_name: academiagpt-grafana
+    container_name: guanlan-grafana
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
@@ -300,10 +300,10 @@ services:
     ports:
       - "3001:3000"
     networks:
-      - academiagpt-network
+      - guanlan-network
 
 networks:
-  academiagpt-network:
+  guanlan-network:
     driver: bridge
 
 volumes:

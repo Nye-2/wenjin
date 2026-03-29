@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BookOpenText, FileText, SearchCheck, Sparkles } from 'lucide-react';
+import { FileText, SearchCheck, Sparkles, Waves } from 'lucide-react';
 import { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -35,21 +35,22 @@ export function AuthShell({ mode, title, description, children, footer }: AuthSh
   return (
     <div className="relative min-h-screen overflow-hidden bg-[var(--bg-base)] px-4 py-8 sm:px-6 lg:px-8">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-36 left-1/2 h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(30,58,138,0.24),transparent_68%)]" />
-        <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-[radial-gradient(circle,rgba(59,130,246,0.18),transparent_70%)]" />
-        <div className="absolute left-0 top-1/2 h-64 w-64 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(184,134,11,0.12),transparent_72%)]" />
+        <div className="absolute -top-36 left-1/2 h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(15,40,71,0.18),transparent_68%)]" />
+        <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-[radial-gradient(circle,rgba(59,130,196,0.14),transparent_70%)]" />
+        <div className="absolute left-0 top-1/2 h-64 w-64 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(196,147,74,0.09),transparent_72%)]" />
       </div>
 
       <div className="relative mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <aside className="hidden rounded-3xl border border-[var(--glass-border)] bg-[var(--glass-bg-elevated)] p-10 shadow-[var(--glass-shadow-elevated)] backdrop-blur-md lg:flex lg:flex-col">
           <div className="inline-flex w-fit items-center gap-2 rounded-full border border-[var(--border-default)] bg-white/80 px-3 py-1 text-sm font-semibold text-[var(--accent-primary)]">
-            <BookOpenText className="h-4 w-4" />
-            AcademiaGPT
+            <Waves className="h-4 w-4" />
+            <span className="font-serif">观澜</span>
+            <span className="text-[var(--text-muted)] text-xs font-sans">Guanlan</span>
           </div>
 
           <div className="mt-8 space-y-4">
             <h2 className="text-4xl font-semibold tracking-tight text-[var(--text-primary)]">
-              Research tools built for focused academic workflows.
+              观水必观其澜。<br />立潮头处，与智同行。
             </h2>
             <p className="text-base leading-relaxed text-[var(--text-secondary)]">
               One workspace for literature search, structured drafting, and artifact management.

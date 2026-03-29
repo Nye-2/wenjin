@@ -1,4 +1,4 @@
-# AcademiaGPT v2 - Backend Dockerfile
+# Guanlan (观澜) - Backend Dockerfile
 # Multi-stage build for Gateway and LangGraph services
 
 ARG PYTHON_IMAGE=python:3.12-slim

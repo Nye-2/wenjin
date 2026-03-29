@@ -1,6 +1,6 @@
 /**
  * Stores Index
- * Re-exports all Zustand stores for AcademiaGPT
+ * Re-exports all Zustand stores for Guanlan (观澜)
  */
 
 // Workspace Store

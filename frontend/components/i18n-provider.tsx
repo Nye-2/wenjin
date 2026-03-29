@@ -33,12 +33,12 @@ export function I18nProvider({ children }: I18nProviderProps) {
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true;
-      const savedLocale = localStorage.getItem("academiagpt-locale");
+      const savedLocale = localStorage.getItem("guanlan-locale") || localStorage.getItem("academiagpt-locale");
       if (savedLocale) {
         try {
           const parsed = JSON.parse(savedLocale);
           if (parsed.state?.locale) {
-            // Already set by zustand persist
+            setLocale(parsed.state.locale as Locale);
           }
         } catch {
           // If parsing fails, detect from browser

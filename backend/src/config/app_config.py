@@ -119,7 +119,7 @@ class SMTPSettings(BaseSettings):
     username: str = Field(default="", description="Sender email address")
     password: str = Field(default="", description="SMTP authorization code/password")
     use_tls: bool = Field(default=True, description="Use TLS encryption")
-    sender_name: str = Field(default="AcademiaGPT", description="Sender display name")
+    sender_name: str = Field(default="观澜 Guanlan", description="Sender display name")
 
     # Verification code config
     code_length: int = Field(default=6, ge=4, le=10, description="Verification code length")

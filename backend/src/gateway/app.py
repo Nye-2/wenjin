@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialize structured logging
     setup_logging(level="INFO")
-    print("AcademiaGPT Gateway starting up...")
+    print("Guanlan Gateway starting up...")
 
     # Initialize database
     from src.database import init_db
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown
-    print("AcademiaGPT Gateway shutting down...")
+    print("Guanlan Gateway shutting down...")
     try:
         from src.mcp import shutdown_mcp_runtime
 
@@ -71,8 +71,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 # Create FastAPI application
 app = FastAPI(
-    title="AcademiaGPT API",
-    description="Academic AI Assistant API",
+    title="Guanlan API",
+    description="观澜 — Academic AI Assistant API",
     version="2.0.0",
     lifespan=lifespan,
 )

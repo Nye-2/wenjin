@@ -10,7 +10,7 @@ from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
 from src.execution.path_utils import normalize_thread_id
 
-DEFAULT_THREAD_DATA_BASE_DIR = ".academiagpt/threads"
+DEFAULT_THREAD_DATA_BASE_DIR = ".guanlan/threads"
 
 
 def get_thread_data_root(

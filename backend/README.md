@@ -1,4 +1,4 @@
-# AcademiaGPT v2 Backend
+# 观澜 Guanlan Backend
 
 Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
 

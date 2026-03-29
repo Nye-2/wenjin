@@ -1,6 +1,8 @@
-# AcademiaGPT v2
+# 观澜 Guanlan
 
-Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
+> 观水必观其澜。立潮头处，与智同行。
+
+AI-powered academic research and writing assistant with Lead Agent + Middleware + Skills architecture.
 
 ## Project Status
 

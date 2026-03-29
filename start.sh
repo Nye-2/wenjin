@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# AcademiaGPT-V2 一键启动脚本
+# 观澜 Guanlan 一键启动脚本
 # 使用方法: ./start.sh [--backend-only | --frontend-only]
 
 set -e
@@ -20,8 +20,8 @@ FRONTEND_DIR="$PROJECT_ROOT/frontend"
 ENSURE_TEXLIVE_SCRIPT="$PROJECT_ROOT/scripts/ensure_texlive_image.sh"
 
 # 本地兜底容器（当宿主机 PostgreSQL/Redis 不满足要求时）
-LOCAL_PGVECTOR_CONTAINER="${LOCAL_PGVECTOR_CONTAINER:-academiagpt-local-postgres}"
-LOCAL_REDIS_CONTAINER="${LOCAL_REDIS_CONTAINER:-academiagpt-local-redis}"
+LOCAL_PGVECTOR_CONTAINER="${LOCAL_PGVECTOR_CONTAINER:-guanlan-local-postgres}"
+LOCAL_REDIS_CONTAINER="${LOCAL_REDIS_CONTAINER:-guanlan-local-redis}"
 LOCAL_PGVECTOR_PORT="${LOCAL_PGVECTOR_PORT:-55432}"
 LOCAL_REDIS_PORT="${LOCAL_REDIS_PORT:-56379}"
 
@@ -616,7 +616,7 @@ stop_services() {
 show_status() {
     echo ""
     echo "======================================"
-    echo "         AcademiaGPT-V2 状态"
+    echo "         观澜 Guanlan 状态"
     echo "======================================"
 
     if is_running "$BACKEND_PID_FILE" && is_http_ready "http://localhost:8001/readyz"; then
@@ -647,7 +647,7 @@ show_status() {
 
 # 显示帮助
 show_help() {
-    echo "AcademiaGPT-V2 启动脚本"
+    echo "观澜 Guanlan 启动脚本"
     echo ""
     echo "使用方法:"
     echo "  ./start.sh              # 启动所有服务"

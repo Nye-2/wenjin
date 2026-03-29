@@ -11,7 +11,7 @@ class LocalSandboxConfig(BaseModel):
     """Local sandbox configuration."""
 
     base_dir: str = Field(
-        default=".academiagpt/threads",
+        default=".guanlan/threads",
         description="Base directory for thread data",
     )
 
@@ -19,6 +19,7 @@ class LocalSandboxConfig(BaseModel):
 class DockerSandboxConfig(BaseModel):
     """Docker sandbox configuration."""
 
+    # NOTE: Registry name intentionally preserved — update when guanlan/sandbox image is published.
     image: str = Field(
         default="academiagpt/sandbox:latest",
         description="Docker image for sandbox",

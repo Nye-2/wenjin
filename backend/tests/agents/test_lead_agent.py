@@ -153,7 +153,7 @@ class TestApplyPromptTemplate:
         prompt = apply_prompt_template(state, config)
 
         # Should have base prompt content
-        assert "AcademiaGPT" in prompt
+        assert "Guanlan" in prompt
         assert "academic research" in prompt
 
     def test_prompt_with_all_contexts(self):

@@ -183,7 +183,7 @@ def _resolve_config_path(config_path: str | None = None) -> Path | None:
         p = Path(config_path)
         return p if p.exists() else None
 
-    env_path = os.getenv("ACADEMIAGPT_CONFIG_PATH")
+    env_path = os.getenv("GUANLAN_CONFIG_PATH")
     if env_path:
         p = Path(env_path)
         if p.exists():
