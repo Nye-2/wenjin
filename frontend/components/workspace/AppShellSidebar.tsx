@@ -47,7 +47,7 @@ export function AppShellSidebar({
 
   // Route detection
   const isOnChat = pathname.includes("/chat/");
-  const isOnDashboard = !isOnChat;
+  const isOnDashboard = pathname === `/workspaces/${workspaceId}`;
 
   // Workspace name lookup
   const workspaceName =
