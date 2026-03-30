@@ -11,6 +11,7 @@ import {
   User,
 } from "lucide-react";
 import { StreamingText, ThinkingIndicator } from "@/components/glass";
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { type PaperExtractionSubmission } from "@/lib/api";
 import { resolvePublicAssetUrl } from "@/lib/public-assets";
 import {
@@ -330,7 +331,7 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                             : "bg-[var(--bg-muted)] text-[var(--text-muted)]"
                         )}
                       >
-                        Task {extraction.task_id.slice(0, 8)}
+                        任务 {extraction.task_id.slice(0, 8)}
                       </span>
                     ) : null}
                   </div>
@@ -388,7 +389,7 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                             : "bg-[var(--bg-muted)] text-[var(--text-muted)]"
                         )}
                       >
-                        Paper {paperId.slice(0, 8)}
+                        文献 {paperId.slice(0, 8)}
                       </span>
                     ) : null}
                     {artifactId ? (
@@ -400,7 +401,7 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                             : "bg-[var(--bg-muted)] text-[var(--text-muted)]"
                         )}
                       >
-                        Artifact {artifactId.slice(0, 8)}
+                        成果 {artifactId.slice(0, 8)}
                       </span>
                     ) : null}
                   </div>
@@ -530,7 +531,7 @@ function renderStructuredBlocks(
               <div className="mt-3 flex flex-wrap gap-2">
                 {typeof data.task_id === "string" && (
                   <span className="rounded-full bg-[var(--bg-muted)] px-2 py-1 text-[11px] text-[var(--text-muted)]">
-                    Task {data.task_id.slice(0, 8)}
+                    任务 {data.task_id.slice(0, 8)}
                   </span>
                 )}
               </div>
@@ -770,7 +771,11 @@ function WorkspaceChatMessageBubble({
           <>
             {renderMessageAttachments(message, isUser)}
             {message.content ? (
-              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              isUser ? (
+                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              ) : (
+                <MarkdownRenderer content={message.content} className="text-sm" />
+              )
             ) : null}
             {renderStructuredBlocks(message, actionContext, {
               onFeatureAction,
@@ -804,12 +809,11 @@ export function WorkspaceChatMessages({
               <Sparkles className="w-8 h-8 text-white" />
             </div>
             <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-              从 chat 启动你的任务主线
+              从当前阶段开始
             </h3>
             <p className="text-sm text-[var(--text-secondary)]">
-              先描述你现在要推进的步骤，或直接点击下方推荐动作。
-              我会结合当前 workspace
-              {workspaceName ? `「${workspaceName}」` : ""} 进度来安排下一步。
+              先描述你要推进的步骤，或直接点击下方推荐动作。问津会结合当前 workspace
+              {workspaceName ? `「${workspaceName}」` : ""} 的上下文，安排下一步。
             </p>
           </div>
         </div>

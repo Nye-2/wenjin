@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 
 interface StreamingTextProps {
   text: string;
@@ -9,38 +10,33 @@ interface StreamingTextProps {
   speed?: number;
 }
 
-export function StreamingText({ text, isStreaming, speed = 30 }: StreamingTextProps) {
-  const [displayedText, setDisplayedText] = useState("");
+export function StreamingText({ text, isStreaming, speed = 12 }: StreamingTextProps) {
+  const [displayedText, setDisplayedText] = useState(text);
+  const prevLengthRef = useRef(0);
 
   useEffect(() => {
     if (!isStreaming) {
       setDisplayedText(text);
+      prevLengthRef.current = text.length;
       return;
     }
 
-    let index = 0;
-    const interval = setInterval(() => {
-      if (index < text.length) {
-        setDisplayedText(text.slice(0, index + 1));
-        index++;
-      } else {
-        clearInterval(interval);
-      }
-    }, speed);
-
-    return () => clearInterval(interval);
-  }, [text, isStreaming, speed]);
+    // When new text arrives during streaming, show it immediately
+    // (the backend already streams chunk by chunk, no need for char-by-char simulation)
+    setDisplayedText(text);
+    prevLengthRef.current = text.length;
+  }, [text, isStreaming]);
 
   return (
-    <span className="relative">
-      {displayedText}
+    <div className="relative">
+      <MarkdownRenderer content={displayedText} className="text-sm" />
       {isStreaming && (
         <motion.span
-          className="inline-block w-0.5 h-[1.1em] bg-current ml-0.5 align-middle"
-          animate={{ opacity: [1, 0] }}
-          transition={{ duration: 0.5, repeat: Infinity }}
+          className="inline-block w-0.5 h-4 bg-[var(--accent-primary)] ml-0.5 align-middle rounded-full"
+          animate={{ opacity: [1, 0.3] }}
+          transition={{ duration: 0.6, repeat: Infinity, ease: "easeInOut" }}
         />
       )}
-    </span>
+    </div>
   );
 }
