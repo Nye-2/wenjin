@@ -14,9 +14,27 @@ class WorkspaceChatSkillDefinition:
     description: str
     feature_id: str
     defaults: tuple[tuple[str, Any], ...] = ()
+    name: str = ""
+    icon: str = "sparkles"
+    color: str = "blue"
+    guidance_prompt: str = ""
+    follow_up_skills: tuple[str, ...] = ()
 
     def to_mapping_entry(self) -> tuple[str, dict[str, Any]]:
         return self.feature_id, dict(self.defaults)
+
+    def to_api_dict(self) -> dict[str, Any]:
+        """Serialize for the REST API."""
+        return {
+            "id": self.id,
+            "name": self.name or self.id.replace("-", " ").title(),
+            "description": self.description,
+            "featureId": self.feature_id,
+            "icon": self.icon,
+            "color": self.color,
+            "guidancePrompt": self.guidance_prompt,
+            "followUpSkills": list(self.follow_up_skills),
+        }
 
 
 WORKSPACE_CHAT_SKILLS: dict[str, tuple[WorkspaceChatSkillDefinition, ...]] = {
@@ -104,3 +122,14 @@ def list_workspace_chat_skills(
     if not workspace_type:
         return ()
     return WORKSPACE_CHAT_SKILLS.get(workspace_type, ())
+
+
+def get_skill_by_id(
+    workspace_type: str | None,
+    skill_id: str,
+) -> WorkspaceChatSkillDefinition | None:
+    """Look up a single skill by id within a workspace type."""
+    for skill in list_workspace_chat_skills(workspace_type):
+        if skill.id == skill_id:
+            return skill
+    return None

@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialize structured logging
     setup_logging(level="INFO")
-    print("Guanlan Gateway starting up...")
+    print("Wenjin Gateway starting up...")
 
     # Initialize database
     from src.database import init_db
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown
-    print("Guanlan Gateway shutting down...")
+    print("Wenjin Gateway shutting down...")
     try:
         from src.mcp import shutdown_mcp_runtime
 
@@ -71,8 +71,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 # Create FastAPI application
 app = FastAPI(
-    title="Guanlan API",
-    description="观澜 — Academic AI Assistant API",
+    title="Wenjin API",
+    description="问津 — AI workspace API for papers, proposals, patents, and research workflows",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -128,7 +128,7 @@ async def readiness_check() -> Any:
 # Include routers (imported after app creation to avoid circular imports)
 from src.api.subagents import router as subagents_router  # noqa: E402
 
-from .routers import artifacts, auth, chat, dashboard, features, literature, mcp, memory, models, papers, tasks, uploads, workspaces  # noqa: E402
+from .routers import artifacts, auth, chat, dashboard, features, literature, mcp, memory, models, papers, skills, tasks, uploads, workspaces  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(subagents_router, prefix="/api", tags=["subagents"])
@@ -138,6 +138,7 @@ app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(workspaces.router, prefix="/api", tags=["workspaces"])
 app.include_router(features.router, prefix="/api", tags=["features"])
+app.include_router(skills.router, prefix="/api", tags=["skills"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
 app.include_router(literature.router, prefix="/api", tags=["literature"])
 app.include_router(mcp.router, prefix="/api", tags=["mcp"])
