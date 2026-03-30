@@ -63,7 +63,7 @@ export function SkillSelector({
   onSelect,
 }: SkillSelectorProps) {
   const [hoveredSkill, setHoveredSkill] = useState<string | null>(null);
-  const skills = useFeaturesStore((state) => state.features);
+  const skills = useFeaturesStore((state) => state.skills);
 
   if (skills.length === 0) {
     return null;
