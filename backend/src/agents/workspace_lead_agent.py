@@ -215,12 +215,27 @@ def _build_system_prompt(
     memory_text: str | None,
 ) -> str:
     """Build system prompt with memory injection."""
+    type_labels = {
+        "sci": "学术论文（SCI/EI）",
+        "thesis": "学位论文",
+        "proposal": "研究计划",
+        "software_copyright": "软件著作权申请",
+        "patent": "专利申请",
+    }
+    type_label = type_labels.get(workspace_type, workspace_type)
+
     parts = [
-        f"你是观澜 (Guanlan) {workspace_type.upper()} 工作区的智能助手。",
+        f"你是问津 (Wenjin) 的 {type_label} 工作助手。",
         f"当前工作区：{workspace_name}",
+        "",
+        "执行规范：",
+        "- 输出使用中文，专业术语可保留英文原文",
+        "- 保持学术规范，引用需有据可查",
+        "- 生成的内容需标注哪些部分需要用户补充实际数据",
+        "- 结构化输出优先（使用标题、列表、表格）",
     ]
     if discipline:
-        parts.append(f"学科领域： {discipline}")
+        parts.insert(2, f"学科领域：{discipline}")
     if memory_text:
         parts.append(f"\n{memory_text}")
     return "\n".join(parts)
