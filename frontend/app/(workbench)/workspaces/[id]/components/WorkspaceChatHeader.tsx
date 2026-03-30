@@ -45,15 +45,15 @@ export function WorkspaceChatHeader({
   onDeleteThread,
 }: WorkspaceChatHeaderProps) {
   return (
-    <div className="px-6 py-4 border-b border-[var(--border-default)] bg-[var(--bg-elevated)] backdrop-blur-xl">
+    <div className="border-b border-[var(--border-default)] bg-[rgba(251,248,242,0.92)] px-6 py-4 backdrop-blur-xl">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-[var(--accent-primary)]" />
-            {workspaceName || "Agent Chat"}
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]">
+            <Sparkles className="h-5 w-5 text-[var(--brand-brass)]" />
+            {workspaceName || "问津工作主线"}
           </h2>
           <p className="text-xs text-[var(--text-muted)]">
-            AI-powered academic assistant
+            持续推进当前工作路径的主线会话
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -73,7 +73,7 @@ export function WorkspaceChatHeader({
             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-muted)]"
           >
             <Plus className="h-3.5 w-3.5" />
-            新分支
+            新建分支
           </button>
           <button
             type="button"
@@ -81,7 +81,7 @@ export function WorkspaceChatHeader({
             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-muted)]"
           >
             <History className="h-3.5 w-3.5" />
-            主线 / 分支
+            主线与分支
           </button>
         </div>
       </div>

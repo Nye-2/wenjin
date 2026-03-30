@@ -18,11 +18,10 @@ import {
   getThreadAgentStatus,
   type ThreadAgentStatus,
 } from "@/lib/api";
-import { formatWorkspaceChatSkillLabel } from "@/lib/workspace-chat-skills";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chat";
+import { useFeaturesStore } from "@/stores/features";
 import { useTaskStore } from "@/stores/task";
-import { useWorkspaceStore } from "@/stores/workspace";
 
 type StageStatus = "completed" | "running" | "pending";
 
@@ -94,7 +93,7 @@ export function AgentStatusBar() {
     clearRecentCompleted,
   } = useTaskStore();
   const { threadId, currentSkill, isStreaming, threadStatuses, setThreadStatus } = useChatStore();
-  const { workspace } = useWorkspaceStore();
+  const getSkillById = useFeaturesStore((state) => state.getSkillById);
   const [isExpanded, setIsExpanded] = useState(true);
   const [isCancelling, setIsCancelling] = useState(false);
   const [taskActionError, setTaskActionError] = useState<string | null>(null);
@@ -226,13 +225,10 @@ export function AgentStatusBar() {
       return null;
     }
 
-    const skillLabel =
-      visibleThreadStatus?.current_skill || currentSkill
-        ? formatWorkspaceChatSkillLabel(
-            workspace?.type,
-            visibleThreadStatus?.current_skill || currentSkill
-          ) ?? "chat"
-        : "chat";
+    const effectiveSkillId = visibleThreadStatus?.current_skill || currentSkill;
+    const skillLabel = effectiveSkillId
+      ? (getSkillById(effectiveSkillId)?.name ?? effectiveSkillId)
+      : "chat";
 
     return (
       <motion.div

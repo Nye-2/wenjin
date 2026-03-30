@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowRight, Compass, FileText, GitBranch, Layers3 } from "lucide-react";
 import {
   createThread,
   uploadThreadFiles,
@@ -13,7 +14,7 @@ import { useModelSelection } from "@/hooks/useModelSelection";
 import { useChatStore, Message } from "@/stores/chat";
 import { useDashboardStore } from "@/stores/dashboard";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { useTaskStore } from "@/stores/task";
+import { type CurrentTask, useTaskStore } from "@/stores/task";
 import { useFeaturesStore } from "@/stores/features";
 import {
   WorkspaceChatMessages,
@@ -35,12 +36,86 @@ import {
   type WorkspaceFeatureActionContext,
 } from "@/lib/workspace-feature-action-context";
 import {
-  formatWorkspaceChatSkillLabel,
-  getWorkspaceChatSkills
-} from "@/lib/workspace-chat-skills";
+  buildWorkspaceChatEntryPrompt,
+  type WorkspaceChatEntrySeed,
+} from "@/lib/workspace-chat-entry";
+import { cn } from "@/lib/utils";
+import { TaskRuntimePanel } from "@/components/workspace/TaskRuntimePanel";
+
+function formatRuntimeTimestamp(value?: string): string {
+  if (!value) {
+    return "N/A";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function buildTaskRuntimeState(task: CurrentTask | null) {
+  if (!task) {
+    return null;
+  }
+
+  return {
+    title: task.agentLabel,
+    current_phase: task.stages[task.currentStageIndex]?.id,
+    phases: task.stages.map((stage, index) => ({
+      id: stage.id,
+      label: stage.label,
+      description:
+        stage.status === "running"
+          ? "当前阶段正在推进中"
+          : stage.status === "completed"
+            ? "该阶段已完成"
+            : "等待进入该阶段",
+      status: stage.status,
+      progress:
+        stage.status === "completed"
+          ? 100
+          : stage.status === "running"
+            ? Math.max(
+                12,
+                Math.round(((index + 1) / Math.max(task.stages.length, 1)) * 100)
+              )
+            : 0,
+    })),
+    blocks: [
+      {
+        id: "task-metrics",
+        kind: "metrics" as const,
+        title: "任务信息",
+        entries: [
+          { label: "Task", value: task.id.slice(0, 8) },
+          { label: "Agent", value: task.agentLabel },
+          { label: "Started", value: formatRuntimeTimestamp(task.startedAt) },
+          {
+            label: "Updated",
+            value: formatRuntimeTimestamp(task.completedAt || task.startedAt),
+          },
+        ],
+      },
+      {
+        id: "task-thinking",
+        kind: "text" as const,
+        title: "当前说明",
+        content:
+          task.thinking?.trim() || "任务已启动，等待更多运行时信息。",
+      },
+    ],
+    updated_at: task.completedAt || task.startedAt,
+  };
+}
 
 interface ChatPanelProps {
   workspaceId: string;
+  entrySeed?: WorkspaceChatEntrySeed | null;
 }
 
 interface PendingChatAttachment {
@@ -49,7 +124,7 @@ interface PendingChatAttachment {
   kind: ChatUploadKind;
 }
 
-export function ChatPanel({ workspaceId }: ChatPanelProps) {
+export function ChatPanel({ workspaceId, entrySeed = null }: ChatPanelProps) {
   const router = useRouter();
   const {
     messages,
@@ -65,9 +140,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     startNewThread,
     setCurrentSkill,
   } = useChatStore();
-  const recommendedFeatureIds = useDashboardStore(
-    (state) => state.summary?.recommended_actions.map((action) => action.feature_id) ?? []
-  );
+  const summary = useDashboardStore((state) => state.summary);
   const fetchDashboard = useDashboardStore((state) => state.fetchDashboard);
   const { workspace, artifacts } = useWorkspaceStore();
   const fetchPapers = useWorkspaceStore((state) => state.fetchPapers);
@@ -75,8 +148,11 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   const {
     startTask,
     isExecuting,
+    currentTask,
+    recentCompleted,
   } = useTaskStore();
-  const { getFeatureById } = useFeaturesStore();
+  const { getFeatureById, getSkillById } = useFeaturesStore();
+  const skills = useFeaturesStore((state) => state.skills);
   const [inputValue, setInputValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -84,6 +160,9 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<ReasoningEffort | null>(null);
   const [defaultUploadKind, setDefaultUploadKind] = useState<ChatUploadKind>("transient");
   const [pendingAttachments, setPendingAttachments] = useState<PendingChatAttachment[]>([]);
+  const [pendingEntrySeed, setPendingEntrySeed] = useState<WorkspaceChatEntrySeed | null>(
+    entrySeed
+  );
   const {
     models: availableModels,
     selectedModel,
@@ -95,26 +174,112 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
-  const availableChatSkills = getWorkspaceChatSkills(workspace?.type);
-  const currentSkillLabel = formatWorkspaceChatSkillLabel(workspace?.type, currentSkill);
+  const appliedEntrySeedKeyRef = useRef<string | null>(null);
+  const currentSkillLabel = currentSkill ? (getSkillById(currentSkill)?.name ?? currentSkill) : null;
   const resolveSkillLabel = (skillId: string | null | undefined): string | null =>
-    formatWorkspaceChatSkillLabel(workspace?.type, skillId);
+    skillId ? (getSkillById(skillId)?.name ?? skillId) : null;
   const selectedModelDefinition =
     availableModels.find((candidate) => candidate.name === selectedModel) ?? null;
   const currentThreadSummary =
     threadId ? threads.find((candidate) => candidate.id === threadId) ?? null : null;
   const supportsReasoningEffort = selectedModelDefinition?.supports_reasoning_effort ?? false;
   const reasoningPersistenceKey = `workspace:${workspaceId}:model:chat:reasoning-effort`;
+  const entrySeedFeature = entrySeed?.featureId
+    ? getFeatureById(entrySeed.featureId)
+    : undefined;
+  const recommendedFeatureIds = useMemo(
+    () => summary?.recommended_actions.map((action) => action.feature_id) ?? [],
+    [summary?.recommended_actions]
+  );
+  const recommendedActions = useMemo(() => {
+    if (summary?.recommended_actions && summary.recommended_actions.length > 0) {
+      return summary.recommended_actions
+        .map((action) => ({
+          featureId: action.feature_id,
+          title: action.title,
+          description: action.reason || action.description || "",
+        }))
+        .filter((action) => Boolean(action.featureId))
+        .slice(0, 2);
+    }
+
+    return (summary?.recommended_actions ?? [])
+      .map((featureId) => {
+        const feature = getFeatureById(featureId.feature_id);
+        if (!feature) {
+          return null;
+        }
+        return {
+          featureId: featureId.feature_id,
+          title: feature.name,
+          description: feature.description,
+        };
+      })
+      .filter((item): item is { featureId: string; title: string; description: string } => item !== null)
+      .slice(0, 2);
+  }, [getFeatureById, summary?.recommended_actions]);
+  const contextStats = useMemo(
+    () => [
+      { label: "产物", value: artifacts.length, icon: FileText },
+      { label: "分支", value: threads.length, icon: GitBranch },
+      { label: "消息", value: messages.length, icon: Layers3 },
+    ],
+    [artifacts.length, threads.length, messages.length]
+  );
+  const currentPhaseTitle =
+    summary?.current_phase.title ||
+    (pendingEntrySeed?.featureId
+      ? getFeatureById(pendingEntrySeed.featureId)?.name
+      : null) ||
+    "继续当前主线";
+  const currentPhaseDescription =
+    summary?.current_phase.description ||
+    (pendingEntrySeed?.featureId
+      ? "已根据入口上下文预置本次工作目标。"
+      : "从当前阶段开始，告诉问津你要推进什么。");
+  const nextStepAction = summary?.next_step ?? null;
 
   useEffect(() => {
-    if (!workspace?.type || !currentSkill) {
+    const nextSeedKey = entrySeed
+      ? JSON.stringify({
+          featureId: entrySeed.featureId,
+          skillId: entrySeed.skillId,
+          params: entrySeed.params,
+        })
+      : null;
+
+    if (!nextSeedKey) {
+      appliedEntrySeedKeyRef.current = null;
+      setPendingEntrySeed(null);
       return;
     }
-    const isSupported = availableChatSkills.some((skill) => skill.id === currentSkill);
+
+    if (appliedEntrySeedKeyRef.current === nextSeedKey) {
+      return;
+    }
+    if (!entrySeed) {
+      return;
+    }
+
+    const prompt = buildWorkspaceChatEntryPrompt({
+      seed: entrySeed,
+      feature: entrySeedFeature ?? null,
+    });
+    setInputValue(prompt);
+    setActionError(null);
+    setPendingEntrySeed(entrySeed);
+    appliedEntrySeedKeyRef.current = nextSeedKey;
+  }, [entrySeed, entrySeedFeature]);
+
+  useEffect(() => {
+    if (!currentSkill || skills.length === 0) {
+      return;
+    }
+    const isSupported = skills.some((skill) => skill.id === currentSkill);
     if (!isSupported) {
       setCurrentSkill(null);
     }
-  }, [availableChatSkills, currentSkill, setCurrentSkill, workspace?.type]);
+  }, [skills, currentSkill, setCurrentSkill]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -218,7 +383,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
         initialThinking: created.message,
       });
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Failed to execute feature");
+      setActionError(error instanceof Error ? error.message : "执行模块失败");
     }
   };
 
@@ -336,9 +501,18 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
         reasoningEffort: supportsReasoningEffort ? selectedReasoningEffort ?? "minimal" : undefined,
         threadId: activeThreadId,
         attachments: uploadedAttachments,
+        metadata: pendingEntrySeed
+          ? {
+              orchestration: {
+                feature_id: pendingEntrySeed.featureId,
+                params: pendingEntrySeed.params,
+              },
+            }
+          : undefined,
       });
+      setPendingEntrySeed(null);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Failed to upload attachments");
+      setActionError(error instanceof Error ? error.message : "附件上传失败");
     }
   };
 
@@ -359,6 +533,8 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
     setIsHistoryOpen(false);
     setActionError(null);
     setPendingAttachments([]);
+    setPendingEntrySeed(null);
+    setInputValue("");
     startNewThread();
   };
 
@@ -369,7 +545,7 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
       await deleteThread(selectedThreadId, workspaceId);
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Failed to delete chat thread"
+        error instanceof Error ? error.message : "删除对话分支失败"
       );
     } finally {
       setDeletingThreadId(null);
@@ -444,6 +620,16 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
   };
 
   const composerError = actionError ?? chatError;
+  const visibleRuntimeTask = currentTask ?? recentCompleted ?? null;
+  const runtimeState = useMemo(
+    () => buildTaskRuntimeState(visibleRuntimeTask),
+    [visibleRuntimeTask]
+  );
+  const runtimeStatus = visibleRuntimeTask?.status ?? null;
+  const runtimeError =
+    visibleRuntimeTask?.status === "failed"
+      ? visibleRuntimeTask.thinking.replace(/^错误:\s*/, "").trim()
+      : null;
 
   return (
     <div className="flex-1 h-full flex flex-col">
@@ -473,6 +659,129 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
         onDeleteThread={(selectedThreadId) => void handleDeleteThread(selectedThreadId)}
       />
 
+      <div className="border-b border-[var(--border-default)] bg-[rgba(251,248,242,0.88)] px-6 py-4">
+        <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
+          <div className="route-card rounded-[1.5rem] p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-[var(--border-default)] bg-white/80 px-3 py-1 text-[11px] font-medium text-[var(--text-secondary)]">
+                当前阶段
+              </span>
+              {summary?.current_phase.status ? (
+                <span className="rounded-full border border-[var(--brand-brass)]/18 bg-[rgba(166,124,57,0.1)] px-3 py-1 text-[11px] font-medium text-[var(--brand-brass)]">
+                  {summary.current_phase.status}
+                </span>
+              ) : null}
+              {currentSkillLabel ? (
+                <span className="rounded-full border border-[var(--accent-primary)]/18 bg-[var(--accent-primary)]/8 px-3 py-1 text-[11px] font-medium text-[var(--accent-primary)]">
+                  {currentSkillLabel}
+                </span>
+              ) : null}
+            </div>
+            <h3 className="mt-4 text-lg font-semibold text-[var(--text-primary)]">
+              {currentPhaseTitle}
+            </h3>
+            <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
+              {summary?.headline || currentPhaseDescription}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              {contextStats.map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-2xl border border-[var(--border-default)] bg-white/78 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                    <item.icon className="h-3.5 w-3.5" />
+                    {item.label}
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-[var(--text-primary)]">
+                    {item.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="route-card rounded-[1.5rem] p-4">
+            <div className="flex items-center gap-2">
+              <Compass className="h-4 w-4 text-[var(--brand-brass)]" />
+              <p className="text-sm font-semibold text-[var(--text-primary)]">
+                推荐下一步
+              </p>
+            </div>
+
+            {nextStepAction ? (
+              <div className="mt-4 rounded-2xl border border-[var(--border-default)] bg-white/80 p-4">
+                <p className="text-sm font-medium text-[var(--text-primary)]">
+                  {nextStepAction.title}
+                </p>
+                <p className="mt-2 text-xs leading-6 text-[var(--text-secondary)]">
+                  {nextStepAction.reason || nextStepAction.description || "从当前主线继续推进下一步。"}
+                </p>
+                {nextStepAction.feature_id ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const route = getWorkspaceFeatureRoute(
+                        workspaceId,
+                        nextStepAction.feature_id
+                      );
+                      if (route) {
+                        router.push(route);
+                      }
+                    }}
+                    className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-[var(--brand-navy)]"
+                  >
+                    打开该模块
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {recommendedActions.length > 0 ? (
+              <div className={cn("space-y-3", nextStepAction ? "mt-3" : "mt-4")}>
+                {recommendedActions.map((action) => (
+                  <button
+                    key={`${action.featureId}-${action.title}`}
+                    type="button"
+                    onClick={() => void handleQuickAction(action.featureId)}
+                    className="flex w-full items-start justify-between gap-3 rounded-2xl border border-[var(--border-default)] bg-white/76 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-surface)]"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-[var(--text-primary)]">
+                        {action.title}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-xs leading-6 text-[var(--text-secondary)]">
+                        {action.description}
+                      </p>
+                    </div>
+                    <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              !nextStepAction && (
+                <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
+                  当前没有系统推荐动作。直接描述你要推进的步骤，问津会结合上下文继续安排。
+                </p>
+              )
+            )}
+          </div>
+        </div>
+      </div>
+
+      {runtimeState ? (
+        <div className="border-b border-[var(--border-default)] bg-[rgba(251,248,242,0.72)] px-6 py-4">
+          <TaskRuntimePanel
+            runtime={runtimeState}
+            isRunning={visibleRuntimeTask?.status === "running"}
+            status={runtimeStatus}
+            error={runtimeError}
+            title="当前运行时"
+          />
+        </div>
+      ) : null}
+
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <WorkspaceChatMessages
           messages={messages}
@@ -492,7 +801,6 @@ export function ChatPanel({ workspaceId }: ChatPanelProps) {
         isExecuting={isExecuting}
         recommendedFeatureIds={recommendedFeatureIds}
         onQuickAction={(featureId) => void handleQuickAction(featureId)}
-        workspaceType={workspace?.type}
         currentSkill={currentSkill}
         onSelectSkill={setCurrentSkill}
         availableModels={availableModels}

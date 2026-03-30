@@ -7,7 +7,7 @@ import type {
 } from "react";
 import { motion } from "framer-motion";
 import { Paperclip, Send, X } from "lucide-react";
-import type { ChatUploadKind, Model, ReasoningEffort, Workspace } from "@/lib/api";
+import type { ChatUploadKind, Model, ReasoningEffort } from "@/lib/api";
 import { AgentStatusBar, QuickActions } from "@/components/workspace";
 import { useI18n } from "@/components/i18n-provider";
 import { SkillSelector } from "./SkillSelector";
@@ -64,7 +64,6 @@ interface WorkspaceChatComposerProps {
   isExecuting: boolean;
   recommendedFeatureIds: string[];
   onQuickAction: (featureId: string) => void;
-  workspaceType?: Workspace["type"] | null;
   currentSkill: string | null;
   onSelectSkill: (skill: string | null) => void;
   availableModels: Model[];
@@ -92,7 +91,6 @@ export function WorkspaceChatComposer({
   isExecuting,
   recommendedFeatureIds,
   onQuickAction,
-  workspaceType,
   currentSkill,
   onSelectSkill,
   availableModels,
