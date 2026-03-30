@@ -9,6 +9,7 @@ import { motion } from "framer-motion";
 import { Paperclip, Send, X } from "lucide-react";
 import type { ChatUploadKind, Model, ReasoningEffort, Workspace } from "@/lib/api";
 import { AgentStatusBar, QuickActions } from "@/components/workspace";
+import { useI18n } from "@/components/i18n-provider";
 import { SkillSelector } from "./SkillSelector";
 import { cn } from "@/lib/utils";
 
@@ -17,10 +18,10 @@ export const WORKSPACE_CHAT_REASONING_EFFORT_OPTIONS: Array<{
   label: string;
   description: string;
 }> = [
-  { value: "minimal", label: "Minimal", description: "默认快速响应" },
-  { value: "low", label: "Low", description: "轻量推理" },
-  { value: "medium", label: "Medium", description: "平衡质量与延迟" },
-  { value: "high", label: "High", description: "更强推理，响应更慢" },
+  { value: "minimal", label: "极简", description: "默认快速响应" },
+  { value: "low", label: "轻量", description: "轻量推理" },
+  { value: "medium", label: "均衡", description: "平衡质量与延迟" },
+  { value: "high", label: "深入", description: "更强推理，响应更慢" },
 ];
 
 export function isReasoningEffort(value: string | null): value is ReasoningEffort {
@@ -47,7 +48,7 @@ export const WORKSPACE_CHAT_UPLOAD_KIND_OPTIONS: Array<{
   {
     value: "transient",
     label: "临时附件",
-    description: "仅用于当前 chat / thread",
+    description: "仅用于当前主线 / 分支",
   },
 ];
 
@@ -113,6 +114,8 @@ export function WorkspaceChatComposer({
   onKeyDown,
   onSubmit,
 }: WorkspaceChatComposerProps) {
+  const { t } = useI18n();
+
   return (
     <div className="p-4 border-t border-[var(--border-default)] bg-[var(--bg-elevated)] backdrop-blur-xl">
       <div className="mb-3">
@@ -140,7 +143,6 @@ export function WorkspaceChatComposer({
 
       <div className="mb-3 overflow-x-auto pb-2">
         <SkillSelector
-          workspaceType={workspaceType}
           selectedSkill={currentSkill}
           onSelect={onSelectSkill}
         />
@@ -151,7 +153,7 @@ export function WorkspaceChatComposer({
           htmlFor="chat-model-select"
           className="text-xs font-medium text-[var(--text-muted)]"
         >
-          Chat Model
+          工作主线模型
         </label>
         <select
           id="chat-model-select"
@@ -161,7 +163,7 @@ export function WorkspaceChatComposer({
           className="min-w-[220px] rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
         >
           {availableModels.length === 0 ? (
-            <option value="">No models available</option>
+            <option value="">当前无可用模型</option>
           ) : (
             availableModels.map((model) => (
               <option key={model.name} value={model.name}>
@@ -288,7 +290,7 @@ export function WorkspaceChatComposer({
             value={inputValue}
             onChange={(event) => onInputChange(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ask about your research..."
+            placeholder={t("chat.placeholder")}
             disabled={isStreaming}
             rows={1}
             className={cn(

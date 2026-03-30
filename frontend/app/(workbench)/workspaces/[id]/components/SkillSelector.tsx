@@ -3,41 +3,67 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Search,
   BookOpen,
+  Code,
+  Compass,
   FileText,
-  ListOrdered,
-  PenTool,
   FlaskConical,
+  Image,
   Lightbulb,
+  List,
+  Microscope,
+  Package,
+  Pen,
+  Search,
+  ShieldCheck,
 } from "lucide-react";
-import type { Workspace } from "@/lib/api";
-import { getWorkspaceChatSkills } from "@/lib/workspace-chat-skills";
+import type { LucideIcon } from "lucide-react";
+import { useFeaturesStore } from "@/stores/features";
 import { cn } from "@/lib/utils";
 
-const skillIcons = {
+const iconMap: Record<string, LucideIcon> = {
   search: Search,
-  list: ListOrdered,
-  file: FileText,
-  book: BookOpen,
-  pen: PenTool,
-  flask: FlaskConical,
+  "book-open": BookOpen,
+  "file-text": FileText,
+  list: List,
+  pen: Pen,
+  image: Image,
+  package: Package,
+  microscope: Microscope,
+  "shield-check": ShieldCheck,
+  compass: Compass,
+  "flask-conical": FlaskConical,
   lightbulb: Lightbulb,
-} as const;
+  code: Code,
+};
+
+const colorClassMap: Record<string, { text: string; bg: string }> = {
+  navy: { text: "text-[var(--brand-navy)]", bg: "bg-[rgba(31,66,99,0.08)]" },
+  teal: { text: "text-[var(--brand-teal)]", bg: "bg-[rgba(46,111,109,0.08)]" },
+  cyan: { text: "text-[var(--brand-cyan)]", bg: "bg-[rgba(92,151,165,0.08)]" },
+  brass: {
+    text: "text-[var(--brand-brass)]",
+    bg: "bg-[rgba(166,124,57,0.08)]",
+  },
+  slate: {
+    text: "text-[var(--text-secondary)]",
+    bg: "bg-[rgba(120,135,139,0.08)]",
+  },
+};
+
+const defaultColor = { text: "text-[var(--text-secondary)]", bg: "bg-[rgba(120,135,139,0.08)]" };
 
 interface SkillSelectorProps {
-  workspaceType?: Workspace["type"] | null;
-  selectedSkill?: string | null;
+  selectedSkill: string | null;
   onSelect: (skillId: string | null) => void;
 }
 
 export function SkillSelector({
-  workspaceType,
   selectedSkill,
   onSelect,
 }: SkillSelectorProps) {
   const [hoveredSkill, setHoveredSkill] = useState<string | null>(null);
-  const skills = getWorkspaceChatSkills(workspaceType);
+  const skills = useFeaturesStore((state) => state.features);
 
   if (skills.length === 0) {
     return null;
@@ -54,7 +80,8 @@ export function SkillSelector({
   return (
     <div className="flex flex-wrap gap-2">
       {skills.map((skill) => {
-        const Icon = skillIcons[skill.icon];
+        const Icon = iconMap[skill.icon] ?? Search;
+        const colors = colorClassMap[skill.color ?? ""] ?? defaultColor;
         const isSelected = selectedSkill === skill.id;
         const isHovered = hoveredSkill === skill.id;
 
@@ -72,7 +99,7 @@ export function SkillSelector({
                   : cn(
                       "bg-[var(--bg-surface)]",
                       "hover:bg-[var(--bg-muted)]",
-                      skill.colorClass
+                      colors.text
                     )
               )}
               whileHover={{ scale: 1.02 }}
@@ -82,13 +109,13 @@ export function SkillSelector({
                 <span
                   className={cn(
                     "flex h-5 w-5 items-center justify-center rounded-full",
-                    isSelected ? "bg-white/15" : skill.backgroundClass
+                    isSelected ? "bg-white/15" : colors.bg
                   )}
                 >
                   <Icon
                     className={cn(
                       "h-3.5 w-3.5",
-                      isSelected ? "text-white" : skill.colorClass
+                      isSelected ? "text-white" : colors.text
                     )}
                   />
                 </span>
