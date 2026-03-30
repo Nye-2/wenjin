@@ -357,11 +357,14 @@ def apply_prompt_template(
         or state.get("current_skill")
     )
     if selected_skill:
-        base_prompt += (
-            "\n\n## Preferred Skill"
-            f"\nThe user selected `{selected_skill}` for this turn."
-            "\nUse it as the default approach unless the request clearly requires a different toolchain."
-        )
+        from src.agents.lead_agent.chat_skill_catalog import get_skill_by_id
+        skill_def = get_skill_by_id(workspace_type, selected_skill)
+        base_prompt += "\n\n## Preferred Skill"
+        base_prompt += f"\nThe user selected `{selected_skill}` for this turn."
+        if skill_def and skill_def.guidance_prompt:
+            base_prompt += f"\n\n{skill_def.guidance_prompt}"
+        else:
+            base_prompt += "\nUse it as the default approach unless the request clearly requires a different toolchain."
 
     thread_id = configurable.get("thread_id")
     workspace_id = configurable.get("workspace_id")
