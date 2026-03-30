@@ -54,6 +54,74 @@ disciplines:
     terminology: {}
     writing_style: empirical and evidence-based
 
+  chemistry:
+    citation_style: ACS
+    structure:
+      - Abstract
+      - Introduction
+      - Experimental Section
+      - Results and Discussion
+      - Conclusion
+    terminology:
+      spectroscopy: Spectroscopy
+      chromatography: Chromatography
+      catalysis: Catalysis
+    writing_style: precise and data-driven
+
+  medicine:
+    citation_style: Vancouver
+    structure:
+      - Abstract
+      - Introduction
+      - Methods
+      - Results
+      - Discussion
+      - Conclusion
+    terminology:
+      randomized controlled trial: Randomized Controlled Trial (RCT)
+      meta-analysis: Meta-Analysis
+      clinical trial: Clinical Trial
+    writing_style: evidence-based and clinical
+
+  engineering:
+    citation_style: IEEE
+    structure:
+      - Abstract
+      - Introduction
+      - System Design
+      - Implementation
+      - Evaluation
+      - Conclusion
+    terminology:
+      finite element method: Finite Element Method (FEM)
+      control system: Control System
+      signal processing: Signal Processing
+    writing_style: technical and solution-oriented
+
+  social_science:
+    citation_style: APA
+    structure:
+      - Abstract
+      - Introduction
+      - Literature Review
+      - Methodology
+      - Findings
+      - Discussion
+      - Conclusion
+    terminology: {}
+    writing_style: analytical and contextual
+
+  humanities:
+    citation_style: Chicago
+    structure:
+      - Introduction
+      - Literature Review
+      - Analysis
+      - Discussion
+      - Conclusion
+    terminology: {}
+    writing_style: interpretive and argumentative
+
 workspace_types:
   sci:
     paper_length: "6000-8000 words"
