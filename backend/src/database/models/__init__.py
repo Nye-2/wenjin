@@ -13,6 +13,7 @@ from .task import TaskRecord
 from .user import User
 from .workspace import Workspace, WorkspaceType
 from .workspace_literature import WorkspaceLiterature
+from .workspace_template import WorkspaceTemplate
 
 __all__ = [
     # User
@@ -50,4 +51,6 @@ __all__ = [
     "SubagentTaskRecord",
     # Workspace Literature
     "WorkspaceLiterature",
+    # Workspace Template
+    "WorkspaceTemplate",
 ]
