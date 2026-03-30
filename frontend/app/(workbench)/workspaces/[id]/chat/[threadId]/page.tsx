@@ -43,12 +43,12 @@ export default function ChatPage() {
   }, [threadId, skillFromUrl]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden p-4 sm:p-6">
+    <div className="flex h-full flex-col overflow-hidden p-4 sm:p-6 atmosphere-mesh">
       <div className="grid h-full min-h-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="min-h-0 overflow-hidden rounded-[1.75rem] border border-[var(--border-default)] bg-[rgba(251,248,242,0.88)]">
+        <div className="chat-container min-h-0 overflow-hidden rounded-[1.75rem]">
           <ChatPanel workspaceId={workspaceId} entrySeed={effectiveEntrySeed} />
         </div>
-        <div className="min-h-0 overflow-hidden">
+        <div className="min-h-0 overflow-hidden rounded-[1.75rem]">
           <WorkspaceInspector workspaceId={workspaceId} />
         </div>
       </div>
