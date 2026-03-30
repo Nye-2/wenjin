@@ -172,11 +172,15 @@ async def _execute_task_async(
 ) -> dict[str, Any]:
     """Async task execution logic."""
     from src.academic.cache.redis_client import redis_client
-    from src.database import get_db_session
+    from src.database import get_db_session, reset_db_engine
     from src.task.progress import ProgressTracker
     from src.task.store import TaskStore
 
-    # Connect Redis if needed
+    # Reset event-loop-bound resources for this worker process.
+    # Celery forks workers after module import, so global singletons
+    # (redis_client, DB engine) may hold Futures from the parent loop.
+    await reset_db_engine(dispose_current=False)
+    await redis_client.reset_client(close_current=False)
     if redis_client._client is None:
         await redis_client.connect()
 
