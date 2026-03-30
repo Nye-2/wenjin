@@ -20,8 +20,8 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useWorkspaceEventStream(workspaceId || null);
   const { loadWorkspace, fetchArtifacts, fetchActivity, clearWorkspace } = useWorkspaceStore();
-  const { fetchFeatures, clearFeatures } = useFeaturesStore();
-  const { loadLatestThread, clearMessages } = useChatStore();
+  const { fetchFeatures, fetchSkills, clearFeatures, clearSkills } = useFeaturesStore();
+  const { loadThreads, clearMessages } = useChatStore();
 
   useEffect(() => {
     if (!workspaceId) {
@@ -30,24 +30,28 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
 
     void loadWorkspace(workspaceId);
     void fetchFeatures(workspaceId);
+    void fetchSkills(workspaceId);
     void fetchArtifacts(workspaceId);
     void fetchActivity(workspaceId);
-    void loadLatestThread(workspaceId);
+    void loadThreads(workspaceId);
 
     return () => {
       clearWorkspace();
       clearFeatures();
+      clearSkills();
       clearMessages();
     };
   }, [
     workspaceId,
     loadWorkspace,
     fetchFeatures,
+    fetchSkills,
     fetchArtifacts,
     fetchActivity,
-    loadLatestThread,
+    loadThreads,
     clearWorkspace,
     clearFeatures,
+    clearSkills,
     clearMessages,
   ]);
 
