@@ -11,6 +11,7 @@ import type {
   Workspace,
   WorkspaceActivityResponse,
   WorkspaceCreate,
+  WorkspaceChatSkill,
   WorkspaceFeature,
   WorkspaceSummaryData,
 } from "@/lib/api/types";
@@ -134,6 +135,13 @@ export async function getWorkspaceFeatures(
   workspaceId: string
 ): Promise<{ features: WorkspaceFeature[] }> {
   const response = await apiClient.get(`/workspaces/${workspaceId}/features`);
+  return response.data;
+}
+
+export async function getWorkspaceSkills(
+  workspaceId: string
+): Promise<{ skills: WorkspaceChatSkill[] }> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/skills`);
   return response.data;
 }
 

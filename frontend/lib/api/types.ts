@@ -237,6 +237,7 @@ export interface ChatRequest {
   reasoning_effort?: ReasoningEffort;
   stream?: boolean;
   attachments?: ChatAttachment[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface Model {
@@ -257,6 +258,17 @@ export type ModelPurpose = "chat" | "writing" | "image" | "all";
 export interface FeatureStage {
   id: string;
   label: string;
+}
+
+export interface WorkspaceChatSkill {
+  id: string;
+  name: string;
+  description: string;
+  featureId: string;
+  icon: string;
+  color: string;
+  guidancePrompt: string;
+  followUpSkills: string[];
 }
 
 export interface WorkspaceFeature {
