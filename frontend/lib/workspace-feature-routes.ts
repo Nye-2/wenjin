@@ -6,50 +6,34 @@ type RouteParamValue =
   | null
   | undefined;
 
-export const workspaceFeatureRouteMap: Record<string, string> = {
+export const workspaceFeatureSkillMap: Record<string, string | null> = {
   deep_research: "deep-research",
-  literature_management: "literature",
-  opening_research: "opening-research",
-  thesis_writing: "thesis-writing",
-  figure_generation: "figure-generation",
-  compile_export: "compile-export",
-  literature_search: "literature-search",
-  paper_analysis: "paper-analysis",
-  writing: "writing",
+  literature_management: "deep-research",
+  opening_research: "literature-review",
+  thesis_writing: null,
+  figure_generation: null,
+  compile_export: null,
+  literature_search: "deep-research",
+  paper_analysis: null,
+  writing: null,
   literature_review: "literature-review",
-  framework_outline: "framework-outline",
-  peer_review: "peer-review",
-  journal_recommend: "journal-recommend",
-  proposal_outline: "proposal-outline",
-  background_research: "background-research",
-  experiment_design: "experiment-design",
-  copyright_materials: "copyright-materials",
-  technical_description: "technical-description",
-  patent_outline: "patent-outline",
-  prior_art_search: "prior-art-search",
+  framework_outline: "framework-designer",
+  peer_review: "peer-reviewer",
+  journal_recommend: "journal-recommender",
+  proposal_outline: "proposal-writer",
+  background_research: null,
+  experiment_design: "experiment-designer",
+  copyright_materials: null,
+  technical_description: null,
+  patent_outline: null,
+  prior_art_search: null,
 };
 
-export function getWorkspaceFeatureRoute(
-  workspaceId: string,
-  featureId: string | null | undefined,
+function appendWorkspaceFeatureQuery(
+  query: URLSearchParams,
   params?: Record<string, RouteParamValue>
-): string | null {
-  if (!workspaceId || !featureId) {
-    return null;
-  }
-
-  const route = workspaceFeatureRouteMap[featureId];
-  if (!route) {
-    return null;
-  }
-
-  const pathname = `/workspaces/${workspaceId}/${route}`;
-  if (!params) {
-    return pathname;
-  }
-
-  const query = new URLSearchParams();
-  for (const [key, rawValue] of Object.entries(params)) {
+) {
+  for (const [key, rawValue] of Object.entries(params ?? {})) {
     if (rawValue === null || rawValue === undefined || rawValue === "") {
       continue;
     }
@@ -61,8 +45,58 @@ export function getWorkspaceFeatureRoute(
     if (normalized.length === 0) {
       continue;
     }
-    query.set(key, normalized.join(","));
+    for (const value of normalized) {
+      query.append(key, value);
+    }
   }
+}
+
+function resolveWorkspaceFeatureSkillId(
+  featureId: string,
+  params?: Record<string, RouteParamValue>
+): string | null {
+  if (featureId === "thesis_writing") {
+    const action = String(params?.action ?? "").trim().toLowerCase();
+    if (action === "generate_outline") {
+      return "framework-designer";
+    }
+    return "fullpaper-writer";
+  }
+
+  return workspaceFeatureSkillMap[featureId] ?? null;
+}
+
+export function getWorkspaceFeatureRoute(
+  workspaceId: string,
+  featureId: string | null | undefined,
+  params?: Record<string, RouteParamValue>
+): string | null {
+  return getWorkspaceFeatureChatRoute(workspaceId, featureId, params);
+}
+
+export function getWorkspaceFeatureChatRoute(
+  workspaceId: string,
+  featureId: string | null | undefined,
+  params?: Record<string, RouteParamValue>
+): string | null {
+  if (!workspaceId || !featureId) {
+    return null;
+  }
+
+  if (!(featureId in workspaceFeatureSkillMap)) {
+    return null;
+  }
+
+  const pathname = `/workspaces/${workspaceId}/chat/new`;
+  const query = new URLSearchParams();
+  query.set("feature", featureId);
+
+  const skillId = resolveWorkspaceFeatureSkillId(featureId, params);
+  if (skillId) {
+    query.set("skill", skillId);
+  }
+
+  appendWorkspaceFeatureQuery(query, params);
 
   const suffix = query.toString();
   return suffix ? `${pathname}?${suffix}` : pathname;
