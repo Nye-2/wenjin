@@ -93,7 +93,7 @@ function RunningTasksSection({
             key={task.id}
             type="button"
             onClick={() => router.push(`/workspaces/${workspaceId}/chat/new`)}
-            className="route-card flex w-full items-center gap-4 rounded-2xl px-5 py-4 text-left transition-transform hover:-translate-y-0.5"
+            className="route-card-hover flex w-full items-center gap-4 rounded-2xl px-5 py-4 text-left"
           >
             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--brand-brass)]" />
             <div className="min-w-0 flex-1">
@@ -151,7 +151,7 @@ function StagedFeatureCards({
       <div className="space-y-6">
         {grouped.map(({ stage, features: stageFeatures }) => (
           <div key={stage.id} id={`stage-${stage.id}`}>
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
+            <p className="section-accent mb-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
               {stage.title}
             </p>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -162,7 +162,7 @@ function StagedFeatureCards({
                     key={feature.id}
                     type="button"
                     onClick={() => route && router.push(route)}
-                    className="route-card flex items-start gap-3 rounded-2xl p-4 text-left transition-transform hover:-translate-y-0.5"
+                    className="route-card-hover flex items-start gap-3 rounded-2xl p-4 text-left"
                   >
                     <span
                       className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-[rgba(31,66,99,0.08)] text-lg leading-none"
@@ -219,7 +219,7 @@ function RecentConversations({
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.05 }}
               onClick={() => router.push(`/workspaces/${workspaceId}/chat/${thread.id}`)}
-              className="flex w-full items-center gap-3 rounded-2xl border border-[var(--border-default)] bg-white/76 p-3 text-left transition-colors hover:bg-[var(--bg-surface)]"
+              className="flex w-full items-center gap-3 rounded-xl border border-[var(--border-default)] bg-white/76 p-3 text-left transition-all duration-300 hover:border-[var(--accent-primary)]/20 hover:bg-[var(--bg-elevated)] hover:shadow-sm"
             >
               <div className="rounded-xl bg-[var(--bg-surface)] p-2">
                 <MessageSquare className="h-4 w-4 text-[var(--text-muted)]" />
@@ -335,7 +335,7 @@ export default function WorkbenchPage() {
 
   return (
     <div className="flex h-screen flex-col bg-[var(--bg-base)]">
-      <header className="border-b border-[var(--border-default)] bg-[rgba(251,248,242,0.92)] px-6 py-5 backdrop-blur-xl">
+      <header className="border-b border-[var(--border-default)] bg-[rgba(251,248,242,0.94)] px-6 py-4 backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <motion.button
@@ -379,11 +379,11 @@ export default function WorkbenchPage() {
       </header>
 
       <ErrorBoundary>
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-6 atmosphere-mesh">
           <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
             <div className="space-y-6">
               {recommendedFeature ? (
-                <section className="route-card rounded-2xl p-6">
+                <section className="route-card-featured relative overflow-hidden rounded-2xl p-5">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
                     推荐下一步
                   </p>
