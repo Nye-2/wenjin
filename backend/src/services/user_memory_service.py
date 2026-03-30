@@ -15,22 +15,31 @@ logger = logging.getLogger(__name__)
 _SIMILARITY_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]")
 _SIMILARITY_STOPWORDS = {"user", "assistant"}
 
-KNOWLEDGE_EXTRACTION_PROMPT = """从以下对话中提取学术相关知识点。返回 JSON 数组:
+KNOWLEDGE_EXTRACTION_PROMPT = """从以下对话中提取对未来协作有价值的学术相关知识点。返回 JSON 数组:
 [
   {{
     "category": "preference | knowledge | context | behavior | goal",
-    "content": "简洁描述（一句话）",
+    "content": "简洁但完整的描述（一到两句话，包含关键细节）",
     "confidence": 0.5-1.0
   }}
 ]
 
-仅提取明确或高度可推断的信息。不要猜测。不确定时不要提取。
-category 说明:
-- preference: 引用格式偏好、写作风格、语言偏好
-- knowledge: 学科知识、专业术语
-- context: 当前研究方向、进展状态
-- behavior: 操作习惯
-- goal: 研究目标、里程碑
+提取原则：
+- 只提取明确表述或高度可推断的信息，不要猜测
+- 优先提取对后续工作有指导价值的信息
+- 合并相近的知识点，避免重复
+
+各类别提取指引：
+- preference（偏好）：引用格式（APA/IEEE/GB-T 等）、写作语言、排版要求、导师/评审的特殊要求、偏好的论文结构
+- knowledge（知识）：用户的专业领域、掌握的方法论、熟悉的理论框架、专业术语使用习惯
+- context（上下文）：当前研究的具体问题、进展阶段、遇到的困难、已完成的工作
+- behavior（行为）：喜欢的交互方式（详细 vs 简洁）、是否需要中英对照、是否偏好先看大纲再写细节
+- goal（目标）：论文投稿目标期刊、答辩时间、基金申请截止日期、预期成果
+
+示例：
+- {{"category": "preference", "content": "用户要求参考文献使用 IEEE 格式，且中英文文献分开排列", "confidence": 0.95}}
+- {{"category": "context", "content": "用户正在研究基于 Transformer 的图像分割方法，目前在实验阶段", "confidence": 0.9}}
+- {{"category": "goal", "content": "计划在 2026 年 6 月前完成硕士论文初稿", "confidence": 0.85}}
 
 对话内容:
 {conversation}
