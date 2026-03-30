@@ -226,7 +226,7 @@ function RecentConversations({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-[var(--text-primary)]">
-                  {thread.title || "未命名分支"}
+                  {thread.title || "未命名对话"}
                 </p>
                 <p className="mt-1 text-xs text-[var(--text-muted)]">
                   {formatRelativeTime(thread.updated_at, locale)}
