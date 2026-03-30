@@ -21,7 +21,6 @@ import {
   resolveWorkspaceFeatureActionContext,
   type WorkspaceFeatureActionContext,
 } from "@/lib/workspace-feature-action-context";
-import { formatWorkspaceChatSkillLabel } from "@/lib/workspace-chat-skills";
 import {
   type ActivityFilter,
   inferActivityModuleId,
@@ -33,9 +32,13 @@ type FeatureRouteParams = WorkspaceFeatureActionContext["routeParams"];
 
 interface KnowledgePanelProps {
   workspaceId: string;
+  embedded?: boolean;
 }
 
-export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
+export function KnowledgePanel({
+  workspaceId,
+  embedded = false,
+}: KnowledgePanelProps) {
   const router = useRouter();
   const {
     workspace,
@@ -43,7 +46,7 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
     artifacts,
     isActivityLoading,
   } = useWorkspaceStore();
-  const { getFeatureById } = useFeaturesStore();
+  const { getFeatureById, getSkillById } = useFeaturesStore();
   const { loadThread } = useChatStore();
   const { startTask } = useTaskStore();
   const [filter, setFilter] = useState<ActivityFilter>("all");
@@ -53,7 +56,7 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
   const [isRetrying, setIsRetrying] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const resolveSkillLabel = (skillId: string | null | undefined): string | null =>
-    formatWorkspaceChatSkillLabel(workspace?.type, skillId);
+    skillId ? (getSkillById(skillId)?.name ?? skillId) : null;
 
   const moduleOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -202,6 +205,7 @@ export function KnowledgePanel({ workspaceId }: KnowledgePanelProps) {
         workspace={workspace}
         artifacts={artifacts}
         activities={activities}
+        embedded={embedded}
         visibleItems={visibleItems}
         isActivityLoading={isActivityLoading}
         filter={filter}

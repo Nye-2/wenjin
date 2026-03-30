@@ -1,5 +1,4 @@
 import type { ThreadSummary, Workspace } from "@/lib/api";
-import { formatWorkspaceChatSkillLabel } from "@/lib/workspace-chat-skills";
 import type { Message } from "@/stores/chat";
 
 interface ExportableThread extends Partial<ThreadSummary> {
@@ -14,7 +13,11 @@ function sanitizeFilenameSegment(value: string | null | undefined): string {
 }
 
 function resolveConversationSkillLabel(thread: ExportableThread): string | null {
-  return formatWorkspaceChatSkillLabel(thread.workspace_type, thread.skill);
+  const skillId = thread.skill?.trim();
+  if (!skillId) {
+    return null;
+  }
+  return skillId.replace(/[-_]/g, " ");
 }
 
 function resolveConversationTitle(thread: ExportableThread): string {

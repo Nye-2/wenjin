@@ -88,49 +88,6 @@ function formatPromptValue(value: unknown): string | null {
   return null;
 }
 
-const featureEntryInstructions: Record<string, string> = {
-  deep_research:
-    "请以对话方式引导用户明确调研主题。先确认研究方向，再询问是否有特定关键词或已知参考文献。收集足够信息后，主动开始执行深度调研。",
-  literature_search:
-    "询问用户要检索的主题和关键词。了解检索范围（时间、期刊、语言）。确认后直接开始检索。",
-  literature_review:
-    "询问用户要综述的具体主题和范围。了解是否有已读的核心文献。确认综述的深度和篇幅要求。",
-  literature_management:
-    "询问用户想整理哪些文献，是否需要分类或生成阅读笔记。",
-  opening_research:
-    "先了解用户的研究方向和选题背景。询问是否有导师指定的方向或要求。根据信息生成开题报告框架。",
-  background_research:
-    "询问用户要调研的具体背景问题。了解需要覆盖的范围和深度。",
-  thesis_writing:
-    "先确认用户要做什么：生成大纲、撰写全文还是写单章节。如果是大纲，询问论文题目和主要研究内容；如果是写章节，询问要写哪一章及章节主题。",
-  writing:
-    "询问用户要写的具体章节或段落主题。了解写作要求（字数、风格、引用格式）。",
-  framework_outline:
-    "询问论文主题和核心创新点。了解用户期望的章节数量和深度。",
-  paper_analysis:
-    "询问要分析的论文标题或提供 PDF。明确分析重点：方法、实验、结论还是创新点。",
-  peer_review:
-    "询问要评审的论文内容或主题。以审稿人视角给出结构化评审意见。",
-  journal_recommend:
-    "了解论文主题、方法和目标影响因子范围。推荐匹配的期刊并说明理由。",
-  figure_generation:
-    "询问要表达的概念、流程或数据。了解图表类型（流程图、架构图、数据图表）。",
-  proposal_outline:
-    "了解研究课题和目标基金类型。询问是否有特定格式要求。",
-  experiment_design:
-    "了解研究假设和目标。询问实验条件、变量和评估指标。",
-  compile_export:
-    "确认要编译的内容范围和输出格式。检查是否有缺失的章节或引用。",
-  copyright_materials:
-    "询问软件名称、版本和核心功能。了解申请类型（原始取得/继受取得）。",
-  technical_description:
-    "询问软件的技术架构和主要功能模块。了解目标读者（技术人员/审查员）。",
-  patent_outline:
-    "了解发明的技术领域和核心创新点。区分发明专利还是实用新型。",
-  prior_art_search:
-    "询问技术方案的关键特征。确认检索范围（国内/国际专利、学术文献）。",
-};
-
 export function buildWorkspaceChatEntryPrompt(options: {
   seed: WorkspaceChatEntrySeed;
   feature?: Pick<WorkspaceFeature, "name" | "description"> | null;
@@ -162,12 +119,6 @@ export function buildWorkspaceChatEntryPrompt(options: {
   if (paramLines.length > 0) {
     promptLines.push("已知参数：");
     promptLines.push(...paramLines);
-  }
-
-  const instruction = featureEntryInstructions[seed.featureId];
-  if (instruction) {
-    promptLines.push("");
-    promptLines.push(`引导要求：${instruction}`);
   }
 
   promptLines.push("请结合当前工作区上下文推进；如果信息仍不够，请直接指出还缺什么。");
