@@ -351,6 +351,59 @@ def apply_prompt_template(
         if "structure" in discipline_norms:
             base_prompt += f"\n- Paper Structure: {' → '.join(discipline_norms['structure'])}"
 
+    # Add template context
+    template_context = state.get("template_context")
+    if template_context:
+        template_name = template_context.get("name", "自定义模板")
+        base_prompt += f"\n\n## 写作模板规范\n\n当前工作区已配置写作模板：{template_name}"
+
+        structure = template_context.get("structure")
+        if isinstance(structure, dict):
+            chapters = structure.get("chapters", [])
+            if chapters:
+                base_prompt += "\n\n### 章节结构要求"
+                for ch in chapters:
+                    if not isinstance(ch, dict):
+                        continue
+                    title = ch.get("title", "")
+                    desc = ch.get("description", "")
+                    wc = ch.get("suggested_word_count", "")
+                    required = "必需" if ch.get("required") else "可选"
+                    line = f"\n- {title} ({required})"
+                    if desc:
+                        line += f"：{desc}"
+                    if wc:
+                        line += f" [{wc}字]"
+                    base_prompt += line
+
+        format_spec = template_context.get("format_spec")
+        if isinstance(format_spec, dict):
+            base_prompt += "\n\n### 排版格式"
+            for key, value in format_spec.items():
+                if value is not None:
+                    label = key.replace("_", " ").title()
+                    if isinstance(value, dict):
+                        formatted = ", ".join(f"{k}: {v}" for k, v in value.items() if v)
+                        base_prompt += f"\n- {label}: {formatted}"
+                    else:
+                        base_prompt += f"\n- {label}: {value}"
+
+        content_guidelines = template_context.get("content_guidelines")
+        if isinstance(content_guidelines, dict):
+            base_prompt += "\n\n### 内容要求"
+            for key, value in content_guidelines.items():
+                if value is None:
+                    continue
+                label = key.replace("_", " ").title()
+                if isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            base_prompt += f"\n- {item.get('chapter', '')}: {item.get('requirement', '')}"
+                else:
+                    base_prompt += f"\n- {label}: {value}"
+
+        base_prompt += "\n\n请严格按照以上模板规范生成内容。如果用户的需求与模板规范冲突，优先询问用户。"
+
     configurable = config.get("configurable", {})
     selected_skill = (
         configurable.get("selected_skill")

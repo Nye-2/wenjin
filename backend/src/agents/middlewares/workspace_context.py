@@ -56,9 +56,28 @@ class WorkspaceContextMiddleware(Middleware):
         if not workspace:
             return dict(state)
 
+        # Load active template for this workspace
+        template_dict = None
+        try:
+            from src.services.template_service import TemplateService
+            from src.database import get_db_session
+            async with get_db_session() as template_db:
+                ts = TemplateService(template_db)
+                active_template = await ts.get_active(workspace_id)
+                if active_template:
+                    template_dict = {
+                        "name": active_template.name,
+                        "structure": active_template.structure,
+                        "format_spec": active_template.format_spec,
+                        "content_guidelines": active_template.content_guidelines,
+                    }
+        except Exception:
+            logger.warning("Failed to load workspace template, skipping")
+
         return {
             **state,
             "workspace_type": workspace.type,
             "discipline": workspace.discipline,
             "workspace_config": workspace.config,
+            "template_context": template_dict,
         }

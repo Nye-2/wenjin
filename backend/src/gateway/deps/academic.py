@@ -34,3 +34,10 @@ async def get_literature_service(
 ) -> LiteratureService:
     """Get literature service instance."""
     return LiteratureService(db)
+
+
+async def get_template_service(
+    db: AsyncSession = Depends(get_db),
+) -> "TemplateService":
+    from src.services.template_service import TemplateService
+    return TemplateService(db)

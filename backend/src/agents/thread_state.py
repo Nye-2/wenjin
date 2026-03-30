@@ -1,12 +1,10 @@
 """ThreadState with academic extensions.
 
-Extends deer-flow's AgentState (TypedDict-based) with academic-specific fields
-for workspace context, literature tracking, and artifact management.
+Defines Wenjin's typed agent state with workspace context, literature
+tracking, and artifact management on top of the LangGraph message reducer.
 
-AgentState is defined locally to match deer-flow's pattern (TypedDict with
-add_messages reducer on messages) while avoiding a broken import chain in
-langchain 1.2.x (langchain.agents.__init__ -> langchain.schema ->
-langchain_core.memory which was removed in langchain_core >= 1.2).
+AgentState is defined locally to keep the state contract explicit and avoid
+depending on unstable upstream import paths.
 """
 
 from collections.abc import Mapping
@@ -18,11 +16,11 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
 
-# ============ AgentState base (deer-flow compatible) ============
+# ============ AgentState base ============
 
 
 class AgentState(TypedDict):
-    """Base agent state compatible with deer-flow's AgentState.
+    """Base agent state for Wenjin agent workflows.
 
     Provides the messages field with the add_messages reducer,
     which is the core requirement for LangGraph agent workflows.
@@ -71,7 +69,7 @@ def merge_artifacts(
     existing: list[str] | None,
     new: list[str] | None,
 ) -> list[str]:
-    """Reducer for artifacts list (string paths, deer-flow style) - merges and deduplicates."""
+    """Reducer for artifact path lists that merges and deduplicates."""
     if existing is None:
         return new or []
     if new is None:
@@ -179,16 +177,16 @@ def merge_viewed_images(
 
 
 class ThreadState(AgentState):
-    """Extended ThreadState with deer-flow base fields and academic extensions.
+    """Extended ThreadState with Wenjin runtime fields and academic extensions.
 
     Inherits from AgentState (TypedDict-based) which provides:
         - messages: Annotated list with add_messages reducer
 
-    Deer-flow infrastructure fields:
+    Shared infrastructure fields:
         - sandbox: SandboxState for execution environment
         - thread_data: ThreadDataState for per-thread directories
         - title: Auto-generated thread title
-        - artifacts: String paths (deer-flow style, with dedup reducer)
+        - artifacts: String paths with a deduplication reducer
         - todos: Task list for plan mode
         - uploaded_files: List of uploaded file info dicts
         - viewed_images: Image data dict with merge reducer
@@ -208,7 +206,7 @@ class ThreadState(AgentState):
         - subagent_tasks: Subagent task tracking
     """
 
-    # Deer-flow base fields
+    # Shared base fields
     sandbox: NotRequired[SandboxState | None]
     thread_data: NotRequired[ThreadDataState | None]
     title: NotRequired[str | None]
@@ -228,6 +226,7 @@ class ThreadState(AgentState):
     knowledge_context: NotRequired[str | None]
     memory_context: NotRequired[str | None]
     discipline_norms: NotRequired[dict[str, Any] | None]
+    template_context: NotRequired[dict[str, Any] | None]
     current_skill: NotRequired[str | None]
 
     # Academic artifacts with deduplication reducer
@@ -256,6 +255,8 @@ def create_thread_state(
     }
     if initial is not None:
         payload.update(dict(initial))
+        if "template_context" not in payload:
+            payload["template_context"] = (dict(initial)).get("template_context")
     payload.update(overrides)
     return cast(ThreadState, payload)
 

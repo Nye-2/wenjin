@@ -18,6 +18,7 @@ _EXPORT_MODULES = {
     "get_papers_handler": "src.gateway.deps.application",
     "get_release_gate_service": "src.gateway.deps.dashboard",
     "get_task_service": "src.gateway.deps.tasks",
+    "get_template_service": "src.gateway.deps.academic",
     "get_user_dashboard_service": "src.gateway.deps.dashboard",
     "get_workspace_activity_service": "src.gateway.deps.dashboard",
     "get_workspace_service": "src.gateway.deps.academic",
