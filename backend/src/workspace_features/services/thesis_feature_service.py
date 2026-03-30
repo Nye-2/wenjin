@@ -564,7 +564,26 @@ async def build_compile_payload(
     abstract_latex = "\\begin{abstract}\n" + "\n".join(abstract_lines) + "\n\\end{abstract}\n"
 
     language = resolve_thesis_output_language(template)
-    final_latex = get_template(language).format(
+
+    # Load workspace template if available
+    template_preamble = None
+    try:
+        from src.services.template_service import TemplateService
+        async with get_db_session() as template_db:
+            ts = TemplateService(template_db)
+            active_template = await ts.get_active(workspace_id)
+            if active_template and active_template.latex_preamble:
+                template_preamble = active_template.latex_preamble
+    except Exception:
+        logger.warning("Failed to load template for compilation, using default")
+
+    # Use workspace template preamble or default
+    if template_preamble:
+        latex_template = template_preamble
+    else:
+        latex_template = get_template(language)
+
+    final_latex = latex_template.format(
         title=_escape_latex(paper_title),
         author="",
         abstract=abstract_latex,
