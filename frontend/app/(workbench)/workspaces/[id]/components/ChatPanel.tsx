@@ -265,10 +265,24 @@ export function ChatPanel({ workspaceId, entrySeed = null }: ChatPanelProps) {
       seed: entrySeed,
       feature: entrySeedFeature ?? null,
     });
-    setInputValue(prompt);
     setActionError(null);
     setPendingEntrySeed(entrySeed);
     appliedEntrySeedKeyRef.current = nextSeedKey;
+
+    // Auto-send entry prompt so LLM generates the guidance message
+    void sendMessage(prompt, {
+      workspaceId,
+      skill: entrySeed.skillId ?? currentSkill,
+      model: selectedModel || undefined,
+      metadata: {
+        orchestration: {
+          feature_id: entrySeed.featureId,
+          params: entrySeed.params,
+        },
+      },
+    }).then(() => {
+      setPendingEntrySeed(null);
+    });
   }, [entrySeed, entrySeedFeature]);
 
   useEffect(() => {
