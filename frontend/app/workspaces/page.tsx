@@ -108,15 +108,16 @@ function WorkspaceRouteCard({
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 18 }}
+      initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -18 }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       className="group h-full"
     >
       <div
         className={cn(
-          "route-card relative flex h-full flex-col overflow-hidden rounded-[1.9rem] p-6 transition-transform hover:-translate-y-1",
-          featured && "border-[rgba(166,124,57,0.18)]"
+          "route-card-hover relative flex h-full flex-col overflow-hidden rounded-[1.9rem] p-6",
+          featured && "route-card-featured"
         )}
       >
         <div className="absolute right-4 top-4 opacity-0 transition-opacity group-hover:opacity-100">
@@ -352,7 +353,7 @@ export default function WorkspacesPage() {
     <div className="min-h-screen bg-[var(--bg-base)]">
       <Header />
 
-      <main className="route-topography relative overflow-hidden px-4 pb-16 pt-24 sm:px-6 lg:px-8">
+      <main className="route-topography atmosphere-mesh texture-noise relative overflow-hidden px-4 pb-16 pt-24 sm:px-6 lg:px-8">
         <div className="route-grid absolute inset-x-6 bottom-8 top-24 rounded-[2rem] opacity-25" />
         <div className="relative mx-auto max-w-7xl space-y-8">
           <LiquidGlassCard
@@ -420,7 +421,7 @@ export default function WorkspacesPage() {
           <section className="space-y-5">
             <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div>
-                <h2 className="text-2xl font-semibold text-[var(--text-primary)]">
+                <h2 className="section-accent text-2xl font-semibold text-[var(--text-primary)]">
                   {t("workspace.sections.recent")}
                 </h2>
                 <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
@@ -476,7 +477,7 @@ export default function WorkspacesPage() {
 
           <section className="space-y-5">
             <div>
-              <h2 className="text-2xl font-semibold text-[var(--text-primary)]">
+              <h2 className="section-accent text-2xl font-semibold text-[var(--text-primary)]">
                 {t("workspace.sections.templates")}
               </h2>
               <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
@@ -491,12 +492,13 @@ export default function WorkspacesPage() {
                   <motion.button
                     key={type.value}
                     type="button"
-                    initial={{ opacity: 0, y: 16 }}
+                    initial={{ opacity: 0, y: 20 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true }}
-                    transition={{ duration: 0.24 }}
+                    transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                    whileHover={{ y: -4 }}
                     onClick={() => openCreateModal(type.value)}
-                    className="route-card flex h-full flex-col rounded-[1.65rem] p-5 text-left transition-transform hover:-translate-y-1"
+                    className="route-card-hover flex h-full flex-col rounded-[1.65rem] p-5 text-left"
                   >
                     <div
                       className="flex h-12 w-12 items-center justify-center rounded-2xl"
@@ -521,7 +523,7 @@ export default function WorkspacesPage() {
 
           <section className="space-y-5">
             <div>
-              <h2 className="text-2xl font-semibold text-[var(--text-primary)]">
+              <h2 className="section-accent text-2xl font-semibold text-[var(--text-primary)]">
                 {t("workspace.sections.all")}
               </h2>
               <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
@@ -587,7 +589,7 @@ export default function WorkspacesPage() {
                 onClick={(event) => event.stopPropagation()}
                 className="w-full max-w-3xl"
               >
-                <div className="route-card rounded-[2rem] p-8">
+                <div className="route-card atmosphere-mesh rounded-[2rem] p-8">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--accent-secondary)]">
