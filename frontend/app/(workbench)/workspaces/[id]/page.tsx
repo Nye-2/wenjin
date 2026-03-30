@@ -141,6 +141,8 @@ function StagedFeatureCards({
       .map((stage) => ({ stage, features: groups.get(stage.id)! }));
   }, [features]);
 
+  if (grouped.length === 0) return null;
+
   return (
     <section>
       <div className="mb-4">
@@ -246,7 +248,7 @@ export default function WorkbenchPage() {
 
   const { workspace, isWorkspaceLoading, error, artifacts } = useWorkspaceStore();
   const { features } = useFeaturesStore();
-  const { threads, loadThreads } = useChatStore();
+  const { threads, loadThreads, isThreadsLoading } = useChatStore();
   const { modules, fetchDashboard, reset: resetDashboard } = useDashboardStore();
 
   useEffect(() => {
@@ -261,10 +263,10 @@ export default function WorkbenchPage() {
 
   // Auto-redirect new workspaces to onboarding chat
   useEffect(() => {
-    if (workspace && !isWorkspaceLoading && threads.length === 0 && artifacts.length === 0 && features.length > 0) {
+    if (workspace && !isWorkspaceLoading && !isThreadsLoading && threads.length === 0 && artifacts.length === 0 && features.length > 0) {
       router.replace(`/workspaces/${workspaceId}/chat/new?onboarding=true`);
     }
-  }, [workspace, isWorkspaceLoading, threads.length, artifacts.length, features.length, router, workspaceId]);
+  }, [workspace, isWorkspaceLoading, isThreadsLoading, threads.length, artifacts.length, features.length, router, workspaceId]);
 
   const runningTasks = useMemo<RunningTask[]>(() => {
     const featureById = new Map(features.map((feature) => [feature.id, feature]));
