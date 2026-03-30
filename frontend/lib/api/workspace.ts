@@ -14,6 +14,7 @@ import type {
   WorkspaceChatSkill,
   WorkspaceFeature,
   WorkspaceSummaryData,
+  WorkspaceTemplate,
 } from "@/lib/api/types";
 
 export async function listWorkspaces(): Promise<{ workspaces: Workspace[] }> {
@@ -263,4 +264,39 @@ export async function getLiteratureCount(
     `/workspaces/${workspaceId}/literature/count`
   );
   return response.data;
+}
+
+export async function getWorkspaceTemplates(
+  workspaceId: string
+): Promise<{ templates: WorkspaceTemplate[] }> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/templates`);
+  return response.data;
+}
+
+export async function getActiveTemplate(
+  workspaceId: string
+): Promise<WorkspaceTemplate | null> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/templates/active`);
+  return response.data;
+}
+
+export async function uploadWorkspaceTemplate(
+  workspaceId: string,
+  file: File
+): Promise<WorkspaceTemplate> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/templates/upload`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } }
+  );
+  return response.data;
+}
+
+export async function deleteWorkspaceTemplate(
+  workspaceId: string,
+  templateId: string
+): Promise<void> {
+  await apiClient.delete(`/workspaces/${workspaceId}/templates/${templateId}`);
 }

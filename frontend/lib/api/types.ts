@@ -18,6 +18,18 @@ export interface WorkspaceCreate {
   config?: Record<string, unknown>;
 }
 
+export interface WorkspaceTemplate {
+  id: string;
+  name: string;
+  category: string;
+  sourceType: string;
+  structure: Record<string, unknown> | null;
+  formatSpec: Record<string, unknown> | null;
+  contentGuidelines: Record<string, unknown> | null;
+  isActive: boolean;
+  isBuiltin: boolean;
+}
+
 export interface Paper {
   id: string;
   doi?: string;
