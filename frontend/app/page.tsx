@@ -6,9 +6,14 @@ import type { MouseEvent } from "react";
 import {
   ArrowRight,
   BookOpen,
+  FileText,
   FlaskConical,
+  Code2,
   Lightbulb,
-  PenTool,
+  MessageSquare,
+  Layers,
+  GitMerge,
+  Archive,
   Send,
 } from "lucide-react";
 import { LiquidGlassCard } from "@/components/glass/liquid-glass-card";
@@ -24,6 +29,10 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth";
 
 type StageTone = "done" | "active" | "queued";
+
+/* ------------------------------------------------------------------ */
+/*  Helper components                                                  */
+/* ------------------------------------------------------------------ */
 
 function EnterWorkspaceButton({
   label,
@@ -54,7 +63,7 @@ function EnterWorkspaceButton({
       whileTap={buttonTap}
     >
       <span>{label}</span>
-      {withIcon && <Send className={cn("shrink-0", compact ? "h-4 w-4" : "h-4 w-4")} />}
+      {withIcon && <Send className="h-4 w-4 shrink-0" />}
     </motion.a>
   );
 }
@@ -62,7 +71,7 @@ function EnterWorkspaceButton({
 function LearnMoreButton({ label }: { label: string }) {
   return (
     <motion.a
-      href="#capabilities"
+      href="#philosophy"
       className="inline-flex items-center gap-2 rounded-2xl border border-[var(--brand-line)] bg-white/72 px-7 py-4 text-base font-semibold text-[var(--brand-navy)] transition-colors hover:border-[var(--brand-teal)]/40 hover:bg-white"
       whileHover={{ scale: 1.02 }}
       whileTap={buttonTap}
@@ -97,6 +106,10 @@ function SectionHeading({
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Stage preview card data                                            */
+/* ------------------------------------------------------------------ */
+
 const stageToneStyles: Record<
   StageTone,
   { dot: string; badge: string; panel: string }
@@ -121,79 +134,14 @@ const stageToneStyles: Record<
   },
 };
 
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
 export default function HomePage() {
   const { t } = useI18n();
 
-  const taskTypes = [
-    {
-      icon: BookOpen,
-      title: t("features.deepResearch.title"),
-      description: t("features.deepResearch.description"),
-      badge: t("workspace.types.sci"),
-      accent: "var(--brand-navy)",
-    },
-    {
-      icon: FlaskConical,
-      title: t("features.paperWriting.title"),
-      description: t("features.paperWriting.description"),
-      badge: t("workspace.types.proposal"),
-      accent: "var(--brand-teal)",
-    },
-    {
-      icon: PenTool,
-      title: t("features.ideaGeneration.title"),
-      description: t("features.ideaGeneration.description"),
-      badge: t("workspace.types.patent"),
-      accent: "var(--brand-brass)",
-    },
-    {
-      icon: Lightbulb,
-      title: t("features.experimentDesign.title"),
-      description: t("features.experimentDesign.description"),
-      badge: t("workspace.types.thesis"),
-      accent: "var(--brand-cyan)",
-    },
-  ];
-
-  const pathStages: Array<{
-    key: string;
-    tone: StageTone;
-  }> = [
-    { key: "stage1", tone: "done" },
-    { key: "stage2", tone: "active" },
-    { key: "stage3", tone: "queued" },
-    { key: "stage4", tone: "queued" },
-    { key: "stage5", tone: "queued" },
-  ];
-
-  const workflowSteps = [
-    {
-      index: "01",
-      title: t("home.workflow.step1.title"),
-      description: t("home.workflow.step1.description"),
-    },
-    {
-      index: "02",
-      title: t("home.workflow.step2.title"),
-      description: t("home.workflow.step2.description"),
-    },
-    {
-      index: "03",
-      title: t("home.workflow.step3.title"),
-      description: t("home.workflow.step3.description"),
-    },
-    {
-      index: "04",
-      title: t("home.workflow.step4.title"),
-      description: t("home.workflow.step4.description"),
-    },
-    {
-      index: "05",
-      title: t("home.workflow.step5.title"),
-      description: t("home.workflow.step5.description"),
-    },
-  ];
-
+  /* ---- Hero type badges ---- */
   const supportedTypes = [
     t("workspace.types.sci"),
     t("workspace.types.proposal"),
@@ -201,10 +149,108 @@ export default function HomePage() {
     t("workspace.types.thesis"),
   ];
 
+  /* ---- Stage preview ---- */
+  const pathStages: Array<{ key: string; tone: StageTone }> = [
+    { key: "stage1", tone: "done" },
+    { key: "stage2", tone: "active" },
+    { key: "stage3", tone: "queued" },
+    { key: "stage4", tone: "queued" },
+    { key: "stage5", tone: "queued" },
+  ];
+
+  /* ---- Section 2: Philosophy cards ---- */
+  const philosophyCards = [
+    {
+      key: "conversation",
+      icon: MessageSquare,
+      accent: "var(--brand-navy)",
+      accentBg: "rgba(31, 66, 99, 0.12)",
+    },
+    {
+      key: "stages",
+      icon: Layers,
+      accent: "var(--brand-teal)",
+      accentBg: "rgba(46, 111, 109, 0.12)",
+    },
+    {
+      key: "singleThread",
+      icon: GitMerge,
+      accent: "var(--brand-brass)",
+      accentBg: "rgba(166, 124, 57, 0.12)",
+    },
+    {
+      key: "artifacts",
+      icon: Archive,
+      accent: "var(--brand-cyan)",
+      accentBg: "rgba(92, 151, 165, 0.14)",
+    },
+  ] as const;
+
+  /* ---- Section 3: Workspace types ---- */
+  const workspaceTypes = [
+    {
+      key: "thesis",
+      icon: BookOpen,
+      accent: "var(--brand-cyan)",
+      accentBg: "rgba(92, 151, 165, 0.16)",
+      borderAccent: "rgba(92, 151, 165, 0.35)",
+    },
+    {
+      key: "sci",
+      icon: FileText,
+      accent: "var(--brand-navy)",
+      accentBg: "rgba(31, 66, 99, 0.14)",
+      borderAccent: "rgba(31, 66, 99, 0.30)",
+    },
+    {
+      key: "proposal",
+      icon: FlaskConical,
+      accent: "var(--brand-teal)",
+      accentBg: "rgba(46, 111, 109, 0.14)",
+      borderAccent: "rgba(46, 111, 109, 0.30)",
+    },
+    {
+      key: "software_copyright",
+      icon: Code2,
+      accent: "var(--text-secondary)",
+      accentBg: "rgba(120, 135, 139, 0.14)",
+      borderAccent: "rgba(120, 135, 139, 0.30)",
+    },
+    {
+      key: "patent",
+      icon: Lightbulb,
+      accent: "var(--brand-brass)",
+      accentBg: "rgba(166, 124, 57, 0.14)",
+      borderAccent: "rgba(166, 124, 57, 0.30)",
+    },
+  ] as const;
+
+  /* ---- Section 4: Workflow steps ---- */
+  const workflowSteps = [
+    { index: "01", stepKey: "step1" },
+    { index: "02", stepKey: "step2" },
+    { index: "03", stepKey: "step3" },
+    { index: "04", stepKey: "step4" },
+    { index: "05", stepKey: "step5" },
+  ];
+
+  /* ---- Section 5: Use cases ---- */
+  const useCases = [
+    { key: "thesis", borderColor: "var(--brand-cyan)" },
+    { key: "sci", borderColor: "var(--brand-navy)" },
+    { key: "proposal", borderColor: "var(--brand-teal)" },
+  ] as const;
+
+  /* ---- Section 6: Stats ---- */
+  const statKeys = ["skills", "types", "disciplines", "templates", "models"] as const;
+
   return (
     <main className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
       <Header />
 
+      {/* ============================================================ */}
+      {/*  SECTION 1 — Hero                                            */}
+      {/* ============================================================ */}
       <section className="route-topography relative overflow-hidden px-6 pb-20 pt-28 sm:pt-32 lg:pb-24">
         <div className="route-grid absolute inset-x-8 bottom-6 top-24 rounded-[2rem] opacity-40" />
         <div className="absolute -left-16 top-24 h-72 w-72 rounded-full bg-[radial-gradient(circle,rgba(31,66,99,0.18),transparent_70%)] blur-3xl" />
@@ -212,6 +258,7 @@ export default function HomePage() {
 
         <div className="relative mx-auto max-w-7xl">
           <div className="grid gap-12 lg:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] lg:items-center">
+            {/* Left — copy */}
             <motion.div
               variants={fadeInUp}
               initial="initial"
@@ -266,6 +313,7 @@ export default function HomePage() {
               </div>
             </motion.div>
 
+            {/* Right — stage preview card */}
             <motion.div
               variants={fadeInUp}
               initial="initial"
@@ -349,24 +397,18 @@ export default function HomePage() {
                     </div>
                   </div>
 
+                  {/* Next-action panel (no CTA button) */}
                   <div className="mt-6 rounded-2xl border border-[var(--border-default)] bg-white/78 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--text-muted)]">
                       {t("home.pathCard.nextLabel")}
                     </p>
-                    <div className="mt-2 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-[var(--text-primary)]">
-                          {t("home.pathCard.nextAction")}
-                        </p>
-                        <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-                          {t("home.pathCard.note")}
-                        </p>
-                      </div>
-                      <EnterWorkspaceButton
-                        label={t("home.getStarted")}
-                        compact
-                        withIcon={false}
-                      />
+                    <div className="mt-2">
+                      <p className="text-sm font-medium text-[var(--text-primary)]">
+                        {t("home.pathCard.nextAction")}
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+                        {t("home.pathCard.note")}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -376,49 +418,48 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="capabilities" className="px-6 py-24">
+      {/* ============================================================ */}
+      {/*  SECTION 2 — Design Philosophy                               */}
+      {/* ============================================================ */}
+      <section id="philosophy" className="px-6 py-28">
         <div className="mx-auto max-w-7xl">
           <SectionHeading
-            eyebrow={t("nav.productTagline")}
-            title={t("home.features.title")}
-            subtitle={t("home.features.subtitle")}
+            eyebrow={t("home.philosophy.eyebrow")}
+            title={t("home.philosophy.title")}
+            subtitle={t("home.philosophy.subtitle")}
           />
 
           <motion.div
-            className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4"
+            className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-2"
             variants={staggerContainer}
             initial="initial"
             whileInView="animate"
             viewport={{ once: true }}
           >
-            {taskTypes.map((task) => (
+            {philosophyCards.map((card) => (
               <motion.div
-                key={task.title}
+                key={card.key}
                 variants={fadeInUp}
                 transition={defaultTransition}
               >
                 <LiquidGlassCard
-                  variant="floating"
-                  className="h-full rounded-[1.75rem] border-[rgba(31,66,99,0.1)] bg-[rgba(251,248,242,0.82)] p-6"
+                  variant="elevated"
+                  className="group h-full rounded-[1.75rem] border-[rgba(31,66,99,0.08)] bg-[rgba(251,248,242,0.84)] p-7 transition-shadow duration-300 hover:shadow-lg hover:shadow-[rgba(31,66,99,0.06)]"
                 >
                   <div
-                    className="flex h-12 w-12 items-center justify-center rounded-2xl"
-                    style={{
-                      background: `color-mix(in srgb, ${task.accent} 14%, white)`,
-                    }}
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-105"
+                    style={{ background: card.accentBg }}
                   >
-                    <task.icon className="h-5 w-5" style={{ color: task.accent }} />
+                    <card.icon
+                      className="h-5 w-5"
+                      style={{ color: card.accent }}
+                    />
                   </div>
-                  <div className="mt-5 flex items-center gap-2">
-                    <span className="rounded-full border border-[var(--border-default)] bg-white/78 px-2.5 py-1 text-[11px] text-[var(--text-muted)]">
-                      {task.badge}
-                    </span>
-                  </div>
-                  <h3 className="mt-4 text-xl font-semibold text-[var(--text-primary)]">
-                    {task.title}
+                  <h3 className="mt-6 text-xl font-semibold text-[var(--text-primary)]">
+                    {t(`home.philosophy.cards.${card.key}.title`)}
                   </h3>
                   <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
-                    {task.description}
+                    {t(`home.philosophy.cards.${card.key}.description`)}
                   </p>
                 </LiquidGlassCard>
               </motion.div>
@@ -427,7 +468,108 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="px-6 pb-24">
+      {/* ============================================================ */}
+      {/*  SECTION 3 — Five Workspace Types                            */}
+      {/* ============================================================ */}
+      <section className="px-6 py-28">
+        <div className="mx-auto max-w-7xl">
+          <SectionHeading
+            eyebrow={t("home.workspaceTypes.eyebrow")}
+            title={t("home.workspaceTypes.title")}
+            subtitle={t("home.workspaceTypes.subtitle")}
+          />
+
+          {/* First row: 3 cards */}
+          <motion.div
+            className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3"
+            variants={staggerContainer}
+            initial="initial"
+            whileInView="animate"
+            viewport={{ once: true }}
+          >
+            {workspaceTypes.slice(0, 3).map((ws) => (
+              <motion.div
+                key={ws.key}
+                variants={fadeInUp}
+                transition={defaultTransition}
+              >
+                <LiquidGlassCard
+                  variant="floating"
+                  className="group h-full rounded-[1.75rem] bg-[rgba(251,248,242,0.82)] p-6"
+                  style={{ borderColor: ws.borderAccent }}
+                >
+                  <div
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-105"
+                    style={{ background: ws.accentBg }}
+                  >
+                    <ws.icon
+                      className="h-5 w-5"
+                      style={{ color: ws.accent }}
+                    />
+                  </div>
+                  <h3 className="mt-5 text-lg font-semibold text-[var(--text-primary)]">
+                    {t(`workspace.types.${ws.key}`)}
+                  </h3>
+                  <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+                    {t(`home.workspaceTypes.${ws.key}.description`)}
+                  </p>
+                  <p className="mt-3 text-xs leading-5 text-[var(--text-muted)]">
+                    {t(`home.workspaceTypes.${ws.key}.modules`)}
+                  </p>
+                </LiquidGlassCard>
+              </motion.div>
+            ))}
+          </motion.div>
+
+          {/* Second row: 2 cards, centered */}
+          <motion.div
+            className="mt-5 flex flex-col items-stretch justify-center gap-5 md:flex-row md:items-stretch lg:mx-auto lg:max-w-[calc(66.666%+0.625rem)]"
+            variants={staggerContainer}
+            initial="initial"
+            whileInView="animate"
+            viewport={{ once: true }}
+          >
+            {workspaceTypes.slice(3).map((ws) => (
+              <motion.div
+                key={ws.key}
+                variants={fadeInUp}
+                transition={defaultTransition}
+                className="flex-1"
+              >
+                <LiquidGlassCard
+                  variant="floating"
+                  className="group h-full rounded-[1.75rem] bg-[rgba(251,248,242,0.82)] p-6"
+                  style={{ borderColor: ws.borderAccent }}
+                >
+                  <div
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-105"
+                    style={{ background: ws.accentBg }}
+                  >
+                    <ws.icon
+                      className="h-5 w-5"
+                      style={{ color: ws.accent }}
+                    />
+                  </div>
+                  <h3 className="mt-5 text-lg font-semibold text-[var(--text-primary)]">
+                    {t(`workspace.types.${ws.key}`)}
+                  </h3>
+                  <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+                    {t(`home.workspaceTypes.${ws.key}.description`)}
+                  </p>
+                  <p className="mt-3 text-xs leading-5 text-[var(--text-muted)]">
+                    {t(`home.workspaceTypes.${ws.key}.modules`)}
+                  </p>
+                </LiquidGlassCard>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/*  SECTION 4 — How It Works (kept as-is)                       */}
+      {/* ============================================================ */}
+      <section className="px-6 pb-28">
         <div className="mx-auto max-w-7xl">
           <SectionHeading
             eyebrow={t("brand.en")}
@@ -455,10 +597,10 @@ export default function HomePage() {
                       {step.index}
                     </div>
                     <h3 className="mt-5 text-lg font-semibold text-[var(--text-primary)]">
-                      {step.title}
+                      {t(`home.workflow.${step.stepKey}.title`)}
                     </h3>
                     <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
-                      {step.description}
+                      {t(`home.workflow.${step.stepKey}.description`)}
                     </p>
                   </LiquidGlassCard>
                 </motion.div>
@@ -468,6 +610,85 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ============================================================ */}
+      {/*  SECTION 5 — Use Cases                                       */}
+      {/* ============================================================ */}
+      <section className="px-6 py-28">
+        <div className="mx-auto max-w-7xl">
+          <SectionHeading
+            eyebrow={t("home.useCases.eyebrow")}
+            title={t("home.useCases.title")}
+            subtitle={t("home.useCases.subtitle")}
+          />
+
+          <motion.div
+            className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-3"
+            variants={staggerContainer}
+            initial="initial"
+            whileInView="animate"
+            viewport={{ once: true }}
+          >
+            {useCases.map((uc) => (
+              <motion.div
+                key={uc.key}
+                variants={fadeInUp}
+                transition={defaultTransition}
+              >
+                <LiquidGlassCard
+                  variant="floating"
+                  className="h-full rounded-[1.75rem] bg-[rgba(251,248,242,0.82)] p-0"
+                >
+                  <div className="flex h-full">
+                    {/* Colored left border accent */}
+                    <div
+                      className="w-1 shrink-0 rounded-l-[1.75rem]"
+                      style={{ background: uc.borderColor }}
+                    />
+                    <div className="p-6">
+                      <h3 className="text-lg font-semibold text-[var(--text-primary)]">
+                        {t(`home.useCases.cases.${uc.key}.title`)}
+                      </h3>
+                      <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+                        {t(`home.useCases.cases.${uc.key}.description`)}
+                      </p>
+                    </div>
+                  </div>
+                </LiquidGlassCard>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/*  SECTION 6 — Technical Stats                                 */}
+      {/* ============================================================ */}
+      <section className="px-6 py-16">
+        <div className="mx-auto max-w-7xl">
+          <motion.div
+            className="flex flex-wrap justify-center gap-4"
+            variants={staggerContainer}
+            initial="initial"
+            whileInView="animate"
+            viewport={{ once: true }}
+          >
+            {statKeys.map((key) => (
+              <motion.span
+                key={key}
+                variants={fadeInUp}
+                transition={defaultTransition}
+                className="rounded-full border border-[var(--border-default)] bg-white/78 px-5 py-2.5 text-sm text-[var(--text-secondary)]"
+              >
+                {t(`home.stats.${key}`)}
+              </motion.span>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/*  SECTION 7 — CTA + Footer (kept as-is)                      */}
+      {/* ============================================================ */}
       <section className="px-6 pb-24">
         <div className="mx-auto max-w-7xl">
           <motion.div
