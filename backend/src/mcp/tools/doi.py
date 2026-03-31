@@ -25,7 +25,7 @@ class DOITool:
         # Accept headers for content negotiation
         self._headers = {
             "Accept": "application/vnd.citationstyles.csl+json",
-            "User-Agent": "Guanlan (mailto:contact@guanlan.ai)",
+            "User-Agent": "Wenjin (mailto:contact@wenjin.ai)",
         }
 
     async def resolve(self, doi: str) -> dict[str, Any] | None:
@@ -61,7 +61,7 @@ class DOITool:
                 # Content negotiation failed, try with different accept header
                 alt_headers = {
                     "Accept": "application/json",
-                    "User-Agent": "Guanlan (mailto:contact@guanlan.ai)",
+                    "User-Agent": "Wenjin (mailto:contact@wenjin.ai)",
                 }
                 response = await _http.get(url, headers=alt_headers)
 

@@ -75,7 +75,7 @@ def test_middleware_ordering_metadata(self):
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/test_pipeline_assembly.py::TestPipelineAssembly::test_pipeline_validates_ordering_constraints -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/test_pipeline_assembly.py::TestPipelineAssembly::test_pipeline_validates_ordering_constraints -xvs`
 Expected: FAIL (validate_pipeline not found, position not found)
 
 **Step 3: Write minimal implementation**
@@ -126,7 +126,7 @@ Add `validate_pipeline(pipeline)` as the last line before `return pipeline` in `
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/test_pipeline_assembly.py -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/test_pipeline_assembly.py -xvs`
 Expected: ALL PASS
 
 **Step 5: Commit**
@@ -203,7 +203,7 @@ class TestParallelExecutorTimeout:
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/subagents/test_parallel.py::TestParallelExecutorTimeout -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/subagents/test_parallel.py::TestParallelExecutorTimeout -xvs`
 Expected: FAIL (TypeError: unexpected keyword argument 'phase_timeout')
 
 **Step 3: Write minimal implementation**
@@ -275,7 +275,7 @@ def __post_init__(self) -> None:
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/subagents/test_parallel.py -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/subagents/test_parallel.py -xvs`
 Expected: ALL PASS
 
 **Step 5: Commit**
@@ -378,7 +378,7 @@ class TestParallelExecutorFailFast:
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/subagents/test_parallel.py::TestParallelExecutorFailFast -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/subagents/test_parallel.py::TestParallelExecutorFailFast -xvs`
 Expected: FAIL (TypeError: unexpected keyword argument 'fail_fast')
 
 **Step 3: Write minimal implementation**
@@ -431,7 +431,7 @@ async def execute_plan(self, plan, context=None, phase_callback=None):
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/subagents/test_parallel.py -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/subagents/test_parallel.py -xvs`
 Expected: ALL PASS
 
 **Step 5: Commit**
@@ -505,7 +505,7 @@ def test_registry_merges_workspace_type():
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_discipline_norms.py -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_discipline_norms.py -xvs`
 Expected: FAIL (DISCIPLINE_NORMS_PATH not found)
 
 **Step 3: Create YAML config**
@@ -647,12 +647,12 @@ Keep `DisciplineContextMiddleware` class unchanged (it already delegates to `Dis
 
 **Step 5: Run test to verify it passes**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_discipline_norms.py -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_discipline_norms.py -xvs`
 Expected: ALL PASS
 
 **Step 6: Run full test suite to verify no regressions**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/ -x --timeout=30`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/ -x --timeout=30`
 Expected: ALL PASS
 
 **Step 7: Commit**
@@ -704,7 +704,7 @@ def test_make_lead_agent_graph_triggers_lazy_bootstrap():
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/lead_agent/test_langgraph_entry.py -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/lead_agent/test_langgraph_entry.py -xvs`
 Expected: FAIL (_ensure_bootstrapped not found)
 
 **Step 3: Implement lazy bootstrap**
@@ -784,7 +784,7 @@ def make_lead_agent_graph(config: RunnableConfig) -> Any:
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/lead_agent/test_langgraph_entry.py -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/lead_agent/test_langgraph_entry.py -xvs`
 Expected: ALL PASS
 
 **Step 5: Commit**
@@ -882,7 +882,7 @@ class TestCitationLogging:
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_citation_context.py -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_citation_context.py -xvs`
 Expected: FAIL on logging test (no log output)
 
 **Step 3: Add logging to citation_context.py**
@@ -917,7 +917,7 @@ class CitationContextMiddleware(Middleware):
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_citation_context.py -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_citation_context.py -xvs`
 Expected: ALL PASS
 
 **Step 5: Commit**
@@ -980,7 +980,7 @@ def test_cache_set_with_eviction_logs(caplog):
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_memory_middleware_cache.py::test_cache_set_with_eviction_logs -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_memory_middleware_cache.py::test_cache_set_with_eviction_logs -xvs`
 Expected: FAIL (_cache_set not found or no eviction log)
 
 **Step 3: Extract cache-set logic with logging**
@@ -1002,7 +1002,7 @@ Update `before_model` to use `_cache_set` where the cache store currently happen
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_memory_middleware_cache.py -xvs`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_memory_middleware_cache.py -xvs`
 Expected: ALL PASS
 
 **Step 5: Commit**
@@ -1020,7 +1020,7 @@ git commit -m "feat: add debug logging on memory cache eviction"
 
 **Step 1: Run full test suite**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/ -x --timeout=60 -q`
+Run: `cd /home/cjz/wenjin/backend && python -m pytest tests/ -x --timeout=60 -q`
 Expected: All pass (except known pre-existing failures)
 
 **Step 2: Commit nothing — this is verification only**

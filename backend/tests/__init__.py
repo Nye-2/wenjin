@@ -1,1 +1,1 @@
-"""Tests package for AcademiaGPT v2."""
+"""Tests package for Wenjin."""

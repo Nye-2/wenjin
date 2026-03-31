@@ -1,10 +1,10 @@
-"""Centralized exception classes for Guanlan."""
+"""Centralized exception classes for Wenjin."""
 
 from fastapi import status
 
 
-class GuanlanException(Exception):
-    """Base exception for Guanlan."""
+class WenjinException(Exception):
+    """Base exception for Wenjin."""
 
     def __init__(self, message: str, code: str = "UNKNOWN_ERROR"):
         self.message = message
@@ -12,7 +12,7 @@ class GuanlanException(Exception):
         super().__init__(self.message)
 
 
-class NotFoundError(GuanlanException):
+class NotFoundError(WenjinException):
     """Resource not found."""
 
     def __init__(self, resource: str, identifier: str):
@@ -22,14 +22,14 @@ class NotFoundError(GuanlanException):
         )
 
 
-class ValidationError(GuanlanException):
+class ValidationError(WenjinException):
     """Validation failed."""
 
     def __init__(self, message: str):
         super().__init__(message, code="VALIDATION_ERROR")
 
 
-class DuplicateError(GuanlanException):
+class DuplicateError(WenjinException):
     """Duplicate resource."""
 
     def __init__(self, resource: str, field: str, value: str):
@@ -39,28 +39,28 @@ class DuplicateError(GuanlanException):
         )
 
 
-class AuthenticationError(GuanlanException):
+class AuthenticationError(WenjinException):
     """Authentication failed."""
 
     def __init__(self, message: str = "Authentication failed"):
         super().__init__(message, code="AUTH_ERROR")
 
 
-class AuthorizationError(GuanlanException):
+class AuthorizationError(WenjinException):
     """Authorization failed."""
 
     def __init__(self, message: str = "Not authorized"):
         super().__init__(message, code="FORBIDDEN")
 
 
-class RateLimitError(GuanlanException):
+class RateLimitError(WenjinException):
     """Rate limit exceeded."""
 
     def __init__(self, message: str = "Rate limit exceeded"):
         super().__init__(message, code="RATE_LIMIT_EXCEEDED")
 
 
-class ServiceUnavailableError(GuanlanException):
+class ServiceUnavailableError(WenjinException):
     """External service unavailable."""
 
     def __init__(self, service: str, message: str = None):
@@ -70,7 +70,7 @@ class ServiceUnavailableError(GuanlanException):
 
 # ============ Domain-Specific Exceptions ============
 
-class LiteratureError(GuanlanException):
+class LiteratureError(WenjinException):
     """Base exception for literature module."""
 
     pass
@@ -90,7 +90,7 @@ class ExternalAPIError(LiteratureError):
         super().__init__(f"{source} API error: {message}", "EXTERNAL_API_ERROR")
 
 
-class CitationError(GuanlanException):
+class CitationError(WenjinException):
     """Base exception for citation module."""
 
     pass
@@ -103,7 +103,7 @@ class InvalidBibTeXError(CitationError):
         super().__init__(f"Invalid BibTeX: {message}", "INVALID_BIBTEX")
 
 
-class ExecutionError(GuanlanException):
+class ExecutionError(WenjinException):
     """Base exception for execution module."""
 
     pass
@@ -123,8 +123,8 @@ class CompilationError(ExecutionError):
         super().__init__(f"Compilation failed: {message}", "COMPILATION_ERROR")
 
 
-def map_exception_to_status(exc: GuanlanException) -> int:
-    """Map Guanlan exception to HTTP status code."""
+def map_exception_to_status(exc: WenjinException) -> int:
+    """Map Wenjin exception to HTTP status code."""
     status_map = {
         "NOT_FOUND": status.HTTP_404_NOT_FOUND,
         "VALIDATION_ERROR": status.HTTP_400_BAD_REQUEST,

@@ -1,35 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 
 interface StreamingTextProps {
   text: string;
   isStreaming: boolean;
-  speed?: number;
 }
 
-export function StreamingText({ text, isStreaming, speed = 12 }: StreamingTextProps) {
+export function StreamingText({ text, isStreaming }: StreamingTextProps) {
   const [displayedText, setDisplayedText] = useState(text);
-  const prevLengthRef = useRef(0);
 
   useEffect(() => {
-    if (!isStreaming) {
-      setDisplayedText(text);
-      prevLengthRef.current = text.length;
-      return;
-    }
-
-    // When new text arrives during streaming, show it immediately
-    // (the backend already streams chunk by chunk, no need for char-by-char simulation)
     setDisplayedText(text);
-    prevLengthRef.current = text.length;
   }, [text, isStreaming]);
 
   return (
     <div className="relative">
-      <MarkdownRenderer content={displayedText} className="text-sm" />
+      <div className="inline">
+        <MarkdownRenderer content={displayedText} className="text-sm" />
+      </div>
       {isStreaming && (
         <motion.span
           className="inline-block w-0.5 h-4 bg-[var(--accent-primary)] ml-0.5 align-middle rounded-full"

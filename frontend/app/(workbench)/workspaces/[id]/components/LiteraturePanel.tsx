@@ -105,7 +105,7 @@ function PaperItem({ paper, index }: PaperItemProps) {
           )}
         >
           <ExternalLink className="h-3 w-3" />
-          {fileUrl ? "View" : "No file"}
+          {fileUrl ? "查看" : "无文件"}
         </a>
       </div>
     </motion.div>
@@ -176,7 +176,7 @@ function UploadStatusCard({ upload }: { upload: UploadState }) {
               </span>
               {extraction.task_id ? (
                 <span className="rounded-full bg-[var(--bg-muted)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">
-                  Task {extraction.task_id.slice(0, 8)}
+                  任务 {extraction.task_id.slice(0, 8)}
                 </span>
               ) : null}
             </div>
@@ -208,9 +208,13 @@ function UploadStatusCard({ upload }: { upload: UploadState }) {
 
 interface LiteraturePanelProps {
   workspaceId: string;
+  embedded?: boolean;
 }
 
-export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
+export function LiteraturePanel({
+  workspaceId,
+  embedded = false,
+}: LiteraturePanelProps) {
   const { papers, fetchPapers, isPapersLoading } = useWorkspaceStore();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [recentUploads, setRecentUploads] = useState<UploadState[]>([]);
@@ -302,12 +306,19 @@ export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
   };
 
   return (
-    <div className="flex h-full w-[320px] flex-col border-l border-[var(--border-default)] bg-[var(--bg-elevated)] backdrop-blur-xl">
+    <div
+      className={cn(
+        "flex h-full flex-col bg-[var(--bg-elevated)] backdrop-blur-xl",
+        embedded
+          ? "min-h-0"
+          : "w-[320px] border-l border-[var(--border-default)]"
+      )}
+    >
       <div className="border-b border-[var(--border-default)] p-4">
         <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]">
             <FileText className="h-5 w-5 text-[var(--accent-primary)]" />
-            Literature
+            {embedded ? "文献与来源" : "文献中心"}
           </h2>
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -324,7 +335,9 @@ export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
           </motion.button>
         </div>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          {papers.length} paper{papers.length !== 1 ? "s" : ""} in workspace
+          {embedded
+            ? `${papers.length} 篇文献已进入当前 workspace`
+            : `${papers.length} 篇文献已进入当前 workspace`}
         </p>
         <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
           上传 PDF 后会自动进入文献中心，并尽力自动触发一级抽取。
@@ -368,10 +381,12 @@ export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
             <div className="py-8 text-center">
               <FileText className="mx-auto mb-2 h-10 w-10 text-[var(--text-muted)]" />
               <p className="text-sm text-[var(--text-secondary)]">
-                No papers yet
+                {embedded ? "还没有导入文献" : "当前还没有文献"}
               </p>
               <p className="mt-1 text-xs text-[var(--text-muted)]">
-                Upload papers to build your reference library
+                {embedded
+                  ? "上传 PDF 后，文献会进入当前工作路径。"
+                  : "上传 PDF 后，会逐步建立当前 workspace 的参考库。"}
               </p>
               <motion.button
                 whileHover={{ scale: 1.02 }}
@@ -385,7 +400,7 @@ export function LiteraturePanel({ workspaceId }: LiteraturePanelProps) {
                 )}
               >
                 <Upload className="mr-2 inline h-4 w-4" />
-                Upload Paper
+                {embedded ? "上传文献" : "上传 PDF"}
               </motion.button>
             </div>
           ) : (

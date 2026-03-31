@@ -1,5 +1,5 @@
 /**
- * Workspace Store for Guanlan (观澜)
+ * Workspace Store for Wenjin (问津)
  * Manages workspace list, details, artifacts, and papers state
  */
 

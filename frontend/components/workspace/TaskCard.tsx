@@ -47,35 +47,35 @@ interface StatusVisual {
 const STATUS_MAP: Record<TaskCardStatus, StatusVisual> = {
   pending: {
     icon: Clock3,
-    label: "Queued",
+    label: "已排队",
     borderColor: "border-slate-300",
     background: "bg-slate-50",
     iconColor: "text-slate-500",
   },
   running: {
     icon: Loader2,
-    label: "Running",
+    label: "执行中",
     borderColor: "border-amber-300",
     background: "bg-amber-50",
     iconColor: "text-amber-500",
   },
   success: {
     icon: CheckCircle2,
-    label: "Completed",
+    label: "已完成",
     borderColor: "border-emerald-300",
     background: "bg-emerald-50",
     iconColor: "text-emerald-500",
   },
   failed: {
     icon: AlertCircle,
-    label: "Failed",
+    label: "失败",
     borderColor: "border-red-300",
     background: "bg-red-50",
     iconColor: "text-red-500",
   },
   cancelled: {
     icon: AlertCircle,
-    label: "Cancelled",
+    label: "已取消",
     borderColor: "border-slate-300",
     background: "bg-slate-50",
     iconColor: "text-slate-400",
@@ -168,7 +168,7 @@ export function TaskCard({
             type="button"
             onClick={onViewDetail}
             className="shrink-0 rounded-lg p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
-            aria-label="View detail"
+            aria-label="查看详情"
           >
             <ExternalLink className="h-3.5 w-3.5" />
           </button>
@@ -205,7 +205,7 @@ export function TaskCard({
             visual.borderColor
           )}
         >
-          {expanded ? "Hide details" : "Show details"}
+          {expanded ? "收起详情" : "查看详情"}
           {expanded ? (
             <ChevronUp className="h-3 w-3" />
           ) : (

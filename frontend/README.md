@@ -1,6 +1,6 @@
-# 观澜 Guanlan Frontend
+# 问津 Wenjin Frontend
 
-Next.js frontend for Guanlan (观澜) — Academic AI Assistant.
+Next.js frontend for Wenjin (问津), an AI workspace for papers, proposals, patents, and research workflows.
 
 ## Tech Stack
 

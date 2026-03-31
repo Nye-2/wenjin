@@ -56,15 +56,15 @@ export function FeatureWorkbenchShell({
 
   return (
     <>
-      <header className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] px-4 py-3 backdrop-blur-xl">
+      <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border-default)] bg-[rgba(251,248,242,0.9)] px-4 py-3 backdrop-blur-xl">
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => router.push(`/workspaces/${workspaceId}`)}
             className={cn(
-              "p-2 rounded-lg",
-              "bg-[var(--bg-surface)]",
+              "rounded-2xl p-2.5",
+              "bg-white/80",
               "hover:bg-[var(--bg-muted)]",
               "text-[var(--text-secondary)]",
               "transition-colors"
@@ -73,15 +73,18 @@ export function FeatureWorkbenchShell({
             <ArrowLeft className="w-5 h-5" />
           </motion.button>
 
-          <div className="flex min-w-0 items-center gap-2">
-            <div className={cn("p-2 rounded-lg", iconBgClass)}>
+          <div className="flex min-w-0 items-center gap-3">
+            <div className={cn("rounded-2xl p-2.5", iconBgClass)}>
               <Icon className={cn("w-5 h-5", iconClass)} />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold text-[var(--text-primary)]">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
+                工作模块
+              </p>
+              <h1 className="truncate text-base font-semibold text-[var(--text-primary)] sm:text-lg">
                 {title}
               </h1>
-              <p className="truncate text-xs text-[var(--text-muted)]">
+              <p className="truncate text-xs text-[var(--text-secondary)]">
                 {description}
               </p>
             </div>
@@ -98,13 +101,13 @@ export function FeatureWorkbenchShell({
         {sidebar ? (
           <aside
             className={cn(
-              "w-full max-h-[40vh] overflow-auto border-b border-[var(--border-default)] bg-[var(--bg-surface)] p-4 lg:max-h-none lg:shrink-0 lg:border-b-0 lg:border-r",
+              "w-full max-h-[40vh] overflow-auto border-b border-[var(--border-default)] bg-[rgba(251,248,242,0.88)] p-4 lg:max-h-none lg:shrink-0 lg:border-b-0 lg:border-r",
               sidebarWidthClassName ?? "lg:w-80",
               sidebarClassName
             )}
           >
             {sidebarTitle ? (
-              <h2 className="text-sm font-medium text-[var(--text-primary)] mb-4">
+              <h2 className="mb-4 text-sm font-medium text-[var(--text-primary)]">
                 {sidebarTitle}
               </h2>
             ) : null}
@@ -114,7 +117,7 @@ export function FeatureWorkbenchShell({
 
         <div
           className={cn(
-            "flex-1 overflow-auto p-4 sm:p-6",
+            "route-topography flex-1 overflow-auto p-4 sm:p-6",
             mainPaneClassName
           )}
         >

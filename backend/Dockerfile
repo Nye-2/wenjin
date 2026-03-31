@@ -1,4 +1,4 @@
-# Guanlan (观澜) - Backend Dockerfile
+# Wenjin (问津) - Backend Dockerfile
 # Multi-stage build for Gateway and LangGraph services
 
 ARG PYTHON_IMAGE=python:3.12-slim

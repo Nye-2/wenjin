@@ -2,7 +2,7 @@
 
 更新时间: 2026-03-26
 状态: Active
-适用项目: `academiagpt-v2`
+适用项目: `wenjin`
 
 ## 1. 目标
 
@@ -27,7 +27,7 @@
   `POST /api/workspaces/{workspace_id}/features/{feature_id}/execute`
 - chat cockpit rollout 默认已覆盖五类 workspace:
   `frontend/lib/workspace-rollout.ts`
-- 前端已具备 workspace 驾驶舱首页、chat panel、task summary、feature 深度页
+- 前端已具备 workspace 驾驶舱首页、chat panel、task summary，以及基于 `chat/new` 的 feature seed 入口
 - 已有基础 smoke / matrix 测试:
   `backend/tests/workspace_features/test_five_workspace_smoke.py`
   `backend/tests/workspace_features/test_workspace_e2e_matrix.py`

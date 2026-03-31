@@ -25,8 +25,14 @@
 
 ### 2.1 初始化
 
+先约定:
+
 ```bash
-cd /home/cjz/academiagpt-v2
+export REPO_ROOT=/path/to/your/wenjin/repo
+```
+
+```bash
+cd "$REPO_ROOT"
 cp backend/.env.example backend/.env
 # Optional: only if you need to override frontend API/LangGraph URLs locally
 # cp frontend/.env.example frontend/.env.local
@@ -67,8 +73,8 @@ cp backend/.env.example backend/.env
 
 当宿主机 PostgreSQL/Redis 不可用时，脚本会自动拉起:
 
-- PostgreSQL(pgvector): `academiagpt-local-postgres` (`55432`)
-- Redis: `academiagpt-local-redis` (`56379`)
+- PostgreSQL(pgvector): `wenjin-local-postgres` (`55432`)
+- Redis: `wenjin-local-redis` (`56379`)
 
 可通过环境变量覆盖端口:
 
@@ -80,7 +86,7 @@ cp backend/.env.example backend/.env
 ### 3.1 启动
 
 ```bash
-cd /home/cjz/academiagpt-v2
+cd "$REPO_ROOT"
 cp backend/.env.example backend/.env
 docker compose up -d --build
 ```
@@ -127,7 +133,7 @@ docker compose exec langgraph curl -f http://localhost:2024/info
 
 ### 本地脚本日志
 
-日志目录: `/home/cjz/academiagpt-v2/logs`
+日志目录: `$REPO_ROOT/logs`
 
 - `backend.log`
 - `langgraph.log`

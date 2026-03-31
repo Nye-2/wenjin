@@ -14,8 +14,8 @@ from src.execution import (
     ExecutionType,
 )
 
-_DEFAULT_LATEX_IMAGE = "academiagpt/texlive:2024"
-_LATEX_IMAGE = os.getenv("ACADEMIAGPT_TEXLIVE_IMAGE", _DEFAULT_LATEX_IMAGE)
+_DEFAULT_LATEX_IMAGE = "wenjin/texlive:2024"
+_LATEX_IMAGE = os.getenv("GUANLAN_TEXLIVE_IMAGE", _DEFAULT_LATEX_IMAGE)
 
 
 def check_docker_available():
@@ -52,7 +52,7 @@ def check_latex_runtime_available() -> bool:
 
     candidates: list[Path] = []
 
-    env_specific = os.getenv("ACADEMIAGPT_TEXLIVE_IMAGE_TAR")
+    env_specific = os.getenv("GUANLAN_TEXLIVE_IMAGE_TAR")
     if env_specific:
         candidates.append(Path(env_specific).expanduser())
 
@@ -62,10 +62,10 @@ def check_latex_runtime_available() -> bool:
 
     backend_root = Path(__file__).resolve().parents[2]
     candidates.append(
-        backend_root / "docker" / "images" / "texlive" / "academiagpt-texlive-2024.tar"
+        backend_root / "docker" / "images" / "texlive" / "wenjin-texlive-2024.tar"
     )
     candidates.append(
-        Path("/opt/academiagpt/images/texlive/academiagpt-texlive-2024.tar")
+        Path("/opt/wenjin/images/texlive/wenjin-texlive-2024.tar")
     )
 
     return any(path.is_file() for path in candidates)
@@ -78,7 +78,7 @@ class TestLaTeXIntegration:
     """Integration tests for LaTeX compilation.
 
     Note: These tests require Docker to be running and the
-    academiagpt/texlive:2024 image to be available.
+    wenjin/texlive:2024 image to be available.
     """
 
     @pytest.fixture

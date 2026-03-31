@@ -1,4 +1,4 @@
-"""Redis client for AcademiaGPT caching and queue operations."""
+"""Redis client for Wenjin caching and queue operations."""
 
 import json
 import logging

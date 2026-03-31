@@ -238,7 +238,7 @@ export function AppShellSidebar({
 
 **Step 2: Verify it compiles**
 
-Run: `cd /home/cjz/academiagpt-v2/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
+Run: `cd /home/cjz/wenjin/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 Expected: No errors related to AppShellSidebar
 
 **Step 3: Commit**
@@ -333,7 +333,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
 
 **Step 2: Verify it compiles**
 
-Run: `cd /home/cjz/academiagpt-v2/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
+Run: `cd /home/cjz/wenjin/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 Expected: No errors
 
 **Step 3: Commit**
@@ -711,7 +711,7 @@ export default function WorkspaceDashboard() {
 
 **Step 2: Verify it compiles**
 
-Run: `cd /home/cjz/academiagpt-v2/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
+Run: `cd /home/cjz/wenjin/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 Expected: No errors
 
 **Step 3: Commit**
@@ -774,7 +774,7 @@ export default function ChatViewPage() {
 
 **Step 2: Verify it compiles**
 
-Run: `cd /home/cjz/academiagpt-v2/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
+Run: `cd /home/cjz/wenjin/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 Expected: No errors
 
 **Step 3: Commit**
@@ -999,7 +999,7 @@ The typical integration point is inside the message rendering loop, when process
 
 **Step 3: Verify it compiles**
 
-Run: `cd /home/cjz/academiagpt-v2/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
+Run: `cd /home/cjz/wenjin/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 Expected: No errors related to TaskCard
 
 **Step 4: Commit**
@@ -1103,7 +1103,7 @@ export function TaskDetailPanel({
 
 **Step 2: Verify it compiles**
 
-Run: `cd /home/cjz/academiagpt-v2/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
+Run: `cd /home/cjz/wenjin/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 Expected: No errors
 
 **Step 3: Commit**
@@ -1199,7 +1199,7 @@ export const config = {
 
 **Step 3: Verify it compiles**
 
-Run: `cd /home/cjz/academiagpt-v2/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
+Run: `cd /home/cjz/wenjin/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 Expected: No errors
 
 **Step 4: Commit**
@@ -1246,7 +1246,7 @@ If any non-page files import from these directories, update those imports first.
 **Step 2: Delete the feature page directories**
 
 ```bash
-cd /home/cjz/academiagpt-v2/frontend
+cd /home/cjz/wenjin/frontend
 FEATURE_DIRS=(
   deep-research literature opening-research thesis-writing
   figure-generation compile-export literature-search paper-analysis
@@ -1262,7 +1262,7 @@ done
 
 **Step 3: Verify the app still builds**
 
-Run: `cd /home/cjz/academiagpt-v2/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
+Run: `cd /home/cjz/wenjin/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 Expected: No errors (old pages were self-contained)
 
 **Step 4: Commit**
@@ -1295,7 +1295,7 @@ Only delete if grep shows no results. If files are still imported elsewhere, lea
 
 **Step 3: Verify the app still compiles**
 
-Run: `cd /home/cjz/academiagpt-v2/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
+Run: `cd /home/cjz/wenjin/frontend && npx tsc --noEmit --pretty 2>&1 | head -30`
 Expected: No errors
 
 **Step 4: Commit**
@@ -1324,7 +1324,7 @@ If the endpoint exists and is registered on the gateway app, this task is done.
 
 **Step 2: Test the endpoint**
 
-Run: `cd /home/cjz/academiagpt-v2/backend && python -c "from src.gateway.routers.features import router; print('OK')"`
+Run: `cd /home/cjz/wenjin/backend && python -c "from src.gateway.routers.features import router; print('OK')"`
 
 If this prints OK, the endpoint is importable and task is complete.
 
@@ -1343,7 +1343,7 @@ Manually verify the end-to-end flow works by building the frontend and checking 
 
 **Step 1: Build the frontend**
 
-Run: `cd /home/cjz/academiagpt-v2/frontend && npm run build 2>&1 | tail -20`
+Run: `cd /home/cjz/wenjin/frontend && npm run build 2>&1 | tail -20`
 Expected: Build succeeds
 
 **Step 2: Verify routes exist**
@@ -1356,7 +1356,7 @@ Check that these routes are in the build output:
 **Step 3: Verify old routes redirect**
 
 Check that middleware is compiled:
-Run: `ls -la /home/cjz/academiagpt-v2/frontend/.next/server/middleware*`
+Run: `ls -la /home/cjz/wenjin/frontend/.next/server/middleware*`
 
 **Step 4: Commit final integration**
 

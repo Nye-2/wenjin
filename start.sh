@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 观澜 Guanlan 一键启动脚本
+# 问津 Wenjin 一键启动脚本
 # 使用方法: ./start.sh [--backend-only | --frontend-only]
 
 set -e
@@ -20,8 +20,8 @@ FRONTEND_DIR="$PROJECT_ROOT/frontend"
 ENSURE_TEXLIVE_SCRIPT="$PROJECT_ROOT/scripts/ensure_texlive_image.sh"
 
 # 本地兜底容器（当宿主机 PostgreSQL/Redis 不满足要求时）
-LOCAL_PGVECTOR_CONTAINER="${LOCAL_PGVECTOR_CONTAINER:-guanlan-local-postgres}"
-LOCAL_REDIS_CONTAINER="${LOCAL_REDIS_CONTAINER:-guanlan-local-redis}"
+LOCAL_PGVECTOR_CONTAINER="${LOCAL_PGVECTOR_CONTAINER:-wenjin-local-postgres}"
+LOCAL_REDIS_CONTAINER="${LOCAL_REDIS_CONTAINER:-wenjin-local-redis}"
 LOCAL_PGVECTOR_PORT="${LOCAL_PGVECTOR_PORT:-55432}"
 LOCAL_REDIS_PORT="${LOCAL_REDIS_PORT:-56379}"
 
@@ -34,7 +34,7 @@ DB_HOST="localhost"
 DB_PORT="5432"
 DB_USER="postgres"
 DB_PASS="postgres"
-DB_NAME="academiagpt"
+DB_NAME="wenjin"
 REDIS_HOST="localhost"
 REDIS_PORT="6379"
 REDIS_DB="0"
@@ -65,14 +65,14 @@ check_command() {
 
 # 从 backend/.env 读取运行时连接配置
 load_runtime_config() {
-    RUNTIME_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/academiagpt"
+    RUNTIME_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/wenjin"
     RUNTIME_REDIS_URL="redis://localhost:6379/0"
 
     DB_HOST="localhost"
     DB_PORT="5432"
     DB_USER="postgres"
     DB_PASS="postgres"
-    DB_NAME="academiagpt"
+    DB_NAME="wenjin"
 
     REDIS_HOST="localhost"
     REDIS_PORT="6379"
@@ -172,13 +172,13 @@ ensure_local_pgvector_container() {
             -p "${LOCAL_PGVECTOR_PORT}:5432" \
             -e POSTGRES_USER=postgres \
             -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_DB=academiagpt \
+            -e POSTGRES_DB=wenjin \
             pgvector/pgvector:pg16 > /dev/null
     fi
 
     local attempts=0
     while [ $attempts -lt 30 ]; do
-        if PGPASSWORD="postgres" psql -h "localhost" -p "$LOCAL_PGVECTOR_PORT" -U "postgres" -d "academiagpt" -c "SELECT 1" > /dev/null 2>&1; then
+        if PGPASSWORD="postgres" psql -h "localhost" -p "$LOCAL_PGVECTOR_PORT" -U "postgres" -d "wenjin" -c "SELECT 1" > /dev/null 2>&1; then
             break
         fi
         sleep 1
@@ -194,8 +194,8 @@ ensure_local_pgvector_container() {
     DB_PORT="$LOCAL_PGVECTOR_PORT"
     DB_USER="postgres"
     DB_PASS="postgres"
-    DB_NAME="academiagpt"
-    RUNTIME_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:${LOCAL_PGVECTOR_PORT}/academiagpt"
+    DB_NAME="wenjin"
+    RUNTIME_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:${LOCAL_PGVECTOR_PORT}/wenjin"
     RUNTIME_DATABASE_URL_OVERRIDE="$RUNTIME_DATABASE_URL"
 
     if ! postgres_enable_vector; then
@@ -269,7 +269,7 @@ ensure_texlive_image() {
         return 0
     fi
 
-    log_info "自动准备 TeXLive 镜像（academiagpt/texlive:2024）..."
+    log_info "自动准备 TeXLive 镜像（wenjin/texlive:2024）..."
     if "$ENSURE_TEXLIVE_SCRIPT"; then
         log_success "TeXLive 镜像就绪"
     else
@@ -616,7 +616,7 @@ stop_services() {
 show_status() {
     echo ""
     echo "======================================"
-    echo "         观澜 Guanlan 状态"
+    echo "         问津 Wenjin 状态"
     echo "======================================"
 
     if is_running "$BACKEND_PID_FILE" && is_http_ready "http://localhost:8001/readyz"; then
@@ -647,7 +647,7 @@ show_status() {
 
 # 显示帮助
 show_help() {
-    echo "观澜 Guanlan 启动脚本"
+    echo "问津 Wenjin 启动脚本"
     echo ""
     echo "使用方法:"
     echo "  ./start.sh              # 启动所有服务"

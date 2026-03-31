@@ -37,7 +37,7 @@ The backend already supports workspace-specific system prompts and feature routi
 ### Layout
 ```
 ┌──────────────────────────────────────────────────────┐
-│  Logo   AcademiaGPT                    [User Avatar] │
+│  Logo   历史仓库                    [User Avatar] │
 ├────────┬─────────────────────────────────────────────┤
 │        │                                             │
 │ Sidebar│              Main Content                   │

@@ -1,4 +1,4 @@
-"""Centralized error handling middleware for Guanlan."""
+"""Centralized error handling middleware for Wenjin."""
 
 import logging
 
@@ -7,19 +7,19 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse
 
 from src.gateway.exceptions import (
-    GuanlanException,
+    WenjinException,
     map_exception_to_status,
 )
 
 logger = logging.getLogger(__name__)
 
 
-async def guanlan_exception_handler(request: Request, exc: GuanlanException) -> JSONResponse:
-    """Handle all Guanlan custom exceptions.
+async def wenjin_exception_handler(request: Request, exc: WenjinException) -> JSONResponse:
+    """Handle all Wenjin custom exceptions.
 
     Args:
         request: The FastAPI request object.
-        exc: The Guanlan exception that was raised.
+        exc: The Wenjin exception that was raised.
 
     Returns:
         JSONResponse with error details.
@@ -27,7 +27,7 @@ async def guanlan_exception_handler(request: Request, exc: GuanlanException) -> 
     status_code = map_exception_to_status(exc)
 
     logger.warning(
-        "Guanlan exception: %s - %s (path: %s)",
+        "Wenjin exception: %s - %s (path: %s)",
         exc.code,
         exc.message,
         request.url.path,
@@ -155,7 +155,7 @@ def register_error_handlers(app: FastAPI) -> None:
     Args:
         app: The FastAPI application instance.
     """
-    app.add_exception_handler(GuanlanException, guanlan_exception_handler)
+    app.add_exception_handler(WenjinException, wenjin_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)
     app.add_exception_handler(Exception, generic_exception_handler)

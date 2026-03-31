@@ -8,7 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 
 from src.gateway.exceptions import (
-    GuanlanException,
+    WenjinException,
     AuthenticationError,
     AuthorizationError,
     DuplicateError,
@@ -19,7 +19,7 @@ from src.gateway.exceptions import (
     map_exception_to_status,
 )
 from src.gateway.middleware.error_handler import (
-    guanlan_exception_handler,
+    wenjin_exception_handler,
     generic_exception_handler,
     http_exception_handler,
     register_error_handlers,
@@ -30,12 +30,12 @@ from src.gateway.middleware.error_handler import (
 # Exception Classes Tests
 # ============================================================================ #
 
-class TestGuanlanException:
-    """Tests for GuanlanException base class."""
+class TestWenjinException:
+    """Tests for WenjinException base class."""
 
     def test_base_exception_with_defaults(self):
         """Test base exception with default code."""
-        exc = GuanlanException("Something went wrong")
+        exc = WenjinException("Something went wrong")
 
         assert exc.message == "Something went wrong"
         assert exc.code == "UNKNOWN_ERROR"
@@ -43,7 +43,7 @@ class TestGuanlanException:
 
     def test_base_exception_with_custom_code(self):
         """Test base exception with custom code."""
-        exc = GuanlanException("Custom error", code="CUSTOM_ERROR")
+        exc = WenjinException("Custom error", code="CUSTOM_ERROR")
 
         assert exc.message == "Custom error"
         assert exc.code == "CUSTOM_ERROR"
@@ -216,7 +216,7 @@ class TestMapExceptionToStatus:
 
     def test_unknown_code_maps_to_500(self):
         """Test unknown error code maps to 500."""
-        exc = GuanlanException("Unknown error", code="UNKNOWN_ERROR")
+        exc = WenjinException("Unknown error", code="UNKNOWN_ERROR")
         assert map_exception_to_status(exc) == status.HTTP_500_INTERNAL_SERVER_ERROR
 
 
@@ -233,15 +233,15 @@ def mock_request():
     return request
 
 
-class TestGuanlanExceptionHandler:
-    """Tests for guanlan_exception_handler."""
+class TestWenjinExceptionHandler:
+    """Tests for wenjin_exception_handler."""
 
     @pytest.mark.asyncio
     async def test_returns_json_response_with_error(self, mock_request):
         """Test handler returns proper JSON response."""
         exc = NotFoundError("User", "123")
 
-        response = await guanlan_exception_handler(mock_request, exc)
+        response = await wenjin_exception_handler(mock_request, exc)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         # Parse the body content
@@ -255,7 +255,7 @@ class TestGuanlanExceptionHandler:
         """Test handler handles ValidationError."""
         exc = ValidationError("Invalid email format")
 
-        response = await guanlan_exception_handler(mock_request, exc)
+        response = await wenjin_exception_handler(mock_request, exc)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         import json
@@ -267,7 +267,7 @@ class TestGuanlanExceptionHandler:
         """Test handler handles AuthenticationError."""
         exc = AuthenticationError("Token expired")
 
-        response = await guanlan_exception_handler(mock_request, exc)
+        response = await wenjin_exception_handler(mock_request, exc)
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         import json
@@ -388,7 +388,7 @@ class TestRegisterErrorHandlers:
         register_error_handlers(app)
 
         # Check that exception handlers are registered
-        assert GuanlanException in app.exception_handlers
+        assert WenjinException in app.exception_handlers
         assert RequestValidationError in app.exception_handlers
         assert HTTPException in app.exception_handlers
         assert Exception in app.exception_handlers

@@ -21,7 +21,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   useWorkspaceEventStream(workspaceId || null);
   const { loadWorkspace, fetchArtifacts, fetchActivity, clearWorkspace } = useWorkspaceStore();
   const { fetchFeatures, fetchSkills, clearFeatures, clearSkills } = useFeaturesStore();
-  const { loadThreads, clearMessages } = useChatStore();
+  const { loadThreads, clearMessages, abortStream } = useChatStore();
 
   useEffect(() => {
     if (!workspaceId) {
@@ -36,6 +36,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     void loadThreads(workspaceId);
 
     return () => {
+      abortStream();
       clearWorkspace();
       clearFeatures();
       clearSkills();
@@ -53,6 +54,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     clearFeatures,
     clearSkills,
     clearMessages,
+    abortStream,
   ]);
 
   return (

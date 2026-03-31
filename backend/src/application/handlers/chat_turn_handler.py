@@ -318,6 +318,8 @@ class ChatTurnHandler:
         thread = await self._get_or_create_owned_thread(request, actor_id=actor_id)
 
         metadata = {}
+        if isinstance(request.metadata, dict) and request.metadata:
+            metadata.update(request.metadata)
         if request.attachments:
             metadata["attachments"] = [
                 asdict(attachment)
@@ -592,6 +594,20 @@ async def generate_chat_response(
         thread_id=thread.id,
         user_id=actor_id,
         selected_skill=effective_skill,
+        requested_feature_id=(
+            str(request.metadata.get("orchestration", {}).get("feature_id"))
+            if isinstance(request.metadata, dict)
+            and isinstance(request.metadata.get("orchestration"), dict)
+            and request.metadata.get("orchestration", {}).get("feature_id")
+            else None
+        ),
+        requested_feature_params=(
+            request.metadata.get("orchestration", {}).get("params")
+            if isinstance(request.metadata, dict)
+            and isinstance(request.metadata.get("orchestration"), dict)
+            and isinstance(request.metadata.get("orchestration", {}).get("params"), dict)
+            else None
+        ),
     )
     if bridged is not None:
         return GeneratedChatReply(

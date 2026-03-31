@@ -55,7 +55,7 @@ allowed-tools:
 ## 基本信息
 - 论文标题: [标题]
 - 评审日期: [日期]
-- 评审人: 观澜 Guanlan Peer Reviewer
+- 评审人: 问津 Wenjin Peer Reviewer
 
 ## 总体评价
 [对论文的整体评价，2-3句话]

@@ -9,10 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AuthShell } from '@/components/auth/auth-shell';
+import { useI18n } from '@/components/i18n-provider';
 import { Loader2, UserPlus } from 'lucide-react';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const { register, sendVerificationCode, isLoading, error, clearError, isAuthenticated } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -44,7 +46,7 @@ export default function RegisterPage() {
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      setCodeError('Please enter a valid email address');
+      setCodeError(t("auth.register.invalidEmail"));
       return;
     }
 
@@ -60,7 +62,7 @@ export default function RegisterPage() {
     }
 
     setIsSendingCode(false);
-  }, [email, countdown, sendVerificationCode]);
+  }, [email, countdown, sendVerificationCode, t]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,17 +71,17 @@ export default function RegisterPage() {
 
     // Client-side validation
     if (password.length < 8) {
-      setValidationError('Password must be at least 8 characters long');
+      setValidationError(t("auth.register.passwordTooShort"));
       return;
     }
 
     if (password !== confirmPassword) {
-      setValidationError('Passwords do not match');
+      setValidationError(t("auth.register.passwordMismatch"));
       return;
     }
 
     if (!/^\d{6}$/.test(verificationCode)) {
-      setValidationError('Please enter a 6-digit numeric verification code');
+      setValidationError(t("auth.register.verificationCodeRequired"));
       return;
     }
 
@@ -92,16 +94,16 @@ export default function RegisterPage() {
   return (
     <AuthShell
       mode="register"
-      title="Create your account"
-      description="Set up your profile to start literature analysis, drafting, and artifact tracking."
+      title={t("auth.register.title")}
+      description={t("auth.register.subtitle")}
       footer={(
         <p className="text-center">
-          Already have an account?{' '}
+          {t("auth.register.hasAccount")}{" "}
           <Link
             href="/login"
             className="font-semibold text-[var(--accent-primary)] hover:text-[var(--accent-secondary)]"
           >
-            Sign in
+            {t("auth.register.signIn")}
           </Link>
         </p>
       )}
@@ -115,11 +117,13 @@ export default function RegisterPage() {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="name">Name (optional)</Label>
+            <Label htmlFor="name">
+              {t("auth.register.name")} ({t("common.optional")})
+            </Label>
             <Input
               id="name"
               type="text"
-              placeholder="Your name"
+              placeholder={t("auth.register.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoComplete="name"
@@ -128,12 +132,12 @@ export default function RegisterPage() {
 
           <div className="space-y-2">
             <Label htmlFor="email">
-              Email <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.login.email")} <span className="text-[var(--semantic-error)]">*</span>
             </Label>
             <Input
               id="email"
               type="email"
-              placeholder="your@email.com"
+              placeholder={t("auth.login.emailPlaceholder")}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
@@ -143,13 +147,13 @@ export default function RegisterPage() {
 
           <div className="space-y-2">
             <Label htmlFor="verificationCode">
-              Verification Code <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.register.verificationCode")} <span className="text-[var(--semantic-error)]">*</span>
             </Label>
             <div className="flex gap-2">
               <Input
                 id="verificationCode"
                 type="text"
-                placeholder="Enter 6-digit code"
+                placeholder={t("auth.register.verificationCodePlaceholder")}
                 value={verificationCode}
                 onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 required
@@ -170,7 +174,7 @@ export default function RegisterPage() {
                 ) : countdown > 0 ? (
                   `${countdown}s`
                 ) : (
-                  'Send Code'
+                  t("auth.register.sendCode")
                 )}
               </Button>
             </div>
@@ -181,29 +185,29 @@ export default function RegisterPage() {
 
           <div className="space-y-2">
             <Label htmlFor="password">
-              Password <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.login.password")} <span className="text-[var(--semantic-error)]">*</span>
             </Label>
             <Input
               id="password"
               type="password"
-              placeholder="••••••••"
+              placeholder={t("auth.login.passwordPlaceholder")}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
               required
               minLength={8}
             />
-            <p className="text-xs text-[var(--text-muted)]">Must be at least 8 characters.</p>
+            <p className="text-xs text-[var(--text-muted)]">{t("auth.register.passwordTooShort")}</p>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="confirmPassword">
-              Confirm Password <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.register.confirmPassword")} <span className="text-[var(--semantic-error)]">*</span>
             </Label>
             <Input
               id="confirmPassword"
               type="password"
-              placeholder="••••••••"
+              placeholder={t("auth.login.passwordPlaceholder")}
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               autoComplete="new-password"
@@ -216,12 +220,12 @@ export default function RegisterPage() {
           {isLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Creating account...
+              {t("auth.register.creating")}
             </>
           ) : (
             <>
               <UserPlus className="mr-2 h-4 w-4" />
-              Create Account
+              {t("auth.register.button")}
             </>
           )}
         </Button>

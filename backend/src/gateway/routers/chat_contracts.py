@@ -49,6 +49,7 @@ class ChatRequest(BaseModel):
     reasoning_effort: ReasoningEffort | None = None
     stream: bool = True
     attachments: list[ChatAttachment] = Field(default_factory=list)
+    metadata: dict[str, Any] | None = None
 
 
 class ChatResponse(BaseModel):

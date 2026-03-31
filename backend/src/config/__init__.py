@@ -1,4 +1,4 @@
-"""Configuration module for AcademiaGPT."""
+"""Configuration module for Wenjin."""
 
 from .app_config import (
     AppConfig,

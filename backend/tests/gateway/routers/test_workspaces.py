@@ -523,7 +523,7 @@ class TestListWorkspacePapers:
             create_mock_paper(
                 id="paper-1",
                 title="Paper 1",
-                file_path=".academiagpt/workspace_uploads/test-workspace-id/papers/paper-1.pdf",
+                file_path=".wenjin/workspace_uploads/test-workspace-id/papers/paper-1.pdf",
             ),
             create_mock_paper(id="paper-2", title="Paper 2"),
         ]

@@ -65,6 +65,7 @@ def _to_turn_request(request: ChatRequest) -> ChatTurnRequest:
         thinking_enabled=request.thinking_enabled,
         reasoning_effort=request.reasoning_effort,
         attachments=tuple(_to_turn_attachment(item) for item in request.attachments),
+        metadata=request.metadata,
         skill_explicit="skill" in request.model_fields_set,
     )
 

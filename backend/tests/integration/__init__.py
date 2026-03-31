@@ -1,1 +1,1 @@
-"""Integration tests for AcademiaGPT v2."""
+"""Integration tests for Wenjin."""

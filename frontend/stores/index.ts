@@ -1,6 +1,6 @@
 /**
  * Stores Index
- * Re-exports all Zustand stores for Guanlan (观澜)
+ * Re-exports all Zustand stores for Wenjin (问津)
  */
 
 // Workspace Store

@@ -1,4 +1,4 @@
-# AcademiaGPT v2 Configuration
+# Wenjin Configuration
 
 models:
   - name: gpt-4o

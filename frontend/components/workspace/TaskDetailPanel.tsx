@@ -37,14 +37,14 @@ export function TaskDetailPanel({
           animate={{ width: 380, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          className="shrink-0 overflow-hidden border-l border-[var(--border-default)] bg-[var(--bg-surface)]"
+          className="shrink-0 overflow-hidden border-l border-[var(--border-default)] bg-[rgba(251,248,242,0.94)]"
         >
           <div className="flex h-full w-[380px] flex-col">
             {/* Header */}
             <div className="flex items-center justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3">
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold text-[var(--text-primary)]">
-                  {title || "Task Details"}
+                  {title || "运行时细节"}
                 </h2>
                 {taskId && (
                   <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">

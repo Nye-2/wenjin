@@ -33,7 +33,7 @@ export function I18nProvider({ children }: I18nProviderProps) {
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true;
-      const savedLocale = localStorage.getItem("guanlan-locale") || localStorage.getItem("academiagpt-locale");
+      const savedLocale = localStorage.getItem("wenjin-locale");
       if (savedLocale) {
         try {
           const parsed = JSON.parse(savedLocale);

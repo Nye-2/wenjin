@@ -7,12 +7,13 @@
 ## 1. Core Gate (必须全绿)
 
 1. workspace feature 执行主链路可用（提交、轮询、终态可见）。
-2. 关键回归通过:
-   - `tests/workspace_features/test_workspace_e2e_matrix.py`
-   - `tests/gateway/routers/test_features.py`
-   - `tests/application/handlers/test_feature_execution_handler.py`
-3. 前端静态检查通过:
-   - `npx tsc --noEmit`
+2. `chat-only` feature 入口可用（feature 卡片 / artifact follow-up / activity retry 均能落到 `chat/new` 并保留 orchestration seed）。
+3. 关键回归通过:
+  - `tests/workspace_features/test_workspace_e2e_matrix.py`
+  - `tests/gateway/routers/test_features.py`
+  - `tests/application/handlers/test_feature_execution_handler.py`
+4. 前端静态检查通过:
+  - `npx tsc --noEmit`
 
 ## 2. Extended Gate (建议全绿)
 
@@ -30,6 +31,7 @@
 ## 4. Launch Checklist
 
 - [ ] 五个 workspace 页面路由可达，无 404
+- [ ] feature 卡片、artifact follow-up、activity retry 均进入 `chat/new` 且首条消息保留 seed 上下文
 - [ ] feature 可提交并返回 task_id
 - [ ] 任务状态可从 pending/running 进入 success 或 failed
 - [ ] 失败态有明确错误提示且可重试

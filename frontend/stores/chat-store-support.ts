@@ -24,17 +24,19 @@ export function createPendingUserMessage(options: {
   content: string;
   createdAt: string;
   attachments?: ChatAttachment[];
+  metadata?: Record<string, unknown>;
 }): Message {
+  const metadata =
+    options.attachments && options.attachments.length > 0
+      ? { ...(options.metadata ?? {}), attachments: options.attachments }
+      : options.metadata ?? null;
   return {
     id: options.id,
     role: "user",
     content: options.content,
     created_at: options.createdAt,
     blocks: [],
-    metadata:
-      options.attachments && options.attachments.length > 0
-        ? { attachments: options.attachments }
-        : null,
+    metadata,
   };
 }
 

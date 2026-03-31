@@ -2,7 +2,7 @@
 
 This module provides the SkillExecutor class which handles skill registration,
 lookup, and execution. It serves as the central registry for all skills
-in the AcademiaGPT system.
+in Wenjin.
 """
 
 

@@ -1,5 +1,5 @@
 /**
- * Chat Store for Guanlan (观澜)
+ * Chat Store for Wenjin (问津)
  * Manages chat messages and streaming state
  */
 
@@ -46,6 +46,7 @@ interface ChatState {
   threads: ThreadSummary[];
   threadStatuses: Record<string, ThreadAgentStatus>;
   error: string | null;
+  _abortStream: (() => void) | null;
 
   // Actions
   sendMessage: (
@@ -57,8 +58,10 @@ interface ChatState {
       reasoningEffort?: ReasoningEffort;
       threadId?: string;
       attachments?: ChatAttachment[];
+      metadata?: Record<string, unknown>;
     }
-  ) => Promise<void>;
+  ) => void;
+  abortStream: () => void;
   addMessage: (message: Message) => void;
   loadThreads: (workspaceId: string) => Promise<ThreadSummary[]>;
   loadLatestThread: (workspaceId: string) => Promise<void>;
@@ -89,8 +92,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   threads: [],
   threadStatuses: {},
   error: null,
+  _abortStream: null,
 
-  sendMessage: async (content: string, options) => {
+  abortStream: () => {
+    const abort = get()._abortStream;
+    if (abort) {
+      abort();
+      set({ _abortStream: null, isStreaming: false });
+    }
+  },
+
+  sendMessage: (content: string, options) => {
+    // Abort any in-flight stream before starting a new one
+    get().abortStream();
+
     const { threadId, currentSkill } = get();
     const effectiveThreadId = options?.threadId || threadId || undefined;
     const hasExplicitSkill = Boolean(options && "skill" in options);
@@ -102,6 +117,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       content,
       createdAt: new Date().toISOString(),
       attachments: options?.attachments,
+      metadata: options?.metadata,
     });
 
     set((state) => ({
@@ -128,11 +144,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       model: options?.model,
       reasoning_effort: options?.reasoningEffort,
       attachments: options?.attachments,
+      metadata: options?.metadata,
       ...(hasExplicitSkill ? { skill: skillToUse } : currentSkill ? { skill: currentSkill } : {}),
     };
 
-    // Stream response
-    streamChat(
+    // Stream response — capture abort function
+    const abort = streamChat(
       requestPayload,
       (chunk) => {
         assistantContent += chunk;
@@ -181,12 +198,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }));
       },
       () => {
-        set({ isStreaming: false });
+        set({ isStreaming: false, _abortStream: null });
         if (options?.workspaceId) {
           void get().loadThreads(options.workspaceId);
         }
       }
     );
+
+    set({ _abortStream: abort });
 
     if (hasExplicitSkill) {
       set({

@@ -39,7 +39,7 @@ async def test_init_db_does_not_create_schema_by_default(monkeypatch):
 
     connection = _FakeConnection()
     monkeypatch.setattr(db_session, "engine", _FakeEngine(connection))
-    monkeypatch.delenv("ACADEMIAGPT_DB_AUTO_CREATE", raising=False)
+    monkeypatch.delenv("GUANLAN_DB_AUTO_CREATE", raising=False)
 
     await db_session.init_db()
 
@@ -54,7 +54,7 @@ async def test_init_db_can_opt_in_to_schema_creation(monkeypatch):
 
     connection = _FakeConnection()
     monkeypatch.setattr(db_session, "engine", _FakeEngine(connection))
-    monkeypatch.setenv("ACADEMIAGPT_DB_AUTO_CREATE", "true")
+    monkeypatch.setenv("GUANLAN_DB_AUTO_CREATE", "true")
 
     await db_session.init_db()
 

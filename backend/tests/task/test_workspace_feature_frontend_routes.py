@@ -29,28 +29,31 @@ def _frontend_route_map_path() -> Path:
     )
 
 
-def _parse_feature_route_map(source: str) -> dict[str, str]:
+def _parse_feature_skill_map(source: str) -> dict[str, str | None]:
     match = re.search(
-        r"export const workspaceFeatureRouteMap: Record<string, string> = \{(?P<body>.*?)\n\};",
+        r"export const workspaceFeatureSkillMap: Record<string, string \| null> = \{(?P<body>.*?)\n\};",
         source,
         re.DOTALL,
     )
-    assert match is not None, "Cannot locate workspaceFeatureRouteMap in frontend route map file"
+    assert match is not None, "Cannot locate workspaceFeatureSkillMap in frontend route map file"
 
     body = match.group("body")
     pairs = re.findall(
-        r'^\s*([a-z_]+)\s*:\s*"([a-z-]+)",\s*$',
+        r'^\s*([a-z_]+)\s*:\s*(null|"([a-z-]+)"),\s*$',
         body,
         re.MULTILINE,
     )
-    return {feature_id: route for feature_id, route in pairs}
+    return {
+        feature_id: (skill_id or None)
+        for feature_id, _, skill_id in pairs
+    }
 
 
 def test_frontend_feature_route_map_matches_registry():
-    """All registry features should have a frontend route map entry, without extras."""
+    """All registry features should have a frontend route helper entry, without extras."""
     route_map_path = _frontend_route_map_path()
     source = route_map_path.read_text(encoding="utf-8")
-    route_map = _parse_feature_route_map(source)
+    route_map = _parse_feature_skill_map(source)
 
     declared_feature_ids = {feature.id for feature in iter_workspace_features()}
     mapped_feature_ids = set(route_map.keys())
@@ -66,20 +69,10 @@ def test_frontend_feature_route_map_matches_registry():
     )
 
 
-def test_frontend_feature_route_pages_exist():
-    """Every route declared in workspaceFeatureRouteMap should point to an existing page file."""
-    page_path = _frontend_workspace_page_path()
-    workspace_dir = page_path.parent
+def test_frontend_feature_routes_target_canonical_chat_entry():
+    """Feature navigation should resolve to the canonical workspace chat entry."""
     route_map_path = _frontend_route_map_path()
     source = route_map_path.read_text(encoding="utf-8")
-    route_map = _parse_feature_route_map(source)
-
-    missing_pages: list[str] = []
-    for route in sorted(set(route_map.values())):
-        route_page = workspace_dir / route / "page.tsx"
-        if not route_page.exists():
-            missing_pages.append(route)
-
-    assert missing_pages == [], (
-        "Missing frontend page.tsx for routes: " + ", ".join(missing_pages)
-    )
+    assert 'const pathname = `/workspaces/${workspaceId}/chat/new`;' in source
+    assert 'query.set("feature", featureId);' in source
+    assert "resolveWorkspaceFeatureSkillId(" in source

@@ -40,8 +40,8 @@
 **Step 1: Find the linter config**
 
 ```bash
-ls academiagpt-v2/backend/pyproject.toml academiagpt-v2/backend/.ruff.toml 2>/dev/null
-cat academiagpt-v2/backend/pyproject.toml | grep -A 20 '\[tool.ruff'
+ls wenjin/backend/pyproject.toml wenjin/backend/.ruff.toml 2>/dev/null
+cat wenjin/backend/pyproject.toml | grep -A 20 '\[tool.ruff'
 ```
 
 **Step 2: Write a pytest architecture boundary test**
@@ -95,7 +95,7 @@ def test_application_handlers_have_no_http_imports():
 **Step 3: Run to confirm it passes (current state is already clean)**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/architecture/test_layer_boundaries.py -v
+cd wenjin/backend && python -m pytest tests/architecture/test_layer_boundaries.py -v
 ```
 Expected: `PASSED`
 
@@ -113,8 +113,8 @@ git commit -m "test(arch): enforce no HTTP imports in application handlers"
 **Step 1: Check existing contract/integration tests**
 
 ```bash
-ls academiagpt-v2/backend/tests/architecture/
-ls academiagpt-v2/backend/tests/application/
+ls wenjin/backend/tests/architecture/
+ls wenjin/backend/tests/application/
 ```
 
 **Step 2: Write the test**
@@ -144,7 +144,7 @@ def test_feature_execution_outcome_fields():
 **Step 3: Run**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/architecture/test_feature_execution_contract.py -v
+cd wenjin/backend && python -m pytest tests/architecture/test_feature_execution_contract.py -v
 ```
 Expected: `PASSED`
 
@@ -176,15 +176,15 @@ git commit -m "test(arch): contract test for FeatureExecutionOutcome shape"
 **Step 1: Search for all usages**
 
 ```bash
-cd academiagpt-v2/backend
+cd wenjin/backend
 grep -rn "_build_chat_runtime_config\|_build_chat_initial_state\|_ensure_chat_turn_budget\|_generate_chat_response" src/ tests/
 ```
 
 **Step 2: Read chat_lifecycle.py and chat_runtime.py**
 
 ```bash
-cat academiagpt-v2/backend/src/gateway/routers/chat_lifecycle.py
-cat academiagpt-v2/backend/src/gateway/routers/chat_runtime.py
+cat wenjin/backend/src/gateway/routers/chat_lifecycle.py
+cat wenjin/backend/src/gateway/routers/chat_runtime.py
 ```
 
 **Step 3: Record findings**
@@ -225,7 +225,7 @@ async def test_chat_stream_endpoint_exists(async_client: AsyncClient):
 **Step 2: Run to confirm baseline passes**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/gateway/test_chat_router_shape.py -v
+cd wenjin/backend && python -m pytest tests/gateway/test_chat_router_shape.py -v
 ```
 
 **Step 3: Delete wrapper functions from chat.py**
@@ -239,7 +239,7 @@ Keep: `_to_turn_attachment()`, `_to_turn_request()` — these are thin DTO adapt
 **Step 4: Run tests**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/gateway/test_chat_router_shape.py tests/architecture/ -v
+cd wenjin/backend && python -m pytest tests/gateway/test_chat_router_shape.py tests/architecture/ -v
 ```
 Expected: all `PASSED`
 
@@ -273,7 +273,7 @@ Then in the function body, reference `_redis_client` and `_redis_settings`.
 **Step 3: Run tests**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/gateway/ -v
+cd wenjin/backend && python -m pytest tests/gateway/ -v
 ```
 
 **Step 4: Commit**
@@ -298,7 +298,7 @@ git commit -m "refactor(chat): hoist Redis import to module level in agent-statu
 
 **Before you start:** Run the full workspace_features test suite to get a baseline:
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/workspace_features/ -v
+cd wenjin/backend && python -m pytest tests/workspace_features/ -v
 ```
 
 ---
@@ -338,7 +338,7 @@ def test_thesis_writing_has_action_costs():
 **Step 2: Run to verify it fails**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/workspace_features/test_registry_spec.py -v
+cd wenjin/backend && python -m pytest tests/workspace_features/test_registry_spec.py -v
 ```
 Expected: `FAILED` — `AttributeError: 'WorkspaceFeatureDefinition' object has no attribute 'credit_cost'`
 
@@ -387,7 +387,7 @@ credit_cost={
 **Step 5: Run the test**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/workspace_features/test_registry_spec.py -v
+cd wenjin/backend && python -m pytest tests/workspace_features/test_registry_spec.py -v
 ```
 Expected: `PASSED`
 
@@ -427,7 +427,7 @@ def test_get_feature_cost_reads_from_registry():
 **Step 2: Run to verify it fails** (it won't fail if credit_policy still has its own dict — it will pass for the wrong reason. Check whether policy reads from registry now or from its own dict.)
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/workspace_features/test_registry_spec.py::test_get_feature_cost_reads_from_registry -v
+cd wenjin/backend && python -m pytest tests/workspace_features/test_registry_spec.py::test_get_feature_cost_reads_from_registry -v
 ```
 
 **Step 3: Rewrite `get_feature_cost` to use registry**
@@ -455,7 +455,7 @@ Keep `FEATURE_COSTS`, `BILLABLE_TASK_TYPES`, `FEATURE_DISPLAY_NAMES`, `THESIS_AC
 **Step 4: Run full test suite**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/workspace_features/ tests/services/ -v
+cd wenjin/backend && python -m pytest tests/workspace_features/ tests/services/ -v
 ```
 Expected: all `PASSED`
 
@@ -475,7 +475,7 @@ This is the highest-impact change in Phase 2. `workspace_feature_artifacts.py` h
 **Step 1: Read the full if-elif chain**
 
 ```bash
-sed -n '1,350p' academiagpt-v2/backend/src/task/workspace_feature_artifacts.py
+sed -n '1,350p' wenjin/backend/src/task/workspace_feature_artifacts.py
 ```
 
 **Step 2: Define an artifact strategy protocol**
@@ -547,13 +547,13 @@ def test_every_feature_has_artifact_builder():
 **Step 5: Run**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/task/test_artifact_dispatch.py -v
+cd wenjin/backend && python -m pytest tests/task/test_artifact_dispatch.py -v
 ```
 
 **Step 6: Run full suite**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/ -x -q
+cd wenjin/backend && python -m pytest tests/ -x -q
 ```
 
 **Step 7: Commit**
@@ -579,9 +579,9 @@ git commit -m "refactor(artifacts): replace if-elif chain with registry-dispatch
 **Before you start:**
 ```bash
 # Find where tasks are created (INSERT) to know what needs to populate the new columns
-grep -rn "TaskRecord(" academiagpt-v2/backend/src/ | head -20
+grep -rn "TaskRecord(" wenjin/backend/src/ | head -20
 # Find Alembic config
-ls academiagpt-v2/backend/alembic/
+ls wenjin/backend/alembic/
 ```
 
 ---
@@ -617,7 +617,7 @@ def test_task_record_has_action_column():
 **Step 2: Run to confirm failure**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/database/test_task_model_fields.py -v
+cd wenjin/backend && python -m pytest tests/database/test_task_model_fields.py -v
 ```
 
 **Step 3: Add the columns**
@@ -643,7 +643,7 @@ __table_args__ = (
 **Step 4: Run the test**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/database/test_task_model_fields.py -v
+cd wenjin/backend && python -m pytest tests/database/test_task_model_fields.py -v
 ```
 Expected: `PASSED`
 
@@ -661,14 +661,14 @@ git commit -m "feat(task): add workspace_id, feature_id, thread_id, action colum
 **Step 1: Generate migration**
 
 ```bash
-cd academiagpt-v2/backend && alembic revision --autogenerate -m "task_structural_fields"
+cd wenjin/backend && alembic revision --autogenerate -m "task_structural_fields"
 ```
 
 **Step 2: Review the generated migration**
 
 ```bash
-ls academiagpt-v2/backend/alembic/versions/ | sort | tail -3
-cat academiagpt-v2/backend/alembic/versions/<new-file>.py
+ls wenjin/backend/alembic/versions/ | sort | tail -3
+cat wenjin/backend/alembic/versions/<new-file>.py
 ```
 
 Verify it adds the four columns and the composite index. If autogenerate missed anything, add manually.
@@ -676,7 +676,7 @@ Verify it adds the four columns and the composite index. If autogenerate missed 
 **Step 3: Apply migration (dev database)**
 
 ```bash
-cd academiagpt-v2/backend && alembic upgrade head
+cd wenjin/backend && alembic upgrade head
 ```
 
 **Step 4: Commit**
@@ -693,7 +693,7 @@ git commit -m "chore(db): migration — task structural fields (workspace_id, fe
 **Step 1: Find where TaskRecord rows are inserted**
 
 ```bash
-grep -rn "TaskRecord(" academiagpt-v2/backend/src/ --include="*.py"
+grep -rn "TaskRecord(" wenjin/backend/src/ --include="*.py"
 ```
 
 **Step 2: Read the task creation site(s)** — likely in `task/service.py` `submit_task()` or similar.
@@ -718,7 +718,7 @@ task = TaskRecord(
 **Step 4: Run existing task service tests**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/task/ -v
+cd wenjin/backend && python -m pytest tests/task/ -v
 ```
 
 **Step 5: Commit**
@@ -762,7 +762,7 @@ Replace the Python-side filtering of the last 50 tasks with a direct SQL query u
 **Step 4: Run all affected tests**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/task/ tests/services/ tests/workspace_features/ -v
+cd wenjin/backend && python -m pytest tests/task/ tests/services/ tests/workspace_features/ -v
 ```
 
 **Step 5: Commit**
@@ -793,8 +793,8 @@ git commit -m "refactor(task): replace JSONB path queries with first-class colum
 
 ```bash
 grep -A 15 "_FIGURE_STRATEGY_BY_TYPE" \
-  academiagpt-v2/backend/src/workspace_features/services/thesis_feature_service.py \
-  academiagpt-v2/backend/src/agents/graphs/thesis/figure_generation.py
+  wenjin/backend/src/workspace_features/services/thesis_feature_service.py \
+  wenjin/backend/src/agents/graphs/thesis/figure_generation.py
 ```
 
 **Step 2: Write a drift-detection test**
@@ -824,7 +824,7 @@ def test_figure_strategy_mappings_are_identical():
 **Step 3: Run to verify it fails (they are separate dicts)**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/workspace_features/test_thesis_strategy_consistency.py -v
+cd wenjin/backend && python -m pytest tests/workspace_features/test_thesis_strategy_consistency.py -v
 ```
 Expected: `FAILED` — they are `is`-distinct objects
 
@@ -848,14 +848,14 @@ from src.workspace_features.services.thesis_feature_service import (
 **Step 5: Run the test**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/workspace_features/test_thesis_strategy_consistency.py -v
+cd wenjin/backend && python -m pytest tests/workspace_features/test_thesis_strategy_consistency.py -v
 ```
 Expected: `PASSED` — same object
 
 **Step 6: Run full test suite**
 
 ```bash
-cd academiagpt-v2/backend && python -m pytest tests/ -x -q
+cd wenjin/backend && python -m pytest tests/ -x -q
 ```
 
 **Step 7: Commit**
@@ -874,14 +874,14 @@ git commit -m "refactor(thesis): figure_generation imports strategy map from the
 
 ```bash
 grep -rn "thesis_feature_service\|src\.thesis\." \
-  academiagpt-v2/backend/src/agents/graphs/thesis/ \
+  wenjin/backend/src/agents/graphs/thesis/ \
   --include="*.py" | grep -v "_FIGURE_STRATEGY"
 ```
 
 ```bash
 grep -rn "def.*thesis\|thesis_writing\|thesis_schema" \
-  academiagpt-v2/backend/src/workspace_features/services/thesis_feature_service.py \
-  academiagpt-v2/backend/src/thesis/ \
+  wenjin/backend/src/workspace_features/services/thesis_feature_service.py \
+  wenjin/backend/src/thesis/ \
   --include="*.py" | head -30
 ```
 
@@ -904,7 +904,7 @@ git commit -m "refactor(thesis): converge [specific thing] to single definition"
 Run all of these and confirm they pass:
 
 ```bash
-cd academiagpt-v2/backend
+cd wenjin/backend
 
 # Architecture guardrails
 python -m pytest tests/architecture/ -v

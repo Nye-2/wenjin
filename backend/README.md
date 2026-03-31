@@ -1,6 +1,6 @@
-# 观澜 Guanlan Backend
+# 问津 Wenjin Backend
 
-Academic AI Assistant with Lead Agent + Middleware + Skills architecture.
+Backend for Wenjin (问津), an AI workspace for papers, proposals, patents, and research workflows, built on Lead Agent + Middleware + Skills architecture.
 
 ## Completed Features
 

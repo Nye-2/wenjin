@@ -43,7 +43,7 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
   },
 
   clearFeatures: () => {
-    set({ features: [], skills: [], error: null });
+    set({ features: [], error: null });
   },
 
   fetchSkills: async (workspaceId: string) => {

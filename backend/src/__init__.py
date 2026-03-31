@@ -1,4 +1,4 @@
-"""AcademiaGPT v2 backend package.
+"""Wenjin backend package.
 
 Keep package import side-effect free so tests and scripts can import individual
 modules without bootstrapping the full gateway application.

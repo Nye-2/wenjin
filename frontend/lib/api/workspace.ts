@@ -294,6 +294,16 @@ export async function uploadWorkspaceTemplate(
   return response.data;
 }
 
+export async function activateWorkspaceTemplate(
+  workspaceId: string,
+  templateId: string
+): Promise<WorkspaceTemplate> {
+  const response = await apiClient.put(
+    `/workspaces/${workspaceId}/templates/${templateId}/activate`
+  );
+  return response.data;
+}
+
 export async function deleteWorkspaceTemplate(
   workspaceId: string,
   templateId: string

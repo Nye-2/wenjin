@@ -23,7 +23,7 @@ class PubMedTool:
     def __init__(self) -> None:
         """Initialize the PubMed tool."""
         self._base_url = EUTILS_BASE_URL
-        self._email = "contact@guanlan.ai"  # NCBI requires email for API usage
+        self._email = "contact@wenjin.ai"  # NCBI requires email for API usage
 
     async def _fetch(self, url: str, params: dict[str, Any]) -> str | None:
         """Fetch data from URL with error handling.

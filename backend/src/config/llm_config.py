@@ -1,4 +1,4 @@
-"""LLM configuration loader for AcademiaGPT v2.
+"""LLM configuration loader for Wenjin.
 
 This module parses model configurations from environment variables
 (LLM_GEN_MODELS, LLM_TOOL_MODELS, LLM_UTILITY_MODELS, LLM_IMAGE_MODELS)

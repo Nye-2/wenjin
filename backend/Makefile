@@ -1,4 +1,4 @@
-# AcademiaGPT Backend Makefile
+# Wenjin Backend Makefile
 
 .PHONY: install dev gateway test lint format clean
 

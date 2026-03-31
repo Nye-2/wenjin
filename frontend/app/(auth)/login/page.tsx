@@ -9,10 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AuthShell } from '@/components/auth/auth-shell';
+import { useI18n } from '@/components/i18n-provider';
 import { Eye, EyeOff, Loader2, LogIn } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const { login, isLoading, error, clearError, isAuthenticated } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,16 +39,16 @@ export default function LoginPage() {
   return (
     <AuthShell
       mode="login"
-      title="Welcome back"
-      description="Sign in to continue your research workspace and ongoing writing tasks."
+      title={t("auth.login.title")}
+      description={t("auth.login.subtitle")}
       footer={(
         <p className="text-center">
-          Don&apos;t have an account?{' '}
+          {t("auth.login.noAccount")}{" "}
           <Link
             href="/register"
             className="font-semibold text-[var(--accent-primary)] hover:text-[var(--accent-secondary)]"
           >
-            Create one
+            {t("auth.login.createOne")}
           </Link>
         </p>
       )}
@@ -61,12 +63,12 @@ export default function LoginPage() {
 
           <div className="space-y-2">
             <Label htmlFor="email">
-              Email <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.login.email")} <span className="text-[var(--semantic-error)]">*</span>
             </Label>
             <Input
               id="email"
               type="email"
-              placeholder="your@email.com"
+              placeholder={t("auth.login.emailPlaceholder")}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
@@ -76,13 +78,13 @@ export default function LoginPage() {
 
           <div className="space-y-2">
             <Label htmlFor="password">
-              Password <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.login.password")} <span className="text-[var(--semantic-error)]">*</span>
             </Label>
             <div className="relative">
               <Input
                 id="password"
                 type={showPassword ? 'text' : 'password'}
-                placeholder="••••••••"
+                placeholder={t("auth.login.passwordPlaceholder")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
@@ -105,12 +107,12 @@ export default function LoginPage() {
           {isLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Signing in...
+              {t("auth.login.signingIn")}
             </>
           ) : (
             <>
               <LogIn className="mr-2 h-4 w-4" />
-              Sign In
+              {t("auth.login.button")}
             </>
           )}
         </Button>

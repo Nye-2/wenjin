@@ -13,7 +13,7 @@ API_BASE = "https://api.crossref.org"
 _http = ServiceHttpClient(
     service_name="crossref",
     timeout=30.0,
-    headers={"User-Agent": "Guanlan/2.0 (mailto:contact@example.com)"},
+    headers={"User-Agent": "Wenjin/2.0 (mailto:contact@example.com)"},
 )
 
 

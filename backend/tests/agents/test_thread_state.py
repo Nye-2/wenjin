@@ -1,7 +1,7 @@
 """Tests for ThreadState and academic extensions.
 
 Tests the AgentState-based ThreadState with:
-- deer-flow base fields (sandbox, thread_data, title, artifacts, todos, uploaded_files, viewed_images)
+- shared runtime fields (sandbox, thread_data, title, artifacts, todos, uploaded_files, viewed_images)
 - Academic fields (workspace_id, discipline, etc.) as NotRequired
 - Custom reducers (merge_artifacts, merge_academic_artifacts, merge_cited_papers, merge_viewed_images)
 - Dict-like access patterns (replacing Pydantic .attribute access)
@@ -86,11 +86,11 @@ class TestThreadStateInheritance:
         assert state.get("discipline") is None
 
 
-# ============ Deer-flow Base Fields Tests ============
+# ============ Shared Base Fields Tests ============
 
 
-class TestDeerFlowBaseFields:
-    """Test deer-flow infrastructure fields."""
+class TestSharedBaseFields:
+    """Test shared infrastructure fields."""
 
     def test_sandbox_field(self):
         """Test sandbox field with SandboxState."""

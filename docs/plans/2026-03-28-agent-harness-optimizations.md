@@ -13,7 +13,7 @@
 ## Baseline check (run before starting)
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/ tests/subagents/ -q --tb=no --continue-on-collection-errors 2>&1 | tail -5
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/ tests/subagents/ -q --tb=no --continue-on-collection-errors 2>&1 | tail -5
 ```
 
 Note the pass/fail count. Pre-existing failures are expected (circular import in test_feature_bridge.py).
@@ -144,7 +144,7 @@ async def test_different_users_have_separate_cache_entries():
 
 Run to verify FAIL:
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_memory_middleware_cache.py -v 2>&1 | tail -15
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_memory_middleware_cache.py -v 2>&1 | tail -15
 ```
 Expected: FAILED — `TypeError: MemoryMiddleware.__init__() got an unexpected keyword argument 'cache_ttl'`
 
@@ -224,13 +224,13 @@ self._memory_cache.pop(cache_key, None)
 
 ### Step 3: Run the tests
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_memory_middleware_cache.py tests/agents/middleware/test_memory.py -v 2>&1 | tail -20
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_memory_middleware_cache.py tests/agents/middleware/test_memory.py -v 2>&1 | tail -20
 ```
 Expected: all PASSED.
 
 ### Step 4: Commit
 ```bash
-cd /home/cjz/academiagpt-v2/backend && git add src/agents/middlewares/memory.py tests/agents/middlewares/test_memory_middleware_cache.py && git commit -m "perf(memory): add per-user TTL cache to MemoryMiddleware.before_model"
+cd /home/cjz/wenjin/backend && git add src/agents/middlewares/memory.py tests/agents/middlewares/test_memory_middleware_cache.py && git commit -m "perf(memory): add per-user TTL cache to MemoryMiddleware.before_model"
 ```
 
 ---
@@ -315,7 +315,7 @@ def test_tool_refresh_forced_when_tools_change():
 
 Run to verify FAIL:
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/lead_agent/test_dynamic_tools.py::test_tool_refresh_skips_rebuild_within_ttl -v 2>&1 | tail -10
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/lead_agent/test_dynamic_tools.py::test_tool_refresh_skips_rebuild_within_ttl -v 2>&1 | tail -10
 ```
 Expected: FAILED — `TypeError: DynamicToolNode.__init__() got an unexpected keyword argument 'refresh_interval'`
 
@@ -393,13 +393,13 @@ def invalidate_tool_cache(self) -> None:
 
 ### Step 3: Run the tests
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/lead_agent/test_dynamic_tools.py -v 2>&1 | tail -20
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/lead_agent/test_dynamic_tools.py -v 2>&1 | tail -20
 ```
 Expected: all PASSED.
 
 ### Step 4: Commit
 ```bash
-cd /home/cjz/academiagpt-v2/backend && git add src/agents/lead_agent/dynamic_tools.py tests/agents/lead_agent/test_dynamic_tools.py && git commit -m "perf(tools): add TTL + change detection to DynamicToolNode._refresh_tools"
+cd /home/cjz/wenjin/backend && git add src/agents/lead_agent/dynamic_tools.py tests/agents/lead_agent/test_dynamic_tools.py && git commit -m "perf(tools): add TTL + change detection to DynamicToolNode._refresh_tools"
 ```
 
 ---
@@ -449,7 +449,7 @@ def test_count_tokens_ascii_unchanged():
 
 Run to verify the CJK test FAILS:
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_summarization.py::test_count_tokens_cjk_content -v 2>&1 | tail -10
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_summarization.py::test_count_tokens_cjk_content -v 2>&1 | tail -10
 ```
 Expected: FAILED — assertion `count >= 2` fails (old code returns 1 for "深度学习")
 
@@ -489,13 +489,13 @@ def _count_tokens(self, messages: list) -> int:
 
 ### Step 3: Run all summarization tests
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_summarization.py -v 2>&1 | tail -15
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_summarization.py -v 2>&1 | tail -15
 ```
 Expected: all PASSED.
 
 ### Step 4: Commit
 ```bash
-cd /home/cjz/academiagpt-v2/backend && git add src/agents/middlewares/summarization.py tests/agents/middlewares/test_summarization.py && git commit -m "fix(summarization): use UTF-8 byte heuristic for CJK-aware token counting"
+cd /home/cjz/wenjin/backend && git add src/agents/middlewares/summarization.py tests/agents/middlewares/test_summarization.py && git commit -m "fix(summarization): use UTF-8 byte heuristic for CJK-aware token counting"
 ```
 
 ---
@@ -564,7 +564,7 @@ def test_registry_default_max_size_is_50():
 
 Run to verify FAIL:
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/subagents/test_graph.py::test_registry_evicts_oldest_entry_at_max_size -v 2>&1 | tail -10
+cd /home/cjz/wenjin/backend && python -m pytest tests/subagents/test_graph.py::test_registry_evicts_oldest_entry_at_max_size -v 2>&1 | tail -10
 ```
 Expected: FAILED — `TypeError: GraphTemplateRegistry.__init__() got an unexpected keyword argument 'max_size'`
 
@@ -653,13 +653,13 @@ class GraphTemplateRegistry:
 
 ### Step 3: Run graph registry tests
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/subagents/test_graph.py -v 2>&1 | tail -20
+cd /home/cjz/wenjin/backend && python -m pytest tests/subagents/test_graph.py -v 2>&1 | tail -20
 ```
 Expected: all PASSED.
 
 ### Step 4: Commit
 ```bash
-cd /home/cjz/academiagpt-v2/backend && git add src/subagents/graph.py tests/subagents/test_graph.py && git commit -m "fix(subagents): add LRU eviction to GraphTemplateRegistry (max_size=50)"
+cd /home/cjz/wenjin/backend && git add src/subagents/graph.py tests/subagents/test_graph.py && git commit -m "fix(subagents): add LRU eviction to GraphTemplateRegistry (max_size=50)"
 ```
 
 ---
@@ -752,7 +752,7 @@ async def test_knowledge_context_timeout_returns_empty():
 
 Run to verify FAIL:
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_context_timeouts.py -v 2>&1 | tail -15
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_context_timeouts.py -v 2>&1 | tail -15
 ```
 Expected: FAILED — `TypeError: WorkspaceContextMiddleware.__init__() got an unexpected keyword argument 'timeout'`
 
@@ -945,13 +945,13 @@ Also add `import asyncio` at the top of `memory.py` if not already present.
 
 ### Step 6: Run the timeout tests
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/middlewares/test_context_timeouts.py tests/agents/middlewares/test_academic_middlewares.py tests/agents/middlewares/test_workspace_context.py -v 2>&1 | tail -20
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/middlewares/test_context_timeouts.py tests/agents/middlewares/test_academic_middlewares.py tests/agents/middlewares/test_workspace_context.py -v 2>&1 | tail -20
 ```
 Expected: all PASSED.
 
 ### Step 7: Commit
 ```bash
-cd /home/cjz/academiagpt-v2/backend && git add \
+cd /home/cjz/wenjin/backend && git add \
   src/agents/middlewares/workspace_context.py \
   src/agents/middlewares/literature_context.py \
   src/agents/middlewares/knowledge_context.py \
@@ -1001,7 +1001,7 @@ def test_run_coroutine_sync_warns_when_loop_is_running(caplog):
 
 Run to verify FAIL:
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/lead_agent/test_dynamic_tools.py::test_run_coroutine_sync_warns_when_loop_is_running -v 2>&1 | tail -10
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/lead_agent/test_dynamic_tools.py::test_run_coroutine_sync_warns_when_loop_is_running -v 2>&1 | tail -10
 ```
 Expected: FAILED (no warning log emitted currently)
 
@@ -1061,13 +1061,13 @@ def _run_coroutine_sync(coroutine: Coroutine[Any, Any, T]) -> T:
 
 ### Step 3: Run the test
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/agents/lead_agent/test_dynamic_tools.py -v 2>&1 | tail -15
+cd /home/cjz/wenjin/backend && python -m pytest tests/agents/lead_agent/test_dynamic_tools.py -v 2>&1 | tail -15
 ```
 Expected: all PASSED.
 
 ### Step 4: Commit
 ```bash
-cd /home/cjz/academiagpt-v2/backend && git add src/agents/lead_agent/dynamic_tools.py tests/agents/lead_agent/test_dynamic_tools.py && git commit -m "fix(tools): log warning when _run_coroutine_sync spawns thread inside event loop"
+cd /home/cjz/wenjin/backend && git add src/agents/lead_agent/dynamic_tools.py tests/agents/lead_agent/test_dynamic_tools.py && git commit -m "fix(tools): log warning when _run_coroutine_sync spawns thread inside event loop"
 ```
 
 ---
@@ -1075,7 +1075,7 @@ cd /home/cjz/academiagpt-v2/backend && git add src/agents/lead_agent/dynamic_too
 ## Acceptance criteria
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend
+cd /home/cjz/wenjin/backend
 
 # Task 1: memory cache
 python -m pytest tests/agents/middlewares/test_memory_middleware_cache.py -v

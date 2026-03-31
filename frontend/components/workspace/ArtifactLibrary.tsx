@@ -47,11 +47,13 @@ const artifactColorMap: Record<string, string> = {
 interface ArtifactLibraryProps {
   onSelectArtifact: (artifact: Artifact) => void;
   onExport?: () => void;
+  embedded?: boolean;
 }
 
 export function ArtifactLibrary({
   onSelectArtifact,
   onExport,
+  embedded = false,
 }: ArtifactLibraryProps) {
   const { artifacts } = useWorkspaceStore();
 
@@ -81,22 +83,27 @@ export function ArtifactLibrary({
   return (
     <div className="flex flex-col h-full">
       {/* 头部 */}
-      <div className="px-4 py-3 border-b border-[var(--border-default)]">
+      <div
+        className={cn(
+          "border-b border-[var(--border-default)]",
+          embedded ? "px-3 py-3" : "px-4 py-4"
+        )}
+      >
         <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-          成果库
+          证据与成果
         </h3>
-        <p className="text-xs text-[var(--text-muted)] mt-0.5">
-          {artifacts.length} 个成果
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          {artifacts.length} 项已沉淀内容
         </p>
       </div>
 
       {/* 成果列表 */}
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className={cn("flex-1 overflow-y-auto", embedded ? "p-1.5" : "p-2")}>
         {artifacts.length === 0 ? (
           <div className="text-center py-8 text-[var(--text-muted)]">
             <File className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p className="text-xs">暂无成果</p>
-            <p className="text-xs">开始对话以生成内容</p>
+            <p className="text-xs">还没有沉淀成果</p>
+            <p className="text-xs">继续主线任务后，结果会汇总到这里</p>
           </div>
         ) : (
           <div className="space-y-1">
@@ -115,7 +122,7 @@ export function ArtifactLibrary({
                   key={artifact.id}
                   onClick={() => onSelectArtifact(artifact)}
                   className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg",
+                    "w-full flex items-center gap-3 rounded-2xl px-3 py-3",
                     "text-left hover:bg-[var(--bg-surface)] transition-colors"
                   )}
                   whileHover={{ x: 2 }}
@@ -142,8 +149,8 @@ export function ArtifactLibrary({
                   <motion.button
                     key={artifact.id}
                     onClick={() => onSelectArtifact(artifact)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg",
+                  className={cn(
+                      "w-full flex items-center gap-3 rounded-2xl px-3 py-3",
                       "text-left hover:bg-[var(--bg-surface)] transition-colors"
                     )}
                     whileHover={{ x: 2 }}
@@ -170,7 +177,7 @@ export function ArtifactLibrary({
         <div className="p-3 border-t border-[var(--border-default)]">
           <button
             onClick={onExport}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-[var(--accent-primary)] text-white text-sm font-medium hover:bg-[var(--accent-primary)]/90 transition-colors"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[var(--brand-navy)] to-[var(--brand-teal)] px-4 py-3 text-sm font-medium text-white transition-colors hover:opacity-95"
           >
             <Download className="w-4 h-4" />
             导出PDF

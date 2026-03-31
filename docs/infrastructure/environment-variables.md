@@ -16,7 +16,7 @@
 
 | 变量 | 说明 | 示例 |
 |---|---|---|
-| `DATABASE_URL` | PostgreSQL async 连接串 | `postgresql+asyncpg://postgres:postgres@localhost:5432/academiagpt` |
+| `DATABASE_URL` | PostgreSQL async 连接串 | `postgresql+asyncpg://postgres:postgres@localhost:5432/wenjin` |
 | `REDIS_URL` | Redis 连接串 | `redis://localhost:6379/0` |
 | `JWT_SECRET_KEY` | JWT 签名密钥 | `change-me-...` |
 | `LLM_GEN_MODELS` | 文本生成模型列表(JSON) | `[ {...} ]` |
@@ -31,6 +31,10 @@
 | `PROMETHEUS_ENABLED` | 启用 Prometheus 指标 |
 | `SENTRY_ENABLED`/`SENTRY_DSN` | 启用 Sentry 错误上报 |
 | `ENVIRONMENT`/`DEBUG`/`LOG_LEVEL` | 运行环境与日志等级 |
+| `GUANLAN_DB_AUTO_CREATE` | 仅限临时环境的 metadata 建表开关 |
+| `GUANLAN_EXTENSIONS_CONFIG_PATH` | 自定义 `extensions_config.json` 路径 |
+| `GUANLAN_TEXLIVE_IMAGE` | 覆盖 LaTeX Docker 镜像 |
+| `GUANLAN_TEXLIVE_IMAGE_TAR` | 覆盖本地 TeXLive 镜像 tar 包路径 |
 
 ### 1.3 SMTP 与验证码
 

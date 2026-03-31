@@ -19,7 +19,7 @@ class TestLaTeXProvider:
 
     def test_docker_image(self, provider):
         """Should return Docker image name."""
-        assert provider.docker_image == "academiagpt/texlive:2024"
+        assert provider.docker_image == "wenjin/texlive:2024"
 
     def test_build_command_simple(self, provider):
         """Should build command for simple LaTeX."""

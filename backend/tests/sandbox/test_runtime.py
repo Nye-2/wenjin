@@ -21,9 +21,9 @@ from src.sandbox.runtime import (
 def _settings(mode: str) -> SimpleNamespace:
     return SimpleNamespace(
         mode=mode,
-        local=SimpleNamespace(base_dir=".academiagpt/threads"),
+        local=SimpleNamespace(base_dir=".wenjin/threads"),
         docker=SimpleNamespace(
-            image="academiagpt/sandbox:latest",
+            image="wenjin/sandbox:latest",
             timeout=300,
             memory="1g",
             cpu_limit=2,

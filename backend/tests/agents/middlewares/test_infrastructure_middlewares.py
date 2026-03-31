@@ -1,4 +1,4 @@
-"""Tests for deer-flow infrastructure middlewares."""
+"""Tests for shared infrastructure middlewares."""
 
 import pytest
 

@@ -9,59 +9,164 @@
     "dismiss": "Dismiss",
     "create": "Create",
     "search": "Search",
-    "filter": "Filter"
+    "filter": "Filter",
+    "optional": "optional"
   },
   "nav": {
     "workspaces": "Workspaces",
-    "userDashboard": "My Dashboard",
-    "adminDashboard": "Admin Dashboard",
+    "userDashboard": "Account Overview",
+    "adminDashboard": "Admin Overview",
     "settings": "Settings",
-    "logout": "Logout"
+    "logout": "Logout",
+    "productTagline": "Research Workflow AI Workspace"
+  },
+  "brand": {
+    "cn": "问津",
+    "en": "Wenjin",
+    "motto": "Find the way into deeper research",
+    "tagline": "An AI workspace for papers, proposals, patents, and project writing",
+    "english": "Find the way, move the work forward.",
+    "summary": "Keep complex research work moving along a clear route"
   },
   "home": {
-    "title": "Guanlan",
-    "subtitle": "Your AI-powered academic research and writing assistant. Standing at the crest of intelligence, we guide you from literature review to paper submission.",
-    "getStarted": "Get Started",
-    "learnMore": "Learn More",
+    "title": "Wenjin",
+    "subtitle": "From topic exploration to final delivery, keep sources, reasoning, drafting, revision, and outputs connected inside one workspace.",
+    "getStarted": "Enter Workspace",
+    "learnMore": "View Capabilities",
     "features": {
-      "title": "Powerful Features",
-      "subtitle": "Everything you need for academic research and writing"
+      "title": "Supported Work Types",
+      "subtitle": "Different tasks, one route you can keep moving forward"
+    },
+    "pathCard": {
+      "eyebrow": "Current Work Route",
+      "title": "From question framing to final delivery",
+      "workspaceLabel": "Example workspace",
+      "workspaceValue": "Multimodal research project design",
+      "nextLabel": "Next",
+      "nextAction": "Generate research route suggestions",
+      "note": "Wenjin keeps sources, phases, drafts, and outputs on one connected track."
+    },
+    "status": {
+      "done": "Done",
+      "active": "In Progress",
+      "queued": "Queued"
+    },
+    "stages": {
+      "stage1": {
+        "title": "Topic & Background",
+        "artifact": "Research brief",
+        "update": "Scope definition completed"
+      },
+      "stage2": {
+        "title": "Evidence & Literature",
+        "artifact": "Evidence map",
+        "update": "Search and screening in progress"
+      },
+      "stage3": {
+        "title": "Structure & Argument",
+        "artifact": "Argument outline",
+        "update": "Waiting to generate section structure"
+      },
+      "stage4": {
+        "title": "Draft & Revision",
+        "artifact": "Section draft",
+        "update": "Waiting to continue manuscript revision"
+      },
+      "stage5": {
+        "title": "Review & Delivery",
+        "artifact": "Delivery checklist",
+        "update": "Waiting to assemble final submission package"
+      }
+    },
+    "workflow": {
+      "title": "How Wenjin moves a complex task forward",
+      "subtitle": "Keep sources, reasoning, drafting, and delivery on the same working line",
+      "step1": {
+        "title": "Collect Sources",
+        "description": "Bring literature, materials, references, and problem context into one workspace."
+      },
+      "step2": {
+        "title": "Form Judgment",
+        "description": "Clarify the research question, structure, and key arguments around the target outcome."
+      },
+      "step3": {
+        "title": "Generate Drafts",
+        "description": "Keep abstracts, outlines, sections, and proposal text connected as they evolve."
+      },
+      "step4": {
+        "title": "Revise & Review",
+        "description": "Advance rewriting, review, and feedback without losing context."
+      },
+      "step5": {
+        "title": "Preserve Outputs",
+        "description": "Archive deliverables, process records, and intermediate artifacts together."
+      }
     },
     "cta": {
-      "title": "Ready to write your next paper?",
-      "subtitle": "Create a workspace and start your research journey with AI assistance.",
-      "button": "Create Workspace"
+      "title": "Put the next research task onto a route you can keep advancing",
+      "subtitle": "Create a workspace to organize sources, move the writing forward, and preserve the outputs.",
+      "button": "Enter Workspace"
     }
   },
   "features": {
     "deepResearch": {
-      "title": "Deep Research",
-      "description": "Comprehensive literature analysis and research gap identification"
+      "title": "Paper Writing",
+      "description": "Build a continuous route through abstract, outline, drafting, and revision"
     },
     "paperWriting": {
-      "title": "Paper Writing",
-      "description": "End-to-end academic paper generation with proper citations"
+      "title": "Proposal Writing",
+      "description": "Keep background research, experiment design, and application text on one line"
     },
     "ideaGeneration": {
-      "title": "Idea Generation",
-      "description": "Generate novel research ideas based on existing literature"
+      "title": "Patent Drafting",
+      "description": "Connect prior art search, invention framing, and patent structure generation"
     },
     "experimentDesign": {
-      "title": "Experiment Design",
-      "description": "Design rigorous experiments with proper methodology"
+      "title": "Research Workflow",
+      "description": "Manage sources, reasoning, drafts, and outputs from one workspace"
     }
   },
   "workspace": {
-    "title": "My Workspaces",
-    "subtitle": "Manage your academic research projects",
+    "title": "My Work Routes",
+    "subtitle": "Continue the papers, proposals, patents, and research tasks already in motion",
     "newWorkspace": "New Workspace",
-    "searchPlaceholder": "Search workspaces...",
+    "searchPlaceholder": "Search workspaces, tasks, or research directions...",
     "empty": {
-      "title": "No workspaces found",
-      "description": "Create your first workspace to get started",
+      "title": "No work route has started yet",
+      "description": "Create the first workspace and begin with research, structure design, or draft generation.",
       "searchHint": "Try a different search term"
     },
     "deleteConfirm": "Are you sure you want to delete this workspace?",
+    "sections": {
+      "recent": "Continue Recent Work",
+      "recentSubtitle": "Pick up the workspaces that moved most recently without rebuilding context.",
+      "templates": "Start by Work Type",
+      "templatesSubtitle": "Choose the task type first, then keep sources, structure, and outputs on one route.",
+      "all": "All Workspaces",
+      "allSubtitle": "Browse every active or pending task by latest update."
+    },
+    "cards": {
+      "lastUpdated": "Last Updated",
+      "targetOutput": "Target Output",
+      "nextAction": "Suggested Next Step",
+      "continue": "Continue",
+      "open": "Open Workspace",
+      "latest": "Recently Active"
+    },
+    "targets": {
+      "sci": "Paper draft and revision plan",
+      "thesis": "Thesis structure and chapter drafts",
+      "proposal": "Application draft and experiment design brief",
+      "software_copyright": "Material checklist and technical description",
+      "patent": "Patent structure and delivery checklist"
+    },
+    "nextSteps": {
+      "sci": "Extend the evidence base and generate the next section structure",
+      "thesis": "Complete the opening background and advance the body structure",
+      "proposal": "Consolidate background research and continue experiment design",
+      "software_copyright": "Complete the materials list and continue the technical description",
+      "patent": "Continue prior art search and sharpen the novelty points"
+    },
     "card": {
       "papers": "papers",
       "artifacts": "artifacts",
@@ -97,19 +202,19 @@
     }
   },
   "chat": {
-    "placeholder": "Ask about your research...",
+    "placeholder": "Start from the current phase and tell Wenjin what to move forward.",
     "thinking": "Thinking...",
     "send": "Send",
     "stop": "Stop",
-    "startTitle": "Start Your Research Journey",
-    "startDesc": "Select a skill below and ask me anything about your research. I can help with literature reviews, paper writing, experiment design, and more.",
+    "startTitle": "Start from the current phase",
+    "startDesc": "Describe the step you want to move next, or use a suggested action. Wenjin will plan the next move from the current workspace context.",
     "helperText": {
       "send": "to send",
       "newline": "for new line",
       "characters": "characters"
     },
-    "title": "Agent Chat",
-    "subtitle": "AI-powered academic assistant"
+    "title": "Work Line",
+    "subtitle": "An AI workspace that keeps research work moving"
   },
   "skills": {
     "deep-research": {
@@ -131,6 +236,62 @@
     "proposal-writer": {
       "name": "Proposal",
       "description": "Write research proposals"
+    },
+    "literature-manager": {
+      "name": "Literature Manager",
+      "description": "Collect, organize, and manage citations"
+    },
+    "literature-reviewer": {
+      "name": "Literature Review",
+      "description": "Systematic literature review and analysis"
+    },
+    "figure-designer": {
+      "name": "Figure Design",
+      "description": "Academic figure and visualization design"
+    },
+    "doc-compiler": {
+      "name": "Compile & Export",
+      "description": "Paper formatting, compilation, and export"
+    },
+    "paper-analyst": {
+      "name": "Paper Analysis",
+      "description": "In-depth analysis of paper structure and methods"
+    },
+    "section-writer": {
+      "name": "Section Writing",
+      "description": "Write academic content section by section"
+    },
+    "peer-reviewer": {
+      "name": "Peer Review",
+      "description": "Simulate reviewer perspective to review papers"
+    },
+    "journal-recommender": {
+      "name": "Journal Recommendation",
+      "description": "Match suitable journals for submission"
+    },
+    "background-scout": {
+      "name": "Background Research",
+      "description": "Background literature search for research area"
+    },
+    "experiment-designer": {
+      "name": "Experiment Design",
+      "description": "Design experimental plans and technical routes"
+    },
+    "copyright-writer": {
+      "name": "Copyright Materials",
+      "description": "Generate software copyright application materials"
+    },
+    "tech-doc-writer": {
+      "name": "Technical Documentation",
+      "description": "Write technical description documents"
+    },
+    "patent-drafter": {
+      "name": "Patent Drafting",
+      "description": "Draft patent application documents"
+    },
+    "prior-art-scout": {
+      "name": "Prior Art Search",
+      "description": "Search related patents and technical literature"
     }
   },
   "panels": {
@@ -172,9 +333,28 @@
     "untitled": "Untitled"
   },
   "auth": {
+    "shell": {
+      "title": "Find the way, then move the work forward",
+      "subtitle": "One workspace connects sources, reasoning, drafts, and final outputs.",
+      "highlights": {
+        "sources": {
+          "title": "Source Intake",
+          "description": "Keep literature, references, and task background on one line from the start."
+        },
+        "drafts": {
+          "title": "Structured Drafting",
+          "description": "Advance outlines, sections, and revisions inside a continuous context."
+        },
+        "delivery": {
+          "title": "Review & Delivery",
+          "description": "Bring review notes, final packages, and preserved outputs together."
+        }
+      },
+      "supported": "Supported work types"
+    },
     "login": {
-      "title": "Guanlan",
-      "subtitle": "Sign in to your account to continue",
+      "title": "Enter your workspace",
+      "subtitle": "Continue with source review, structure design, draft revision, and final delivery.",
       "email": "Email",
       "emailPlaceholder": "your@email.com",
       "password": "Password",
@@ -185,8 +365,8 @@
       "createOne": "Create one"
     },
     "register": {
-      "title": "Create Account",
-      "subtitle": "Sign up to get started with Guanlan",
+      "title": "Create your Wenjin account",
+      "subtitle": "Start with the first source and build a route you can keep moving forward.",
       "name": "Name",
       "namePlaceholder": "Enter your name",
       "verificationCode": "Verification Code",

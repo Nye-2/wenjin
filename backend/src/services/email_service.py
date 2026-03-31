@@ -76,7 +76,7 @@ class EmailService:
         生成邮件内容
         返回: (subject, html_body)
         """
-        subject = f"【观澜 Guanlan】{purpose}验证码"
+        subject = f"【问津 Wenjin】{purpose}验证码"
 
         html_body = f"""
         <!DOCTYPE html>
@@ -130,7 +130,7 @@ class EmailService:
         <body>
             <div class="container">
                 <div class="header">
-                    <h2>🌊 观澜 Guanlan</h2>
+                    <h2>问津 Wenjin</h2>
                 </div>
                 <div class="content">
                     <p class="info">您好！</p>
@@ -150,7 +150,7 @@ class EmailService:
 
                 <div class="footer">
                     <p>此邮件由系统自动发送，请勿回复</p>
-                    <p>© {datetime.now().year} 观澜 Guanlan — 立潮头处，与智同行</p>
+                    <p>© {datetime.now().year} 问津 Wenjin — Find the way, move the work forward.</p>
                 </div>
             </div>
         </body>

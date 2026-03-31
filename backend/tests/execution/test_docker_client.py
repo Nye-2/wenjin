@@ -64,7 +64,7 @@ class TestDockerClient:
         mock_docker.from_env.return_value.images.get.side_effect = ImageNotFound("test")
 
         with patch.object(client, "_try_load_local_archive", return_value=True):
-            result = await client.ensure_image("academiagpt/texlive:2024")
+            result = await client.ensure_image("wenjin/texlive:2024")
 
         assert result is True
         mock_docker.from_env.return_value.images.pull.assert_not_called()
@@ -82,11 +82,11 @@ class TestDockerClient:
         mock_docker.from_env.return_value.images.pull.return_value = None
 
         with patch.object(client, "_try_load_local_archive", return_value=False):
-            result = await client.ensure_image("academiagpt/texlive:2024")
+            result = await client.ensure_image("wenjin/texlive:2024")
 
         assert result is True
         mock_docker.from_env.return_value.images.pull.assert_called_with(
-            "academiagpt/texlive:2024"
+            "wenjin/texlive:2024"
         )
 
     def test_build_volume_mapping(self, client):

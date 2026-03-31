@@ -51,7 +51,11 @@ class UserKnowledge(Base, UUIDMixin, TimestampMixin):
         nullable=False,
     )
     category: Mapped[KnowledgeCategory] = mapped_column(
-        SQLEnum(KnowledgeCategory),
+        SQLEnum(
+            KnowledgeCategory,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+            native_enum=False,
+        ),
         nullable=False,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)

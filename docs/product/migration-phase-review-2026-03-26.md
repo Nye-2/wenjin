@@ -1,7 +1,7 @@
 # Migration Phase Review
 
 更新时间: 2026-03-26
-适用项目: `academiagpt-v2`
+适用项目: `wenjin`
 对照项目: `deer-flow`
 状态: Current Round Completed
 

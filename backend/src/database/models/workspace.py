@@ -53,7 +53,11 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[WorkspaceType] = mapped_column(
-        SQLEnum(WorkspaceType),
+        SQLEnum(
+            WorkspaceType,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+            native_enum=False,
+        ),
         nullable=False,
     )
     discipline: Mapped[str | None] = mapped_column(String(100), nullable=True)

@@ -52,6 +52,7 @@ class ChatTurnRequest:
     thinking_enabled: bool = False
     reasoning_effort: str | None = None
     attachments: tuple[ChatTurnAttachment, ...] = ()
+    metadata: dict[str, Any] | None = None
     skill_explicit: bool = False
 
 

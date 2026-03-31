@@ -1,8 +1,8 @@
 """Base skill classes for the skill execution framework.
 
 This module provides the foundational classes for implementing skills
-in the AcademiaGPT system. Skills are specialized capabilities that
-can be dynamically executed by the lead agent.
+in Wenjin. Skills are specialized capabilities that can be dynamically
+executed by the lead agent.
 """
 
 from abc import ABC, abstractmethod
@@ -60,7 +60,7 @@ class SkillOutput(BaseModel):
 class BaseSkill(ABC):
     """Abstract base class for all skills.
 
-    All skills in the AcademiaGPT system must inherit from this class
+    All skills in Wenjin must inherit from this class
     and implement the execute method.
 
     Attributes:

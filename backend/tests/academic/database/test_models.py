@@ -43,6 +43,14 @@ def test_workspace_type_enum():
     assert WorkspaceType.PATENT.value == "patent"
 
 
+def test_workspace_type_column_uses_string_backed_enum_values():
+    """Workspace.type should match the varchar-backed schema from Alembic."""
+    column_type = Workspace.__table__.c.type.type
+
+    assert column_type.native_enum is False
+    assert column_type.enums == [member.value for member in WorkspaceType]
+
+
 def test_paper_creation():
     """Test Paper model instantiation."""
     paper_id = generate_uuid()
@@ -233,6 +241,14 @@ def test_knowledge_category_enum():
     assert KnowledgeCategory.KNOWLEDGE.value == "knowledge"
     assert KnowledgeCategory.CONTEXT.value == "context"
     assert KnowledgeCategory.GOAL.value == "goal"
+
+
+def test_knowledge_category_column_uses_string_backed_enum_values():
+    """UserKnowledge.category should match the varchar-backed schema from Alembic."""
+    column_type = UserKnowledge.__table__.c.category.type
+
+    assert column_type.native_enum is False
+    assert column_type.enums == [member.value for member in KnowledgeCategory]
 
 
 def test_generation_record_creation():

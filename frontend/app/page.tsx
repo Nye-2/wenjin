@@ -2,101 +2,42 @@
 
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
+import type { MouseEvent } from "react";
+import {
+  ArrowRight,
+  BookOpen,
+  FlaskConical,
+  Lightbulb,
+  PenTool,
+  Send,
+} from "lucide-react";
 import { LiquidGlassCard } from "@/components/glass/liquid-glass-card";
 import { Header } from "@/components/layout/header";
 import {
-  BookOpen,
-  PenTool,
-  Lightbulb,
-  FlaskConical,
-  Send,
-  Waves,
-  Search,
-  FileText,
-} from "lucide-react";
-import {
+  buttonTap,
+  defaultTransition,
   fadeInUp,
   staggerContainer,
-  defaultTransition,
-  buttonTap,
 } from "@/lib/animations";
 import { useI18n } from "@/components/i18n-provider";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth";
 
-/* ── Hero Wave SVG ── */
-function HeroWaves() {
-  return (
-    <div className="absolute bottom-0 left-0 right-0 overflow-hidden pointer-events-none">
-      {/* Layer 1: deepest, slowest */}
-      <svg
-        className="relative block w-[200%] h-[120px] wave-line-slow opacity-[0.08]"
-        viewBox="0 0 2400 120"
-        preserveAspectRatio="none"
-      >
-        <path
-          d="M0,60 C200,20 400,100 600,60 C800,20 1000,100 1200,60 C1400,20 1600,100 1800,60 C2000,20 2200,100 2400,60 L2400,120 L0,120 Z"
-          fill="url(#wave-grad-1)"
-        />
-        <defs>
-          <linearGradient id="wave-grad-1" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="var(--guanlan-wave)" />
-            <stop offset="50%" stopColor="var(--guanlan-crest)" />
-            <stop offset="100%" stopColor="var(--guanlan-wave)" />
-          </linearGradient>
-        </defs>
-      </svg>
+type StageTone = "done" | "active" | "queued";
 
-      {/* Layer 2: mid, medium speed */}
-      <svg
-        className="absolute bottom-0 left-0 w-[200%] h-[90px] wave-line opacity-[0.06]"
-        viewBox="0 0 2400 90"
-        preserveAspectRatio="none"
-      >
-        <path
-          d="M0,45 C150,70 350,20 600,45 C850,70 1050,20 1200,45 C1350,70 1550,20 1800,45 C2050,70 2250,20 2400,45 L2400,90 L0,90 Z"
-          fill="var(--guanlan-crest)"
-        />
-      </svg>
-
-      {/* Layer 3: surface, fastest */}
-      <svg
-        className="absolute bottom-0 left-0 w-[200%] h-[60px] wave-line opacity-[0.04]"
-        style={{ animationDuration: "8s" }}
-        viewBox="0 0 2400 60"
-        preserveAspectRatio="none"
-      >
-        <path
-          d="M0,30 C100,45 300,15 500,30 C700,45 900,15 1100,30 C1300,45 1500,15 1700,30 C1900,45 2100,15 2400,30 L2400,60 L0,60 Z"
-          fill="var(--guanlan-foam)"
-        />
-      </svg>
-    </div>
-  );
-}
-
-/* ── Decorative Ink Circles ── */
-function InkCircles() {
-  return (
-    <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
-      {/* Large deep circle — top left */}
-      <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-[radial-gradient(circle,rgba(15,40,71,0.12),transparent_65%)]" />
-      {/* Medium crest circle — right */}
-      <div className="absolute top-1/3 -right-20 w-[400px] h-[400px] rounded-full bg-[radial-gradient(circle,rgba(59,130,196,0.1),transparent_60%)]" />
-      {/* Gold accent — bottom left */}
-      <div className="absolute bottom-20 left-1/4 w-[300px] h-[300px] rounded-full bg-[radial-gradient(circle,rgba(196,147,74,0.07),transparent_65%)]" />
-      {/* Subtle mist wash — center */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full bg-[radial-gradient(circle,rgba(123,184,224,0.06),transparent_55%)]" />
-    </div>
-  );
-}
-
-/* ── Get Started Button ── */
-function GetStartedButton({ showIcon = false }: { showIcon?: boolean }) {
+function EnterWorkspaceButton({
+  label,
+  compact = false,
+  withIcon = true,
+}: {
+  label: string;
+  compact?: boolean;
+  withIcon?: boolean;
+}) {
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
-  const { t } = useI18n();
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     router.push(isAuthenticated ? "/workspaces" : "/login");
   };
@@ -105,197 +46,379 @@ function GetStartedButton({ showIcon = false }: { showIcon?: boolean }) {
     <motion.a
       href="/workspaces"
       onClick={handleClick}
-      className="inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-white rounded-xl bg-gradient-to-r from-[var(--guanlan-wave)] to-[var(--guanlan-crest)] hover:shadow-xl hover:shadow-[var(--guanlan-crest)]/15 transition-shadow cursor-pointer"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-[var(--brand-navy)] to-[var(--brand-teal)] font-semibold text-white transition-shadow hover:shadow-xl hover:shadow-[var(--brand-navy)]/20",
+        compact ? "px-4 py-2.5 text-sm" : "px-7 py-4 text-base"
+      )}
       whileHover={{ scale: 1.02 }}
-      whileTap={showIcon ? { scale: 0.98 } : buttonTap}
+      whileTap={buttonTap}
     >
-      {t("home.getStarted")}
-      {showIcon && <Send className="w-4 h-4" />}
+      <span>{label}</span>
+      {withIcon && <Send className={cn("shrink-0", compact ? "h-4 w-4" : "h-4 w-4")} />}
     </motion.a>
   );
 }
 
-/* ── Page ── */
+function LearnMoreButton({ label }: { label: string }) {
+  return (
+    <motion.a
+      href="#capabilities"
+      className="inline-flex items-center gap-2 rounded-2xl border border-[var(--brand-line)] bg-white/72 px-7 py-4 text-base font-semibold text-[var(--brand-navy)] transition-colors hover:border-[var(--brand-teal)]/40 hover:bg-white"
+      whileHover={{ scale: 1.02 }}
+      whileTap={buttonTap}
+    >
+      <span>{label}</span>
+      <ArrowRight className="h-4 w-4" />
+    </motion.a>
+  );
+}
+
+function SectionHeading({
+  eyebrow,
+  title,
+  subtitle,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <div className="max-w-2xl">
+      <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--accent-secondary)]">
+        {eyebrow}
+      </p>
+      <h2 className="mt-4 text-3xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-4xl">
+        {title}
+      </h2>
+      <p className="mt-4 text-base leading-relaxed text-[var(--text-secondary)] sm:text-lg">
+        {subtitle}
+      </p>
+    </div>
+  );
+}
+
+const stageToneStyles: Record<
+  StageTone,
+  { dot: string; badge: string; panel: string }
+> = {
+  done: {
+    dot: "border-[var(--brand-teal)] bg-[var(--brand-teal)]",
+    badge:
+      "border-[var(--brand-teal)]/25 bg-[var(--brand-teal)]/10 text-[var(--brand-teal)]",
+    panel: "bg-white/72",
+  },
+  active: {
+    dot: "border-[var(--brand-brass)] bg-[var(--brand-brass)]",
+    badge:
+      "border-[var(--brand-brass)]/30 bg-[var(--brand-brass)]/12 text-[var(--brand-brass)]",
+    panel: "bg-[rgba(166,124,57,0.08)]",
+  },
+  queued: {
+    dot: "border-[var(--brand-line)] bg-[var(--bg-elevated)]",
+    badge:
+      "border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-muted)]",
+    panel: "bg-[rgba(255,255,255,0.52)]",
+  },
+};
+
 export default function HomePage() {
   const { t } = useI18n();
 
-  const features = [
+  const taskTypes = [
     {
       icon: BookOpen,
       title: t("features.deepResearch.title"),
       description: t("features.deepResearch.description"),
-      accent: "var(--guanlan-wave)",
-    },
-    {
-      icon: PenTool,
-      title: t("features.paperWriting.title"),
-      description: t("features.paperWriting.description"),
-      accent: "var(--guanlan-crest)",
-    },
-    {
-      icon: Lightbulb,
-      title: t("features.ideaGeneration.title"),
-      description: t("features.ideaGeneration.description"),
-      accent: "var(--guanlan-gold)",
+      badge: t("workspace.types.sci"),
+      accent: "var(--brand-navy)",
     },
     {
       icon: FlaskConical,
+      title: t("features.paperWriting.title"),
+      description: t("features.paperWriting.description"),
+      badge: t("workspace.types.proposal"),
+      accent: "var(--brand-teal)",
+    },
+    {
+      icon: PenTool,
+      title: t("features.ideaGeneration.title"),
+      description: t("features.ideaGeneration.description"),
+      badge: t("workspace.types.patent"),
+      accent: "var(--brand-brass)",
+    },
+    {
+      icon: Lightbulb,
       title: t("features.experimentDesign.title"),
       description: t("features.experimentDesign.description"),
-      accent: "var(--guanlan-foam)",
+      badge: t("workspace.types.thesis"),
+      accent: "var(--brand-cyan)",
     },
   ];
 
+  const pathStages: Array<{
+    key: string;
+    tone: StageTone;
+  }> = [
+    { key: "stage1", tone: "done" },
+    { key: "stage2", tone: "active" },
+    { key: "stage3", tone: "queued" },
+    { key: "stage4", tone: "queued" },
+    { key: "stage5", tone: "queued" },
+  ];
+
+  const workflowSteps = [
+    {
+      index: "01",
+      title: t("home.workflow.step1.title"),
+      description: t("home.workflow.step1.description"),
+    },
+    {
+      index: "02",
+      title: t("home.workflow.step2.title"),
+      description: t("home.workflow.step2.description"),
+    },
+    {
+      index: "03",
+      title: t("home.workflow.step3.title"),
+      description: t("home.workflow.step3.description"),
+    },
+    {
+      index: "04",
+      title: t("home.workflow.step4.title"),
+      description: t("home.workflow.step4.description"),
+    },
+    {
+      index: "05",
+      title: t("home.workflow.step5.title"),
+      description: t("home.workflow.step5.description"),
+    },
+  ];
+
+  const supportedTypes = [
+    t("workspace.types.sci"),
+    t("workspace.types.proposal"),
+    t("workspace.types.patent"),
+    t("workspace.types.thesis"),
+  ];
+
   return (
-    <main className="min-h-screen bg-[var(--bg-base)]">
+    <main className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
       <Header />
 
-      {/* ━━━ Hero Section ━━━ */}
-      <section className="relative overflow-hidden px-6 pt-32 pb-40 lg:pt-40 lg:pb-52">
-        {/* Background gradient: deep at top → misty at bottom */}
-        <div className="absolute inset-0 -z-20 bg-gradient-to-b from-[var(--guanlan-ink)]/[0.03] via-transparent to-[var(--bg-base)]" />
+      <section className="route-topography relative overflow-hidden px-6 pb-20 pt-28 sm:pt-32 lg:pb-24">
+        <div className="route-grid absolute inset-x-8 bottom-6 top-24 rounded-[2rem] opacity-40" />
+        <div className="absolute -left-16 top-24 h-72 w-72 rounded-full bg-[radial-gradient(circle,rgba(31,66,99,0.18),transparent_70%)] blur-3xl" />
+        <div className="absolute right-0 top-8 h-80 w-80 rounded-full bg-[radial-gradient(circle,rgba(46,111,109,0.18),transparent_72%)] blur-3xl" />
 
-        <InkCircles />
-
-        <div className="mx-auto max-w-5xl text-center relative z-10">
-          <motion.div
-            variants={fadeInUp}
-            initial="initial"
-            animate="animate"
-            transition={{ ...defaultTransition, duration: 0.7 }}
-          >
-            {/* Chinese calligraphic title */}
-            <h1 className="font-serif text-6xl sm:text-7xl lg:text-8xl font-bold tracking-tight leading-none">
-              <span className="bg-gradient-to-br from-[var(--guanlan-deep)] via-[var(--guanlan-wave)] to-[var(--guanlan-crest)] bg-clip-text text-transparent">
-                观澜
-              </span>
-            </h1>
-
-            {/* English subtitle */}
-            <motion.p
-              className="mt-3 font-display text-lg sm:text-xl text-[var(--guanlan-crest)]/70 italic tracking-wide"
-              variants={fadeInUp}
-              transition={{ ...defaultTransition, delay: 0.15 }}
-            >
-              Guanlan
-            </motion.p>
-
-            {/* Motto — the soul of the product */}
+        <div className="relative mx-auto max-w-7xl">
+          <div className="grid gap-12 lg:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] lg:items-center">
             <motion.div
-              className="mt-8 space-y-2"
               variants={fadeInUp}
-              transition={{ ...defaultTransition, delay: 0.3 }}
+              initial="initial"
+              animate="animate"
+              transition={{ ...defaultTransition, duration: 0.6 }}
+              className="max-w-3xl"
             >
-              <p className="font-serif text-xl sm:text-2xl text-[var(--text-primary)]/80 tracking-[0.08em]">
-                观水必观其澜
-              </p>
-              <p className="text-sm sm:text-base text-[var(--text-secondary)] tracking-wide max-w-lg mx-auto leading-relaxed">
-                立潮头处，与智同行
-              </p>
-              <p className="text-xs text-[var(--text-muted)] italic font-display mt-1">
-                To understand the waters, observe where the waves rise highest
-              </p>
-            </motion.div>
-
-            {/* Decorative divider — wave line */}
-            <motion.div
-              className="mt-8 flex justify-center"
-              variants={fadeInUp}
-              transition={{ ...defaultTransition, delay: 0.4 }}
-            >
-              <svg width="120" height="16" viewBox="0 0 120 16" className="text-[var(--guanlan-crest)]/30">
-                <path
-                  d="M0,8 C15,2 30,14 45,8 C60,2 75,14 90,8 C105,2 120,14 120,8"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  fill="none"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </motion.div>
-
-            {/* Description */}
-            <motion.p
-              className="mt-6 text-base sm:text-lg leading-relaxed text-[var(--text-secondary)] max-w-2xl mx-auto"
-              variants={fadeInUp}
-              transition={{ ...defaultTransition, delay: 0.5 }}
-            >
-              {t("home.subtitle")}
-            </motion.p>
-
-            {/* CTA Buttons */}
-            <motion.div
-              className="mt-10 flex items-center justify-center gap-4"
-              variants={fadeInUp}
-              transition={{ ...defaultTransition, delay: 0.6 }}
-            >
-              <GetStartedButton />
-              <motion.a
-                href="#features"
-                className="px-8 py-4 text-base font-semibold text-[var(--guanlan-wave)] border-2 border-[var(--guanlan-wave)]/30 rounded-xl hover:bg-[var(--guanlan-wave)]/5 hover:border-[var(--guanlan-wave)]/50 transition-all cursor-pointer"
-                whileHover={{ scale: 1.02 }}
-                whileTap={buttonTap}
-              >
-                {t("home.learnMore")}
-              </motion.a>
-            </motion.div>
-          </motion.div>
-        </div>
-
-        {/* Animated waves at bottom of hero */}
-        <HeroWaves />
-      </section>
-
-      {/* ━━━ Features Section ━━━ */}
-      <section id="features" className="px-6 py-24 relative">
-        <div className="mx-auto max-w-6xl">
-          <div className="text-center mb-16">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={defaultTransition}
-            >
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[var(--guanlan-crest)]/20 bg-[var(--guanlan-crest)]/5 text-[var(--guanlan-wave)] text-sm font-medium mb-4">
-                <Waves className="w-3.5 h-3.5" />
-                {t("home.features.title")}
+              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white/72 px-4 py-2 text-xs font-semibold uppercase tracking-[0.26em] text-[var(--accent-secondary)]">
+                <span className="h-2 w-2 rounded-full bg-[var(--brand-brass)]" />
+                {t("nav.productTagline")}
               </div>
-              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
-                <span className="gradient-text-subtle">
-                  {t("home.features.subtitle")}
-                </span>
-              </h2>
+
+              <div className="mt-8">
+                <h1 className="font-serif text-6xl font-semibold tracking-tight text-[var(--brand-ink)] sm:text-7xl lg:text-8xl">
+                  <span className="gradient-text-shimmer">{t("brand.cn")}</span>
+                </h1>
+                <p className="mt-3 text-sm uppercase tracking-[0.44em] text-[var(--text-muted)] sm:text-base">
+                  {t("brand.en")}
+                </p>
+              </div>
+
+              <div className="mt-8 space-y-3">
+                <p className="font-serif text-2xl text-[var(--text-primary)] sm:text-3xl">
+                  {t("brand.motto")}
+                </p>
+                <p className="max-w-2xl text-lg font-medium leading-relaxed text-[var(--text-primary)] sm:text-xl">
+                  {t("brand.tagline")}
+                </p>
+                <p className="text-sm uppercase tracking-[0.24em] text-[var(--text-muted)] sm:text-base">
+                  {t("brand.english")}
+                </p>
+              </div>
+
+              <p className="mt-8 max-w-2xl text-base leading-8 text-[var(--text-secondary)] sm:text-lg">
+                {t("home.subtitle")}
+              </p>
+
+              <div className="mt-8 flex flex-wrap gap-3">
+                {supportedTypes.map((type) => (
+                  <span
+                    key={type}
+                    className="rounded-full border border-[var(--border-default)] bg-white/78 px-4 py-2 text-sm text-[var(--text-secondary)]"
+                  >
+                    {type}
+                  </span>
+                ))}
+              </div>
+
+              <div className="mt-10 flex flex-wrap items-center gap-4">
+                <EnterWorkspaceButton label={t("home.getStarted")} />
+                <LearnMoreButton label={t("home.learnMore")} />
+              </div>
+            </motion.div>
+
+            <motion.div
+              variants={fadeInUp}
+              initial="initial"
+              animate="animate"
+              transition={{ ...defaultTransition, delay: 0.15, duration: 0.6 }}
+            >
+              <LiquidGlassCard
+                variant="elevated"
+                className="route-card relative overflow-hidden rounded-[2rem] p-6 sm:p-8"
+              >
+                <div className="absolute inset-0 opacity-[0.18]">
+                  <div className="absolute inset-y-8 left-10 w-px bg-[linear-gradient(180deg,var(--brand-line),transparent)]" />
+                  <div className="absolute right-6 top-6 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(46,111,109,0.2),transparent_70%)]" />
+                </div>
+
+                <div className="relative">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--accent-secondary)]">
+                        {t("home.pathCard.eyebrow")}
+                      </p>
+                      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
+                        {t("home.pathCard.title")}
+                      </h2>
+                    </div>
+                    <div className="rounded-full border border-[var(--border-default)] bg-white/80 px-3 py-1 text-xs text-[var(--text-secondary)]">
+                      {t("home.pathCard.workspaceLabel")}
+                    </div>
+                  </div>
+
+                  <p className="mt-3 text-sm text-[var(--text-secondary)]">
+                    {t("home.pathCard.workspaceValue")}
+                  </p>
+
+                  <div className="relative mt-8">
+                    <div className="absolute bottom-3 left-[0.6rem] top-3 w-px bg-[linear-gradient(180deg,var(--brand-line),rgba(46,111,109,0.3),var(--brand-line))]" />
+                    <div className="space-y-4">
+                      {pathStages.map((stage) => {
+                        const tone = stageToneStyles[stage.tone];
+                        return (
+                          <div
+                            key={stage.key}
+                            className={cn(
+                              "relative rounded-2xl border border-white/50 px-4 py-4 pl-10 shadow-[0_8px_24px_rgba(19,34,53,0.05)]",
+                              tone.panel
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                "absolute left-0 top-6 flex h-5 w-5 items-center justify-center rounded-full border-2",
+                                tone.dot
+                              )}
+                            >
+                              {stage.tone === "active" && (
+                                <div className="h-2.5 w-2.5 rounded-full bg-[var(--brand-paper)]" />
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-sm font-semibold text-[var(--text-primary)]">
+                                {t(`home.stages.${stage.key}.title`)}
+                              </p>
+                              <span
+                                className={cn(
+                                  "rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                                  tone.badge
+                                )}
+                              >
+                                {t(`home.status.${stage.tone}`)}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                              {t(`home.stages.${stage.key}.artifact`)}
+                            </p>
+                            <p className="mt-1 text-xs text-[var(--text-muted)]">
+                              {t(`home.stages.${stage.key}.update`)}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mt-6 rounded-2xl border border-[var(--border-default)] bg-white/78 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--text-muted)]">
+                      {t("home.pathCard.nextLabel")}
+                    </p>
+                    <div className="mt-2 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-[var(--text-primary)]">
+                          {t("home.pathCard.nextAction")}
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+                          {t("home.pathCard.note")}
+                        </p>
+                      </div>
+                      <EnterWorkspaceButton
+                        label={t("home.getStarted")}
+                        compact
+                        withIcon={false}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </LiquidGlassCard>
             </motion.div>
           </div>
+        </div>
+      </section>
+
+      <section id="capabilities" className="px-6 py-24">
+        <div className="mx-auto max-w-7xl">
+          <SectionHeading
+            eyebrow={t("nav.productTagline")}
+            title={t("home.features.title")}
+            subtitle={t("home.features.subtitle")}
+          />
 
           <motion.div
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+            className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4"
             variants={staggerContainer}
             initial="initial"
             whileInView="animate"
             viewport={{ once: true }}
           >
-            {features.map((feature) => (
+            {taskTypes.map((task) => (
               <motion.div
-                key={feature.title}
+                key={task.title}
                 variants={fadeInUp}
                 transition={defaultTransition}
               >
-                <LiquidGlassCard className="p-6 h-full group">
+                <LiquidGlassCard
+                  variant="floating"
+                  className="h-full rounded-[1.75rem] border-[rgba(31,66,99,0.1)] bg-[rgba(251,248,242,0.82)] p-6"
+                >
                   <div
-                    className="w-11 h-11 rounded-xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110"
-                    style={{ background: `color-mix(in srgb, ${feature.accent} 12%, transparent)` }}
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl"
+                    style={{
+                      background: `color-mix(in srgb, ${task.accent} 14%, white)`,
+                    }}
                   >
-                    <feature.icon
-                      className="w-5 h-5"
-                      style={{ color: feature.accent }}
-                    />
+                    <task.icon className="h-5 w-5" style={{ color: task.accent }} />
                   </div>
-                  <h3 className="font-semibold text-lg mb-2 text-[var(--text-primary)]">
-                    {feature.title}
+                  <div className="mt-5 flex items-center gap-2">
+                    <span className="rounded-full border border-[var(--border-default)] bg-white/78 px-2.5 py-1 text-[11px] text-[var(--text-muted)]">
+                      {task.badge}
+                    </span>
+                  </div>
+                  <h3 className="mt-4 text-xl font-semibold text-[var(--text-primary)]">
+                    {task.title}
                   </h3>
-                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                    {feature.description}
+                  <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+                    {task.description}
                   </p>
                 </LiquidGlassCard>
               </motion.div>
@@ -304,68 +427,89 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ━━━ Philosophy Section ━━━ */}
-      <section className="px-6 py-24 relative overflow-hidden">
-        {/* Subtle background texture */}
-        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-[var(--guanlan-wave)]/[0.02] to-transparent" />
+      <section className="px-6 pb-24">
+        <div className="mx-auto max-w-7xl">
+          <SectionHeading
+            eyebrow={t("brand.en")}
+            title={t("home.workflow.title")}
+            subtitle={t("home.workflow.subtitle")}
+          />
 
-        <div className="mx-auto max-w-4xl">
+          <div className="relative mt-12">
+            <div className="absolute left-6 right-6 top-8 hidden h-px bg-[linear-gradient(90deg,transparent,var(--brand-line),transparent)] lg:block" />
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+              {workflowSteps.map((step) => (
+                <motion.div
+                  key={step.index}
+                  variants={fadeInUp}
+                  initial="initial"
+                  whileInView="animate"
+                  viewport={{ once: true }}
+                  transition={defaultTransition}
+                >
+                  <LiquidGlassCard
+                    variant="elevated"
+                    className="h-full rounded-[1.75rem] border-[rgba(31,66,99,0.08)] bg-[rgba(251,248,242,0.84)] p-6"
+                  >
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--brand-line)] bg-white/88 text-sm font-semibold text-[var(--brand-navy)]">
+                      {step.index}
+                    </div>
+                    <h3 className="mt-5 text-lg font-semibold text-[var(--text-primary)]">
+                      {step.title}
+                    </h3>
+                    <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+                      {step.description}
+                    </p>
+                  </LiquidGlassCard>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="px-6 pb-24">
+        <div className="mx-auto max-w-7xl">
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 24 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            transition={{ ...defaultTransition, duration: 0.6 }}
+            transition={defaultTransition}
+            className="route-card overflow-hidden rounded-[2rem] px-6 py-8 sm:px-10 sm:py-10"
           >
-            <LiquidGlassCard variant="elevated" className="p-10 sm:p-14 text-center relative overflow-hidden">
-              {/* Decorative wave lines inside the card */}
-              <div className="absolute inset-0 pointer-events-none opacity-[0.03]">
-                <svg className="w-full h-full" viewBox="0 0 800 400" preserveAspectRatio="none">
-                  <path d="M0,200 C100,160 200,240 300,200 C400,160 500,240 600,200 C700,160 800,240 800,200" stroke="var(--guanlan-wave)" strokeWidth="2" fill="none" />
-                  <path d="M0,220 C100,180 200,260 300,220 C400,180 500,260 600,220 C700,180 800,260 800,220" stroke="var(--guanlan-crest)" strokeWidth="1.5" fill="none" />
-                  <path d="M0,240 C100,200 200,280 300,240 C400,200 500,280 600,240 C700,200 800,280 800,240" stroke="var(--guanlan-foam)" strokeWidth="1" fill="none" />
-                </svg>
+            <div className="grid gap-8 lg:grid-cols-[1.4fr_auto] lg:items-center">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--accent-secondary)]">
+                  {t("brand.cn")} / {t("brand.en")}
+                </p>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-4xl">
+                  {t("home.cta.title")}
+                </h2>
+                <p className="mt-4 max-w-2xl text-base leading-8 text-[var(--text-secondary)]">
+                  {t("home.cta.subtitle")}
+                </p>
               </div>
 
-              <div className="relative">
-                {/* Source attribution */}
-                <p className="text-xs text-[var(--text-muted)] tracking-widest uppercase font-display mb-6">
-                  《孟子 · 尽心上》
-                </p>
-
-                {/* The quote */}
-                <blockquote className="font-serif text-2xl sm:text-3xl text-[var(--text-primary)] leading-relaxed tracking-[0.06em]">
-                  观水有术，必观其澜
-                </blockquote>
-
-                {/* Wave divider */}
-                <div className="flex justify-center my-6">
-                  <div className="w-16 h-px bg-gradient-to-r from-transparent via-[var(--guanlan-gold)] to-transparent" />
-                </div>
-
-                {/* Interpretation */}
-                <p className="text-base text-[var(--text-secondary)] max-w-lg mx-auto leading-relaxed mb-8">
-                  在 AI 浪潮之巅，以传统智慧观照未来。观澜，让学术研究站在智能的潮头。
-                </p>
-
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                  <GetStartedButton showIcon />
-                </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <EnterWorkspaceButton label={t("home.cta.button")} />
               </div>
-            </LiquidGlassCard>
+            </div>
           </motion.div>
         </div>
       </section>
 
-      {/* ━━━ Footer ━━━ */}
-      <footer className="px-6 py-8 border-t border-[var(--border-default)]/50">
-        <div className="mx-auto max-w-6xl flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="font-serif text-sm text-[var(--text-secondary)]">观澜</span>
-            <span className="text-[var(--text-muted)] text-xs">Guanlan</span>
+      <footer className="border-t border-[var(--border-default)]/70 px-6 py-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-serif text-base text-[var(--text-primary)]">
+              {t("brand.cn")}{" "}
+              <span className="ml-1 font-sans text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">
+                {t("brand.en")}
+              </span>
+            </p>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">{t("brand.tagline")}</p>
           </div>
-          <p className="text-xs text-[var(--text-muted)]">
-            观水必观其澜。立潮头处，与智同行。
-          </p>
+          <p className="text-sm text-[var(--text-muted)]">{t("brand.summary")}</p>
         </div>
       </footer>
     </main>

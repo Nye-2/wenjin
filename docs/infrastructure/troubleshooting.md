@@ -2,13 +2,19 @@
 
 更新时间: 2026-03-19
 
+以下命令默认你已经在 shell 中设置:
+
+```bash
+export REPO_ROOT=/path/to/your/wenjin/repo
+```
+
 ## 1. `./start.sh` 卡在“等待 LangGraph 启动”
 
 ### 排查步骤
 
 ```bash
 ./start.sh --logs langgraph
-tail -n 100 /home/cjz/academiagpt-v2/logs/langgraph.log
+tail -n 100 "$REPO_ROOT/logs/langgraph.log"
 ```
 
 常见原因:

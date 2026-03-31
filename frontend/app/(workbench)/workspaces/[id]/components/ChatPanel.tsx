@@ -273,7 +273,7 @@ export function ChatPanel({ workspaceId, entrySeed = null }: ChatPanelProps) {
     // Auto-send entry prompt so LLM generates the guidance message.
     // Only include orchestration metadata for real features, not onboarding.
     const isOnboarding = entrySeed.featureId === "__onboarding__";
-    void sendMessage(prompt, {
+    sendMessage(prompt, {
       workspaceId,
       skill: entrySeed.skillId ?? currentSkill,
       model: selectedModel || undefined,
@@ -285,9 +285,8 @@ export function ChatPanel({ workspaceId, entrySeed = null }: ChatPanelProps) {
               params: entrySeed.params,
             },
           },
-    }).then(() => {
-      setPendingEntrySeed(null);
     });
+    setPendingEntrySeed(null);
   }, [entrySeed, entrySeedFeature]);
 
   useEffect(() => {
@@ -513,7 +512,7 @@ export function ChatPanel({ workspaceId, entrySeed = null }: ChatPanelProps) {
 
       setInputValue("");
       setPendingAttachments([]);
-      await sendMessage(content, {
+      sendMessage(content, {
         workspaceId,
         skill: currentSkill,
         model: selectedModel || undefined,

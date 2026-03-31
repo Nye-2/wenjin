@@ -3,11 +3,11 @@ version: '3.8'
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: guanlan-db
+    container_name: wenjin-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: academiagpt
+      POSTGRES_DB: wenjin
     ports:
       - "5432:5432"
     volumes:
@@ -20,7 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: guanlan-redis
+    container_name: wenjin-redis
     ports:
       - "6379:6379"
     volumes:

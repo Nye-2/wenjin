@@ -232,7 +232,7 @@ export default function WorkbenchPage() {
   const { locale: _locale } = useI18n();
   const workspaceId = params.id as string;
 
-  const { workspace, isWorkspaceLoading, error, artifacts } = useWorkspaceStore();
+  const { workspace, isWorkspaceLoading, isArtifactsLoading, error, artifacts } = useWorkspaceStore();
   const { features } = useFeaturesStore();
   const { modules, fetchDashboard, reset: resetDashboard } = useDashboardStore();
 
@@ -250,12 +250,13 @@ export default function WorkbenchPage() {
     if (
       workspace &&
       !isWorkspaceLoading &&
+      !isArtifactsLoading &&
       artifacts.length === 0 &&
       features.length > 0
     ) {
       router.replace(`/workspaces/${workspaceId}/chat?onboarding=true`);
     }
-  }, [workspace, isWorkspaceLoading, artifacts.length, features.length, router, workspaceId]);
+  }, [workspace, isWorkspaceLoading, isArtifactsLoading, artifacts.length, features.length, router, workspaceId]);
 
   const runningTasks = useMemo<RunningTask[]>(() => {
     const featureById = new Map(features.map((feature) => [feature.id, feature]));

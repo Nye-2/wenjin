@@ -100,15 +100,27 @@ async def upload_template(
     if ext not in TEMPLATE_EXTENSIONS:
         raise HTTPException(400, f"Unsupported file type: {ext}")
 
-    content_bytes = await file.read()
-    if len(content_bytes) > MAX_TEMPLATE_SIZE:
-        raise HTTPException(400, "File too large (max 10MB)")
+    # Read file with size limit (read in chunks to avoid DoS via large uploads)
+    chunks: list[bytes] = []
+    total_size = 0
+    while True:
+        chunk = await file.read(64 * 1024)  # 64KB chunks
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > MAX_TEMPLATE_SIZE:
+            raise HTTPException(400, "File too large (max 10MB)")
+        chunks.append(chunk)
+    content_bytes = b"".join(chunks)
 
-    # Save file
+    # Save file — sanitize filename to prevent path traversal
     from src.config import get_data_dir
+    safe_filename = os.path.basename(file.filename or f"template{ext}")
+    if not safe_filename or safe_filename.startswith("."):
+        safe_filename = f"template{ext}"
     template_dir = os.path.join(get_data_dir(), "workspace_uploads", workspace_id, "templates")
     os.makedirs(template_dir, exist_ok=True)
-    file_path = os.path.join(template_dir, file.filename or f"template{ext}")
+    file_path = os.path.join(template_dir, safe_filename)
     with open(file_path, "wb") as f:
         f.write(content_bytes)
 
@@ -182,7 +194,7 @@ async def delete_template(
         raise HTTPException(404, "Workspace not found")
     if str(workspace.user_id) != str(current_user.id):
         raise HTTPException(403, "Access denied")
-    deleted = await template_service.delete(template_id)
+    deleted = await template_service.delete(template_id, workspace_id)
     if not deleted:
-        raise HTTPException(404, "Template not found")
+        raise HTTPException(404, "Template not found or does not belong to this workspace")
     return {"status": "deleted"}

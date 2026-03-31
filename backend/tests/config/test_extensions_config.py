@@ -53,7 +53,7 @@ def test_extensions_config_cache_helpers_reload_from_disk(tmp_path, monkeypatch)
         json.dumps({"mcpServers": {}, "skills": {"deep-research": {"enabled": True}}}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("ACADEMIAGPT_EXTENSIONS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("GUANLAN_EXTENSIONS_CONFIG_PATH", str(config_path))
     reset_extensions_config()
 
     cached = get_extensions_config()
@@ -68,11 +68,12 @@ def test_extensions_config_cache_helpers_reload_from_disk(tmp_path, monkeypatch)
     assert reloaded.skills["deep-research"].enabled is False
 
 
-def test_extensions_config_ignores_legacy_deer_flow_env(tmp_path, monkeypatch):
+def test_extensions_config_ignores_legacy_env_vars(tmp_path, monkeypatch):
     legacy_path = tmp_path / "legacy_extensions.json"
     legacy_path.write_text(json.dumps({"mcpServers": {"legacy": {"enabled": True, "type": "stdio", "command": "echo"}}}), encoding="utf-8")
 
-    monkeypatch.delenv("ACADEMIAGPT_EXTENSIONS_CONFIG_PATH", raising=False)
+    monkeypatch.delenv("GUANLAN_EXTENSIONS_CONFIG_PATH", raising=False)
+    monkeypatch.setenv("ACADEMIAGPT_EXTENSIONS_CONFIG_PATH", str(legacy_path))
     monkeypatch.setenv("DEER_FLOW_EXTENSIONS_CONFIG_PATH", str(legacy_path))
 
     resolved = ExtensionsConfig.resolve_config_path()

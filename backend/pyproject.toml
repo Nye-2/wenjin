@@ -1,11 +1,11 @@
 [project]
-name = "guanlan"
+name = "wenjin"
 version = "2.0.0"
-description = "观澜 Guanlan — Academic AI Assistant with Lead Agent + Middleware + Skills architecture"
+description = "问津 Wenjin — AI workspace for papers, proposals, patents, and research workflows"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "Guanlan Team" }]
+authors = [{ name = "Wenjin Team" }]
 dependencies = [
     "langgraph>=0.2.60",
     "langchain>=0.3.0",

@@ -1,4 +1,4 @@
-"""Unified config.yaml loader for AcademiaGPT v2."""
+"""Unified config.yaml loader for Wenjin."""
 
 import os
 from pathlib import Path

@@ -254,6 +254,8 @@ async def maybe_bridge_workspace_feature(
     thread_id: str | None,
     user_id: str,
     selected_skill: str | None,
+    requested_feature_id: str | None = None,
+    requested_feature_params: Mapping[str, Any] | None = None,
 ) -> BridgedChatResponse | None:
     """Try to convert a chat turn into a canonical workspace feature execution."""
     if not workspace_id:
@@ -273,6 +275,17 @@ async def maybe_bridge_workspace_feature(
             return None
         if not is_workspace_chat_orchestration_enabled(workspace):
             return None
+
+        if requested_feature_id:
+            return await _execute_workspace_feature_request(
+                db=db,
+                workspace=workspace,
+                workspace_service=workspace_service,
+                feature_id=requested_feature_id,
+                params=requested_feature_params,
+                thread_id=thread_id,
+                user_id=user_id,
+            )
 
         intent = await _resolve_feature_intent(
             workspace=workspace,

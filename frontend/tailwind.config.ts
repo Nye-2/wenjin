@@ -9,20 +9,20 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        display: ['"Playfair Display"', "Georgia", "serif"],
-        serif: ['"Noto Serif SC"', '"STSong"', '"SimSun"', "serif"],
-        sans: ['"DM Sans"', '"Noto Sans SC"', "-apple-system", "BlinkMacSystemFont", '"PingFang SC"', "sans-serif"],
+        display: ["var(--font-display)", "Georgia", "serif"],
+        serif: ["var(--font-serif)", '"STSong"', '"SimSun"', "serif"],
+        sans: ["var(--font-sans)", '"Noto Sans SC"', "-apple-system", "BlinkMacSystemFont", '"PingFang SC"', "sans-serif"],
       },
       colors: {
-        guanlan: {
-          ink: "#0A1628",
-          deep: "#0F2847",
-          wave: "#1B4B7A",
-          crest: "#3B82C4",
-          foam: "#7BB8E0",
-          mist: "#B8D8EB",
-          gold: "#C4934A",
-          amber: "#E8B86D",
+        wenjin: {
+          ink: "#132235",
+          navy: "#1F4263",
+          teal: "#2E6F6D",
+          cyan: "#5C97A5",
+          line: "#D7DEE2",
+          brass: "#A67C39",
+          paper: "#F7F4EE",
+          wash: "#EEF2F3",
           success: "#0D9265",
           warning: "#C68A1A",
           error: "#C42B2B",

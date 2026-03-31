@@ -1,6 +1,6 @@
-# AcademiaGPT v2 Documentation
+# Wenjin Documentation
 
-更新时间: 2026-03-19
+更新时间: 2026-03-30
 
 本目录只保留当前可执行、可维护、可追溯的文档，按照三类组织:
 

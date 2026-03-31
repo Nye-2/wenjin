@@ -3,9 +3,9 @@ import "./globals.css";
 import { I18nProvider } from "@/components/i18n-provider";
 
 export const metadata: Metadata = {
-  title: "观澜 Guanlan — 立潮头处，与智同行",
+  title: "问津 Wenjin | 研究工作流 AI 工作台",
   description:
-    "观水必观其澜。AI-powered academic research and writing assistant. Standing at the crest of intelligence.",
+    "面向论文、申报、专利与项目写作的 AI 工作台。从选题调研到成稿交付，把来源、推理、写作、修订与成果沉淀放进同一工作空间。",
 };
 
 export default function RootLayout({
@@ -15,19 +15,19 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=Noto+Serif+SC:wght@400;500;600;700;900&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="font-sans antialiased">
+      <body
+        className="font-sans antialiased"
+        style={
+          {
+            "--font-sans":
+              '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif',
+            "--font-serif":
+              '"Noto Serif SC", "Songti SC", "STSong", "SimSun", serif',
+            "--font-display":
+              '"Noto Serif SC", "Songti SC", "STSong", "SimSun", serif',
+          } as React.CSSProperties
+        }
+      >
         <I18nProvider>{children}</I18nProvider>
       </body>
     </html>

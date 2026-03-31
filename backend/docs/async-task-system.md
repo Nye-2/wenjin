@@ -4,7 +4,7 @@
 
 ## 概述
 
-Async Task System 是 AcademiaGPT v2 的核心基础设施，用于处理长时间运行的学术研究任务。系统支持任务提交、进度追踪、实时流式更新和任务取消等功能。
+Async Task System 是 Wenjin 的核心基础设施，用于处理长时间运行的学术研究任务。系统支持任务提交、进度追踪、实时流式更新和任务取消等功能。
 
 ### 核心特性
 
@@ -454,7 +454,7 @@ services:
     environment:
       - TASK_CELERY_BROKER_URL=redis://redis:6379/1
       - TASK_CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/academiagpt
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/wenjin
 ```
 
 ### 环境变量

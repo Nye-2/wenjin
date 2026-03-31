@@ -203,10 +203,10 @@ async def _execute_task_async(
             await progress.update(0, "Task started")
 
             # Prometheus metrics
+            _task_start_time = time.perf_counter()
             from src.observability.prometheus import track_task_end, track_task_start
 
             track_task_start()
-            _task_start_time = time.perf_counter()
 
             # Track agent status in Redis
             thread_id = payload.get("thread_id")
@@ -244,7 +244,7 @@ async def _execute_task_async(
             success_message = (
                 str(result.get("message"))
                 if isinstance(result, Mapping) and result.get("message")
-                else "Paper extraction completed"
+                else "Task completed"
             )
             await progress.complete(success_message)
             await _sync_paper_extraction_attachment_state(

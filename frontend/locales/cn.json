@@ -9,59 +9,164 @@
     "dismiss": "关闭",
     "create": "创建",
     "search": "搜索",
-    "filter": "筛选"
+    "filter": "筛选",
+    "optional": "可选"
   },
   "nav": {
     "workspaces": "工作空间",
-    "userDashboard": "个人仪表盘",
-    "adminDashboard": "管理仪表盘",
+    "userDashboard": "账户概览",
+    "adminDashboard": "管理总览",
     "settings": "设置",
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "productTagline": "研究工作流 AI 工作台"
+  },
+  "brand": {
+    "cn": "问津",
+    "en": "Wenjin",
+    "motto": "向研究深处问津",
+    "tagline": "面向论文、申报、专利与项目写作的 AI 工作台",
+    "english": "Find the way, move the work forward.",
+    "summary": "让复杂研究任务沿着清晰路径持续推进"
   },
   "home": {
-    "title": "观澜",
-    "subtitle": "观水必观其澜。立潮头处，与智同行——AI驱动的学术研究与写作助手，全程为您提供支持。",
-    "getStarted": "开始使用",
-    "learnMore": "了解更多",
+    "title": "问津",
+    "subtitle": "从选题调研到成稿交付，在一个工作空间里串起来源、推理、写作、修订与成果沉淀。",
+    "getStarted": "进入工作空间",
+    "learnMore": "查看能力",
     "features": {
-      "title": "强大功能",
-      "subtitle": "学术研究与写作所需的一切"
+      "title": "支持的任务类型",
+      "subtitle": "不同任务，共享同一条可推进工作路径"
+    },
+    "pathCard": {
+      "eyebrow": "当前工作路径",
+      "title": "从问题定义到成果交付",
+      "workspaceLabel": "示例 workspace",
+      "workspaceValue": "多模态研究项目设计",
+      "nextLabel": "下一步",
+      "nextAction": "生成研究路径建议",
+      "note": "问津把来源、阶段、草稿与成果放进同一条路线。"
+    },
+    "status": {
+      "done": "已完成",
+      "active": "进行中",
+      "queued": "待开始"
+    },
+    "stages": {
+      "stage1": {
+        "title": "选题与背景",
+        "artifact": "研究问题卡片",
+        "update": "完成研究范围定义"
+      },
+      "stage2": {
+        "title": "文献与证据",
+        "artifact": "证据地图",
+        "update": "文献检索与筛选进行中"
+      },
+      "stage3": {
+        "title": "结构与论证",
+        "artifact": "论证结构草案",
+        "update": "等待生成章节框架"
+      },
+      "stage4": {
+        "title": "写作与修订",
+        "artifact": "章节草稿",
+        "update": "等待继续正文修订"
+      },
+      "stage5": {
+        "title": "评审与交付",
+        "artifact": "交付清单",
+        "update": "等待整理最终提交包"
+      }
+    },
+    "workflow": {
+      "title": "如何推进一项复杂任务",
+      "subtitle": "让来源、判断、写作与交付留在同一条工作线上",
+      "step1": {
+        "title": "收集来源",
+        "description": "把文献、材料、参考与问题背景集中进同一 workspace。"
+      },
+      "step2": {
+        "title": "形成判断",
+        "description": "围绕目标梳理研究问题、结构路径与关键论证。"
+      },
+      "step3": {
+        "title": "生成草稿",
+        "description": "让摘要、大纲、章节与申报文本持续衔接。"
+      },
+      "step4": {
+        "title": "修订与评审",
+        "description": "在上下文连续的前提下推进改写、审阅与反馈。"
+      },
+      "step5": {
+        "title": "沉淀成果",
+        "description": "把最终交付物、过程记录与中间成果统一归档。"
+      }
     },
     "cta": {
-      "title": "准备好撰写下一篇论文了吗？",
-      "subtitle": "创建工作空间，在AI辅助下开启您的研究之旅。",
-      "button": "创建工作空间"
+      "title": "把下一项研究任务放进一条可推进的工作流",
+      "subtitle": "创建 workspace，开始组织来源、推进写作，并把成果沉淀下来。",
+      "button": "进入工作空间"
     }
   },
   "features": {
     "deepResearch": {
-      "title": "深度研究",
-      "description": "全面的文献分析和研究空白识别"
+      "title": "论文写作",
+      "description": "围绕摘要、大纲、正文与修订建立连续写作路径"
     },
     "paperWriting": {
-      "title": "论文写作",
-      "description": "端到端的学术论文生成，包含正确的引用格式"
+      "title": "项目申报",
+      "description": "把背景调研、实验设计与申报文本推进到同一条流程里"
     },
     "ideaGeneration": {
-      "title": "创意生成",
-      "description": "基于现有文献生成新颖的研究想法"
+      "title": "专利撰写",
+      "description": "串起现有技术检索、创新点提炼与专利框架生成"
     },
     "experimentDesign": {
-      "title": "实验设计",
-      "description": "设计严谨的实验，采用正确的方法论"
+      "title": "研究工作流",
+      "description": "用一个工作空间持续管理来源、判断、草稿与成果"
     }
   },
   "workspace": {
-    "title": "我的工作空间",
-    "subtitle": "管理您的学术研究项目",
+    "title": "我的工作路径",
+    "subtitle": "继续推进正在进行的论文、申报、专利与研究任务",
     "newWorkspace": "新建工作空间",
-    "searchPlaceholder": "搜索工作空间...",
+    "searchPlaceholder": "搜索 workspace、任务名称或研究方向...",
     "empty": {
-      "title": "未找到工作空间",
-      "description": "创建您的第一个工作空间开始使用",
+      "title": "还没有开始工作路径",
+      "description": "创建第一个 workspace，从调研、结构设计或草稿生成开始。",
       "searchHint": "尝试其他搜索词"
     },
     "deleteConfirm": "确定要删除此工作空间吗？",
+    "sections": {
+      "recent": "继续最近任务",
+      "recentSubtitle": "从最近推进的 workspace 继续向前，不必重新整理上下文。",
+      "templates": "按类型开始",
+      "templatesSubtitle": "先确定任务类型，再把来源、结构与产出放进同一条路线。",
+      "all": "全部 workspace",
+      "allSubtitle": "按更新时间查看所有正在进行或待推进的任务。"
+    },
+    "cards": {
+      "lastUpdated": "最近更新",
+      "targetOutput": "目标产物",
+      "nextAction": "建议下一步",
+      "continue": "继续推进",
+      "open": "进入工作台",
+      "latest": "最近活跃"
+    },
+    "targets": {
+      "sci": "论文初稿与修订计划",
+      "thesis": "毕业论文结构与章节草稿",
+      "proposal": "申报书初稿与实验设计说明",
+      "software_copyright": "材料清单与技术说明书",
+      "patent": "专利框架与交付清单"
+    },
+    "nextSteps": {
+      "sci": "继续补充文献证据并生成章节框架",
+      "thesis": "补齐开题背景并推进正文结构设计",
+      "proposal": "整理背景调研并继续实验设计",
+      "software_copyright": "补全材料项并继续技术说明撰写",
+      "patent": "继续现有技术检索并提炼创新点"
+    },
     "card": {
       "papers": "篇论文",
       "artifacts": "个成果",
@@ -97,19 +202,19 @@
     }
   },
   "chat": {
-    "placeholder": "询问您的研究问题...",
+    "placeholder": "从当前阶段开始，告诉问津你要推进什么。",
     "thinking": "思考中...",
     "send": "发送",
     "stop": "停止",
-    "startTitle": "开启您的研究之旅",
-    "startDesc": "选择下方技能，向我咨询任何研究问题。我可以帮助您进行文献综述、论文写作、实验设计等。",
+    "startTitle": "从当前阶段开始",
+    "startDesc": "先描述你要推进的步骤，或直接点击推荐动作。问津会结合当前 workspace 安排下一步。",
     "helperText": {
       "send": "发送",
       "newline": "换行",
       "characters": "字符"
     },
-    "title": "智能助手",
-    "subtitle": "AI驱动的学术助手"
+    "title": "工作主线",
+    "subtitle": "持续推进研究任务的 AI 工作台"
   },
   "skills": {
     "deep-research": {
@@ -131,6 +236,62 @@
     "proposal-writer": {
       "name": "计划书",
       "description": "撰写研究计划书"
+    },
+    "literature-manager": {
+      "name": "文献管理",
+      "description": "文献收集、整理与引用管理"
+    },
+    "literature-reviewer": {
+      "name": "文献综述",
+      "description": "系统性文献综述与分析"
+    },
+    "figure-designer": {
+      "name": "图表设计",
+      "description": "学术图表与可视化设计"
+    },
+    "doc-compiler": {
+      "name": "编译导出",
+      "description": "论文格式编译与导出"
+    },
+    "paper-analyst": {
+      "name": "论文分析",
+      "description": "深入分析学术论文结构与方法"
+    },
+    "section-writer": {
+      "name": "章节写作",
+      "description": "按章节撰写学术内容"
+    },
+    "peer-reviewer": {
+      "name": "同行评审",
+      "description": "模拟审稿人视角评审论文"
+    },
+    "journal-recommender": {
+      "name": "期刊推荐",
+      "description": "匹配合适的投稿期刊"
+    },
+    "background-scout": {
+      "name": "背景调研",
+      "description": "研究领域背景文献检索"
+    },
+    "experiment-designer": {
+      "name": "实验设计",
+      "description": "制定实验方案与技术路线"
+    },
+    "copyright-writer": {
+      "name": "著作权材料",
+      "description": "生成软件著作权申请材料"
+    },
+    "tech-doc-writer": {
+      "name": "技术文档",
+      "description": "撰写技术说明文档"
+    },
+    "patent-drafter": {
+      "name": "专利撰写",
+      "description": "撰写专利申请文件"
+    },
+    "prior-art-scout": {
+      "name": "现有技术检索",
+      "description": "检索相关专利与技术文献"
     }
   },
   "panels": {
@@ -172,9 +333,28 @@
     "untitled": "未命名"
   },
   "auth": {
+    "shell": {
+      "title": "向研究深处问津",
+      "subtitle": "一个工作空间，连接来源、判断、草稿与成果。",
+      "highlights": {
+        "sources": {
+          "title": "来源入库",
+          "description": "把文献、参考与任务背景从一开始就放进同一条线。"
+        },
+        "drafts": {
+          "title": "结构成稿",
+          "description": "让大纲、章节草稿与修订动作在连续上下文里推进。"
+        },
+        "delivery": {
+          "title": "评审交付",
+          "description": "把审阅记录、交付物与成果沉淀统一收束。"
+        }
+      },
+      "supported": "支持的任务类型"
+    },
     "login": {
-      "title": "观澜",
-      "subtitle": "登录您的账户以继续",
+      "title": "进入你的工作空间",
+      "subtitle": "继续推进来源整理、结构设计、写作修订与成果交付。",
       "email": "邮箱",
       "emailPlaceholder": "your@email.com",
       "password": "密码",
@@ -185,8 +365,8 @@
       "createOne": "创建一个"
     },
     "register": {
-      "title": "创建账户",
-      "subtitle": "注册以开始使用观澜",
+      "title": "创建你的问津账户",
+      "subtitle": "从第一份来源开始，建立一条可持续推进的工作路径。",
       "name": "姓名",
       "namePlaceholder": "输入您的姓名",
       "verificationCode": "验证码",

@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from src.execution.path_utils import normalize_thread_id
 
-DEFAULT_WORKSPACE_UPLOAD_ROOT = Path(".guanlan/workspace_uploads")
+DEFAULT_WORKSPACE_UPLOAD_ROOT = Path(".wenjin/workspace_uploads")
 _PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
 _TEXT_PREVIEW_CONTENT_TYPES = {
     "application/json",

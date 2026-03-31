@@ -605,12 +605,15 @@ export default function AdminDashboardPage() {
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
       <Header />
-      <div className="max-w-7xl mx-auto px-4 py-8 pt-24 space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div className="route-topography max-w-7xl mx-auto px-4 py-8 pt-24 space-y-6">
+        <div className="route-card rounded-[1.75rem] p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--text-primary)]">管理仪表盘</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--accent-secondary)]">
+              管理总览
+            </p>
+            <h1 className="mt-3 text-3xl font-bold text-[var(--text-primary)]">管理总览</h1>
             <p className="text-[var(--text-secondary)] mt-1">
-              用户、任务与积分系统的运行概览
+              用户、任务、积分与系统配置的运行概览。
             </p>
           </div>
           <button
@@ -634,7 +637,7 @@ export default function AdminDashboardPage() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-[var(--text-secondary)]">总用户数</span>
               <Users className="w-5 h-5 text-[var(--accent-primary)]" />
@@ -647,7 +650,7 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-[var(--text-secondary)]">工作空间</span>
               <FolderOpen className="w-5 h-5 text-[var(--accent-primary)]" />
@@ -664,7 +667,7 @@ export default function AdminDashboardPage() {
             className={`rounded-2xl border p-5 ${
               hasOverdraftUsers
                 ? "border-rose-500/30 bg-rose-500/10"
-                : "border-[var(--border-default)] bg-[var(--bg-elevated)]"
+                : "route-card"
             }`}
           >
             <div className="flex items-center justify-between">
@@ -690,7 +693,7 @@ export default function AdminDashboardPage() {
             className={`rounded-2xl border p-5 ${
               hasOverdraftUsers
                 ? "border-rose-500/30 bg-rose-500/10"
-                : "border-[var(--border-default)] bg-[var(--bg-elevated)]"
+                : "route-card"
             }`}
           >
             <div className="flex items-center justify-between">
@@ -709,7 +712,7 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-[var(--text-secondary)]">24h 失败任务</span>
               <TriangleAlert className="w-5 h-5 text-[var(--accent-primary)]" />
@@ -726,16 +729,16 @@ export default function AdminDashboardPage() {
         {hasOverdraftUsers ? (
           <section className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-700">
             当前有 {overdraftUsers} 个账号处于负余额，总计透支 {overdraftCreditsTotal} 积分。
-            这些用户当前轮次允许完成结算，但下一次纯 Chat 会被拦截；要恢复使用，直接补发积分即可。
+            这些用户当前轮次允许完成结算，但下一次纯主线对话会被拦截；要恢复使用，直接补发积分即可。
           </section>
         ) : null}
 
-        <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+        <section className="route-card rounded-[1.75rem] p-5">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">发布门禁（Release Gate）</h2>
               <p className="text-xs text-[var(--text-muted)] mt-1">
-                手动执行 Core / Extended 检查，输出 Go/No-Go 报告
+                手动执行核心 / 扩展检查，输出 Go / No-Go 报告
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -746,7 +749,7 @@ export default function AdminDashboardPage() {
                 onClick={() => void runReleaseGate(false)}
               >
                 {isReleaseGateRunning ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
-                运行 Core Gate
+                运行核心门禁
               </Button>
               <Button
                 size="sm"
@@ -754,7 +757,7 @@ export default function AdminDashboardPage() {
                 onClick={() => void runReleaseGate(true)}
               >
                 {isReleaseGateRunning ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
-                运行 Core + Extended
+                运行核心 + 扩展检查
               </Button>
             </div>
           </div>
@@ -794,7 +797,7 @@ export default function AdminDashboardPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-[var(--text-primary)]">Core Gate</span>
+                    <span className="text-sm font-medium text-[var(--text-primary)]">核心门禁</span>
                     <span
                       className={`text-xs ${
                         releaseGateReport.core_gate.status === "passed"
@@ -806,12 +809,12 @@ export default function AdminDashboardPage() {
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-[var(--text-muted)]">
-                    passed {releaseGateReport.core_gate.passed} / failed {releaseGateReport.core_gate.failed} / missing {releaseGateReport.core_gate.missing}
+                    通过 {releaseGateReport.core_gate.passed} / 失败 {releaseGateReport.core_gate.failed} / 缺失 {releaseGateReport.core_gate.missing}
                   </p>
                 </div>
                 <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-[var(--text-primary)]">Extended Gate</span>
+                    <span className="text-sm font-medium text-[var(--text-primary)]">扩展检查</span>
                     <span
                       className={`text-xs ${
                         releaseGateReport.extended_gate.status === "passed"
@@ -825,7 +828,7 @@ export default function AdminDashboardPage() {
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-[var(--text-muted)]">
-                    passed {releaseGateReport.extended_gate.passed} / failed {releaseGateReport.extended_gate.failed} / missing {releaseGateReport.extended_gate.missing}
+                    通过 {releaseGateReport.extended_gate.passed} / 失败 {releaseGateReport.extended_gate.failed} / 缺失 {releaseGateReport.extended_gate.missing}
                   </p>
                 </div>
               </div>
@@ -875,7 +878,7 @@ export default function AdminDashboardPage() {
 
                 {visibleCoreChecks.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-[var(--text-secondary)]">Core Gate</p>
+                    <p className="text-xs font-medium text-[var(--text-secondary)]">核心门禁</p>
                     <div className="space-y-2">
                       {visibleCoreChecks.map((check) => (
                         <details
@@ -930,7 +933,7 @@ export default function AdminDashboardPage() {
 
                 {visibleExtendedChecks.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-[var(--text-secondary)]">Extended Gate</p>
+                    <p className="text-xs font-medium text-[var(--text-secondary)]">扩展检查</p>
                     <div className="space-y-2">
                       {visibleExtendedChecks.map((check) => (
                         <details
@@ -987,7 +990,7 @@ export default function AdminDashboardPage() {
           )}
         </section>
 
-        <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+        <section className="route-card rounded-[1.75rem] p-5">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">MCP 配置中心</h2>
@@ -1037,13 +1040,13 @@ export default function AdminDashboardPage() {
 
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-              <div className="text-xs text-[var(--text-muted)]">Server 总数</div>
+              <div className="text-xs text-[var(--text-muted)]">服务数量</div>
               <div className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">
                 {mcpServerEntries.length}
               </div>
             </div>
             <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-              <div className="text-xs text-[var(--text-muted)]">启用中的 Server</div>
+              <div className="text-xs text-[var(--text-muted)]">启用中的服务</div>
               <div className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">
                 {enabledMcpCount}
               </div>
@@ -1066,7 +1069,7 @@ export default function AdminDashboardPage() {
             </div>
           ) : mcpServerEntries.length === 0 ? (
             <div className="mt-4 rounded-xl border border-dashed border-[var(--border-default)] px-4 py-5 text-sm text-[var(--text-muted)]">
-              当前没有配置任何 MCP server。可在下方 JSON 草稿中添加，例如：
+              当前没有配置任何 MCP 服务。可在下方 JSON 草稿中添加，例如：
               <pre className="mt-2 overflow-x-auto rounded-lg bg-[var(--bg-base)] p-3 text-[11px] text-[var(--text-secondary)]">
 {`{
   "github": {
@@ -1103,24 +1106,24 @@ export default function AdminDashboardPage() {
                             : "bg-emerald-500/10 text-emerald-600"
                         }`}
                       >
-                        {server.enabled === false ? "disabled" : "enabled"}
+                        {server.enabled === false ? "已禁用" : "已启用"}
                       </span>
                     </div>
                   </div>
                   <div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]">
-                    {server.command ? <p>command: <code>{server.command}</code></p> : null}
-                    {server.url ? <p>url: <code>{server.url}</code></p> : null}
-                    {server.args?.length ? <p>args: <code>{server.args.join(" ")}</code></p> : null}
+                    {server.command ? <p>命令: <code>{server.command}</code></p> : null}
+                    {server.url ? <p>地址: <code>{server.url}</code></p> : null}
+                    {server.args?.length ? <p>参数: <code>{server.args.join(" ")}</code></p> : null}
                     {server.headers && Object.keys(server.headers).length > 0 ? (
-                      <p>headers: {Object.keys(server.headers).join(", ")}</p>
+                      <p>请求头: {Object.keys(server.headers).join(", ")}</p>
                     ) : null}
                     <p>
-                      OAuth:{" "}
+                      鉴权:{" "}
                       {server.oauth?.enabled === false
-                        ? "disabled"
+                        ? "已禁用"
                         : server.oauth
-                          ? `enabled (${server.oauth.grant_type ?? "client_credentials"})`
-                          : "not configured"}
+                          ? `已启用（${server.oauth.grant_type ?? "client_credentials"}）`
+                          : "未配置"}
                     </p>
                   </div>
                 </div>
@@ -1130,7 +1133,7 @@ export default function AdminDashboardPage() {
 
           <div className="mt-5 space-y-2">
             <Label htmlFor="mcp-config-draft" className="text-sm font-medium text-[var(--text-primary)]">
-              MCP Server Draft
+              MCP Server 草稿
             </Label>
             <textarea
               id="mcp-config-draft"
@@ -1155,7 +1158,7 @@ export default function AdminDashboardPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+        <section className="route-card rounded-[1.75rem] p-5">
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-4">
             <div>
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">用户管理</h2>
@@ -1411,7 +1414,7 @@ export default function AdminDashboardPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+        <section className="route-card rounded-[1.75rem] p-5">
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-4">
             <div>
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">积分流水</h2>
@@ -1456,12 +1459,12 @@ export default function AdminDashboardPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全部</SelectItem>
-                    <SelectItem value="admin_grant">admin_grant</SelectItem>
-                    <SelectItem value="admin_deduct">admin_deduct</SelectItem>
-                    <SelectItem value="workflow_consume">workflow_consume</SelectItem>
-                    <SelectItem value="chat_token_consume">chat_token_consume</SelectItem>
-                    <SelectItem value="registration_bonus">registration_bonus</SelectItem>
-                    <SelectItem value="refund">refund</SelectItem>
+                    <SelectItem value="admin_grant">管理员发放</SelectItem>
+                    <SelectItem value="admin_deduct">管理员扣减</SelectItem>
+                    <SelectItem value="workflow_consume">功能扣费</SelectItem>
+                    <SelectItem value="chat_token_consume">主线对话扣费</SelectItem>
+                    <SelectItem value="registration_bonus">注册奖励</SelectItem>
+                    <SelectItem value="refund">退款</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1584,7 +1587,7 @@ export default function AdminDashboardPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+        <section className="route-card rounded-[1.75rem] p-5">
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-4">
             <div>
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">管理员日志</h2>
@@ -1629,10 +1632,10 @@ export default function AdminDashboardPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全部</SelectItem>
-                    <SelectItem value="credit_grant">credit_grant</SelectItem>
-                    <SelectItem value="credit_deduct">credit_deduct</SelectItem>
-                    <SelectItem value="user_role_change">user_role_change</SelectItem>
-                    <SelectItem value="user_status_change">user_status_change</SelectItem>
+                    <SelectItem value="credit_grant">积分发放</SelectItem>
+                    <SelectItem value="credit_deduct">积分扣减</SelectItem>
+                    <SelectItem value="user_role_change">角色变更</SelectItem>
+                    <SelectItem value="user_status_change">状态变更</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

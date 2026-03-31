@@ -1,7 +1,4 @@
-"""用户认证服务 - JWT 令牌管理
-
-Migrated from AcademiaGPT v1 backend/services/auth.py
-"""
+"""用户认证服务 - JWT 令牌管理"""
 
 import hashlib
 from datetime import UTC, datetime, timedelta

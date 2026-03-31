@@ -17,7 +17,7 @@
 **Step 1: Merge the phase1 branch commit**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend
+cd /home/cjz/wenjin/backend
 git merge feat/phase1-pipeline-infrastructure
 ```
 
@@ -341,7 +341,7 @@ Only contained __pycache__."
 **Step 1: Run full test suite**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend
+cd /home/cjz/wenjin/backend
 python -m pytest tests/ --ignore=tests/agents/lead_agent/test_feature_bridge.py -q
 ```
 

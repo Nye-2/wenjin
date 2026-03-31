@@ -2,11 +2,11 @@
 
 更新时间: 2026-03-23
 状态: Proposal
-适用项目: `academiagpt-v2`
+适用项目: `wenjin`
 
 ## 1. 背景
 
-当前 `academiagpt-v2` 已具备以下基础能力:
+当前 Wenjin 已具备以下基础能力:
 
 - `workspace` 作为任务容器
 - `feature` 作为可执行模块
@@ -19,9 +19,15 @@
 2. Thesis workspace 缺少嵌入式 chat 主入口，交互割裂。
 3. chat 可以发送消息，也有快捷动作，但尚未成为统一任务编排中心。
 4. 长短期记忆缺少清晰的产品语义分层。
-5. 原 AcademiaGPT 中仍有不少高价值能力尚未迁入统一 feature pipeline。
+5. 历史仓库中仍有不少高价值能力尚未迁入统一 feature pipeline。
 
 本方案目标不是“把模块做没”，而是把模块收编到 chat-centered workspace 中。
+
+当前实现补充说明:
+
+- feature 卡片、artifact follow-up、activity retry 已统一落到 `chat/new`
+- 入口 query 会携带 `feature + skill + seed params`
+- 首次发送会把 `metadata.orchestration` 一并发给后端，优先命中 canonical feature bridge
 
 ## 2. 产品定位
 
@@ -597,7 +603,7 @@ Phase 1 只做“任务驾驶舱成形”，不做“全自动规划器”。
 
 目标:
 
-- 把原 AcademiaGPT 的关键能力拉回统一平台
+- 把历史仓库的关键能力拉回统一平台
 
 交付:
 

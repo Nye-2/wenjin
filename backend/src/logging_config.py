@@ -1,4 +1,4 @@
-"""Structured logging configuration for AcademiaGPT."""
+"""Structured logging configuration for Wenjin."""
 
 import logging
 import sys

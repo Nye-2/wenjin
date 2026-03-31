@@ -10,7 +10,7 @@ Note: Paper association management is handled by PaperService.
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Workspace, WorkspaceType
@@ -196,10 +196,8 @@ class WorkspaceService:
         Returns:
             True if deleted, False if not found
         """
-        workspace = await self.get(workspace_id)
-        if not workspace:
-            return False
-
-        await self.db.delete(workspace)
+        result = await self.db.execute(
+            delete(Workspace).where(Workspace.id == workspace_id)
+        )
         await self.db.commit()
-        return True
+        return (result.rowcount or 0) > 0

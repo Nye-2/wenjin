@@ -140,7 +140,7 @@ SMOKE_MATRIX = [
     pytest.param(
         WorkspaceType.SOFTWARE_COPYRIGHT,
         "copyright_materials",
-        {"software_name": "Guanlan", "version": "V2.0"},
+        {"software_name": "Wenjin", "version": "V2.0"},
         "software_copyright.copyright_materials",
         "workspace_feature",
         id="software_copyright-copyright_materials",

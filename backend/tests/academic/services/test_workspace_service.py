@@ -352,7 +352,7 @@ class TestDeleteWorkspace:
         """Create a mock database session."""
         session = AsyncMock()
         session.commit = AsyncMock()
-        session.delete = AsyncMock()
+        session.execute = AsyncMock()
         return session
 
     @pytest.fixture
@@ -370,24 +370,29 @@ class TestDeleteWorkspace:
         self, service, mock_db_session, sample_workspace_id
     ):
         """Test deleting an existing workspace."""
-        mock_workspace = MagicMock(spec=Workspace)
-        mock_workspace.id = sample_workspace_id
+        mock_result = MagicMock()
+        mock_result.rowcount = 1
+        mock_db_session.execute.return_value = mock_result
 
-        with patch.object(service, "get", return_value=mock_workspace):
-            result = await service.delete(sample_workspace_id)
+        result = await service.delete(sample_workspace_id)
 
         assert result is True
-        mock_db_session.delete.assert_called_once_with(mock_workspace)
+        mock_db_session.execute.assert_called_once()
+        mock_db_session.commit.assert_called_once()
         mock_db_session.commit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_delete_workspace_not_found(self, service, mock_db_session):
         """Test deleting a non-existent workspace."""
-        with patch.object(service, "get", return_value=None):
-            result = await service.delete("non-existent-id")
+        mock_result = MagicMock()
+        mock_result.rowcount = 0
+        mock_db_session.execute.return_value = mock_result
+
+        result = await service.delete("non-existent-id")
 
         assert result is False
-        mock_db_session.delete.assert_not_called()
+        mock_db_session.execute.assert_called_once()
+        mock_db_session.commit.assert_called_once()
 
 
 class TestWorkspaceTypeValidation:

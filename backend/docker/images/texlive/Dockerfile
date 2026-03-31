@@ -1,9 +1,9 @@
 # TeXLive Docker image for LaTeX compilation
-# Used by Guanlan (观澜) execution service for compiling academic papers
+# Used by Wenjin (问津) execution service for compiling academic papers
 
 FROM ubuntu:22.04
 
-LABEL maintainer="Guanlan Team"
+LABEL maintainer="Wenjin Team"
 LABEL description="TeXLive 2024 for academic paper compilation"
 LABEL version="2024"
 

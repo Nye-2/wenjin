@@ -13,7 +13,7 @@
 ## Baseline check (run before starting anything)
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/ -q --tb=no 2>&1 | tail -3
+cd /home/cjz/wenjin/backend && python -m pytest tests/ -q --tb=no 2>&1 | tail -3
 ```
 
 Note the pass/fail counts. Pre-existing failures are expected (3 in test_upload_paper.py).
@@ -35,9 +35,9 @@ Note the pass/fail counts. Pre-existing failures are expected (3 in test_upload_
 **Step 1: Check if a test file already exists**
 
 ```bash
-ls /home/cjz/academiagpt-v2/backend/tests/agents/ 2>/dev/null
+ls /home/cjz/wenjin/backend/tests/agents/ 2>/dev/null
 grep -rn "resolve_feature_params\|feature_bridge_intents" \
-  /home/cjz/academiagpt-v2/backend/tests/ --include="*.py" | head -10
+  /home/cjz/wenjin/backend/tests/ --include="*.py" | head -10
 ```
 
 **Step 2: Write the dispatch coverage test**
@@ -74,7 +74,7 @@ def test_param_resolvers_are_callable():
 **Step 3: Run to verify failure**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   python -m pytest tests/agents/test_feature_bridge_intents_dispatch.py -v
 ```
 Expected: `FAILED` — `ImportError: cannot import name '_PARAM_RESOLVERS'`
@@ -82,7 +82,7 @@ Expected: `FAILED` — `ImportError: cannot import name '_PARAM_RESOLVERS'`
 **Step 4: Commit test**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   git add tests/agents/test_feature_bridge_intents_dispatch.py && \
   git commit -m "test(bridge): add dispatch coverage test for resolve_feature_params"
 ```
@@ -94,7 +94,7 @@ cd /home/cjz/academiagpt-v2/backend && \
 **Step 1: Read the full feature_bridge_intents.py**
 
 ```bash
-cat /home/cjz/academiagpt-v2/backend/src/agents/lead_agent/feature_bridge_intents.py
+cat /home/cjz/wenjin/backend/src/agents/lead_agent/feature_bridge_intents.py
 ```
 
 Understand:
@@ -172,7 +172,7 @@ async def resolve_feature_params(
 **Step 5: Run the dispatch coverage test**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   python -m pytest tests/agents/test_feature_bridge_intents_dispatch.py -v
 ```
 Expected: both tests PASSED
@@ -180,14 +180,14 @@ Expected: both tests PASSED
 **Step 6: Run the broader test suite**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   python -m pytest tests/agents/ -q --tb=short 2>&1 | tail -20
 ```
 
 **Step 7: Commit**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   git add src/agents/lead_agent/feature_bridge_intents.py && \
   git commit -m "refactor(bridge): replace resolve_feature_params if-elif with registry dispatch"
 ```
@@ -251,7 +251,7 @@ def test_every_feature_has_follow_up_prompt():
 Run to verify FAIL:
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   python -m pytest tests/workspace_features/test_registry_spec.py::test_every_feature_has_follow_up_prompt -v
 ```
 Expected: FAILED — `AttributeError` or missing prompt
@@ -279,7 +279,7 @@ In `registry.py` `to_api_dict()` method, add:
 **Step 5: Run the test**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   python -m pytest tests/workspace_features/test_registry_spec.py -v
 ```
 Expected: all PASSED
@@ -287,7 +287,7 @@ Expected: all PASSED
 **Step 6: Commit**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   git add src/workspace_features/registry.py tests/workspace_features/test_registry_spec.py && \
   git commit -m "feat(registry): add follow_up_prompt to WorkspaceFeatureDefinition"
 ```
@@ -337,14 +337,14 @@ def test_api_dict_includes_follow_up_prompt():
 
 Run:
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   python -m pytest tests/workspace_features/test_registry_spec.py -v
 ```
 
 **Step 4: Commit**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   git add src/gateway/routers/features.py tests/workspace_features/test_registry_spec.py && \
   git commit -m "feat(api): expose followUpPrompt in /features response"
 ```
@@ -356,18 +356,18 @@ cd /home/cjz/academiagpt-v2/backend && \
 **Step 1: Read the full workspace-feature-actions.ts**
 
 ```bash
-cat /home/cjz/academiagpt-v2/frontend/lib/workspace-feature-actions.ts
+cat /home/cjz/wenjin/frontend/lib/workspace-feature-actions.ts
 ```
 
 **Step 2: Read the TypeScript feature type definition**
 
 ```bash
 grep -rn "followUpPrompt\|follow_up_prompt\|WorkspaceFeature" \
-  /home/cjz/academiagpt-v2/frontend/lib/ \
-  /home/cjz/academiagpt-v2/frontend/types/ 2>/dev/null \
+  /home/cjz/wenjin/frontend/lib/ \
+  /home/cjz/wenjin/frontend/types/ 2>/dev/null \
   --include="*.ts" --include="*.tsx" | head -20
 grep -rn "interface WorkspaceFeature\|type WorkspaceFeature" \
-  /home/cjz/academiagpt-v2/frontend/ --include="*.ts" --include="*.tsx" | head -10
+  /home/cjz/wenjin/frontend/ --include="*.ts" --include="*.tsx" | head -10
 ```
 
 **Step 3: Add followUpPrompt to the TypeScript type**
@@ -396,7 +396,7 @@ export function getFeatureFollowUpPrompt(
 **IMPORTANT**: Check where `getFeatureFollowUpPrompt` is called in the codebase first:
 ```bash
 grep -rn "getFeatureFollowUpPrompt" \
-  /home/cjz/academiagpt-v2/frontend/ --include="*.ts" --include="*.tsx"
+  /home/cjz/wenjin/frontend/ --include="*.ts" --include="*.tsx"
 ```
 
 Update all call sites to pass the feature object instead of just `featureId`.
@@ -404,17 +404,17 @@ Update all call sites to pass the feature object instead of just `featureId`.
 **Step 5: Verify TypeScript compiles**
 
 ```bash
-cd /home/cjz/academiagpt-v2/frontend && npx tsc --noEmit 2>&1 | head -20
+cd /home/cjz/wenjin/frontend && npx tsc --noEmit 2>&1 | head -20
 ```
 Expected: zero errors related to our change
 
 **Step 6: Commit**
 
 ```bash
-cd /home/cjz/academiagpt-v2/frontend && \
+cd /home/cjz/wenjin/frontend && \
   git add lib/workspace-feature-actions.ts && \
   git add $(git diff --name-only | grep -v workspace-feature-actions) 2>/dev/null; \
-  cd /home/cjz/academiagpt-v2 && \
+  cd /home/cjz/wenjin && \
   git add frontend/ && \
   git commit -m "refactor(frontend): read follow_up_prompt from API instead of hardcoded dict"
 ```
@@ -441,15 +441,15 @@ We extract it to `task/runtime_blocks.py` (already the home for runtime utilitie
 
 ```bash
 grep -rn "def _emit_bound_runtime" \
-  /home/cjz/academiagpt-v2/backend/src/ --include="*.py"
+  /home/cjz/wenjin/backend/src/ --include="*.py"
 ```
 
 **Step 2: Check they all have the same signature**
 
 ```bash
 grep -A 10 "def _emit_bound_runtime" \
-  /home/cjz/academiagpt-v2/backend/src/workspace_features/services/sci_feature_service.py \
-  /home/cjz/academiagpt-v2/backend/src/workspace_features/services/proposal_feature_service.py
+  /home/cjz/wenjin/backend/src/workspace_features/services/sci_feature_service.py \
+  /home/cjz/wenjin/backend/src/workspace_features/services/proposal_feature_service.py
 ```
 
 If any have a different signature, note it — the shared version will need to accommodate all variants.
@@ -509,7 +509,7 @@ def test_no_graph_defines_emit_bound_runtime():
 Run to verify FAILS:
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   python -m pytest tests/workspace_features/test_shared_runtime_utils.py -v
 ```
 Expected: FAILED — lists offending files
@@ -517,7 +517,7 @@ Expected: FAILED — lists offending files
 **Commit the test:**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   git add tests/workspace_features/test_shared_runtime_utils.py && \
   git commit -m "test(runtime): add drift-detection test for _emit_bound_runtime"
 ```
@@ -530,7 +530,7 @@ cd /home/cjz/academiagpt-v2/backend && \
 
 ```bash
 grep -A 12 "async def _emit_bound_runtime" \
-  /home/cjz/academiagpt-v2/backend/src/workspace_features/services/sci_feature_service.py
+  /home/cjz/wenjin/backend/src/workspace_features/services/sci_feature_service.py
 ```
 
 **Step 2: Add public function to runtime_blocks.py**
@@ -579,7 +579,7 @@ def test_emit_bound_runtime_is_exported_from_runtime_blocks():
 
 Run:
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   python -m pytest tests/workspace_features/test_shared_runtime_utils.py::test_emit_bound_runtime_is_exported_from_runtime_blocks -v
 ```
 Expected: PASSED
@@ -587,7 +587,7 @@ Expected: PASSED
 **Step 4: Commit**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   git add src/task/runtime_blocks.py tests/workspace_features/test_shared_runtime_utils.py && \
   git commit -m "feat(runtime): add canonical emit_bound_runtime to task.runtime_blocks"
 ```
@@ -613,7 +613,7 @@ Repeat for all files found in Task 3.1.
 **After updating all files:**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   python -m pytest tests/workspace_features/test_shared_runtime_utils.py -v
 ```
 Expected: all tests PASSED (drift tests now green)
@@ -621,13 +621,13 @@ Expected: all tests PASSED (drift tests now green)
 **Step: Run full test suite**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && python -m pytest tests/ -q --tb=short 2>&1 | tail -10
+cd /home/cjz/wenjin/backend && python -m pytest tests/ -q --tb=short 2>&1 | tail -10
 ```
 
 **Step: Commit**
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend && \
+cd /home/cjz/wenjin/backend && \
   git add src/workspace_features/services/ src/agents/graphs/ && \
   git commit -m "refactor(runtime): replace local _emit_bound_runtime with import from task.runtime_blocks"
 ```
@@ -639,7 +639,7 @@ cd /home/cjz/academiagpt-v2/backend && \
 Run all of these before declaring done:
 
 ```bash
-cd /home/cjz/academiagpt-v2/backend
+cd /home/cjz/wenjin/backend
 
 # Phase 1: no more if-elif in resolve_feature_params
 python -m pytest tests/agents/test_feature_bridge_intents_dispatch.py -v

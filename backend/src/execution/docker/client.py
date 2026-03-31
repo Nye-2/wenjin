@@ -20,11 +20,8 @@ logger = logging.getLogger(__name__)
 
 # Shared thread pool for Docker operations
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="docker-")
-# NOTE: Docker image registry names are intentionally preserved as "academiagpt/*" —
-# same rationale as the PostgreSQL database name: renaming requires pushing new images
-# to the registry. Update these when publishing guanlan/* images.
-_LATEX_IMAGE = "academiagpt/texlive:2024"
-_LATEX_IMAGE_ARCHIVE = "academiagpt-texlive-2024.tar"
+_LATEX_IMAGE = "wenjin/texlive:2024"
+_LATEX_IMAGE_ARCHIVE = "wenjin-texlive-2024.tar"
 
 
 class DockerImagesProtocol(Protocol):
@@ -190,7 +187,7 @@ class DockerClient:
             backend_root / "docker" / "images" / "texlive" / _LATEX_IMAGE_ARCHIVE
         )
         candidates.append(
-            Path("/opt/guanlan/images/texlive") / _LATEX_IMAGE_ARCHIVE
+            Path("/opt/wenjin/images/texlive") / _LATEX_IMAGE_ARCHIVE
         )
 
         deduped: list[Path] = []

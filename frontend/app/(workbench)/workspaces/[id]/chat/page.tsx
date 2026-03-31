@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -8,7 +8,7 @@ import { ChatPanel } from "../components/ChatPanel";
 import { parseWorkspaceChatEntrySeed } from "@/lib/workspace-chat-entry";
 import { WorkspaceInspector } from "../components/WorkspaceInspector";
 
-export default function ChatPage() {
+function ChatPageInner() {
   const { id: workspaceId } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const skillFromUrl = searchParams.get("skill");
@@ -49,5 +49,13 @@ export default function ChatPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense>
+      <ChatPageInner />
+    </Suspense>
   );
 }

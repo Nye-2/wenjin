@@ -1,6 +1,7 @@
 """Tests for chat_turn_handler – agent-level timeout."""
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -86,6 +87,84 @@ class TestAgentTimeout:
                     )
         finally:
             LLMSettings.AGENT_TIMEOUT = original
+
+    @pytest.mark.asyncio
+    async def test_generate_chat_response_forwards_explicit_orchestration_metadata(self):
+        """Structured orchestration metadata should bypass intent inference and reach the bridge."""
+        bridged_reply = SimpleNamespace(
+            content="已提交 feature 任务",
+            blocks=[{"type": "info"}],
+            metadata={"orchestration": {"feature_id": "framework_outline"}},
+        )
+        bridge_mock = AsyncMock(return_value=bridged_reply)
+
+        with (
+            patch(
+                "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
+                bridge_mock,
+            ),
+            patch(
+                "src.agents.lead_agent.agent.build_pipeline",
+                return_value=[],
+            ),
+            patch(
+                "src.application.handlers.chat_turn_handler.route_chat_model",
+                return_value="test-model",
+            ),
+            patch(
+                "src.application.handlers.chat_turn_handler.build_chat_runtime_config",
+                return_value={"configurable": {}},
+            ),
+            patch(
+                "src.application.handlers.chat_turn_handler.build_chat_initial_state",
+                return_value={},
+            ),
+            patch(
+                "src.application.handlers.chat_turn_handler._resolve_workspace_id",
+                return_value="ws-1",
+            ),
+        ):
+            from src.application.handlers.chat_turn_handler import generate_chat_response
+
+            mock_request = MagicMock()
+            mock_request.model = "test-model"
+            mock_request.message = "请帮我开始「框架与摘要」。"
+            mock_request.attachments = ()
+            mock_request.metadata = {
+                "orchestration": {
+                    "feature_id": "framework_outline",
+                    "params": {
+                        "paper_title": "Agent Systems",
+                        "topic": "LLM planning",
+                    },
+                }
+            }
+
+            mock_thread = MagicMock()
+            mock_thread.id = "thread-1"
+            mock_thread.skill = None
+            mock_thread.model = None
+            mock_thread.workspace_id = "ws-1"
+
+            reply = await generate_chat_response(
+                mock_request,
+                mock_thread,
+                actor_id="user-1",
+            )
+
+            assert reply.content == "已提交 feature 任务"
+            bridge_mock.assert_awaited_once_with(
+                message="请帮我开始「框架与摘要」。",
+                workspace_id="ws-1",
+                thread_id="thread-1",
+                user_id="user-1",
+                selected_skill=None,
+                requested_feature_id="framework_outline",
+                requested_feature_params={
+                    "paper_title": "Agent Systems",
+                    "topic": "LLM planning",
+                },
+            )
 
     @pytest.mark.asyncio
     async def test_agent_completes_within_timeout(self):

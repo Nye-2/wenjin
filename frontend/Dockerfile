@@ -1,4 +1,4 @@
-# Guanlan (观澜) - Frontend Dockerfile
+# Wenjin (问津) - Frontend Dockerfile
 # Next.js 16 with standalone output
 
 ARG NODE_IMAGE=node:20-alpine

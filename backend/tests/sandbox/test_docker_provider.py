@@ -29,7 +29,7 @@ async def test_docker_provider_acquire_creates_thread_directories(tmp_path):
     docker_client = _FakeDockerClient()
     provider = DockerSandboxProvider(
         base_dir=str(tmp_path),
-        image="academiagpt/sandbox:test",
+        image="wenjin/sandbox:test",
         docker_client=docker_client,
     )
 
@@ -39,7 +39,7 @@ async def test_docker_provider_acquire_creates_thread_directories(tmp_path):
     assert (tmp_path / "thread-1" / "user-data" / "workspace").exists()
     assert (tmp_path / "thread-1" / "user-data" / "uploads").exists()
     assert (tmp_path / "thread-1" / "user-data" / "outputs").exists()
-    docker_client.ensure_image.assert_awaited_once_with("academiagpt/sandbox:test")
+    docker_client.ensure_image.assert_awaited_once_with("wenjin/sandbox:test")
 
 
 @pytest.mark.asyncio
@@ -47,7 +47,7 @@ async def test_docker_sandbox_executes_command_in_ephemeral_container(tmp_path):
     docker_client = _FakeDockerClient()
     provider = DockerSandboxProvider(
         base_dir=str(tmp_path),
-        image="academiagpt/sandbox:test",
+        image="wenjin/sandbox:test",
         memory="512m",
         cpu_limit=1,
         docker_client=docker_client,
@@ -59,7 +59,7 @@ async def test_docker_sandbox_executes_command_in_ephemeral_container(tmp_path):
     assert result.success
     docker_client.run_container.assert_awaited_once()
     kwargs = docker_client.run_container.await_args.kwargs
-    assert kwargs["image"] == "academiagpt/sandbox:test"
+    assert kwargs["image"] == "wenjin/sandbox:test"
     assert kwargs["command"] == ["/bin/sh", "-lc", "pwd"]
     assert kwargs["working_dir"] == "/mnt/user-data/workspace"
     assert kwargs["timeout"] == 45

@@ -107,7 +107,7 @@ class TestSandboxIntegration:
         settings = SandboxSettings()
 
         assert settings.mode == "local"
-        assert settings.local.base_dir == ".academiagpt/threads"
+        assert settings.local.base_dir == ".wenjin/threads"
         assert settings.academic.latex.enabled is True
         assert "python" in settings.academic.code_execution.languages
 

@@ -1,4 +1,4 @@
-"""Services package for AcademiaGPT v2."""
+"""Services package for Wenjin."""
 
 from .auth import (
     Token,

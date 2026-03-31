@@ -17,12 +17,19 @@ EXECUTION_FILE = FRONTEND_DIR / "lib" / "workspace-feature-execution.ts"
 FEATURE_RUNNER_FILE = FRONTEND_DIR / "hooks" / "useFeatureTaskRunner.ts"
 CHAT_EXPORT_FILE = FRONTEND_DIR / "lib" / "chat-export.ts"
 WORKSPACE_API_FILE = FRONTEND_DIR / "lib" / "api" / "workspace.ts"
+CHAT_ROUTE_FILE = (
+    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "chat" / "[threadId]" / "page.tsx"
+)
+CHAT_ENTRY_FILE = FRONTEND_DIR / "lib" / "workspace-chat-entry.ts"
 CHAT_PANEL_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "ChatPanel.tsx"
 )
 AGENT_STATUS_BAR_FILE = FRONTEND_DIR / "components" / "workspace" / "AgentStatusBar.tsx"
 KNOWLEDGE_PANEL_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "KnowledgePanel.tsx"
+)
+WORKBENCH_LAYOUT_FILE = (
+    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "layout.tsx"
 )
 WORKSPACE_STORE_FILE = FRONTEND_DIR / "stores" / "workspace.ts"
 WORKSPACE_EVENT_STREAM_FILE = FRONTEND_DIR / "hooks" / "useWorkspaceEventStream.ts"
@@ -40,15 +47,15 @@ def _registry_feature_ids() -> set[str]:
 def _extract_route_map() -> dict[str, str]:
     content = ROUTES_FILE.read_text(encoding="utf-8")
     block = re.search(
-        r"workspaceFeatureRouteMap:\s*Record<string,\s*string>\s*=\s*\{(?P<body>.*?)\n\};",
+        r"workspaceFeatureSkillMap:\s*Record<string,\s*string \| null>\s*=\s*\{(?P<body>.*?)\n\};",
         content,
         flags=re.DOTALL,
     )
-    assert block is not None, "workspaceFeatureRouteMap not found"
+    assert block is not None, "workspaceFeatureSkillMap not found"
     return {
-        feature_id: route
-        for feature_id, route in re.findall(
-            r'^\s*([a-z_]+):\s*"([^"]+)",\s*$',
+        feature_id: skill or ""
+        for feature_id, _, skill in re.findall(
+            r'^\s*([a-z_]+):\s*(null|"([^"]+)"),\s*$',
             block.group("body"),
             flags=re.MULTILINE,
         )
@@ -134,14 +141,28 @@ def test_workspace_feature_routes_match_backend_registry() -> None:
     assert set(route_map) == _registry_feature_ids()
 
 
-def test_workspace_feature_routes_have_pages() -> None:
-    route_map = _extract_route_map()
-    missing_pages = [
-        feature_id
-        for feature_id, route in route_map.items()
-        if not (WORKSPACE_PAGES_DIR / route / "page.tsx").exists()
-    ]
-    assert not missing_pages, f"Missing workspace pages for: {missing_pages}"
+def test_workspace_feature_routes_use_canonical_chat_entry() -> None:
+    content = _read_text(ROUTES_FILE)
+    assert 'const pathname = `/workspaces/${workspaceId}/chat/new`;' in content
+    assert 'query.set("feature", featureId);' in content
+    assert "resolveWorkspaceFeatureSkillId(" in content
+    assert "query.append(key, value);" in content
+
+
+def test_chat_new_route_consumes_feature_entry_seed_and_layout_only_loads_thread_summaries() -> None:
+    chat_route_body = _read_text(CHAT_ROUTE_FILE)
+    chat_entry_body = _read_text(CHAT_ENTRY_FILE)
+    chat_panel_body = _read_text(CHAT_PANEL_FILE)
+    layout_body = _read_text(WORKBENCH_LAYOUT_FILE)
+
+    assert "parseWorkspaceChatEntrySeed(searchParams)" in chat_route_body
+    assert "<ChatPanel workspaceId={workspaceId} entrySeed={entrySeed} />" in chat_route_body
+    assert "export function parseWorkspaceChatEntrySeed(" in chat_entry_body
+    assert "export function buildWorkspaceChatEntryPrompt(" in chat_entry_body
+    assert 'feature_id: pendingEntrySeed.featureId' in chat_panel_body
+    assert "params: pendingEntrySeed.params" in chat_panel_body
+    assert "void loadThreads(workspaceId);" in layout_body
+    assert "void loadLatestThread(workspaceId);" not in layout_body
 
 
 def test_workspace_feature_actions_explicitly_cover_all_features() -> None:

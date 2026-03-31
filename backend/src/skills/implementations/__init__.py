@@ -1,4 +1,4 @@
-"""Skill implementations for AcademiaGPT.
+"""Skill implementations for Wenjin.
 
 This module contains concrete skill implementations that provide
 specialized academic research capabilities.

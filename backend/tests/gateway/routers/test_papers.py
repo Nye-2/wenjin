@@ -804,7 +804,7 @@ class TestHelperFunctions:
     def test_paper_to_response_with_workspace_context(self):
         """Test workspace-scoped file URL generation."""
         paper = create_mock_paper(
-            file_path=".academiagpt/workspace_uploads/ws-1/papers/paper.pdf",
+            file_path=".wenjin/workspace_uploads/ws-1/papers/paper.pdf",
         )
 
         response = paper_to_response(paper, workspace_id="ws-1")

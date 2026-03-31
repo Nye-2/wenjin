@@ -14,7 +14,7 @@ class TestLocalSandboxConfig:
     def test_default_base_dir(self):
         """Should have default base directory."""
         config = LocalSandboxConfig()
-        assert config.base_dir == ".academiagpt/threads"
+        assert config.base_dir == ".wenjin/threads"
 
     def test_custom_base_dir(self):
         """Should accept custom base directory."""
@@ -26,7 +26,7 @@ class TestDockerSandboxConfig:
     def test_default_image(self):
         """Should have default Docker image."""
         config = DockerSandboxConfig()
-        assert "academiagpt" in config.image
+        assert "wenjin" in config.image
 
     def test_default_timeout(self):
         """Should have default timeout."""
@@ -100,7 +100,7 @@ class TestSandboxSettings:
         """Should have local config."""
         settings = SandboxSettings()
         assert settings.local is not None
-        assert settings.local.base_dir == ".academiagpt/threads"
+        assert settings.local.base_dir == ".wenjin/threads"
 
     def test_docker_config(self):
         """Should have docker config."""

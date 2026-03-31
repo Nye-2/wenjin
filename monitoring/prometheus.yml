@@ -3,7 +3,7 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: "academiagpt-gateway"
+  - job_name: "wenjin-gateway"
     metrics_path: "/metrics"
     static_configs:
       - targets: ["gateway:8001"]

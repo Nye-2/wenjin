@@ -1,13 +1,10 @@
-"""Application-layer request handlers."""
+"""Application-layer handlers package.
 
-from src.application.handlers.chat_turn_handler import ChatTurnHandler
-from src.application.handlers.feature_execution_handler import (
-    FeatureExecutionHandler,
-)
-from src.application.handlers.papers_handler import PapersHandler
+Keep this package import side-effect free.
 
-__all__ = [
-    "ChatTurnHandler",
-    "FeatureExecutionHandler",
-    "PapersHandler",
-]
+Import concrete handlers from their modules instead of re-exporting them here;
+otherwise importing a single submodule can trigger unrelated handler imports and
+reintroduce circular dependencies during test collection and app startup.
+"""
+
+__all__: list[str] = []

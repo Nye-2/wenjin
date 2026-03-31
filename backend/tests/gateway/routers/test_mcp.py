@@ -47,7 +47,7 @@ def test_get_mcp_configuration_returns_current_servers(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("ACADEMIAGPT_EXTENSIONS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("GUANLAN_EXTENSIONS_CONFIG_PATH", str(config_path))
     reset_extensions_config()
     reset_mcp_manager()
 
@@ -74,7 +74,7 @@ def test_update_mcp_configuration_persists_and_refreshes_runtime(tmp_path, monke
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("ACADEMIAGPT_EXTENSIONS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("GUANLAN_EXTENSIONS_CONFIG_PATH", str(config_path))
     reset_extensions_config()
     reset_mcp_manager()
 
@@ -152,7 +152,7 @@ def test_update_mcp_configuration_rejects_invalid_runtime_without_persisting(tmp
     }
     config_path.write_text(json.dumps(original_payload), encoding="utf-8")
 
-    monkeypatch.setenv("ACADEMIAGPT_EXTENSIONS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("GUANLAN_EXTENSIONS_CONFIG_PATH", str(config_path))
     reset_extensions_config()
     reset_mcp_manager()
 

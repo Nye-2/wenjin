@@ -16,7 +16,7 @@ function getNumericValue(value: unknown): number | null {
 export function formatCreditCostLabel(key: string): string {
   switch (key) {
     case "chat_token_billing":
-      return "Chat 对话";
+      return "主线对话";
     case "deep_research":
       return "深度研究";
     case "literature_search":
@@ -41,7 +41,7 @@ export function formatCreditTransactionType(type: string): string {
     case "workflow_consume":
       return "功能扣费";
     case "chat_token_consume":
-      return "Chat 扣费";
+      return "主线对话扣费";
     case "registration_bonus":
       return "注册奖励";
     case "refund":

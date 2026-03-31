@@ -18,8 +18,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# NOTE: Registry name intentionally preserved — update when guanlan/texlive image is published.
-DEFAULT_LATEX_DOCKER_IMAGE = "academiagpt/texlive:2024"
+DEFAULT_LATEX_DOCKER_IMAGE = "wenjin/texlive:2024"
 
 
 class LaTeXProvider(ExecutionProvider):

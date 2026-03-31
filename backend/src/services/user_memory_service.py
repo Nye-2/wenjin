@@ -274,7 +274,7 @@ async def load_user_memory(
     from src.services.knowledge_service import KnowledgeService
 
     config = _load_memory_config()
-    effective_limit = limit or min(getattr(config, "max_facts", 100), 20)
+    effective_limit = limit or getattr(config, "max_facts", 20)
     effective_min_confidence = (
         min_confidence
         if min_confidence is not None

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.application.errors import BadRequestError
+from src.application.handlers.papers_handler import UploadedPaperPayload
 from src.gateway.routers.papers import get_papers_handler, router
 from src.gateway.routers.auth import get_current_user
 
@@ -29,20 +30,20 @@ def app():
 
     mock_handler = AsyncMock()
 
-    async def upload_paper(*, workspace_id: str, user_id: str, file):
-        if file.content_type not in ("application/pdf", "application/x-pdf"):
+    async def upload_paper(*, workspace_id: str, user_id: str, upload: UploadedPaperPayload):
+        if upload.content_type not in ("application/pdf", "application/x-pdf"):
             raise BadRequestError("Only PDF files are accepted")
-        content = await file.read()
+        content = upload.content
         if not content:
             raise BadRequestError("Uploaded file is empty")
         return {
             "success": True,
             "paper_id": "p-123",
-            "filename": file.filename,
-            "content_type": file.content_type,
+            "filename": upload.filename,
+            "content_type": upload.content_type,
             "size_bytes": len(content),
             "workspace_id": workspace_id,
-            "file_url": f"/api/workspaces/{workspace_id}/files/papers/{file.filename}",
+            "file_url": f"/api/workspaces/{workspace_id}/files/papers/{upload.filename}",
             "extraction": {
                 "task_id": "task-paper-extract-1",
                 "status": "scheduled",

@@ -90,12 +90,15 @@ export default function MyDashboardPage() {
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
       <Header />
-      <div className="max-w-7xl mx-auto px-4 py-8 pt-24 space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div className="route-topography max-w-7xl mx-auto px-4 py-8 pt-24 space-y-6">
+        <div className="route-card rounded-[1.75rem] p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--text-primary)]">个人仪表盘</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--accent-secondary)]">
+              账户总览
+            </p>
+            <h1 className="mt-3 text-3xl font-bold text-[var(--text-primary)]">账户概览</h1>
             <p className="text-[var(--text-secondary)] mt-1">
-              查看积分、任务与工作空间总体状态
+              查看积分、任务与工作空间状态，保持你的研究工作线索清晰可追踪。
             </p>
           </div>
           <button
@@ -116,10 +119,10 @@ export default function MyDashboardPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <div
-            className={`rounded-2xl border p-5 ${
+            className={`rounded-[1.5rem] border p-5 ${
               creditBalance < 0
                 ? "border-rose-500/30 bg-rose-500/10"
-                : "border-[var(--border-default)] bg-[var(--bg-elevated)]"
+                : "route-card"
             }`}
           >
             <div className="flex items-center justify-between">
@@ -138,12 +141,12 @@ export default function MyDashboardPage() {
             </div>
             {chatCredit?.overdraft_credits ? (
               <div className="mt-2 text-xs text-rose-600">
-                已透支 {chatCredit.overdraft_credits} 积分，充值后可恢复 Chat。
+                已透支 {chatCredit.overdraft_credits} 积分，补充积分后可恢复主线对话。
               </div>
             ) : null}
           </div>
 
-          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-[var(--text-secondary)]">工作空间</span>
               <FolderKanban className="w-5 h-5 text-[var(--accent-primary)]" />
@@ -156,7 +159,7 @@ export default function MyDashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-[var(--text-secondary)]">任务总数</span>
               <ListChecks className="w-5 h-5 text-[var(--accent-primary)]" />
@@ -169,7 +172,7 @@ export default function MyDashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-[var(--text-secondary)]">任务完成率</span>
               <TrendingUp className="w-5 h-5 text-[var(--accent-primary)]" />
@@ -187,13 +190,13 @@ export default function MyDashboardPage() {
           <section
             className={`rounded-2xl border p-5 ${
               chatCredit.can_start_chat
-                ? "border-[var(--border-default)] bg-[var(--bg-elevated)]"
+                ? "route-card"
                 : "border-amber-500/30 bg-amber-500/10"
             }`}
           >
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-[var(--text-primary)]">Chat 计费状态</h2>
+                <h2 className="text-lg font-semibold text-[var(--text-primary)]">主线对话计费状态</h2>
                 <p className="mt-1 text-sm text-[var(--text-secondary)]">
                   前 {chatCredit.free_tokens.toLocaleString()} tokens 免费，之后每{" "}
                   {chatCredit.tokens_per_credit.toLocaleString()} tokens 扣 1 积分。
@@ -206,7 +209,7 @@ export default function MyDashboardPage() {
                     : "bg-rose-500/10 text-rose-600"
                 }`}
               >
-                {chatCredit.can_start_chat ? "Chat 可用" : "Chat 已暂停"}
+                {chatCredit.can_start_chat ? "主线对话可用" : "主线对话已暂停"}
               </div>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -231,14 +234,14 @@ export default function MyDashboardPage() {
             </div>
             {!chatCredit.can_start_chat ? (
               <div className="mt-4 text-sm text-rose-600">
-                当前轮次已允许结算，但下一次 Chat 会被拦截。请先补充积分后再继续对话。
+                当前轮次已允许结算，但下一次主线对话会被拦截。请先补充积分后再继续推进。
               </div>
             ) : null}
           </section>
         ) : null}
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <section className="route-card rounded-[1.75rem] p-5">
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">模块积分标准</h2>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-sm">
@@ -260,7 +263,7 @@ export default function MyDashboardPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+          <section className="route-card rounded-[1.75rem] p-5">
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">最近任务</h2>
             <div className="mt-4 space-y-3">
               {recentTasks.length ? (
@@ -285,7 +288,7 @@ export default function MyDashboardPage() {
           </section>
         </div>
 
-        <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5">
+        <section className="route-card rounded-[1.75rem] p-5">
           <h2 className="text-lg font-semibold text-[var(--text-primary)]">积分流水</h2>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">

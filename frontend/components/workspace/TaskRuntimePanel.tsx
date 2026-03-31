@@ -179,7 +179,7 @@ export function TaskRuntimePanel({
   return (
     <section
       className={cn(
-        "rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5",
+        "route-card rounded-[1.75rem] p-5",
         className
       )}
     >
@@ -196,7 +196,7 @@ export function TaskRuntimePanel({
           </p>
         </div>
         {(isRunning || runtime) && (
-          <span className="shrink-0 rounded-full bg-[var(--accent-primary)]/10 px-2.5 py-1 text-xs font-medium text-[var(--accent-primary)]">
+          <span className="shrink-0 rounded-full border border-[var(--border-default)] bg-white/80 px-2.5 py-1 text-xs font-medium text-[var(--accent-primary)]">
             {overallProgress}%
           </span>
         )}
@@ -213,8 +213,8 @@ export function TaskRuntimePanel({
           {phases.map((phase) => (
             <div
               key={phase.id}
-              className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-3"
-            >
+            className="rounded-2xl border border-[var(--border-default)] bg-white/78 px-3 py-3"
+          >
               <div className="flex items-center gap-2">
                 <span
                   className={cn(
@@ -253,7 +253,7 @@ export function TaskRuntimePanel({
           {blocks.map((block) => (
             <div
               key={block.id}
-              className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4"
+              className="rounded-2xl border border-[var(--border-default)] bg-white/76 p-4"
             >
               <div className="mb-3">
                 <p className="text-sm font-medium text-[var(--text-primary)]">
@@ -272,7 +272,7 @@ export function TaskRuntimePanel({
       ) : (
         !isRunning &&
         !error && (
-          <div className="mt-4 rounded-xl border border-dashed border-[var(--border-default)] px-4 py-6 text-center">
+          <div className="mt-4 rounded-2xl border border-dashed border-[var(--border-default)] px-4 py-6 text-center">
             <p className="text-sm text-[var(--text-secondary)]">{emptyDescription}</p>
           </div>
         )

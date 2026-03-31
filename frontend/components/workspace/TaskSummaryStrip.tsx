@@ -42,7 +42,7 @@ function activityTimeLabel(value?: string | null) {
 export function TaskSummaryStrip({ summary }: TaskSummaryStripProps) {
   if (!summary) {
     return (
-      <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-5 py-4">
+      <section className="route-card rounded-[1.75rem] px-5 py-4">
         <p className="text-sm text-[var(--text-muted)]">正在汇总当前任务状态...</p>
       </section>
     );
@@ -51,7 +51,7 @@ export function TaskSummaryStrip({ summary }: TaskSummaryStripProps) {
   const primaryRisk = summary.risk_items[0] ?? null;
 
   return (
-    <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-5 py-5">
+    <section className="route-card rounded-[1.75rem] px-5 py-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -72,7 +72,7 @@ export function TaskSummaryStrip({ summary }: TaskSummaryStripProps) {
             {summary.headline}
           </p>
         </div>
-        <div className="shrink-0 rounded-xl bg-[var(--bg-elevated)] px-4 py-3">
+        <div className="shrink-0 rounded-2xl border border-[var(--border-default)] bg-white/78 px-4 py-3">
           <p className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
             总体进度
           </p>
@@ -86,7 +86,7 @@ export function TaskSummaryStrip({ summary }: TaskSummaryStripProps) {
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-xl bg-[var(--bg-elevated)] px-4 py-3">
+        <div className="rounded-2xl border border-[var(--border-default)] bg-white/78 px-4 py-3">
           <p className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
             当前阶段
           </p>
@@ -98,7 +98,7 @@ export function TaskSummaryStrip({ summary }: TaskSummaryStripProps) {
           </p>
         </div>
 
-        <div className="rounded-xl bg-[var(--bg-elevated)] px-4 py-3">
+        <div className="rounded-2xl border border-[var(--border-default)] bg-white/78 px-4 py-3">
           <p className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
             下一步建议
           </p>
@@ -111,7 +111,7 @@ export function TaskSummaryStrip({ summary }: TaskSummaryStripProps) {
           </p>
         </div>
 
-        <div className="rounded-xl bg-[var(--bg-elevated)] px-4 py-3">
+        <div className="rounded-2xl border border-[var(--border-default)] bg-white/78 px-4 py-3">
           <p className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
             最近活动
           </p>
@@ -124,7 +124,7 @@ export function TaskSummaryStrip({ summary }: TaskSummaryStripProps) {
           </p>
         </div>
 
-        <div className="rounded-xl bg-[var(--bg-elevated)] px-4 py-3">
+        <div className="rounded-2xl border border-[var(--border-default)] bg-white/78 px-4 py-3">
           <p className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
             风险提醒
           </p>

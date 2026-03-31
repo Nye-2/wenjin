@@ -2,7 +2,7 @@
 
 更新时间: 2026-03-23
 状态: Draft
-适用项目: `academiagpt-v2`
+适用项目: `wenjin`
 关联文档:
 
 - `docs/product/workspace-chat-centered-redesign.md`
@@ -20,7 +20,8 @@
 2. `thread` 已经真实存在于数据层和前端 store，不应删除，只应降级为弱感知对象。
 3. chat 基础设施并没有消失，真正缺失的是 thesis workspace 首屏入口，以及 chat 对 feature 的统一编排能力。
 4. 双路长短期记忆目前不是“架构上不能做”，而是“闭环没有补完整”。
-5. 原 AcademiaGPT 的高价值能力仍有明显缺口，必须单列回补计划，不能混在入口改版里一起泛化。
+5. 历史仓库的高价值能力仍有明显缺口，必须单列回补计划，不能混在入口改版里一起泛化。
+6. feature 入口现已统一收敛为 `chat/new + orchestration seed`，后续不再恢复中间 feature slug 页面。
 
 仓库级关键依据:
 
@@ -28,9 +29,13 @@
   - `backend/src/gateway/routers/chat.py`
   - `backend/src/services/chat_thread_service.py`
 - feature 执行链已支持 `thread_id`:
-  - `frontend/lib/api.ts`
+  - `frontend/lib/api/workspace.ts`
   - `backend/src/application/handlers/feature_execution_handler.py`
-- workspace layout 已会自动恢复最近 thread:
+- feature 导航与首条 chat seed 已统一:
+  - `frontend/lib/workspace-feature-routes.ts`
+  - `frontend/lib/workspace-chat-entry.ts`
+  - `frontend/app/(workbench)/workspaces/[id]/chat/[threadId]/page.tsx`
+- workspace layout 当前只预加载 thread summaries，由 `chat/new` 自己决定是否开启新线程:
   - `frontend/app/(workbench)/workspaces/[id]/layout.tsx`
 - thesis workspace 当前没有嵌入 chat，其他 workspace 有:
   - `frontend/app/(workbench)/workspaces/[id]/page.tsx`
@@ -63,7 +68,7 @@
 
 ### 2.4 能力回补
 
-对照旧仓库 `AcademiaGPT` 的 README、路由和模块入口，以下能力在新仓库中尚未完整回补或未进入统一 registry:
+对照历史仓库的 README、路由和模块入口，以下能力在新仓库中尚未完整回补或未进入统一 registry:
 
 1. 文献综述
 2. 论文框架 / 摘要与大纲
@@ -75,8 +80,8 @@
 
 旧仓库依据:
 
-- `AcademiaGPT/README.md`
-- `AcademiaGPT/frontend/src/router/index.ts`
+- `legacy-repo/README.md`
+- `legacy-repo/frontend/src/router/index.ts`
 
 ## 3. 实施原则
 
@@ -137,7 +142,7 @@ Workspace Page / Layout
 | ID | 类型 | 任务 | 目标文件 / 范围 | 依赖 | 完成定义 |
 |---|---|---|---|---|---|
 | P0-01 | Product | 冻结实体定义与首期范围 | `docs/product/workspace-chat-centered-redesign.md` | - | 明确 `workspace != session`，明确首期 non-goals |
-| P0-02 | Product | 形成旧仓库能力差距矩阵 | `AcademiaGPT/README.md`, `AcademiaGPT/frontend/src/router/index.ts`, `docs/product/workspace-chat-centered-implementation-plan.md` | P0-01 | 明确高优先级回补项和映射 workspace 类型 |
+| P0-02 | Product | 形成旧仓库能力差距矩阵 | `legacy-repo/README.md`, `legacy-repo/frontend/src/router/index.ts`, `docs/product/workspace-chat-centered-implementation-plan.md` | P0-01 | 明确高优先级回补项和映射 workspace 类型 |
 | P0-03 | Tech | 形成 repo 级现状审计 | chat / feature / dashboard / memory 相关代码 | P0-01 | 明确可复用件、缺口、阻塞项 |
 | RV0-01 | Review | 架构评审 | 产品 + 前端 + 后端 | P0-01 ~ P0-03 | 评审纪要确认 Phase 1-3 的接口边界和不做项 |
 | QA0-01 | QA | 基线回归与命令清单确认 | `backend/tests/gateway/routers/test_chat.py`, `backend/tests/application/handlers/test_feature_execution_handler.py`, `backend/tests/gateway/routers/test_dashboard.py` | P0-03 | 确认后续每阶段必跑测试清单 |
@@ -235,13 +240,13 @@ Workspace Page / Layout
 
 | 优先级 | 能力 | 旧仓库依据 | 新仓库建议落点 |
 |---|---|---|---|
-| P4-A | 同行评审 | `AcademiaGPT/README.md`, `AcademiaGPT/frontend/src/router/index.ts` | `sci.peer_review` |
-| P4-A | 文献综述 | `AcademiaGPT/README.md` | `sci.literature_review`, `thesis.literature_review` 或共享 support feature |
-| P4-A | 论文框架 / 摘要大纲 | `AcademiaGPT/README.md` | `sci.framework_outline`, `thesis.outline_generation` |
-| P4-B | 期刊推荐 | `AcademiaGPT/README.md`, `router/index.ts` | `sci.journal_recommend` |
-| P4-B | 实验设计 | `AcademiaGPT/README.md` | `proposal.experiment_design`, `sci.experiment_design` |
-| P4-C | AI 配图增强 | `AcademiaGPT/README.md` | 强化 `figure_generation` 或新增 support feature |
-| P4-C | 政策分析 | `AcademiaGPT/README.md` | proposal / patent support feature |
+| P4-A | 同行评审 | `legacy-repo/README.md`, `legacy-repo/frontend/src/router/index.ts` | `sci.peer_review` |
+| P4-A | 文献综述 | `legacy-repo/README.md` | `sci.literature_review`, `thesis.literature_review` 或共享 support feature |
+| P4-A | 论文框架 / 摘要大纲 | `legacy-repo/README.md` | `sci.framework_outline`, `thesis.outline_generation` |
+| P4-B | 期刊推荐 | `legacy-repo/README.md`, `router/index.ts` | `sci.journal_recommend` |
+| P4-B | 实验设计 | `legacy-repo/README.md` | `proposal.experiment_design`, `sci.experiment_design` |
+| P4-C | AI 配图增强 | `legacy-repo/README.md` | 强化 `figure_generation` 或新增 support feature |
+| P4-C | 政策分析 | `legacy-repo/README.md` | proposal / patent support feature |
 
 ### 10.2 回补任务单
 

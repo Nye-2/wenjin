@@ -83,9 +83,9 @@
     }
   ],
   "schemaVersion": 39,
-  "tags": ["academiagpt"],
+  "tags": ["wenjin"],
   "templating": { "list": [] },
   "time": { "from": "now-1h", "to": "now" },
-  "title": "AcademiaGPT Overview",
-  "uid": "academiagpt-overview"
+  "title": "Wenjin Overview",
+  "uid": "wenjin-overview"
 }

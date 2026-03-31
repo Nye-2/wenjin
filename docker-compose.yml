@@ -1,4 +1,4 @@
-# 观澜 Guanlan - Docker Compose Configuration
+# 问津 Wenjin - Docker Compose Configuration
 # Production deployment on port 2026
 
 x-backend-gateway-build: &backend_gateway_build
@@ -28,27 +28,27 @@ services:
   # PostgreSQL 16 with pgvector extension
   postgres:
     image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
-    container_name: guanlan-postgres
+    container_name: wenjin-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: academiagpt
+      POSTGRES_DB: wenjin
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d academiagpt"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wenjin"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
     networks:
-      - guanlan-network
+      - wenjin-network
 
   # Redis 7 with AOF persistence (REQUIRED)
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
-    container_name: guanlan-redis
+    container_name: wenjin-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --appendfsync everysec
     volumes:
@@ -60,17 +60,17 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - guanlan-network
+      - wenjin-network
 
   # FastAPI Gateway Service
   migrate:
-    image: ${BACKEND_GATEWAY_IMAGE:-guanlan-backend}
+    image: ${BACKEND_GATEWAY_IMAGE:-wenjin-backend}
     build: *backend_gateway_build
-    container_name: guanlan-migrate
+    container_name: wenjin-migrate
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/academiagpt
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_URL=redis://redis:6379/0
     command: ["uv", "run", "python", "-m", "src.database.migration_bootstrap"]
     depends_on:
@@ -80,18 +80,18 @@ services:
         condition: service_healthy
     restart: "no"
     networks:
-      - guanlan-network
+      - wenjin-network
 
   # Bootstrap Admin User (runs once after migration)
   bootstrap-admin:
-    image: ${BACKEND_GATEWAY_IMAGE:-guanlan-backend}
+    image: ${BACKEND_GATEWAY_IMAGE:-wenjin-backend}
     build: *backend_gateway_build
-    container_name: guanlan-bootstrap-admin
+    container_name: wenjin-bootstrap-admin
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/academiagpt
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@guanlan.ai}
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@wenjin.ai}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
     command: ["uv", "run", "python", "-m", "src.database.bootstrap_admin"]
@@ -100,18 +100,18 @@ services:
         condition: service_completed_successfully
     restart: "no"
     networks:
-      - guanlan-network
+      - wenjin-network
 
   # FastAPI Gateway Service
   gateway:
-    image: ${BACKEND_GATEWAY_IMAGE:-guanlan-backend}
+    image: ${BACKEND_GATEWAY_IMAGE:-wenjin-backend}
     build: *backend_gateway_build
-    container_name: guanlan-gateway
+    container_name: wenjin-gateway
     restart: unless-stopped
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/academiagpt
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_URL=redis://redis:6379/0
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
@@ -139,17 +139,17 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - guanlan-network
+      - wenjin-network
 
   worker:
-    image: ${BACKEND_GATEWAY_IMAGE:-guanlan-backend}
+    image: ${BACKEND_GATEWAY_IMAGE:-wenjin-backend}
     build: *backend_gateway_build
-    container_name: guanlan-worker
+    container_name: wenjin-worker
     restart: unless-stopped
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/academiagpt
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_URL=redis://redis:6379/0
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
@@ -179,18 +179,18 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - guanlan-network
+      - wenjin-network
 
   # LangGraph Agent Server
   langgraph:
-    image: ${LANGGRAPH_IMAGE:-guanlan-langgraph}
+    image: ${LANGGRAPH_IMAGE:-wenjin-langgraph}
     build: *langgraph_build
-    container_name: guanlan-langgraph
+    container_name: wenjin-langgraph
     restart: unless-stopped
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/academiagpt
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_URL=redis://redis:6379/0
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
@@ -215,13 +215,13 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - guanlan-network
+      - wenjin-network
 
   # Next.js Frontend
   frontend:
-    image: ${FRONTEND_IMAGE:-guanlan-frontend}
+    image: ${FRONTEND_IMAGE:-wenjin-frontend}
     build: *frontend_build
-    container_name: guanlan-frontend
+    container_name: wenjin-frontend
     restart: unless-stopped
     environment:
       - NODE_ENV=production
@@ -239,12 +239,12 @@ services:
       langgraph:
         condition: service_healthy
     networks:
-      - guanlan-network
+      - wenjin-network
 
   # Nginx Reverse Proxy
   nginx:
     image: ${NGINX_IMAGE:-nginx:alpine}
-    container_name: guanlan-nginx
+    container_name: wenjin-nginx
     restart: unless-stopped
     ports:
       - "2026:80"
@@ -268,12 +268,12 @@ services:
       timeout: 10s
       retries: 3
     networks:
-      - guanlan-network
+      - wenjin-network
 
   # Prometheus metrics collection (Sprint 2)
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:latest}
-    container_name: guanlan-prometheus
+    container_name: wenjin-prometheus
     restart: unless-stopped
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -282,12 +282,12 @@ services:
       gateway:
         condition: service_healthy
     networks:
-      - guanlan-network
+      - wenjin-network
 
   # Grafana dashboards (Sprint 2)
   grafana:
     image: ${GRAFANA_IMAGE:-grafana/grafana:latest}
-    container_name: guanlan-grafana
+    container_name: wenjin-grafana
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
@@ -300,10 +300,10 @@ services:
     ports:
       - "3001:3000"
     networks:
-      - guanlan-network
+      - wenjin-network
 
 networks:
-  guanlan-network:
+  wenjin-network:
     driver: bridge
 
 volumes:

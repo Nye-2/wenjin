@@ -1,5 +1,5 @@
 /**
- * Public API surface for Guanlan (观澜) frontend.
+ * Public API surface for Wenjin (问津) frontend.
  *
  * Keep this file as a stable aggregation layer so callers can continue to
  * import from `@/lib/api` while the implementation is split by domain.
