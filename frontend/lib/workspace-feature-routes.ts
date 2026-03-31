@@ -45,7 +45,7 @@ export function getWorkspaceFeatureChatRoute(
     return null;
   }
 
-  const pathname = `/workspaces/${workspaceId}/chat/new`;
+  const pathname = `/workspaces/${workspaceId}/chat`;
   const query = new URLSearchParams();
   query.set("feature", featureId);
   appendWorkspaceFeatureQuery(query, params);

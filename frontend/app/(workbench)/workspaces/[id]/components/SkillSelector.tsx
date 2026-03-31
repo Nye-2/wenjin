@@ -2,40 +2,9 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  BookOpen,
-  Code,
-  Compass,
-  FileText,
-  FlaskConical,
-  Image,
-  Lightbulb,
-  List,
-  Microscope,
-  Package,
-  Pen,
-  Search,
-  ShieldCheck,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { iconMap, defaultIcon } from "@/lib/icon-map";
 import { useFeaturesStore } from "@/stores/features";
 import { cn } from "@/lib/utils";
-
-const iconMap: Record<string, LucideIcon> = {
-  search: Search,
-  "book-open": BookOpen,
-  "file-text": FileText,
-  list: List,
-  pen: Pen,
-  image: Image,
-  package: Package,
-  microscope: Microscope,
-  "shield-check": ShieldCheck,
-  compass: Compass,
-  "flask-conical": FlaskConical,
-  lightbulb: Lightbulb,
-  code: Code,
-};
 
 const colorClassMap: Record<string, { text: string; bg: string }> = {
   navy: { text: "text-[var(--brand-navy)]", bg: "bg-[rgba(31,66,99,0.08)]" },
@@ -80,7 +49,7 @@ export function SkillSelector({
   return (
     <div className="flex flex-wrap gap-2">
       {skills.map((skill) => {
-        const Icon = iconMap[skill.icon] ?? Search;
+        const Icon = iconMap[skill.icon] ?? defaultIcon;
         const colors = colorClassMap[skill.color ?? ""] ?? defaultColor;
         const isSelected = selectedSkill === skill.id;
         const isHovered = hoveredSkill === skill.id;
