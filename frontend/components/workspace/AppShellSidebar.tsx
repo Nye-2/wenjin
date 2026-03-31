@@ -1,23 +1,17 @@
 "use client";
 
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
-  MessageSquare,
-  LayoutDashboard,
-  Plus,
+  ArrowLeft,
   ChevronLeft,
   ChevronRight,
-  Trash2,
-  Loader2,
+  LayoutDashboard,
+  MessageSquare,
 } from "lucide-react";
-import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useI18n } from "@/components/i18n-provider";
 import { cn } from "@/lib/utils";
-import type { ThreadSummary } from "@/lib/api";
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
+import { workspaceStages } from "@/lib/workspace-feature-stages";
 
 interface AppShellSidebarProps {
   workspaceId: string;
@@ -25,9 +19,17 @@ interface AppShellSidebarProps {
   onToggleCollapse?: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+function inferSuggestedStageIndex({
+  pathname,
+  artifactsCount,
+}: {
+  pathname: string;
+  artifactsCount: number;
+}) {
+  if (pathname.includes("/chat")) return 3;
+  if (artifactsCount > 0) return 2;
+  return 0;
+}
 
 export function AppShellSidebar({
   workspaceId,
@@ -36,198 +38,210 @@ export function AppShellSidebar({
 }: AppShellSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { t } = useI18n();
 
-  // Store selectors
-  const threads = useChatStore((s) => s.threads);
-  const activeThreadId = useChatStore((s) => s.threadId);
-  const isThreadsLoading = useChatStore((s) => s.isThreadsLoading);
-  const startNewThread = useChatStore((s) => s.startNewThread);
-  const deleteThread = useChatStore((s) => s.deleteThread);
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const artifacts = useWorkspaceStore((state) => state.artifacts);
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
 
-  // Route detection
   const isOnChat = pathname.includes("/chat/");
   const isOnDashboard = pathname === `/workspaces/${workspaceId}`;
 
-  // Workspace name lookup
-  const workspaceName =
-    workspaces.find((ws) => ws.id === workspaceId)?.name ?? "Workspace";
+  const workspaceSnapshot =
+    workspace ?? workspaces.find((c) => c.id === workspaceId) ?? null;
+  const workspaceName = workspaceSnapshot?.name ?? "Workspace";
+  const workspaceTypeLabel = workspaceSnapshot?.type
+    ? t(`workspace.types.${workspaceSnapshot.type}`)
+    : "";
+  const disciplineLabel = workspaceSnapshot?.discipline
+    ? workspaceSnapshot.discipline.replace(/_/g, " ")
+    : null;
 
-  // Navigation helpers
+  const suggestedStageIndex = inferSuggestedStageIndex({
+    pathname,
+    artifactsCount: artifacts.length,
+  });
+
   const goToDashboard = () => router.push(`/workspaces/${workspaceId}`);
-  const goToNewChat = () => {
-    startNewThread();
-    router.push(`/workspaces/${workspaceId}/chat/new`);
+  const goToChat = () => router.push(`/workspaces/${workspaceId}/chat`);
+  const handleStageClick = (stageIndex: number) => {
+    if (isOnDashboard) {
+      const el = document.getElementById(`stage-${workspaceStages[stageIndex].id}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      router.push(`/workspaces/${workspaceId}#stage-${workspaceStages[stageIndex].id}`);
+    }
   };
-  const goToThread = (threadId: string) =>
-    router.push(`/workspaces/${workspaceId}/chat/${threadId}`);
-  const handleDeleteThread = (e: React.MouseEvent, threadId: string) => {
-    e.stopPropagation();
-    void deleteThread(threadId, workspaceId);
-  };
-
-  // -------------------------------------------------------------------------
-  // Collapsed mode
-  // -------------------------------------------------------------------------
 
   if (collapsed) {
     return (
-      <aside
-        className={cn(
-          "flex w-12 shrink-0 flex-col items-center gap-2 border-r border-[var(--border-default)] bg-[var(--bg-surface)] py-3"
-        )}
-      >
-        {/* Expand toggle */}
+      <aside className="flex w-14 shrink-0 flex-col items-center gap-2 border-r border-[var(--border-default)] bg-[rgba(251,248,242,0.92)] py-3">
         <button
           onClick={onToggleCollapse}
-          className="rounded-md p-2 text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors"
+          className="rounded-xl p-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
           title="Expand sidebar"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-
-        {/* Dashboard */}
         <button
           onClick={goToDashboard}
           className={cn(
-            "rounded-md p-2 transition-colors",
+            "rounded-xl p-2 transition-colors",
             isOnDashboard
               ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
-              : "text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]"
+              : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
           )}
-          title="Dashboard"
+          title="工作总览"
         >
           <LayoutDashboard className="h-4 w-4" />
         </button>
-
-        {/* New chat */}
         <button
-          onClick={goToNewChat}
-          className="rounded-md border border-dashed border-[var(--border-default)] p-2 text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors"
-          title="New chat"
+          onClick={goToChat}
+          className={cn(
+            "rounded-xl p-2 transition-colors",
+            isOnChat
+              ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
+              : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+          )}
+          title="对话"
         >
-          <Plus className="h-4 w-4" />
+          <MessageSquare className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => router.push("/workspaces")}
+          className="mt-auto rounded-xl p-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
+          title="全部 workspace"
+        >
+          <ArrowLeft className="h-4 w-4" />
         </button>
       </aside>
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Expanded mode
-  // -------------------------------------------------------------------------
-
   return (
-    <aside
-      className={cn(
-        "flex w-60 shrink-0 flex-col border-r border-[var(--border-default)] bg-[var(--bg-surface)]"
-      )}
-    >
-      {/* Header: workspace name + collapse toggle */}
-      <div className="flex items-center justify-between border-b border-[var(--border-default)] px-3 py-3">
-        <span className="truncate text-sm font-semibold text-[var(--text-primary)]">
-          {workspaceName}
-        </span>
-        <button
-          onClick={onToggleCollapse}
-          className="rounded-md p-1 text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors"
-          title="Collapse sidebar"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* View Switcher: Dashboard */}
-      <div className="px-2 pt-2">
-        <button
-          onClick={goToDashboard}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-            isOnDashboard
-              ? "bg-[var(--accent-primary)]/10 font-medium text-[var(--accent-primary)]"
-              : "text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]"
-          )}
-        >
-          <LayoutDashboard className="h-4 w-4 shrink-0" />
-          Dashboard
-        </button>
-      </div>
-
-      {/* New Chat button */}
-      <div className="px-2 pt-2">
-        <button
-          onClick={goToNewChat}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-md border border-dashed border-[var(--border-default)] px-2 py-1.5 text-sm",
-            "text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors"
-          )}
-        >
-          <Plus className="h-4 w-4 shrink-0" />
-          New Chat
-        </button>
-      </div>
-
-      {/* Thread list */}
-      <div className="mt-2 flex-1 overflow-y-auto px-2 pb-2">
-        {isThreadsLoading ? (
-          <div className="flex items-center justify-center py-6 text-[var(--text-muted)]">
-            <Loader2 className="h-4 w-4 animate-spin" />
+    <aside className="flex w-72 shrink-0 flex-col border-r border-[var(--border-default)] bg-[rgba(251,248,242,0.94)]">
+      {/* Workspace info — compact */}
+      <div className="border-b border-[var(--border-default)] px-4 py-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold text-[var(--text-primary)]">
+              {workspaceName}
+            </h2>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {workspaceTypeLabel && (
+                <span className="rounded-full border border-[var(--border-default)] bg-white/78 px-2.5 py-0.5 text-[11px] font-medium text-[var(--text-primary)]">
+                  {workspaceTypeLabel}
+                </span>
+              )}
+              {disciplineLabel && (
+                <span className="rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] px-2.5 py-0.5 text-[11px] text-[var(--text-secondary)]">
+                  {disciplineLabel}
+                </span>
+              )}
+            </div>
           </div>
-        ) : threads.length === 0 ? (
-          <p className="px-2 py-4 text-center text-xs text-[var(--text-muted)]">
-            No conversations yet
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-0.5">
-            {threads.map((thread: ThreadSummary) => {
-              const isActive = isOnChat && thread.id === activeThreadId;
-              return (
-                <li key={thread.id}>
-                  <button
-                    onClick={() => goToThread(thread.id)}
-                    className={cn(
-                      "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-                      isActive
-                        ? "bg-[var(--bg-elevated)] font-medium text-[var(--text-primary)]"
-                        : "text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]"
-                    )}
-                  >
-                    <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">
-                      {thread.title ?? "Untitled"}
-                    </span>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => handleDeleteThread(e, thread.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          handleDeleteThread(
-                            e as unknown as React.MouseEvent,
-                            thread.id
-                          );
-                        }
-                      }}
-                      className="ml-auto hidden shrink-0 rounded p-0.5 text-[var(--text-muted)] hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)] group-hover:inline-flex transition-colors"
-                      title="Delete thread"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+          <button
+            onClick={onToggleCollapse}
+            className="rounded-xl p-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
+            title="Collapse sidebar"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Bottom: All Workspaces link */}
-      <div className="border-t border-[var(--border-default)] px-2 py-2">
+      {/* Stage stepper — compact, clickable */}
+      <div className="border-b border-[var(--border-default)] px-4 py-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
+          工作阶段
+        </p>
+        <div className="mt-2.5 space-y-1">
+          {workspaceStages.map((stage, index) => {
+            const isCurrent = index === suggestedStageIndex;
+            const isPast = index < suggestedStageIndex;
+            return (
+              <button
+                key={stage.id}
+                type="button"
+                onClick={() => handleStageClick(index)}
+                className={cn(
+                  "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left transition-colors hover:bg-[var(--bg-surface)]",
+                  isCurrent && "bg-[rgba(166,124,57,0.06)]"
+                )}
+              >
+                <div
+                  className={cn(
+                    "h-2.5 w-2.5 shrink-0 rounded-full border",
+                    isCurrent
+                      ? "border-[var(--brand-brass)] bg-[var(--brand-brass)]"
+                      : isPast
+                        ? "border-[var(--brand-teal)] bg-[var(--brand-teal)]"
+                        : "border-[var(--border-default)] bg-white"
+                  )}
+                />
+                <span
+                  className={cn(
+                    "text-sm",
+                    isCurrent
+                      ? "font-medium text-[var(--text-primary)]"
+                      : isPast
+                        ? "text-[var(--text-secondary)]"
+                        : "text-[var(--text-muted)]"
+                  )}
+                >
+                  {stage.title}
+                </span>
+                {isCurrent && (
+                  <span className="ml-auto rounded-full bg-[rgba(166,124,57,0.1)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--brand-brass)]">
+                    当前
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Work entries — compact */}
+      <div className="border-b border-[var(--border-default)] px-4 py-3">
+        <div className="flex gap-2">
+          <button
+            onClick={goToChat}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+              isOnChat
+                ? "border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
+                : "border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+            )}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            对话
+          </button>
+          <button
+            onClick={goToDashboard}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+              isOnDashboard
+                ? "border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
+                : "border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+            )}
+          >
+            <LayoutDashboard className="h-3.5 w-3.5" />
+            总览
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1" />
+
+      {/* Back link */}
+      <div className="border-t border-[var(--border-default)] px-4 py-2.5">
         <button
           onClick={() => router.push("/workspaces")}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-muted)] hover:text-[var(--text-secondary)] transition-colors"
+          className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
         >
-          <ChevronLeft className="h-4 w-4 shrink-0" />
-          All Workspaces
+          <ArrowLeft className="h-4 w-4 shrink-0" />
+          全部 workspace
         </button>
       </div>
     </aside>
