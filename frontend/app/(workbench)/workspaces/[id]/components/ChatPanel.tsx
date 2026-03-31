@@ -262,29 +262,33 @@ export function ChatPanel({ workspaceId, entrySeed = null }: ChatPanelProps) {
       return;
     }
 
+    setActionError(null);
+    appliedEntrySeedKeyRef.current = nextSeedKey;
+
+    // For onboarding, don't auto-send — let the user type their own first message.
+    // The system prompt already has workspace-type-specific guidance.
+    const isOnboarding = entrySeed.featureId === "__onboarding__";
+    if (isOnboarding) {
+      setPendingEntrySeed(null);
+      return;
+    }
+
+    // For real feature entries, auto-send the entry prompt.
     const prompt = buildWorkspaceChatEntryPrompt({
       seed: entrySeed,
       feature: entrySeedFeature ?? null,
     });
-    setActionError(null);
     setPendingEntrySeed(entrySeed);
-    appliedEntrySeedKeyRef.current = nextSeedKey;
-
-    // Auto-send entry prompt so LLM generates the guidance message.
-    // Only include orchestration metadata for real features, not onboarding.
-    const isOnboarding = entrySeed.featureId === "__onboarding__";
     sendMessage(prompt, {
       workspaceId,
       skill: entrySeed.skillId ?? currentSkill,
       model: selectedModel || undefined,
-      metadata: isOnboarding
-        ? undefined
-        : {
-            orchestration: {
-              feature_id: entrySeed.featureId,
-              params: entrySeed.params,
-            },
-          },
+      metadata: {
+        orchestration: {
+          feature_id: entrySeed.featureId,
+          params: entrySeed.params,
+        },
+      },
     });
     setPendingEntrySeed(null);
   }, [entrySeed, entrySeedFeature]);
