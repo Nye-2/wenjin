@@ -296,11 +296,6 @@ export default function WorkspacesPage() {
     [sortedWorkspaces, normalizedQuery]
   );
 
-  const recentWorkspaces = useMemo(
-    () => sortedWorkspaces.slice(0, 3),
-    [sortedWorkspaces]
-  );
-
   const openWorkspace = (workspaceId: string) => {
     router.push(`/workspaces/${workspaceId}`);
   };
@@ -356,54 +351,36 @@ export default function WorkspacesPage() {
       <main className="route-topography atmosphere-mesh texture-noise relative overflow-hidden px-4 pb-16 pt-24 sm:px-6 lg:px-8">
         <div className="route-grid absolute inset-x-6 bottom-8 top-24 rounded-[2rem] opacity-25" />
         <div className="relative mx-auto max-w-7xl space-y-8">
-          <LiquidGlassCard
-            variant="elevated"
-            className="route-card overflow-hidden rounded-[2rem] px-6 py-8 sm:px-8 sm:py-10"
-          >
-            <div className="grid gap-8 lg:grid-cols-[1.3fr_auto] lg:items-end">
-              <div className="max-w-3xl">
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--accent-secondary)]">
-                  {t("brand.cn")} / {t("brand.en")}
-                </p>
-                <h1 className="mt-4 text-4xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-5xl">
-                  {t("workspace.title")}
-                </h1>
-                <p className="mt-4 text-base leading-8 text-[var(--text-secondary)] sm:text-lg">
-                  {t("workspace.subtitle")}
-                </p>
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <span className="rounded-full border border-[var(--border-default)] bg-white/78 px-4 py-2 text-sm text-[var(--text-secondary)]">
-                    {sortedWorkspaces.length} workspace
-                    {sortedWorkspaces.length === 1 ? "" : "s"}
-                  </span>
-                  <span className="rounded-full border border-[var(--border-default)] bg-white/78 px-4 py-2 text-sm text-[var(--text-secondary)]">
-                    {t("workspace.sections.recent")}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="relative min-w-[260px] flex-1 lg:min-w-[320px]">
-                  <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--text-muted)]" />
-                  <input
-                    type="text"
-                    placeholder={t("workspace.searchPlaceholder")}
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    className="w-full rounded-2xl border border-[var(--border-default)] bg-white/78 py-3.5 pl-12 pr-4 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/15"
-                  />
-                </div>
-                <Button
-                  type="button"
-                  onClick={() => openCreateModal()}
-                  className="h-[54px] rounded-2xl px-6 text-sm"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  {t("workspace.newWorkspace")}
-                </Button>
-              </div>
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-4">
+              <h1 className="text-3xl font-semibold tracking-tight text-[var(--text-primary)]">
+                {t("workspace.title")}
+              </h1>
+              <span className="rounded-full border border-[var(--border-default)] bg-white/78 px-3 py-1 text-sm text-[var(--text-secondary)]">
+                {sortedWorkspaces.length}
+              </span>
             </div>
-          </LiquidGlassCard>
+            <div className="flex items-center gap-3">
+              <div className="relative min-w-[240px]">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+                <input
+                  type="text"
+                  placeholder={t("workspace.searchPlaceholder")}
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  className="w-full rounded-xl border border-[var(--border-default)] bg-white/78 py-2.5 pl-11 pr-4 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/15"
+                />
+              </div>
+              <Button
+                type="button"
+                onClick={() => openCreateModal()}
+                className="rounded-xl px-5 py-2.5 text-sm"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {t("workspace.newWorkspace")}
+              </Button>
+            </div>
+          </div>
 
           {error ? (
             <motion.div
@@ -418,159 +395,65 @@ export default function WorkspacesPage() {
             </motion.div>
           ) : null}
 
-          <section className="space-y-5">
-            <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-              <div>
-                <h2 className="section-accent text-2xl font-semibold text-[var(--text-primary)]">
-                  {t("workspace.sections.recent")}
-                </h2>
-                <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
-                  {t("workspace.sections.recentSubtitle")}
-                </p>
-              </div>
-            </div>
+          <div className="flex flex-wrap gap-2">
+            {workspaceTypes.map((type) => {
+              const Icon = workspaceTypeIcons[type.value];
+              return (
+                <button
+                  key={type.value}
+                  type="button"
+                  onClick={() => openCreateModal(type.value)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-default)] bg-white/78 px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] transition-colors hover:border-[var(--brand-navy)]/30 hover:bg-white"
+                >
+                  <Icon className="h-4 w-4 text-[var(--text-secondary)]" />
+                  {type.label}
+                  <Plus className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                </button>
+              );
+            })}
+          </div>
 
-            {isWorkspacesLoading && sortedWorkspaces.length === 0 ? (
-              <div className="flex items-center justify-center rounded-[1.75rem] border border-[var(--border-default)] bg-white/70 py-16">
-                <Loader2 className="h-8 w-8 animate-spin text-[var(--accent-primary)]" />
+          {!isWorkspacesLoading && filteredWorkspaces.length === 0 ? (
+            <LiquidGlassCard
+              variant="elevated"
+              className="rounded-[1.75rem] border-[rgba(31,66,99,0.08)] bg-white/70 p-10 text-center"
+            >
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(31,66,99,0.08)]">
+                <Search className="h-7 w-7 text-[var(--brand-navy)]" />
               </div>
-            ) : recentWorkspaces.length === 0 ? (
-              <LiquidGlassCard
-                variant="elevated"
-                className="rounded-[1.75rem] border-[rgba(31,66,99,0.08)] bg-white/70 p-10 text-center"
-              >
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(31,66,99,0.08)]">
-                  <FileText className="h-7 w-7 text-[var(--brand-navy)]" />
-                </div>
-                <h3 className="mt-5 text-xl font-semibold text-[var(--text-primary)]">
-                  {t("workspace.empty.title")}
-                </h3>
-                <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[var(--text-secondary)]">
-                  {t("workspace.empty.description")}
-                </p>
-              </LiquidGlassCard>
-            ) : (
-              <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-                <AnimatePresence>
-                  {recentWorkspaces.map((workspace, index) => (
-                    <WorkspaceRouteCard
-                      key={workspace.id}
-                      workspace={workspace}
-                      locale={locale}
-                      typeLabel={t(`workspace.types.${workspace.type}`)}
-                      targetOutput={t(`workspace.targets.${workspace.type}`)}
-                      nextAction={t(`workspace.nextSteps.${workspace.type}`)}
-                      lastUpdatedLabel={t("workspace.cards.lastUpdated")}
-                      targetOutputLabel={t("workspace.cards.targetOutput")}
-                      nextActionLabel={t("workspace.cards.nextAction")}
-                      continueLabel={t("workspace.cards.continue")}
-                      latestLabel={index === 0 ? t("workspace.cards.latest") : undefined}
-                      featured={index === 0}
-                      onOpen={() => openWorkspace(workspace.id)}
-                      onDelete={() => void handleDeleteWorkspace(workspace.id)}
-                    />
-                  ))}
-                </AnimatePresence>
-              </div>
-            )}
-          </section>
-
-          <section className="space-y-5">
-            <div>
-              <h2 className="section-accent text-2xl font-semibold text-[var(--text-primary)]">
-                {t("workspace.sections.templates")}
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
-                {t("workspace.sections.templatesSubtitle")}
+              <h3 className="mt-5 text-xl font-semibold text-[var(--text-primary)]">
+                {t("workspace.empty.title")}
+              </h3>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[var(--text-secondary)]">
+                {searchQuery
+                  ? t("workspace.empty.searchHint")
+                  : t("workspace.empty.description")}
               </p>
+            </LiquidGlassCard>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3">
+              <AnimatePresence>
+                {filteredWorkspaces.map((workspace, index) => (
+                  <WorkspaceRouteCard
+                    key={workspace.id}
+                    workspace={workspace}
+                    locale={locale}
+                    typeLabel={t(`workspace.types.${workspace.type}`)}
+                    targetOutput={t(`workspace.targets.${workspace.type}`)}
+                    nextAction={t(`workspace.nextSteps.${workspace.type}`)}
+                    lastUpdatedLabel={t("workspace.cards.lastUpdated")}
+                    targetOutputLabel={t("workspace.cards.targetOutput")}
+                    nextActionLabel={t("workspace.cards.nextAction")}
+                    continueLabel={t("workspace.cards.open")}
+                    featured={index === 0 && !normalizedQuery}
+                    latestLabel={index === 0 && !normalizedQuery ? t("workspace.cards.latest") : undefined}
+                    onOpen={() => openWorkspace(workspace.id)}
+                    onDelete={() => void handleDeleteWorkspace(workspace.id)}
+                  />
+                ))}
+              </AnimatePresence>
             </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-              {workspaceTypes.map((type) => {
-                const Icon = workspaceTypeIcons[type.value];
-                return (
-                  <motion.button
-                    key={type.value}
-                    type="button"
-                    initial={{ opacity: 0, y: 20 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-                    whileHover={{ y: -4 }}
-                    onClick={() => openCreateModal(type.value)}
-                    className="route-card-hover flex h-full flex-col rounded-[1.65rem] p-5 text-left"
-                  >
-                    <div
-                      className="flex h-12 w-12 items-center justify-center rounded-2xl"
-                      style={{ background: workspaceTypeAccents[type.value].icon }}
-                    >
-                      <Icon className="h-5 w-5 text-[var(--text-primary)]" />
-                    </div>
-                    <h3 className="mt-5 text-lg font-semibold text-[var(--text-primary)]">
-                      {type.label}
-                    </h3>
-                    <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
-                      {t(`workspace.targets.${type.value}`)}
-                    </p>
-                    <div className="mt-auto pt-6 text-sm font-medium text-[var(--brand-navy)]">
-                      {t("workspace.createModal.createButton")}
-                    </div>
-                  </motion.button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="space-y-5">
-            <div>
-              <h2 className="section-accent text-2xl font-semibold text-[var(--text-primary)]">
-                {t("workspace.sections.all")}
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
-                {t("workspace.sections.allSubtitle")}
-              </p>
-            </div>
-
-            {!isWorkspacesLoading && filteredWorkspaces.length === 0 ? (
-              <LiquidGlassCard
-                variant="elevated"
-                className="rounded-[1.75rem] border-[rgba(31,66,99,0.08)] bg-white/70 p-10 text-center"
-              >
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(31,66,99,0.08)]">
-                  <Search className="h-7 w-7 text-[var(--brand-navy)]" />
-                </div>
-                <h3 className="mt-5 text-xl font-semibold text-[var(--text-primary)]">
-                  {t("workspace.empty.title")}
-                </h3>
-                <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[var(--text-secondary)]">
-                  {searchQuery
-                    ? t("workspace.empty.searchHint")
-                    : t("workspace.empty.description")}
-                </p>
-              </LiquidGlassCard>
-            ) : (
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3">
-                <AnimatePresence>
-                  {filteredWorkspaces.map((workspace) => (
-                    <WorkspaceRouteCard
-                      key={workspace.id}
-                      workspace={workspace}
-                      locale={locale}
-                      typeLabel={t(`workspace.types.${workspace.type}`)}
-                      targetOutput={t(`workspace.targets.${workspace.type}`)}
-                      nextAction={t(`workspace.nextSteps.${workspace.type}`)}
-                      lastUpdatedLabel={t("workspace.cards.lastUpdated")}
-                      targetOutputLabel={t("workspace.cards.targetOutput")}
-                      nextActionLabel={t("workspace.cards.nextAction")}
-                      continueLabel={t("workspace.cards.open")}
-                      onOpen={() => openWorkspace(workspace.id)}
-                      onDelete={() => void handleDeleteWorkspace(workspace.id)}
-                    />
-                  ))}
-                </AnimatePresence>
-              </div>
-            )}
-          </section>
+          )}
         </div>
 
         <AnimatePresence>
