@@ -82,30 +82,104 @@
       "title": "如何推进一项复杂任务",
       "subtitle": "让来源、判断、写作与交付留在同一条工作线上",
       "step1": {
-        "title": "收集来源",
-        "description": "把文献、材料、参考与问题背景集中进同一 workspace。"
+        "title": "创建工作区",
+        "description": "选择类型和学科方向，一键创建专属工作区。"
       },
       "step2": {
-        "title": "形成判断",
-        "description": "围绕目标梳理研究问题、结构路径与关键论证。"
+        "title": "对话引导",
+        "description": "AI 主动了解你的研究方向、进展阶段和具体需求。"
       },
       "step3": {
-        "title": "生成草稿",
-        "description": "让摘要、大纲、章节与申报文本持续衔接。"
+        "title": "智能调研",
+        "description": "系统性检索文献，分析研究空白，生成调研报告。"
       },
       "step4": {
-        "title": "修订与评审",
-        "description": "在上下文连续的前提下推进改写、审阅与反馈。"
+        "title": "迭代写作",
+        "description": "按阶段推进大纲、正文、修订，每个产出可追溯。"
       },
       "step5": {
-        "title": "沉淀成果",
-        "description": "把最终交付物、过程记录与中间成果统一归档。"
+        "title": "成果交付",
+        "description": "编译排版，符合学校或期刊规范，导出终稿。"
       }
     },
     "cta": {
       "title": "把下一项研究任务放进一条可推进的工作流",
       "subtitle": "创建 workspace，开始组织来源、推进写作，并把成果沉淀下来。",
       "button": "进入工作空间"
+    },
+    "philosophy": {
+      "eyebrow": "设计理念",
+      "title": "为什么问津不一样",
+      "subtitle": "学术写作不是一次性生成任务，而是阶段性的、迭代的、高度个人化的过程。",
+      "cards": {
+        "conversation": {
+          "title": "对话即工作流",
+          "description": "不是填表单，不是点按钮执行任务。通过自然对话完成所有工作，AI 会主动询问它需要知道的信息，引导你逐步推进。"
+        },
+        "stages": {
+          "title": "阶段感知",
+          "description": "每个工作区都有清晰的研究阶段——调研、收集、结构、写作、评审。系统知道你现在在哪里，推荐下一步该做什么。"
+        },
+        "singleThread": {
+          "title": "一个空间，一段对话",
+          "description": "每个工作区只维护一个持续的对话。你不需要管理多个分支，AI 通过摘要压缩和长期记忆保持上下文连贯。"
+        },
+        "artifacts": {
+          "title": "成果驱动",
+          "description": "每次对话产出的章节、综述、大纲都作为成果持久保存，可追溯来源，可在后续工作中复用，积累为研究档案。"
+        }
+      }
+    },
+    "workspaceTypes": {
+      "eyebrow": "工作区类型",
+      "title": "覆盖五种学术写作场景",
+      "subtitle": "选择你的工作类型，问津会配置对应的 AI 能力和工作流程。",
+      "thesis": {
+        "description": "从选题到答辩的全程支持",
+        "modules": "深度调研 · 文献管理 · 大纲设计 · 论文撰写 · 图表生成 · 编译导出"
+      },
+      "sci": {
+        "description": "面向期刊投稿的全流程辅助",
+        "modules": "文献检索 · 论文分析 · 章节写作 · 同行评审 · 期刊推荐"
+      },
+      "proposal": {
+        "description": "基金申请和研究计划撰写",
+        "modules": "背景调研 · 实验设计 · 计划书撰写"
+      },
+      "software_copyright": {
+        "description": "软件著作权登记材料准备",
+        "modules": "著作权材料 · 技术文档"
+      },
+      "patent": {
+        "description": "发明专利和实用新型申请",
+        "modules": "专利撰写 · 现有技术检索"
+      }
+    },
+    "useCases": {
+      "eyebrow": "使用场景",
+      "title": "看看问津能帮你做什么",
+      "subtitle": "从真实学术场景出发，展示 AI 辅助的工作方式。",
+      "cases": {
+        "thesis": {
+          "title": "硕士论文调研",
+          "description": "从零开始确定研究方向，系统检索 50+ 篇文献，自动生成带引用的文献综述报告。"
+        },
+        "sci": {
+          "title": "SCI 论文投稿",
+          "description": "从 research gap 识别到 revision response letter，覆盖 SCI 论文从初稿到录用的全流程。"
+        },
+        "proposal": {
+          "title": "国自然基金申请",
+          "description": "梳理技术路线，撰写创新性论证和可行性分析，生成符合申报格式的计划书。"
+        }
+      }
+    },
+    "stats": {
+      "skills": "21 个 AI Skill",
+      "types": "5 种工作区类型",
+      "disciplines": "8 个学科方向",
+      "templates": "模板导入",
+      "models": "多模型支持"
     }
   },
   "features": {

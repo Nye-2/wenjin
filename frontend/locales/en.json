@@ -79,33 +79,107 @@
       }
     },
     "workflow": {
-      "title": "How Wenjin moves a complex task forward",
-      "subtitle": "Keep sources, reasoning, drafting, and delivery on the same working line",
+      "title": "How It Works",
+      "subtitle": "Sources, analysis, writing, and delivery in one continuous workflow",
       "step1": {
-        "title": "Collect Sources",
-        "description": "Bring literature, materials, references, and problem context into one workspace."
+        "title": "Create Workspace",
+        "description": "Choose your project type and discipline, create a dedicated workspace."
       },
       "step2": {
-        "title": "Form Judgment",
-        "description": "Clarify the research question, structure, and key arguments around the target outcome."
+        "title": "Conversational Guidance",
+        "description": "AI proactively learns your research direction, progress, and needs."
       },
       "step3": {
-        "title": "Generate Drafts",
-        "description": "Keep abstracts, outlines, sections, and proposal text connected as they evolve."
+        "title": "Smart Research",
+        "description": "Systematic literature search, gap analysis, and research report generation."
       },
       "step4": {
-        "title": "Revise & Review",
-        "description": "Advance rewriting, review, and feedback without losing context."
+        "title": "Iterative Writing",
+        "description": "Progress through outline, drafts, and revisions — every output is traceable."
       },
       "step5": {
-        "title": "Preserve Outputs",
-        "description": "Archive deliverables, process records, and intermediate artifacts together."
+        "title": "Final Delivery",
+        "description": "Compile, format to school or journal standards, and export."
       }
     },
     "cta": {
       "title": "Put the next research task onto a route you can keep advancing",
       "subtitle": "Create a workspace to organize sources, move the writing forward, and preserve the outputs.",
       "button": "Enter Workspace"
+    },
+    "philosophy": {
+      "eyebrow": "Design Philosophy",
+      "title": "Why Wenjin Is Different",
+      "subtitle": "Academic writing isn't a one-shot generation task — it's a staged, iterative, and deeply personal process.",
+      "cards": {
+        "conversation": {
+          "title": "Conversation as Workflow",
+          "description": "No forms, no buttons. Natural conversation drives all work. The AI proactively asks for what it needs and guides you step by step."
+        },
+        "stages": {
+          "title": "Stage Awareness",
+          "description": "Every workspace has clear research stages — research, collection, structure, writing, review. The system knows where you are and suggests what's next."
+        },
+        "singleThread": {
+          "title": "One Space, One Conversation",
+          "description": "Each workspace maintains a single persistent conversation. No thread management — AI uses summarization and long-term memory to keep context coherent."
+        },
+        "artifacts": {
+          "title": "Artifact-Driven",
+          "description": "Every output — chapters, reviews, outlines — is persisted as a traceable artifact that accumulates into a research portfolio."
+        }
+      }
+    },
+    "workspaceTypes": {
+      "eyebrow": "Workspace Types",
+      "title": "Five Academic Writing Scenarios",
+      "subtitle": "Choose your work type. Wenjin configures the right AI capabilities and workflow.",
+      "thesis": {
+        "description": "Full support from topic selection to defense",
+        "modules": "Deep Research · Literature · Outline · Writing · Figures · Export"
+      },
+      "sci": {
+        "description": "End-to-end journal submission support",
+        "modules": "Literature · Analysis · Section Writing · Peer Review · Journal Match"
+      },
+      "proposal": {
+        "description": "Grant applications and research proposals",
+        "modules": "Background · Experiment Design · Proposal Writing"
+      },
+      "software_copyright": {
+        "description": "Software copyright registration materials",
+        "modules": "Copyright Materials · Technical Docs"
+      },
+      "patent": {
+        "description": "Invention and utility model patents",
+        "modules": "Patent Drafting · Prior Art Search"
+      }
+    },
+    "useCases": {
+      "eyebrow": "Use Cases",
+      "title": "See What Wenjin Can Do",
+      "subtitle": "Real academic scenarios showing AI-assisted workflows.",
+      "cases": {
+        "thesis": {
+          "title": "Master's Thesis Research",
+          "description": "Start from scratch, systematically search 50+ papers, and auto-generate a cited literature review report."
+        },
+        "sci": {
+          "title": "SCI Paper Submission",
+          "description": "From research gap identification to revision response letters — the full lifecycle from draft to acceptance."
+        },
+        "proposal": {
+          "title": "Research Grant Application",
+          "description": "Structure your technical roadmap, write innovation justification and feasibility analysis in the required format."
+        }
+      }
+    },
+    "stats": {
+      "skills": "21 AI Skills",
+      "types": "5 Workspace Types",
+      "disciplines": "8 Disciplines",
+      "templates": "Template Import",
+      "models": "Multi-Model"
     }
   },
   "features": {
