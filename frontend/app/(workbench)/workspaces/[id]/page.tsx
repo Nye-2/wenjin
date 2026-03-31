@@ -8,21 +8,18 @@ import {
   ArrowRight,
   Compass,
   Loader2,
-  MessageSquare,
 } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeaturesStore } from "@/stores/features";
-import { useChatStore } from "@/stores/chat";
 import { useDashboardStore } from "@/stores/dashboard";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
-import type { WorkspaceFeature, ThreadSummary } from "@/lib/api";
+import { resolveIcon } from "@/lib/icon-map";
+import type { WorkspaceFeature } from "@/lib/api";
 import { getWorkspaceFeatureRoute } from "@/lib/workspace-feature-routes";
 import { useI18n } from "@/components/i18n-provider";
 import { workspaceStages, getFeatureStageId } from "@/lib/workspace-feature-stages";
 import { WorkspaceInspector } from "./components/WorkspaceInspector";
-
-const RECENT_THREADS_LIMIT = 5;
 
 const workspaceTypeLabels: Record<string, string> = {
   sci: "学术论文",
@@ -46,28 +43,55 @@ interface RunningTask {
   progress: number;
 }
 
-function formatRelativeTime(dateString: string, locale: "cn" | "en"): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
+/* -------------------------------------------------------------------------- */
+/*  Smart recommendation logic                                                */
+/* -------------------------------------------------------------------------- */
 
-  if (locale === "cn") {
-    if (diffMins < 1) return "刚刚";
-    if (diffMins < 60) return `${diffMins} 分钟前`;
-    if (diffHours < 24) return `${diffHours} 小时前`;
-    if (diffDays < 7) return `${diffDays} 天前`;
-    return date.toLocaleDateString("zh-CN");
+function inferRecommendedFeature(
+  features: WorkspaceFeature[],
+  artifacts: { type: string }[],
+): WorkspaceFeature | null {
+  if (features.length === 0) return null;
+
+  const artifactTypes = new Set(artifacts.map((a) => a.type));
+  const hasDraft =
+    artifactTypes.has("THESIS_CHAPTER") || artifactTypes.has("PAPER_DRAFT");
+  const hasOutline =
+    artifactTypes.has("FRAMEWORK_OUTLINE") || artifactTypes.has("ABSTRACT");
+  const hasResearch =
+    artifactTypes.has("DEEP_RESEARCH_REPORT") ||
+    artifactTypes.has("LITERATURE_SEARCH_RESULTS") ||
+    artifactTypes.has("BACKGROUND_RESEARCH");
+
+  if (hasDraft) {
+    return (
+      features.find((f) =>
+        ["peer_review", "compile_export", "journal_recommend"].includes(f.id),
+      ) ?? features[0]
+    );
   }
-
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins} min ago`;
-  if (diffHours < 24) return `${diffHours} h ago`;
-  if (diffDays < 7) return `${diffDays} d ago`;
-  return date.toLocaleDateString("en-US");
+  if (hasOutline) {
+    return (
+      features.find((f) =>
+        ["thesis_writing", "writing"].includes(f.id),
+      ) ?? features[0]
+    );
+  }
+  if (hasResearch) {
+    return (
+      features.find((f) =>
+        ["framework_outline", "proposal_outline", "patent_outline"].includes(
+          f.id,
+        ),
+      ) ?? features[0]
+    );
+  }
+  return features[0];
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Running Tasks                                                             */
+/* -------------------------------------------------------------------------- */
 
 function RunningTasksSection({
   tasks,
@@ -92,7 +116,7 @@ function RunningTasksSection({
           <button
             key={task.id}
             type="button"
-            onClick={() => router.push(`/workspaces/${workspaceId}/chat/new`)}
+            onClick={() => router.push(`/workspaces/${workspaceId}/chat`)}
             className="route-card-hover flex w-full items-center gap-4 rounded-2xl px-5 py-4 text-left"
           >
             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--brand-brass)]" />
@@ -119,6 +143,10 @@ function RunningTasksSection({
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Staged Feature Cards (with Lucide icons + staggered animation)            */
+/* -------------------------------------------------------------------------- */
+
 function StagedFeatureCards({
   features,
   workspaceId,
@@ -143,6 +171,8 @@ function StagedFeatureCards({
 
   if (grouped.length === 0) return null;
 
+  let globalIndex = 0;
+
   return (
     <section>
       <div className="mb-4">
@@ -157,19 +187,22 @@ function StagedFeatureCards({
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {stageFeatures.map((feature) => {
                 const route = getWorkspaceFeatureRoute(workspaceId, feature.id);
+                const FeatureIcon = resolveIcon(feature.icon);
+                const delay = globalIndex * 0.04;
+                globalIndex++;
                 return (
-                  <button
+                  <motion.button
                     key={feature.id}
                     type="button"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay, duration: 0.35, ease: "easeOut" }}
                     onClick={() => route && router.push(route)}
                     className="route-card-hover flex items-start gap-3 rounded-2xl p-4 text-left"
                   >
-                    <span
-                      className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-[rgba(31,66,99,0.08)] text-lg leading-none"
-                      role="img"
-                    >
-                      {feature.icon}
-                    </span>
+                    <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[rgba(31,66,99,0.06)]">
+                      <FeatureIcon className="h-[18px] w-[18px] text-[var(--brand-navy)]" />
+                    </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-[var(--text-primary)]">
                         {feature.name}
@@ -178,7 +211,7 @@ function StagedFeatureCards({
                         {feature.description}
                       </p>
                     </div>
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>
@@ -189,84 +222,40 @@ function StagedFeatureCards({
   );
 }
 
-function RecentConversations({
-  threads,
-  workspaceId,
-  locale,
-}: {
-  threads: ThreadSummary[];
-  workspaceId: string;
-  locale: "cn" | "en";
-}) {
-  const router = useRouter();
-
-  if (threads.length === 0) return null;
-
-  return (
-    <section>
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-          最近对话
-        </h2>
-      </div>
-      <div className="route-card rounded-2xl p-4">
-        <div className="space-y-2">
-          {threads.map((thread, index) => (
-            <motion.button
-              type="button"
-              key={thread.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.05 }}
-              onClick={() => router.push(`/workspaces/${workspaceId}/chat/${thread.id}`)}
-              className="flex w-full items-center gap-3 rounded-xl border border-[var(--border-default)] bg-white/76 p-3 text-left transition-all duration-300 hover:border-[var(--accent-primary)]/20 hover:bg-[var(--bg-elevated)] hover:shadow-sm"
-            >
-              <div className="rounded-xl bg-[var(--bg-surface)] p-2">
-                <MessageSquare className="h-4 w-4 text-[var(--text-muted)]" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-[var(--text-primary)]">
-                  {thread.title || "未命名对话"}
-                </p>
-                <p className="mt-1 text-xs text-[var(--text-muted)]">
-                  {formatRelativeTime(thread.updated_at, locale)}
-                </p>
-              </div>
-            </motion.button>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
+/* -------------------------------------------------------------------------- */
+/*  Page                                                                      */
+/* -------------------------------------------------------------------------- */
 
 export default function WorkbenchPage() {
   const params = useParams();
   const router = useRouter();
-  const { locale } = useI18n();
+  const { locale: _locale } = useI18n();
   const workspaceId = params.id as string;
 
   const { workspace, isWorkspaceLoading, error, artifacts } = useWorkspaceStore();
   const { features } = useFeaturesStore();
-  const { threads, loadThreads, isThreadsLoading } = useChatStore();
   const { modules, fetchDashboard, reset: resetDashboard } = useDashboardStore();
 
   useEffect(() => {
     if (workspaceId) {
       void fetchDashboard(workspaceId);
-      void loadThreads(workspaceId);
     }
     return () => {
       resetDashboard();
     };
-  }, [workspaceId, fetchDashboard, loadThreads, resetDashboard]);
+  }, [workspaceId, fetchDashboard, resetDashboard]);
 
   // Auto-redirect new workspaces to onboarding chat
   useEffect(() => {
-    if (workspace && !isWorkspaceLoading && !isThreadsLoading && threads.length === 0 && artifacts.length === 0 && features.length > 0) {
-      router.replace(`/workspaces/${workspaceId}/chat/new?onboarding=true`);
+    if (
+      workspace &&
+      !isWorkspaceLoading &&
+      artifacts.length === 0 &&
+      features.length > 0
+    ) {
+      router.replace(`/workspaces/${workspaceId}/chat?onboarding=true`);
     }
-  }, [workspace, isWorkspaceLoading, isThreadsLoading, threads.length, artifacts.length, features.length, router, workspaceId]);
+  }, [workspace, isWorkspaceLoading, artifacts.length, features.length, router, workspaceId]);
 
   const runningTasks = useMemo<RunningTask[]>(() => {
     const featureById = new Map(features.map((feature) => [feature.id, feature]));
@@ -282,21 +271,10 @@ export default function WorkbenchPage() {
       }));
   }, [modules, features]);
 
-  const recentThreads = useMemo(
-    () => threads.slice(0, RECENT_THREADS_LIMIT),
-    [threads]
-  );
-
   const recommendedFeature = useMemo(
-    () => features[0] ?? null,
-    [features]
+    () => inferRecommendedFeature(features, artifacts),
+    [features, artifacts],
   );
-
-  const hasThreads = threads.length > 0;
-  const continueLabel = hasThreads ? "继续上次对话" : "新对话";
-  const continueTarget = hasThreads
-    ? `/workspaces/${workspaceId}/chat/${threads[0].id}`
-    : `/workspaces/${workspaceId}/chat/new`;
 
   if (isWorkspaceLoading || (!workspace && !error)) {
     return (
@@ -333,96 +311,118 @@ export default function WorkbenchPage() {
     );
   }
 
+  const recommendedRoute = recommendedFeature
+    ? getWorkspaceFeatureRoute(workspaceId, recommendedFeature.id)
+    : null;
+  const RecommendedIcon = recommendedFeature
+    ? resolveIcon(recommendedFeature.icon)
+    : null;
+
   return (
     <div className="flex h-screen flex-col bg-[var(--bg-base)]">
-      <header className="border-b border-[var(--border-default)] bg-[rgba(251,248,242,0.94)] px-6 py-4 backdrop-blur-xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <motion.button
-              whileHover={{ scale: 1.04 }}
-              whileTap={{ scale: 0.96 }}
-              onClick={() => router.push("/workspaces")}
-              className="rounded-2xl border border-[var(--border-default)] bg-white/80 p-3 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </motion.button>
-
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold text-[var(--text-primary)]">
-                {workspace.name}
-              </h1>
-              <span
-                className={cn(
-                  "rounded-full border px-3 py-1 text-xs font-medium",
-                  workspaceTypeColors[workspace.type] ||
-                    "border-[var(--border-default)] bg-white/80 text-[var(--text-primary)]"
-                )}
-              >
-                {workspaceTypeLabels[workspace.type] || workspace.type}
-              </span>
-              {workspace.discipline ? (
-                <span className="rounded-full border border-[var(--border-default)] bg-white/80 px-3 py-1 text-xs text-[var(--text-secondary)]">
-                  {workspace.discipline}
-                </span>
-              ) : null}
-            </div>
-          </div>
-
-          <button
-            onClick={() => router.push(continueTarget)}
-            className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-[var(--brand-navy)] to-[var(--brand-teal)] px-5 py-3 text-sm font-medium text-white shadow-[0_12px_24px_rgba(31,66,99,0.18)] transition-shadow hover:shadow-[0_16px_28px_rgba(31,66,99,0.22)]"
-          >
-            <Compass className="h-4 w-4" />
-            {continueLabel}
-          </button>
-        </div>
-      </header>
-
       <ErrorBoundary>
         <main className="flex-1 overflow-auto p-6 atmosphere-mesh">
           <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
             <div className="space-y-6">
-              {recommendedFeature ? (
-                <section className="route-card-featured relative overflow-hidden rounded-2xl p-5">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
-                    推荐下一步
-                  </p>
-                  <div className="mt-4">
-                    <h3 className="text-lg font-semibold text-[var(--text-primary)]">
-                      {recommendedFeature.name}
-                    </h3>
-                    <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
-                      {recommendedFeature.description}
-                    </p>
+              {/* ── Hero Section ────────────────────────────────────── */}
+              <motion.section
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.45, ease: "easeOut" }}
+                className="route-card-featured relative overflow-hidden rounded-2xl"
+              >
+                <div className="relative p-6">
+                  {/* Top row: back + tags + CTA */}
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <motion.button
+                        whileHover={{ scale: 1.04 }}
+                        whileTap={{ scale: 0.96 }}
+                        onClick={() => router.push("/workspaces")}
+                        className="rounded-2xl border border-[var(--border-default)] bg-white/80 p-2.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </motion.button>
+
+                      <span
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-xs font-medium",
+                          workspaceTypeColors[workspace.type] ||
+                            "border-[var(--border-default)] bg-white/80 text-[var(--text-primary)]",
+                        )}
+                      >
+                        {workspaceTypeLabels[workspace.type] || workspace.type}
+                      </span>
+                      {workspace.discipline ? (
+                        <span className="rounded-full border border-[var(--border-default)] bg-white/80 px-3 py-1 text-xs text-[var(--text-secondary)]">
+                          {workspace.discipline}
+                        </span>
+                      ) : null}
+                    </div>
+
                     <button
-                      type="button"
-                      onClick={() => {
-                        const route = getWorkspaceFeatureRoute(
-                          workspaceId,
-                          recommendedFeature.id
-                        );
-                        if (route) {
-                          router.push(route);
-                        }
-                      }}
-                      className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-[var(--brand-navy)]"
+                      onClick={() =>
+                        router.push(`/workspaces/${workspaceId}/chat`)
+                      }
+                      className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-[var(--brand-navy)] to-[var(--brand-teal)] px-5 py-2.5 text-sm font-medium text-white shadow-[0_12px_24px_rgba(31,66,99,0.18)] transition-shadow hover:shadow-[0_16px_28px_rgba(31,66,99,0.22)]"
                     >
-                      打开该模块
-                      <ArrowRight className="h-4 w-4" />
+                      <Compass className="h-4 w-4" />
+                      进入对话
+                      <ArrowRight className="h-3.5 w-3.5 opacity-70" />
                     </button>
                   </div>
-                </section>
-              ) : null}
+
+                  {/* Hero title + description */}
+                  <div className="mt-6">
+                    <h1 className="text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
+                      {workspace.name}
+                    </h1>
+                    {workspace.description ? (
+                      <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
+                        {workspace.description}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {/* Embedded recommendation */}
+                  {recommendedFeature && RecommendedIcon ? (
+                    <div className="mt-6 rounded-xl border border-[var(--border-default)] bg-white/60 p-4 backdrop-blur-sm">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
+                        推荐下一步
+                      </p>
+                      <div className="mt-3 flex items-start gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[rgba(31,66,99,0.06)]">
+                          <RecommendedIcon className="h-[18px] w-[18px] text-[var(--brand-navy)]" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-[var(--text-primary)]">
+                            {recommendedFeature.name}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">
+                            {recommendedFeature.description}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (recommendedRoute) {
+                              router.push(recommendedRoute);
+                            }
+                          }}
+                          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[var(--brand-navy)] px-4 py-2 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                        >
+                          开始
+                          <ArrowRight className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </motion.section>
 
               <RunningTasksSection tasks={runningTasks} workspaceId={workspaceId} />
 
               <StagedFeatureCards features={features} workspaceId={workspaceId} />
-
-              <RecentConversations
-                threads={recentThreads}
-                workspaceId={workspaceId}
-                locale={locale}
-              />
             </div>
 
             <div className="min-h-0">
