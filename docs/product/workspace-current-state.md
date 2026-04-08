@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间: 2026-04-03
+更新时间: 2026-04-08
 状态: Current
 适用项目: `wenjin`
 
@@ -34,4 +34,4 @@
 ## 5. 文档优先级
 
 1. 当前行为以本文件 + `frontend-feature-plugin-contract.md` + `release-gate-checklist.md` 为准。
-2. `workspace-chat-centered-redesign.md` 与 `workspace-chat-centered-implementation-plan.md` 为历史方案/实施文档，供追溯，不作为当前事实源。
+2. 历史方案/阶段计划文档已清理；追溯请直接查看 Git 历史。

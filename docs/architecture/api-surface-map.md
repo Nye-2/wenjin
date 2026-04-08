@@ -1,6 +1,6 @@
 # API Surface Map
 
-Generated: 2026-03-20
+Generated: 2026-04-08
 Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gateway/routers/` + `backend/src/api/subagents.py`
 
 ## Global Endpoints
@@ -25,6 +25,7 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 | Artifacts | `/api/workspaces/{workspace_id}/artifacts*` | Bearer | Canonical workspace-scoped 成果 CRUD、lineage |
 | Tasks | `/api/tasks*` | Bearer | 任务状态、SSE 进度、取消；不再提供任务创建入口 |
 | Dashboard | `/api/dashboard/*` | Bearer | 用户看板 + 管理员看板/积分/发布门禁 |
+| LaTeX | `/api/latex/*` | Bearer | 主稿项目管理、文件读写、编译、PDF/SyncTeX、反馈修订 |
 
 ## Removed Compatibility Surface
 

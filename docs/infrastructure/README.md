@@ -1,11 +1,14 @@
 # Infrastructure Docs
 
+更新时间：2026-04-08
+
 ## 文档索引
 
-- `deployment-runbook.md`: 本地脚本与 Docker Compose 全链路部署手册
-- `environment-variables.md`: 后端/前端环境变量说明（含 SMTP）
-- `troubleshooting.md`: 常见启动与联调故障排查
+- `deployment-runbook.md`：标准部署流程（本地 + Docker Compose）
+- `environment-variables.md`：后端/前端/Compose 环境变量基线
+- `troubleshooting.md`：常见启动与联调问题
 
-## 适用范围
+## 使用说明
 
-本目录覆盖运行与运维，不描述业务功能细节。
+- 运行问题优先查 `troubleshooting.md`。
+- 配置项变更必须同步更新 `environment-variables.md`。

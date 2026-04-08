@@ -1,11 +1,14 @@
 # Architecture Docs
 
+更新时间：2026-04-08
+
 ## 文档索引
 
-- `adr-platform-boundaries.md`: 平台分层边界 ADR（路由/应用层/任务层/特性层）
-- `api-surface-map.md`: 当前 API 分组、活跃与弃用面
-- `workspace-execution-pipeline.md`: workspace feature 从 API 到 LangGraph 到产物落库的链路
+- `adr-platform-boundaries.md`：平台分层边界 ADR（router/application/task/feature）
+- `api-surface-map.md`：网关 API 分组与活跃面
+- `workspace-execution-pipeline.md`：workspace feature 执行主链路
 
-## 适用范围
+## 使用说明
 
-本目录关注“系统如何组织与执行”，不包含具体部署命令或产品操作手册。
+- 本目录描述“系统如何组织与执行”，不包含部署命令。
+- 新增模块或边界变化时，优先更新 ADR 与执行链路文档。
