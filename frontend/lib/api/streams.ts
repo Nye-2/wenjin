@@ -14,6 +14,7 @@ import type {
 export function streamChat(
   data: ChatRequest,
   onMessage: (content: string) => void,
+  onReasoning?: (content: string) => void,
   onThreadId?: (context: { threadId: string; skill: string | null }) => void,
   onAssistantMessage?: (message: ChatMessage) => void,
   onError?: (error: string) => void,
@@ -64,6 +65,9 @@ export function streamChat(
               break;
             case "content":
               onMessage(json.content);
+              break;
+            case "reasoning":
+              onReasoning?.(json.content);
               break;
             case "assistant_message":
               onAssistantMessage?.(json.message as ChatMessage);
@@ -127,12 +131,14 @@ export function streamChat(
 export function subscribeWorkspaceEvents(
   workspaceId: string,
   onEvent: (event: WorkspaceEvent) => void,
-  onError?: (error: string) => void
+  onError?: (error: string) => void,
+  onOpen?: () => void
 ): () => void {
   return subscribeJsonEventStream<WorkspaceEvent>({
     url: `${API_BASE_URL}/workspaces/${workspaceId}/events`,
     init: { method: "GET" },
     onPayload: onEvent,
+    onOpen,
     onError,
     onClosedMessage: "Workspace event stream closed",
   });

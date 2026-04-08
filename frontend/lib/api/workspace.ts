@@ -167,6 +167,18 @@ export async function getTaskStatus(taskId: string): Promise<TaskStatus> {
   return response.data;
 }
 
+export async function listTasks(params?: {
+  status?: string;
+  task_type?: string;
+  workspace_id?: string;
+  feature_id?: string;
+  action?: string;
+  limit?: number;
+}): Promise<{ tasks: TaskStatus[]; count: number }> {
+  const response = await apiClient.get("/tasks", { params });
+  return response.data;
+}
+
 export async function cancelTask(taskId: string): Promise<void> {
   await apiClient.delete(`/tasks/${taskId}`);
 }

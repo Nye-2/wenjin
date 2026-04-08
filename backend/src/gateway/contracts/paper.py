@@ -28,7 +28,6 @@ class PaperSummaryResponse(BaseModel):
 class PaperResponse(PaperSummaryResponse):
     """Detailed paper response for the canonical papers router."""
 
-    file_path: str | None
     external_ids: dict
     toc: list | None
 
@@ -108,7 +107,6 @@ def paper_to_response(
     payload = _paper_summary_payload(paper, workspace_id=workspace_id)
     payload.update(
         {
-            "file_path": paper.file_path,
             "external_ids": paper.external_ids or {},
             "toc": paper.toc,
         }

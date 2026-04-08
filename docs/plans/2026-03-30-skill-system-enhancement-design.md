@@ -1,5 +1,7 @@
 # Skill System Enhancement Design
 
+> 归档说明: 本文档为历史阶段性计划快照，可能包含已过时路由、线程模型或状态描述。当前实现请以 `docs/product/workspace-current-state.md` 与相关当前契约文档为准。
+
 **Date:** 2026-03-30
 **Status:** Approved
 **Goal:** Unify the skill data source (backend API driven), ensure every feature has a skill with guidance_prompt, and add new quality-enhancing skills that leverage existing backend capabilities.

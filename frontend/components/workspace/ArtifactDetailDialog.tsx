@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,8 +11,10 @@ import {
 import type { Artifact } from "@/stores/workspace";
 import {
   extractArtifactFileUrl,
+  getSignedAssetUrl,
   isImageUrl,
   isPdfUrl,
+  openAuthorizedAsset,
 } from "@/lib/public-assets";
 
 interface ArtifactDetailDialogProps {
@@ -161,8 +163,54 @@ export function ArtifactDetailDialog({
       ? (artifact.content as Record<string, unknown>)
       : null;
   const fileUrl = extractArtifactFileUrl(content);
-  const showPdfPreview = isPdfUrl(fileUrl);
-  const showImagePreview = isImageUrl(fileUrl);
+  const [signedFileUrl, setSignedFileUrl] = useState<string | null>(null);
+  const [assetError, setAssetError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!open || !fileUrl) {
+      const resetHandle = window.setTimeout(() => {
+        if (!cancelled) {
+          setSignedFileUrl(null);
+          setAssetError(null);
+        }
+      }, 0);
+      return () => {
+        cancelled = true;
+        window.clearTimeout(resetHandle);
+      };
+    }
+
+    const startHandle = window.setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
+      setAssetError(null);
+      void getSignedAssetUrl(fileUrl)
+        .then((value) => {
+          if (!cancelled) {
+            setSignedFileUrl(value);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setSignedFileUrl(null);
+            setAssetError(
+              error instanceof Error ? error.message : "生成文件访问链接失败"
+            );
+          }
+        });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(startHandle);
+    };
+  }, [fileUrl, open]);
+
+  const showPdfPreview = isPdfUrl(signedFileUrl);
+  const showImagePreview = isImageUrl(signedFileUrl);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -182,32 +230,38 @@ export function ArtifactDetailDialog({
           {fileUrl && (
             <div className="mb-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
               <div className="flex flex-wrap items-center gap-3">
-                <a
-                  href={fileUrl}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={() => void openAuthorizedAsset(fileUrl)}
                   className="rounded-md bg-[var(--accent-primary)] px-3 py-1.5 text-sm text-white"
                 >
                   打开文件
-                </a>
-                <a
-                  href={fileUrl}
-                  download
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void openAuthorizedAsset(
+                      `${fileUrl}${fileUrl.includes("?") ? "&" : "?"}download=true`
+                    )
+                  }
                   className="rounded-md border border-[var(--border-default)] px-3 py-1.5 text-sm text-[var(--text-secondary)]"
                 >
                   下载文件
-                </a>
+                </button>
                 <span className="text-xs text-[var(--text-muted)] break-all">
-                  {fileUrl}
+                  {signedFileUrl ?? fileUrl}
                 </span>
               </div>
+              {assetError ? (
+                <p className="mt-2 text-xs text-red-600">{assetError}</p>
+              ) : null}
             </div>
           )}
 
           {showPdfPreview && (
             <div className="mb-4 overflow-hidden rounded-lg border border-[var(--border-default)] bg-white">
               <iframe
-                src={fileUrl ?? undefined}
+                src={signedFileUrl ?? undefined}
                 title={artifact?.title || "PDF Preview"}
                 className="h-[540px] w-full"
               />
@@ -218,7 +272,7 @@ export function ArtifactDetailDialog({
             <div className="mb-4 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={fileUrl!}
+                src={signedFileUrl!}
                 alt={artifact?.title || "Artifact Preview"}
                 className="max-h-[540px] w-full rounded-lg object-contain"
               />

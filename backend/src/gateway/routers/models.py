@@ -44,6 +44,8 @@ def _infer_provider(model: ModelConfig) -> str:
         return "Qwen"
     if "bigmodel" in base_url or "glm" in raw_model:
         return "Zhipu"
+    if "minimaxi" in base_url or raw_model.startswith("minimax-"):
+        return "MiniMax"
     if "deepseek" in base_url or "deepseek" in raw_model:
         return "DeepSeek"
     if "openai" in base_url:
@@ -53,7 +55,7 @@ def _infer_provider(model: ModelConfig) -> str:
 
 def _supports_thinking(model: ModelConfig) -> bool:
     raw_model = (model.model or "").lower()
-    return raw_model.startswith("claude")
+    return raw_model.startswith("claude") or raw_model.startswith("minimax-")
 
 
 def _supports_reasoning_effort(model: ModelConfig) -> bool:

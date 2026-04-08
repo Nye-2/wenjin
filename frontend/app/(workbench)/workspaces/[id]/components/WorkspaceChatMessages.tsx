@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertCircle,
   Bot,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   FileText,
   Sparkles,
@@ -13,46 +16,41 @@ import {
 import { StreamingText, ThinkingIndicator } from "@/components/glass";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { type PaperExtractionSubmission } from "@/lib/api";
-import { resolvePublicAssetUrl } from "@/lib/public-assets";
-import {
-  type WorkspaceFeatureActionContext,
-} from "@/lib/workspace-feature-action-context";
+import { openAuthorizedAsset, resolvePublicAssetUrl } from "@/lib/public-assets";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/stores/chat";
 
-type NextStepActionType =
-  | "trigger_feature"
-  | "open_feature"
-  | "continue_chat"
-  | "rerun_from_artifact";
-
-export interface WorkspaceChatMessageActionHandlers {
-  onFeatureAction: (featureId: string) => void;
-  onOpenFeature: (route: string | null, featureId: string | null) => void;
-  onContinueAsk: (prompt: string | null) => void;
-  onRerunFeature: (
-    featureId: string | null,
-    params: Record<string, unknown> | null,
-    unavailableReason: string | null
-  ) => void;
-}
-
 interface WorkspaceChatMessageBubbleProps
-  extends WorkspaceChatMessageActionHandlers {
+{
   message: Message;
   isLast: boolean;
   isStreaming: boolean;
-  actionContext: WorkspaceFeatureActionContext;
 }
 
-interface WorkspaceChatMessagesProps extends WorkspaceChatMessageActionHandlers {
+interface WorkspaceChatMessagesProps {
   messages: Message[];
   isStreaming: boolean;
+  isThreadLoading?: boolean;
   workspaceName: string | null | undefined;
-  resolveActionContext: (message: Message) => WorkspaceFeatureActionContext;
 }
 
 type AttachmentRecord = Record<string, unknown>;
+
+function extractReasoningBlockText(message: Message): string | null {
+  for (const block of message.blocks) {
+    if (block.type !== "reasoning") {
+      continue;
+    }
+    const text =
+      block.data && typeof block.data === "object" && typeof block.data.text === "string"
+        ? block.data.text.trim()
+        : "";
+    if (text) {
+      return text;
+    }
+  }
+  return null;
+}
 
 export function resolveBlockFeatureId(message: Message): string | null {
   for (const block of message.blocks) {
@@ -448,57 +446,101 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
   );
 }
 
-function renderCardActions(
-  actionContext: WorkspaceFeatureActionContext,
-  handlers: WorkspaceChatMessageActionHandlers
-) {
-  if (!actionContext.featureId) {
-    return null;
-  }
+function renderCardActions() {
+  return null;
+}
+
+function ReasoningPanel({
+  text,
+  isStreaming,
+}: {
+  text: string;
+  isStreaming: boolean;
+}) {
+  const [isExpanded, setIsExpanded] = useState(isStreaming);
 
   return (
-    <div className="mt-3 flex flex-wrap gap-2">
+    <div
+      className={cn(
+        "overflow-hidden rounded-2xl border",
+        isStreaming
+          ? "border-amber-500/35 bg-[linear-gradient(180deg,rgba(245,158,11,0.12),rgba(245,158,11,0.05))] shadow-[0_10px_30px_rgba(245,158,11,0.08)]"
+          : "border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(244,216,170,0.16),rgba(255,255,255,0.72))]"
+      )}
+    >
       <button
         type="button"
-        onClick={() =>
-          handlers.onOpenFeature(actionContext.route, actionContext.featureId)
-        }
-        className="rounded-full bg-[var(--accent-primary)]/10 px-2.5 py-1 text-[11px] font-medium text-[var(--accent-primary)]"
+        onClick={() => setIsExpanded((current) => !current)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
       >
-        直接跳转
+        <div className="flex min-w-0 items-center gap-3">
+          <div
+            className={cn(
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl",
+              isStreaming
+                ? "bg-amber-500/20 text-amber-700"
+                : "bg-[var(--bg-surface)] text-[var(--brand-brass)]"
+            )}
+          >
+            <Sparkles className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              思考过程
+            </p>
+            <p className="text-[11px] text-[var(--text-muted)]">
+              {isStreaming ? "实时推理通道" : "已完成，可展开查看"}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {isStreaming ? (
+            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+              处理中
+            </span>
+          ) : null}
+          {isExpanded ? (
+            <ChevronUp className="h-4 w-4 text-[var(--text-muted)]" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
+          )}
+        </div>
       </button>
-      <button
-        type="button"
-        onClick={() => handlers.onContinueAsk(actionContext.followUpPrompt)}
-        className="rounded-full border border-[var(--border-default)] bg-[var(--bg-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-primary)]"
-      >
-        继续追问
-      </button>
-      <button
-        type="button"
-        onClick={() =>
-          handlers.onRerunFeature(
-            actionContext.featureId,
-            actionContext.rerunParams,
-            actionContext.rerunUnavailableReason
-          )
-        }
-        title={actionContext.rerunUnavailableReason || undefined}
-        className={cn(
-          "rounded-full border border-[var(--border-default)] bg-[var(--bg-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-primary)]",
-          !actionContext.rerunParams && "opacity-60"
-        )}
-      >
-        基于 artifact 二次执行
-      </button>
+
+      <AnimatePresence initial={false}>
+        {isExpanded ? (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            className="overflow-hidden border-t border-black/5"
+          >
+            <div className="px-4 py-3">
+              {isStreaming ? (
+                <StreamingText
+                  text={text}
+                  isStreaming={true}
+                  className="text-xs leading-6 text-[var(--text-secondary)]"
+                  cursorClassName="bg-amber-500"
+                />
+              ) : (
+                <MarkdownRenderer
+                  content={text}
+                  className="text-xs leading-6 text-[var(--text-secondary)]"
+                />
+              )}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
 
 function renderStructuredBlocks(
   message: Message,
-  actionContext: WorkspaceFeatureActionContext,
-  handlers: WorkspaceChatMessageActionHandlers
+  options?: { isStreaming?: boolean }
 ) {
   if (!message.blocks || message.blocks.length === 0) {
     return null;
@@ -508,6 +550,14 @@ function renderStructuredBlocks(
     <div className="mt-3 space-y-2">
       {message.blocks.map((block, index) => {
         const data = block.data ?? {};
+        if (block.type === "reasoning") {
+          const text = typeof data.text === "string" ? data.text : "";
+          if (!text.trim()) {
+            return null;
+          }
+          return <ReasoningPanel key={`${block.type}-${index}`} text={text} isStreaming={Boolean(options?.isStreaming)} />;
+        }
+
         if (block.type === "task") {
           const featureId = typeof data.feature_id === "string" ? data.feature_id : null;
           return (
@@ -534,8 +584,11 @@ function renderStructuredBlocks(
                     任务 {data.task_id.slice(0, 8)}
                   </span>
                 )}
+                <span className="rounded-full bg-[var(--accent-primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--accent-primary)]">
+                  右侧工作面板会持续更新执行过程
+                </span>
               </div>
-              {featureId ? renderCardActions(actionContext, handlers) : null}
+              {featureId ? renderCardActions() : null}
             </div>
           );
         }
@@ -553,7 +606,7 @@ function renderStructuredBlocks(
               <p className="mt-1 text-xs leading-5 text-red-600/90 dark:text-red-300">
                 {typeof data.detail === "string" ? data.detail : message.content}
               </p>
-              {featureId ? renderCardActions(actionContext, handlers) : null}
+              {featureId ? renderCardActions() : null}
             </div>
           );
         }
@@ -571,7 +624,7 @@ function renderStructuredBlocks(
               <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
                 {typeof data.summary === "string" ? data.summary : message.content}
               </p>
-              {featureId ? renderCardActions(actionContext, handlers) : null}
+              {featureId ? renderCardActions() : null}
             </div>
           );
         }
@@ -613,22 +666,22 @@ function renderStructuredBlocks(
                       ) : null}
                       {url ? (
                         <div className="mt-3 flex flex-wrap gap-2">
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
+                          <button
+                            type="button"
+                            onClick={() => void openAuthorizedAsset(url)}
                             className="rounded-full bg-[var(--accent-primary)]/10 px-2.5 py-1 text-[11px] font-medium text-[var(--accent-primary)]"
                           >
                             打开文件
-                          </a>
-                          <a
-                            href={downloadUrl || url}
-                            target="_blank"
-                            rel="noreferrer"
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void openAuthorizedAsset(downloadUrl || url)
+                            }
                             className="rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-primary)]"
                           >
                             下载
-                          </a>
+                          </button>
                         </div>
                       ) : null}
                     </div>
@@ -655,53 +708,13 @@ function renderStructuredBlocks(
                     typeof item?.label === "string"
                       ? item.label
                       : `建议 ${itemIndex + 1}`;
-                  const featureId =
-                    typeof item?.feature_id === "string" ? item.feature_id : null;
-                  const actionType =
-                    typeof item?.action === "string"
-                      ? (item.action as NextStepActionType)
-                      : "trigger_feature";
-                  const prompt =
-                    typeof item?.prompt === "string"
-                      ? item.prompt
-                      : actionContext.followUpPrompt;
-                  const disabled = !featureId;
-                  const tooltip =
-                    actionType === "rerun_from_artifact"
-                      ? actionContext.rerunUnavailableReason || undefined
-                      : undefined;
                   return (
-                    <button
-                      type="button"
+                    <div
                       key={`${label}-${itemIndex}`}
-                      onClick={() => {
-                        if (!featureId) {
-                          return;
-                        }
-                        if (actionType === "open_feature") {
-                          handlers.onOpenFeature(null, featureId);
-                          return;
-                        }
-                        if (actionType === "continue_chat") {
-                          handlers.onContinueAsk(prompt);
-                          return;
-                        }
-                        if (actionType === "rerun_from_artifact") {
-                          handlers.onRerunFeature(
-                            featureId,
-                            actionContext.rerunParams,
-                            actionContext.rerunUnavailableReason
-                          );
-                          return;
-                        }
-                        handlers.onFeatureAction(featureId);
-                      }}
-                      disabled={disabled}
-                      title={tooltip}
-                      className="rounded-full border border-[var(--border-default)] bg-[var(--bg-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-primary)] disabled:cursor-default disabled:opacity-80"
+                      className="rounded-full border border-[var(--border-default)] bg-[var(--bg-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-primary)]"
                     >
                       {label}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -728,14 +741,17 @@ function WorkspaceChatMessageBubble({
   message,
   isLast,
   isStreaming,
-  actionContext,
-  onFeatureAction,
-  onOpenFeature,
-  onContinueAsk,
-  onRerunFeature,
 }: WorkspaceChatMessageBubbleProps) {
   const isUser = message.role === "user";
-  const showStreaming = isLast && !isUser && isStreaming && !message.content;
+  const reasoningText = extractReasoningBlockText(message);
+  const hasReasoning = Boolean(reasoningText);
+  const showStreaming =
+    isLast &&
+    !isUser &&
+    isStreaming &&
+    !message.content &&
+    (!message.blocks || message.blocks.length === 0);
+  const showStreamingContent = isLast && !isUser && isStreaming && Boolean(message.content);
 
   return (
     <motion.div
@@ -765,25 +781,67 @@ function WorkspaceChatMessageBubble({
       >
         {showStreaming ? (
           <ThinkingIndicator />
-        ) : isLast && !isUser && isStreaming ? (
-          <StreamingText text={message.content} isStreaming={true} />
         ) : (
-          <>
+          <div className="space-y-3">
             {renderMessageAttachments(message, isUser)}
+            {renderStructuredBlocks(message, {
+              isStreaming: isLast && !isUser && isStreaming,
+            })}
             {message.content ? (
               isUser ? (
                 <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              ) : showStreamingContent ? (
+                <div className="rounded-2xl border border-sky-500/20 bg-[linear-gradient(180deg,rgba(14,165,233,0.08),rgba(255,255,255,0.65))] px-4 py-3">
+                  {hasReasoning ? (
+                    <div className="mb-2 flex items-center gap-2 text-[11px] font-medium text-sky-700">
+                      <div className="h-2 w-2 rounded-full bg-sky-500" />
+                      回答通道
+                    </div>
+                  ) : null}
+                  <StreamingText
+                    text={message.content}
+                    isStreaming={true}
+                    className="text-sm"
+                    cursorClassName="bg-sky-500"
+                  />
+                </div>
               ) : (
-                <MarkdownRenderer content={message.content} className="text-sm" />
+                <div
+                  className={cn(
+                    hasReasoning
+                      ? "rounded-2xl border border-sky-500/15 bg-[linear-gradient(180deg,rgba(14,165,233,0.06),rgba(255,255,255,0.7))] px-4 py-3"
+                      : ""
+                  )}
+                >
+                  {hasReasoning ? (
+                    <div className="mb-2 flex items-center gap-2 text-[11px] font-medium text-sky-700">
+                      <div className="h-2 w-2 rounded-full bg-sky-500" />
+                      最终回答
+                    </div>
+                  ) : null}
+                  <MarkdownRenderer content={message.content} className="text-sm" />
+                </div>
               )
             ) : null}
-            {renderStructuredBlocks(message, actionContext, {
-              onFeatureAction,
-              onOpenFeature,
-              onContinueAsk,
-              onRerunFeature,
-            })}
-          </>
+            {!message.content && isLast && !isUser && isStreaming ? (
+              <div
+                className={cn(
+                  "rounded-2xl border px-4 py-3",
+                  hasReasoning
+                    ? "border-sky-500/20 bg-[linear-gradient(180deg,rgba(14,165,233,0.08),rgba(255,255,255,0.65))]"
+                    : "border-[var(--border-default)] bg-[var(--bg-surface)]/60"
+                )}
+              >
+                {hasReasoning ? (
+                  <div className="mb-2 flex items-center gap-2 text-[11px] font-medium text-sky-700">
+                    <div className="h-2 w-2 rounded-full bg-sky-500" />
+                    回答通道
+                  </div>
+                ) : null}
+                <ThinkingIndicator />
+              </div>
+            ) : null}
+          </div>
         )}
       </div>
     </motion.div>
@@ -793,16 +851,26 @@ function WorkspaceChatMessageBubble({
 export function WorkspaceChatMessages({
   messages,
   isStreaming,
+  isThreadLoading = false,
   workspaceName,
-  resolveActionContext,
-  onFeatureAction,
-  onOpenFeature,
-  onContinueAsk,
-  onRerunFeature,
 }: WorkspaceChatMessagesProps) {
   return (
     <AnimatePresence mode="popLayout">
-      {messages.length === 0 ? (
+      {isThreadLoading ? (
+        <div className="h-full flex items-center justify-center">
+          <div className="text-center max-w-md">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[var(--bg-surface)] flex items-center justify-center border border-[var(--border-default)]">
+              <Bot className="w-7 h-7 text-[var(--text-muted)]" />
+            </div>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
+              正在恢复对话
+            </h3>
+            <p className="text-sm text-[var(--text-secondary)]">
+              正在加载当前 thread 的完整上下文。
+            </p>
+          </div>
+        </div>
+      ) : messages.length === 0 ? (
         <div className="h-full flex items-center justify-center">
           <div className="text-center max-w-md">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-secondary)] flex items-center justify-center">
@@ -812,7 +880,7 @@ export function WorkspaceChatMessages({
               从当前阶段开始
             </h3>
             <p className="text-sm text-[var(--text-secondary)]">
-              先描述你要推进的步骤，或直接点击下方推荐动作。问津会结合当前 workspace
+              先描述你要推进的步骤。问津会结合当前 workspace
               {workspaceName ? `「${workspaceName}」` : ""} 的上下文，安排下一步。
             </p>
           </div>
@@ -824,11 +892,6 @@ export function WorkspaceChatMessages({
             message={message}
             isLast={index === messages.length - 1}
             isStreaming={isStreaming}
-            actionContext={resolveActionContext(message)}
-            onFeatureAction={onFeatureAction}
-            onOpenFeature={onOpenFeature}
-            onContinueAsk={onContinueAsk}
-            onRerunFeature={onRerunFeature}
           />
         ))
       )}

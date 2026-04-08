@@ -178,7 +178,7 @@ class WorkspaceService:
             kwargs["config"] = self._with_rollout_defaults(target_type, source_config)
 
         for key, value in kwargs.items():
-            if hasattr(workspace, key) and value is not None:
+            if hasattr(workspace, key):
                 setattr(workspace, key, value)
 
         await self.db.commit()

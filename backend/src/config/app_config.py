@@ -70,7 +70,7 @@ class RedisSettings(BaseSettings):
     session_cache_ttl: int = Field(default=86400, ge=60, description="Session cache TTL")
 
     # Rate limiting
-    rate_limit_requests: int = Field(default=30, ge=1, description="Rate limit: requests per window")
+    rate_limit_requests: int = Field(default=120, ge=1, description="Rate limit: requests per window")
     rate_limit_window: int = Field(default=60, ge=1, description="Rate limit: window in seconds")
     generation_lock_ttl: int = Field(default=600, ge=60, description="Generation lock TTL")
 
@@ -128,6 +128,34 @@ class SMTPSettings(BaseSettings):
     daily_limit: int = Field(default=10, ge=1, le=100, description="Daily send limit per email")
 
     model_config = _settings_config("SMTP_")
+
+
+class LayoutParsingSettings(BaseSettings):
+    """Layout parsing upload preprocessor settings."""
+
+    enabled: bool = Field(default=False, description="Enable layout parsing preprocessor")
+    api_url: str = Field(default="", description="Layout parsing API URL")
+    token: str = Field(default="", description="Layout parsing API token")
+    timeout_seconds: float = Field(
+        default=120.0,
+        ge=1.0,
+        le=600.0,
+        description="Layout parsing API timeout in seconds",
+    )
+    use_doc_orientation_classify: bool = Field(
+        default=False,
+        description="Enable document orientation classification",
+    )
+    use_doc_unwarping: bool = Field(
+        default=False,
+        description="Enable document unwarping",
+    )
+    use_chart_recognition: bool = Field(
+        default=False,
+        description="Enable chart recognition",
+    )
+
+    model_config = _settings_config("LAYOUT_PARSING_")
 
 
 class AppConfig(BaseSettings):
@@ -210,6 +238,12 @@ def get_smtp_settings() -> SMTPSettings:
     return SMTPSettings()
 
 
+@lru_cache
+def get_layout_parsing_settings() -> LayoutParsingSettings:
+    """Get cached layout parsing settings instance."""
+    return LayoutParsingSettings()
+
+
 # Convenience instances (backward compatible)
 settings = get_settings()
 jwt_settings = get_jwt_settings()
@@ -218,3 +252,4 @@ celery_settings = get_celery_settings()
 sentry_settings = get_sentry_settings()
 prometheus_settings = get_prometheus_settings()
 smtp_settings = get_smtp_settings()
+layout_parsing_settings = get_layout_parsing_settings()

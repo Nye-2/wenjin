@@ -110,14 +110,19 @@ export function PaperUpload({
       });
     }
 
-    setUploadingFiles((prev) => [...prev, ...newFiles]);
+    // Calculate starting index using functional update to avoid stale closure
+    let startIndex = -1;
+    setUploadingFiles((prev) => {
+      startIndex = prev.length;
+      return [...prev, ...newFiles];
+    });
 
     // Upload valid files
     for (let i = 0; i < newFiles.length; i++) {
       const uploadingFile = newFiles[i];
       if (uploadingFile.status === 'error') continue;
 
-      const index = uploadingFiles.length + i;
+      const index = startIndex + i;
       setUploadingFiles((prev) =>
         prev.map((f, idx) =>
           idx === index ? { ...f, status: 'uploading' } : f

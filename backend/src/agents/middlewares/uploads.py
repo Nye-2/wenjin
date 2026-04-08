@@ -34,6 +34,7 @@ class UploadsMiddleware(Middleware):
                     "path": path,
                     "size": int(item.get("size") or item.get("size_bytes") or 0),
                     "kind": str(item.get("kind") or "transient"),
+                    "metadata": item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
                 }
             )
         return normalized
@@ -52,6 +53,27 @@ class UploadsMiddleware(Middleware):
                     f"- {file_info['name']} [{file_info['kind']}] "
                     f"({file_info['size']} bytes): {file_info['path']}"
                 )
+                metadata = file_info.get("metadata")
+                if not isinstance(metadata, dict):
+                    continue
+                preprocess = metadata.get("preprocess")
+                if not isinstance(preprocess, dict):
+                    continue
+                status = str(preprocess.get("status") or "").strip()
+                markdown_paths = preprocess.get("markdown_paths")
+                if status:
+                    lines.append(f"  预处理状态: {status}")
+                if isinstance(markdown_paths, list) and markdown_paths:
+                    preview = ", ".join(
+                        str(path)
+                        for path in markdown_paths[:3]
+                        if isinstance(path, str)
+                    )
+                    if preview:
+                        lines.append(f"  可读文本路径: {preview}")
+                manifest_path = preprocess.get("manifest_path")
+                if isinstance(manifest_path, str) and manifest_path.strip():
+                    lines.append(f"  清单路径: {manifest_path}")
 
         if historical_files:
             lines.append("此前上传且仍可使用的文件:")

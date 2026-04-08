@@ -6,17 +6,27 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
+  Code,
   Compass,
+  FileText,
+  FlaskConical,
+  Image as ImageIcon,
+  Lightbulb,
+  List,
   Loader2,
+  Microscope,
+  Package,
+  Pen,
+  Search,
+  ShieldCheck,
 } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeaturesStore } from "@/stores/features";
 import { useDashboardStore } from "@/stores/dashboard";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
-import { resolveIcon } from "@/lib/icon-map";
 import type { WorkspaceFeature } from "@/lib/api";
-import { getWorkspaceFeatureRoute } from "@/lib/workspace-feature-routes";
 import { useI18n } from "@/components/i18n-provider";
 import { workspaceStages, getFeatureStageId } from "@/lib/workspace-feature-stages";
 import { WorkspaceInspector } from "./components/WorkspaceInspector";
@@ -41,6 +51,43 @@ interface RunningTask {
   id: string;
   name: string;
   progress: number;
+}
+
+function StaticFeatureIcon({
+  name,
+  className,
+}: {
+  name: string | null | undefined;
+  className?: string;
+}) {
+  switch (name) {
+    case "book-open":
+      return <BookOpen className={className} />;
+    case "file-text":
+      return <FileText className={className} />;
+    case "list":
+      return <List className={className} />;
+    case "pen":
+      return <Pen className={className} />;
+    case "image":
+      return <ImageIcon className={className} />;
+    case "package":
+      return <Package className={className} />;
+    case "microscope":
+      return <Microscope className={className} />;
+    case "shield-check":
+      return <ShieldCheck className={className} />;
+    case "compass":
+      return <Compass className={className} />;
+    case "flask-conical":
+      return <FlaskConical className={className} />;
+    case "lightbulb":
+      return <Lightbulb className={className} />;
+    case "code":
+      return <Code className={className} />;
+    default:
+      return <Search className={className} />;
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -149,13 +196,9 @@ function RunningTasksSection({
 
 function StagedFeatureCards({
   features,
-  workspaceId,
 }: {
   features: WorkspaceFeature[];
-  workspaceId: string;
 }) {
-  const router = useRouter();
-
   const grouped = useMemo(() => {
     const groups = new Map<string, WorkspaceFeature[]>();
     for (const feature of features) {
@@ -186,22 +229,21 @@ function StagedFeatureCards({
             </p>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {stageFeatures.map((feature) => {
-                const route = getWorkspaceFeatureRoute(workspaceId, feature.id);
-                const FeatureIcon = resolveIcon(feature.icon);
                 const delay = globalIndex * 0.04;
                 globalIndex++;
                 return (
-                  <motion.button
+                  <motion.div
                     key={feature.id}
-                    type="button"
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay, duration: 0.35, ease: "easeOut" }}
-                    onClick={() => route && router.push(route)}
                     className="route-card-hover flex items-start gap-3 rounded-2xl p-4 text-left"
                   >
                     <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[rgba(31,66,99,0.06)]">
-                      <FeatureIcon className="h-[18px] w-[18px] text-[var(--brand-navy)]" />
+                      <StaticFeatureIcon
+                        name={feature.icon}
+                        className="h-[18px] w-[18px] text-[var(--brand-navy)]"
+                      />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-[var(--text-primary)]">
@@ -210,8 +252,11 @@ function StagedFeatureCards({
                       <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">
                         {feature.description}
                       </p>
+                      <p className="mt-2 text-[11px] leading-5 text-[var(--text-secondary)]">
+                        在对话中表达这一步目标后，问津会判断是否启用该模块。
+                      </p>
                     </div>
-                  </motion.button>
+                  </motion.div>
                 );
               })}
             </div>
@@ -229,7 +274,7 @@ function StagedFeatureCards({
 export default function WorkbenchPage() {
   const params = useParams();
   const router = useRouter();
-  const { locale: _locale } = useI18n();
+  useI18n();
   const workspaceId = params.id as string;
 
   const { workspace, isWorkspaceLoading, isArtifactsLoading, error, artifacts } = useWorkspaceStore();
@@ -245,15 +290,17 @@ export default function WorkbenchPage() {
     };
   }, [workspaceId, fetchDashboard, resetDashboard]);
 
-  // Auto-redirect new workspaces to onboarding chat
+  // Auto-redirect new workspaces to onboarding chat (only on first load)
   useEffect(() => {
     if (
       workspace &&
       !isWorkspaceLoading &&
       !isArtifactsLoading &&
       artifacts.length === 0 &&
-      features.length > 0
+      features.length > 0 &&
+      !sessionStorage.getItem(`wenjin-onboarded-${workspaceId}`)
     ) {
+      sessionStorage.setItem(`wenjin-onboarded-${workspaceId}`, "1");
       router.replace(`/workspaces/${workspaceId}/chat?onboarding=true`);
     }
   }, [workspace, isWorkspaceLoading, isArtifactsLoading, artifacts.length, features.length, router, workspaceId]);
@@ -312,12 +359,7 @@ export default function WorkbenchPage() {
     );
   }
 
-  const recommendedRoute = recommendedFeature
-    ? getWorkspaceFeatureRoute(workspaceId, recommendedFeature.id)
-    : null;
-  const RecommendedIcon = recommendedFeature
-    ? resolveIcon(recommendedFeature.icon)
-    : null;
+  const recommendedIconName = recommendedFeature?.icon ?? null;
 
   return (
     <div className="flex h-screen flex-col bg-[var(--bg-base)]">
@@ -386,14 +428,17 @@ export default function WorkbenchPage() {
                   </div>
 
                   {/* Embedded recommendation */}
-                  {recommendedFeature && RecommendedIcon ? (
+                  {recommendedFeature && recommendedIconName ? (
                     <div className="mt-6 rounded-xl border border-[var(--border-default)] bg-white/60 p-4 backdrop-blur-sm">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
                         推荐下一步
                       </p>
                       <div className="mt-3 flex items-start gap-3">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[rgba(31,66,99,0.06)]">
-                          <RecommendedIcon className="h-[18px] w-[18px] text-[var(--brand-navy)]" />
+                          <StaticFeatureIcon
+                            name={recommendedIconName}
+                            className="h-[18px] w-[18px] text-[var(--brand-navy)]"
+                          />
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-[var(--text-primary)]">
@@ -403,18 +448,9 @@ export default function WorkbenchPage() {
                             {recommendedFeature.description}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (recommendedRoute) {
-                              router.push(recommendedRoute);
-                            }
-                          }}
-                          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[var(--brand-navy)] px-4 py-2 text-xs font-medium text-white transition-opacity hover:opacity-90"
-                        >
-                          开始
-                          <ArrowRight className="h-3 w-3" />
-                        </button>
+                        <p className="text-right text-[11px] leading-5 text-[var(--text-secondary)]">
+                          在对话中提出这一步，问津会先确认是否开始。
+                        </p>
                       </div>
                     </div>
                   ) : null}
@@ -423,7 +459,7 @@ export default function WorkbenchPage() {
 
               <RunningTasksSection tasks={runningTasks} workspaceId={workspaceId} />
 
-              <StagedFeatureCards features={features} workspaceId={workspaceId} />
+              <StagedFeatureCards features={features} />
             </div>
 
             <div className="min-h-0">

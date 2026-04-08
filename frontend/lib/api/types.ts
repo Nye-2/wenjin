@@ -10,6 +10,133 @@ export interface Workspace {
   updated_at: string;
 }
 
+export interface LatexProject {
+  id: string;
+  user_id: string;
+  name: string;
+  template_id?: string | null;
+  main_file: string;
+  tags: string[];
+  archived: boolean;
+  trashed: boolean;
+  trashed_at?: string | null;
+  file_order: Record<string, string[]>;
+  llm_config?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LatexProjectCreate {
+  name: string;
+  template_id?: string | null;
+}
+
+export interface LatexFileItem {
+  path: string;
+  type: "file" | "dir";
+}
+
+export interface LatexTemplate {
+  id: string;
+  label: string;
+  main_file: string;
+  category: string;
+  description?: string | null;
+  description_en?: string | null;
+  tags: string[];
+  author?: string | null;
+  featured: boolean;
+  template_path?: string | null;
+}
+
+export interface LatexCompileResult {
+  ok: boolean;
+  status: number;
+  engine: "xelatex" | "pdflatex";
+  main_file: string;
+  pdf_path?: string | null;
+  pdf_endpoint?: string | null;
+  log?: string | null;
+  error?: string | null;
+  history_id: string;
+  page_count?: number | null;
+}
+
+export interface LatexSyncConflict {
+  logical_key: string;
+  path: string;
+  reason: string;
+}
+
+export interface LatexFeedbackAnchor {
+  selected_text: string;
+  prefix: string;
+  suffix: string;
+  heading_title: string;
+  heading_level: string;
+  line_hint: number;
+}
+
+export interface LatexPdfAnchorRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface LatexPdfAnchor {
+  page: number;
+  text: string;
+  rects: LatexPdfAnchorRect[];
+}
+
+export interface LatexFeedbackItem {
+  id: string;
+  file_path: string;
+  start: number;
+  end: number;
+  selected_text: string;
+  comment: string;
+  created_at?: string | null;
+  anchor?: LatexFeedbackAnchor | null;
+  source?: "tex" | "pdf";
+  pdf_anchor?: LatexPdfAnchor | null;
+  tex_anchor?: Record<string, unknown> | null;
+  last_status?: "idle" | "pending" | "done" | "error" | null;
+  last_error?: string | null;
+}
+
+export interface LatexFeedbackRewriteResponse {
+  ok: boolean;
+  model_id: string;
+  scope: "selection" | "section";
+  file_path: string;
+  section_title: string;
+  section_level: string;
+  resolved_selection_start: number;
+  resolved_selection_end: number;
+  target_start: number;
+  target_end: number;
+  rewritten_text: string;
+  changes_summary: string;
+  proposed_content: string;
+  updated_anchor: LatexFeedbackAnchor;
+  applied: boolean;
+}
+
+export interface LatexFeedbackMapResponse {
+  ok: boolean;
+  file_path: string;
+  resolved_selection_start: number;
+  resolved_selection_end: number;
+  selected_text: string;
+  updated_anchor: LatexFeedbackAnchor;
+  section_title: string;
+  section_level: string;
+  mapping_method: "synctex" | "text_fallback";
+  pdf_anchor?: LatexPdfAnchor | null;
+}
+
 export interface WorkspaceCreate {
   name: string;
   type: string;
@@ -296,6 +423,7 @@ export interface WorkspaceFeature {
   stages: FeatureStage[];
   color?: string;
   followUpPrompt?: string | null;
+  defaultSkillId?: string | null;
 }
 
 export interface ExecuteWorkspaceFeatureResponse {
@@ -313,9 +441,14 @@ export interface TaskStatus {
   status: string;
   progress: number;
   message?: string;
+  current_step?: string | null;
   result?: Record<string, unknown> | null;
   error?: string | null;
   metadata?: Record<string, unknown> | null;
+  workspace_id?: string | null;
+  feature_id?: string | null;
+  thread_id?: string | null;
+  action?: string | null;
   created_at: string;
   started_at?: string | null;
   completed_at?: string | null;

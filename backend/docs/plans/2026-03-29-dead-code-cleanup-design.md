@@ -1,5 +1,7 @@
 # Dead Code Cleanup Design
 
+> 归档说明: 本文档为历史阶段性计划快照，可能包含已过时路由、线程模型或状态描述。当前实现请以 `docs/product/workspace-current-state.md` 与相关当前契约文档为准。
+
 ## Goal
 
 Remove confirmed dead code and redundant architecture after migration to the super agent harness.

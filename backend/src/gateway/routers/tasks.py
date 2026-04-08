@@ -21,9 +21,14 @@ class TaskStatusResponse(BaseModel):
     status: str
     progress: int
     message: str | None = None
+    current_step: str | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
     metadata: dict[str, Any] | None = None
+    workspace_id: str | None = None
+    feature_id: str | None = None
+    thread_id: str | None = None
+    action: str | None = None
     created_at: str
     started_at: str | None = None
     completed_at: str | None = None
@@ -83,6 +88,9 @@ async def stream_task_progress(
 async def list_tasks(
     status: str | None = Query(None, description="Filter by status"),
     task_type: str | None = Query(None, description="Filter by task type"),
+    workspace_id: str | None = Query(None, description="Filter by workspace"),
+    feature_id: str | None = Query(None, description="Filter by feature"),
+    action: str | None = Query(None, description="Filter by action"),
     limit: int = Query(20, ge=1, le=100, description="Max results"),
     user_id: str = Depends(get_current_user_id),
     task_service: TaskService = Depends(get_task_service),
@@ -93,6 +101,9 @@ async def list_tasks(
         status=status,
         task_type=task_type,
         limit=limit,
+        workspace_id=workspace_id,
+        feature_id=feature_id,
+        action=action,
     )
     return TaskListResponse(
         tasks=[TaskStatusResponse(**t) for t in tasks],

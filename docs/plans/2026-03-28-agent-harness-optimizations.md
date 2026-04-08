@@ -1,5 +1,7 @@
 # Agent Harness & Memory System Optimizations
 
+> 归档说明: 本文档为历史阶段性计划快照，可能包含已过时路由、线程模型或状态描述。当前实现请以 `docs/product/workspace-current-state.md` 与相关当前契约文档为准。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Fix six performance, correctness, and resilience issues found in the lead agent harness and memory system.

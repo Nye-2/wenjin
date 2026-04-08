@@ -5,17 +5,18 @@
 
 import { create } from 'zustand';
 import {
-  deleteThread as deleteThreadRequest,
-  getThread,
-  listThreads,
+  ensureWorkspaceChatThread,
   streamChat,
   type ChatAttachment,
   type ReasoningEffort,
   type ThreadAgentStatus,
   type ThreadSummary,
 } from '../lib/api';
-import { syncCurrentSkillWithThread } from '@/lib/chat-skill-state';
-import { upsertThreadSummaryList } from '@/lib/workspace-event-ordering';
+import {
+  createCommittedSkillState,
+  createPendingSkillSelection,
+  syncCurrentSkillWithThread,
+} from '@/lib/chat-skill-state';
 import {
   buildPendingThreadSummary,
   createPendingUserMessage,
@@ -24,9 +25,11 @@ import {
   findLastAssistantMessage,
   maybeStartStructuredTask,
   removeTrailingEmptyAssistantMessage,
+  removeTrailingPendingAssistantMessage,
   syncAttachmentExtractionsWithTask,
   toStoreMessages,
   toThreadSummary,
+  upsertTrailingAssistantReasoning,
   upsertTrailingAssistantMessage,
   appendAssistantContent,
   type Message,
@@ -39,11 +42,14 @@ export type { Message } from './chat-store-support';
 interface ChatState {
   messages: Message[];
   isStreaming: boolean;
-  isThreadsLoading: boolean;
+  isWorkspaceThreadLoading: boolean;
+  isThreadLoading: boolean;
   currentSkill: string | null;
+  threadSkill: string | null;
+  activeSkill: string | null;
   isSkillSelectionPending: boolean;
   threadId: string | null;
-  threads: ThreadSummary[];
+  currentThreadSummary: ThreadSummary | null;
   threadStatuses: Record<string, ThreadAgentStatus>;
   error: string | null;
   _abortStream: (() => void) | null;
@@ -63,15 +69,16 @@ interface ChatState {
   ) => void;
   abortStream: () => void;
   addMessage: (message: Message) => void;
-  loadThreads: (workspaceId: string) => Promise<ThreadSummary[]>;
-  loadLatestThread: (workspaceId: string) => Promise<void>;
-  loadThread: (
-    threadId: string,
-    options?: { preservePendingSkill?: boolean }
-  ) => Promise<void>;
-  deleteThread: (threadId: string, workspaceId: string) => Promise<void>;
-  upsertThreadSummary: (summary: ThreadSummary) => void;
-  removeThread: (threadId: string) => void;
+  ensureWorkspaceThread: (
+    workspaceId: string,
+    options?: { model?: string; skill?: string | null; preservePendingSkill?: boolean }
+  ) => Promise<string | null>;
+  refreshCurrentThread: (
+    workspaceId: string,
+    options?: { model?: string; skill?: string | null; preservePendingSkill?: boolean }
+  ) => Promise<boolean>;
+  syncCurrentThreadSummary: (summary: ThreadSummary) => void;
+  clearCurrentThread: () => void;
   setThreadStatus: (status: ThreadAgentStatus) => void;
   syncAttachmentExtractionTask: (
     task: import("@/lib/api").WorkspaceTaskEvent["task"]
@@ -79,17 +86,19 @@ interface ChatState {
   startNewThread: () => void;
   setCurrentSkill: (skill: string | null) => void;
   clearMessages: () => void;
-  setThreadId: (threadId: string | null) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isStreaming: false,
-  isThreadsLoading: false,
+  isWorkspaceThreadLoading: false,
+  isThreadLoading: false,
   currentSkill: null,
+  threadSkill: null,
+  activeSkill: null,
   isSkillSelectionPending: false,
   threadId: null,
-  threads: [],
+  currentThreadSummary: null,
   threadStatuses: {},
   error: null,
   _abortStream: null,
@@ -98,7 +107,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const abort = get()._abortStream;
     if (abort) {
       abort();
-      set({ _abortStream: null, isStreaming: false });
+      set((state) => ({
+        _abortStream: null,
+        isStreaming: false,
+        messages: removeTrailingPendingAssistantMessage(
+          removeTrailingEmptyAssistantMessage(state.messages)
+        ),
+      }));
     }
   },
 
@@ -106,12 +121,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Abort any in-flight stream before starting a new one
     get().abortStream();
 
-    const { threadId, currentSkill } = get();
+    const { threadId, activeSkill, isSkillSelectionPending } = get();
     const effectiveThreadId = options?.threadId || threadId || undefined;
     const hasExplicitSkill = Boolean(options && "skill" in options);
-    const skillToUse = hasExplicitSkill ? (options?.skill ?? null) : currentSkill;
+    const skillToUse = hasExplicitSkill
+      ? (options?.skill ?? null)
+      : activeSkill;
+    const shouldSendExplicitSkill = hasExplicitSkill || isSkillSelectionPending;
 
-    const userMessageId = `user-${Date.now()}`;
+    const userMessageId = `user-${crypto.randomUUID()}`;
     const userMessage = createPendingUserMessage({
       id: userMessageId,
       content,
@@ -126,8 +144,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
     }));
 
-    const assistantMessageId = `assistant-${Date.now()}`;
+    const assistantMessageId = `assistant-${crypto.randomUUID()}`;
     let assistantContent = '';
+    let assistantReasoning = '';
     const assistantMessage = createPlaceholderAssistantMessage({
       id: assistantMessageId,
       createdAt: new Date().toISOString(),
@@ -145,7 +164,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       reasoning_effort: options?.reasoningEffort,
       attachments: options?.attachments,
       metadata: options?.metadata,
-      ...(hasExplicitSkill ? { skill: skillToUse } : currentSkill ? { skill: currentSkill } : {}),
+      ...(shouldSendExplicitSkill ? { skill: skillToUse } : {}),
     };
 
     // Stream response — capture abort function
@@ -157,26 +176,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
           messages: appendAssistantContent(state.messages, assistantContent),
         }));
       },
+      (chunk) => {
+        assistantReasoning += chunk;
+        set((state) => ({
+          messages: upsertTrailingAssistantReasoning(
+            state.messages,
+            assistantReasoning
+          ),
+        }));
+      },
       ({ threadId: newThreadId, skill }) => {
         const createdAt = new Date().toISOString();
-        set((state) => ({
-          threadId: newThreadId,
-          currentSkill: skill,
-          isSkillSelectionPending: false,
-          threads: state.threads.some((thread) => thread.id === newThreadId)
-            ? state.threads
-            : upsertThreadSummaryList(
-                state.threads,
-                buildPendingThreadSummary({
+        set((state) => {
+          const nextSkillState = syncCurrentSkillWithThread({
+            currentSkill: state.currentSkill,
+            nextThreadSkill: skill,
+            isSkillSelectionPending: state.isSkillSelectionPending,
+          });
+          const nextSummary =
+            state.currentThreadSummary?.id === newThreadId
+              ? state.currentThreadSummary
+              : buildPendingThreadSummary({
                   threadId: newThreadId,
                   workspaceId: options?.workspaceId,
                   model: options?.model,
                   skill,
                   messageCount: state.messages.length + 1,
                   createdAt,
-                })
-              ),
-        }));
+                });
+          return {
+            threadId: newThreadId,
+            currentSkill: nextSkillState.currentSkill,
+            threadSkill: nextSkillState.threadSkill,
+            activeSkill: nextSkillState.activeSkill,
+            isSkillSelectionPending: nextSkillState.isSkillSelectionPending,
+            currentThreadSummary: nextSummary,
+          };
+        });
       },
       (assistantMessage) => {
         const hydratedMessage = createStoreAssistantMessage({
@@ -187,31 +223,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set((state) => ({
           messages: upsertTrailingAssistantMessage(state.messages, hydratedMessage),
         }));
-        maybeStartStructuredTask(hydratedMessage);
+        const scopedWorkspaceId =
+          options?.workspaceId || get().currentThreadSummary?.workspace_id || null;
+        maybeStartStructuredTask(hydratedMessage, scopedWorkspaceId);
       },
       (error) => {
         set((state) => ({
           error,
           isStreaming: false,
           isSkillSelectionPending: false,
-          messages: removeTrailingEmptyAssistantMessage(state.messages),
+          _abortStream: null,
+          messages: removeTrailingPendingAssistantMessage(
+            removeTrailingEmptyAssistantMessage(state.messages)
+          ),
         }));
       },
       () => {
         set({ isStreaming: false, _abortStream: null });
-        if (options?.workspaceId) {
-          void get().loadThreads(options.workspaceId);
-        }
       }
     );
 
     set({ _abortStream: abort });
 
     if (hasExplicitSkill) {
-      set({
-        currentSkill: skillToUse,
-        isSkillSelectionPending: true,
-      });
+      set((state) => ({
+        ...createPendingSkillSelection({
+          skill: skillToUse,
+          threadSkill: state.threadSkill,
+        }),
+      }));
     }
   },
 
@@ -221,134 +261,69 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
-  loadThreads: async (workspaceId: string) => {
-    set({ isThreadsLoading: true });
-    try {
-      const { threads } = await listThreads(workspaceId, 20);
-      set((state) => {
-        const activeThreadStillVisible = state.threadId
-          ? threads.some((thread) => thread.id === state.threadId)
-          : true;
-        return {
-          threads,
-          isThreadsLoading: false,
-          ...(activeThreadStillVisible
-            ? {}
-            : {
-                messages: [],
-                currentSkill: null,
-                isSkillSelectionPending: false,
-                threadId: null,
-              }),
-          error: null,
-        };
-      });
-      return threads;
-    } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : 'Failed to load chat threads',
-        isThreadsLoading: false,
-      });
-      return [];
+  ensureWorkspaceThread: async (workspaceId, options) => {
+    const state = get();
+    if (
+      state.threadId &&
+      state.currentThreadSummary?.workspace_id === workspaceId
+    ) {
+      return state.threadId;
     }
-  },
+    set(() => ({
+      isWorkspaceThreadLoading: true,
+      isThreadLoading: true,
+      messages: [],
+    }));
 
-  loadLatestThread: async (workspaceId: string) => {
-    const threads = await get().loadThreads(workspaceId);
-    if (threads.length === 0) {
-      set({
-        messages: [],
-        currentSkill: null,
-        isSkillSelectionPending: false,
-        threadId: null,
-        threads: [],
-        error: null,
-      });
-      return;
-    }
-
-    await get().loadThread(threads[0].id);
-  },
-
-  loadThread: async (threadId: string, options) => {
     try {
-      const detail = await getThread(threadId);
+      const detail = await ensureWorkspaceChatThread(workspaceId, {
+        model: options?.model,
+        skill: options?.skill,
+      });
       const summary = toThreadSummary(detail);
       const messages = toStoreMessages(detail);
 
-      set((state) => {
-        const nextSkillState =
-          options?.preservePendingSkill
-            ? syncCurrentSkillWithThread({
-                currentSkill: state.currentSkill,
-                nextThreadSkill: detail.skill ?? null,
-                isSkillSelectionPending: state.isSkillSelectionPending,
-              })
-            : {
-                currentSkill: detail.skill ?? null,
-                isSkillSelectionPending: false,
-              };
+      const nextSkillState = options?.preservePendingSkill
+        ? syncCurrentSkillWithThread({
+            currentSkill: get().currentSkill,
+            nextThreadSkill: detail.skill ?? null,
+            isSkillSelectionPending: get().isSkillSelectionPending,
+          })
+        : createCommittedSkillState(detail.skill ?? null);
 
-        return {
-          messages,
-          currentSkill: nextSkillState.currentSkill,
-          isSkillSelectionPending: nextSkillState.isSkillSelectionPending,
-          threadId: detail.id,
-          threads: upsertThreadSummaryList(state.threads, summary),
-          error: null,
-        };
+      set({
+        messages,
+        ...nextSkillState,
+        threadId: detail.id,
+        currentThreadSummary: summary,
+        isWorkspaceThreadLoading: false,
+        isThreadLoading: false,
+        error: null,
       });
       const lastAssistantMessage = findLastAssistantMessage(messages);
       if (lastAssistantMessage) {
-        maybeStartStructuredTask(lastAssistantMessage);
+        maybeStartStructuredTask(lastAssistantMessage, workspaceId);
       }
+      return detail.id;
     } catch (error) {
       set({
-        error: error instanceof Error ? error.message : 'Failed to load chat thread',
+        error: error instanceof Error ? error.message : 'Failed to ensure workspace chat thread',
+        isWorkspaceThreadLoading: false,
+        isThreadLoading: false,
       });
+      return null;
     }
   },
 
-  deleteThread: async (threadId: string, workspaceId: string) => {
-    try {
-      await deleteThreadRequest(threadId);
-      const state = get();
-      const remainingThreads = state.threads.filter((thread) => thread.id !== threadId);
-
-      set({
-        threads: remainingThreads,
-        error: null,
-      });
-
-      if (state.threadId !== threadId) {
-        return;
-      }
-
-      if (remainingThreads.length > 0) {
-        await get().loadThread(remainingThreads[0].id);
-        return;
-      }
-
-      const refreshedThreads = await get().loadThreads(workspaceId);
-      if (refreshedThreads.length > 0) {
-        await get().loadThread(refreshedThreads[0].id);
-      } else {
-        get().startNewThread();
-      }
-    } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : 'Failed to delete chat thread',
-      });
-      throw error;
-    }
+  refreshCurrentThread: async (workspaceId, options) => {
+    const threadId = await get().ensureWorkspaceThread(workspaceId, options);
+    return Boolean(threadId);
   },
 
-  upsertThreadSummary: (summary: ThreadSummary) => {
+  syncCurrentThreadSummary: (summary: ThreadSummary) => {
     set((state) => {
       if (state.threadId !== summary.id) {
-        return {
-          threads: upsertThreadSummaryList(state.threads, summary),
-        };
+        return state;
       }
 
       const nextSkillState = syncCurrentSkillWithThread({
@@ -358,31 +333,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
 
       return {
-        threads: upsertThreadSummaryList(state.threads, summary),
-        currentSkill: nextSkillState.currentSkill,
-        isSkillSelectionPending: nextSkillState.isSkillSelectionPending,
+        currentThreadSummary: summary,
+        ...nextSkillState,
       };
     });
   },
 
-  removeThread: (threadId: string) => {
-    set((state) => {
-      const remainingThreads = state.threads.filter((thread) => thread.id !== threadId);
-      const nextState: Partial<ChatState> = {
-        threads: remainingThreads,
-      };
-
-      if (state.threadId === threadId) {
-        nextState.threadId = null;
-        nextState.currentSkill = null;
-        nextState.isSkillSelectionPending = false;
-        nextState.messages = [];
-      }
-
-      const restStatuses = { ...state.threadStatuses };
-      delete restStatuses[threadId];
-      nextState.threadStatuses = restStatuses;
-      return nextState;
+  clearCurrentThread: () => {
+    set({
+      messages: [],
+      ...createCommittedSkillState(null),
+      threadId: null,
+      currentThreadSummary: null,
+      isThreadLoading: false,
     });
   },
 
@@ -417,37 +380,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   startNewThread: () => {
+    get().abortStream();
     set({
       messages: [],
-      currentSkill: null,
-      isSkillSelectionPending: false,
+      ...createCommittedSkillState(null),
       threadId: null,
+      currentThreadSummary: null,
       threadStatuses: {},
+      isThreadLoading: false,
       error: null,
     });
   },
 
   setCurrentSkill: (skill: string | null) => {
-    set({
-      currentSkill: skill,
-      isSkillSelectionPending: true,
+    set((state) => {
+      const nextSkillState = createPendingSkillSelection({
+        skill,
+        threadSkill: state.threadSkill,
+      });
+      if (
+        state.currentSkill === nextSkillState.currentSkill &&
+        state.threadSkill === nextSkillState.threadSkill &&
+        state.activeSkill === nextSkillState.activeSkill &&
+        state.isSkillSelectionPending === nextSkillState.isSkillSelectionPending
+      ) {
+        return state;
+      }
+      return nextSkillState;
     });
   },
 
   clearMessages: () => {
     set({
       messages: [],
-      currentSkill: null,
-      isSkillSelectionPending: false,
+      ...createCommittedSkillState(null),
       threadId: null,
-      threads: [],
+      currentThreadSummary: null,
       threadStatuses: {},
+      isThreadLoading: false,
       error: null,
     });
-  },
-
-  setThreadId: (threadId: string | null) => {
-    set({ threadId });
   },
 }));
 

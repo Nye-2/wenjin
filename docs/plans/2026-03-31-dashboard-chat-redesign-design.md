@@ -1,5 +1,7 @@
 # Dashboard & Chat Redesign + Single Thread Model
 
+> 归档说明: 本文档为历史阶段性计划快照，可能包含已过时路由、线程模型或状态描述。当前实现请以 `docs/product/workspace-current-state.md` 与相关当前契约文档为准。
+
 **Date:** 2026-03-31
 **Status:** Approved
 **Goal:** Redesign dashboard with hero guidance, fix feature icons, simplify chat panel to a one-line status bar, and migrate to a single-thread-per-workspace model.

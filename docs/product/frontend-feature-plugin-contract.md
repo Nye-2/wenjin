@@ -1,8 +1,10 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-03-19
+更新时间: 2026-04-03
 
 本文档定义 workspace 功能插件化渲染的前后端契约，避免前端硬编码 feature 逻辑。
+
+当前产品行为总览见: `docs/product/workspace-current-state.md`
 
 ## 1. Backend Contract
 
@@ -61,7 +63,7 @@
 
 当前 feature 导航采用 chat-only 入口，不再依赖独立 feature slug 页面。
 
-- Canonical entry: `/workspaces/{workspace_id}/chat/new`
+- Canonical entry: `/workspaces/{workspace_id}/chat`
 - 必带 query: `feature=<feature_id>`
 - 可选 query: `skill=<skill_id>` 以及 feature seed params（如 `topic`、`query`、`source_artifact_id`）
 - 前端职责:
@@ -78,7 +80,7 @@
 2. 功能执行后统一进入任务轮询，直到终态。
 3. `TaskFeedbackBanner` 只展示执行状态和错误，不承载最终结果正文。
 4. `WorkspaceResultPanel` 消费标准 view model，容忍结果字段缺失。
-5. feature 卡片、artifact follow-up、activity retry 必须统一落到 `chat/new`，不得重新引入中间 feature slug 页面。
+5. feature 卡片、artifact follow-up、activity retry 必须统一落到 `/chat`，不得重新引入中间 feature slug 页面。
 
 ## 5. Refresh Targets Contract
 

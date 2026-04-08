@@ -112,6 +112,8 @@ class TestWorkspaceFeaturesRouter:
             "figure_generation",
             "compile_export",
         ]
+        assert data["features"][0]["defaultSkillId"] == "deep-research"
+        assert data["features"][3]["defaultSkillId"] == "framework-designer"
 
     def test_get_workspace_features_rejects_other_users_workspace(self):
         """Feature discovery enforces workspace ownership."""

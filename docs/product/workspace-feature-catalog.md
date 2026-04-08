@@ -1,6 +1,6 @@
 # Workspace Feature Catalog
 
-更新时间: 2026-03-25
+更新时间: 2026-04-03
 数据源: `backend/src/workspace_features/registry.py`
 
 ## 1. Canonical Workspace Types

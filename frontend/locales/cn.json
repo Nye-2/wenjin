@@ -30,8 +30,10 @@
   },
   "home": {
     "title": "问津",
-    "subtitle": "从选题调研到成稿交付，在一个工作空间里串起来源、推理、写作、修订与成果沉淀。",
-    "getStarted": "进入工作空间",
+    "heroBadge": "Vibe Writing · Vibe Rewriting",
+    "subtitle": "从选题到写作，再从写作到润色交付——一套系统把学术写作从会话推进到可交付。",
+    "getStarted": "开始写作",
+    "openPrism": "打开主稿台",
     "learnMore": "查看能力",
     "features": {
       "title": "支持的任务类型",
@@ -128,6 +130,24 @@
           "title": "成果驱动",
           "description": "每次对话产出的章节、综述、大纲都作为成果持久保存，可追溯来源，可在后续工作中复用，积累为研究档案。"
         }
+      }
+    },
+    "modes": {
+      "eyebrow": "两种模式，一条链路",
+      "title": "先写出来，再改到位",
+      "writing": {
+        "badge": "Vibe Writing",
+        "product": "Wenjin Workspace",
+        "tagline": "从无到有：AI 引导式写作",
+        "description": "通过自然对话探索研究方向、收集证据、构建结构、迭代成稿。每一步产出都自动沉淀为可复用的研究成果。",
+        "keywords": "对话即工作流 · 阶段感知推进 · 成果自动沉淀"
+      },
+      "rewriting": {
+        "badge": "Vibe Rewriting",
+        "product": "WenjinPrism",
+        "tagline": "从有到精：主稿编辑与交付",
+        "description": "把工作空间的产出导入学术模板，在主稿台上编辑、编译、预览——持续打磨到可交付品质。",
+        "keywords": "学术会议模板 · 编译预览 · 工作空间同步"
       }
     },
     "workspaceTypes": {

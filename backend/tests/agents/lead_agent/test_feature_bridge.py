@@ -5,9 +5,11 @@ from types import SimpleNamespace
 import pytest
 
 from src.agents.lead_agent import feature_bridge
+from src.agents.lead_agent import feature_bridge_intents
 from src.agents.lead_agent.feature_bridge import (
     BridgedChatResponse,
     FeatureIntent,
+    build_confirmation_required_response,
     build_feature_task_completion_card,
     build_feature_task_failure_card,
 )
@@ -306,6 +308,18 @@ def test_build_feature_task_failure_card_exposes_retry_actions() -> None:
     ]
 
 
+def test_build_confirmation_required_response_marks_confirmation_status() -> None:
+    reply = build_confirmation_required_response(
+        feature_id="framework_outline",
+        params={"topic": "LLM planning"},
+    )
+
+    assert reply.metadata["orchestration"]["status"] == "confirmation_required"
+    assert reply.metadata["orchestration"]["feature_id"] == "framework_outline"
+    assert reply.metadata["orchestration"]["params"]["topic"] == "LLM planning"
+    assert "开始吧" in reply.content
+
+
 def test_feature_titles_cover_workspace_registry() -> None:
     for feature in iter_workspace_features():
         assert feature_title(feature.id)
@@ -317,6 +331,9 @@ def test_feature_titles_cover_workspace_registry() -> None:
     [
         ("patent", "生成专利框架", "patent_outline"),
         ("software_copyright", "生成技术说明书", "technical_description"),
+        ("thesis", "开题报告", "opening_research"),
+        ("sci", "大纲", "framework_outline"),
+        ("sci", "这个大纲看起来太散了", None),
         ("proposal", "生成专利框架", None),
     ],
 )
@@ -383,6 +400,104 @@ async def test_opening_research_direct_message_uses_workspace_context() -> None:
     assert intent.feature_id == "opening_research"
     assert intent.params["report_type"] == "opening_report"
     assert intent.params["topic"] == "研究多智能体协同写作的记忆与规划机制"
+
+
+@pytest.mark.asyncio
+async def test_selected_skill_only_autoruns_on_first_turn() -> None:
+    workspace = SimpleNamespace(
+        id="ws-skill-first-turn",
+        type="sci",
+        name="多模态学术助手",
+        description="研究多模态检索与学术写作协同",
+        discipline="computer_science",
+    )
+
+    intent = await feature_bridge._resolve_feature_intent(
+        workspace=workspace,
+        message="多模态检索在学术写作中的应用",
+        selected_skill="framework-designer",
+        thread_message_count=1,
+    )
+
+    assert intent is not None
+    assert intent.feature_id == "framework_outline"
+
+
+@pytest.mark.asyncio
+async def test_selected_skill_does_not_hijack_followup_conversation() -> None:
+    workspace = SimpleNamespace(
+        id="ws-skill-followup",
+        type="sci",
+        name="多模态学术助手",
+        description="研究多模态检索与学术写作协同",
+        discipline="computer_science",
+    )
+
+    intent = await feature_bridge._resolve_feature_intent(
+        workspace=workspace,
+        message="这个大纲看起来太散了，哪里还有问题？",
+        selected_skill="framework-designer",
+        thread_message_count=3,
+    )
+
+    assert intent is None
+
+
+@pytest.mark.asyncio
+async def test_selected_skill_does_not_hijack_first_turn_question() -> None:
+    workspace = SimpleNamespace(
+        id="ws-skill-first-question",
+        type="sci",
+        name="多模态学术助手",
+        description="研究多模态检索与学术写作协同",
+        discipline="computer_science",
+    )
+
+    intent = await feature_bridge._resolve_feature_intent(
+        workspace=workspace,
+        message="写摘要为什么这么难？",
+        selected_skill="framework-designer",
+        thread_message_count=1,
+    )
+
+    assert intent is None
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("请帮我开始大纲设计", True),
+        ("生成论文框架", True),
+        ("写摘要为什么这么难？", False),
+        ("如何做实验设计？", False),
+        ("这个方法为什么有效？", False),
+    ],
+)
+def test_actionable_feature_request_avoids_question_like_messages(
+    message: str,
+    expected: bool,
+) -> None:
+    assert (
+        feature_bridge_intents.message_is_actionable_feature_request(message)
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("多模态检索在学术写作中的应用", True),
+        ("写摘要为什么这么难？", False),
+        ("如何做实验设计？", False),
+        ("请帮我开始大纲设计", False),
+        ("你好，我刚创建了这个工作区，请帮我开始。", False),
+    ],
+)
+def test_topic_seed_detection_distinguishes_topics_from_questions_and_commands(
+    message: str,
+    expected: bool,
+) -> None:
+    assert feature_bridge_intents.message_looks_like_topic_seed(message) is expected
 
 
 @pytest.mark.parametrize(

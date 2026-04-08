@@ -46,6 +46,13 @@ def _is_anthropic_provider(base_url: str, model: str) -> bool:
     return False
 
 
+def _is_minimax_provider(base_url: str, model: str) -> bool:
+    """Determine if the model uses MiniMax's OpenAI-compatible endpoint."""
+    base_url_lower = (base_url or "").lower()
+    model_lower = (model or "").lower()
+    return "minimaxi" in base_url_lower or model_lower.startswith("minimax-")
+
+
 def _supports_reasoning_effort(config: dict[str, Any]) -> bool:
     """Infer whether the model accepts reasoning_effort."""
     if bool(config.get("supports_reasoning_effort", False)):
@@ -176,6 +183,8 @@ def _create_openai_compatible_model(
     }
     if reasoning_effort:
         kwargs["reasoning_effort"] = reasoning_effort
+    if _is_minimax_provider(base_url, model_string):
+        kwargs["extra_body"] = {"reasoning_split": True}
 
     return ChatOpenAI(
         **kwargs,

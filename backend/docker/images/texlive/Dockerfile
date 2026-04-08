@@ -1,7 +1,8 @@
 # TeXLive Docker image for LaTeX compilation
 # Used by Wenjin (问津) execution service for compiling academic papers
 
-FROM ubuntu:22.04
+ARG BASE_IMAGE=docker.m.daocloud.io/library/ubuntu:22.04
+FROM ${BASE_IMAGE}
 
 LABEL maintainer="Wenjin Team"
 LABEL description="TeXLive 2024 for academic paper compilation"
@@ -12,8 +13,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
+# Optional apt source override for faster regional mirrors
+ARG APT_MIRROR=
+
 # Install TeXLive and essential packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN if [ -n "$APT_MIRROR" ]; then \
+      sed -i "s|http://archive.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list && \
+      sed -i "s|http://security.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list; \
+    fi && \
+    apt-get update && apt-get install -y --no-install-recommends \
     # Core TeXLive packages
     texlive-latex-base \
     texlive-latex-extra \

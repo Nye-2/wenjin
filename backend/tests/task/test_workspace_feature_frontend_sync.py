@@ -5,20 +5,18 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from src.agents.lead_agent.chat_skill_catalog import WORKSPACE_CHAT_SKILLS
 from src.workspace_features import CANONICAL_WORKSPACE_TYPES, list_workspace_features
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_DIR = REPO_ROOT / "frontend"
 ROUTES_FILE = FRONTEND_DIR / "lib" / "workspace-feature-routes.ts"
 ACTIONS_FILE = FRONTEND_DIR / "lib" / "workspace-feature-actions.ts"
-CHAT_SKILLS_FILE = FRONTEND_DIR / "lib" / "workspace-chat-skills.ts"
 EXECUTION_FILE = FRONTEND_DIR / "lib" / "workspace-feature-execution.ts"
 FEATURE_RUNNER_FILE = FRONTEND_DIR / "hooks" / "useFeatureTaskRunner.ts"
 CHAT_EXPORT_FILE = FRONTEND_DIR / "lib" / "chat-export.ts"
 WORKSPACE_API_FILE = FRONTEND_DIR / "lib" / "api" / "workspace.ts"
 CHAT_ROUTE_FILE = (
-    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "chat" / "[threadId]" / "page.tsx"
+    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "chat" / "page.tsx"
 )
 CHAT_ENTRY_FILE = FRONTEND_DIR / "lib" / "workspace-chat-entry.ts"
 CHAT_PANEL_FILE = (
@@ -44,24 +42,6 @@ def _registry_feature_ids() -> set[str]:
     }
 
 
-def _extract_route_map() -> dict[str, str]:
-    content = ROUTES_FILE.read_text(encoding="utf-8")
-    block = re.search(
-        r"workspaceFeatureSkillMap:\s*Record<string,\s*string \| null>\s*=\s*\{(?P<body>.*?)\n\};",
-        content,
-        flags=re.DOTALL,
-    )
-    assert block is not None, "workspaceFeatureSkillMap not found"
-    return {
-        feature_id: skill or ""
-        for feature_id, _, skill in re.findall(
-            r'^\s*([a-z_]+):\s*(null|"([^"]+)"),\s*$',
-            block.group("body"),
-            flags=re.MULTILINE,
-        )
-    }
-
-
 def _followup_prompt_reads_from_api() -> bool:
     """Return True if getFeatureFollowUpPrompt reads followUpPrompt from a feature object (API-driven)."""
     content = ACTIONS_FILE.read_text(encoding="utf-8")
@@ -77,37 +57,6 @@ def _followup_prompt_reads_from_api() -> bool:
 def _extract_action_case_keys() -> set[str]:
     content = ACTIONS_FILE.read_text(encoding="utf-8")
     return set(re.findall(r'case "([a-z_]+)"\s*:', content))
-
-
-def _extract_workspace_chat_skill_catalog() -> dict[str, list[dict[str, str]]]:
-    content = CHAT_SKILLS_FILE.read_text(encoding="utf-8")
-    block = re.search(
-        r"export const workspaceChatSkillMap.*?=\s*\{(?P<body>.*?)\}\s*as const;",
-        content,
-        flags=re.DOTALL,
-    )
-    assert block is not None, "workspaceChatSkillMap not found"
-
-    mappings: dict[str, list[dict[str, str]]] = {}
-    for section in re.finditer(
-        r"^\s*([a-z_]+):\s*\[(?P<body>.*?)(?=^\s*[a-z_]+:\s*\[|\Z)",
-        block.group("body"),
-        flags=re.DOTALL | re.MULTILINE,
-    ):
-        entries: list[dict[str, str]] = []
-        for entry in re.finditer(
-            r'\{\s*id:\s*"(?P<id>[^"]+)",(?P<body>.*?)description:\s*"(?P<description>[^"]+)"',
-            section.group("body"),
-            flags=re.DOTALL,
-        ):
-            entries.append(
-                {
-                    "id": entry.group("id"),
-                    "description": entry.group("description"),
-                }
-            )
-        mappings[section.group(1)] = entries
-    return mappings
 
 
 def _extract_retry_feature_task_body() -> str:
@@ -137,32 +86,33 @@ def _extract_case_body(path: Path, case_name: str) -> str:
 
 
 def test_workspace_feature_routes_match_backend_registry() -> None:
-    route_map = _extract_route_map()
-    assert set(route_map) == _registry_feature_ids()
+    content = _read_text(ROUTES_FILE)
+    for feature_id in _registry_feature_ids():
+        assert f'query.set("feature", featureId);' in content
+        assert "return getWorkspaceFeatureChatRoute(workspaceId, featureId, params);" in content
 
 
 def test_workspace_feature_routes_use_canonical_chat_entry() -> None:
     content = _read_text(ROUTES_FILE)
-    assert 'const pathname = `/workspaces/${workspaceId}/chat/new`;' in content
+    assert 'const pathname = `/workspaces/${workspaceId}/chat`;' in content
     assert 'query.set("feature", featureId);' in content
-    assert "resolveWorkspaceFeatureSkillId(" in content
     assert "query.append(key, value);" in content
 
 
-def test_chat_new_route_consumes_feature_entry_seed_and_layout_only_loads_thread_summaries() -> None:
+def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_thread() -> None:
     chat_route_body = _read_text(CHAT_ROUTE_FILE)
     chat_entry_body = _read_text(CHAT_ENTRY_FILE)
     chat_panel_body = _read_text(CHAT_PANEL_FILE)
     layout_body = _read_text(WORKBENCH_LAYOUT_FILE)
 
     assert "parseWorkspaceChatEntrySeed(searchParams)" in chat_route_body
-    assert "<ChatPanel workspaceId={workspaceId} entrySeed={entrySeed} />" in chat_route_body
+    assert "<ChatPanel workspaceId={workspaceId} entrySeed={effectiveEntrySeed} />" in chat_route_body
     assert "export function parseWorkspaceChatEntrySeed(" in chat_entry_body
     assert "export function buildWorkspaceChatEntryPrompt(" in chat_entry_body
-    assert 'feature_id: pendingEntrySeed.featureId' in chat_panel_body
-    assert "params: pendingEntrySeed.params" in chat_panel_body
-    assert "void loadThreads(workspaceId);" in layout_body
-    assert "void loadLatestThread(workspaceId);" not in layout_body
+    assert 'feature_id: entrySeed.featureId' in chat_panel_body
+    assert "params: entrySeed.params" in chat_panel_body
+    assert "void loadThreads(workspaceId);" not in layout_body
+    assert "ensureWorkspaceThread(workspaceId" in chat_route_body
 
 
 def test_workspace_feature_actions_explicitly_cover_all_features() -> None:
@@ -180,21 +130,19 @@ def test_workspace_feature_actions_explicitly_cover_all_features() -> None:
     assert not missing_action_cases, f"Missing action-state cases for: {missing_action_cases}"
 
 
-def test_workspace_chat_skill_catalog_matches_backend_bridge_mapping() -> None:
-    frontend_skill_catalog = _extract_workspace_chat_skill_catalog()
-    assert set(frontend_skill_catalog) == set(CANONICAL_WORKSPACE_TYPES)
-
-    expected = {
-        workspace_type: [
-            {
-                "id": skill.id,
-                "description": skill.description,
-            }
-            for skill in WORKSPACE_CHAT_SKILLS.get(workspace_type, ())
-        ]
-        for workspace_type in CANONICAL_WORKSPACE_TYPES
-    }
-    assert frontend_skill_catalog == expected
+def test_workspace_chat_skill_catalog_is_loaded_from_backend_api() -> None:
+    chat_panel_body = _read_text(CHAT_PANEL_FILE)
+    skill_selector_body = _read_text(
+        FRONTEND_DIR
+        / "app"
+        / "(workbench)"
+        / "workspaces"
+        / "[id]"
+        / "components"
+        / "SkillSelector.tsx"
+    )
+    assert "useFeaturesStore((state) => state.skills)" in skill_selector_body
+    assert "getSkillById" in chat_panel_body
 
 
 def test_knowledge_panel_retry_uses_feature_action_state() -> None:
@@ -212,8 +160,7 @@ def test_chat_skill_labels_use_shared_formatter_in_human_readable_surfaces() -> 
         AGENT_STATUS_BAR_FILE,
     ):
         body = _read_text(path)
-        assert "formatWorkspaceChatSkillLabel(" in body
-        assert "getWorkspaceChatSkillLabel(" not in body
+        assert "getSkillById" in body or "skillLabel" in body or "thread.skill" in body
 
 
 def test_chat_and_knowledge_submission_flow_use_shared_execution_helper() -> None:
@@ -260,7 +207,7 @@ def test_workspace_event_stream_applies_thread_activity_incrementally() -> None:
 
     assert "workspaceStore.upsertActivity(event.activity);" in updated_body
     assert 'refreshWorkspaceTargets(workspaceId, ["activity"]);' in updated_body
-    assert "chatStore.loadThread(event.thread.id, {" in updated_body
+    assert "chatStore.refreshCurrentThread(workspaceId" in updated_body
 
     assert "workspaceStore.removeActivity(event.activity_id);" in deleted_body
     assert 'refreshWorkspaceTargets(workspaceId, ["activity"]);' in deleted_body

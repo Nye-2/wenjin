@@ -86,6 +86,24 @@ class ChatThreadService:
             return None
         return thread
 
+    async def get_latest_workspace_thread(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+    ) -> ChatThread | None:
+        """Fetch the most recently updated thread for a workspace owned by the user."""
+        result = await self.db.execute(
+            select(self._model)
+            .where(
+                self._model.user_id == user_id,
+                self._model.workspace_id == workspace_id,
+            )
+            .order_by(self._model.updated_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def get_or_create_thread(
         self,
         *,
@@ -109,6 +127,25 @@ class ChatThreadService:
                 if workspace_id and not thread.workspace_id:
                     thread.workspace_id = workspace_id
                     needs_update = True
+                if resolved_model and thread.model != resolved_model:
+                    thread.model = resolved_model
+                    needs_update = True
+                if skill_explicit and thread.skill != resolved_skill:
+                    thread.skill = resolved_skill
+                    needs_update = True
+                if needs_update:
+                    thread.updated_at = datetime.now(UTC)
+                    await self.db.commit()
+                    await self.db.refresh(thread)
+                return thread
+
+        if workspace_id:
+            thread = await self.get_latest_workspace_thread(
+                user_id=user_id,
+                workspace_id=workspace_id,
+            )
+            if thread is not None:
+                needs_update = False
                 if resolved_model and thread.model != resolved_model:
                     thread.model = resolved_model
                     needs_update = True

@@ -20,6 +20,7 @@ from src.database import get_db_session
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
 from src.services.literature_service import LiteratureService
+from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     advance_runtime_phase,
@@ -469,7 +470,7 @@ async def build_framework_outline_payload(
         paper_title=resolved_title,
         topic=resolved_topic,
     )
-    return {
+    result = {
         "schema_version": SCI_SCHEMA_VERSION,
         "document_type": ArtifactType.FRAMEWORK_OUTLINE.value,
         "output_language": SCI_OUTPUT_LANGUAGE,
@@ -486,6 +487,29 @@ async def build_framework_outline_payload(
         "generation_error": generation_error,
         "generation_mode": "llm" if llm_result is not None else "template",
     }
+    try:
+        async with get_db_session() as db:
+            bridge_service = WorkspaceLatexProjectService(db)
+            linked_project, section_map = await bridge_service.sync_sci_outline_project(
+                workspace_id=workspace_id,
+                paper_title=resolved_title,
+                abstract=str(result.get("abstract") or "").strip(),
+                keywords=result.get("keywords") if isinstance(result.get("keywords"), list) else [],
+                sections=result.get("sections") if isinstance(result.get("sections"), list) else [],
+            )
+            result["latex_project_id"] = str(linked_project.id)
+            result["main_file"] = linked_project.main_file
+            result["section_map"] = section_map
+            linked_metadata = (
+                linked_project.llm_config.get("metadata")
+                if isinstance(linked_project.llm_config, dict)
+                else {}
+            )
+            if isinstance(linked_metadata, dict):
+                result["sync_conflicts"] = linked_metadata.get("sync_conflicts", [])
+    except Exception:
+        logger.exception("Failed to sync SCI framework outline into linked latex project")
+    return result
 
 
 def _build_peer_review_template(
@@ -1433,7 +1457,7 @@ async def build_sci_writing_payload(
             stage_transition=True,
         )
 
-    return {
+    result = {
         "schema_version": SCI_SCHEMA_VERSION,
         "document_type": ArtifactType.PAPER_DRAFT.value,
         "output_language": SCI_OUTPUT_LANGUAGE,
@@ -1455,3 +1479,27 @@ async def build_sci_writing_payload(
         "model_id": model_id,
         "generation_error": None,
     }
+    try:
+        async with get_db_session() as db:
+            bridge_service = WorkspaceLatexProjectService(db)
+            linked_project, section_file, section_map = await bridge_service.sync_sci_section_draft(
+                workspace_id=workspace_id,
+                paper_title=resolved_title,
+                section_type=normalized_section_type,
+                section_title=section_title or _resolve_section_title(normalized_section_type),
+                content=draft_content,
+            )
+            result["latex_project_id"] = str(linked_project.id)
+            result["main_file"] = linked_project.main_file
+            result["section_file"] = section_file
+            result["section_map"] = section_map
+            linked_metadata = (
+                linked_project.llm_config.get("metadata")
+                if isinstance(linked_project.llm_config, dict)
+                else {}
+            )
+            if isinstance(linked_metadata, dict):
+                result["sync_conflicts"] = linked_metadata.get("sync_conflicts", [])
+    except Exception:
+        logger.exception("Failed to sync SCI writing result into linked latex project")
+    return result

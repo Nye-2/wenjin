@@ -3,6 +3,12 @@
 export { QuickActions } from "./QuickActions";
 export { AgentStatusBar } from "./AgentStatusBar";
 export { ArtifactLibrary } from "./ArtifactLibrary";
+export { CompileFeatureButton } from "./CompileFeatureButton";
+export { ImportLiteratureButton } from "./ImportLiteratureButton";
+export { PanelActionBar } from "./PanelActionBar";
+export { PanelSection } from "./PanelSection";
+export { PanelTabBar } from "./PanelTabBar";
+export { SaveArtifactButton } from "./SaveArtifactButton";
 export { TaskFeedbackBanner } from "./TaskFeedbackBanner";
 export { TaskRuntimePanel } from "./TaskRuntimePanel";
 export { TaskSummaryStrip } from "./TaskSummaryStrip";

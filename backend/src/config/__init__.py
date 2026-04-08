@@ -4,6 +4,7 @@ from .app_config import (
     AppConfig,
     CelerySettings,
     JWTSettings,
+    LayoutParsingSettings,
     PrometheusSettings,
     RedisSettings,
     SentrySettings,
@@ -11,31 +12,19 @@ from .app_config import (
     celery_settings,
     get_celery_settings,
     get_jwt_settings,
+    get_layout_parsing_settings,
     get_prometheus_settings,
     get_redis_settings,
     get_sentry_settings,
     get_settings,
     get_smtp_settings,
     jwt_settings,
+    layout_parsing_settings,
     prometheus_settings,
     redis_settings,
     sentry_settings,
     settings,
     smtp_settings,
-)
-from .llm_config import (
-    LLMSettings,
-    ModelConfig,
-    get_all_models,
-    get_default_model_id,
-    get_gen_models,
-    get_image_models,
-    get_model_config,
-    get_model_full_config,
-    resolve_model_id,
-    get_tool_models,
-    get_utility_models,
-    reload_models,
 )
 from .extensions_config import (
     ExtensionsConfig,
@@ -47,6 +36,20 @@ from .extensions_config import (
     reload_extensions_config,
     reset_extensions_config,
     set_extensions_config,
+)
+from .llm_config import (
+    LLMSettings,
+    ModelConfig,
+    get_all_models,
+    get_default_model_id,
+    get_gen_models,
+    get_image_models,
+    get_model_config,
+    get_model_full_config,
+    get_tool_models,
+    get_utility_models,
+    reload_models,
+    resolve_model_id,
 )
 from .task_config import TaskSettings, task_settings
 
@@ -79,6 +82,10 @@ __all__ = [
     "smtp_settings",
     "SMTPSettings",
     "get_smtp_settings",
+    # Layout parsing
+    "layout_parsing_settings",
+    "LayoutParsingSettings",
+    "get_layout_parsing_settings",
     # LLM
     "LLMSettings",
     "ModelConfig",

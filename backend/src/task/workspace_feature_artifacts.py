@@ -86,13 +86,42 @@ def _build_compile_export_artifacts(
     feature_id: str, workspace_name: str, workspace_type: str, result: dict
 ) -> list:
     title_prefix = workspace_name or "未命名工作区"
-    return [
+    drafts = []
+    latex_content = str(result.get("latex_content") or "").strip()
+    bib_content = str(result.get("bib_content") or "").strip()
+    if latex_content:
+        drafts.append(
+            {
+                "type": ArtifactType.LATEX_PROJECT.value,
+                "title": f"{title_prefix} - 论文主稿 LaTeX",
+                "content": {
+                    "schema_version": "v2",
+                    "latex_project_id": result.get("latex_project_id"),
+                    "main_file": str(result.get("main_file") or "main.tex"),
+                    "pdf_endpoint": result.get("pdf_endpoint"),
+                    "pdf_url": result.get("pdf_url"),
+                    "paper_title": str(result.get("paper_title") or title_prefix),
+                    "main_tex": latex_content,
+                    "bib_tex": bib_content,
+                    "compiler": result.get("compiler"),
+                    "template": result.get("template"),
+                    "source_summary": (
+                        result.get("source_summary")
+                        if isinstance(result.get("source_summary"), dict)
+                        else {}
+                    ),
+                },
+            }
+        )
+
+    drafts.append(
         {
             "type": ArtifactType.PAPER_DRAFT.value,
             "title": f"{title_prefix} - 编译预检结果",
             "content": result,
         }
-    ]
+    )
+    return drafts
 
 
 @_register("deep_research")
@@ -325,13 +354,32 @@ def _build_framework_outline_artifacts(
     feature_id: str, workspace_name: str, workspace_type: str, result: dict
 ) -> list:
     title_prefix = workspace_name or "未命名工作区"
-    return [
+    drafts = [
         {
             "type": ArtifactType.FRAMEWORK_OUTLINE.value,
             "title": f"{title_prefix} - Framework Outline",
             "content": result,
         }
     ]
+    latex_project_id = str(result.get("latex_project_id") or "").strip()
+    if latex_project_id:
+        drafts.append(
+            {
+                "type": ArtifactType.LATEX_PROJECT.value,
+                "title": f"{title_prefix} - SCI LaTeX Project",
+                "content": {
+                    "schema_version": "v2",
+                    "latex_project_id": latex_project_id,
+                    "main_file": str(result.get("main_file") or "main.tex"),
+                    "paper_title": str(result.get("paper_title") or title_prefix),
+                    "abstract": result.get("abstract"),
+                    "keywords": result.get("keywords") if isinstance(result.get("keywords"), list) else [],
+                    "section_map": result.get("section_map") if isinstance(result.get("section_map"), dict) else {},
+                    "source_artifact_type": ArtifactType.FRAMEWORK_OUTLINE.value,
+                },
+            }
+        )
+    return drafts
 
 
 @_register("peer_review")
@@ -371,13 +419,29 @@ def _build_patent_outline_artifacts(
     feature_id: str, workspace_name: str, workspace_type: str, result: dict
 ) -> list:
     title_prefix = workspace_name or "未命名工作区"
-    return [
+    drafts = [
         {
             "type": ArtifactType.PATENT_OUTLINE.value,
             "title": f"{title_prefix} - 专利说明书框架",
             "content": result,
         }
     ]
+    latex_project_id = str(result.get("latex_project_id") or "").strip()
+    if latex_project_id:
+        drafts.append(
+            {
+                "type": ArtifactType.LATEX_PROJECT.value,
+                "title": f"{title_prefix} - Patent LaTeX Project",
+                "content": {
+                    "schema_version": "v2",
+                    "latex_project_id": latex_project_id,
+                    "main_file": str(result.get("main_file") or "main.tex"),
+                    "section_map": result.get("section_map") if isinstance(result.get("section_map"), dict) else {},
+                    "source_artifact_type": ArtifactType.PATENT_OUTLINE.value,
+                },
+            }
+        )
+    return drafts
 
 
 @_register("prior_art_search")
@@ -403,13 +467,30 @@ def _build_proposal_outline_artifacts(
     feature_id: str, workspace_name: str, workspace_type: str, result: dict
 ) -> list:
     title_prefix = workspace_name or "未命名工作区"
-    return [
+    drafts = [
         {
             "type": ArtifactType.PROPOSAL.value,
             "title": f"{title_prefix} - 申报书大纲",
             "content": result,
         }
     ]
+    latex_project_id = str(result.get("latex_project_id") or "").strip()
+    if latex_project_id:
+        drafts.append(
+            {
+                "type": ArtifactType.LATEX_PROJECT.value,
+                "title": f"{title_prefix} - Proposal LaTeX Project",
+                "content": {
+                    "schema_version": "v2",
+                    "latex_project_id": latex_project_id,
+                    "main_file": str(result.get("main_file") or "main.tex"),
+                    "project_title": str(result.get("topic") or title_prefix),
+                    "section_map": result.get("section_map") if isinstance(result.get("section_map"), dict) else {},
+                    "source_artifact_type": ArtifactType.PROPOSAL.value,
+                },
+            }
+        )
+    return drafts
 
 
 @_register("background_research")
@@ -449,7 +530,7 @@ def _build_copyright_materials_artifacts(
     feature_id: str, workspace_name: str, workspace_type: str, result: dict
 ) -> list:
     title_prefix = workspace_name or "未命名工作区"
-    return [
+    drafts = [
         {
             "type": ArtifactType.COPYRIGHT_MATERIALS.value,
             "title": (
@@ -459,6 +540,23 @@ def _build_copyright_materials_artifacts(
             "content": result,
         }
     ]
+    latex_project_id = str(result.get("latex_project_id") or "").strip()
+    if latex_project_id:
+        drafts.append(
+            {
+                "type": ArtifactType.LATEX_PROJECT.value,
+                "title": f"{title_prefix} - Copyright Materials LaTeX Project",
+                "content": {
+                    "schema_version": "v2",
+                    "latex_project_id": latex_project_id,
+                    "main_file": str(result.get("main_file") or "main.tex"),
+                    "section_file": result.get("section_file"),
+                    "section_map": result.get("section_map") if isinstance(result.get("section_map"), dict) else {},
+                    "source_artifact_type": ArtifactType.COPYRIGHT_MATERIALS.value,
+                },
+            }
+        )
+    return drafts
 
 
 @_register("technical_description")
@@ -466,13 +564,30 @@ def _build_technical_description_artifacts(
     feature_id: str, workspace_name: str, workspace_type: str, result: dict
 ) -> list:
     title_prefix = workspace_name or "未命名工作区"
-    return [
+    drafts = [
         {
             "type": ArtifactType.TECHNICAL_DESCRIPTION.value,
             "title": f"{title_prefix} - 技术说明书",
             "content": result,
         }
     ]
+    latex_project_id = str(result.get("latex_project_id") or "").strip()
+    if latex_project_id:
+        drafts.append(
+            {
+                "type": ArtifactType.LATEX_PROJECT.value,
+                "title": f"{title_prefix} - Technical Description LaTeX Project",
+                "content": {
+                    "schema_version": "v2",
+                    "latex_project_id": latex_project_id,
+                    "main_file": str(result.get("main_file") or "main.tex"),
+                    "section_map": result.get("section_map") if isinstance(result.get("section_map"), dict) else {},
+                    "sync_conflicts": result.get("sync_conflicts") if isinstance(result.get("sync_conflicts"), list) else [],
+                    "source_artifact_type": ArtifactType.TECHNICAL_DESCRIPTION.value,
+                },
+            }
+        )
+    return drafts
 
 
 # ---------------------------------------------------------------------------

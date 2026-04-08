@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef } from "react";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { ChatPanel } from "../components/ChatPanel";
@@ -10,13 +10,23 @@ import { WorkspaceInspector } from "../components/WorkspaceInspector";
 
 function ChatPageInner() {
   const { id: workspaceId } = useParams<{ id: string }>();
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamString = searchParams.toString();
   const skillFromUrl = searchParams.get("skill");
   const entrySeed = parseWorkspaceChatEntrySeed(searchParams);
   const isOnboarding = searchParams.get("onboarding") === "true";
 
   const { workspace } = useWorkspaceStore();
-  const { loadThread, startNewThread, setCurrentSkill } = useChatStore();
+  const {
+    isWorkspaceThreadLoading,
+    activeSkill,
+    ensureWorkspaceThread,
+    setCurrentSkill,
+  } = useChatStore();
+  const initializedSelectionRef = useRef<string | null>(null);
+  const cleanedQueryKeyRef = useRef<string | null>(null);
 
   const effectiveEntrySeed = entrySeed ?? (isOnboarding && workspace ? {
     featureId: "__onboarding__",
@@ -25,18 +35,87 @@ function ChatPageInner() {
   } : null);
 
   useEffect(() => {
-    // Single thread model: load existing thread or start new
-    const threads = useChatStore.getState().threads;
-    if (threads.length > 0) {
-      void loadThread(threads[0].id);
-    } else {
-      startNewThread();
+    if (!workspaceId || isWorkspaceThreadLoading) {
+      return;
     }
-    if (skillFromUrl) {
+    const selectionKey = `${workspaceId}:__single_thread__`;
+    if (initializedSelectionRef.current === selectionKey) {
+      return;
+    }
+
+    if (skillFromUrl && skillFromUrl !== activeSkill) {
       setCurrentSkill(skillFromUrl);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]);
+
+    let cancelled = false;
+
+    const initialize = async () => {
+      initializedSelectionRef.current = selectionKey;
+      await ensureWorkspaceThread(workspaceId, {
+        skill: skillFromUrl,
+      });
+      if (cancelled) {
+        return;
+      }
+    };
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSkill,
+    ensureWorkspaceThread,
+    isWorkspaceThreadLoading,
+    setCurrentSkill,
+    skillFromUrl,
+    workspaceId,
+  ]);
+
+  useEffect(() => {
+    if (!workspaceId || isWorkspaceThreadLoading) {
+      return;
+    }
+    const selectionKey = `${workspaceId}:__single_thread__`;
+    if (initializedSelectionRef.current !== selectionKey) {
+      return;
+    }
+
+    if (!searchParamString.includes("thread=")) {
+      return;
+    }
+
+    const cleanKey = `${workspaceId}:${searchParamString}`;
+    if (cleanedQueryKeyRef.current === cleanKey) {
+      return;
+    }
+
+    const nextParams = new URLSearchParams(searchParamString);
+    if (nextParams.has("thread")) {
+      nextParams.delete("thread");
+    } else {
+      return;
+    }
+
+    const nextQuery = nextParams.toString();
+    const currentUrl = searchParamString ? `${pathname}?${searchParamString}` : pathname;
+    const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+    if (nextUrl === currentUrl) {
+      return;
+    }
+
+    cleanedQueryKeyRef.current = cleanKey;
+    router.replace(nextUrl, {
+      scroll: false,
+    });
+  }, [
+    isWorkspaceThreadLoading,
+    pathname,
+    router,
+    searchParamString,
+    workspaceId,
+  ]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden p-4 sm:p-6 atmosphere-mesh">

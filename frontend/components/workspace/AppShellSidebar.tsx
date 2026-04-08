@@ -3,15 +3,18 @@
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   LayoutDashboard,
+  Loader2,
   MessageSquare,
 } from "lucide-react";
+import { groupFeaturePanelSessions, useFeaturePanelStore } from "@/stores/panels";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useI18n } from "@/components/i18n-provider";
 import { cn } from "@/lib/utils";
-import { workspaceStages } from "@/lib/workspace-feature-stages";
 
 interface AppShellSidebarProps {
   workspaceId: string;
@@ -19,16 +22,104 @@ interface AppShellSidebarProps {
   onToggleCollapse?: () => void;
 }
 
-function inferSuggestedStageIndex({
-  pathname,
-  artifactsCount,
+function sessionStatusTone(status: string) {
+  if (status === "running" || status === "pending") {
+    return "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]";
+  }
+  if (status === "success") {
+    return "bg-emerald-500/10 text-emerald-700";
+  }
+  if (status === "failed") {
+    return "bg-red-500/10 text-red-700";
+  }
+  return "bg-[var(--bg-surface)] text-[var(--text-muted)]";
+}
+
+function SessionGroup({
+  title,
+  sessions,
+  activeSessionId,
+  onOpenSession,
 }: {
-  pathname: string;
-  artifactsCount: number;
+  title: string;
+  sessions: Array<{
+    taskId: string;
+    title: string;
+    status: string;
+    updatedAt: string;
+    message: string | null;
+  }>;
+  activeSessionId: string | null;
+  onOpenSession: (taskId: string) => void;
 }) {
-  if (pathname.includes("/chat")) return 3;
-  if (artifactsCount > 0) return 2;
-  return 0;
+  if (sessions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between px-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+          {title}
+        </p>
+        <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
+          {sessions.length}
+        </span>
+      </div>
+      {sessions.map((session) => {
+        const isActive = activeSessionId === session.taskId;
+        const isWorking = session.status === "running" || session.status === "pending";
+        return (
+          <button
+            key={session.taskId}
+            type="button"
+            onClick={() => onOpenSession(session.taskId)}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-[var(--bg-surface)]",
+              isActive && "bg-[rgba(166,124,57,0.06)]"
+            )}
+          >
+            <div
+              className={cn(
+                "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+                sessionStatusTone(session.status)
+              )}
+            >
+              {isWorking ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <BriefcaseBusiness className="h-3.5 w-3.5" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p
+                className={cn(
+                  "truncate text-sm",
+                  isActive
+                    ? "font-medium text-[var(--text-primary)]"
+                    : "text-[var(--text-secondary)]"
+                )}
+              >
+                {session.title}
+              </p>
+              <p className="truncate text-[11px] text-[var(--text-muted)]">
+                {session.message ||
+                  `最近更新 ${new Date(session.updatedAt).toLocaleTimeString("zh-CN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`}
+              </p>
+            </div>
+            {isActive ? (
+              <span className="ml-auto rounded-full bg-[rgba(166,124,57,0.1)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--brand-brass)]">
+                当前
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export function AppShellSidebar({
@@ -41,10 +132,18 @@ export function AppShellSidebar({
   const { t } = useI18n();
 
   const workspace = useWorkspaceStore((state) => state.workspace);
-  const artifacts = useWorkspaceStore((state) => state.artifacts);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const workspacePanels = useFeaturePanelStore(
+    (state) => state.byWorkspace[workspaceId] ?? { activeSessionId: null, sessions: [] }
+  );
+  const setActiveSession = useFeaturePanelStore((state) => state.setActiveSession);
+  const groupedSessions = groupFeaturePanelSessions(workspacePanels.sessions);
+  const primarySession =
+    workspacePanels.activeSessionId
+      ? workspacePanels.sessions.find((session) => session.taskId === workspacePanels.activeSessionId) ?? workspacePanels.sessions[0]
+      : workspacePanels.sessions[0];
 
-  const isOnChat = pathname.includes("/chat/");
+  const isOnChat = pathname.startsWith(`/workspaces/${workspaceId}/chat`);
   const isOnDashboard = pathname === `/workspaces/${workspaceId}`;
 
   const workspaceSnapshot =
@@ -57,20 +156,11 @@ export function AppShellSidebar({
     ? workspaceSnapshot.discipline.replace(/_/g, " ")
     : null;
 
-  const suggestedStageIndex = inferSuggestedStageIndex({
-    pathname,
-    artifactsCount: artifacts.length,
-  });
-
   const goToDashboard = () => router.push(`/workspaces/${workspaceId}`);
   const goToChat = () => router.push(`/workspaces/${workspaceId}/chat`);
-  const handleStageClick = (stageIndex: number) => {
-    if (isOnDashboard) {
-      const el = document.getElementById(`stage-${workspaceStages[stageIndex].id}`);
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-    } else {
-      router.push(`/workspaces/${workspaceId}#stage-${workspaceStages[stageIndex].id}`);
-    }
+  const handleOpenSession = (taskId: string) => {
+    setActiveSession(workspaceId, taskId);
+    router.push(`/workspaces/${workspaceId}/chat`);
   };
 
   if (collapsed) {
@@ -150,59 +240,42 @@ export function AppShellSidebar({
         </div>
       </div>
 
-      {/* Stage stepper — compact, clickable */}
+      {/* Work sessions */}
       <div className="border-b border-[var(--border-default)] px-4 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
-          工作阶段
+          工作面
         </p>
-        <div className="mt-2.5 space-y-1">
-          {workspaceStages.map((stage, index) => {
-            const isCurrent = index === suggestedStageIndex;
-            const isPast = index < suggestedStageIndex;
-            return (
-              <button
-                key={stage.id}
-                type="button"
-                onClick={() => handleStageClick(index)}
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left transition-colors hover:bg-[var(--bg-surface)]",
-                  isCurrent && "bg-[rgba(166,124,57,0.06)]"
-                )}
-              >
-                <div
-                  className={cn(
-                    "h-2.5 w-2.5 shrink-0 rounded-full border",
-                    isCurrent
-                      ? "border-[var(--brand-brass)] bg-[var(--brand-brass)]"
-                      : isPast
-                        ? "border-[var(--brand-teal)] bg-[var(--brand-teal)]"
-                        : "border-[var(--border-default)] bg-white"
-                  )}
-                />
-                <span
-                  className={cn(
-                    "text-sm",
-                    isCurrent
-                      ? "font-medium text-[var(--text-primary)]"
-                      : isPast
-                        ? "text-[var(--text-secondary)]"
-                        : "text-[var(--text-muted)]"
-                  )}
-                >
-                  {stage.title}
-                </span>
-                {isCurrent && (
-                  <span className="ml-auto rounded-full bg-[rgba(166,124,57,0.1)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--brand-brass)]">
-                    当前
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {workspacePanels.sessions.length > 0 ? (
+          <div className="mt-2.5 space-y-3">
+            <SessionGroup
+              title="进行中"
+              sessions={groupedSessions.active}
+              activeSessionId={workspacePanels.activeSessionId}
+              onOpenSession={handleOpenSession}
+            />
+            <SessionGroup
+              title="最近完成"
+              sessions={groupedSessions.recent}
+              activeSessionId={workspacePanels.activeSessionId}
+              onOpenSession={handleOpenSession}
+            />
+            <SessionGroup
+              title="更早记录"
+              sessions={groupedSessions.completed}
+              activeSessionId={workspacePanels.activeSessionId}
+              onOpenSession={handleOpenSession}
+            />
+          </div>
+        ) : (
+          <div className="mt-3 rounded-2xl border border-dashed border-[var(--border-default)] bg-white/70 px-3 py-3">
+            <p className="text-xs text-[var(--text-secondary)]">
+              当前还没有进行中的工作面。先在对话里描述任务，问津会创建并打开对应工作面。
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Work entries — compact */}
+      {/* Navigation */}
       <div className="border-b border-[var(--border-default)] px-4 py-3">
         <div className="flex gap-2">
           <button
@@ -229,6 +302,24 @@ export function AppShellSidebar({
             <LayoutDashboard className="h-3.5 w-3.5" />
             总览
           </button>
+        </div>
+      </div>
+
+      <div className="border-b border-[var(--border-default)] px-4 py-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
+          主线状态
+        </p>
+        <div className="mt-2.5 flex items-start gap-2.5 rounded-xl bg-white/72 px-3 py-3">
+          <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand-brass)]" />
+          <div>
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              {primarySession?.title || "等待新的工作"}
+            </p>
+            <p className="mt-1 text-[11px] leading-5 text-[var(--text-muted)]">
+              {primarySession?.description ||
+                "当前没有进行中的工作。进入对话后，问津会先确认需求，再安排下一步。"}
+            </p>
+          </div>
         </div>
       </div>
 

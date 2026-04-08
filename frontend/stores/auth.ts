@@ -2,11 +2,17 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { API_BASE_URL } from '@/lib/api-base';
 
+const AUTH_STORAGE_KEY = 'auth-storage';
+const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+
 interface User {
   id: string;
   email: string;
   name: string;
   role: string;
+  credits?: number;
+  total_credits_earned?: number;
+  total_credits_spent?: number;
 }
 
 interface AuthState {
@@ -26,6 +32,31 @@ interface AuthState {
   setUser: (user: User) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
   clearError: () => void;
+}
+
+function syncAuthCookie(
+  state:
+    | Pick<AuthState, 'isAuthenticated'>
+    | null
+    | undefined
+) {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  if (!state?.isAuthenticated) {
+    document.cookie = `${AUTH_STORAGE_KEY}=; Path=/; Max-Age=0; SameSite=Lax`;
+    return;
+  }
+
+  const payload = encodeURIComponent(
+    JSON.stringify({
+      state: {
+        isAuthenticated: true,
+      },
+    })
+  );
+  document.cookie = `${AUTH_STORAGE_KEY}=${payload}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
 }
 
 async function parseErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -88,7 +119,7 @@ export const useAuthStore = create<AuthState>()(
             },
           });
 
-          let user = {
+          let user: User = {
             id: 'unknown',
             email: email,
             name: email.split('@')[0],
@@ -102,6 +133,9 @@ export const useAuthStore = create<AuthState>()(
               email: userData.email,
               name: userData.name || email.split('@')[0],
               role: userData.role,
+              credits: userData.credits,
+              total_credits_earned: userData.total_credits_earned,
+              total_credits_spent: userData.total_credits_spent,
             };
           }
 
@@ -112,6 +146,7 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true,
             isLoading: false,
           });
+          syncAuthCookie({ isAuthenticated: true });
 
           return true;
         } catch (error) {
@@ -119,6 +154,7 @@ export const useAuthStore = create<AuthState>()(
             error: normalizeRequestError(error, 'Login failed'),
             isLoading: false,
           });
+          syncAuthCookie({ isAuthenticated: false });
           return false;
         }
       },
@@ -150,7 +186,7 @@ export const useAuthStore = create<AuthState>()(
             },
           });
 
-          let user = {
+          let user: User = {
             id: 'unknown',
             email: email,
             name: name || email.split('@')[0],
@@ -164,6 +200,9 @@ export const useAuthStore = create<AuthState>()(
               email: userData.email,
               name: userData.name || name || email.split('@')[0],
               role: userData.role,
+              credits: userData.credits,
+              total_credits_earned: userData.total_credits_earned,
+              total_credits_spent: userData.total_credits_spent,
             };
           }
 
@@ -174,6 +213,7 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true,
             isLoading: false,
           });
+          syncAuthCookie({ isAuthenticated: true });
 
           return true;
         } catch (error) {
@@ -181,6 +221,7 @@ export const useAuthStore = create<AuthState>()(
             error: normalizeRequestError(error, 'Registration failed'),
             isLoading: false,
           });
+          syncAuthCookie({ isAuthenticated: false });
           return false;
         }
       },
@@ -223,6 +264,7 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: false,
           error: null,
         });
+        syncAuthCookie({ isAuthenticated: false });
       },
 
       refreshTokens: async () => {
@@ -238,16 +280,13 @@ export const useAuthStore = create<AuthState>()(
 
           if (!response.ok) {
             set({ isAuthenticated: false });
+            syncAuthCookie({ isAuthenticated: false });
             return false;
           }
 
           const data = await response.json();
-          set({
-            accessToken: data.access_token,
-            refreshToken: data.refresh_token,
-          });
 
-          // Fetch user info
+          // Fetch user info before committing new tokens
           const meResponse = await fetch(`${API_BASE_URL}/auth/me`, {
             headers: {
               Authorization: `Bearer ${data.access_token}`,
@@ -256,12 +295,34 @@ export const useAuthStore = create<AuthState>()(
 
           if (meResponse.ok) {
             const userData = await meResponse.json();
-            set({ user: userData, isAuthenticated: true });
+            set({
+              accessToken: data.access_token,
+              refreshToken: data.refresh_token,
+              user: {
+                id: userData.id,
+                email: userData.email,
+                name: userData.name || userData.email?.split('@')[0] || '',
+                role: userData.role,
+                credits: userData.credits,
+                total_credits_earned: userData.total_credits_earned,
+                total_credits_spent: userData.total_credits_spent,
+              },
+              isAuthenticated: true,
+            });
+          } else {
+            // /auth/me failed but tokens are valid — keep existing user, mark authenticated
+            set({
+              accessToken: data.access_token,
+              refreshToken: data.refresh_token,
+              isAuthenticated: true,
+            });
           }
+          syncAuthCookie({ isAuthenticated: true });
 
           return true;
         } catch {
           set({ isAuthenticated: false });
+          syncAuthCookie({ isAuthenticated: false });
           return false;
         }
       },
@@ -272,13 +333,16 @@ export const useAuthStore = create<AuthState>()(
       clearError: () => set({ error: null }),
     }),
     {
-      name: 'auth-storage',
+      name: AUTH_STORAGE_KEY,
       partialize: (state) => ({
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),
+      onRehydrateStorage: () => (state) => {
+        syncAuthCookie(state);
+      },
     }
   )
 );

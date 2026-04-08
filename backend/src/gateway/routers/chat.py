@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from src.application.errors import ApplicationError
@@ -30,6 +30,7 @@ from src.gateway.routers.chat_contracts import (
     ThreadCreate,
     ThreadListResponse,
     ThreadResponse,
+    WorkspaceChatThreadEnsureRequest,
 )
 from src.gateway.routers.chat_serializers import thread_to_response, thread_to_summary
 from src.gateway.routers.chat_streaming import (
@@ -38,6 +39,7 @@ from src.gateway.routers.chat_streaming import (
     stream_done_event,
     stream_error_event,
     stream_heartbeat_event,
+    stream_reasoning_event,
     stream_thread_context_event,
 )
 from src.models.router import InvalidRequestedModelError
@@ -70,6 +72,117 @@ def _to_turn_request(request: ChatRequest) -> ChatTurnRequest:
     )
 
 
+def _consume_background_task_result(task: asyncio.Task[None]) -> None:
+    """Drain detached task exceptions so disconnects do not leak warnings."""
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        return
+    except Exception:
+        logger.exception("Detached chat streaming task failed")
+
+
+async def _await_stream_task(task: asyncio.Task[None]) -> None:
+    """Best-effort task cleanup used by the SSE generator."""
+    try:
+        await task
+    except (asyncio.CancelledError, Exception):
+        pass
+
+
+async def stream_chat_turn_events(
+    request: ChatTurnRequest,
+    *,
+    actor_id: str,
+    handler: ChatTurnHandler,
+) -> AsyncGenerator[str, None]:
+    """Yield SSE chat events while allowing the turn to finish after disconnects."""
+    result_queue: asyncio.Queue[str | None] = asyncio.Queue()
+    client_connected = True
+
+    async def _emit(event: str | None) -> None:
+        if not client_connected:
+            return
+        await result_queue.put(event)
+
+    async def _heartbeat() -> None:
+        """Send periodic SSE comment lines to keep connection alive."""
+        try:
+            while True:
+                await asyncio.sleep(15)
+                await _emit(stream_heartbeat_event())
+        except asyncio.CancelledError:
+            pass
+
+    async def _process() -> None:
+        """Run the actual chat turn and enqueue SSE events."""
+        stream_run = None
+        try:
+            prepared = await handler.prepare_turn(
+                request,
+                actor_id=actor_id,
+            )
+            await _emit(
+                stream_thread_context_event(
+                    thread_id=prepared.thread.id,
+                    skill=prepared.thread.skill,
+                )
+            )
+            stream_run = handler.stream_turn(
+                prepared,
+                actor_id=actor_id,
+            )
+            async for delta in stream_run:
+                if delta.kind == "reasoning":
+                    await _emit(stream_reasoning_event(delta.text))
+                else:
+                    await _emit(stream_content_event(delta.text))
+            completed = await stream_run.wait_completed()
+            await _emit(
+                stream_assistant_message_event(completed.assistant_message)
+            )
+            await _emit(stream_done_event())
+        except ApplicationError as exc:
+            if stream_run is not None:
+                try:
+                    await stream_run.wait_completed()
+                except Exception:
+                    pass
+            await _emit(stream_error_event(exc.message))
+        except Exception as exc:
+            logger.exception("Streaming chat failed")
+            if stream_run is not None:
+                try:
+                    await stream_run.wait_completed()
+                except Exception:
+                    pass
+            await _emit(stream_error_event(str(exc)))
+        finally:
+            await _emit(None)
+
+    heartbeat_task = asyncio.create_task(_heartbeat())
+    process_task = asyncio.create_task(_process())
+    stream_completed = False
+
+    try:
+        while True:
+            event = await result_queue.get()
+            if event is None:
+                stream_completed = True
+                break
+            yield event
+    finally:
+        client_connected = False
+        heartbeat_task.cancel()
+        await _await_stream_task(heartbeat_task)
+
+        if process_task.done() or stream_completed:
+            await _await_stream_task(process_task)
+        else:
+            # Keep the turn running so persistence, billing, and status updates still settle.
+            process_task.add_done_callback(_consume_background_task_result)
+
+
 @router.post("/threads", response_model=ThreadResponse)
 async def create_thread(
     request: ThreadCreate,
@@ -89,6 +202,30 @@ async def create_thread(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await publish_thread_updated(thread)
     return thread_to_response(thread, include_messages=False)
+
+
+@router.post("/workspaces/{workspace_id}/chat-thread", response_model=ThreadResponse)
+async def ensure_workspace_chat_thread(
+    workspace_id: str,
+    request: WorkspaceChatThreadEnsureRequest = Body(
+        default_factory=WorkspaceChatThreadEnsureRequest
+    ),
+    current_user: User = Depends(get_current_user),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+):
+    """Return the canonical chat thread for a workspace, creating it when needed."""
+    try:
+        thread = await chat_thread_service.get_or_create_thread(
+            user_id=str(current_user.id),
+            workspace_id=workspace_id,
+            model=request.model,
+            skill=request.skill,
+            skill_explicit="skill" in request.model_fields_set,
+        )
+    except InvalidRequestedModelError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return thread_to_response(thread)
 
 
 @router.get("/threads/{thread_id}", response_model=ThreadResponse)
@@ -152,70 +289,12 @@ async def chat_stream(
 ):
     """Send a message and get a streaming response."""
 
-    async def generate() -> AsyncGenerator[str, None]:
-        result_queue: asyncio.Queue[str | None] = asyncio.Queue()
-
-        async def _heartbeat() -> None:
-            """Send periodic SSE comment lines to keep connection alive."""
-            try:
-                while True:
-                    await asyncio.sleep(15)
-                    await result_queue.put(stream_heartbeat_event())
-            except asyncio.CancelledError:
-                pass
-
-        async def _process() -> None:
-            """Run the actual chat turn and enqueue SSE events."""
-            try:
-                prepared = await handler.prepare_turn(
-                    _to_turn_request(request),
-                    actor_id=str(current_user.id),
-                )
-                await result_queue.put(
-                    stream_thread_context_event(
-                        thread_id=prepared.thread.id,
-                        skill=prepared.thread.skill,
-                    )
-                )
-                completed = await handler.complete_turn(
-                    prepared,
-                    actor_id=str(current_user.id),
-                )
-                if completed.reply.content:
-                    await result_queue.put(stream_content_event(completed.reply.content))
-                await result_queue.put(
-                    stream_assistant_message_event(completed.assistant_message)
-                )
-                await result_queue.put(stream_done_event())
-            except ApplicationError as exc:
-                await result_queue.put(stream_error_event(exc.message))
-            except Exception as exc:
-                logger.exception("Streaming chat failed")
-                await result_queue.put(stream_error_event(str(exc)))
-            finally:
-                await result_queue.put(None)  # sentinel to stop yielding
-
-        heartbeat_task = asyncio.create_task(_heartbeat())
-        process_task = asyncio.create_task(_process())
-
-        try:
-            while True:
-                event = await result_queue.get()
-                if event is None:
-                    break
-                yield event
-        finally:
-            heartbeat_task.cancel()
-            if not process_task.done():
-                process_task.cancel()
-            for task in (heartbeat_task, process_task):
-                try:
-                    await task
-                except (asyncio.CancelledError, Exception):
-                    pass
-
     return StreamingResponse(
-        generate(),
+        stream_chat_turn_events(
+            _to_turn_request(request),
+            actor_id=str(current_user.id),
+            handler=handler,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

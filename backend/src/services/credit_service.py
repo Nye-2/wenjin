@@ -327,9 +327,12 @@ class CreditService:
             else 0
         )
 
+        MAX_OVERDRAFT = 100  # safety net: never let balance go below -100
         user = await self._get_user_for_update(user_id)
         balance_before = int(user.credits)
         if credits_to_charge > 0:
+            max_charge = balance_before + MAX_OVERDRAFT
+            credits_to_charge = min(credits_to_charge, max(0, max_charge))
             user.credits -= credits_to_charge
             user.total_credits_spent += credits_to_charge
 
@@ -507,16 +510,23 @@ class CreditService:
             raise ValueError("Amount must be positive")
 
         user = await self._get_user_for_update(target_user_id)
-        user.credits = int(user.credits) - amount
+        balance_before = int(user.credits)
+        actual_deduction = min(amount, max(balance_before, 0))
+        user.credits = balance_before - actual_deduction
+        user.total_credits_spent = int(user.total_credits_spent) + actual_deduction
 
         tx = CreditTransaction(
             user_id=target_user_id,
             transaction_type=CreditTransactionType.ADMIN_DEDUCT,
-            amount=-amount,
+            amount=-actual_deduction,
             balance_after=user.credits,
             description=description,
             admin_id=admin_id,
-            tx_metadata={"requested_amount": amount},
+            tx_metadata={
+                "requested_amount": amount,
+                "actual_deduction": actual_deduction,
+                "balance_before": balance_before,
+            },
         )
         self.db.add(tx)
         await self.db.commit()

@@ -26,7 +26,7 @@ export function readWorkspaceFeatureOrchestrationParams(
 export function resolveWorkspaceFeatureActionContext(options: {
   workspaceId: string;
   featureId: string | null | undefined;
-  feature?: { id: string; followUpPrompt?: string | null } | null;
+  feature?: { id: string; followUpPrompt?: string | null; defaultSkillId?: string | null } | null;
   workspace: Workspace | null | undefined;
   artifacts: Artifact[];
   orchestrationParams?: Record<string, unknown> | null;
@@ -56,7 +56,10 @@ export function resolveWorkspaceFeatureActionContext(options: {
     route: getWorkspaceFeatureRoute(
       workspaceId,
       featureId,
-      actionState.routeParams
+      {
+        ...(actionState.routeParams ?? {}),
+        ...(feature?.defaultSkillId ? { skill: feature.defaultSkillId } : {}),
+      }
     ),
     routeParams: actionState.routeParams,
     followUpPrompt: actionState.followUpPrompt,

@@ -24,6 +24,13 @@ x-frontend-build: &frontend_build
     NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
     NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
 
+x-texlive-build: &texlive_build
+  context: ./backend/docker/images/texlive
+  dockerfile: Dockerfile
+  args:
+    BASE_IMAGE: ${TEXLIVE_BASE_IMAGE:-docker.m.daocloud.io/library/ubuntu:22.04}
+    APT_MIRROR: ${TEXLIVE_APT_MIRROR:-}
+
 services:
   # PostgreSQL 16 with pgvector extension
   postgres:
@@ -59,6 +66,21 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - wenjin-network
+
+  # One-shot TeXLive image bootstrap for LaTeX compilation runtime.
+  texlive:
+    image: ${TEXLIVE_IMAGE_NAME:-wenjin/texlive:2024}
+    build: *texlive_build
+    container_name: wenjin-texlive
+    restart: "no"
+    command:
+      [
+        "sh",
+        "-lc",
+        "xelatex --version >/dev/null && pdflatex --version >/dev/null && biber --version >/dev/null && kpsewhich listings.sty >/dev/null && kpsewhich ctexart.cls >/dev/null",
+      ]
     networks:
       - wenjin-network
 
@@ -120,10 +142,12 @@ services:
       - GATEWAY_HOST=0.0.0.0
       - GATEWAY_PORT=8001
       - LANGGRAPH_URL=http://langgraph:2024
+      - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     volumes:
       - uploads:/app/uploads
       - ./backend/skills:/app/skills:ro
       - ./backend/extensions_config.json:/app/extensions_config.json
+      - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
       - "${DOCKER_GID:-999}"
@@ -132,6 +156,8 @@ services:
         condition: service_completed_successfully
       worker:
         condition: service_healthy
+      texlive:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/readyz"]
       interval: 30s
@@ -155,16 +181,20 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
+      - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     command: ["python", "-m", "src.task.worker"]
     volumes:
       - uploads:/app/uploads
       - ./backend/skills:/app/skills:ro
       - ./backend/extensions_config.json:/app/extensions_config.json:ro
+      - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
       - "${DOCKER_GID:-999}"
     depends_on:
       bootstrap-admin:
+        condition: service_completed_successfully
+      texlive:
         condition: service_completed_successfully
     healthcheck:
       test:
@@ -198,15 +228,19 @@ services:
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - LANGGRAPH_HOST=0.0.0.0
       - LANGGRAPH_PORT=2024
+      - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     volumes:
       - uploads:/app/uploads
       - ./backend/skills:/app/skills:ro
       - ./backend/extensions_config.json:/app/extensions_config.json:ro
+      - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
       - "${DOCKER_GID:-999}"
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      texlive:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:2024/info"]

@@ -7,6 +7,9 @@ from .citation import Citation, CitationType
 from .credit import CreditTransaction, CreditTransactionType
 from .generation import GenerationRecord
 from .knowledge import KnowledgeCategory, UserKnowledge
+from .latex_compile_history import LatexCompileHistory
+from .latex_project import LatexProject
+from .latex_template import LatexTemplate
 from .paper import Paper, PaperChunk, PaperExtraction, PaperSection, WorkspacePaper
 from .subagent_task import SubagentTaskRecord
 from .task import TaskRecord
@@ -44,6 +47,10 @@ __all__ = [
     # Knowledge
     "UserKnowledge",
     "KnowledgeCategory",
+    # Latex
+    "LatexProject",
+    "LatexTemplate",
+    "LatexCompileHistory",
     # Generation
     "GenerationRecord",
     # Task

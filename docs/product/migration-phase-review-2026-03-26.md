@@ -3,7 +3,9 @@
 更新时间: 2026-03-26
 适用项目: `wenjin`
 对照项目: `deer-flow`
-状态: Current Round Completed
+状态: Archived (历史阶段复盘)
+
+> 说明: 本文档记录 2026-03-26 当轮迁移复盘结论，含部分阶段性术语与假设。当前行为请以 `docs/product/workspace-current-state.md` 为准。
 
 ## 1. 用户确认过的设计约束
 

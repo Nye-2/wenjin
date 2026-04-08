@@ -184,6 +184,27 @@ class TestChatThreadService:
         mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
+    async def test_get_or_create_thread_reuses_latest_workspace_thread_without_thread_id(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Workspace chat should reuse the latest thread when no explicit thread id is given."""
+        thread = _make_thread(workspace_id="ws-1", skill="deep-research")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = thread
+        mock_db_session.execute.return_value = result
+
+        resolved = await service.get_or_create_thread(
+            user_id="user-1",
+            workspace_id="ws-1",
+        )
+
+        assert resolved is thread
+        mock_db_session.add.assert_not_called()
+        mock_db_session.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_get_or_create_thread_rejects_other_users_thread(
         self,
         service,

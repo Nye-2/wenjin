@@ -108,6 +108,8 @@ async def test_build_experiment_design_payload_falls_back_to_template_on_llm_err
     )
 
     payload = await proposal_feature_service.build_experiment_design_payload(
+        workspace_id="ws-proposal",
+        workspace_name="实验设计任务",
         topic="多智能体系统",
         objective="提升协同规划效率",
     )

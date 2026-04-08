@@ -1,5 +1,7 @@
 # Dashboard & Chat Redesign Implementation Plan
 
+> 归档说明: 本文档为历史阶段性计划快照，可能包含已过时路由、线程模型或状态描述。当前实现请以 `docs/product/workspace-current-state.md` 与相关当前契约文档为准。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Redesign the workspace dashboard with a hero guidance area, simplify the chat panel to a collapsible status bar, switch to a single-thread-per-workspace model, and fix feature icons to use lucide.

@@ -1,4 +1,4 @@
-import type { WorkspaceFeature } from "@/lib/api";
+import type { WorkspaceChatSkill, WorkspaceFeature } from "@/lib/api";
 
 type SearchParamsLike = {
   get(name: string): string | null;
@@ -10,6 +10,23 @@ export interface WorkspaceChatEntrySeed {
   featureId: string;
   skillId: string | null;
   params: Record<string, unknown>;
+}
+
+export function resolveWorkspaceChatEntrySkill(options: {
+  seed: WorkspaceChatEntrySeed | null | undefined;
+  skills: WorkspaceChatSkill[];
+}): string | null {
+  const seed = options.seed;
+  if (!seed) {
+    return null;
+  }
+  if (seed.skillId) {
+    return seed.skillId;
+  }
+  const matchedSkill = options.skills.find(
+    (skill) => skill.featureId === seed.featureId
+  );
+  return matchedSkill?.id ?? null;
 }
 
 function coerceScalarParamValue(value: string): string | number | boolean {

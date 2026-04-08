@@ -1,13 +1,13 @@
 # Release Gate Checklist
 
-更新时间: 2026-03-19
+更新时间: 2026-04-03
 
 用于发布前 Go/No-Go 决策，覆盖五类 workspace 的核心可用性。
 
 ## 1. Core Gate (必须全绿)
 
 1. workspace feature 执行主链路可用（提交、轮询、终态可见）。
-2. `chat-only` feature 入口可用（feature 卡片 / artifact follow-up / activity retry 均能落到 `chat/new` 并保留 orchestration seed）。
+2. `chat-only` feature 入口可用（feature 卡片 / artifact follow-up / activity retry 均能落到 `/chat` 并保留 orchestration seed）。
 3. 关键回归通过:
   - `tests/workspace_features/test_workspace_e2e_matrix.py`
   - `tests/gateway/routers/test_features.py`
@@ -31,7 +31,7 @@
 ## 4. Launch Checklist
 
 - [ ] 五个 workspace 页面路由可达，无 404
-- [ ] feature 卡片、artifact follow-up、activity retry 均进入 `chat/new` 且首条消息保留 seed 上下文
+- [ ] feature 卡片、artifact follow-up、activity retry 均进入 `/chat` 且首条消息保留 seed 上下文
 - [ ] feature 可提交并返回 task_id
 - [ ] 任务状态可从 pending/running 进入 success 或 failed
 - [ ] 失败态有明确错误提示且可重试

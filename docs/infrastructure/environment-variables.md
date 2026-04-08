@@ -1,6 +1,6 @@
 # Environment Variables
 
-更新时间: 2026-03-19
+更新时间: 2026-04-07
 
 配置基线以 `backend/.env.example` 与 `frontend/.env.example` 为准。
 
@@ -9,6 +9,7 @@
 - `backend/.env` 是本地后端运行时配置，需从 `backend/.env.example` 复制生成，默认不提交。
 - `frontend/.env.local` 仅在需要覆盖前端 API / LangGraph 地址时才创建，默认不提交。
 - 根目录 `.env` 用于 `docker compose` 的镜像源、构建参数等仓库级配置。
+  - `WENJIN_PROJECT_DIR`：宿主机仓库绝对路径（用于 Docker-in-Docker 的 LaTeX 编译路径映射）。
 
 ## 1. Backend (`backend/.env`)
 
@@ -28,13 +29,24 @@
 | 变量 | 说明 |
 |---|---|
 | `SEMANTIC_SCHOLAR_API_KEY` | 语义学术检索 API key |
+| `LAYOUT_PARSING_ENABLED`/`LAYOUT_PARSING_API_URL`/`LAYOUT_PARSING_TOKEN` | 上传文件预处理中间件（PDF/图片）开关与凭证 |
+| `LAYOUT_PARSING_TIMEOUT_SECONDS` | 预处理 API 请求超时（秒） |
+| `LAYOUT_PARSING_USE_DOC_ORIENTATION_CLASSIFY` | 是否启用文档方向分类 |
+| `LAYOUT_PARSING_USE_DOC_UNWARPING` | 是否启用文档去扭曲 |
+| `LAYOUT_PARSING_USE_CHART_RECOGNITION` | 是否启用图表识别 |
 | `PROMETHEUS_ENABLED` | 启用 Prometheus 指标 |
 | `SENTRY_ENABLED`/`SENTRY_DSN` | 启用 Sentry 错误上报 |
 | `ENVIRONMENT`/`DEBUG`/`LOG_LEVEL` | 运行环境与日志等级 |
+| `REDIS_RATE_LIMIT_REQUESTS`/`REDIS_RATE_LIMIT_WINDOW` | API 限流窗口，当前默认 `120` 次 / `60` 秒 |
 | `GUANLAN_DB_AUTO_CREATE` | 仅限临时环境的 metadata 建表开关 |
 | `GUANLAN_EXTENSIONS_CONFIG_PATH` | 自定义 `extensions_config.json` 路径 |
 | `GUANLAN_TEXLIVE_IMAGE` | 覆盖 LaTeX Docker 镜像 |
 | `GUANLAN_TEXLIVE_IMAGE_TAR` | 覆盖本地 TeXLive 镜像 tar 包路径 |
+| `TEXLIVE_IMAGE_NAME` | `scripts/ensure_texlive_image.sh` 和 `scripts/package_texlive_image.sh` 的镜像名覆盖（优先级高于 `GUANLAN_TEXLIVE_IMAGE`） |
+| `TEXLIVE_IMAGE_TAR` | 上述脚本的 tar 路径覆盖（优先级高于 `GUANLAN_TEXLIVE_IMAGE_TAR`） |
+| `TEXLIVE_BASE_IMAGE` | 上述脚本构建 TeXLive 镜像时的 `BASE_IMAGE`（默认 `docker.m.daocloud.io/library/ubuntu:22.04`） |
+| `TEXLIVE_APT_MIRROR` | 上述脚本构建 TeXLive 镜像时的 apt 源覆盖（可留空） |
+| `WENJIN_LATEX_COMPILE_TIMEOUT_SECONDS` | LaTeX 编译容器超时（秒，默认 300，范围 30-1800） |
 
 ### 1.3 SMTP 与验证码
 
@@ -66,3 +78,4 @@
 1. 开发环境先保证 `DATABASE_URL`、`REDIS_URL`、LLM 模型配置可用，再调业务。
 2. 生产环境必须替换 `JWT_SECRET_KEY`，不要使用默认值。
 3. SMTP 联调时优先验证服务端连通性，再验证前端交互。
+4. 若部署在反向代理后，确认真实客户端 IP 会正确透传；否则限流会退化为按代理 IP 计数。

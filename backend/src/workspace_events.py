@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
 
 from src.academic.cache.redis_client import redis_client
+
+logger = logging.getLogger(__name__)
 
 
 def _workspace_channel(workspace_id: str) -> str:
@@ -50,6 +53,12 @@ async def publish_workspace_event(
     except Exception:
         # Workspace event delivery is best-effort and must never break
         # the underlying business operation.
+        logger.warning(
+            "Failed to publish workspace event: workspace_id=%s type=%s",
+            resolved_workspace_id,
+            event_type,
+            exc_info=True,
+        )
         return
 
 
@@ -67,27 +76,24 @@ async def stream_workspace_events(workspace_id: str) -> AsyncGenerator[str, None
         {"message": "Workspace event stream connected"},
     )
 
-    async def _generator() -> AsyncGenerator[str, None]:
-        try:
-            yield f"data: {ready_payload}\n\n"
+    try:
+        yield f"data: {ready_payload}\n\n"
 
-            timeout = 3600
-            start_time = asyncio.get_running_loop().time()
-            last_ping = start_time
+        timeout = 3600
+        start_time = asyncio.get_running_loop().time()
+        last_ping = start_time
 
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    yield f"data: {message['data']}\n\n"
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                yield f"data: {message['data']}\n\n"
 
-                now = asyncio.get_running_loop().time()
-                if now - last_ping > 30:
-                    yield ": ping\n\n"
-                    last_ping = now
+            now = asyncio.get_running_loop().time()
+            if now - last_ping > 30:
+                yield ": ping\n\n"
+                last_ping = now
 
-                if now - start_time > timeout:
-                    break
-        finally:
-            await pubsub.unsubscribe(_workspace_channel(workspace_id))
-            await pubsub.close()
-
-    return _generator()
+            if now - start_time > timeout:
+                break
+    finally:
+        await pubsub.unsubscribe(_workspace_channel(workspace_id))
+        await pubsub.close()

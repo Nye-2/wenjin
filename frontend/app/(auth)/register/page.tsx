@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/stores/auth';
 import { Button } from '@/components/ui/button';
@@ -10,10 +10,12 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AuthShell } from '@/components/auth/auth-shell';
 import { useI18n } from '@/components/i18n-provider';
+import { resolvePostAuthRedirect } from '@/lib/auth-redirect';
 import { Loader2, UserPlus } from 'lucide-react';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { t } = useI18n();
   const { register, sendVerificationCode, isLoading, error, clearError, isAuthenticated } = useAuthStore();
   const [email, setEmail] = useState('');
@@ -25,13 +27,14 @@ export default function RegisterPage() {
   const [codeError, setCodeError] = useState('');
   const [countdown, setCountdown] = useState(0);
   const [isSendingCode, setIsSendingCode] = useState(false);
+  const redirectTo = resolvePostAuthRedirect(searchParams.get('redirect'));
 
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      router.push('/workspaces');
+      router.push(redirectTo);
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, redirectTo, router]);
 
   // Countdown timer
   useEffect(() => {
@@ -85,10 +88,8 @@ export default function RegisterPage() {
       return;
     }
 
-    const success = await register(email, password, name || email.split('@')[0], verificationCode);
-    if (success) {
-      router.push('/workspaces');
-    }
+    await register(email, password, name || email.split('@')[0], verificationCode);
+    // Redirect handled by useEffect watching isAuthenticated
   };
 
   return (

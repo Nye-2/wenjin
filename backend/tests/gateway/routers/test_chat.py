@@ -1,7 +1,9 @@
 """Tests for chat router."""
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,6 +12,8 @@ from fastapi.testclient import TestClient
 
 from src.application.errors import PaymentRequiredError
 from src.application.handlers.chat_turn_handler import (
+    _build_langchain_messages,
+    ChatStreamDelta,
     ChatTurnHandler,
     build_chat_initial_state,
     build_chat_runtime_config,
@@ -106,6 +110,22 @@ class FakeChatThreadService:
                     thread.skill = skill
                 return thread
 
+        if workspace_id:
+            workspace_threads = [
+                thread
+                for thread in self.threads.values()
+                if thread.user_id == user_id and thread.workspace_id == workspace_id
+            ]
+            workspace_threads.sort(
+                key=lambda thread: thread.updated_at,
+                reverse=True,
+            )
+            if workspace_threads:
+                thread = workspace_threads[0]
+                if skill_explicit:
+                    thread.skill = skill
+                return thread
+
         return await self.create_thread(
             user_id=user_id,
             workspace_id=workspace_id,
@@ -191,6 +211,30 @@ class _FakeBillingResult:
         return dict(self._metadata)
 
 
+class _FakeReplyStream:
+    """Minimal reply stream shim for streaming chat route tests."""
+
+    def __init__(
+        self,
+        chunks: list[ChatStreamDelta],
+        reply: GeneratedChatReply | Exception,
+    ) -> None:
+        self._chunks = chunks
+        self._reply = reply
+
+    async def _iterate(self):
+        for chunk in self._chunks:
+            yield chunk
+
+    def __aiter__(self):
+        return self._iterate()
+
+    async def wait_reply(self) -> GeneratedChatReply:
+        if isinstance(self._reply, Exception):
+            raise self._reply
+        return self._reply
+
+
 def create_client(user_id: str, service: FakeChatThreadService) -> TestClient:
     """Create a test client with overridden auth and chat thread service."""
     app = FastAPI()
@@ -254,6 +298,25 @@ class TestChatThreads:
 
         assert response.status_code == 400
         assert response.json()["detail"] == "Unknown model id: bad-model"
+
+    def test_ensure_workspace_chat_thread_reuses_workspace_main_thread(self):
+        """Workspace chat thread endpoint should return the canonical workspace thread."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        first = client.post(
+            "/workspaces/ws-1/chat-thread",
+            json={"skill": "deep-research"},
+        )
+        second = client.post(
+            "/workspaces/ws-1/chat-thread",
+            json={},
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["id"] == second.json()["id"]
+        assert first.json()["workspace_id"] == "ws-1"
 
 
 class TestChatThreadsContinuation:
@@ -410,6 +473,89 @@ class TestChatRuntimeConfig:
         assert state["uploaded_files"][0]["name"] == "figure.png"
         assert "/mnt/user-data/uploads/figure.png" in state["viewed_images"]
 
+    def test_build_langchain_messages_preserves_structured_message_context(self):
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "请帮我开始「框架与摘要」。",
+                    "metadata": {
+                        "orchestration": {
+                            "feature_id": "framework_outline",
+                            "params": {"topic": "LLM planning"},
+                        }
+                    },
+                },
+                {
+                    "role": "assistant",
+                    "content": "已启动任务",
+                    "blocks": [
+                        {
+                            "type": "task",
+                            "title": "论文写作",
+                            "data": {"task_id": "task-1", "status": "pending"},
+                        }
+                    ],
+                    "metadata": {
+                        "orchestration": {
+                            "feature_id": "writing",
+                            "task_id": "task-1",
+                            "status": "running",
+                        }
+                    },
+                },
+            ],
+        )
+
+        messages = _build_langchain_messages(thread)
+
+        assert len(messages) == 2
+        user_content = messages[0].content
+        assert isinstance(user_content, str)
+        assert "请帮我开始「框架与摘要」。" in user_content
+        assert "<workspace_feature_seed>" in user_content
+        assert "feature_id: framework_outline" in user_content
+        assert "LLM planning" in user_content
+        assistant_content = messages[-1].content
+        assert isinstance(assistant_content, str)
+        assert "已启动任务" in assistant_content
+        assert "feature=writing" in assistant_content
+        assert "task_id=task-1" in assistant_content
+
+    def test_build_langchain_messages_limits_feature_seed_to_latest_user_turn(self):
+        thread = FakeThread(
+            id="thread-2",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 2",
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "请帮我开始「框架与摘要」。",
+                    "metadata": {
+                        "orchestration": {
+                            "feature_id": "framework_outline",
+                            "params": {"topic": "LLM planning"},
+                        }
+                    },
+                },
+                {"role": "assistant", "content": "好的，我们先从结构开始。"},
+                {"role": "user", "content": "这个方法为什么有效？"},
+            ],
+        )
+
+        messages = _build_langchain_messages(thread)
+
+        assert "<workspace_feature_seed>" not in messages[0].content
+        assert "<workspace_feature_seed>" not in messages[-1].content
+        assert messages[-1].content == "这个方法为什么有效？"
+
 
 class TestChatMessages:
     """Chat message flow tests."""
@@ -518,8 +664,18 @@ class TestChatMessages:
         client = create_client("user-1", service)
 
         with patch(
-            "src.application.handlers.chat_turn_handler.generate_chat_response",
-            AsyncMock(return_value=GeneratedChatReply(content="stream reply")),
+            "src.application.handlers.chat_turn_handler.stream_chat_response",
+            return_value=_FakeReplyStream(
+                [
+                    ChatStreamDelta(kind="reasoning", text="think "),
+                    ChatStreamDelta(kind="content", text="stream "),
+                    ChatStreamDelta(kind="content", text="reply"),
+                ],
+                GeneratedChatReply(
+                    content="stream reply",
+                    blocks=[{"type": "reasoning", "data": {"text": "think "}}],
+                ),
+            ),
         ):
             response = client.post(
                 "/chat/stream",
@@ -529,7 +685,11 @@ class TestChatMessages:
         assert response.status_code == 200
         assert '"type": "thread_id"' in response.text
         assert '"skill": null' in response.text
+        assert '"type": "reasoning"' in response.text
+        assert '"content": "think "' in response.text
         assert '"type": "content"' in response.text
+        assert '"content": "stream "' in response.text
+        assert '"content": "reply"' in response.text
         assert '"type": "done"' in response.text
 
         assert len(service.threads) == 1
@@ -567,6 +727,60 @@ class TestChatMessages:
         assert payload["message"]["metadata"]["orchestration"]["task_id"] == "task-1"
         thread = service.threads[payload["thread_id"]]
         assert thread.messages[-1]["blocks"][0]["title"] == "论文写作"
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_turn_events_keeps_processing_after_client_disconnect(self):
+        """Client disconnects should not cancel turn persistence in the background."""
+        request = ChatTurnRequest(message="Hello", workspace_id="ws-1")
+        prepared = SimpleNamespace(
+            request=request,
+            thread=SimpleNamespace(id="thread-1", skill=None),
+        )
+        completion_reached = asyncio.Event()
+
+        async def complete_turn(*args, **kwargs):
+            await asyncio.sleep(0.05)
+            completion_reached.set()
+            return SimpleNamespace(
+                assistant_message={
+                    "role": "assistant",
+                    "content": "reply",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+                reply=GeneratedChatReply(content="reply"),
+            )
+
+        class _FakeCompletedStream:
+            async def _iterate(self):
+                yield ChatStreamDelta(kind="reasoning", text="think ")
+                yield ChatStreamDelta(kind="content", text="reply")
+                await asyncio.sleep(0.05)
+
+            def __aiter__(self):
+                return self._iterate()
+
+            async def wait_completed(self):
+                return await complete_turn()
+
+        handler = MagicMock()
+        handler.prepare_turn = AsyncMock(return_value=prepared)
+        handler.stream_turn = MagicMock(return_value=_FakeCompletedStream())
+
+        stream = chat.stream_chat_turn_events(
+            request,
+            actor_id="user-1",
+            handler=handler,
+        )
+
+        first_event = await anext(stream)
+        assert '"type": "thread_id"' in first_event
+
+        await stream.aclose()
+        await asyncio.wait_for(completion_reached.wait(), timeout=0.5)
+        handler.stream_turn.assert_called_once_with(
+            prepared,
+            actor_id="user-1",
+        )
 
     def test_chat_persists_usage_and_billing_metadata(self):
         """Chat replies persist token usage and settled billing summaries."""
@@ -666,9 +880,6 @@ class TestChatMessages:
         )
 
         with patch(
-            "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
-            AsyncMock(return_value=None),
-        ), patch(
             "src.application.handlers.chat_turn_handler.ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
@@ -713,9 +924,6 @@ class TestChatMessages:
         )
 
         with patch(
-            "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
-            AsyncMock(return_value=None),
-        ), patch(
             "src.application.handlers.chat_turn_handler.ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
@@ -753,9 +961,6 @@ class TestChatMessages:
         )
 
         with patch(
-            "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
-            AsyncMock(return_value=None),
-        ), patch(
             "src.application.handlers.chat_turn_handler.ensure_chat_turn_budget",
             AsyncMock(side_effect=HTTPException(status_code=402, detail="余额不足")),
         ), patch(
@@ -792,9 +997,6 @@ class TestChatMessages:
         build_pipeline = MagicMock(return_value=[])
 
         with patch(
-            "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
-            AsyncMock(return_value=None),
-        ), patch(
             "src.application.handlers.chat_turn_handler.ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
@@ -849,9 +1051,6 @@ class TestChatMessages:
         )
 
         with patch(
-            "src.application.handlers.chat_turn_handler.maybe_bridge_workspace_feature",
-            AsyncMock(return_value=None),
-        ), patch(
             "src.application.handlers.chat_turn_handler.ensure_chat_turn_budget",
             AsyncMock(return_value=None),
         ), patch(
@@ -875,8 +1074,8 @@ class TestChatMessages:
         client = create_client("user-1", service)
 
         with patch(
-            "src.application.handlers.chat_turn_handler.generate_chat_response",
-            AsyncMock(side_effect=RuntimeError("agent boom")),
+            "src.application.handlers.chat_turn_handler.stream_chat_response",
+            return_value=_FakeReplyStream([], RuntimeError("agent boom")),
         ):
             response = client.post(
                 "/chat/stream",

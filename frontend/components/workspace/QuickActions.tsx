@@ -46,18 +46,22 @@ const colorMap: Record<string, string> = {
 };
 
 interface QuickActionsProps {
+  workspaceId?: string;
   onAction: (featureId: string) => void;
   featureIds?: string[];
   maxItems?: number;
 }
 
 export function QuickActions({
+  workspaceId,
   onAction,
   featureIds,
   maxItems = 5,
 }: QuickActionsProps) {
   const { features } = useFeaturesStore();
-  const { isExecuting } = useTaskStore();
+  const isExecuting = useTaskStore(
+    (state) => state.getWorkspaceTaskState(workspaceId).isExecuting
+  );
   const orderedFeatures = (() => {
     if (featureIds && featureIds.length > 0) {
       const preferredOrder = new Map(

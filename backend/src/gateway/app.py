@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialize structured logging
     setup_logging(level="INFO")
-    print("Wenjin Gateway starting up...")
+    logger.info("Wenjin Gateway starting up...")
 
     # Initialize database
     from src.database import init_db
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown
-    print("Wenjin Gateway shutting down...")
+    logger.info("Wenjin Gateway shutting down...")
     try:
         from src.mcp import shutdown_mcp_runtime
 
@@ -128,7 +128,7 @@ async def readiness_check() -> Any:
 # Include routers (imported after app creation to avoid circular imports)
 from src.api.subagents import router as subagents_router  # noqa: E402
 
-from .routers import artifacts, auth, chat, dashboard, features, literature, mcp, memory, models, papers, skills, tasks, templates, uploads, workspaces  # noqa: E402
+from .routers import artifacts, auth, chat, dashboard, features, latex, literature, mcp, memory, models, papers, skills, tasks, templates, uploads, workspaces  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(subagents_router, prefix="/api", tags=["subagents"])
@@ -137,6 +137,7 @@ app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(workspaces.router, prefix="/api", tags=["workspaces"])
+app.include_router(latex.router, prefix="/api", tags=["latex"])
 app.include_router(features.router, prefix="/api", tags=["features"])
 app.include_router(skills.router, prefix="/api", tags=["skills"])
 app.include_router(templates.router, prefix="/api", tags=["templates"])

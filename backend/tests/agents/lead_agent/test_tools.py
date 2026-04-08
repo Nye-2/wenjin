@@ -43,6 +43,9 @@ def test_get_available_tools_uses_canonical_runtime_tool_names():
     assert "view_image" in tool_names
     assert "ask_clarification" in tool_names
     assert "present_files" in tool_names
+    assert "list_workspace_literature_toc" in tool_names
+    assert "search_workspace_literature" in tool_names
+    assert "read_workspace_literature_section" in tool_names
     assert "run_workspace_feature" in tool_names
     assert "task" in tool_names
 

@@ -8,9 +8,8 @@ import type {
 import { motion } from "framer-motion";
 import { Paperclip, Send, X } from "lucide-react";
 import type { ChatUploadKind, Model, ReasoningEffort } from "@/lib/api";
-import { AgentStatusBar, QuickActions } from "@/components/workspace";
+import { AgentStatusBar } from "@/components/workspace";
 import { useI18n } from "@/components/i18n-provider";
-import { SkillSelector } from "./SkillSelector";
 import { cn } from "@/lib/utils";
 
 export const WORKSPACE_CHAT_REASONING_EFFORT_OPTIONS: Array<{
@@ -60,12 +59,8 @@ interface PendingAttachment {
 }
 
 interface WorkspaceChatComposerProps {
+  workspaceId: string;
   actionError: string | null;
-  isExecuting: boolean;
-  recommendedFeatureIds: string[];
-  onQuickAction: (featureId: string) => void;
-  currentSkill: string | null;
-  onSelectSkill: (skill: string | null) => void;
   availableModels: Model[];
   selectedModel: string | null;
   onSelectModel: (modelId: string | null) => void;
@@ -84,15 +79,12 @@ interface WorkspaceChatComposerProps {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onSubmit: (event: FormEvent) => void;
+  onAbortStream: () => void;
 }
 
 export function WorkspaceChatComposer({
+  workspaceId,
   actionError,
-  isExecuting,
-  recommendedFeatureIds,
-  onQuickAction,
-  currentSkill,
-  onSelectSkill,
   availableModels,
   selectedModel,
   onSelectModel,
@@ -111,13 +103,14 @@ export function WorkspaceChatComposer({
   inputRef,
   onKeyDown,
   onSubmit,
+  onAbortStream,
 }: WorkspaceChatComposerProps) {
   const { t } = useI18n();
 
   return (
     <div className="p-4 border-t border-[var(--border-default)] bg-[var(--bg-elevated)] backdrop-blur-xl">
       <div className="mb-3">
-        <AgentStatusBar />
+        <AgentStatusBar workspaceId={workspaceId} />
       </div>
 
       {actionError && (
@@ -126,24 +119,13 @@ export function WorkspaceChatComposer({
         </div>
       )}
 
-      {!isExecuting && (
-        <div className="mb-3 overflow-x-auto pb-2">
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
-            推荐动作
-          </p>
-          <QuickActions
-            onAction={onQuickAction}
-            featureIds={recommendedFeatureIds}
-            maxItems={5}
-          />
-        </div>
-      )}
-
-      <div className="mb-3 overflow-x-auto pb-2">
-        <SkillSelector
-          selectedSkill={currentSkill}
-          onSelect={onSelectSkill}
-        />
+      <div className="mb-3 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]/72 px-3 py-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
+          对话工作流
+        </p>
+        <p className="mt-2 text-xs leading-6 text-[var(--text-secondary)]">
+          直接描述你要推进的工作。问津会先确认需求，再决定是否启用内部模块或子代理。
+        </p>
       </div>
 
       <div className="mb-3 flex items-center gap-3">
@@ -302,18 +284,23 @@ export function WorkspaceChatComposer({
           />
         </div>
         <motion.button
-          type="submit"
-          disabled={!inputValue.trim() || isStreaming}
+          type={isStreaming ? "button" : "submit"}
+          onClick={isStreaming ? onAbortStream : undefined}
+          disabled={!isStreaming && !inputValue.trim()}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           className={cn(
             "px-4 py-3 rounded-xl flex items-center justify-center",
-            "bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] text-white",
+            isStreaming
+              ? "bg-red-500 text-white"
+              : "bg-gradient-to-r from-[var(--accent-primary)] to-[#1D4ED8] text-white",
             "hover:shadow-lg transition-shadow",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}
+          aria-label={isStreaming ? t("chat.stop") : t("chat.send")}
+          title={isStreaming ? t("chat.stop") : t("chat.send")}
         >
-          <Send className="w-5 h-5" />
+          {isStreaming ? <X className="w-5 h-5" /> : <Send className="w-5 h-5" />}
         </motion.button>
       </form>
     </div>

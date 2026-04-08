@@ -23,10 +23,11 @@ from src.execution.public_paths import sandbox_path_to_public_url
 from src.execution.types import ExecutionType
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
+from src.services.latex import LatexCompileService
 from src.services.literature_service import LiteratureService
+from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.thesis.execution import get_execution_service
 from src.thesis.execution.figure_tool import generate_figure
-from src.thesis.execution.latex_tool import compile_latex
 from src.thesis.latex_template import get_template
 
 logger = logging.getLogger(__name__)
@@ -596,21 +597,85 @@ async def build_compile_payload(
     if normalized_compiler not in {"xelatex", "pdflatex"}:
         normalized_compiler = "xelatex"
 
-    compile_result = await compile_latex(
-        latex_source=final_latex,
-        workspace_id=workspace_id,
-        thread_id=thread_id,
-        bibliography=bib_content,
-        compiler=normalized_compiler,
-        bibliography_style=bibliography_style,
-        timeout=180,
-    )
+    latex_project_id: str | None = None
+    pdf_path: str | None = None
+    pdf_url: str | None = None
+    compile_error: str | None = None
+    compile_logs: str | None = None
+    page_count: int | None = None
+    pdf_endpoint: str | None = None
+    sync_conflicts: list[dict[str, str]] = []
 
-    compile_status = "success" if compile_result.success else "failed"
-    pdf_url = sandbox_path_to_public_url(
-        compile_result.pdf_path,
-        thread_id=thread_id,
-    )
+    try:
+        async with get_db_session() as db:
+            bridge_service = WorkspaceLatexProjectService(db)
+            compile_service = LatexCompileService(db)
+            linked_project = await bridge_service.sync_project(
+                workspace_id=workspace_id,
+                project_name=paper_title,
+                main_file="main.tex",
+                main_tex=final_latex,
+                bib_tex=bib_content,
+                template=template,
+                metadata={
+                    "source_summary": {
+                        "outline_count": 1 if outline else 0,
+                        "chapter_count": len(chapters),
+                        "figure_count": len(figures),
+                        "literature_count": len(literature),
+                    },
+                    "bibliography_style": bibliography_style,
+                    "output_language": language,
+                },
+            )
+            latex_project_id = str(linked_project.id)
+            linked_metadata = (
+                linked_project.llm_config.get("metadata")
+                if isinstance(linked_project.llm_config, dict)
+                else {}
+            )
+            if isinstance(linked_metadata, dict):
+                raw_conflicts = linked_metadata.get("sync_conflicts")
+                if isinstance(raw_conflicts, list):
+                    sync_conflicts = [item for item in raw_conflicts if isinstance(item, dict)]
+            compile_response = await compile_service.compile_project(
+                linked_project,
+                main_file="main.tex",
+                engine=normalized_compiler,
+            )
+            compile_status = "success" if bool(compile_response.get("ok")) else "failed"
+            pdf_path = (
+                str(compile_response.get("pdf_path"))
+                if compile_response.get("pdf_path")
+                else None
+            )
+            pdf_endpoint = (
+                str(compile_response.get("pdf_endpoint"))
+                if compile_response.get("pdf_endpoint")
+                else None
+            )
+            pdf_url = pdf_endpoint
+            compile_error = (
+                str(compile_response.get("error"))
+                if compile_response.get("error")
+                else None
+            )
+            compile_logs = (
+                str(compile_response.get("log"))
+                if compile_response.get("log")
+                else None
+            )
+            page_count = (
+                int(compile_response.get("page_count"))
+                if compile_response.get("page_count") is not None
+                else None
+            )
+    except Exception as exc:
+        logger.exception("Failed to complete linked latex compile pipeline")
+        raise RuntimeError(
+            f"compile_export_failed: linked_latex_pipeline_failed: {exc}"
+        ) from exc
+
     return {
         "schema_version": THESIS_SCHEMA_VERSION,
         "template": template,
@@ -618,14 +683,17 @@ async def build_compile_payload(
         "compiler": normalized_compiler,
         "bibliography_style": bibliography_style,
         "paper_title": paper_title,
+        "latex_project_id": latex_project_id,
+        "main_file": "main.tex",
         "latex_content": final_latex,
         "bib_content": bib_content,
         "compile_status": compile_status,
-        "pdf_path": compile_result.pdf_path,
+        "pdf_path": pdf_path,
         "pdf_url": pdf_url,
-        "page_count": compile_result.page_count,
-        "compile_error": compile_result.error,
-        "compile_logs": _truncate(compile_result.logs or "", max_len=3000),
+        "pdf_endpoint": pdf_endpoint,
+        "page_count": page_count,
+        "compile_error": compile_error,
+        "compile_logs": _truncate(compile_logs or "", max_len=3000),
         "keywords": keywords,
         "abstract_source": abstract_source,
         "source_summary": {
@@ -634,6 +702,7 @@ async def build_compile_payload(
             "figure_count": len(figures),
             "literature_count": len(literature),
         },
+        "sync_conflicts": sync_conflicts,
         "generated_at": _utc_now_iso(),
     }
 

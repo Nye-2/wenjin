@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Settings, LogOut, FolderOpen, ChevronDown, LayoutDashboard, Shield } from "lucide-react";
+import { Settings, LogOut, FolderOpen, ChevronDown, LayoutDashboard, Shield, Sigma } from "lucide-react";
 import { useI18n } from "@/components/i18n-provider";
 import { useAuthStore } from "@/stores/auth";
 import { useRouter } from "next/navigation";
@@ -60,6 +60,14 @@ export function UserDropdown() {
       label: t("nav.workspaces"),
       onClick: () => {
         router.push("/workspaces");
+        setIsOpen(false);
+      },
+    },
+    {
+      icon: Sigma,
+      label: "LaTeX 编辑器",
+      onClick: () => {
+        router.push("/latex");
         setIsOpen(false);
       },
     },

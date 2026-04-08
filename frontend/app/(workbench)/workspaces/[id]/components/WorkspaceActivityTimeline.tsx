@@ -3,16 +3,9 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
-  ExternalLink,
   MessageSquareText,
-  RefreshCw,
 } from "lucide-react";
-import type { Artifact, Workspace, WorkspaceActivityItem } from "@/stores/workspace";
-import {
-  readWorkspaceFeatureOrchestrationParams,
-  resolveWorkspaceFeatureActionContext,
-  type WorkspaceFeatureActionContext,
-} from "@/lib/workspace-feature-action-context";
+import type { Artifact, WorkspaceActivityItem } from "@/stores/workspace";
 import { cn } from "@/lib/utils";
 import {
   ActivityItemRow,
@@ -21,11 +14,7 @@ import {
   workspaceActivityFilterOptions,
 } from "./WorkspaceKnowledgePanelSupport";
 
-type FeatureRouteParams = WorkspaceFeatureActionContext["routeParams"];
-
 interface WorkspaceActivityTimelineProps {
-  workspaceId: string;
-  workspace: Workspace | null | undefined;
   artifacts: Artifact[];
   activities: WorkspaceActivityItem[];
   embedded?: boolean;
@@ -37,7 +26,6 @@ interface WorkspaceActivityTimelineProps {
   onFilterChange: (filter: ActivityFilter) => void;
   onModuleFilterChange: (moduleId: string) => void;
   resolveFeatureName: (featureId: string) => string | undefined;
-  resolveFeature?: (featureId: string) => { id: string; followUpPrompt?: string | null } | undefined;
   resolveActivityTitle: (
     item: WorkspaceActivityItem,
     featureName?: string
@@ -46,19 +34,9 @@ interface WorkspaceActivityTimelineProps {
   onSelectArtifact: (artifact: Artifact) => void;
   onOpenDetails: (item: WorkspaceActivityItem) => void;
   onOpenThread: (threadId: string) => void;
-  onOpenModule: (
-    featureId: string | null | undefined,
-    routeParams?: FeatureRouteParams | null
-  ) => void;
-  onRetryFeatureTask: (
-    item: WorkspaceActivityItem,
-    actionContext: WorkspaceFeatureActionContext
-  ) => void;
 }
 
 export function WorkspaceActivityTimeline({
-  workspaceId,
-  workspace,
   artifacts,
   activities,
   embedded = false,
@@ -70,14 +48,11 @@ export function WorkspaceActivityTimeline({
   onFilterChange,
   onModuleFilterChange,
   resolveFeatureName,
-  resolveFeature,
   resolveActivityTitle,
   resolveSkillLabel,
   onSelectArtifact,
   onOpenDetails,
   onOpenThread,
-  onOpenModule,
-  onRetryFeatureTask,
 }: WorkspaceActivityTimelineProps) {
   return (
     <div
@@ -169,50 +144,17 @@ export function WorkspaceActivityTimeline({
                   ? resolveFeatureName(featureId)
                   : undefined;
                 const title = resolveActivityTitle(item, featureName);
-                const feature = featureId && resolveFeature ? resolveFeature(featureId) : undefined;
-                const actionContext = resolveWorkspaceFeatureActionContext({
-                  workspaceId,
-                  featureId,
-                  feature: feature ?? null,
-                  workspace,
-                  artifacts,
-                  orchestrationParams: readWorkspaceFeatureOrchestrationParams(
-                    item.metadata?.params
-                  ),
-                });
-                const route = actionContext.route;
                 const actions = [];
 
-                if (item.kind === "feature_task" && route) {
-                  actions.push({
-                    key: "open-module",
-                    label: "打开模块",
-                    icon: ExternalLink,
-                    onClick: () => onOpenModule(featureId, actionContext.routeParams),
-                    tone: "primary" as const,
-                  });
-                }
                 if (
-                  item.kind === "feature_task" &&
-                  item.status === "failed" &&
-                  featureId &&
-                  actionContext.rerunParams
-                ) {
-                  actions.push({
-                    key: "retry-task",
-                    label: "重试",
-                    icon: RefreshCw,
-                    onClick: () => onRetryFeatureTask(item, actionContext),
-                    tone: "danger" as const,
-                  });
-                }
-                if (
-                  (item.kind === "chat_thread" || item.kind === "subagent_task") &&
+                  (item.kind === "chat_thread" ||
+                    item.kind === "subagent_task" ||
+                    item.kind === "feature_task") &&
                   item.thread_id
                 ) {
                   actions.push({
                     key: "open-thread",
-                    label: "打开对话",
+                    label: item.kind === "feature_task" ? "回到对话" : "打开对话",
                     icon: MessageSquareText,
                     onClick: () => onOpenThread(item.thread_id!),
                     tone: "primary" as const,

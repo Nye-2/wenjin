@@ -13,6 +13,7 @@ from src.agents.lead_agent.chat_skill_catalog import (
 )
 from src.agents.lead_agent.feature_bridge_cards import (
     build_chat_result_card,
+    build_confirmation_required_response,
     build_feature_task_completion_card,
     build_feature_task_failure_card,
 )
@@ -33,7 +34,10 @@ from src.agents.lead_agent.feature_bridge_catalog import (
     load_latest_draft_summary as _load_latest_draft_summary,
 )
 from src.agents.lead_agent.feature_bridge_intents import (
-    message_has_action_intent as _message_has_action_intent,
+    message_is_actionable_feature_request as _message_is_actionable_feature_request,
+)
+from src.agents.lead_agent.feature_bridge_intents import (
+    message_looks_like_topic_seed as _message_looks_like_topic_seed,
 )
 from src.agents.lead_agent.feature_bridge_intents import (
     resolve_feature_params as _resolve_feature_params,
@@ -61,6 +65,7 @@ __all__ = [
     "BridgedChatResponse",
     "FeatureIntent",
     "build_chat_result_card",
+    "build_confirmation_required_response",
     "build_feature_task_completion_card",
     "build_feature_task_failure_card",
     "build_workspace_artifact_overview",
@@ -134,10 +139,21 @@ async def _resolve_feature_intent(
     workspace: Workspace,
     message: str,
     selected_skill: str | None,
+    thread_message_count: int | None = None,
 ) -> FeatureIntent | None:
     workspace_type = resolve_workspace_type(workspace)
-    intent = _select_feature_by_skill(workspace_type, selected_skill)
-    if intent is None and _message_has_action_intent(message):
+    is_first_turn = thread_message_count is not None and thread_message_count <= 1
+    should_use_selected_skill = bool(selected_skill) and (
+        _message_is_actionable_feature_request(message)
+        or (is_first_turn and _message_looks_like_topic_seed(message))
+    )
+
+    intent = (
+        _select_feature_by_skill(workspace_type, selected_skill)
+        if should_use_selected_skill
+        else None
+    )
+    if intent is None and _message_is_actionable_feature_request(message):
         intent = _select_feature_by_message(workspace_type, message)
     if intent is None:
         return None
@@ -254,6 +270,7 @@ async def maybe_bridge_workspace_feature(
     thread_id: str | None,
     user_id: str,
     selected_skill: str | None,
+    thread_message_count: int | None = None,
     requested_feature_id: str | None = None,
     requested_feature_params: Mapping[str, Any] | None = None,
 ) -> BridgedChatResponse | None:
@@ -291,6 +308,7 @@ async def maybe_bridge_workspace_feature(
             workspace=workspace,
             message=message,
             selected_skill=selected_skill,
+            thread_message_count=thread_message_count,
         )
         if intent is None:
             return None

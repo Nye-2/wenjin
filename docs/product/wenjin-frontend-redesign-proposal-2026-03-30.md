@@ -2,7 +2,9 @@
 
 更新时间: 2026-03-30
 适用范围: `frontend/` 品牌、首页、认证、workspace 列表、workspace workbench
-当前状态: 提案，未实施
+当前状态: Archived (历史提案)
+
+> 说明: 本文档保留 2026-03-30 阶段的前端重塑提案，包含未落地和后续调整内容。当前产品行为以 `docs/product/workspace-current-state.md` 和相关当前契约文档为准。
 
 ## 1. 目标
 

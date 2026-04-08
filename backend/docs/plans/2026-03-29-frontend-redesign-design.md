@@ -1,5 +1,7 @@
 # Frontend Redesign — Chat-Centric Architecture
 
+> 归档说明: 本文档为历史阶段性计划快照，可能包含已过时路由、线程模型或状态描述。当前实现请以 `docs/product/workspace-current-state.md` 与相关当前契约文档为准。
+
 ## Goal
 
 Redesign the frontend from 21+ independent feature pages to a **Chat-as-center** architecture with a supporting Dashboard, where workspace-specific features are triggered through the chat agent via system prompts and skill selection.

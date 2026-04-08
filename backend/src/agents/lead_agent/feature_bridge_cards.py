@@ -181,6 +181,47 @@ def build_missing_response(
     )
 
 
+def build_confirmation_required_response(
+    *,
+    feature_id: str,
+    params: Mapping[str, Any] | None = None,
+) -> BridgedChatResponse:
+    """Build a structured assistant reply that asks the user to confirm execution."""
+    resolved_params = dict(params or {})
+    confirmation_hint = "如果确认，请直接回复“开始吧”或“确认启动”。"
+    content = (
+        f"我可以为你启动「{_feature_title(feature_id)}」任务。"
+        f" {confirmation_hint}"
+    )
+    return BridgedChatResponse(
+        content=content,
+        blocks=[
+            _build_warning_block(
+                title=f"准备启动 {_feature_title(feature_id)}",
+                detail=confirmation_hint,
+                feature_id=feature_id,
+                code="confirmation_required",
+            ),
+            _build_next_steps_block(
+                [
+                    _build_continue_chat_step(
+                        feature_id,
+                        label="确认后开始执行",
+                    )
+                ]
+            ),
+        ],
+        metadata={
+            "orchestration": {
+                "mode": "feature_execution",
+                "feature_id": feature_id,
+                "status": "confirmation_required",
+                "params": resolved_params,
+            }
+        },
+    )
+
+
 def build_execution_success_response(
     *,
     feature_id: str,

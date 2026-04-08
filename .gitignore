@@ -6,6 +6,7 @@ __pycache__/
 # Local env files
 /backend/.env
 /frontend/.env.local
+/backend/.wenjin/
 
 # Node
 node_modules/

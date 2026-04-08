@@ -7,15 +7,12 @@ import {
   FileJson,
   FileText,
   Keyboard,
-  MessageSquarePlus,
   Search,
 } from "lucide-react";
 
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
-import { getWorkspaceFeatureRoute } from "@/lib/workspace-feature-routes";
 import { exportConversationAsJson, exportConversationAsMarkdown } from "@/lib/chat-export";
 import { useChatStore } from "@/stores/chat";
-import { useFeaturesStore } from "@/stores/features";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -43,8 +40,7 @@ interface CommandAction {
 
 export function CommandPalette({ workspaceId }: CommandPaletteProps) {
   const router = useRouter();
-  const { features } = useFeaturesStore();
-  const { messages, threadId, threads, startNewThread } = useChatStore();
+  const { messages, currentThreadSummary } = useChatStore();
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -52,11 +48,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
   const isMac =
     typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("mac");
   const metaLabel = isMac ? "⌘" : "Ctrl+";
-  const shiftLabel = isMac ? "⇧" : "Shift+";
-
-  const currentThread = threadId
-    ? threads.find((candidate) => candidate.id === threadId) ?? null
-    : null;
+  const currentThread = currentThreadSummary;
 
   const baseActions: CommandAction[] = [
     {
@@ -69,19 +61,6 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
       icon: Compass,
     },
     {
-      id: "new-thread",
-      title: "新建对话分支",
-      description: "清空当前 chat 上下文并回到主面板，开始新的任务分支。",
-      section: "通用",
-      shortcut: `${metaLabel}${shiftLabel}N`,
-      keywords: ["thread", "chat", "new", "branch", "分支", "新建"],
-      perform: () => {
-        startNewThread();
-        router.push(`/workspaces/${workspaceId}`);
-      },
-      icon: MessageSquarePlus,
-    },
-    {
       id: "shortcut-help",
       title: "查看快捷键",
       description: "打开快捷键帮助面板。",
@@ -92,23 +71,6 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
       icon: Keyboard,
     },
   ];
-
-  const featureActions = features.reduce<CommandAction[]>((accumulator, feature) => {
-      const route = getWorkspaceFeatureRoute(workspaceId, feature.id);
-      if (!route) {
-        return accumulator;
-      }
-      accumulator.push({
-        id: `feature:${feature.id}`,
-        title: `打开 ${feature.name}`,
-        description: feature.description,
-        section: "模块" as const,
-        keywords: [feature.id, feature.name, feature.description],
-        perform: () => router.push(route),
-        icon: Search,
-      });
-      return accumulator;
-    }, []);
 
   const exportActions: CommandAction[] =
     currentThread && messages.length > 0
@@ -134,7 +96,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
         ]
       : [];
 
-  const actions = [...baseActions, ...featureActions, ...exportActions];
+  const actions = [...baseActions, ...exportActions];
   const normalizedQuery = query.trim().toLowerCase();
   const filteredActions = actions.filter((action) => {
     if (!normalizedQuery) {
@@ -156,15 +118,6 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
       },
     },
     {
-      key: "n",
-      meta: true,
-      shift: true,
-      action: () => {
-        startNewThread();
-        router.push(`/workspaces/${workspaceId}`);
-      },
-    },
-    {
       key: "/",
       meta: true,
       action: () => {
@@ -180,7 +133,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
     setQuery("");
   };
 
-  const sections: Array<CommandAction["section"]> = ["通用", "模块", "会话"];
+  const sections: Array<CommandAction["section"]> = ["通用", "会话"];
 
   return (
     <>
@@ -189,7 +142,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
           <DialogHeader>
             <DialogTitle>命令面板</DialogTitle>
             <DialogDescription>
-              直接搜索模块、会话动作或常用导航，不必在页面里来回找入口。
+              直接搜索会话动作和常用导航，不必在页面里来回找入口。
             </DialogDescription>
           </DialogHeader>
           <div className="relative">
@@ -204,14 +157,14 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
                   runAction(filteredActions[0]);
                 }
               }}
-              placeholder="搜索模块、会话动作或导航..."
+              placeholder="搜索会话动作或导航..."
               className="pl-10"
             />
           </div>
           <div className="max-h-[55vh] overflow-y-auto">
             {filteredActions.length === 0 ? (
               <div className="rounded-xl border border-dashed border-[var(--border-default)] px-4 py-8 text-center text-sm text-[var(--text-muted)]">
-                没有匹配项，试试模块名、导出或分支等关键词。
+                没有匹配项，试试导出、对话或总览等关键词。
               </div>
             ) : (
               <div className="space-y-4">
@@ -282,7 +235,6 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
           <div className="space-y-3">
             {[
               { keys: `${metaLabel}K`, label: "打开命令面板" },
-              { keys: `${metaLabel}${shiftLabel}N`, label: "新建对话分支" },
               { keys: `${metaLabel}/`, label: "打开快捷键说明" },
             ].map((item) => (
               <div

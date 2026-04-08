@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.artifacts import ArtifactType
 from src.database import Artifact, WorkspaceLiterature
 
 
@@ -94,7 +95,7 @@ def _iter_candidate_papers(content: Any) -> list[dict[str, Any]]:
                     candidates.append(item)
 
     # Also accept direct paper-list fields from artifact payloads.
-    for key in ("papers", "works", "seminal_works", "recent_works"):
+    for key in ("papers", "works", "seminal_works", "recent_works", "top_hits"):
         works = content.get(key)
         if isinstance(works, list):
             for item in works:
@@ -293,11 +294,16 @@ class LiteratureService:
     ) -> dict[str, Any]:
         """Batch import literature entries from source artifacts.
 
-        For ``source="deep_research"``, ``paper_ids`` are interpreted as
+        For ``source in {"deep_research", "literature_search"}``, ``paper_ids`` are interpreted as
         artifact IDs. The method extracts candidate papers from artifact content
         and persists non-duplicate literature rows.
         """
-        if source != "deep_research":
+        supported_sources = {
+            "deep_research": ArtifactType.DEEP_RESEARCH_REPORT.value,
+            "literature_search": ArtifactType.LITERATURE_SEARCH_RESULTS.value,
+        }
+        artifact_type = supported_sources.get(source)
+        if artifact_type is None:
             return {"imported": 0}
 
         artifact_ids = list(dict.fromkeys([pid.strip() for pid in paper_ids if pid and pid.strip()]))
@@ -307,6 +313,7 @@ class LiteratureService:
         artifacts_result = await self.db.execute(
             select(Artifact).where(
                 Artifact.workspace_id == workspace_id,
+                Artifact.type == artifact_type,
                 Artifact.id.in_(artifact_ids),
             )
         )

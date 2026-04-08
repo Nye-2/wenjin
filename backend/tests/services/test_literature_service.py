@@ -87,6 +87,57 @@ async def test_batch_import_deep_research_creates_new_rows(mock_db_session):
 
 
 @pytest.mark.asyncio
+async def test_batch_import_literature_search_creates_new_rows(mock_db_session):
+    service = LiteratureService(mock_db_session)
+
+    artifact = SimpleNamespace(
+        id="art-search-1",
+        type="literature_search_results",
+        content={
+            "top_hits": [
+                {
+                    "title": "Search Paper A",
+                    "authors": ["Alice"],
+                    "year": 2023,
+                    "venue": "ACL",
+                    "summary": "High confidence literature search hit",
+                    "doi": "10.1000/search-paper-a",
+                }
+            ],
+            "papers": [
+                {
+                    "title": "Search Paper B",
+                    "authors": [{"name": "Bob"}],
+                    "year": "2022",
+                    "journal": "TACL",
+                    "relevance": "Directly related to the query",
+                }
+            ],
+        },
+    )
+
+    mock_db_session.execute.side_effect = [
+        _scalars_result([artifact]),
+        _scalars_result([]),
+    ]
+
+    result = await service.batch_import(
+        workspace_id="ws-1",
+        source="literature_search",
+        paper_ids=["art-search-1"],
+    )
+
+    assert result == {"imported": 2}
+    assert mock_db_session.add.call_count == 2
+    added_rows = [call.args[0] for call in mock_db_session.add.call_args_list]
+    assert {row.source for row in added_rows} == {"literature_search"}
+    assert {row.title for row in added_rows} == {
+        "Search Paper A",
+        "Search Paper B",
+    }
+
+
+@pytest.mark.asyncio
 async def test_batch_import_deep_research_skips_existing_title_and_doi(mock_db_session):
     service = LiteratureService(mock_db_session)
 

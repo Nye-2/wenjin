@@ -30,8 +30,10 @@
   },
   "home": {
     "title": "Wenjin",
-    "subtitle": "From topic exploration to final delivery, keep sources, reasoning, drafting, revision, and outputs connected inside one workspace.",
-    "getStarted": "Enter Workspace",
+    "heroBadge": "Vibe Writing · Vibe Rewriting",
+    "subtitle": "From topic exploration to writing, from writing to polished delivery — one system that moves academic work from conversation to deliverable.",
+    "getStarted": "Start Writing",
+    "openPrism": "Open Manuscript Studio",
     "learnMore": "View Capabilities",
     "features": {
       "title": "Supported Work Types",
@@ -128,6 +130,24 @@
           "title": "Artifact-Driven",
           "description": "Every output — chapters, reviews, outlines — is persisted as a traceable artifact that accumulates into a research portfolio."
         }
+      }
+    },
+    "modes": {
+      "eyebrow": "Two Modes, One Pipeline",
+      "title": "Write First, Refine Second",
+      "writing": {
+        "badge": "Vibe Writing",
+        "product": "Wenjin Workspace",
+        "tagline": "From zero to draft: AI-guided writing",
+        "description": "Explore research directions, collect evidence, build structure, and iterate drafts through natural conversation. Every output is persisted as a reusable research artifact.",
+        "keywords": "Conversation as Workflow · Stage-Aware Progression · Artifact Persistence"
+      },
+      "rewriting": {
+        "badge": "Vibe Rewriting",
+        "product": "WenjinPrism",
+        "tagline": "From draft to deliverable: manuscript editing & delivery",
+        "description": "Import workspace outputs into academic templates, edit, compile, and preview in the manuscript studio — refine continuously until it's ready to submit.",
+        "keywords": "Conference Templates · Compile & Preview · Workspace Sync"
       }
     },
     "workspaceTypes": {

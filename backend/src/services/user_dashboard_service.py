@@ -88,7 +88,9 @@ class UserDashboardService:
         counts = {status: int(count) for status, count in stats_rows.all()}
         total = sum(counts.values())
         success = int(counts.get("success", 0))
-        completion_rate = float(round(success / total, 4)) if total else 0.0
+        # Only count terminal tasks (success + failed + cancelled) for completion rate
+        terminal = success + int(counts.get("failed", 0)) + int(counts.get("cancelled", 0))
+        completion_rate = float(round(success / terminal, 4)) if terminal else 0.0
 
         recent_result = await self.db.execute(
             select(TaskRecord)

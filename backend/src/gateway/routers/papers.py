@@ -10,7 +10,7 @@ This module provides REST endpoints for:
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from src.application.errors import ApplicationError
 from src.application.handlers.papers_handler import PapersHandler, UploadedPaperPayload
@@ -86,6 +86,14 @@ async def upload_paper(
     handler: PapersHandler = Depends(get_papers_handler),
 ) -> Any:
     """Upload a paper PDF into a workspace."""
+    # Server-side file size validation (50 MB limit)
+    MAX_UPLOAD_SIZE = 50 * 1024 * 1024
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE // (1024 * 1024)}MB",
+        )
     try:
         return await handler.upload_paper(
             workspace_id=workspace_id,
@@ -93,7 +101,7 @@ async def upload_paper(
             upload=UploadedPaperPayload(
                 filename=file.filename,
                 content_type=file.content_type,
-                content=await file.read(),
+                content=content,
             ),
         )
     except ApplicationError as exc:

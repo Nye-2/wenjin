@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/stores/auth';
 import { Button } from '@/components/ui/button';
@@ -10,30 +10,30 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AuthShell } from '@/components/auth/auth-shell';
 import { useI18n } from '@/components/i18n-provider';
+import { resolvePostAuthRedirect } from '@/lib/auth-redirect';
 import { Eye, EyeOff, Loader2, LogIn } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { t } = useI18n();
   const { login, isLoading, error, clearError, isAuthenticated } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const redirectTo = resolvePostAuthRedirect(searchParams.get('redirect'));
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.push('/workspaces');
+      router.push(redirectTo);
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, redirectTo, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearError();
-
-    const success = await login(email, password);
-    if (success) {
-      router.push('/workspaces');
-    }
+    await login(email, password);
+    // Redirect is handled by the useEffect watching isAuthenticated
   };
 
   return (

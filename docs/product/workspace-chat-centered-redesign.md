@@ -1,8 +1,11 @@
 # Workspace Chat-Centered Redesign
 
-更新时间: 2026-03-23
-状态: Proposal
+更新时间: 2026-04-03
+状态: Archived (历史方案)
 适用项目: `wenjin`
+
+> 说明: 本文档保留 2026-03-23 阶段的产品方案推演，包含部分未落地或后续调整内容（例如主线/分支语义）。
+> 当前线上行为与路由契约请以 `docs/product/workspace-current-state.md` 为准。
 
 ## 1. 背景
 
@@ -25,7 +28,7 @@
 
 当前实现补充说明:
 
-- feature 卡片、artifact follow-up、activity retry 已统一落到 `chat/new`
+- feature 卡片、artifact follow-up、activity retry 已统一落到 `/chat`
 - 入口 query 会携带 `feature + skill + seed params`
 - 首次发送会把 `metadata.orchestration` 一并发给后端，优先命中 canonical feature bridge
 

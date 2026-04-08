@@ -34,50 +34,45 @@ type StageTone = "done" | "active" | "queued";
 /*  Helper components                                                  */
 /* ------------------------------------------------------------------ */
 
-function EnterWorkspaceButton({
+function SmartRouteButton({
   label,
+  path,
+  variant = "primary",
   compact = false,
-  withIcon = true,
 }: {
   label: string;
+  path: string;
+  variant?: "primary" | "secondary";
   compact?: boolean;
-  withIcon?: boolean;
 }) {
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
 
   const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
-    router.push(isAuthenticated ? "/workspaces" : "/login");
+    router.push(isAuthenticated ? path : "/login");
   };
 
   return (
     <motion.a
-      href="/workspaces"
+      href={path}
       onClick={handleClick}
       className={cn(
-        "inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-[var(--brand-navy)] to-[var(--brand-teal)] font-semibold text-white transition-shadow hover:shadow-xl hover:shadow-[var(--brand-navy)]/20",
-        compact ? "px-4 py-2.5 text-sm" : "px-7 py-4 text-base"
+        "inline-flex items-center gap-2 rounded-2xl font-semibold transition-shadow",
+        compact ? "px-4 py-2.5 text-sm" : "px-7 py-4 text-base",
+        variant === "primary"
+          ? "bg-gradient-to-r from-[var(--brand-navy)] to-[var(--brand-teal)] text-white hover:shadow-xl hover:shadow-[var(--brand-navy)]/20"
+          : "border border-[var(--brand-line)] bg-white/72 text-[var(--brand-navy)] transition-colors hover:border-[var(--brand-teal)]/40 hover:bg-white",
       )}
       whileHover={{ scale: 1.02 }}
       whileTap={buttonTap}
     >
       <span>{label}</span>
-      {withIcon && <Send className="h-4 w-4 shrink-0" />}
-    </motion.a>
-  );
-}
-
-function LearnMoreButton({ label }: { label: string }) {
-  return (
-    <motion.a
-      href="#philosophy"
-      className="inline-flex items-center gap-2 rounded-2xl border border-[var(--brand-line)] bg-white/72 px-7 py-4 text-base font-semibold text-[var(--brand-navy)] transition-colors hover:border-[var(--brand-teal)]/40 hover:bg-white"
-      whileHover={{ scale: 1.02 }}
-      whileTap={buttonTap}
-    >
-      <span>{label}</span>
-      <ArrowRight className="h-4 w-4" />
+      {variant === "primary" ? (
+        <Send className="h-4 w-4 shrink-0" />
+      ) : (
+        <ArrowRight className="h-4 w-4 shrink-0" />
+      )}
     </motion.a>
   );
 }
@@ -143,10 +138,11 @@ export default function HomePage() {
 
   /* ---- Hero type badges ---- */
   const supportedTypes = [
+    t("workspace.types.thesis"),
     t("workspace.types.sci"),
     t("workspace.types.proposal"),
     t("workspace.types.patent"),
-    t("workspace.types.thesis"),
+    t("workspace.types.software_copyright"),
   ];
 
   /* ---- Stage preview ---- */
@@ -268,7 +264,7 @@ export default function HomePage() {
             >
               <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white/72 px-4 py-2 text-xs font-semibold uppercase tracking-[0.26em] text-[var(--accent-secondary)]">
                 <span className="h-2 w-2 rounded-full bg-[var(--brand-brass)]" />
-                {t("nav.productTagline")}
+                {t("home.heroBadge")}
               </div>
 
               <div className="mt-8">
@@ -308,8 +304,8 @@ export default function HomePage() {
               </div>
 
               <div className="mt-10 flex flex-wrap items-center gap-4">
-                <EnterWorkspaceButton label={t("home.getStarted")} />
-                <LearnMoreButton label={t("home.learnMore")} />
+                <SmartRouteButton label={t("home.getStarted")} path="/workspaces" />
+                <SmartRouteButton label={t("home.openPrism")} path="/latex" variant="secondary" />
               </div>
             </motion.div>
 
@@ -465,6 +461,93 @@ export default function HomePage() {
               </motion.div>
             ))}
           </motion.div>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/*  SECTION 2.5 — Vibe Writing / Vibe Rewriting                 */}
+      {/* ============================================================ */}
+      <section className="px-6 py-28">
+        <div className="mx-auto max-w-7xl">
+          <SectionHeading
+            eyebrow={t("home.modes.eyebrow")}
+            title={t("home.modes.title")}
+            subtitle=""
+          />
+
+          <div className="mt-14 space-y-5">
+            {/* ── Vibe Writing ── */}
+            <motion.div
+              variants={fadeInUp}
+              initial="initial"
+              whileInView="animate"
+              viewport={{ once: true }}
+              transition={defaultTransition}
+            >
+              <div className="route-card overflow-hidden rounded-[2rem] px-6 py-8 sm:px-10 sm:py-10">
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="max-w-2xl">
+                    <div className="flex items-center gap-3">
+                      <span className="rounded-full border border-[var(--brand-teal)]/25 bg-[var(--brand-teal)]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-teal)]">
+                        {t("home.modes.writing.badge")}
+                      </span>
+                      <span className="text-sm font-medium text-[var(--text-muted)]">
+                        {t("home.modes.writing.product")}
+                      </span>
+                    </div>
+                    <h3 className="mt-5 text-2xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-3xl">
+                      {t("home.modes.writing.tagline")}
+                    </h3>
+                    <p className="mt-4 text-base leading-8 text-[var(--text-secondary)]">
+                      {t("home.modes.writing.description")}
+                    </p>
+                    <p className="mt-5 text-sm font-medium tracking-wide text-[var(--text-muted)]">
+                      {t("home.modes.writing.keywords")}
+                    </p>
+                  </div>
+                  <div className="shrink-0">
+                    <SmartRouteButton label={t("home.getStarted")} path="/workspaces" />
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* ── Vibe Rewriting ── */}
+            <motion.div
+              variants={fadeInUp}
+              initial="initial"
+              whileInView="animate"
+              viewport={{ once: true }}
+              transition={defaultTransition}
+            >
+              <div className="overflow-hidden rounded-[2rem] border border-[var(--brand-brass)]/15 bg-[linear-gradient(135deg,rgba(251,248,242,0.95),rgba(166,124,57,0.06))] px-6 py-8 shadow-[0_20px_48px_rgba(19,34,53,0.08)] sm:px-10 sm:py-10">
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="max-w-2xl">
+                    <div className="flex items-center gap-3">
+                      <span className="rounded-full border border-[var(--brand-brass)]/30 bg-[var(--brand-brass)]/12 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-brass)]">
+                        {t("home.modes.rewriting.badge")}
+                      </span>
+                      <span className="text-sm font-medium text-[var(--text-muted)]">
+                        {t("home.modes.rewriting.product")}
+                      </span>
+                    </div>
+                    <h3 className="mt-5 text-2xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-3xl">
+                      {t("home.modes.rewriting.tagline")}
+                    </h3>
+                    <p className="mt-4 text-base leading-8 text-[var(--text-secondary)]">
+                      {t("home.modes.rewriting.description")}
+                    </p>
+                    <p className="mt-5 text-sm font-medium tracking-wide text-[var(--text-muted)]">
+                      {t("home.modes.rewriting.keywords")}
+                    </p>
+                  </div>
+                  <div className="shrink-0">
+                    <SmartRouteButton label={t("home.openPrism")} path="/latex" variant="secondary" />
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
         </div>
       </section>
 
@@ -712,7 +795,7 @@ export default function HomePage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-4">
-                <EnterWorkspaceButton label={t("home.cta.button")} />
+                <SmartRouteButton label={t("home.cta.button")} path="/workspaces" />
               </div>
             </div>
           </motion.div>

@@ -29,6 +29,7 @@ class ArtifactType(StrEnum):
     RESULTS_SECTION = "results_section"
     DISCUSSION_SECTION = "discussion_section"
     PAPER_DRAFT = "paper_draft"
+    LATEX_PROJECT = "latex_project"
     PROPOSAL = "proposal"
     REVIEW = "review"
     COPYRIGHT_MATERIALS = "copyright_materials"

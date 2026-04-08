@@ -58,13 +58,53 @@ _GENERIC_ACTION_WORDS = (
     "启动",
     "安排",
     "生成",
-    "写",
+    "补充",
+    "细化",
+    "优化",
+    "重写",
+    "改写",
+    "调整",
+    "完善",
+    "扩写",
+    "更新",
+    "重新",
     "执行",
     "run",
     "start",
     "generate",
     "draft",
     "review",
+    "revise",
+    "rewrite",
+    "refine",
+    "expand",
+    "update",
+)
+
+_QUESTION_PHRASES = (
+    "?",
+    "？",
+    "为什么",
+    "为何",
+    "如何",
+    "怎么",
+    "怎样",
+    "什么",
+    "是否",
+    "吗",
+    "么",
+    "呢",
+    "what",
+    "why",
+    "how",
+    "which",
+)
+
+_ACTION_PATTERNS = (
+    re.compile(
+        r"(?:^|[\s,，。！!；;：:])写(?:摘要|引言|方法|实验|结果|讨论|结论|论文|全文|章节|大纲)",
+        flags=re.IGNORECASE,
+    ),
 )
 
 _FEATURE_TRIGGER_ALIASES: tuple[str, ...] = tuple(
@@ -84,6 +124,10 @@ def _normalize_text(value: str | None) -> str:
     return " ".join((value or "").strip().split())
 
 
+def _canonical_command_text(value: str | None) -> str:
+    return _normalize_text(value).lower().rstrip("。！？!?，,；;：:")
+
+
 def extract_target_words(message: str) -> int | None:
     """Parse target word count from the message."""
     match = re.search(r"(\d{3,6})\s*(?:字|words?)", message, flags=re.IGNORECASE)
@@ -97,8 +141,60 @@ def extract_target_words(message: str) -> int | None:
 
 def message_has_action_intent(message: str) -> bool:
     """Check whether the message sounds like a task trigger."""
-    lowered = (message or "").lower()
-    return any(token in lowered for token in _GENERIC_ACTION_WORDS)
+    normalized = _normalize_text(message)
+    lowered = _canonical_command_text(normalized)
+    return any(token in lowered for token in _GENERIC_ACTION_WORDS) or any(
+        pattern.search(normalized) for pattern in _ACTION_PATTERNS
+    )
+
+
+def message_looks_like_question(message: str) -> bool:
+    """Return whether the message reads like a question rather than a command."""
+    normalized = _normalize_text(message)
+    if not normalized:
+        return False
+
+    lowered = normalized.lower()
+    if any(token in normalized for token in ("?", "？")):
+        return True
+
+    if normalized.endswith(("吗", "么", "呢")):
+        return True
+
+    return any(token in lowered for token in _QUESTION_PHRASES)
+
+
+def message_is_explicit_feature_command(message: str) -> bool:
+    """Check whether the message is a concise feature command."""
+    return _canonical_command_text(message) in _FEATURE_TRIGGER_ALIASES
+
+
+def message_is_actionable_feature_request(message: str) -> bool:
+    """Return whether a message should trigger deterministic feature execution."""
+    canonical = _canonical_command_text(message)
+    if not canonical:
+        return False
+    if message_is_explicit_feature_command(message):
+        return True
+    if message_looks_like_question(message):
+        return False
+    return message_has_action_intent(message)
+
+
+def message_looks_like_topic_seed(message: str) -> bool:
+    """Return whether the message looks like a topic seed for a selected skill."""
+    normalized = _normalize_text(message)
+    if not normalized:
+        return False
+    if message_looks_like_question(normalized):
+        return False
+    if message_is_actionable_feature_request(normalized):
+        return False
+    if len(normalized) > 72:
+        return False
+    if any(token in normalized for token in ("，", ",", "；", ";", "：", ":", "\n")):
+        return False
+    return True
 
 
 def extract_topic_from_message(message: str) -> str | None:
@@ -170,6 +266,9 @@ def select_feature_by_message(
     message: str,
 ) -> tuple[str, dict[str, Any]] | None:
     """Resolve feature candidate from free-form chat message."""
+    if not message_is_actionable_feature_request(message):
+        return None
+
     lowered = (message or "").lower()
     for feature in list_workspace_features(workspace_type):
         match_tokens = {

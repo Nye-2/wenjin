@@ -23,6 +23,9 @@ from .models import (
     # Generation
     GenerationRecord,
     KnowledgeCategory,
+    LatexCompileHistory,
+    LatexProject,
+    LatexTemplate,
     # Paper
     Paper,
     PaperChunk,
@@ -96,6 +99,10 @@ __all__ = [
     # Models - Knowledge
     "UserKnowledge",
     "KnowledgeCategory",
+    # Models - Latex
+    "LatexProject",
+    "LatexTemplate",
+    "LatexCompileHistory",
     # Models - Generation
     "GenerationRecord",
     # Models - Task

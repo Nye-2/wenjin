@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
+from pydantic import BaseModel
 
 from src.academic.services import ArtifactService, WorkspaceService
 from src.agents.middlewares.thread_data import get_thread_data_root
@@ -25,7 +26,7 @@ from src.gateway.access_control import (
 from src.gateway.access_control import (
     require_workspace_owner_by_session as _require_workspace_owner,
 )
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import get_current_user, get_current_user_optional
 from src.gateway.contracts.artifact import (
     ArtifactResponse,
     ArtifactsListResponse,
@@ -48,6 +49,7 @@ from src.gateway.validators.artifact import (
     UpdateArtifactValidator,
 )
 from src.services import ChatThreadService
+from src.services.asset_url_signing import get_asset_url_signer
 from src.services.workspace_uploads import resolve_workspace_upload_relative_path
 
 router = APIRouter(tags=["artifacts"])
@@ -55,6 +57,12 @@ router = APIRouter(tags=["artifacts"])
 WorkspaceArtifactCreateRequest = ArtifactCreatePayloadValidator
 WorkspaceArtifactUpdateRequest = UpdateArtifactValidator
 _THREAD_ARTIFACT_VIRTUAL_PREFIX = "/mnt/user-data/"
+
+
+class AssetSignRequest(BaseModel):
+    """Request payload for minting short-lived signed asset URLs."""
+
+    url: str
 
 
 def _is_within_root(candidate: Path, root: Path) -> bool:
@@ -104,6 +112,10 @@ def _build_inline_file_response(actual_path: Path, mime_type: str | None) -> Res
             "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"
         },
     )
+
+
+def _request_has_valid_signature(request: Request) -> bool:
+    return get_asset_url_signer().verify_url(str(request.url))
 
 
 async def _create_workspace_artifact(
@@ -261,6 +273,62 @@ async def _get_workspace_artifact_lineage(
 # ============ Endpoints ============
 
 
+@router.post("/assets/sign", summary="Sign Protected Asset URL")
+async def sign_asset_url(
+    payload: AssetSignRequest,
+    current_user: User = Depends(get_current_user),
+    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+) -> dict[str, str]:
+    """Mint a short-lived signed URL for a protected asset route."""
+    raw_url = str(payload.url or "").strip()
+    if not raw_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing asset url",
+        )
+
+    signer = get_asset_url_signer()
+    signed_url = signer.sign_url(raw_url)
+
+    # Verify the caller is currently allowed to sign this asset.
+    from urllib.parse import urlparse
+
+    parsed = urlparse(raw_url)
+    route_path = parsed.path
+    normalized_route_path = (
+        route_path.removeprefix("/api")
+        if route_path.startswith("/api/")
+        else route_path
+    )
+    if normalized_route_path.startswith("/threads/") and "/artifacts/" in normalized_route_path:
+        prefix = "/threads/"
+        remainder = normalized_route_path.removeprefix(prefix)
+        thread_id, _, _artifact_path = remainder.partition("/artifacts/")
+        thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
+        if thread is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Thread not found",
+            )
+    elif normalized_route_path.startswith("/workspaces/") and "/files/" in normalized_route_path:
+        prefix = "/workspaces/"
+        remainder = normalized_route_path.removeprefix(prefix)
+        workspace_id, _, _file_path = remainder.partition("/files/")
+        await get_owned_workspace(
+            workspace_id=workspace_id,
+            current_user=current_user,
+            workspace_service=workspace_service,
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported asset url",
+        )
+
+    return {"signed_url": signed_url}
+
+
 @router.get(
     "/threads/{thread_id}/artifacts/{path:path}",
     summary="Get Thread Artifact File",
@@ -269,16 +337,22 @@ async def get_thread_artifact(
     thread_id: str,
     path: str,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
 ) -> Response:
     """Serve a thread-scoped sandbox file after ownership verification."""
-    thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
-    if thread is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Thread not found",
-        )
+    if not _request_has_valid_signature(request):
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+            )
+        thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
+        if thread is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Thread not found",
+            )
 
     actual_path = _resolve_thread_file_path(thread_id, path)
     if not actual_path.exists():
@@ -316,15 +390,21 @@ async def get_workspace_file(
     workspace_id: str,
     path: str,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> Response:
     """Serve a canonical workspace upload after ownership verification."""
-    await get_owned_workspace(
-        workspace_id=workspace_id,
-        current_user=current_user,
-        workspace_service=workspace_service,
-    )
+    if not _request_has_valid_signature(request):
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+            )
+        await get_owned_workspace(
+            workspace_id=workspace_id,
+            current_user=current_user,
+            workspace_service=workspace_service,
+        )
 
     try:
         actual_path = resolve_workspace_upload_relative_path(workspace_id, path)

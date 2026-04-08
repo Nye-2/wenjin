@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from src.academic.services.workspace_service import WorkspaceService
+from src.agents.lead_agent.chat_skill_catalog import get_default_skill_for_feature
 from src.application.errors import ApplicationError
 from src.application.handlers.feature_execution_handler import FeatureExecutionHandler, resolve_workspace_type
 from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
@@ -52,6 +53,7 @@ class WorkspaceFeature(BaseModel):
     stages: list[FeatureStage] = Field(default_factory=list)
     color: str | None = None
     followUpPrompt: str | None = None
+    defaultSkillId: str | None = None
 
 
 class FeaturesResponse(BaseModel):
@@ -83,7 +85,12 @@ class ExecuteResponse(BaseModel):
 
 def _feature_to_response(feature: Any) -> WorkspaceFeature:
     """Convert registry definitions to the public API model."""
-    return WorkspaceFeature(**feature.to_api_dict())
+    payload = feature.to_api_dict()
+    payload["defaultSkillId"] = get_default_skill_for_feature(
+        feature.workspace_type,
+        feature.id,
+    )
+    return WorkspaceFeature(**payload)
 
 
 # ============ Endpoints ============

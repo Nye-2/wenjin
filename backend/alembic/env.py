@@ -13,6 +13,9 @@ from src.database import Base
 from src.database.models import (  # noqa: F401
     User,
     Workspace,
+    LatexProject,
+    LatexTemplate,
+    LatexCompileHistory,
     Paper,
     WorkspacePaper,
     PaperExtraction,

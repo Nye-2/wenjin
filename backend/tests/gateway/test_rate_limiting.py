@@ -65,6 +65,7 @@ class TestRateLimiting:
         app = _make_rate_limited_app(requests_per_minute=10)
         client = TestClient(app)
         resp = client.get("/test")
+        assert "X-RateLimit-Bucket" in resp.headers
         assert "X-RateLimit-Limit" in resp.headers
         assert "X-RateLimit-Window" in resp.headers
 
@@ -123,3 +124,58 @@ class TestRateLimiting:
         middleware = next(m for m in app.user_middleware if m.cls is RateLimitMiddleware)
         assert middleware.kwargs["requests_per_minute"] == 7
         assert middleware.kwargs["window_seconds"] == 45
+
+    def test_upload_bucket_isolated_from_default_requests(self):
+        from src.gateway.middleware.rate_limit import setup_rate_limiting
+
+        app = FastAPI()
+
+        @app.get("/test")
+        async def test_endpoint():
+            return {"ok": True}
+
+        @app.post("/threads/thread-1/uploads")
+        async def upload_endpoint():
+            return {"ok": True}
+
+        with patch("src.gateway.middleware.rate_limit.redis_settings") as mock_settings:
+            mock_settings.rate_limit_requests = 3
+            mock_settings.rate_limit_window = 60
+            setup_rate_limiting(app, redis_client=None)
+
+        client = TestClient(app)
+
+        for _ in range(3):
+            resp = client.get("/test")
+            assert resp.status_code == 200
+
+        resp = client.post("/threads/thread-1/uploads")
+        assert resp.status_code == 200
+        assert resp.headers["X-RateLimit-Bucket"] == "uploads"
+
+    def test_stream_bucket_limit_is_separate(self):
+        from src.gateway.middleware.rate_limit import setup_rate_limiting
+
+        app = FastAPI()
+
+        @app.get("/test")
+        async def test_endpoint():
+            return {"ok": True}
+
+        @app.get("/workspaces/workspace-1/events")
+        async def events_endpoint():
+            return {"ok": True}
+
+        with patch("src.gateway.middleware.rate_limit.redis_settings") as mock_settings:
+            mock_settings.rate_limit_requests = 1
+            mock_settings.rate_limit_window = 60
+            setup_rate_limiting(app, redis_client=None)
+
+        client = TestClient(app)
+
+        resp = client.get("/test")
+        assert resp.status_code == 200
+
+        resp = client.get("/workspaces/workspace-1/events")
+        assert resp.status_code == 200
+        assert resp.headers["X-RateLimit-Bucket"] == "streams"

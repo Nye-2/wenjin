@@ -6,12 +6,16 @@ This service provides paper management functionality including:
 - Workspace-paper association management
 """
 
+import logging
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Paper, PaperExtraction, PaperSection, Workspace, WorkspacePaper
+
+logger = logging.getLogger(__name__)
 
 
 class PaperService:
@@ -153,7 +157,7 @@ class PaperService:
         """Delete a paper.
 
         This will cascade delete all associated records (workspace associations,
-        extractions, chunks, sections).
+        extractions, chunks, sections) and remove the physical file from disk.
 
         Args:
             paper_id: Paper UUID string
@@ -164,6 +168,18 @@ class PaperService:
         paper = await self.get(paper_id)
         if not paper:
             return False
+
+        # Clean up physical file before deleting DB record
+        if paper.file_path:
+            try:
+                file_path = Path(paper.file_path)
+                if file_path.is_file():
+                    file_path.unlink()
+                    logger.info("Deleted paper file: %s", paper.file_path)
+            except OSError:
+                logger.warning(
+                    "Failed to delete paper file: %s", paper.file_path, exc_info=True
+                )
 
         await self.db.delete(paper)
         await self.db.commit()

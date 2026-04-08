@@ -92,7 +92,7 @@ class TestWorkspaceContextMiddleware:
 
     @pytest.mark.asyncio
     async def test_preserves_existing_state_fields(self, middleware, workspace_service):
-        """Test middleware preserves existing state fields when injecting context."""
+        """Test middleware returns partial updates and leaves merge to the pipeline."""
         state = ThreadState(
             messages=[],
             workspace_id="ws-123",
@@ -103,9 +103,9 @@ class TestWorkspaceContextMiddleware:
 
         result = await middleware.before_model(state, config)
 
-        # Original fields should be preserved
-        assert result.get("cited_papers") == ["paper-1", "paper-2"]
-        assert result.get("thread_data") == {"custom": "data"}
+        # Middleware should only return the fields it is responsible for.
+        assert "cited_papers" not in result
+        assert "thread_data" not in result
 
         # And workspace fields should be added
         assert result["workspace_type"] is not None

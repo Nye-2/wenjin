@@ -13,9 +13,10 @@ The service handles:
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from sqlalchemy import and_, select
@@ -26,9 +27,11 @@ from src.database import Paper, PaperExtraction, PaperSection
 
 logger = logging.getLogger(__name__)
 
-JsonObject: TypeAlias = dict[str, Any]
-TOCEntry: TypeAlias = dict[str, Any]
-AcademicEntity: TypeAlias = dict[str, str]
+type JsonObject = dict[str, Any]
+type TOCEntry = dict[str, Any]
+type AcademicEntity = dict[str, str]
+_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
+_NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)[\s\.\-:]+(.+)$")
 
 
 def _coerce_toc_entries(value: object) -> list[TOCEntry]:
@@ -99,6 +102,145 @@ class ExtractionService:
         """
         self.db = db
         self.pdf_extractor = PDFExtractor()
+
+    def _resolve_preprocessed_dir(self, file_path: str) -> Path:
+        source = Path(file_path)
+        return source.parent / "_preprocessed" / source.stem
+
+    def _load_preprocessed_markdown_documents(self, file_path: str) -> list[str]:
+        """Load OCR-generated markdown docs saved by upload preprocessor."""
+        preprocessed_dir = self._resolve_preprocessed_dir(file_path)
+        if not preprocessed_dir.is_dir():
+            return []
+
+        markdown_paths: list[Path] = []
+        manifest_path = preprocessed_dir / "manifest.json"
+        if manifest_path.is_file():
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+                raw_paths = payload.get("markdown_paths")
+                if isinstance(raw_paths, list):
+                    for item in raw_paths:
+                        candidate = Path(str(item or ""))
+                        if not candidate.is_absolute():
+                            candidate = preprocessed_dir / str(item or "")
+                        if candidate.is_file():
+                            markdown_paths.append(candidate)
+            except Exception:
+                logger.warning(
+                    "Failed to parse preprocess manifest for %s",
+                    file_path,
+                    exc_info=True,
+                )
+
+        if not markdown_paths:
+            markdown_paths = sorted(preprocessed_dir.glob("doc_*.md"))
+
+        documents: list[str] = []
+        for path in markdown_paths:
+            try:
+                text = path.read_text(encoding="utf-8").strip()
+            except OSError:
+                logger.warning("Failed to read preprocessed markdown: %s", path, exc_info=True)
+                continue
+            if text:
+                documents.append(text)
+        return documents
+
+    def _split_markdown_into_sections(self, markdown_text: str) -> list[dict[str, Any]]:
+        """Split markdown text into heading-scoped sections."""
+        text = str(markdown_text or "").strip()
+        if not text:
+            return []
+
+        matches = list(_MARKDOWN_HEADING_RE.finditer(text))
+        if not matches:
+            return [
+                {
+                    "title": "Document",
+                    "page_start": 1,
+                    "page_end": 1,
+                    "content": text,
+                    "level": 1,
+                    "number": "1",
+                }
+            ]
+
+        sections: list[dict[str, Any]] = []
+        for index, match in enumerate(matches):
+            raw_title = str(match.group(2) or "").strip()
+            if not raw_title:
+                continue
+
+            level = len(str(match.group(1) or "#"))
+            heading_number: str | None = None
+            heading_title = raw_title
+            numbered_match = _NUMBERED_HEADING_RE.match(raw_title)
+            if numbered_match:
+                heading_number = str(numbered_match.group(1) or "").strip() or None
+                heading_title = str(numbered_match.group(2) or "").strip() or raw_title
+
+            start = match.start()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            content = text[start:end].strip()
+            if not content:
+                continue
+
+            sections.append(
+                {
+                    "title": heading_title,
+                    "page_start": 1,
+                    "page_end": 1,
+                    "content": content,
+                    "level": max(level, 1),
+                    "number": heading_number,
+                }
+            )
+
+        return sections or [
+            {
+                "title": "Document",
+                "page_start": 1,
+                "page_end": 1,
+                "content": text,
+                "level": 1,
+                "number": "1",
+            }
+        ]
+
+    def _build_toc_from_sections(
+        self,
+        sections: list[dict[str, Any]],
+    ) -> list[TOCEntry]:
+        toc: list[TOCEntry] = []
+        for index, section in enumerate(sections, 1):
+            entry: TOCEntry = {
+                "title": str(section.get("title") or "").strip() or f"Section {index}",
+                "page": int(section.get("page_start") or 1),
+                "level": int(section.get("level") or 1),
+            }
+            number = str(section.get("number") or "").strip()
+            if number:
+                entry["number"] = number
+            toc.append(entry)
+        return toc
+
+    def _build_section_mapping(
+        self,
+        toc: list[TOCEntry],
+        sections: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        mapping: dict[str, dict[str, Any]] = {}
+        for index, section in enumerate(sections):
+            section_path = self._generate_section_path(index, toc)
+            mapping[section_path] = {
+                "title": str(section.get("title") or ""),
+                "content": str(section.get("content") or ""),
+                "level": int(section.get("level") or 1),
+                "page_start": int(section.get("page_start") or 1),
+                "page_end": int(section.get("page_end") or 1),
+            }
+        return mapping
 
     async def extract_paper(
         self,
@@ -186,16 +328,22 @@ class ExtractionService:
         """
         # Extract metadata
         metadata = self.pdf_extractor.extract_metadata(file_path)
+        markdown_documents = self._load_preprocessed_markdown_documents(file_path)
 
-        # Extract TOC
-        toc = self.pdf_extractor.extract_toc(file_path)
-
-        # Extract full text
-        sections = self.pdf_extractor.split_into_sections(file_path, toc)
-        full_text = "\n\n".join(
-            f"## {s['title']}\n{s['content']}"
-            for s in sections
-        ) if sections else ""
+        if markdown_documents:
+            full_text = "\n\n".join(markdown_documents)
+            sections = self._split_markdown_into_sections(full_text)
+            toc = self._build_toc_from_sections(sections)
+            model_used = "layout_parsing_markdown"
+        else:
+            # Fallback: parse directly from PDF
+            toc = self.pdf_extractor.extract_toc(file_path)
+            sections = self.pdf_extractor.split_into_sections(file_path, toc)
+            full_text = "\n\n".join(
+                f"## {s['title']}\n{s['content']}"
+                for s in sections
+            ) if sections else ""
+            model_used = "pymupdf"
 
         # Build structured data
         structured_data = {
@@ -204,7 +352,11 @@ class ExtractionService:
             "full_text": full_text,
             "section_count": len(sections),
             "page_count": metadata.get("page_count", 0),
+            "sections": self._build_section_mapping(toc, sections),
+            "text_source": "markdown" if markdown_documents else "pdf",
         }
+        if markdown_documents:
+            structured_data["markdown_docs_count"] = len(markdown_documents)
 
         # Create extraction record
         extraction = PaperExtraction(
@@ -212,7 +364,7 @@ class ExtractionService:
             tier=self.TIER_ENGINEERING,
             extraction_type=self.TYPE_FULL_TEXT,
             structured_data=structured_data,
-            model_used="pymupdf",
+            model_used=model_used,
         )
         self.db.add(extraction)
 
@@ -514,9 +666,15 @@ class ExtractionService:
             return existing
 
         try:
-            # Extract TOC and sections using PDFExtractor
-            toc = self.pdf_extractor.extract_toc(file_path)
-            raw_sections = self.pdf_extractor.split_into_sections(file_path, toc)
+            markdown_documents = self._load_preprocessed_markdown_documents(file_path)
+            if markdown_documents:
+                full_text = "\n\n".join(markdown_documents)
+                raw_sections = self._split_markdown_into_sections(full_text)
+                toc = self._build_toc_from_sections(raw_sections)
+            else:
+                # Extract TOC and sections using PDFExtractor
+                toc = self.pdf_extractor.extract_toc(file_path)
+                raw_sections = self.pdf_extractor.split_into_sections(file_path, toc)
 
             # Create PaperSection records
             paper_sections: list[PaperSection] = []

@@ -3,8 +3,10 @@
 import { ReactNode, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
+import { useFeaturePanelStore } from "@/stores/panels";
 import { useFeaturesStore } from "@/stores/features";
 import { useChatStore } from "@/stores/chat";
+import { useTaskStore } from "@/stores/task";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { CommandPalette } from "@/components/workspace/CommandPalette";
 import { AppShellSidebar } from "@/components/workspace/AppShellSidebar";
@@ -21,7 +23,10 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   useWorkspaceEventStream(workspaceId || null);
   const { loadWorkspace, fetchArtifacts, fetchActivity, clearWorkspace } = useWorkspaceStore();
   const { fetchFeatures, fetchSkills, clearFeatures, clearSkills } = useFeaturesStore();
-  const { loadThreads, clearMessages, abortStream } = useChatStore();
+  const hydratePanels = useFeaturePanelStore((state) => state.hydrateWorkspace);
+  const clearPanels = useFeaturePanelStore((state) => state.clearWorkspace);
+  const { clearMessages, abortStream } = useChatStore();
+  const clearWorkspaceTasks = useTaskStore((state) => state.clearWorkspaceTasks);
 
   useEffect(() => {
     if (!workspaceId) {
@@ -29,17 +34,22 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     }
 
     void loadWorkspace(workspaceId);
-    void fetchFeatures(workspaceId);
+    void fetchFeatures(workspaceId).then(() =>
+      hydratePanels(
+        workspaceId,
+        (featureId) => useFeaturesStore.getState().getFeatureById(featureId)
+      )
+    );
     void fetchSkills(workspaceId);
     void fetchArtifacts(workspaceId);
     void fetchActivity(workspaceId);
-    void loadThreads(workspaceId);
-
     return () => {
       abortStream();
       clearWorkspace();
       clearFeatures();
       clearSkills();
+      clearWorkspaceTasks(workspaceId);
+      clearPanels(workspaceId);
       clearMessages();
     };
   }, [
@@ -49,12 +59,14 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     fetchSkills,
     fetchArtifacts,
     fetchActivity,
-    loadThreads,
     clearWorkspace,
     clearFeatures,
     clearSkills,
+    clearWorkspaceTasks,
+    clearPanels,
     clearMessages,
     abortStream,
+    hydratePanels,
   ]);
 
   return (

@@ -13,6 +13,7 @@ from typing import Any
 
 from src.agents.graphs._shared import _normalize_list, _read_payload_params, _utc_now_iso
 from src.agents.workspace_lead_agent import register_feature_graph
+from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
@@ -241,7 +242,7 @@ async def copyright_materials_graph(
         )
 
     # Step 4: Build output
-    return {
+    result = {
         "schema_version": "v1",
         "output_language": COPYRIGHT_OUTPUT_LANGUAGE,
         "document_type": "copyright_materials",
@@ -270,3 +271,21 @@ async def copyright_materials_graph(
         ],
         "generated_at": _utc_now_iso(),
     }
+    try:
+        from src.database import get_db_session
+
+        async with get_db_session() as db:
+            bridge_service = WorkspaceLatexProjectService(db)
+            linked_project, section_file, section_map = await bridge_service.sync_software_copyright_materials(
+                workspace_id=workspace_id,
+                project_title=software_name,
+                required_materials=required_materials,
+                review_checklist=review_checklist,
+            )
+            result["latex_project_id"] = str(linked_project.id)
+            result["main_file"] = linked_project.main_file
+            result["section_file"] = section_file
+            result["section_map"] = section_map
+    except Exception:
+        logger.exception("Failed to sync copyright materials into linked latex project")
+    return result

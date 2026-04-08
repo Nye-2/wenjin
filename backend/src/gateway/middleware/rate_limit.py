@@ -87,6 +87,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "/redoc",
             "/openapi.json",
         }
+        # Upload and long-lived stream routes should not share the same bucket
+        # as ordinary REST reads/writes, otherwise routine UI traffic can starve
+        # user-initiated uploads or stream reconnects.
+        self._bucket_limits: dict[str, tuple[int, int]] = {
+            "default": (requests_per_minute, window_seconds),
+            "uploads": (max(requests_per_minute, 60), window_seconds),
+            "streams": (max(requests_per_minute * 4, 240), window_seconds),
+        }
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Process request through rate limiter.
@@ -112,12 +120,25 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Check rate limit
-        key = f"rate_limit:{client_ip}"
+        bucket = self._resolve_bucket(request.url.path)
+        bucket_limit, bucket_window = self._bucket_limits.get(
+            bucket,
+            self._bucket_limits["default"],
+        )
+        key = f"rate_limit:{bucket}:{client_ip}"
 
         if self._redis:
-            allowed = await self._check_redis(key)
+            allowed = await self._check_redis(
+                key,
+                requests_per_window=bucket_limit,
+                window_seconds=bucket_window,
+            )
         else:
-            allowed = self._check_memory(key)
+            allowed = self._check_memory(
+                key,
+                requests_per_window=bucket_limit,
+                window_seconds=bucket_window,
+            )
 
         if not allowed:
             return JSONResponse(
@@ -125,13 +146,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 content={
                     "error": {
                         "code": "RATE_LIMIT_EXCEEDED",
-                        "message": f"Rate limit exceeded. Maximum {self.requests_per_minute} requests per {self.window_seconds} seconds.",
+                        "message": f"Rate limit exceeded. Maximum {bucket_limit} requests per {bucket_window} seconds for {bucket} traffic.",
                     }
                 },
                 headers={
-                    "X-RateLimit-Limit": str(self.requests_per_minute),
-                    "X-RateLimit-Window": str(self.window_seconds),
-                    "Retry-After": str(self.window_seconds),
+                    "X-RateLimit-Bucket": bucket,
+                    "X-RateLimit-Limit": str(bucket_limit),
+                    "X-RateLimit-Window": str(bucket_window),
+                    "Retry-After": str(bucket_window),
                 },
             )
 
@@ -139,10 +161,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         # Add rate limit headers
-        response.headers["X-RateLimit-Limit"] = str(self.requests_per_minute)
-        response.headers["X-RateLimit-Window"] = str(self.window_seconds)
+        response.headers["X-RateLimit-Bucket"] = bucket
+        response.headers["X-RateLimit-Limit"] = str(bucket_limit)
+        response.headers["X-RateLimit-Window"] = str(bucket_window)
 
         return response
+
+    @staticmethod
+    def _resolve_bucket(path: str) -> str:
+        normalized = (path or "").strip()
+        if normalized == "/chat/stream":
+            return "streams"
+        if normalized.startswith("/workspaces/") and normalized.endswith("/events"):
+            return "streams"
+        if normalized.startswith("/tasks/") and normalized.endswith("/stream"):
+            return "streams"
+        if normalized.startswith("/threads/") and normalized.endswith("/uploads"):
+            return "uploads"
+        return "default"
 
     def _get_client_ip(self, request: Request) -> str | None:
         """Extract client IP from request.
@@ -195,7 +231,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return cast(RedisBackendProtocol, client)
         return cast(RedisBackendProtocol, backend)
 
-    async def _check_redis(self, key: str) -> bool:
+    async def _check_redis(
+        self,
+        key: str,
+        *,
+        requests_per_window: int | None = None,
+        window_seconds: int | None = None,
+    ) -> bool:
         """Check rate limit using Redis.
 
         Uses sliding window algorithm with sorted sets.
@@ -209,10 +251,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         try:
             backend = self._resolve_redis_backend()
             if backend is None:
-                return self._check_memory(key)
+                return self._check_memory(
+                    key,
+                    requests_per_window=requests_per_window,
+                    window_seconds=window_seconds,
+                )
+
+            effective_limit = requests_per_window or self.requests_per_minute
+            effective_window = window_seconds or self.window_seconds
 
             now = time.time()
-            window_start = now - self.window_seconds
+            window_start = now - effective_window
 
             # Use Redis pipeline for atomic operations
             pipe = backend.pipeline()
@@ -227,7 +276,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             pipe.zadd(key, {str(now): now})
 
             # Set expiry
-            pipe.expire(key, self.window_seconds + 1)
+            pipe.expire(key, effective_window + 1)
 
             results = await pipe.execute()
             current_count_raw = results[1] if len(results) > 1 else 0
@@ -235,12 +284,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return self._check_memory(key)
             current_count = int(current_count_raw)
 
-            return current_count < self.requests_per_minute
+            return current_count < effective_limit
 
         except Exception:
-            return self._check_memory(key)
+            return self._check_memory(
+                key,
+                requests_per_window=requests_per_window,
+                window_seconds=window_seconds,
+            )
 
-    def _check_memory(self, key: str) -> bool:
+    def _check_memory(
+        self,
+        key: str,
+        *,
+        requests_per_window: int | None = None,
+        window_seconds: int | None = None,
+    ) -> bool:
         """Check rate limit using in-memory storage.
 
         Uses sliding window algorithm with list of timestamps.
@@ -251,8 +310,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         Returns:
             True if request is allowed, False if rate limit exceeded
         """
+        effective_limit = requests_per_window or self.requests_per_minute
+        effective_window = window_seconds or self.window_seconds
         now = time.time()
-        window_start = now - self.window_seconds
+        window_start = now - effective_window
 
         # Get or create entry
         if key not in self._storage:
@@ -264,7 +325,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         ]
 
         # Check limit
-        if len(self._storage[key]) >= self.requests_per_minute:
+        if len(self._storage[key]) >= effective_limit:
             return False
 
         # Add current request

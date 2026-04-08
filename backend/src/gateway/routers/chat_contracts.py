@@ -70,6 +70,13 @@ class ThreadCreate(BaseModel):
     skill: str | None = None
 
 
+class WorkspaceChatThreadEnsureRequest(BaseModel):
+    """Ensure the canonical workspace chat thread exists."""
+
+    model: str | None = None
+    skill: str | None = None
+
+
 class ThreadResponse(BaseModel):
     """Thread response."""
 

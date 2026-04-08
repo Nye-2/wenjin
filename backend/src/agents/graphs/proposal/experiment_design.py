@@ -15,6 +15,7 @@ async def experiment_design_graph(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     """Generate experiment-design output for proposal workspaces."""
+    workspace_id = str(payload.get("workspace_id", "")).strip()
     workspace_name = str(payload.get("workspace_name", "")).strip()
     workspace_description = str(payload.get("workspace_description", "")).strip()
     params = _read_payload_params(payload)
@@ -22,8 +23,28 @@ async def experiment_design_graph(
     objective = str(params.get("objective") or workspace_description or topic).strip()
     preferred_model = _read_optional_str(params.get("model_id"))
 
-    return await build_experiment_design_payload(
+    result = await build_experiment_design_payload(
+        workspace_id=workspace_id,
+        workspace_name=workspace_name,
         topic=topic,
         objective=objective,
         preferred_model=preferred_model,
     )
+    return {
+        "topic": result.get("topic", topic),
+        "objective": result.get("objective", objective),
+        "hypotheses": result.get("hypotheses", []),
+        "variables": result.get("variables", []),
+        "procedure": result.get("procedure", []),
+        "evaluation": result.get("evaluation", []),
+        "risks": result.get("risks", []),
+        "latex_project_id": result.get("latex_project_id"),
+        "main_file": result.get("main_file"),
+        "section_file": result.get("section_file"),
+        "section_map": result.get("section_map", {}),
+        "sync_conflicts": result.get("sync_conflicts", []),
+        "generation_mode": result.get("generation_mode", "llm"),
+        "model_id": result.get("model_id"),
+        "generation_error": result.get("generation_error"),
+        "generated_at": result.get("generated_at"),
+    }

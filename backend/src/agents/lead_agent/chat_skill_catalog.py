@@ -438,6 +438,39 @@ SKILL_TO_FEATURE: dict[str, dict[str, tuple[str, dict[str, Any]]]] = {
     for workspace_type, skills in WORKSPACE_CHAT_SKILLS.items()
 }
 
+FEATURE_TO_DEFAULT_SKILL: dict[str, dict[str, str]] = {
+    "thesis": {
+        "deep_research": "deep-research",
+        "literature_management": "literature-manager",
+        "opening_research": "literature-reviewer",
+        "thesis_writing": "framework-designer",
+        "figure_generation": "figure-designer",
+        "compile_export": "doc-compiler",
+    },
+    "sci": {
+        "literature_search": "deep-research",
+        "paper_analysis": "paper-analyst",
+        "writing": "section-writer",
+        "literature_review": "literature-reviewer",
+        "framework_outline": "framework-designer",
+        "peer_review": "peer-reviewer",
+        "journal_recommend": "journal-recommender",
+    },
+    "proposal": {
+        "proposal_outline": "proposal-writer",
+        "background_research": "background-scout",
+        "experiment_design": "experiment-designer",
+    },
+    "software_copyright": {
+        "copyright_materials": "copyright-writer",
+        "technical_description": "tech-doc-writer",
+    },
+    "patent": {
+        "patent_outline": "patent-drafter",
+        "prior_art_search": "prior-art-scout",
+    },
+}
+
 
 def list_workspace_chat_skills(
     workspace_type: str | None,
@@ -457,3 +490,13 @@ def get_skill_by_id(
         if skill.id == skill_id:
             return skill
     return None
+
+
+def get_default_skill_for_feature(
+    workspace_type: str | None,
+    feature_id: str,
+) -> str | None:
+    """Return the canonical entry skill for a feature, if one is defined."""
+    if not workspace_type or not feature_id:
+        return None
+    return FEATURE_TO_DEFAULT_SKILL.get(workspace_type, {}).get(feature_id)

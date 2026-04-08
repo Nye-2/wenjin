@@ -54,11 +54,11 @@ async def create_workspace_events_response(workspace_id: str) -> StreamingRespon
 async def create_workspace_events_response_with_stream(
     *,
     workspace_id: str,
-    stream_factory: Callable[[str], Awaitable[AsyncIterable[str]]],
+    stream_factory: Callable[[str], AsyncIterable[str]],
 ) -> StreamingResponse:
     """Create the shared SSE response envelope for workspace-scoped events."""
 
-    stream = await stream_factory(workspace_id)
+    stream = stream_factory(workspace_id)
     return StreamingResponse(
         stream,
         media_type="text/event-stream",

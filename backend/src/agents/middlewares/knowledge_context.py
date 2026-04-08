@@ -78,7 +78,7 @@ class KnowledgeContextMiddleware(Middleware):
         """Load and inject knowledge context."""
         workspace_id = state.get("workspace_id")
         if not workspace_id:
-            return dict(state)
+            return {}
 
         # Load artifacts
         try:
@@ -97,6 +97,5 @@ class KnowledgeContextMiddleware(Middleware):
         # Build context
         knowledge_context = self._build_knowledge_graph(artifacts)
         return {
-            **state,
             "knowledge_context": knowledge_context,
         }

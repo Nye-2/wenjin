@@ -33,7 +33,12 @@ export interface Artifact {
   type: string;
   title: string | null;
   content: Record<string, unknown>;
+  created_by_skill?: string | null;
+  parent_artifact_id?: string | null;
+  version?: number;
+  status?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface Paper {
@@ -62,6 +67,7 @@ interface WorkspaceState {
   isActivityLoading: boolean;
   isWorkspaceMutating: boolean;
   error: string | null;
+  _lastLoadRequestId: string | null;
 
   // Actions
   fetchWorkspaces: () => Promise<void>;
@@ -82,6 +88,8 @@ interface WorkspaceState {
     type: string;
     title?: string;
     content: Record<string, unknown>;
+    created_by_skill?: string;
+    parent_artifact_id?: string;
   }) => Promise<Artifact>;
   clearError: () => void;
   isChatCockpitEnabled: () => boolean;
@@ -100,6 +108,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   isArtifactsLoading: false,
   isActivityLoading: false,
   isWorkspaceMutating: false,
+  _lastLoadRequestId: null as string | null,
   error: null,
 
   fetchWorkspaces: async () => {
@@ -119,14 +128,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   loadWorkspace: async (id: string) => {
-    set({ isWorkspaceLoading: true, error: null });
+    const requestId = crypto.randomUUID();
+    set({ isWorkspaceLoading: true, error: null, _lastLoadRequestId: requestId });
     try {
       const workspace = await getWorkspace(id);
+      // Only apply if this is still the latest request
+      const current = get()._lastLoadRequestId;
+      if (current !== requestId) return;
       set({
         workspace,
         isWorkspaceLoading: false,
       });
     } catch (error) {
+      const current = get()._lastLoadRequestId;
+      if (current !== requestId) return;
       set({ error: (error as Error).message, isWorkspaceLoading: false });
     }
   },
@@ -230,7 +245,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           type: a.type,
           title: a.title || null,
           content: a.content,
+          created_by_skill: a.created_by_skill ?? null,
+          parent_artifact_id: a.parent_artifact_id ?? null,
+          version: a.version,
+          status: a.status,
           created_at: a.created_at,
+          updated_at: a.updated_at,
         })),
         isArtifactsLoading: false,
       });
@@ -288,6 +308,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         type: data.type,
         title: data.title,
         content: data.content,
+        created_by_skill: data.created_by_skill,
+        parent_artifact_id: data.parent_artifact_id,
       });
       const mappedArtifact: Artifact = {
         id: artifact.id,
@@ -295,7 +317,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         type: artifact.type,
         title: artifact.title || null,
         content: artifact.content,
+        created_by_skill: artifact.created_by_skill ?? null,
+        parent_artifact_id: artifact.parent_artifact_id ?? null,
+        version: artifact.version,
+        status: artifact.status,
         created_at: artifact.created_at,
+        updated_at: artifact.updated_at,
       };
       get().addArtifact(mappedArtifact);
       return mappedArtifact;

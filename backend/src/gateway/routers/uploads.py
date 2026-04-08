@@ -21,11 +21,13 @@ from src.gateway.deps import (
     get_db,
     get_paper_service,
     get_task_service,
+    get_upload_preprocessor,
     get_workspace_service,
 )
 from src.gateway.routers.chat_contracts import ChatAttachment, ChatUploadKind
 from src.services import ChatThreadService
 from src.services.knowledge_service import KnowledgeService
+from src.services.upload_preprocessor import UploadPreprocessor
 from src.services.workspace_uploads import (
     DEFAULT_WORKSPACE_UPLOAD_ROOT,
     extract_document_preview,
@@ -91,6 +93,50 @@ def _ordered_refresh_targets(targets: set[str]) -> list[str]:
     return [target for target in preferred_order if target in targets]
 
 
+def _attach_workspace_preprocess_urls(
+    *,
+    workspace_id: str,
+    metadata: dict[str, object],
+) -> None:
+    preprocess = metadata.get("preprocess")
+    if not isinstance(preprocess, dict):
+        return
+
+    for key in ("markdown_paths", "markdown_image_paths", "output_image_paths"):
+        values = preprocess.get(key)
+        if not isinstance(values, list):
+            continue
+        urls: list[str] = []
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            try:
+                url = workspace_upload_public_url(
+                    workspace_id,
+                    value,
+                    root=_PERSISTED_UPLOAD_ROOT,
+                )
+            except ValueError:
+                continue
+            if url:
+                urls.append(url)
+        if urls:
+            preprocess[f"{key.removesuffix('_paths')}_urls"] = urls
+
+    manifest_path = preprocess.get("manifest_path")
+    if isinstance(manifest_path, str) and manifest_path.strip():
+        try:
+            manifest_url = workspace_upload_public_url(
+                workspace_id,
+                manifest_path,
+                root=_PERSISTED_UPLOAD_ROOT,
+            )
+        except ValueError:
+            manifest_url = None
+        if manifest_url:
+            preprocess["manifest_url"] = manifest_url
+
+
 async def _require_owned_thread(
     *,
     thread_id: str,
@@ -127,6 +173,7 @@ async def upload_thread_files(
     paper_service: Any = Depends(get_paper_service),
     artifact_service: Any = Depends(get_artifact_service),
     task_service: Any = Depends(get_task_service),
+    upload_preprocessor: UploadPreprocessor = Depends(get_upload_preprocessor),
     db: AsyncSession = Depends(get_db),
 ) -> ThreadUploadResponse:
     """Upload one or more files into a thread-scoped sandbox uploads directory."""
@@ -209,6 +256,26 @@ async def upload_thread_files(
                 source_path=thread_path,
                 root=_PERSISTED_UPLOAD_ROOT,
             )
+            preprocess_result = await upload_preprocessor.preprocess_file(
+                filename=saved_name,
+                content_type=upload.content_type,
+                source_path=persistent_path,
+                output_dir=(
+                    persistent_path.parent
+                    / "_preprocessed"
+                    / persistent_path.stem
+                ),
+            )
+            metadata["preprocess"] = preprocess_result.to_metadata()
+            _attach_workspace_preprocess_urls(
+                workspace_id=resolved_workspace_id,
+                metadata=metadata,
+            )
+            preprocess_metadata = metadata.get("preprocess")
+            if isinstance(preprocess_metadata, dict):
+                markdown_paths = preprocess_metadata.get("markdown_paths")
+                if isinstance(markdown_paths, list) and markdown_paths:
+                    metadata["preprocessed_markdown_paths"] = markdown_paths
             paper_title = (
                 str(document_preview.get("title") or "").strip()
                 or persistent_path.stem
@@ -255,6 +322,19 @@ async def upload_thread_files(
             if document_preview.get("text_preview"):
                 metadata["text_preview"] = document_preview["text_preview"]
             refresh_targets.update({"dashboard", "papers"})
+        else:
+            preprocess_result = await upload_preprocessor.preprocess_file(
+                filename=filename,
+                content_type=upload.content_type,
+                content=content,
+                output_dir=uploads_dir / "_preprocessed" / Path(saved_name).stem,
+                output_virtual_root=f"/mnt/user-data/uploads/_preprocessed/{Path(saved_name).stem}",
+            )
+            preprocess_metadata = preprocess_result.to_metadata()
+            metadata["preprocess"] = preprocess_metadata
+            markdown_paths = preprocess_metadata.get("markdown_paths")
+            if isinstance(markdown_paths, list) and markdown_paths:
+                metadata["preprocessed_markdown_paths"] = markdown_paths
 
         if kind == "workspace_context" and resolved_workspace_id:
             persistent_path = persist_workspace_upload(

@@ -102,6 +102,31 @@ class TestTaskService:
             assert len(tasks) >= 3
 
     @pytest.mark.asyncio
+    async def test_list_tasks_filters_by_workspace(self, task_service):
+        """Workspace-scoped task listing should only return matching tasks."""
+        with patch("src.task.service.celery_app") as mock_celery:
+            mock_celery.send_task = MagicMock()
+
+            await task_service.submit_task(
+                user_id="user-workspace-filter",
+                task_type="workspace_feature",
+                payload={"workspace_id": "ws-a", "feature_id": "deep_research"},
+            )
+            await task_service.submit_task(
+                user_id="user-workspace-filter",
+                task_type="workspace_feature",
+                payload={"workspace_id": "ws-b", "feature_id": "deep_research"},
+            )
+
+            tasks = await task_service.list_tasks(
+                "user-workspace-filter",
+                workspace_id="ws-a",
+            )
+
+            assert len(tasks) == 1
+            assert tasks[0]["workspace_id"] == "ws-a"
+
+    @pytest.mark.asyncio
     async def test_queue_failure_marks_record_as_failed(self, task_service):
         """When queue submission fails, the DB record must be marked failed."""
         with patch("src.task.service.get_executor") as mock_get_executor:

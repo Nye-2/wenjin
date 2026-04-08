@@ -26,6 +26,7 @@ class AgentState(TypedDict):
     which is the core requirement for LangGraph agent workflows.
     """
     messages: Annotated[list[AnyMessage], add_messages]
+    remaining_steps: NotRequired[int]
 
 
 # ============ Supporting Types ============

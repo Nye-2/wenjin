@@ -172,6 +172,28 @@ class TestCreateChatModel:
             assert model is not None
             # Verify base_url is set correctly (accessible via openai_api_base or similar)
 
+    def test_minimax_models_enable_reasoning_split(self) -> None:
+        minimax_config = json.dumps([
+            {
+                "id": "minimax-m2.7",
+                "model": "MiniMax-M2.7",
+                "api_key": "sk-minimax",
+                "base_url": "https://api.minimaxi.com/v1",
+                "temperature": 0.3,
+                "max_tokens": 32768,
+            }
+        ])
+
+        with patch.dict(os.environ, {"LLM_GEN_MODELS": minimax_config}, clear=False):
+            from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
+            reload_models()
+
+            model = create_chat_model(model_id="minimax-m2.7", temperature=0.3)
+
+            assert model.model_name == "MiniMax-M2.7"
+            assert model.extra_body == {"reasoning_split": True}
+
 
 class TestModelProviderDetection:
     """Test provider detection logic."""

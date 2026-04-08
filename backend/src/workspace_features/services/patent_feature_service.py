@@ -15,6 +15,7 @@ from typing import Any
 
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
+from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
@@ -296,6 +297,27 @@ async def build_patent_outline_payload(
         "evidence_points_needed": template_data["evidence_points_needed"],
         "generated_at": _utc_now_iso(),
     }
+    try:
+        async with get_db_session() as db:
+            bridge_service = WorkspaceLatexProjectService(db)
+            linked_project, section_map = await bridge_service.sync_patent_outline_project(
+                workspace_id=workspace_id,
+                project_title=workspace_name or normalized_innovation,
+                sections=llm_sections,
+                claims_draft=claims_draft,
+            )
+            result["latex_project_id"] = str(linked_project.id)
+            result["main_file"] = linked_project.main_file
+            result["section_map"] = section_map
+            linked_metadata = (
+                linked_project.llm_config.get("metadata")
+                if isinstance(linked_project.llm_config, dict)
+                else {}
+            )
+            if isinstance(linked_metadata, dict):
+                result["sync_conflicts"] = linked_metadata.get("sync_conflicts", [])
+    except Exception:
+        logger.exception("Failed to sync patent outline into linked latex project")
     if runtime is not None:
         upsert_runtime_block(
             runtime,

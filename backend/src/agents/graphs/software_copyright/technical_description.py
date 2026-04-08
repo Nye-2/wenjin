@@ -77,6 +77,10 @@ async def technical_description_graph(
     return {
         "software_profile": result.get("software_profile", {}),
         "sections": result.get("sections", {}),
+        "latex_project_id": result.get("latex_project_id"),
+        "main_file": result.get("main_file"),
+        "section_map": result.get("section_map", {}),
+        "sync_conflicts": result.get("sync_conflicts", []),
         "generation_mode": result.get("generation_mode", "llm"),
         "model_id": result.get("model_id"),
         "generation_error": result.get("generation_error"),

@@ -1,5 +1,7 @@
 # Architecture Optimizations Implementation Plan
 
+> 归档说明: 本文档为历史阶段性计划快照，可能包含已过时路由、线程模型或状态描述。当前实现请以 `docs/product/workspace-current-state.md` 与相关当前契约文档为准。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Eliminate the three remaining architectural debt points: the `resolve_feature_params` if-elif chain in feature_bridge_intents.py, hardcoded frontend follow-up prompts that should come from the API, and duplicated `_emit_bound_runtime` helpers scattered across 5+ service files.

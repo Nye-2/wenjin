@@ -87,6 +87,7 @@ export async function createWorkspaceFeatureTask(options: {
 }
 
 type StartTaskFn = (params: {
+  workspaceId?: string | null;
   taskId?: string;
   featureId: string;
   agent: string;
@@ -96,13 +97,15 @@ type StartTaskFn = (params: {
 }) => string;
 
 export function trackWorkspaceFeatureTask(options: {
+  workspaceId?: string | null;
   feature: Pick<WorkspaceFeature, "id" | "agent" | "agentLabel" | "stages">;
   startTask: StartTaskFn;
   taskId: string;
   initialThinking?: string;
 }): void {
-  const { feature, startTask, taskId, initialThinking } = options;
+  const { workspaceId, feature, startTask, taskId, initialThinking } = options;
   startTask({
+    workspaceId,
     taskId,
     featureId: feature.id,
     agent: feature.agent,

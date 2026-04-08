@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.database import Artifact
+from src.gateway.auth_dependencies import get_current_user_optional
 from src.gateway.routers import artifacts as artifacts_router
 from src.gateway.routers.artifacts import (
     get_artifact_service,
@@ -221,6 +222,7 @@ def app(mock_service, mock_chat_thread_service, mock_workspace_service):
         get_workspace_service_override
     )
     app.dependency_overrides[get_current_user] = get_current_user_override
+    app.dependency_overrides[get_current_user_optional] = get_current_user_override
     app.include_router(router)
 
     return app
@@ -267,6 +269,37 @@ class TestThreadArtifactFiles:
         assert response.status_code == 404
         assert response.json()["detail"] == "Thread not found"
 
+    def test_get_thread_artifact_accepts_signed_url_without_auth(
+        self,
+        app,
+        monkeypatch,
+        tmp_path,
+    ):
+        thread_root = tmp_path / "thread-1" / "user-data"
+        artifact_path = thread_root / "outputs" / "report.md"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text("# Report", encoding="utf-8")
+
+        monkeypatch.setattr(
+            artifacts_router,
+            "get_thread_data_root",
+            lambda thread_id: thread_root,
+        )
+
+        client = TestClient(app)
+        sign_response = client.post(
+            "/assets/sign",
+            json={"url": "/threads/thread-1/artifacts/mnt/user-data/outputs/report.md"},
+        )
+        assert sign_response.status_code == 200
+        signed_url = sign_response.json()["signed_url"]
+
+        app.dependency_overrides[get_current_user_optional] = lambda: None
+        response = client.get(signed_url)
+
+        assert response.status_code == 200
+        assert response.text == "# Report"
+
 
 class TestWorkspaceFiles:
     """Test canonical workspace upload file serving."""
@@ -309,6 +342,37 @@ class TestWorkspaceFiles:
         response = client.get("/workspaces/non-owned/files/papers/paper.pdf")
 
         assert response.status_code == 404
+
+    def test_get_workspace_file_accepts_signed_url_without_auth(
+        self,
+        app,
+        monkeypatch,
+        tmp_path,
+    ):
+        workspace_root = tmp_path / "workspace_uploads" / WORKSPACE_ID
+        file_path = workspace_root / "papers" / "paper.pdf"
+        file_path.parent.mkdir(parents=True)
+        file_path.write_bytes(b"%PDF-1.4")
+
+        monkeypatch.setattr(
+            artifacts_router,
+            "resolve_workspace_upload_relative_path",
+            lambda workspace_id, path: file_path,
+        )
+
+        client = TestClient(app)
+        sign_response = client.post(
+            "/assets/sign",
+            json={"url": f"/workspaces/{WORKSPACE_ID}/files/papers/paper.pdf"},
+        )
+        assert sign_response.status_code == 200
+        signed_url = sign_response.json()["signed_url"]
+
+        app.dependency_overrides[get_current_user_optional] = lambda: None
+        response = client.get(signed_url)
+
+        assert response.status_code == 200
+        assert response.content == b"%PDF-1.4"
 
 
 class TestCreateArtifact:

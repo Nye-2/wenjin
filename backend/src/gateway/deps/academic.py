@@ -1,11 +1,19 @@
+from __future__ import annotations
+
 """Academic-domain dependency factories."""
+
+from typing import TYPE_CHECKING
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.academic.literature.index_service import IndexService
 from src.academic.services import ArtifactService, PaperService, WorkspaceService
 from src.gateway.deps.core import get_db
 from src.services.literature_service import LiteratureService
+
+if TYPE_CHECKING:
+    from src.services.template_service import TemplateService
 
 
 async def get_workspace_service(
@@ -36,8 +44,15 @@ async def get_literature_service(
     return LiteratureService(db)
 
 
+async def get_index_service(
+    db: AsyncSession = Depends(get_db),
+) -> IndexService:
+    """Get literature index service instance."""
+    return IndexService(db)
+
+
 async def get_template_service(
     db: AsyncSession = Depends(get_db),
-) -> "TemplateService":
+) -> TemplateService:
     from src.services.template_service import TemplateService
     return TemplateService(db)

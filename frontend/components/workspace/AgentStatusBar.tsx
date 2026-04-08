@@ -84,15 +84,23 @@ function StageConnector({ isCompleted }: StageConnectorProps) {
   );
 }
 
-export function AgentStatusBar() {
+interface AgentStatusBarProps {
+  workspaceId: string;
+}
+
+export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
+  const taskState = useTaskStore((state) => state.getWorkspaceTaskState(workspaceId));
+  const cancelTask = useTaskStore((state) => state.cancelTask);
+  const clearCurrentTask = useTaskStore((state) => state.clearCurrentTask);
+  const clearRecentCompleted = useTaskStore((state) => state.clearRecentCompleted);
+  const { currentTask, recentCompleted } = taskState;
   const {
-    currentTask,
-    recentCompleted,
-    cancelTask,
-    clearCurrentTask,
-    clearRecentCompleted,
-  } = useTaskStore();
-  const { threadId, currentSkill, isStreaming, threadStatuses, setThreadStatus } = useChatStore();
+    threadId,
+    activeSkill,
+    isStreaming,
+    threadStatuses,
+    setThreadStatus,
+  } = useChatStore();
   const getSkillById = useFeaturesStore((state) => state.getSkillById);
   const [isExpanded, setIsExpanded] = useState(true);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -131,7 +139,7 @@ export function AgentStatusBar() {
 
   const handleDismissFailedTask = () => {
     setTaskActionError(null);
-    clearCurrentTask();
+    clearCurrentTask(workspaceId);
   };
 
   const handleCancelCurrentTask = async () => {
@@ -143,7 +151,10 @@ export function AgentStatusBar() {
     setIsCancelling(true);
     try {
       await cancelTaskRequest(currentTask.id);
-      cancelTask();
+      cancelTask({
+        workspaceId,
+        taskId: currentTask.id,
+      });
     } catch (error) {
       setTaskActionError(
         error instanceof Error ? error.message : "取消任务失败，请稍后重试"
@@ -170,7 +181,7 @@ export function AgentStatusBar() {
           <p className="text-xs text-emerald-600/70">{recentCompleted.agentLabel}</p>
         </div>
         <button
-          onClick={clearRecentCompleted}
+          onClick={() => clearRecentCompleted(workspaceId)}
           className="p-1.5 rounded-lg text-emerald-600/70 hover:text-emerald-600 hover:bg-emerald-500/10 transition-colors"
           aria-label="关闭"
         >
@@ -225,7 +236,7 @@ export function AgentStatusBar() {
       return null;
     }
 
-    const effectiveSkillId = visibleThreadStatus?.current_skill || currentSkill;
+    const effectiveSkillId = visibleThreadStatus?.current_skill || activeSkill;
     const skillLabel = effectiveSkillId
       ? (getSkillById(effectiveSkillId)?.name ?? effectiveSkillId)
       : "chat";

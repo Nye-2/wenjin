@@ -1,5 +1,7 @@
 # Workspace UX Simplification Design
 
+> 归档说明: 本文档为历史阶段性计划快照，可能包含已过时路由、线程模型或状态描述。当前实现请以 `docs/product/workspace-current-state.md` 与相关当前契约文档为准。
+
 **Date:** 2026-03-30
 **Status:** Approved
 **Goal:** Simplify the post-entry workspace experience while preserving the premium feel. Reduce cognitive load for new users, streamline the feature execution flow, and add guided onboarding.

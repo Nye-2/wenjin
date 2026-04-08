@@ -1,6 +1,6 @@
 # Continuous Optimization Plan
 
-更新时间: 2026-03-26
+更新时间: 2026-04-03
 状态: Active
 适用项目: `wenjin`
 
@@ -27,7 +27,7 @@
   `POST /api/workspaces/{workspace_id}/features/{feature_id}/execute`
 - chat cockpit rollout 默认已覆盖五类 workspace:
   `frontend/lib/workspace-rollout.ts`
-- 前端已具备 workspace 驾驶舱首页、chat panel、task summary，以及基于 `chat/new` 的 feature seed 入口
+- 前端已具备 workspace 驾驶舱首页、chat panel、task summary，以及基于 `/chat` 的 feature seed 入口
 - 已有基础 smoke / matrix 测试:
   `backend/tests/workspace_features/test_five_workspace_smoke.py`
   `backend/tests/workspace_features/test_workspace_e2e_matrix.py`
@@ -63,7 +63,7 @@
 1. 不新增旁路主链。新能力只能接入 canonical workspace feature pipeline。
 2. 不恢复已移除的 legacy route / legacy task type /兼容入口。
 3. 不允许业务参数重新平铺到 task payload 顶层，`params` 继续作为业务输入唯一来源。
-4. 不允许把 workspace 退化成 session，thread 继续作为 workspace 内会话主线或分支。
+4. 不允许把 workspace 退化成 session；用户侧保持 single-thread-per-workspace，thread 在数据层继续作为持久化容器。
 5. 每次改动都必须顺手清理死代码、重复状态源和无效适配层。
 6. 每个阶段都必须带 review 任务，review 不是收尾附属动作，而是阶段内必做项。
 
@@ -146,7 +146,7 @@
 
 关键任务:
 
-1. 补齐 main thread 自动恢复、branch thread 基本语义和 chat 上下文一致性。
+1. 补齐单线程自动恢复与 chat 上下文一致性。
 2. 补齐 feature completion card、artifact 二次执行、继续追问、直接跳转这类闭环动作。
 3. 补齐 paper / artifact / task / summary 刷新的串联关系。
 4. 把主链里还残留的同步旁路或临时适配层纳入统一 application + task 编排。
@@ -213,19 +213,19 @@
 2. 统一 assistant 任务建议卡、运行卡、结果卡、next-step 卡的结构。
 3. 建立 thread memory / workspace memory / user memory 的产品边界和服务边界。
 4. 让 chat 能驱动 feature 启动、继续追问、基于 artifact 二次执行。
-5. 补齐 branch thread 的用户体验和恢复策略。
+5. 补齐单线程下的上下文恢复、容错和会话连续性策略。
 
 阶段 review:
 
 1. chat intent / feature routing review
 2. memory boundary review
-3. thread UX review
+3. thread lifecycle review
 
 退出标准:
 
 - chat 成为 workspace 默认入口
 - feature orchestration 不依赖硬编码快捷按钮
-- thread 与 workspace 的职责边界清晰
+- thread 与 workspace 的职责边界清晰，且不回退到多线程导航模型
 
 ### Phase 4: Architecture Debt Paydown
 

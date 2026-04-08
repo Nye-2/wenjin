@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 from pathlib import Path
 from urllib.parse import quote
 
 from src.execution.path_utils import normalize_thread_id
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_WORKSPACE_UPLOAD_ROOT = Path(".wenjin/workspace_uploads")
 _PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
@@ -250,6 +253,12 @@ def extract_document_preview(
                     max_chars=max_chars,
                 )
         except Exception:
+            logger.warning(
+                "Failed to extract PDF preview metadata: filename=%s content_type=%s",
+                filename,
+                content_type,
+                exc_info=True,
+            )
             return preview
 
         return preview

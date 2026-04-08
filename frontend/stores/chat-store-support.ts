@@ -17,6 +17,7 @@ export interface Message {
   created_at: string;
   blocks: ChatMessageBlock[];
   metadata: Record<string, unknown> | null;
+  pending?: boolean;
 }
 
 export function createPendingUserMessage(options: {
@@ -37,6 +38,7 @@ export function createPendingUserMessage(options: {
     created_at: options.createdAt,
     blocks: [],
     metadata,
+    pending: false,
   };
 }
 
@@ -51,6 +53,7 @@ export function createPlaceholderAssistantMessage(options: {
     created_at: options.createdAt,
     blocks: [],
     metadata: null,
+    pending: true,
   };
 }
 
@@ -69,6 +72,43 @@ export function appendAssistantContent(
   return nextMessages;
 }
 
+function buildReasoningBlock(text: string): ChatMessageBlock {
+  return {
+    type: "reasoning",
+    title: "思考过程",
+    data: { text },
+  };
+}
+
+export function upsertTrailingAssistantReasoning(
+  messages: Message[],
+  reasoning: string
+): Message[] {
+  const nextMessages = [...messages];
+  const lastIndex = nextMessages.length - 1;
+  if (lastIndex < 0 || nextMessages[lastIndex].role !== "assistant") {
+    return messages;
+  }
+
+  const nextBlocks = [...nextMessages[lastIndex].blocks];
+  const reasoningBlockIndex = nextBlocks.findIndex(
+    (block) => block.type === "reasoning"
+  );
+  const reasoningBlock = buildReasoningBlock(reasoning);
+
+  if (reasoningBlockIndex >= 0) {
+    nextBlocks[reasoningBlockIndex] = reasoningBlock;
+  } else {
+    nextBlocks.unshift(reasoningBlock);
+  }
+
+  nextMessages[lastIndex] = {
+    ...nextMessages[lastIndex],
+    blocks: nextBlocks,
+  };
+  return nextMessages;
+}
+
 export function createStoreAssistantMessage(options: {
   fallbackId: string;
   fallbackCreatedAt: string;
@@ -82,6 +122,7 @@ export function createStoreAssistantMessage(options: {
     created_at: message.timestamp ?? fallbackCreatedAt,
     blocks: Array.isArray(message.blocks) ? message.blocks : [],
     metadata: message.metadata ?? null,
+    pending: false,
   };
 }
 
@@ -115,6 +156,16 @@ export function removeTrailingEmptyAssistantMessage(
   return messages.slice(0, -1);
 }
 
+export function removeTrailingPendingAssistantMessage(
+  messages: Message[]
+): Message[] {
+  const lastMessage = messages[messages.length - 1];
+  if (!lastMessage || lastMessage.role !== "assistant" || !lastMessage.pending) {
+    return messages;
+  }
+  return messages.slice(0, -1);
+}
+
 export function findLastAssistantMessage(
   messages: Message[]
 ): Message | undefined {
@@ -134,6 +185,7 @@ export function toStoreMessages(detail: Thread): Message[] {
       created_at: message.timestamp ?? detail.updated_at,
       blocks: Array.isArray(message.blocks) ? message.blocks : [],
       metadata: message.metadata ?? null,
+      pending: false,
     }));
 }
 
@@ -234,7 +286,10 @@ function readStructuredTaskDescriptor(
   return { featureId, taskId };
 }
 
-export function maybeStartStructuredTask(message: Message) {
+export function maybeStartStructuredTask(
+  message: Message,
+  workspaceId?: string | null
+) {
   const descriptor = readStructuredTaskDescriptor(message);
   if (!descriptor) {
     return;
@@ -247,11 +302,13 @@ export function maybeStartStructuredTask(message: Message) {
   }
 
   const taskStore = useTaskStore.getState();
-  if (taskStore.currentTask?.id === descriptor.taskId) {
+  const currentTask = taskStore.getWorkspaceTaskState(workspaceId).currentTask;
+  if (currentTask?.id === descriptor.taskId) {
     return;
   }
 
   trackWorkspaceFeatureTask({
+    workspaceId,
     feature,
     startTask: taskStore.startTask,
     taskId: descriptor.taskId,

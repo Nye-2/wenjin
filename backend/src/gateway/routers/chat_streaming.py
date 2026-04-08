@@ -26,6 +26,10 @@ def stream_content_event(content: str) -> str:
     return encode_sse_event({"type": "content", "content": content})
 
 
+def stream_reasoning_event(content: str) -> str:
+    return encode_sse_event({"type": "reasoning", "content": content})
+
+
 def stream_assistant_message_event(message: Mapping[str, Any]) -> str:
     return encode_sse_event({"type": "assistant_message", "message": dict(message)})
 

@@ -59,7 +59,7 @@ class LiteratureContextMiddleware(Middleware):
         """
         workspace_id = state.get("workspace_id")
         if not workspace_id:
-            return dict(state)
+            return {}
 
         # Get TOC summary for workspace
         try:
@@ -77,9 +77,8 @@ class LiteratureContextMiddleware(Middleware):
 
         # Only inject if we have content
         if not toc_summary:
-            return dict(state)
+            return {}
 
         return {
-            **state,
             "literature_context": toc_summary,
         }

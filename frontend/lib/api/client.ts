@@ -18,6 +18,31 @@ type RetriableRequestConfig = InternalAxiosRequestConfig & {
   _retry?: boolean;
 };
 
+function extractApiErrorMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (typeof record.detail === "string" && record.detail.trim()) {
+    return record.detail.trim();
+  }
+  if (typeof record.message === "string" && record.message.trim()) {
+    return record.message.trim();
+  }
+  const nestedError = record.error;
+  if (nestedError && typeof nestedError === "object") {
+    const nestedRecord = nestedError as Record<string, unknown>;
+    if (
+      typeof nestedRecord.message === "string" &&
+      nestedRecord.message.trim()
+    ) {
+      return nestedRecord.message.trim();
+    }
+  }
+  return null;
+}
+
 function readPersistedAccessToken(): string | null {
   if (typeof window === "undefined") {
     return null;
@@ -142,6 +167,7 @@ type JsonEventStreamOptions<T> = {
   url: string;
   init?: RequestInit;
   onPayload: (payload: T) => void;
+  onOpen?: () => void;
   onError?: (error: string) => void;
   onClosedMessage?: string;
 };
@@ -150,6 +176,7 @@ export function subscribeJsonEventStream<T>({
   url,
   init,
   onPayload,
+  onOpen,
   onError,
   onClosedMessage,
 }: JsonEventStreamOptions<T>): () => void {
@@ -168,6 +195,7 @@ export function subscribeJsonEventStream<T>({
       if (!reader) {
         throw new Error("No reader available");
       }
+      onOpen?.();
 
       const decoder = new TextDecoder();
       let buffer = "";
@@ -211,8 +239,13 @@ export function subscribeJsonEventStream<T>({
         }
       }
 
-      if (!controller.signal.aborted && onClosedMessage) {
-        onError?.(onClosedMessage);
+      // Stream ended gracefully (server timeout or completion) — not an error.
+      // Only call onError if the stream was NOT aborted (user navigated away)
+      // and the caller explicitly wants to know about normal closures.
+      // For workspace events, the server closes after 3600s timeout which is
+      // a normal lifecycle event, not an error warranting reconnect.
+      if (!controller.signal.aborted) {
+        onError?.(onClosedMessage || "Stream ended");
       }
     })
     .catch((error: unknown) => {
@@ -273,7 +306,10 @@ apiClient.interceptors.response.use(
       }
     }
 
-    console.error("API Error:", error.response?.data || error.message);
+    const normalizedMessage =
+      extractApiErrorMessage(error.response?.data) || error.message;
+    error.message = normalizedMessage;
+    console.error("API Error:", normalizedMessage);
     return Promise.reject(error);
   }
 );

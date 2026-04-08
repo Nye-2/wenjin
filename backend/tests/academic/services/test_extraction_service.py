@@ -181,6 +181,55 @@ class TestExtractPaper(TestExtractionService):
         assert "full_text" in added_extraction.structured_data
 
     @pytest.mark.asyncio
+    async def test_extract_paper_tier1_prefers_preprocessed_markdown(
+        self,
+        service,
+        sample_paper_id,
+        mock_db_session,
+    ):
+        """Tier 1 extraction should consume OCR markdown when available."""
+        mock_metadata = {
+            "title": "OCR Parsed Paper",
+            "authors": "Author",
+            "page_count": 10,
+        }
+        markdown_docs = [
+            "# 1 Introduction\n\nIntro body\n\n## 1.1 Background\n\nBackground body",
+        ]
+
+        with (
+            patch.object(service, "get_extraction", return_value=None),
+            patch.object(
+                service.pdf_extractor,
+                "extract_metadata",
+                return_value=mock_metadata,
+            ),
+            patch.object(
+                service,
+                "_load_preprocessed_markdown_documents",
+                return_value=markdown_docs,
+            ),
+            patch.object(service.pdf_extractor, "extract_toc") as mock_extract_toc,
+            patch.object(service.pdf_extractor, "split_into_sections") as mock_split_sections,
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            await service.extract_paper(
+                sample_paper_id,
+                "/path/to/paper.pdf",
+                tier=1,
+            )
+
+        mock_extract_toc.assert_not_called()
+        mock_split_sections.assert_not_called()
+
+        added_extraction = mock_db_session.add.call_args[0][0]
+        assert added_extraction.model_used == "layout_parsing_markdown"
+        assert added_extraction.structured_data["text_source"] == "markdown"
+        assert added_extraction.structured_data["markdown_docs_count"] == 1
+        assert added_extraction.structured_data["section_count"] >= 1
+        assert added_extraction.structured_data["sections"]["1"]["title"] == "Introduction"
+
+    @pytest.mark.asyncio
     async def test_extract_paper_tier2_depends_on_tier1(
         self,
         service,
@@ -343,6 +392,42 @@ class TestExtractSections(TestExtractionService):
         # Verify sections were created
         assert mock_db_session.add.call_count == 7  # 7 TOC entries
         mock_db_session.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_extract_sections_prefers_preprocessed_markdown(
+        self,
+        service,
+        sample_paper_id,
+        sample_workspace_id,
+        mock_db_session,
+    ):
+        """Section extraction should reuse OCR markdown instead of reparsing PDF."""
+        markdown_docs = [
+            "# 1 Introduction\n\nIntro body\n\n## 1.1 Background\n\nBackground body",
+        ]
+
+        with (
+            patch.object(service, "_get_existing_sections", return_value=[]),
+            patch.object(
+                service,
+                "_load_preprocessed_markdown_documents",
+                return_value=markdown_docs,
+            ),
+            patch.object(service.pdf_extractor, "extract_toc") as mock_extract_toc,
+            patch.object(service.pdf_extractor, "split_into_sections") as mock_split_sections,
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            result = await service.extract_sections(
+                sample_paper_id,
+                sample_workspace_id,
+                "/path/to/paper.pdf",
+            )
+
+        mock_extract_toc.assert_not_called()
+        mock_split_sections.assert_not_called()
+        assert len(result) == 2
+        assert result[0].section_title == "Introduction"
+        assert result[1].section_path == "1.1"
 
     @pytest.mark.asyncio
     async def test_extract_sections_rolls_back_on_error(

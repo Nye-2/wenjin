@@ -17,6 +17,7 @@ from src.application.errors import (
 )
 from src.application.results import PaperExtractionTaskSubmission
 from src.database import Paper, PaperSection
+from src.services.upload_preprocessor import UploadPreprocessor
 from src.services.workspace_uploads import (
     DEFAULT_WORKSPACE_UPLOAD_ROOT,
     extract_document_preview,
@@ -50,10 +51,12 @@ class PapersHandler:
         paper_service: PaperService,
         workspace_service: WorkspaceService,
         task_service: TaskService,
+        upload_preprocessor: UploadPreprocessor | None = None,
     ) -> None:
         self.paper_service = paper_service
         self.workspace_service = workspace_service
         self.task_service = task_service
+        self.upload_preprocessor = upload_preprocessor
 
     async def create_paper(
         self,
@@ -111,6 +114,7 @@ class PapersHandler:
             raise BadRequestError("Uploaded file is empty")
 
         size_bytes = len(content)
+        preprocess_metadata: dict[str, object] | None = None
 
         try:
             document_preview = extract_document_preview(
@@ -127,6 +131,59 @@ class PapersHandler:
                 content=content,
                 root=_PERSISTED_UPLOAD_ROOT,
             )
+            if self.upload_preprocessor is not None:
+                preprocess_result = await self.upload_preprocessor.preprocess_file(
+                    filename=filename,
+                    content_type=upload.content_type,
+                    content=content,
+                    output_dir=(
+                        persistent_path.parent
+                        / "_preprocessed"
+                        / persistent_path.stem
+                    ),
+                )
+                preprocess_metadata = preprocess_result.to_metadata()
+                for key in (
+                    "markdown_paths",
+                    "markdown_image_paths",
+                    "output_image_paths",
+                ):
+                    values = preprocess_metadata.get(key)
+                    if not isinstance(values, list):
+                        continue
+                    urls: list[str] = []
+                    for value in values:
+                        if not isinstance(value, str):
+                            continue
+                        try:
+                            public_url = workspace_upload_public_url(
+                                workspace_id,
+                                value,
+                                root=_PERSISTED_UPLOAD_ROOT,
+                            )
+                        except ValueError:
+                            continue
+                        if public_url:
+                            urls.append(public_url)
+                    if urls:
+                        preprocess_metadata[f"{key.removesuffix('_paths')}_urls"] = urls
+                manifest_path = preprocess_metadata.get("manifest_path")
+                if isinstance(manifest_path, str) and manifest_path.strip():
+                    try:
+                        manifest_url = workspace_upload_public_url(
+                            workspace_id,
+                            manifest_path,
+                            root=_PERSISTED_UPLOAD_ROOT,
+                        )
+                    except ValueError:
+                        manifest_url = None
+                    if manifest_url:
+                        preprocess_metadata["manifest_url"] = manifest_url
+        except Exception as exc:
+            raise BadRequestError(f"Failed to process upload: {str(exc)}") from exc
+
+        paper = None
+        try:
             paper = await self.paper_service.create_in_workspace(
                 workspace_id=workspace_id,
                 title=(
@@ -148,6 +205,13 @@ class PapersHandler:
                 tier=1,
             )
         except Exception as exc:
+            # Clean up orphaned file on DB/queue failure
+            try:
+                if persistent_path and persistent_path.is_file():
+                    persistent_path.unlink()
+                    logger.info("Cleaned up orphaned upload: %s", persistent_path)
+            except OSError:
+                logger.warning("Failed to clean up orphaned file: %s", persistent_path, exc_info=True)
             raise BadRequestError(f"Failed to upload paper: {str(exc)}") from exc
 
         return {
@@ -166,6 +230,7 @@ class PapersHandler:
             ),
             "source": "manual_upload",
             "extraction": extraction,
+            "preprocess": preprocess_metadata,
         }
 
     async def list_papers(
@@ -366,9 +431,8 @@ class PapersHandler:
         user_id: str,
     ) -> list[PaperSection]:
         """Get paper sections with optional workspace filtering."""
-        paper = await self.paper_service.get(paper_id)
-        if paper is None:
-            raise NotFoundError(f"Paper not found: {paper_id}")
+        # Always verify user has access to this paper
+        await self._get_accessible_paper_or_404(paper_id=paper_id, user_id=user_id)
 
         if workspace_id:
             await self._require_owned_workspace(workspace_id=workspace_id, user_id=user_id)

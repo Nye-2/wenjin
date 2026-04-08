@@ -1,7 +1,7 @@
 # Workspace Chat-Centered Implementation Plan
 
-更新时间: 2026-03-23
-状态: Draft
+更新时间: 2026-04-03
+状态: Archived (历史实施计划)
 适用项目: `wenjin`
 关联文档:
 
@@ -9,6 +9,9 @@
 - `docs/product/workspace-feature-catalog.md`
 - `docs/product/frontend-feature-plugin-contract.md`
 - `docs/product/release-gate-checklist.md`
+
+> 说明: 本文档用于保留当时的阶段拆分与执行路径。文中部分路径/语义（如 thread 主线分支策略）已被后续版本调整。
+> 当前实现请以 `docs/product/workspace-current-state.md`、`docs/product/frontend-feature-plugin-contract.md` 为准。
 
 ## 1. Review 结论
 
@@ -21,7 +24,7 @@
 3. chat 基础设施并没有消失，真正缺失的是 thesis workspace 首屏入口，以及 chat 对 feature 的统一编排能力。
 4. 双路长短期记忆目前不是“架构上不能做”，而是“闭环没有补完整”。
 5. 历史仓库的高价值能力仍有明显缺口，必须单列回补计划，不能混在入口改版里一起泛化。
-6. feature 入口现已统一收敛为 `chat/new + orchestration seed`，后续不再恢复中间 feature slug 页面。
+6. feature 入口现已统一收敛为 `/chat + orchestration seed`，后续不再恢复中间 feature slug 页面。
 
 仓库级关键依据:
 
@@ -34,8 +37,8 @@
 - feature 导航与首条 chat seed 已统一:
   - `frontend/lib/workspace-feature-routes.ts`
   - `frontend/lib/workspace-chat-entry.ts`
-  - `frontend/app/(workbench)/workspaces/[id]/chat/[threadId]/page.tsx`
-- workspace layout 当前只预加载 thread summaries，由 `chat/new` 自己决定是否开启新线程:
+  - `frontend/app/(workbench)/workspaces/[id]/chat/page.tsx`
+- workspace layout 当前只预加载 thread summaries，由 `/chat` 自己决定是否开启新线程:
   - `frontend/app/(workbench)/workspaces/[id]/layout.tsx`
 - thesis workspace 当前没有嵌入 chat，其他 workspace 有:
   - `frontend/app/(workbench)/workspaces/[id]/page.tsx`

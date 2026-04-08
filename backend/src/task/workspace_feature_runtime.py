@@ -33,6 +33,20 @@ def _build_milestone_item(value: dict[str, Any] | str) -> dict[str, str]:
     return {"title": str(value), "description": ""}
 
 
+def _linked_latex_project_id(result: dict[str, Any]) -> str | None:
+    value = result.get("latex_project_id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _sync_conflicts(result: dict[str, Any]) -> list[dict[str, Any]]:
+    value = result.get("sync_conflicts")
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    return []
+
+
 def build_feature_runtime(
     feature_id: str,
     payload: dict[str, Any],
@@ -969,6 +983,7 @@ def enrich_runtime_with_result(
                     "content": compile_logs[:1600],
                 },
             )
+
     elif feature_id == "literature_management":
         summary = _as_dict(result.get("summary"))
         top_cited = result.get("top_cited")
@@ -1092,6 +1107,40 @@ def enrich_runtime_with_result(
                     "content": content_text[:1600],
                 },
             )
+
+    latex_project_id = _linked_latex_project_id(result)
+    if latex_project_id:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "linked-latex-project",
+                "kind": "metrics",
+                "title": "关联 LaTeX 项目",
+                "entries": [
+                    {"label": "项目 ID", "value": latex_project_id[:8]},
+                    {"label": "主文件", "value": str(result.get("main_file") or "main.tex")},
+                ],
+            },
+        )
+
+    sync_conflicts = _sync_conflicts(result)
+    if sync_conflicts:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "sync-conflicts",
+                "kind": "list",
+                "title": "同步冲突",
+                "description": "这些文件在 /latex 中已被手动修改，本次同步已跳过覆盖。",
+                "items": [
+                    {
+                        "title": str(item.get("path") or item.get("logical_key") or "未命名文件"),
+                        "description": str(item.get("reason") or "user_modified"),
+                    }
+                    for item in sync_conflicts[:8]
+                ],
+            },
+        )
 
     upsert_runtime_block(
         runtime,

@@ -1,18 +1,16 @@
 // frontend/stores/task.ts
 
-import { create } from 'zustand';
-import type { FeatureStage } from '@/lib/api';
+import { create } from "zustand";
+import type { FeatureStage } from "@/lib/api";
 
-// 任务阶段状态
 export interface TaskStage extends FeatureStage {
-  status: 'completed' | 'running' | 'pending';
+  status: "completed" | "running" | "pending";
 }
 
-// 当前执行的任务
 export interface CurrentTask {
   id: string;
-  featureId: string;  // 对应的feature id
-  status: 'running' | 'completed' | 'cancelled' | 'failed';
+  featureId: string;
+  status: "running" | "completed" | "cancelled" | "failed";
   agent: string;
   agentLabel: string;
   thinking: string;
@@ -22,14 +20,50 @@ export interface CurrentTask {
   completedAt?: string;
 }
 
-// 任务状态
-interface TaskState {
+export interface WorkspaceTaskSnapshot {
   isExecuting: boolean;
   currentTask: CurrentTask | null;
   recentCompleted: CurrentTask | null;
+}
 
-  // Actions
+const DEFAULT_WORKSPACE_TASK_KEY = "__global__";
+const EMPTY_WORKSPACE_TASK_SNAPSHOT: WorkspaceTaskSnapshot = {
+  isExecuting: false,
+  currentTask: null,
+  recentCompleted: null,
+};
+
+function resolveWorkspaceTaskKey(workspaceId?: string | null): string {
+  const normalized = (workspaceId || "").trim();
+  return normalized || DEFAULT_WORKSPACE_TASK_KEY;
+}
+
+function snapshotForWorkspace(
+  state: { byWorkspace: Record<string, WorkspaceTaskSnapshot> },
+  workspaceId?: string | null,
+): WorkspaceTaskSnapshot {
+  return state.byWorkspace[resolveWorkspaceTaskKey(workspaceId)] ?? EMPTY_WORKSPACE_TASK_SNAPSHOT;
+}
+
+function withWorkspaceSnapshot(
+  state: { byWorkspace: Record<string, WorkspaceTaskSnapshot> },
+  workspaceId: string | null | undefined,
+  snapshot: WorkspaceTaskSnapshot,
+): { byWorkspace: Record<string, WorkspaceTaskSnapshot> } {
+  const key = resolveWorkspaceTaskKey(workspaceId);
+  return {
+    byWorkspace: {
+      ...state.byWorkspace,
+      [key]: snapshot,
+    },
+  };
+}
+
+interface TaskState {
+  byWorkspace: Record<string, WorkspaceTaskSnapshot>;
+  getWorkspaceTaskState: (workspaceId?: string | null) => WorkspaceTaskSnapshot;
   startTask: (params: {
+    workspaceId?: string | null;
     taskId?: string;
     featureId: string;
     agent: string;
@@ -37,75 +71,104 @@ interface TaskState {
     stages: FeatureStage[];
     initialThinking?: string;
   }) => string;
-  syncTaskProgress: (progress: number, thinking?: string) => void;
-  updateTaskThinking: (thinking: string) => void;
-  advanceStage: () => void;
-  completeTask: () => void;
-  cancelTask: () => void;
-  failTask: (error: string) => void;
-  clearCurrentTask: () => void;
-  clearRecentCompleted: () => void;
+  syncTaskProgress: (params: {
+    workspaceId?: string | null;
+    taskId?: string | null;
+    progress: number;
+    thinking?: string;
+  }) => void;
+  updateTaskThinking: (params: {
+    workspaceId?: string | null;
+    taskId?: string | null;
+    thinking: string;
+  }) => void;
+  advanceStage: (params?: {
+    workspaceId?: string | null;
+    taskId?: string | null;
+  }) => void;
+  completeTask: (params?: {
+    workspaceId?: string | null;
+    taskId?: string | null;
+  }) => void;
+  cancelTask: (params?: {
+    workspaceId?: string | null;
+    taskId?: string | null;
+  }) => void;
+  failTask: (params: {
+    workspaceId?: string | null;
+    taskId?: string | null;
+    error: string;
+  }) => void;
+  clearCurrentTask: (workspaceId?: string | null) => void;
+  clearRecentCompleted: (workspaceId?: string | null) => void;
+  clearWorkspaceTasks: (workspaceId: string) => void;
 }
 
 export const useTaskStore = create<TaskState>((set, get) => ({
-  isExecuting: false,
-  currentTask: null,
-  recentCompleted: null,
+  byWorkspace: {},
+
+  getWorkspaceTaskState: (workspaceId) => snapshotForWorkspace(get(), workspaceId),
 
   startTask: (params) => {
     const id = params.taskId ?? `task-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-    const stagesWithStatus: TaskStage[] = params.stages.map((s, i) => ({
-      ...s,
-      status: i === 0 ? 'running' : 'pending',
+    const stagesWithStatus: TaskStage[] = params.stages.map((stage, index) => ({
+      ...stage,
+      status: index === 0 ? "running" : "pending",
     }));
-
-    set({
+    const snapshot: WorkspaceTaskSnapshot = {
       isExecuting: true,
       currentTask: {
         id,
         featureId: params.featureId,
-        status: 'running',
+        status: "running",
         agent: params.agent,
         agentLabel: params.agentLabel,
-        thinking: params.initialThinking || '',
+        thinking: params.initialThinking || "",
         stages: stagesWithStatus,
         currentStageIndex: 0,
         startedAt: new Date().toISOString(),
       },
       recentCompleted: null,
-    });
+    };
+    set((state) => withWorkspaceSnapshot(state, params.workspaceId, snapshot));
     return id;
   },
 
-  syncTaskProgress: (progress, thinking) => {
+  syncTaskProgress: ({ workspaceId, taskId, progress, thinking }) => {
     set((state) => {
-      if (!state.currentTask) {
+      const current = snapshotForWorkspace(state, workspaceId);
+      if (!current.currentTask) {
+        return state;
+      }
+      if (taskId && current.currentTask.id !== taskId) {
         return state;
       }
 
-      const stageCount = state.currentTask.stages.length;
+      const stageCount = current.currentTask.stages.length;
       if (stageCount === 0) {
-        return {
+        return withWorkspaceSnapshot(state, workspaceId, {
+          ...current,
           currentTask: {
-            ...state.currentTask,
-            thinking: thinking ?? state.currentTask.thinking,
+            ...current.currentTask,
+            thinking: thinking ?? current.currentTask.thinking,
           },
-        };
+        });
       }
 
       const normalizedProgress = Math.max(0, Math.min(100, progress));
       if (normalizedProgress >= 100) {
-        return {
+        return withWorkspaceSnapshot(state, workspaceId, {
+          ...current,
           currentTask: {
-            ...state.currentTask,
+            ...current.currentTask,
             currentStageIndex: stageCount - 1,
-            thinking: thinking ?? state.currentTask.thinking,
-            stages: state.currentTask.stages.map((stage) => ({
+            thinking: thinking ?? current.currentTask.thinking,
+            stages: current.currentTask.stages.map((stage) => ({
               ...stage,
-              status: 'completed',
+              status: "completed",
             })),
           },
-        };
+        });
       }
 
       const currentStageIndex = Math.min(
@@ -113,108 +176,189 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         Math.floor((normalizedProgress / 100) * stageCount)
       );
 
-      return {
+      return withWorkspaceSnapshot(state, workspaceId, {
+        ...current,
         currentTask: {
-          ...state.currentTask,
+          ...current.currentTask,
           currentStageIndex,
-          thinking: thinking ?? state.currentTask.thinking,
-          stages: state.currentTask.stages.map((stage, index) => {
+          thinking: thinking ?? current.currentTask.thinking,
+          stages: current.currentTask.stages.map((stage, index) => {
             if (index < currentStageIndex) {
-              return { ...stage, status: 'completed' as const };
+              return { ...stage, status: "completed" as const };
             }
             if (index === currentStageIndex) {
-              return { ...stage, status: 'running' as const };
+              return { ...stage, status: "running" as const };
             }
-            return { ...stage, status: 'pending' as const };
+            return { ...stage, status: "pending" as const };
           }),
         },
-      };
+      });
     });
   },
 
-  updateTaskThinking: (thinking) => {
-    set((state) => ({
-      currentTask: state.currentTask
-        ? { ...state.currentTask, thinking }
-        : null,
-    }));
+  updateTaskThinking: ({ workspaceId, taskId, thinking }) => {
+    set((state) => {
+      const current = snapshotForWorkspace(state, workspaceId);
+      if (!current.currentTask) {
+        return state;
+      }
+      if (taskId && current.currentTask.id !== taskId) {
+        return state;
+      }
+      return withWorkspaceSnapshot(state, workspaceId, {
+        ...current,
+        currentTask: {
+          ...current.currentTask,
+          thinking,
+        },
+      });
+    });
   },
 
-  advanceStage: () => {
+  advanceStage: ({ workspaceId, taskId } = {}) => {
     set((state) => {
-      if (!state.currentTask) return state;
-      const nextIndex = state.currentTask.currentStageIndex + 1;
-      const stages = state.currentTask.stages.map((s, i) => {
-        if (i < nextIndex) return { ...s, status: 'completed' as const };
-        if (i === nextIndex) return { ...s, status: 'running' as const };
-        return { ...s, status: 'pending' as const };
+      const current = snapshotForWorkspace(state, workspaceId);
+      if (!current.currentTask) {
+        return state;
+      }
+      if (taskId && current.currentTask.id !== taskId) {
+        return state;
+      }
+      const nextIndex = current.currentTask.currentStageIndex + 1;
+      const stages = current.currentTask.stages.map((stage, index) => {
+        if (index < nextIndex) {
+          return { ...stage, status: "completed" as const };
+        }
+        if (index === nextIndex) {
+          return { ...stage, status: "running" as const };
+        }
+        return { ...stage, status: "pending" as const };
       });
-      return {
+      return withWorkspaceSnapshot(state, workspaceId, {
+        ...current,
         currentTask: {
-          ...state.currentTask,
+          ...current.currentTask,
           stages,
           currentStageIndex: nextIndex,
         },
-      };
+      });
     });
   },
 
-  completeTask: () => {
-    const { currentTask } = get();
-    if (!currentTask) return;
+  completeTask: ({ workspaceId, taskId } = {}) => {
+    const completionAt = new Date().toISOString();
+    const completedTaskId = (() => {
+      const snapshot = get().getWorkspaceTaskState(workspaceId);
+      if (!snapshot.currentTask) {
+        return null;
+      }
+      if (taskId && snapshot.currentTask.id !== taskId) {
+        return null;
+      }
+      const completedTask: CurrentTask = {
+        ...snapshot.currentTask,
+        status: "completed",
+        completedAt: completionAt,
+        stages: snapshot.currentTask.stages.map((stage) => ({
+          ...stage,
+          status: "completed",
+        })),
+      };
+      set((state) =>
+        withWorkspaceSnapshot(state, workspaceId, {
+          isExecuting: false,
+          currentTask: null,
+          recentCompleted: completedTask,
+        })
+      );
+      return completedTask.id;
+    })();
 
-    const completedTask = {
-      ...currentTask,
-      status: 'completed' as const,
-      completedAt: new Date().toISOString(),
-      stages: currentTask.stages.map((s) => ({
-        ...s,
-        status: 'completed' as const,
-      })),
-    };
-
-    set({
-      isExecuting: false,
-      currentTask: null,
-      recentCompleted: completedTask,
-    });
+    if (!completedTaskId) {
+      return;
+    }
 
     setTimeout(() => {
-      set({ recentCompleted: null });
+      set((state) => {
+        const current = snapshotForWorkspace(state, workspaceId);
+        if (current.recentCompleted?.id !== completedTaskId) {
+          return state;
+        }
+        return withWorkspaceSnapshot(state, workspaceId, {
+          ...current,
+          recentCompleted: null,
+        });
+      });
     }, 3000);
   },
 
-  cancelTask: () => {
-    set({
-      isExecuting: false,
-      currentTask: null,
-      recentCompleted: null,
+  cancelTask: ({ workspaceId, taskId } = {}) => {
+    set((state) => {
+      const current = snapshotForWorkspace(state, workspaceId);
+      if (taskId && current.currentTask?.id !== taskId) {
+        return state;
+      }
+      return withWorkspaceSnapshot(state, workspaceId, {
+        isExecuting: false,
+        currentTask: null,
+        recentCompleted: null,
+      });
     });
   },
 
-  failTask: (error) => {
-    set((state) => ({
-      isExecuting: false,
-      currentTask: state.currentTask
-        ? {
-            ...state.currentTask,
-            status: 'failed',
-            thinking: `错误: ${error}`,
-            completedAt: new Date().toISOString(),
-          }
-        : null,
-    }));
-  },
-
-  clearCurrentTask: () => {
-    set({
-      isExecuting: false,
-      currentTask: null,
+  failTask: ({ workspaceId, taskId, error }) => {
+    set((state) => {
+      const current = snapshotForWorkspace(state, workspaceId);
+      if (!current.currentTask) {
+        return state;
+      }
+      if (taskId && current.currentTask.id !== taskId) {
+        return state;
+      }
+      return withWorkspaceSnapshot(state, workspaceId, {
+        ...current,
+        isExecuting: false,
+        currentTask: {
+          ...current.currentTask,
+          status: "failed",
+          thinking: `错误: ${error}`,
+          completedAt: new Date().toISOString(),
+        },
+      });
     });
   },
 
-  clearRecentCompleted: () => {
-    set({ recentCompleted: null });
+  clearCurrentTask: (workspaceId) => {
+    set((state) => {
+      const current = snapshotForWorkspace(state, workspaceId);
+      return withWorkspaceSnapshot(state, workspaceId, {
+        ...current,
+        isExecuting: false,
+        currentTask: null,
+      });
+    });
+  },
+
+  clearRecentCompleted: (workspaceId) => {
+    set((state) => {
+      const current = snapshotForWorkspace(state, workspaceId);
+      return withWorkspaceSnapshot(state, workspaceId, {
+        ...current,
+        recentCompleted: null,
+      });
+    });
+  },
+
+  clearWorkspaceTasks: (workspaceId) => {
+    set((state) => {
+      const key = resolveWorkspaceTaskKey(workspaceId);
+      if (!(key in state.byWorkspace)) {
+        return state;
+      }
+      const next = { ...state.byWorkspace };
+      delete next[key];
+      return { byWorkspace: next };
+    });
   },
 }));
 

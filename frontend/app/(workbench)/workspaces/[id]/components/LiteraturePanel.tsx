@@ -18,13 +18,15 @@ import {
   type PaperExtractionSubmission,
   uploadPaperFile,
 } from "@/lib/api";
-import { resolvePublicAssetUrl } from "@/lib/public-assets";
+import { openAuthorizedAsset, resolvePublicAssetUrl } from "@/lib/public-assets";
 import { cn } from "@/lib/utils";
 import { type Paper, useWorkspaceStore } from "@/stores/workspace";
 
 interface PaperItemProps {
   paper: Paper;
   index: number;
+  isOpening: boolean;
+  onOpen: (paper: Paper) => void | Promise<void>;
 }
 
 interface UploadState {
@@ -52,7 +54,7 @@ function isPdfFile(file: File): boolean {
   return /\.pdf$/i.test(file.name) || file.type === "application/pdf";
 }
 
-function PaperItem({ paper, index }: PaperItemProps) {
+function PaperItem({ paper, index, isOpening, onOpen }: PaperItemProps) {
   const fileUrl = resolvePublicAssetUrl(paper.file_url ?? null);
 
   return (
@@ -92,21 +94,25 @@ function PaperItem({ paper, index }: PaperItemProps) {
       </div>
 
       <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-        <a
-          href={fileUrl ?? undefined}
-          target="_blank"
-          rel="noreferrer"
-          aria-disabled={!fileUrl}
+        <button
+          type="button"
+          onClick={() => void onOpen(paper)}
+          disabled={!fileUrl || isOpening}
+          aria-disabled={!fileUrl || isOpening}
           className={cn(
             "flex items-center gap-1 text-xs",
-            fileUrl
+            fileUrl && !isOpening
               ? "text-[var(--accent-primary)] hover:text-[var(--accent-secondary)]"
-              : "pointer-events-none text-[var(--text-muted)]"
+              : "cursor-not-allowed text-[var(--text-muted)]"
           )}
         >
-          <ExternalLink className="h-3 w-3" />
-          {fileUrl ? "查看" : "无文件"}
-        </a>
+          {isOpening ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <ExternalLink className="h-3 w-3" />
+          )}
+          {isOpening ? "打开中" : fileUrl ? "查看" : "无文件"}
+        </button>
       </div>
     </motion.div>
   );
@@ -219,6 +225,7 @@ export function LiteraturePanel({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [recentUploads, setRecentUploads] = useState<UploadState[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [openingPaperId, setOpeningPaperId] = useState<string | null>(null);
 
   useEffect(() => {
     if (workspaceId) {
@@ -235,6 +242,26 @@ export function LiteraturePanel({
       return;
     }
     fileInputRef.current?.click();
+  };
+
+  const handleOpenPaper = async (paper: Paper) => {
+    const fileUrl = resolvePublicAssetUrl(paper.file_url ?? null);
+    if (!fileUrl) {
+      setUploadError("当前论文没有可访问的文件。");
+      return;
+    }
+
+    setUploadError(null);
+    setOpeningPaperId(paper.id);
+    try {
+      await openAuthorizedAsset(fileUrl);
+    } catch (error) {
+      setUploadError(
+        error instanceof Error ? error.message : "打开论文失败，请稍后再试"
+      );
+    } finally {
+      setOpeningPaperId((current) => (current === paper.id ? null : current));
+    }
   };
 
   const handleFileSelection = async (
@@ -406,7 +433,13 @@ export function LiteraturePanel({
           ) : (
             <div className="space-y-2">
               {papers.map((paper, index) => (
-                <PaperItem key={paper.id} paper={paper} index={index} />
+                <PaperItem
+                  key={paper.id}
+                  paper={paper}
+                  index={index}
+                  isOpening={openingPaperId === paper.id}
+                  onOpen={handleOpenPaper}
+                />
               ))}
             </div>
           )}

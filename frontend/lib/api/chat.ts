@@ -4,38 +4,20 @@ import type {
   ChatUploadKind,
   Thread,
   ThreadAgentStatus,
-  ThreadSummary,
 } from "@/lib/api/types";
 
-export async function createThread(data: {
-  workspace_id?: string;
-  title?: string;
-  model?: string;
-  skill?: string | null;
-}): Promise<Thread> {
-  const response = await apiClient.post("/threads", data);
+export async function ensureWorkspaceChatThread(
+  workspaceId: string,
+  data: {
+    model?: string;
+    skill?: string | null;
+  } = {}
+): Promise<Thread> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/chat-thread`,
+    data
+  );
   return response.data;
-}
-
-export async function getThread(threadId: string): Promise<Thread> {
-  const response = await apiClient.get(`/threads/${threadId}`);
-  return response.data;
-}
-
-export async function listThreads(
-  workspaceId?: string,
-  limit: number = 20
-): Promise<{ threads: ThreadSummary[]; count: number }> {
-  const params: Record<string, unknown> = { limit };
-  if (workspaceId) {
-    params.workspace_id = workspaceId;
-  }
-  const response = await apiClient.get("/threads", { params });
-  return response.data;
-}
-
-export async function deleteThread(threadId: string): Promise<void> {
-  await apiClient.delete(`/threads/${threadId}`);
 }
 
 export async function uploadThreadFiles(options: {

@@ -39,7 +39,7 @@ class WorkspaceContextMiddleware(Middleware):
         """Load workspace context and inject into state."""
         workspace_id = state.get("workspace_id")
         if not workspace_id:
-            return dict(state)
+            return {}
 
         try:
             workspace = await asyncio.wait_for(
@@ -54,7 +54,7 @@ class WorkspaceContextMiddleware(Middleware):
             )
             return {}
         if not workspace:
-            return dict(state)
+            return {}
 
         # Load active template for this workspace
         template_dict = None
@@ -63,7 +63,10 @@ class WorkspaceContextMiddleware(Middleware):
             from src.database import get_db_session
             async with get_db_session() as template_db:
                 ts = TemplateService(template_db)
-                active_template = await ts.get_active(workspace_id)
+                active_template = await asyncio.wait_for(
+                    ts.get_active(workspace_id),
+                    timeout=self._timeout,
+                )
                 if active_template:
                     template_dict = {
                         "name": active_template.name,
@@ -71,11 +74,16 @@ class WorkspaceContextMiddleware(Middleware):
                         "format_spec": active_template.format_spec,
                         "content_guidelines": active_template.content_guidelines,
                     }
+        except asyncio.TimeoutError:
+            logger.warning(
+                "WorkspaceContextMiddleware: timed out loading active template for workspace %s (%.1fs)",
+                workspace_id,
+                self._timeout,
+            )
         except Exception:
             logger.warning("Failed to load workspace template, skipping")
 
         return {
-            **state,
             "workspace_type": workspace.type,
             "discipline": workspace.discipline,
             "workspace_config": workspace.config,

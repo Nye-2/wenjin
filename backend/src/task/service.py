@@ -50,6 +50,7 @@ class TaskService:
         status = runtime_state.get("status", record.status) if runtime_state else record.status
         progress = runtime_state.get("progress", record.progress) if runtime_state else record.progress
         message = runtime_state.get("message", record.message) if runtime_state else record.message
+        current_step = runtime_state.get("current_step") if runtime_state else None
         persisted_runtime = getattr(record, "runtime_state", None)
         if runtime_state and runtime_state.get("metadata") is not None:
             metadata = runtime_state.get("metadata")
@@ -64,9 +65,14 @@ class TaskService:
             "status": status,
             "progress": progress,
             "message": message,
+            "current_step": current_step,
             "result": record.result,
             "error": record.error,
             "metadata": metadata,
+            "workspace_id": record.workspace_id,
+            "feature_id": record.feature_id,
+            "thread_id": record.thread_id,
+            "action": record.action,
             "created_at": record.created_at.isoformat(),
             "started_at": record.started_at.isoformat() if record.started_at else None,
             "completed_at": record.completed_at.isoformat() if record.completed_at else None,
@@ -304,6 +310,9 @@ class TaskService:
         status: str | None = None,
         task_type: str | None = None,
         limit: int = 20,
+        workspace_id: str | None = None,
+        feature_id: str | None = None,
+        action: str | None = None,
     ) -> list[JsonObject]:
         """List tasks for a user."""
         records = await self._store.list_user_tasks(
@@ -311,6 +320,9 @@ class TaskService:
             status=status,
             task_type=task_type,
             limit=limit,
+            workspace_id=workspace_id,
+            feature_id=feature_id,
+            action=action,
         )
         serialized: list[JsonObject] = []
         for record in records:
@@ -352,6 +364,9 @@ class TaskService:
             completed_at=cancelled_at,
         )
         await self._store.set_task_state(task_id, TaskStatus.CANCELLED.value, message="Cancelled by user")
+
+        # Attempt credit refund if credits were consumed for this task
+        await self._refund_cancelled_task(user_id, record)
 
         payload = record.payload if isinstance(record.payload, dict) else {}
         workspace_id = self._workspace_id_from_payload(payload)
@@ -402,3 +417,34 @@ class TaskService:
         logger.info(f"Task cancelled: {task_id}")
 
         return True
+
+    async def _refund_cancelled_task(self, user_id: str, record: Any) -> None:
+        """Refund credits consumed for a cancelled task."""
+        payload = record.payload if isinstance(record.payload, dict) else {}
+        credit_transaction_id = payload.get("credit_transaction_id")
+        if not credit_transaction_id:
+            return
+
+        try:
+            from src.database import get_db_session
+            from src.services.credit_service import CreditService
+
+            async with get_db_session() as db:
+                credit_service = CreditService(db)
+                await credit_service.refund_consumption(
+                    user_id=user_id,
+                    original_transaction_id=str(credit_transaction_id),
+                    reason="任务取消退款",
+                    task_id=record.id,
+                )
+                logger.info(
+                    "Refunded credits for cancelled task %s (tx %s)",
+                    record.id,
+                    credit_transaction_id,
+                )
+        except Exception:
+            logger.warning(
+                "Failed to refund credits for cancelled task %s",
+                record.id,
+                exc_info=True,
+            )
