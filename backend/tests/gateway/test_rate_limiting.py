@@ -179,3 +179,31 @@ class TestRateLimiting:
         resp = client.get("/workspaces/workspace-1/events")
         assert resp.status_code == 200
         assert resp.headers["X-RateLimit-Bucket"] == "streams"
+
+    def test_api_prefixed_routes_resolve_special_buckets(self):
+        from src.gateway.middleware.rate_limit import setup_rate_limiting
+
+        app = FastAPI()
+
+        @app.post("/api/threads/thread-1/uploads")
+        async def upload_endpoint():
+            return {"ok": True}
+
+        @app.get("/api/workspaces/workspace-1/events")
+        async def events_endpoint():
+            return {"ok": True}
+
+        with patch("src.gateway.middleware.rate_limit.redis_settings") as mock_settings:
+            mock_settings.rate_limit_requests = 1
+            mock_settings.rate_limit_window = 60
+            setup_rate_limiting(app, redis_client=None)
+
+        client = TestClient(app)
+
+        upload_resp = client.post("/api/threads/thread-1/uploads")
+        assert upload_resp.status_code == 200
+        assert upload_resp.headers["X-RateLimit-Bucket"] == "uploads"
+
+        events_resp = client.get("/api/workspaces/workspace-1/events")
+        assert events_resp.status_code == 200
+        assert events_resp.headers["X-RateLimit-Bucket"] == "streams"

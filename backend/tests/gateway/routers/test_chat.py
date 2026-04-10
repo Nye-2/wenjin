@@ -46,6 +46,7 @@ class FakeThread:
     title: str | None
     model: str
     skill: str | None = None
+    workspace: object | None = None
     messages: list[dict] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -78,9 +79,18 @@ class FakeChatThreadService:
             title=title,
             model=model or "default",
             skill=skill,
+            workspace=SimpleNamespace(type="thesis") if workspace_id else None,
         )
         self.threads[thread.id] = thread
         return thread
+
+    @staticmethod
+    def resolve_requested_model(model: str | None) -> str | None:
+        if model is None:
+            return None
+        if model.strip() == "bad-model":
+            raise InvalidRequestedModelError("Unknown model id: bad-model")
+        return model.strip() or None
 
     async def get_thread(self, thread_id: str, user_id: str) -> FakeThread | None:
         thread = self.threads.get(thread_id)
@@ -105,10 +115,12 @@ class FakeChatThreadService:
                     raise ChatThreadAccessError("Thread not found")
                 if workspace_id and not thread.workspace_id:
                     thread.workspace_id = workspace_id
+                    thread.workspace = SimpleNamespace(type="thesis")
                     thread.updated_at = datetime.now(UTC)
                 if skill_explicit:
                     thread.skill = skill
                 return thread
+            raise ChatThreadAccessError("Thread not found")
 
         if workspace_id:
             workspace_threads = [
@@ -299,6 +311,26 @@ class TestChatThreads:
         assert response.status_code == 400
         assert response.json()["detail"] == "Unknown model id: bad-model"
 
+    def test_create_thread_rejects_unowned_workspace(self):
+        """Workspace-bound thread creation should enforce workspace ownership."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        with patch(
+            "src.gateway.routers.chat.owner_check_session_from_service",
+            return_value=object(),
+        ), patch(
+            "src.gateway.routers.chat.require_workspace_owner_by_session",
+            AsyncMock(side_effect=HTTPException(status_code=403, detail="Access denied")),
+        ):
+            response = client.post(
+                "/threads",
+                json={"workspace_id": "ws-foreign", "title": "Thread 1"},
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Access denied"
+
     def test_ensure_workspace_chat_thread_reuses_workspace_main_thread(self):
         """Workspace chat thread endpoint should return the canonical workspace thread."""
         service = FakeChatThreadService()
@@ -398,6 +430,34 @@ class TestChatThreadsContinuation:
         assert payload["threads"][0]["last_message_preview"] == (
             "This is a fairly long assistant reply for preview rendering."
         )
+
+    def test_list_threads_rejects_invalid_limit_bounds(self):
+        """Thread list limit should be bounded to protect backend resources."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        too_small = client.get("/threads?limit=0")
+        too_large = client.get("/threads?limit=101")
+
+        assert too_small.status_code == 422
+        assert too_large.status_code == 422
+
+    def test_list_threads_rejects_unowned_workspace_filter(self):
+        """Workspace-scoped history listing should enforce workspace ownership."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        with patch(
+            "src.gateway.routers.chat.owner_check_session_from_service",
+            return_value=object(),
+        ), patch(
+            "src.gateway.routers.chat.require_workspace_owner_by_session",
+            AsyncMock(side_effect=HTTPException(status_code=403, detail="Access denied")),
+        ):
+            response = client.get("/threads?workspace_id=ws-foreign")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Access denied"
 
 
 class TestChatRuntimeConfig:
@@ -627,6 +687,7 @@ class TestChatMessages:
         thread_id = response.json()["thread_id"]
         assert service.threads[thread_id].skill == "deep-research"
         assert response.json()["skill"] == "deep-research"
+        assert response.json()["skill_name"] == "深度调研"
 
     def test_chat_can_clear_selected_skill(self):
         """Explicit null skill should clear the persisted thread skill."""
@@ -657,6 +718,66 @@ class TestChatMessages:
         assert response.status_code == 200
         assert service.threads["thread-1"].skill is None
         assert response.json()["skill"] is None
+        assert response.json()["skill_name"] is None
+
+    def test_chat_rejects_missing_explicit_thread_id(self):
+        """Explicit thread_id must resolve to an owned existing thread."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        response = client.post(
+            "/chat",
+            json={"message": "Hello", "thread_id": "thread-missing", "workspace_id": "ws-1"},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Thread not found"
+
+    def test_chat_stream_rejects_missing_explicit_thread_id(self):
+        """Streaming endpoint should reject invalid explicit thread ids before SSE starts."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        response = client.post(
+            "/chat/stream",
+            json={"message": "Hello", "thread_id": "thread-missing", "workspace_id": "ws-1"},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Thread not found"
+
+    def test_chat_stream_rejects_unowned_workspace(self):
+        """Streaming chat should enforce workspace ownership before starting SSE."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        with patch(
+            "src.gateway.routers.chat.owner_check_session_from_service",
+            return_value=object(),
+        ), patch(
+            "src.gateway.routers.chat.require_workspace_owner_by_session",
+            AsyncMock(side_effect=HTTPException(status_code=403, detail="Access denied")),
+        ):
+            response = client.post(
+                "/chat/stream",
+                json={"message": "Hello", "workspace_id": "ws-foreign"},
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Access denied"
+
+    def test_chat_stream_rejects_invalid_model_selection_before_sse(self):
+        """Streaming chat should reject invalid explicit model ids with HTTP 400."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        response = client.post(
+            "/chat/stream",
+            json={"message": "Hello", "workspace_id": "ws-1", "model": "bad-model"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Unknown model id: bad-model"
 
     def test_chat_stream_returns_thread_id_and_persists_messages(self):
         """Streaming chat keeps the same persistence and SSE contract."""
@@ -685,6 +806,7 @@ class TestChatMessages:
         assert response.status_code == 200
         assert '"type": "thread_id"' in response.text
         assert '"skill": null' in response.text
+        assert '"skill_name": null' in response.text
         assert '"type": "reasoning"' in response.text
         assert '"content": "think "' in response.text
         assert '"type": "content"' in response.text
@@ -781,6 +903,52 @@ class TestChatMessages:
             prepared,
             actor_id="user-1",
         )
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_turn_events_disconnect_does_not_stall_on_full_queue(self):
+        """Disconnects should not stall detached completion when stream queue fills."""
+        request = ChatTurnRequest(message="Hello", workspace_id="ws-1")
+        prepared = SimpleNamespace(
+            request=request,
+            thread=SimpleNamespace(id="thread-1", skill=None),
+        )
+        completion_reached = asyncio.Event()
+
+        async def complete_turn(*args, **kwargs):
+            completion_reached.set()
+            return SimpleNamespace(
+                assistant_message={
+                    "role": "assistant",
+                    "content": "reply",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+                reply=GeneratedChatReply(content="reply"),
+            )
+
+        class _FloodCompletedStream:
+            async def _iterate(self):
+                for _ in range(2048):
+                    yield ChatStreamDelta(kind="content", text="x")
+
+            def __aiter__(self):
+                return self._iterate()
+
+            async def wait_completed(self):
+                return await complete_turn()
+
+        handler = MagicMock()
+        handler.prepare_turn = AsyncMock(return_value=prepared)
+        handler.stream_turn = MagicMock(return_value=_FloodCompletedStream())
+
+        stream = chat.stream_chat_turn_events(
+            request,
+            actor_id="user-1",
+            handler=handler,
+        )
+
+        _ = await anext(stream)
+        await stream.aclose()
+        await asyncio.wait_for(completion_reached.wait(), timeout=0.5)
 
     def test_chat_persists_usage_and_billing_metadata(self):
         """Chat replies persist token usage and settled billing summaries."""
@@ -1031,6 +1199,35 @@ class TestChatMessages:
         assert payload["thread_id"] == thread_id
         assert payload["status"] == "idle"
         assert payload["current_skill"] == "deep-research"
+        assert payload["current_skill_name"] == "深度调研"
+
+    def test_thread_agent_status_degrades_when_redis_read_fails(self):
+        """Redis status read failures should not break agent-status endpoint."""
+        service = FakeChatThreadService()
+        client = create_client("user-1", service)
+
+        create_response = client.post(
+            "/threads",
+            json={"workspace_id": "ws-1", "skill": "deep-research"},
+        )
+        thread_id = create_response.json()["id"]
+
+        with patch(
+            "src.gateway.routers.chat.redis_settings.enabled",
+            True,
+        ), patch(
+            "src.gateway.routers.chat.redis_client._client",
+            object(),
+        ), patch(
+            "src.gateway.routers.chat.redis_client.get_agent_status",
+            AsyncMock(side_effect=RuntimeError("redis unavailable")),
+        ):
+            response = client.get(f"/threads/{thread_id}/agent-status")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["thread_id"] == thread_id
+        assert payload["status"] == "idle"
 
     @pytest.mark.asyncio
     async def test_generate_chat_response_propagates_agent_failures_without_fallback(self):
@@ -1084,4 +1281,5 @@ class TestChatMessages:
 
         assert response.status_code == 200
         assert '"type": "error"' in response.text
-        assert "agent boom" in response.text
+        assert "agent boom" not in response.text
+        assert "\\u670d\\u52a1\\u5185\\u90e8\\u9519\\u8bef" in response.text

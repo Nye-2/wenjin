@@ -47,6 +47,7 @@ export function ChatPanel({ workspaceId, entrySeed = null }: ChatPanelProps) {
     error: chatError,
     threadId,
     currentThreadSummary,
+    threadStatuses,
     ensureWorkspaceThread,
     abortStream,
     sendMessage,
@@ -57,7 +58,8 @@ export function ChatPanel({ workspaceId, entrySeed = null }: ChatPanelProps) {
   const { workspace, artifacts } = useWorkspaceStore();
   const fetchPapers = useWorkspaceStore((state) => state.fetchPapers);
   const fetchArtifacts = useWorkspaceStore((state) => state.fetchArtifacts);
-  const { getFeatureById } = useFeaturesStore();
+  const getFeatureById = useFeaturesStore((state) => state.getFeatureById);
+  const getSkillById = useFeaturesStore((state) => state.getSkillById);
   const skills = useFeaturesStore((state) => state.skills);
   const [inputValue, setInputValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -109,8 +111,26 @@ export function ChatPanel({ workspaceId, entrySeed = null }: ChatPanelProps) {
     if (!skillId) {
       return null;
     }
-    return skills.find((skill) => skill.id === skillId)?.name || skillId;
-  }, [activeSkill, currentSkill, skills]);
+    const currentThreadStatus = threadId ? threadStatuses[threadId] ?? null : null;
+    return (
+      (currentThreadStatus?.current_skill === skillId
+        ? currentThreadStatus.current_skill_name
+        : null) ||
+      (currentThreadSummary?.skill === skillId
+        ? currentThreadSummary.skill_name
+        : null) ||
+      getSkillById(skillId)?.name ||
+      skillId
+    );
+  }, [
+    activeSkill,
+    currentSkill,
+    currentThreadSummary?.skill,
+    currentThreadSummary?.skill_name,
+    getSkillById,
+    threadId,
+    threadStatuses,
+  ]);
   const currentPhaseTitle =
     summary?.current_phase.title ||
     (entrySeed?.featureId
@@ -376,7 +396,6 @@ export function ChatPanel({ workspaceId, entrySeed = null }: ChatPanelProps) {
       />
       <WorkspaceChatHeader
         workspaceName={workspace?.name}
-        workspaceType={workspace?.type}
         currentThreadSummary={currentThreadSummary}
         messages={messages}
       />

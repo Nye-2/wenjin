@@ -8,13 +8,12 @@ depending on unstable upstream import paths.
 """
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC
 from typing import Annotated, Any, NotRequired, TypedDict, cast
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
-from pydantic import BaseModel, Field
-
+ 
 
 # ============ AgentState base ============
 
@@ -48,20 +47,6 @@ class ViewedImageData(TypedDict):
     """Image data for vision support."""
     base64: str
     mime_type: str
-
-
-# ============ Pydantic Models (still needed for structured data) ============
-
-
-class AcademicArtifact(BaseModel):
-    """Academic artifact produced by skills."""
-    id: str
-    workspace_id: str
-    type: str  # research_idea, methodology, framework_outline, abstract, paper_draft
-    content: dict[str, Any]
-    created_by_skill: str | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
 
 # ============ Reducers ============
 
@@ -127,21 +112,6 @@ def merge_response_metadata(
         merged[key] = value
     return merged
 
-
-def merge_academic_artifacts(
-    existing: list[AcademicArtifact] | None,
-    new: list[AcademicArtifact] | None,
-) -> list[AcademicArtifact]:
-    """Reducer for academic artifacts - merges and deduplicates by ID (new takes precedence)."""
-    if existing is None:
-        return new or []
-    if new is None:
-        return existing
-    artifact_map = {a.id: a for a in existing}
-    artifact_map.update({a.id: a for a in new})
-    return list(artifact_map.values())
-
-
 def merge_cited_papers(
     existing: list[str] | None,
     new: list[str] | None,
@@ -202,7 +172,6 @@ class ThreadState(AgentState):
         - memory_context: Long-term user memory context
         - discipline_norms: Discipline-specific norms (was _discipline_norms)
         - current_skill: Currently executing skill name
-        - academic_artifacts: AcademicArtifact list with merge reducer
         - cited_papers: Paper ID list with dedup reducer
         - subagent_tasks: Subagent task tracking
     """
@@ -230,9 +199,6 @@ class ThreadState(AgentState):
     template_context: NotRequired[dict[str, Any] | None]
     current_skill: NotRequired[str | None]
 
-    # Academic artifacts with deduplication reducer
-    academic_artifacts: Annotated[list[AcademicArtifact], merge_academic_artifacts]
-
     # Citation tracking with deduplication reducer
     cited_papers: Annotated[list[str], merge_cited_papers]
 
@@ -251,7 +217,6 @@ def create_thread_state(
         "response_blocks": [],
         "response_metadata": {},
         "viewed_images": {},
-        "academic_artifacts": [],
         "cited_papers": [],
     }
     if initial is not None:

@@ -121,7 +121,7 @@ async def readiness_check() -> Any:
     from src.gateway.health import build_readiness_report
 
     report = await build_readiness_report()
-    if report["status"] != "healthy":
+    if report["status"] == "unhealthy":
         return JSONResponse(status_code=503, content=report)
     return report
 

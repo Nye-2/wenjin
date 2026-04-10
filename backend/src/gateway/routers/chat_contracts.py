@@ -47,7 +47,6 @@ class ChatRequest(BaseModel):
     skill: str | None = None
     thinking_enabled: bool = False
     reasoning_effort: ReasoningEffort | None = None
-    stream: bool = True
     attachments: list[ChatAttachment] = Field(default_factory=list)
     metadata: dict[str, Any] | None = None
 
@@ -59,6 +58,7 @@ class ChatResponse(BaseModel):
     message: ChatMessage
     workspace_id: str | None = None
     skill: str | None = None
+    skill_name: str | None = None
 
 
 class ThreadCreate(BaseModel):
@@ -85,6 +85,7 @@ class ThreadResponse(BaseModel):
     title: str | None
     model: str
     skill: str | None
+    skill_name: str | None = None
     messages: list[ChatMessage]
     created_at: datetime
     updated_at: datetime
@@ -98,6 +99,7 @@ class ThreadSummaryResponse(BaseModel):
     title: str | None
     model: str
     skill: str | None
+    skill_name: str | None = None
     message_count: int = 0
     last_message_preview: str | None = None
     last_message_role: str | None = None
@@ -118,4 +120,5 @@ class ThreadAgentStatusResponse(BaseModel):
     thread_id: str
     status: str
     current_skill: str | None = None
+    current_skill_name: str | None = None
     subagent_count: int = 0

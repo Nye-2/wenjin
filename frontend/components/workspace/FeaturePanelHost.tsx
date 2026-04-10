@@ -33,7 +33,6 @@ import {
 import { deleteLatexProject } from "@/lib/api";
 import { type Artifact, useWorkspaceStore } from "@/stores/workspace";
 import { type FeaturePanelSession, useFeaturePanelStore } from "@/stores/panels";
-import { useChatStore } from "@/stores/chat";
 import { cn } from "@/lib/utils";
 
 interface FeaturePanelHostProps {
@@ -1157,7 +1156,6 @@ function ThesisWritingPanel({
 }: FeaturePanelRendererProps) {
   const artifacts = useWorkspaceStore((state) => state.artifacts);
   const createArtifact = useWorkspaceStore((state) => state.createArtifact);
-  const { threadId } = useChatStore();
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [chapterDraft, setChapterDraft] = useState("");
@@ -1223,7 +1221,7 @@ function ThesisWritingPanel({
           ...selectedChapter.content,
           markdown: chapterDraft,
         },
-        created_by_skill: "thesis.editor_panel",
+        created_by_skill: selectedChapter.created_by_skill ?? undefined,
         parent_artifact_id: selectedChapter.id,
       });
     } catch (error) {
@@ -1306,7 +1304,6 @@ function ThesisWritingPanel({
             actions={
               <CompileFeatureButton
                 workspaceId={workspaceId}
-                threadId={session.threadId || threadId}
                 label="编译当前主稿"
                 className="border border-[var(--border-default)] bg-[var(--bg-surface)] !text-[var(--text-primary)] hover:bg-[var(--bg-muted)]"
                 onError={setActionError}
@@ -1413,7 +1410,6 @@ function ThesisWritingPanel({
           <PanelActionBar>
             <CompileFeatureButton
               workspaceId={workspaceId}
-              threadId={session.threadId || threadId}
               label="一键编译"
               onError={setActionError}
             />

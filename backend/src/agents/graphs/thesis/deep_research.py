@@ -15,9 +15,16 @@ from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     advance_runtime_phase,
     append_runtime_activity,
-    emit_bound_runtime as _emit_bound_runtime,
-    runtime_progress_for_phase,
     upsert_runtime_block,
+)
+from src.task.runtime_blocks import (
+    emit_bound_runtime as _emit_bound_runtime,
+)
+from src.workspace_features.services.llm_json import (
+    build_json_prompt,
+    invoke_json_chat_model,
+    parse_json_array,
+    parse_json_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -414,25 +421,42 @@ async def _phase1_discovery(
 # ---------------------------------------------------------------------------
 # Phase 1 helpers: individual scout / trend LLM calls
 # ---------------------------------------------------------------------------
-_SCOUT_SEMINAL_PROMPT = """你是学术文献发现专家。请针对以下研究主题识别该领域的经典开创性文献。
+_DISCOVERY_ITEM_SCHEMA = """{
+  "title": "论文标题",
+  "authors": "主要作者（简写）",
+  "year": 2020,
+  "significance": "该文献的学术贡献和影响（1-2句话）",
+  "relevance": "与当前研究主题的关联（1句话）"
+}"""
 
-研究主题: {topic}
-学科方向: {discipline}
-{focus_areas_text}
-{memory_context}
+_TREND_ITEM_SCHEMA = """{
+  "topic": "趋势主题名称",
+  "description": "趋势描述（2-3句话）",
+  "growth_direction": "上升/稳定/下降",
+  "key_drivers": "推动该趋势的关键因素（1-2句话）"
+}"""
 
-请识别 5-8 篇该领域最重要的经典/开创性文献，返回 JSON 列表:
-[
-  {{
-    "title": "论文标题",
-    "authors": "主要作者（简写）",
-    "year": 2020,
-    "significance": "该文献的学术贡献和影响（1-2句话）",
-    "relevance": "与当前研究主题的关联（1句话）"
-  }}
-]
+_GAP_ITEM_SCHEMA = """{
+  "description": "研究空白的详细描述（2-3句话）",
+  "supporting_evidence": ["支撑证据1", "支撑证据2"],
+  "potential_impact": "填补该空白的潜在学术影响（1-2句话）",
+  "severity": "高/中/低"
+}"""
 
-仅返回 JSON 列表。"""
+_IDEA_ITEM_SCHEMA = """{
+  "title": "研究构想标题",
+  "description": "构想详细描述（3-5句话）",
+  "methodology_hints": ["方法提示1", "方法提示2"],
+  "related_gaps": ["对应的研究空白描述"],
+  "novelty_assessment": "新颖性评估（1-2句话）"
+}"""
+
+_CROSS_VALIDATE_SCHEMA = """{
+  "validation_score": 8,
+  "consistency_issues": ["一致性问题1（如有）"],
+  "quality_notes": ["质量优点1", "质量优点2"],
+  "recommendations": ["改进建议1", "改进建议2"]
+}"""
 
 
 async def _scout_seminal_works(
@@ -444,51 +468,34 @@ async def _scout_seminal_works(
     model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Identify seminal/foundational works for the topic."""
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return []
-
-    focus_text = f"\n重点关注方向: {', '.join(focus_areas)}" if focus_areas else ""
-    mem_text = f"\n用户记忆上下文:\n{memory_context}" if memory_context else ""
-
-    prompt = _SCOUT_SEMINAL_PROMPT.format(
-        topic=topic,
-        discipline=discipline,
-        focus_areas_text=focus_text,
-        memory_context=mem_text,
+    prompt = build_json_prompt(
+        instruction="请识别该主题最具奠基性或开创性的经典文献。",
+        context_sections=(
+            ("研究主题", topic),
+            ("学科方向", discipline),
+            ("重点关注方向", focus_areas),
+            ("工作记忆", memory_context),
+        ),
+        schema=f"[{_DISCOVERY_ITEM_SCHEMA}]",
+        requirements=(
+            "优先选择该领域公认的奠基性工作，不要混入普通综述或低相关文献。",
+            "significance 要概括其历史地位或方法贡献；relevance 要说明与当前主题的直接关系。",
+            "如果年份或作者无法确认，可保守标注“待核验”，不要编造。",
+        ),
+        output_language="中文",
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_list_response(content) or []
-    except Exception:
-        logger.exception("Scout seminal works failed")
-        return []
-
-
-_SCOUT_RECENT_PROMPT = """你是学术文献发现专家。请针对以下研究主题识别近2-3年内的最新重要文献。
-
-研究主题: {topic}
-学科方向: {discipline}
-{focus_areas_text}
-{memory_context}
-
-请识别 5-8 篇近年来最有影响力的最新文献，返回 JSON 列表:
-[
-  {{
-    "title": "论文标题",
-    "authors": "主要作者（简写）",
-    "year": 2024,
-    "significance": "该文献的学术贡献和创新点（1-2句话）",
-    "relevance": "与当前研究主题的关联（1句话）"
-  }}
-]
-
-仅返回 JSON 列表。"""
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术文献发现专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.2,
+        expected_type="array",
+    )
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    if generation_error:
+        logger.warning("Scout seminal works failed: %s", generation_error)
+    return []
 
 
 async def _scout_recent_works(
@@ -500,50 +507,34 @@ async def _scout_recent_works(
     model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Identify recent cutting-edge works for the topic."""
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return []
-
-    focus_text = f"\n重点关注方向: {', '.join(focus_areas)}" if focus_areas else ""
-    mem_text = f"\n用户记忆上下文:\n{memory_context}" if memory_context else ""
-
-    prompt = _SCOUT_RECENT_PROMPT.format(
-        topic=topic,
-        discipline=discipline,
-        focus_areas_text=focus_text,
-        memory_context=mem_text,
+    prompt = build_json_prompt(
+        instruction="请识别近 2-3 年最值得关注的近期重要文献。",
+        context_sections=(
+            ("研究主题", topic),
+            ("学科方向", discipline),
+            ("重点关注方向", focus_areas),
+            ("工作记忆", memory_context),
+        ),
+        schema=f"[{_DISCOVERY_ITEM_SCHEMA}]",
+        requirements=(
+            "优先选择近 2-3 年内有代表性、方法或应用上有明显推进的工作。",
+            "不要把经典老文献重复列入近期文献列表。",
+            "relevance 需要说明这篇文献为什么值得纳入当前调研范围。",
+        ),
+        output_language="中文",
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_list_response(content) or []
-    except Exception:
-        logger.exception("Scout recent works failed")
-        return []
-
-
-_ANALYZE_TRENDS_PROMPT = """你是学术趋势分析专家。请分析以下研究主题的当前研究趋势。
-
-研究主题: {topic}
-学科方向: {discipline}
-{focus_areas_text}
-{memory_context}
-
-请分析 3-5 个主要研究趋势，返回 JSON 列表:
-[
-  {{
-    "topic": "趋势主题名称",
-    "description": "趋势描述（2-3句话）",
-    "growth_direction": "上升/稳定/下降",
-    "key_drivers": "推动该趋势的关键因素（1-2句话）"
-  }}
-]
-
-仅返回 JSON 列表。"""
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术文献发现专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.2,
+        expected_type="array",
+    )
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    if generation_error:
+        logger.warning("Scout recent works failed: %s", generation_error)
+    return []
 
 
 async def _analyze_trends(
@@ -555,55 +546,34 @@ async def _analyze_trends(
     model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Analyze current research trends for the topic."""
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return []
-
-    focus_text = f"\n重点关注方向: {', '.join(focus_areas)}" if focus_areas else ""
-    mem_text = f"\n用户记忆上下文:\n{memory_context}" if memory_context else ""
-
-    prompt = _ANALYZE_TRENDS_PROMPT.format(
-        topic=topic,
-        discipline=discipline,
-        focus_areas_text=focus_text,
-        memory_context=mem_text,
+    prompt = build_json_prompt(
+        instruction="请分析当前研究主题的主要趋势，并判断它们是上升、稳定还是下降。",
+        context_sections=(
+            ("研究主题", topic),
+            ("学科方向", discipline),
+            ("重点关注方向", focus_areas),
+            ("工作记忆", memory_context),
+        ),
+        schema=f"[{_TREND_ITEM_SCHEMA}]",
+        requirements=(
+            "趋势要尽量具体到方法、任务、数据或应用方向，不要只写宏观口号。",
+            "growth_direction 只能使用“上升”“稳定”“下降”三种值。",
+            "key_drivers 要说明趋势背后的方法、数据、评测或应用推动因素。",
+        ),
+        output_language="中文",
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_list_response(content) or []
-    except Exception:
-        logger.exception("Analyze trends failed")
-        return []
-
-
-# ---------------------------------------------------------------------------
-# Phase 2: Gap Mining
-# ---------------------------------------------------------------------------
-_GAP_MINING_PROMPT = """你是研究空白分析专家。基于以下发现的文献和趋势，识别该领域的研究空白。
-
-研究主题: {topic}
-学科方向: {discipline}
-
-已发现文献与趋势摘要:
-{discovery_summary}
-{memory_context}
-
-请识别 3-5 个重要的研究空白，返回 JSON 列表:
-[
-  {{
-    "description": "研究空白的详细描述（2-3句话）",
-    "supporting_evidence": ["支撑证据1", "支撑证据2"],
-    "potential_impact": "填补该空白的潜在学术影响（1-2句话）",
-    "severity": "高/中/低"
-  }}
-]
-
-仅返回 JSON 列表。"""
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术趋势分析专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.2,
+        expected_type="array",
+    )
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    if generation_error:
+        logger.warning("Analyze trends failed: %s", generation_error)
+    return []
 
 
 async def _phase2_gap_mining(
@@ -615,59 +585,35 @@ async def _phase2_gap_mining(
     model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Identify research gaps from discovered works."""
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return []
-
     discovery_summary = _build_discovery_summary(discovery_results)
-    mem_text = f"\n用户记忆上下文:\n{memory_context}" if memory_context else ""
-
-    prompt = _GAP_MINING_PROMPT.format(
-        topic=topic,
-        discipline=discipline,
-        discovery_summary=discovery_summary,
-        memory_context=mem_text,
+    prompt = build_json_prompt(
+        instruction="请基于已发现的文献和趋势，识别真正值得研究的关键空白。",
+        context_sections=(
+            ("研究主题", topic),
+            ("学科方向", discipline),
+            ("已发现文献与趋势摘要", discovery_summary),
+            ("工作记忆", memory_context),
+        ),
+        schema=f"[{_GAP_ITEM_SCHEMA}]",
+        requirements=(
+            "研究空白应可研究、可验证，避免把“还没看够文献”误写成研究空白。",
+            "supporting_evidence 必须尽量从 discovery summary 中抽取可见依据。",
+            "severity 只能使用“高”“中”“低”。",
+        ),
+        output_language="中文",
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_list_response(content) or []
-    except Exception:
-        logger.exception("Phase 2 (gap mining) failed")
-        return []
-
-
-# ---------------------------------------------------------------------------
-# Phase 3: Synthesis
-# ---------------------------------------------------------------------------
-_SYNTHESIS_PROMPT = """你是学术创新构想专家。基于已发现的文献、趋势和研究空白，生成新颖的研究思路。
-
-研究主题: {topic}
-学科方向: {discipline}
-
-已发现文献与趋势摘要:
-{discovery_summary}
-
-已识别研究空白:
-{gaps_summary}
-{memory_context}
-
-请生成 2-3 个新颖的研究构想，返回 JSON 列表:
-[
-  {{
-    "title": "研究构想标题",
-    "description": "构想详细描述（3-5句话）",
-    "methodology_hints": ["方法提示1", "方法提示2"],
-    "related_gaps": ["对应的研究空白描述"],
-    "novelty_assessment": "新颖性评估（1-2句话）"
-  }}
-]
-
-仅返回 JSON 列表。"""
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是研究空白分析专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.2,
+        expected_type="array",
+    )
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    if generation_error:
+        logger.warning("Phase 2 (gap mining) failed: %s", generation_error)
+    return []
 
 
 async def _phase3_synthesis(
@@ -680,60 +626,37 @@ async def _phase3_synthesis(
     model_id: str = "default",
 ) -> list[dict[str, Any]]:
     """Generate novel research ideas addressing identified gaps."""
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return []
-
     discovery_summary = _build_discovery_summary(discovery_results)
     gaps_text = json.dumps(gaps, ensure_ascii=False, indent=2) if gaps else "（未识别到研究空白）"
-    mem_text = f"\n用户记忆上下文:\n{memory_context}" if memory_context else ""
-
-    prompt = _SYNTHESIS_PROMPT.format(
-        topic=topic,
-        discipline=discipline,
-        discovery_summary=discovery_summary,
-        gaps_summary=gaps_text,
-        memory_context=mem_text,
+    prompt = build_json_prompt(
+        instruction="请基于文献、趋势和研究空白，提出少而精、可落地的研究构想。",
+        context_sections=(
+            ("研究主题", topic),
+            ("学科方向", discipline),
+            ("已发现文献与趋势摘要", discovery_summary),
+            ("已识别研究空白", gaps_text),
+            ("工作记忆", memory_context),
+        ),
+        schema=f"[{_IDEA_ITEM_SCHEMA}]",
+        requirements=(
+            "研究构想要明确问题、方向和方法提示，避免空泛 brainstorming。",
+            "related_gaps 应引用已识别的空白，而不是重新发明一套问题。",
+            "novelty_assessment 要诚实评估新颖性边界和潜在风险。",
+        ),
+        output_language="中文",
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_list_response(content) or []
-    except Exception:
-        logger.exception("Phase 3 (synthesis) failed")
-        return []
-
-
-# ---------------------------------------------------------------------------
-# Phase 4: Cross-Validation (NEW)
-# ---------------------------------------------------------------------------
-_CROSS_VALIDATE_PROMPT = """你是学术研究质量审核专家。请审查以下深度研究结果的一致性和质量。
-
-研究主题: {topic}
-
-发现的文献与趋势:
-{discovery_summary}
-
-识别的研究空白:
-{gaps_summary}
-
-生成的研究构想:
-{ideas_summary}
-
-请从以下维度审核并返回 JSON:
-{{
-  "validation_score": 8,
-  "consistency_issues": ["一致性问题1（如有）"],
-  "quality_notes": ["质量优点1", "质量优点2"],
-  "recommendations": ["改进建议1", "改进建议2"]
-}}
-
-其中 validation_score 为 1-10 的整数（10 为最高质量）。
-仅返回 JSON。"""
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术创新构想专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.25,
+        expected_type="array",
+    )
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    if generation_error:
+        logger.warning("Phase 3 (synthesis) failed: %s", generation_error)
+    return []
 
 
 async def _phase4_cross_validate(
@@ -745,62 +668,49 @@ async def _phase4_cross_validate(
     model_id: str = "default",
 ) -> dict[str, Any] | None:
     """Verify synthesis quality and internal consistency. Returns None on failure."""
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return None
-
     discovery_summary = _build_discovery_summary(discovery)
     gaps_text = json.dumps(gaps, ensure_ascii=False, indent=2) if gaps else "（无）"
     ideas_text = json.dumps(ideas, ensure_ascii=False, indent=2) if ideas else "（无）"
-
-    prompt = _CROSS_VALIDATE_PROMPT.format(
-        topic=topic,
-        discovery_summary=discovery_summary,
-        gaps_summary=gaps_text,
-        ideas_summary=ideas_text,
+    prompt = build_json_prompt(
+        instruction="请审查这份深度调研结果的一致性、质量和可执行性。",
+        context_sections=(
+            ("研究主题", topic),
+            ("发现的文献与趋势", discovery_summary),
+            ("识别的研究空白", gaps_text),
+            ("生成的研究构想", ideas_text),
+        ),
+        schema=_CROSS_VALIDATE_SCHEMA,
+        requirements=(
+            "validation_score 必须是 1-10 的整数。",
+            "consistency_issues 只列真正会影响可信度的问题；没有则返回空数组。",
+            "recommendations 应是下一步可执行的改进建议，不要泛泛而谈。",
+        ),
+        output_language="中文",
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_response(content)
-    except Exception:
-        logger.exception("Phase 4 (cross-validation) failed")
-        return None
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术研究质量审核专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.2,
+    )
+    if isinstance(parsed, dict):
+        return parsed
+    if generation_error:
+        logger.warning("Phase 4 (cross-validation) failed: %s", generation_error)
+    return None
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 def _parse_json_response(text: str) -> dict[str, Any] | None:
-    """Parse JSON dict from LLM response, handling markdown fences."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    try:
-        parsed = json.loads(text)
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        return None
+    """Compatibility wrapper for tests around JSON parsing behavior."""
+    return parse_json_payload(text)
 
 
 def _parse_json_list_response(text: str) -> list[dict[str, Any]] | None:
-    """Parse JSON list from LLM response, handling markdown fences."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, list) and all(isinstance(item, dict) for item in parsed):
-            return parsed
-        return None
-    except json.JSONDecodeError:
-        return None
+    """Compatibility wrapper for tests around JSON list parsing behavior."""
+    return parse_json_array(text)
 
 
 def _build_discovery_summary(discovery: dict[str, Any], max_items: int = 10) -> str:

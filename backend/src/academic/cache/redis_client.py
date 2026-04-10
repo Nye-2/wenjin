@@ -145,13 +145,19 @@ class RedisClient:
         thread_id: str,
         status: str,
         skill: str | None = None,
+        skill_name: str | None = None,
         subagent_count: int | None = None,
+        clear_skill: bool = False,
     ) -> None:
         """Set agent status for a thread."""
         key = self._agent_status_key(thread_id)
         mapping: dict[str, str | int] = {"status": status}
-        if skill is not None:
+        if clear_skill:
+            await self.client.hdel(key, "current_skill", "current_skill_name")
+        elif skill is not None:
             mapping["current_skill"] = skill
+        if skill_name is not None:
+            mapping["current_skill_name"] = skill_name
         if subagent_count is not None:
             mapping["subagent_count"] = subagent_count
         await self.client.hset(key, mapping=mapping)

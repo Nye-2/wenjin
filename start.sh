@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 问津 Wenjin 一键启动脚本
-# 使用方法: ./start.sh [--backend-only | --frontend-only]
+# 使用方法: ./start.sh [--backend | --worker | --frontend]
 
 set -e
 set -o pipefail
@@ -27,9 +27,11 @@ LOCAL_REDIS_PORT="${LOCAL_REDIS_PORT:-56379}"
 
 # 运行时连接（可被自动兜底覆盖）
 RUNTIME_DATABASE_URL=""
+RUNTIME_DATABASE_PSQL_URL=""
 RUNTIME_REDIS_URL=""
 RUNTIME_DATABASE_URL_OVERRIDE=""
 RUNTIME_REDIS_URL_OVERRIDE=""
+PYTHON_CMD=()
 DB_HOST="localhost"
 DB_PORT="5432"
 DB_USER="postgres"
@@ -45,6 +47,7 @@ mkdir -p "$LOG_DIR"
 
 # PID 文件
 BACKEND_PID_FILE="$LOG_DIR/backend.pid"
+WORKER_PID_FILE="$LOG_DIR/worker.pid"
 LANGGRAPH_PID_FILE="$LOG_DIR/langgraph.pid"
 FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
 
@@ -53,6 +56,30 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+resolve_python_cmd() {
+    if [ ${#PYTHON_CMD[@]} -gt 0 ]; then
+        return 0
+    fi
+
+    if command -v python3 &> /dev/null; then
+        PYTHON_CMD=(python3)
+        return 0
+    fi
+
+    if command -v python &> /dev/null; then
+        PYTHON_CMD=(python)
+        return 0
+    fi
+
+    if command -v uv &> /dev/null; then
+        PYTHON_CMD=(uv run python)
+        return 0
+    fi
+
+    log_error "未找到可用的 Python 解释器（需要 python3/python 或 uv run python）"
+    return 1
+}
 
 # 检查命令是否存在
 check_command() {
@@ -63,9 +90,113 @@ check_command() {
     return 0
 }
 
+read_env_value() {
+    local env_file="$1"
+    local key="$2"
+
+    resolve_python_cmd || return 1
+
+    "${PYTHON_CMD[@]}" - "$env_file" "$key" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+
+if not path.is_file():
+    raise SystemExit(0)
+
+for raw_line in path.read_text(encoding="utf-8").splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith("#"):
+        continue
+    if line.startswith("export "):
+        line = line[7:].lstrip()
+    if "=" not in line:
+        continue
+    current_key, value = line.split("=", 1)
+    if current_key.strip() != key:
+        continue
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1]
+    print(value)
+    break
+PY
+}
+
+parse_database_url() {
+    local database_url="$1"
+
+    resolve_python_cmd || return 1
+
+    "${PYTHON_CMD[@]}" - "$database_url" <<'PY'
+from urllib.parse import unquote, urlsplit
+import sys
+
+raw_url = sys.argv[1].strip()
+if len(raw_url) >= 2 and raw_url[0] == raw_url[-1] and raw_url[0] in ("'", '"'):
+    raw_url = raw_url[1:-1]
+
+parsed = urlsplit(raw_url)
+print(unquote(parsed.username or "postgres"))
+print(unquote(parsed.password or "postgres"))
+print(parsed.hostname or "localhost")
+print(parsed.port or 5432)
+print(parsed.path.lstrip("/") or "wenjin")
+PY
+}
+
+to_psql_database_url() {
+    local database_url="$1"
+
+    resolve_python_cmd || return 1
+
+    "${PYTHON_CMD[@]}" - "$database_url" <<'PY'
+from urllib.parse import urlsplit, urlunsplit
+import sys
+
+raw_url = sys.argv[1].strip()
+if len(raw_url) >= 2 and raw_url[0] == raw_url[-1] and raw_url[0] in ("'", '"'):
+    raw_url = raw_url[1:-1]
+
+parsed = urlsplit(raw_url)
+scheme = (parsed.scheme or "postgresql").split("+", 1)[0] or "postgresql"
+if scheme == "postgres":
+    scheme = "postgresql"
+
+print(
+    urlunsplit(
+        (scheme, parsed.netloc, parsed.path, parsed.query, parsed.fragment)
+    )
+)
+PY
+}
+
+parse_redis_url() {
+    local redis_url="$1"
+
+    resolve_python_cmd || return 1
+
+    "${PYTHON_CMD[@]}" - "$redis_url" <<'PY'
+from urllib.parse import urlsplit
+import sys
+
+raw_url = sys.argv[1].strip()
+if len(raw_url) >= 2 and raw_url[0] == raw_url[-1] and raw_url[0] in ("'", '"'):
+    raw_url = raw_url[1:-1]
+
+parsed = urlsplit(raw_url)
+print(parsed.hostname or "localhost")
+print(parsed.port or 6379)
+print(parsed.path.lstrip("/") or "0")
+PY
+}
+
 # 从 backend/.env 读取运行时连接配置
 load_runtime_config() {
     RUNTIME_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/wenjin"
+    RUNTIME_DATABASE_PSQL_URL="postgresql://postgres:postgres@localhost:5432/wenjin"
     RUNTIME_REDIS_URL="redis://localhost:6379/0"
 
     DB_HOST="localhost"
@@ -80,24 +211,29 @@ load_runtime_config() {
 
     if [ -f "$BACKEND_DIR/.env" ]; then
         local db_url
-        db_url=$(grep -v '^#' "$BACKEND_DIR/.env" | grep '^DATABASE_URL=' | head -1 | cut -d'=' -f2- || true)
+        db_url=$(read_env_value "$BACKEND_DIR/.env" "DATABASE_URL" || true)
         local redis_url
-        redis_url=$(grep -v '^#' "$BACKEND_DIR/.env" | grep '^REDIS_URL=' | head -1 | cut -d'=' -f2- || true)
+        redis_url=$(read_env_value "$BACKEND_DIR/.env" "REDIS_URL" || true)
 
         if [ -n "$db_url" ]; then
             RUNTIME_DATABASE_URL="$db_url"
-            DB_USER=$(echo "$db_url" | sed -n 's/.*:\/\/\([^:]*\):.*/\1/p')
-            DB_PASS=$(echo "$db_url" | sed -n 's/.*:\/\/[^:]*:\([^@]*\)@.*/\1/p')
-            DB_HOST=$(echo "$db_url" | sed -n 's/.*@\([^:\/]*\):.*/\1/p')
-            DB_PORT=$(echo "$db_url" | sed -n 's/.*:\([0-9]*\)\/.*/\1/p')
-            DB_NAME=$(echo "$db_url" | sed -n 's#.*/\([^?]*\).*#\1#p')
+            RUNTIME_DATABASE_PSQL_URL=$(to_psql_database_url "$db_url")
+            local db_parts=()
+            mapfile -t db_parts < <(parse_database_url "$db_url")
+            DB_USER="${db_parts[0]:-postgres}"
+            DB_PASS="${db_parts[1]:-postgres}"
+            DB_HOST="${db_parts[2]:-localhost}"
+            DB_PORT="${db_parts[3]:-5432}"
+            DB_NAME="${db_parts[4]:-wenjin}"
         fi
 
         if [ -n "$redis_url" ]; then
             RUNTIME_REDIS_URL="$redis_url"
-            REDIS_HOST=$(echo "$redis_url" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\1#p')
-            REDIS_PORT=$(echo "$redis_url" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\2#p')
-            REDIS_DB=$(echo "$redis_url" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\3#p')
+            local redis_parts=()
+            mapfile -t redis_parts < <(parse_redis_url "$redis_url")
+            REDIS_HOST="${redis_parts[0]:-localhost}"
+            REDIS_PORT="${redis_parts[1]:-6379}"
+            REDIS_DB="${redis_parts[2]:-0}"
             REDIS_HOST=${REDIS_HOST:-localhost}
             REDIS_PORT=${REDIS_PORT:-6379}
             REDIS_DB=${REDIS_DB:-0}
@@ -106,18 +242,23 @@ load_runtime_config() {
 
     if [ -n "$RUNTIME_DATABASE_URL_OVERRIDE" ]; then
         RUNTIME_DATABASE_URL="$RUNTIME_DATABASE_URL_OVERRIDE"
-        DB_USER=$(echo "$RUNTIME_DATABASE_URL" | sed -n 's/.*:\/\/\([^:]*\):.*/\1/p')
-        DB_PASS=$(echo "$RUNTIME_DATABASE_URL" | sed -n 's/.*:\/\/[^:]*:\([^@]*\)@.*/\1/p')
-        DB_HOST=$(echo "$RUNTIME_DATABASE_URL" | sed -n 's/.*@\([^:\/]*\):.*/\1/p')
-        DB_PORT=$(echo "$RUNTIME_DATABASE_URL" | sed -n 's/.*:\([0-9]*\)\/.*/\1/p')
-        DB_NAME=$(echo "$RUNTIME_DATABASE_URL" | sed -n 's#.*/\([^?]*\).*#\1#p')
+        RUNTIME_DATABASE_PSQL_URL=$(to_psql_database_url "$RUNTIME_DATABASE_URL")
+        local override_db_parts=()
+        mapfile -t override_db_parts < <(parse_database_url "$RUNTIME_DATABASE_URL")
+        DB_USER="${override_db_parts[0]:-postgres}"
+        DB_PASS="${override_db_parts[1]:-postgres}"
+        DB_HOST="${override_db_parts[2]:-localhost}"
+        DB_PORT="${override_db_parts[3]:-5432}"
+        DB_NAME="${override_db_parts[4]:-wenjin}"
     fi
 
     if [ -n "$RUNTIME_REDIS_URL_OVERRIDE" ]; then
         RUNTIME_REDIS_URL="$RUNTIME_REDIS_URL_OVERRIDE"
-        REDIS_HOST=$(echo "$RUNTIME_REDIS_URL" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\1#p')
-        REDIS_PORT=$(echo "$RUNTIME_REDIS_URL" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\2#p')
-        REDIS_DB=$(echo "$RUNTIME_REDIS_URL" | sed -n 's#redis://\([^:/]*\):\([0-9]*\)/\([0-9]*\).*#\3#p')
+        local override_redis_parts=()
+        mapfile -t override_redis_parts < <(parse_redis_url "$RUNTIME_REDIS_URL")
+        REDIS_HOST="${override_redis_parts[0]:-localhost}"
+        REDIS_PORT="${override_redis_parts[1]:-6379}"
+        REDIS_DB="${override_redis_parts[2]:-0}"
         REDIS_HOST=${REDIS_HOST:-localhost}
         REDIS_PORT=${REDIS_PORT:-6379}
         REDIS_DB=${REDIS_DB:-0}
@@ -128,14 +269,14 @@ postgres_can_connect() {
     if ! command -v psql &> /dev/null; then
         return 1
     fi
-    PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1" > /dev/null 2>&1
+    psql "$RUNTIME_DATABASE_PSQL_URL" -c "SELECT 1" > /dev/null 2>&1
 }
 
 postgres_supports_vector() {
     if ! command -v psql &> /dev/null; then
         return 1
     fi
-    PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -tAc \
+    psql "$RUNTIME_DATABASE_PSQL_URL" -tAc \
         "SELECT 1 FROM pg_available_extensions WHERE name='vector';" | grep -q "1"
 }
 
@@ -143,13 +284,13 @@ postgres_enable_vector() {
     if ! command -v psql &> /dev/null; then
         return 1
     fi
-    PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+    psql "$RUNTIME_DATABASE_PSQL_URL" \
         -c "CREATE EXTENSION IF NOT EXISTS vector;" > /dev/null 2>&1
 }
 
 redis_can_connect() {
     if command -v redis-cli &> /dev/null; then
-        redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$REDIS_DB" ping 2>/dev/null | grep -q "PONG"
+        redis-cli -u "$RUNTIME_REDIS_URL" ping 2>/dev/null | grep -q "PONG"
         return $?
     fi
     (echo > "/dev/tcp/$REDIS_HOST/$REDIS_PORT") > /dev/null 2>&1
@@ -196,6 +337,7 @@ ensure_local_pgvector_container() {
     DB_PASS="postgres"
     DB_NAME="wenjin"
     RUNTIME_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:${LOCAL_PGVECTOR_PORT}/wenjin"
+    RUNTIME_DATABASE_PSQL_URL="postgresql://postgres:postgres@localhost:${LOCAL_PGVECTOR_PORT}/wenjin"
     RUNTIME_DATABASE_URL_OVERRIDE="$RUNTIME_DATABASE_URL"
 
     if ! postgres_enable_vector; then
@@ -315,11 +457,9 @@ check_dependencies() {
 
     local missing=0
 
-    # 检查 Python/uv
-    if ! check_command uv; then
-        if ! check_command python3; then
-            missing=1
-        fi
+    # 检查 Python 解释器（start.sh 需要它做 DSN 解析与迁移）
+    if ! resolve_python_cmd; then
+        missing=1
     fi
 
     # 检查 Node.js
@@ -558,6 +698,41 @@ start_backend() {
     fi
 }
 
+# 启动 worker
+start_worker() {
+    if is_running "$WORKER_PID_FILE"; then
+        log_warn "Worker 已在运行中 (PID: $(cat $WORKER_PID_FILE))"
+        return 0
+    fi
+
+    log_info "启动 worker..."
+
+    cd "$BACKEND_DIR"
+    load_runtime_config
+
+    if check_command uv; then
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" PYTHONUNBUFFERED=1 \
+            uv run python -m src.task.worker > "$LOG_DIR/worker.log" 2>&1 &
+        echo $! > "$WORKER_PID_FILE"
+    else
+        source .venv/bin/activate
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" PYTHONUNBUFFERED=1 \
+            python -m src.task.worker > "$LOG_DIR/worker.log" 2>&1 &
+        echo $! > "$WORKER_PID_FILE"
+    fi
+
+    sleep 2
+
+    if is_running "$WORKER_PID_FILE"; then
+        log_success "Worker 已启动 (PID: $(cat $WORKER_PID_FILE))"
+    else
+        log_error "Worker 启动失败，查看日志: $LOG_DIR/worker.log"
+        rm -f "$WORKER_PID_FILE"
+        tail -n 80 "$LOG_DIR/worker.log" || true
+        return 1
+    fi
+}
+
 # 启动前端
 start_frontend() {
     if is_running "$FRONTEND_PID_FILE"; then
@@ -591,7 +766,7 @@ start_frontend() {
 stop_services() {
     log_info "停止所有服务..."
 
-    for pid_file in "$BACKEND_PID_FILE" "$LANGGRAPH_PID_FILE" "$FRONTEND_PID_FILE"; do
+    for pid_file in "$BACKEND_PID_FILE" "$WORKER_PID_FILE" "$LANGGRAPH_PID_FILE" "$FRONTEND_PID_FILE"; do
         if [ -f "$pid_file" ]; then
             pid=$(cat "$pid_file")
             if ps -p "$pid" > /dev/null 2>&1; then
@@ -604,6 +779,7 @@ stop_services() {
 
     # 额外清理可能残留的进程
     pkill -f "uvicorn src.gateway" 2>/dev/null || true
+    pkill -f "python -m src.task.worker" 2>/dev/null || true
     pkill -f "langgraph api" 2>/dev/null || true
     pkill -f "langgraph up" 2>/dev/null || true
     pkill -f "langgraph dev" 2>/dev/null || true
@@ -626,11 +802,17 @@ show_status() {
         echo -e "后端服务:   ${RED}未运行${NC}"
     fi
 
+    if is_running "$WORKER_PID_FILE"; then
+        echo -e "Worker:     ${GREEN}运行中${NC} (PID: $(cat $WORKER_PID_FILE))"
+    else
+        echo -e "Worker:     ${RED}未运行${NC}"
+    fi
+
     if is_running "$LANGGRAPH_PID_FILE" && is_http_ready "http://localhost:2024/info"; then
         echo -e "LangGraph:  ${GREEN}运行中${NC} (PID: $(cat $LANGGRAPH_PID_FILE))"
         echo "           http://localhost:2024"
     else
-        echo -e "LangGraph:  ${YELLOW}未运行${NC}"
+        echo -e "LangGraph:  ${YELLOW}未启动（仅调试可选）${NC}"
     fi
 
     if is_running "$FRONTEND_PID_FILE" && is_http_ready "http://localhost:3000"; then
@@ -650,9 +832,10 @@ show_help() {
     echo "问津 Wenjin 启动脚本"
     echo ""
     echo "使用方法:"
-    echo "  ./start.sh              # 启动所有服务"
+    echo "  ./start.sh              # 启动默认服务（后端+worker+前端）"
     echo "  ./start.sh --init       # 仅初始化环境（不启动服务）"
     echo "  ./start.sh --backend    # 仅启动后端"
+    echo "  ./start.sh --worker     # 仅启动 worker"
     echo "  ./start.sh --langgraph  # 仅启动 LangGraph"
     echo "  ./start.sh --frontend   # 仅启动前端"
     echo "  ./start.sh --stop       # 停止所有服务"
@@ -673,6 +856,9 @@ show_logs() {
         backend)
             tail -f "$LOG_DIR/backend.log"
             ;;
+        worker)
+            tail -f "$LOG_DIR/worker.log"
+            ;;
         frontend)
             tail -f "$LOG_DIR/frontend.log"
             ;;
@@ -680,7 +866,7 @@ show_logs() {
             tail -f "$LOG_DIR/langgraph.log"
             ;;
         *)
-            echo "可用日志: backend, frontend, langgraph"
+            echo "可用日志: backend, worker, frontend, langgraph"
             ;;
     esac
 }
@@ -731,6 +917,11 @@ main() {
             ensure_texlive_image
             start_backend
             ;;
+        --worker)
+            init_backend
+            ensure_texlive_image
+            start_worker
+            ;;
         --langgraph)
             init_backend
             ensure_texlive_image
@@ -741,12 +932,12 @@ main() {
             start_frontend
             ;;
         *)
-            # 启动所有服务
+            # 启动默认服务（LangGraph 为可选独立链路）
             init_backend
             init_frontend
             ensure_texlive_image
             start_backend
-            start_langgraph || true
+            start_worker
             start_frontend
             ;;
     esac

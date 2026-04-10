@@ -14,6 +14,7 @@ from src.agents.graphs._shared import (
     _read_payload_params,
 )
 from src.agents.workspace_lead_agent import register_feature_graph
+from src.workspace_features.latex_sync import sync_software_technical_description_payload
 from src.workspace_features.services import build_technical_description_payload
 
 logger = logging.getLogger(__name__)
@@ -72,15 +73,16 @@ async def technical_description_graph(
         highlights=highlights,
         preferred_model=preferred_model,
     )
+    sync_result = await sync_software_technical_description_payload(
+        workspace_id=workspace_id,
+        workspace_name=workspace_name,
+        payload=result,
+    )
 
     # Step 3: Build structured output
     return {
         "software_profile": result.get("software_profile", {}),
         "sections": result.get("sections", {}),
-        "latex_project_id": result.get("latex_project_id"),
-        "main_file": result.get("main_file"),
-        "section_map": result.get("section_map", {}),
-        "sync_conflicts": result.get("sync_conflicts", []),
         "generation_mode": result.get("generation_mode", "llm"),
         "model_id": result.get("model_id"),
         "generation_error": result.get("generation_error"),
@@ -90,4 +92,5 @@ async def technical_description_graph(
             "can_regenerate_with_llm": False,
             "last_error": result.get("generation_error"),
         }),
+        **sync_result.as_payload(),
     }

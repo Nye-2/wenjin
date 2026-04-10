@@ -86,6 +86,7 @@ class UpdateWorkspaceValidator(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
     discipline: Annotated[str, Field(max_length=100)] | None = None
     description: Annotated[str, Field(max_length=2000)] | None = None
+    status: WorkspaceStatus | None = None
     config: dict | None = None
 
     @field_validator("name")

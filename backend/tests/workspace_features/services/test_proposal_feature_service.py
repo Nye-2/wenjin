@@ -46,6 +46,7 @@ async def test_build_proposal_outline_payload_normalizes_topic_type_and_period(
     assert payload["generation_mode"] == "llm"
     assert payload["model_id"] == "proposal-model"
     assert len(payload["sections"]) == 5
+    assert "latex_project_id" not in payload
 
 
 @pytest.mark.asyncio
@@ -92,6 +93,7 @@ async def test_build_background_research_payload_normalizes_scope_and_references
     assert payload["time_range"] == "近5年"
     assert payload["model_id"] == "background-model"
     assert payload["references"][0]["title"] == "Reference A"
+    assert "latex_project_id" not in payload
 
 
 @pytest.mark.asyncio
@@ -120,3 +122,4 @@ async def test_build_experiment_design_payload_falls_back_to_template_on_llm_err
     assert payload["generation_error"] == "llm_output_not_json"
     assert payload["hypotheses"]
     assert payload["variables"]
+    assert "latex_project_id" not in payload

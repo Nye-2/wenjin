@@ -1,101 +1,119 @@
 # Troubleshooting
 
-更新时间: 2026-03-19
+更新时间：2026-04-10
 
-以下命令默认你已经在 shell 中设置:
+以下命令默认你已经设置：
 
 ```bash
 export REPO_ROOT=/path/to/your/wenjin/repo
+cd "$REPO_ROOT"
 ```
 
-## 1. `./start.sh` 卡在“等待 LangGraph 启动”
+## 1. `./start.sh` 启动后功能任务一直 pending
 
-### 排查步骤
+高频原因：
+
+- worker 没有启动
+- Redis 不可用
+- `backend/.env` 缺少必要模型配置
+
+排查：
 
 ```bash
-./start.sh --logs langgraph
-tail -n 100 "$REPO_ROOT/logs/langgraph.log"
+./start.sh --status
+./start.sh --logs worker
+./start.sh --logs backend
 ```
 
-常见原因:
+修复：
 
-- Docker 不可用，LangGraph 无法启动
-- `backend/.env` 缺失关键配置，LangGraph 进程启动即退出
-- 端口 `2024` 已被占用
-
-修复建议:
-
-1. 确认 `docker ps` 可正常执行。
-2. 停掉占用端口的进程: `lsof -i :2024`。
-3. 单独启动验证: `./start.sh --langgraph`。
+1. 确认状态页里 `Worker` 为运行中。
+2. 检查 `backend/.env` 的 `REDIS_URL`、模型配置和数据库连接。
+3. 单独重启 worker：`./start.sh --worker`。
 
 ## 2. Compose 启动后 API 不可用
 
-### 快速检查
+快速检查：
 
 ```bash
 docker compose ps
 docker compose logs -f migrate
 docker compose logs -f gateway
+docker compose logs -f worker
 ```
 
-高频问题:
+高频问题：
 
-- `migrate` 失败导致 `gateway/langgraph` 不会启动
-- `backend/.env` 未配置导致容器内运行时报错
-- 数据库连接串与 compose 网络不匹配
+- `migrate` 失败导致主服务不启动
+- `backend/.env` 未配置或配置与 compose 网络不匹配
+- `gateway` 健康检查未通过
 
-修复建议:
+修复建议：
 
-1. 优先修复 `migrate` 报错后重启: `docker compose up -d migrate gateway langgraph`。
-2. 确认容器内 DB 地址使用 `postgres:5432`、Redis 使用 `redis:6379`。
+1. 先修复 `migrate` 报错，再重启：`docker compose up -d migrate gateway worker frontend nginx`
+2. 确认容器内 DB 地址是 `postgres:5432`，Redis 地址是 `redis:6379`
 
-## 3. 前端提示 `Failed to fetch`
+## 3. 浏览器提示 `Failed to fetch`
 
-常见根因:
+常见原因：
 
-- Gateway 未启动/未健康
-- 前端请求地址配置错误（`NEXT_PUBLIC_API_URL`）
-- 反向代理路径未转发到 `/api`
+- Gateway 未启动或 `/readyz` 不健康
+- `NEXT_PUBLIC_API_URL` 配错
+- 反向代理没有正确转发 `/api`
 
-补充说明:
-
-- 如果没有创建 `frontend/.env.local`，开发环境默认会请求 `http://localhost:8001/api`。
-
-排查命令:
+排查：
 
 ```bash
 curl -i http://localhost:8001/readyz
 curl -i http://localhost:2026/health
-curl -i http://localhost:2026/langgraph/info
 curl -i http://localhost:2026/api/auth/me
 ```
 
-若浏览器报 `Failed to fetch`，优先看 Network 面板中的实际请求 URL 与状态码。
+补充：
 
-## 4. SMTP 已配置但收不到验证码
+- 如果没有创建 `frontend/.env.local`，开发环境默认请求 `http://localhost:8001/api`
+- 如果走 Nginx，前端通常通过同源 `/api` 访问
 
-按顺序检查:
+## 4. SSE 不流动或前端长时间无更新
+
+检查项：
+
+1. 代理层是否关闭了 SSE 缓冲
+2. Gateway 日志中是否有流式异常
+3. Worker 是否正常发布任务进度 / workspace events
+
+排查：
+
+```bash
+./start.sh --logs backend
+./start.sh --logs worker
+docker compose logs -f nginx
+```
+
+## 5. SMTP 已配置但收不到验证码
+
+按顺序检查：
 
 1. `SMTP_ENABLED=true`
-2. `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD` 是否可从后端机器连通
-3. 后端日志是否出现 `发送邮件失败`
-4. 是否触发频控（`SMTP_SEND_INTERVAL`）或日限额（`SMTP_DAILY_LIMIT`）
+2. `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` 是否可连通
+3. backend 日志里是否出现 `发送邮件失败`
+4. 是否触发频控或日限额
 
-提示:
+提示：
 
-- 验证码格式为 6 位数字；输入时不区分大小写的问题已不适用。
-- 当 `SMTP_ENABLED=false` 时不会发真实邮件，只能在日志/Redis 中看到验证码。
+- 当 `SMTP_ENABLED=false` 时不会发送真实邮件，只会写日志和 Redis
+- 验证码格式固定为 6 位数字
 
-## 5. 功能执行后无结果刷新
+## 6. 功能执行后无结果刷新
 
-检查任务结果中的 `refresh_targets`:
+检查任务结果中的 `refresh_targets`：
 
-- `artifacts` -> 前端应刷新成果列表
-- `papers` -> 前端应刷新论文列表
-- `workspace` -> 前端应刷新 workspace 基础信息
+- `artifacts`：前端刷新成果列表
+- `papers`：前端刷新论文列表
+- `workspace`：前端刷新 workspace 基础信息
 
-相关代码:
+相关代码：
 
-- `frontend/hooks/useFeatureTaskRunner.ts`
+- `frontend/lib/workspace-feature-execution.ts`
+- `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
 - `backend/src/task/handlers/workspace_feature_handler.py`

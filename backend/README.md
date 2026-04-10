@@ -1,213 +1,151 @@
 # 问津 Wenjin Backend
 
-Backend for Wenjin (问津), an AI workspace for papers, proposals, patents, and research workflows, built on Lead Agent + Middleware + Skills architecture.
+后端当前采用分层执行架构：
 
-## Completed Features
+`gateway -> application handlers -> task runtime -> workspace feature graphs/services -> persistence/writeback`
 
-- **Paper Extraction Service** - PDF processing and metadata extraction
-- **User Service** - Authentication, user management, and profile handling
-- **Workspace Service** - Project organization and management
-- **Artifact Service** - Research artifact tracking and lineage
-- **Paper Service** - Paper management and search
-- **LangGraph Workspace Features** - Unified feature execution for all workspace types:
-  - Thesis: literature_management, opening_research, figure_generation, compile_export, deep_research
-  - SCI: literature_search, paper_analysis, writing
-  - Patent: patent_outline, prior_art_search
-  - Proposal: proposal_outline, background_research
-  - Software Copyright: copyright_materials, technical_description
-- **Skill Execution Framework** - Pluggable skill system with:
-  - Deep Research Skill
-  - Framework Designer Skill
-  - Fullpaper Writer Skill
-  - Literature Review Skill
-- **API Routers**:
-  - Auth Router (login, register, token refresh)
-  - Workspaces Router (CRUD operations)
-  - Papers Router (upload, search, extraction)
-  - Artifacts Router (CRUD + lineage)
-  - Chat Router (conversation threads)
-  - Workspace Features Router (feature execution)
-- **Input Validation** - Request validation using Pydantic
-- **Error Handling** - Centralized error handling middleware
-- **API Integration Tests** - Comprehensive endpoint testing
+chat 主链与 feature 主链已经收口到同一套运行时，不再依赖旧 skill 子系统，也不要求独立外部 LangGraph 服务参与生产主流程。
 
-## Tech Stack
+## 技术栈
 
-- Python 3.12+
+- Python 3.12
 - FastAPI
-- SQLAlchemy 2.0 (async)
+- Pydantic
+- SQLAlchemy 2.x async
 - PostgreSQL + pgvector
 - Redis
+- Celery
 - LangGraph / LangChain
-- OpenAI / Anthropic APIs
 
-## Quick Start
+## 当前核心能力
+
+- 认证、用户、workspace、paper、artifact、dashboard、LaTeX API
+- chat 主链路：线程、流式 SSE、skill 选择、feature orchestration
+- workspace feature 执行：五类 workspace、20 个 canonical features
+- subagent runtime：spawn、状态、事件、持久化回退
+- LaTeX 主稿台：文件读写、编译、反馈改写、PDF/SyncTeX
+- observability：Prometheus 指标、Sentry/日志钩子、相关健康检查
+
+## 目录结构
+
+```text
+backend/
+├── src/
+│   ├── gateway/                 # FastAPI app, routers, middleware, serializers
+│   ├── application/            # Application handlers (chat turn, feature execution, etc.)
+│   ├── agents/
+│   │   ├── lead_agent/         # Chat lead-agent, prompt template, bridge cards/catalog
+│   │   ├── graphs/             # Workspace feature graphs by workspace type
+│   │   ├── middlewares/        # Lead-agent runtime context middlewares
+│   │   └── workspace_lead_agent.py
+│   ├── workspace_features/     # Feature registry, service layer, latex sync
+│   ├── task/                   # Task service, worker, progress, runtime blocks
+│   ├── subagents/              # Subagent manager, graph factory, prompts, context snapshot
+│   ├── services/               # Shared domain services
+│   ├── academic/               # Literature / paper / citation services
+│   ├── database/               # Models, session, migrations bootstrap hooks
+│   └── execution/              # File/code/image/latex execution providers
+├── tests/
+├── docs/
+└── Dockerfile
+```
+
+## 架构说明
+
+### 1. Gateway
+
+- 位置：`src/gateway/`
+- 负责：
+  - API 路由
+  - 鉴权依赖注入
+  - 请求校验与错误序列化
+  - chat / tasks SSE
+
+### 2. Application Layer
+
+- 位置：`src/application/handlers/`
+- 负责：
+  - workspace owner 校验
+  - feature lookup
+  - quota / policy / credit 检查
+  - thread 与 chat turn orchestration
+
+### 3. Task Runtime
+
+- 位置：`src/task/`
+- 负责：
+  - 长任务提交与执行
+  - 进度、状态、runtime blocks、workspace events
+  - artifact/activity writeback
+
+### 4. Feature Execution
+
+- registry：`src/workspace_features/registry.py`
+- graphs：`src/agents/graphs/`
+- services：`src/workspace_features/services/`
+
+graph 负责 orchestration 与结果整形，service 负责模型调用、payload 规范化与 feature 级业务逻辑。
+
+### 5. Chat / Skills / Features
+
+- chat 入口：`src/gateway/routers/chat.py`
+- lead-agent：`src/agents/lead_agent/agent.py`
+- skills 目录：`src/agents/lead_agent/chat_skill_catalog.py`
+- tool bridge：`src/tools/builtins/workspace.py`
+
+当前 skill 是 chat 层的 feature 入口语义，不再是独立执行框架。真正执行始终走 `run_workspace_feature`。
+
+### 6. Subagents
+
+- 位置：`src/subagents/`
+- 角色：workflow worker，而不是单独的主执行平面
+- 上下文：通过 context snapshot 注入，而不是复用整套主 agent middleware
+
+## 本地开发
 
 ```bash
-# Install dependencies
+cd backend
 uv sync --extra dev
-
-# Create a local backend env file (not tracked)
 cp .env.example .env
-
-# Run database migrations
 uv run alembic upgrade head
-
-# Start the gateway API
 uv run uvicorn src.gateway.app:app --reload --port 8001
-
-# Start the LangGraph server
-uv run langgraph dev --port 2024
 ```
 
-## Project Structure
-
-```
-src/
-├── gateway/          # FastAPI gateway
-│   ├── app.py           # Main application
-│   ├── routers/        # API endpoints
-│   ├── middleware/     # Error handling, validation
-│   └── validators/     # Request validators
-├── agents/           # Lead agent and middlewares
-│   ├── workspace_lead_agent.py  # Unified graph registry and executor
-│   ├── graphs/           # LangGraph sub-graphs by workspace type
-│   │   ├── _shared/      # Shared utilities (JSON parsing, normalization)
-│   │   ├── thesis/       # Thesis workspace graphs
-│   │   ├── sci/          # SCI paper workspace graphs
-│   │   ├── patent/       # Patent workspace graphs
-│   │   ├── proposal/     # Proposal workspace graphs
-│   │   └── software_copyright/  # Software copyright graphs
-│   └── middlewares/    # Request processing pipeline
-├── academic/         # Academic services and tools
-│   ├── services/       # Business logic services
-│   ├── tools/          # Academic tools (search, extraction)
-│   └── cache/          # Redis caching
-├── database/         # SQLAlchemy models
-│   ├── models/        # ORM models
-│   └── session.py     # Database session
-├── models/           # LLM factory
-│   └── factory.py     # Model creation
-├── services/         # Shared services
-│   ├── auth.py        # Authentication utilities
-│   └── user_service.py # User management
-├── skills/           # Skill system
-│   ├── base.py        # Base skill classes
-│   ├── executor.py    # Skill execution
-│   └── implementations/  # Skill implementations
-├── task/             # Async task system
-│   ├── service.py       # Task submission and management
-│   ├── progress.py      # Progress tracking
-│   └── handlers/        # Task handlers
-├── workspace_features/  # Workspace feature registry and services
-│   ├── registry.py      # Feature definitions
-│   └── services/        # Feature service layer
-└── tools/            # Built-in tools
-```
-
-## LangGraph Workspace Architecture
-
-All workspace types now use a unified LangGraph architecture:
-
-```
-workspace_lead_agent.py
-├── register_feature_graph()  # Decorator to register graph functions
-├── execute_feature_graph()   # Unified entry point for all features
-└── _ensure_graphs_loaded()   # Lazy loading of workspace modules
-
-Each workspace type has its own graph directory:
-- graphs/thesis/     → thesis_lead_agent.py (backward compatible)
-- graphs/sci/        → literature_search, paper_analysis, writing
-- graphs/patent/     → patent_outline, prior_art_search
-- graphs/proposal/   → proposal_outline, background_research
-- graphs/software_copyright/ → copyright_materials, technical_description
-```
-
-## API Endpoints
-
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login
-- `POST /api/auth/refresh` - Refresh access token
-- `GET /api/auth/me` - Get current user
-
-### Workspaces
-- `GET /api/workspaces` - List workspaces
-- `POST /api/workspaces` - Create workspace
-- `GET /api/workspaces/{id}` - Get workspace
-- `PUT /api/workspaces/{id}` - Update workspace
-- `DELETE /api/workspaces/{id}` - Delete workspace
-- `GET /api/workspaces/{id}/papers` - List workspace papers
-
-### Papers
-- `GET /api/papers` - List papers visible in owned workspaces
-- `POST /api/papers` - Create paper in a workspace (`workspace_id` required)
-- `POST /api/papers/upload` - Upload PDF into a workspace (`workspace_id` required)
-- `GET /api/papers/{id}` - Get paper
-- `PUT /api/papers/{id}` - Update paper
-- `DELETE /api/papers/{id}` - Delete paper
-- `POST /api/papers/{id}/extract` - Trigger extraction
-- `GET /api/papers/{id}/sections` - Get paper sections
-- `POST /api/papers/search` - Search papers
-
-### Artifacts
-- `GET /api/workspaces/{workspace_id}/artifacts` - Canonical artifact list route
-- `POST /api/workspaces/{workspace_id}/artifacts` - Canonical artifact creation route
-- `GET /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact detail route
-- `PUT /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact update route
-- `DELETE /api/workspaces/{workspace_id}/artifacts/{artifact_id}` - Canonical artifact delete route
-- `GET /api/workspaces/{workspace_id}/artifacts/{artifact_id}/lineage` - Canonical artifact lineage route
-
-### Chat
-- `POST /api/threads` - Create thread
-- `GET /api/threads` - List threads
-- `GET /api/threads/{id}` - Get thread
-- `DELETE /api/threads/{id}` - Delete thread
-- `POST /api/chat` - Send message (non-streaming)
-- `POST /api/chat/stream` - Send message (streaming)
-
-Notes:
-
-- `ChatThread.skill` is the persisted session-level capability selection.
-- Chat requests may explicitly set `skill` to update the thread capability, or `null` to clear it.
-
-### Subagents
-- `POST /api/subagents/threads/{thread_id}/spawn` - Spawn subagent task
-- `GET /api/subagents/threads/{thread_id}/tasks/{task_id}/status` - Get subagent task status
-- `POST /api/subagents/threads/{thread_id}/tasks/{task_id}/cancel` - Cancel subagent task
-- `GET /api/subagents/events` - Subscribe to subagent SSE events
-
-## Testing
-
-The project has comprehensive tests covering:
-- Services (extraction, user, workspace, artifact, paper)
-- API endpoints (auth, workspaces, papers, artifacts)
-- LangGraph sub-graphs (all workspace types)
-- Skills (deep research, framework designer, fullpaper writer, literature review)
-- Academic tools (PDF extraction, semantic scholar)
+worker：
 
 ```bash
-# Run all tests
-uv run pytest
-
-# Run with coverage
-uv run pytest --cov=src --cov-report=term-missing
-
-# Run specific graph tests
-uv run pytest tests/agents/graphs/ -v
+cd backend
+uv run python -m src.task.worker
 ```
 
-## Environment Variables
+可选调试入口：
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DATABASE_URL` | PostgreSQL connection URL | Yes |
-| `REDIS_URL` | Redis connection URL | Yes |
-| `JWT_SECRET_KEY` | Secret key for JWT tokens | Yes |
-| `OPENAI_API_KEY` | OpenAI API key | Yes |
-| `ANTHROPIC_API_KEY` | Anthropic API key | No |
-| `SEMANTIC_SCHOLAR_API_KEY` | Semantic Scholar API key | No |
+```bash
+cd backend
+make debug-langgraph
+```
 
-## License
+这只用于调试 lead-agent graph，不是生产主链依赖。
 
-MIT
+## 测试
+
+```bash
+cd backend
+uv run pytest
+```
+
+常用：
+
+```bash
+uv run pytest tests/agents/ -q
+uv run pytest tests/gateway/ -q
+uv run pytest tests/workspace_features/ -q
+uv run pytest tests/subagents/ -q
+```
+
+## 参考文档
+
+- `../README.md`
+- `../docs/architecture/workspace-execution-pipeline.md`
+- `docs/architecture/langgraph-workspace-architecture.md`
+- `docs/async-task-system.md`

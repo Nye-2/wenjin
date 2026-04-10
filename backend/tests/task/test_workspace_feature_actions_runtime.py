@@ -96,24 +96,6 @@ def _format_conversation_markdown(payload: dict[str, object]) -> str:
     return completed.stdout
 
 
-def _format_skill_label(payload: dict[str, object]) -> str:
-    assert TSX_BIN.exists(), "tsx binary is required for frontend runtime tests"
-    code = (
-        'import { formatWorkspaceChatSkillLabel } from "./lib/workspace-chat-skills.ts";'
-        f"const input = {json.dumps(payload, ensure_ascii=False)};"
-        "const result = formatWorkspaceChatSkillLabel(input.workspaceType, input.skillId);"
-        'console.log(result === null ? "null" : result);'
-    )
-    completed = subprocess.run(
-        [str(TSX_BIN), "-e", code],
-        cwd=FRONTEND_DIR,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip()
-
-
 def _ensure_task_created(payload: dict[str, object]) -> dict[str, object]:
     assert TSX_BIN.exists(), "tsx binary is required for frontend runtime tests"
     code = (
@@ -228,6 +210,8 @@ def test_thread_skill_sync_preserves_pending_local_selection_until_server_catche
 
     assert state == {
         "currentSkill": "peer-reviewer",
+        "threadSkill": "deep-research",
+        "activeSkill": "peer-reviewer",
         "isSkillSelectionPending": True,
     }
 
@@ -242,7 +226,9 @@ def test_thread_skill_sync_clears_pending_flag_after_server_matches_selection() 
     )
 
     assert state == {
-        "currentSkill": "peer-reviewer",
+        "currentSkill": None,
+        "threadSkill": "peer-reviewer",
+        "activeSkill": "peer-reviewer",
         "isSkillSelectionPending": False,
     }
 
@@ -258,19 +244,21 @@ def test_thread_skill_sync_uses_server_skill_when_no_local_pending_selection() -
 
     assert state == {
         "currentSkill": None,
+        "threadSkill": None,
+        "activeSkill": None,
         "isSkillSelectionPending": False,
     }
 
 
-def test_markdown_export_uses_workspace_skill_label_for_human_readable_output() -> None:
+def test_markdown_export_uses_backend_skill_name_for_human_readable_output() -> None:
     markdown = _format_conversation_markdown(
         {
             "thread": {
                 "id": "thread-1",
                 "workspace_id": "ws-1",
-                "workspace_type": "sci",
                 "model": "gpt-4.1",
                 "skill": "peer-reviewer",
+                "skill_name": "Peer Review",
             },
             "messages": [],
         }
@@ -278,17 +266,6 @@ def test_markdown_export_uses_workspace_skill_label_for_human_readable_output() 
 
     assert "# Peer Review" in markdown
     assert "- Skill: Peer Review" in markdown
-
-
-def test_workspace_chat_skill_label_formatter_handles_catalog_and_fallback_ids() -> None:
-    assert (
-        _format_skill_label({"workspaceType": "sci", "skillId": "peer-reviewer"})
-        == "Peer Review"
-    )
-    assert (
-        _format_skill_label({"workspaceType": "patent", "skillId": "prior_art_search"})
-        == "prior art search"
-    )
 
 
 def test_ensure_workspace_feature_task_created_returns_task_identity() -> None:

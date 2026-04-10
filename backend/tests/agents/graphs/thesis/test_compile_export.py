@@ -1,5 +1,7 @@
 """Tests for compile export sub-graph — pure function tests only."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from src.agents.graphs.thesis.compile_export import (
@@ -262,6 +264,9 @@ async def test_compile_export_graph_passes_llm_abstract_to_compile_payload(
 ):
     from src.agents.graphs.thesis import compile_export
 
+    async def _fake_load_outline_context(_workspace_id: str):
+        return {"paper_title": "测试论文"}
+
     async def _fake_load_chapter_summaries(_workspace_id: str):
         return [{"title": "绪论", "summary": "章节摘要"}]
 
@@ -284,12 +289,6 @@ async def test_compile_export_graph_passes_llm_abstract_to_compile_payload(
     async def _fake_build_compile_payload(**kwargs):
         captured.update(kwargs)
         return {
-            "compile_status": "success",
-            "pdf_path": "/mnt/user-data/execution/latex_compile/test/main.pdf",
-            "pdf_url": "/uploads/sandboxes/thread-1/execution/latex_compile/test/main.pdf",
-            "page_count": 8,
-            "compile_error": None,
-            "compile_logs": "ok",
             "latex_content": "latex",
             "bib_content": "",
             "source_summary": {"chapter_count": 1, "literature_count": 12},
@@ -301,6 +300,26 @@ async def test_compile_export_graph_passes_llm_abstract_to_compile_payload(
             "abstract_source": "llm_override",
         }
 
+    async def _fake_compile_thesis_payload(**kwargs):
+        captured["compile_kwargs"] = kwargs
+        return SimpleNamespace(
+            latex_project_id="latex-thesis-1",
+            main_file="main.tex",
+            compile_status="success",
+            pdf_path="/mnt/user-data/execution/latex_compile/test/main.pdf",
+            pdf_url="/api/threads/thread-1/artifacts/mnt/user-data/execution/latex_compile/test/main.pdf",
+            pdf_endpoint="/api/threads/thread-1/artifacts/mnt/user-data/execution/latex_compile/test/main.pdf",
+            page_count=8,
+            compile_error=None,
+            compile_logs="ok",
+            sync_conflicts=[],
+        )
+
+    monkeypatch.setattr(
+        compile_export,
+        "_load_outline_context",
+        _fake_load_outline_context,
+    )
     monkeypatch.setattr(
         compile_export,
         "_load_chapter_summaries",
@@ -331,6 +350,11 @@ async def test_compile_export_graph_passes_llm_abstract_to_compile_payload(
         "build_compile_payload",
         _fake_build_compile_payload,
     )
+    monkeypatch.setattr(
+        compile_export,
+        "compile_thesis_payload",
+        _fake_compile_thesis_payload,
+    )
 
     result = await compile_export.compile_export_graph(
         initial_state={},
@@ -349,5 +373,87 @@ async def test_compile_export_graph_passes_llm_abstract_to_compile_payload(
 
     assert captured.get("abstract_override") == "覆盖摘要"
     assert captured.get("keywords_override") == ["关键词1", "关键词2"]
+    assert captured["compile_kwargs"]["workspace_id"] == "ws-1"
     assert result["keywords"] == ["关键词1", "关键词2"]
     assert result["abstract_source"] == "llm_override"
+    assert result["latex_project_id"] == "latex-thesis-1"
+    assert result["compile_status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_compile_export_graph_uses_outline_title_for_abstract_generation(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from src.agents.graphs.thesis import compile_export
+
+    captured: dict[str, object] = {}
+
+    async def _fake_load_outline_context(_workspace_id: str):
+        return {"paper_title": "真正论文标题"}
+
+    async def _fake_load_chapter_summaries(_workspace_id: str):
+        return [{"title": "绪论", "summary": "章节摘要"}]
+
+    async def _fake_load_literature_count(_workspace_id: str):
+        return 3
+
+    async def _fake_review_consistency(**_kwargs):
+        return {"issues": [], "overall_assessment": "ok"}
+
+    async def _fake_generate_abstract_keywords(**kwargs):
+        captured["topic"] = kwargs.get("topic")
+        return {
+            "abstract_zh": "覆盖摘要",
+            "keywords_zh": ["关键词1"],
+            "abstract_en": "Abstract",
+            "keywords_en": ["kw1"],
+        }
+
+    async def _fake_build_compile_payload(**_kwargs):
+        return {
+            "latex_content": "latex",
+            "bib_content": "",
+            "source_summary": {"chapter_count": 1, "literature_count": 3},
+            "template": "default",
+            "compiler": "xelatex",
+            "bibliography_style": "gbt7714",
+            "paper_title": "真正论文标题",
+            "keywords": ["关键词1"],
+            "abstract_source": "llm_override",
+        }
+
+    async def _fake_compile_thesis_payload(**_kwargs):
+        return SimpleNamespace(
+            latex_project_id="latex-thesis-1",
+            main_file="main.tex",
+            compile_status="success",
+            pdf_path="/mnt/user-data/execution/latex_compile/test/main.pdf",
+            pdf_url="/api/threads/thread-1/artifacts/mnt/user-data/execution/latex_compile/test/main.pdf",
+            pdf_endpoint="/api/threads/thread-1/artifacts/mnt/user-data/execution/latex_compile/test/main.pdf",
+            page_count=8,
+            compile_error=None,
+            compile_logs="ok",
+            sync_conflicts=[],
+        )
+
+    monkeypatch.setattr(compile_export, "_load_outline_context", _fake_load_outline_context)
+    monkeypatch.setattr(compile_export, "_load_chapter_summaries", _fake_load_chapter_summaries)
+    monkeypatch.setattr(compile_export, "_load_literature_count", _fake_load_literature_count)
+    monkeypatch.setattr(compile_export, "_review_consistency", _fake_review_consistency)
+    monkeypatch.setattr(compile_export, "_generate_abstract_keywords", _fake_generate_abstract_keywords)
+    monkeypatch.setattr(compile_export, "_resolve_writing_model", lambda _requested_model: "mock-model")
+    monkeypatch.setattr(compile_export, "build_compile_payload", _fake_build_compile_payload)
+    monkeypatch.setattr(compile_export, "compile_thesis_payload", _fake_compile_thesis_payload)
+
+    result = await compile_export.compile_export_graph(
+        initial_state={},
+        payload={
+            "workspace_id": "ws-1",
+            "workspace_name": "工作区标题",
+            "workspace_description": "描述",
+            "params": {},
+        },
+    )
+
+    assert captured["topic"] == "真正论文标题"
+    assert result["paper_title"] == "真正论文标题"

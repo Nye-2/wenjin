@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Download, FileJson, FileText } from "lucide-react";
 
-import type { ThreadSummary, Workspace } from "@/lib/api";
+import type { ThreadSummary } from "@/lib/api";
 import { exportConversationAsJson, exportConversationAsMarkdown } from "@/lib/chat-export";
 import type { Message } from "@/stores/chat";
 import { Button } from "@/components/ui/button";
@@ -18,13 +18,11 @@ import {
 interface ConversationExportTriggerProps {
   thread: ThreadSummary | null;
   messages: Message[];
-  workspaceType?: Workspace["type"] | null;
 }
 
 export function ConversationExportTrigger({
   thread,
   messages,
-  workspaceType,
 }: ConversationExportTriggerProps) {
   const [open, setOpen] = useState(false);
 
@@ -56,13 +54,7 @@ export function ConversationExportTrigger({
             <button
               type="button"
               onClick={() => {
-                exportConversationAsMarkdown(
-                  {
-                    ...thread,
-                    workspace_type: workspaceType ?? null,
-                  },
-                  messages
-                );
+                exportConversationAsMarkdown(thread, messages);
                 setOpen(false);
               }}
               className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 text-left transition-colors hover:bg-[var(--bg-muted)]"
@@ -78,13 +70,7 @@ export function ConversationExportTrigger({
             <button
               type="button"
               onClick={() => {
-                exportConversationAsJson(
-                  {
-                    ...thread,
-                    workspace_type: workspaceType ?? null,
-                  },
-                  messages
-                );
+                exportConversationAsJson(thread, messages);
                 setOpen(false);
               }}
               className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 text-left transition-colors hover:bg-[var(--bg-muted)]"

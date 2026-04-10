@@ -163,7 +163,25 @@ class TestBuildTaskPayload:
         assert payload["workspace_description"] == "A workspace"
         assert payload["workspace_discipline"] == "cs"
         assert payload["workspace_config"] == {}
+        assert payload["skill_id"] is None
+        assert payload["skill_name"] is None
         assert payload["params"] == {}
+
+    def test_resolves_canonical_skill_for_known_feature(self):
+        ws = _make_workspace()
+        feature = _make_feature("deep_research", "深度调研")
+
+        payload = build_task_payload(
+            workspace=ws,
+            workspace_id="ws-1",
+            workspace_type="thesis",
+            feature=feature,
+            params={"query": "agent"},
+            thread_id="t-1",
+        )
+
+        assert payload["skill_id"] == "deep-research"
+        assert payload["skill_name"] == "深度调研"
 
 
 # ============ Unit Tests: FeatureExecutionHandler ============
@@ -308,6 +326,10 @@ class TestFeatureExecutionHandler:
         assert result.task_id == "task-1"
         lit_service.count_literature.assert_not_called()
 
+        submit_payload = task_service.submit_task.await_args.kwargs["payload"]
+        assert submit_payload["skill_id"] == "framework-designer"
+        assert submit_payload["skill_name"] == "大纲设计"
+
     @pytest.mark.asyncio
     @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
     async def test_thesis_writing_missing_action_defaults_to_write_all(
@@ -343,6 +365,8 @@ class TestFeatureExecutionHandler:
 
         submit_payload = task_service.submit_task.await_args.kwargs["payload"]
         assert submit_payload["params"]["action"] == "write_all"
+        assert submit_payload["skill_id"] == "fullpaper-writer"
+        assert submit_payload["skill_name"] == "论文撰写"
         assert "action" not in submit_payload
 
     @pytest.mark.asyncio
@@ -434,6 +458,10 @@ class TestFeatureExecutionHandler:
         assert result.task_id == "new-task-789"
         assert result.feature_id == "deep_research"
         task_service.submit_task.assert_called_once()
+
+        submit_payload = task_service.submit_task.await_args.kwargs["payload"]
+        assert submit_payload["skill_id"] == "deep-research"
+        assert submit_payload["skill_name"] == "深度调研"
 
     @pytest.mark.asyncio
     @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")

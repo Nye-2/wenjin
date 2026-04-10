@@ -1,8 +1,8 @@
 """WorkspaceLeadAgent -- Unified LangGraph orchestrator for all workspace types.
 
-This module replaces thesis_lead_agent.py as the central registry and executor
-for LangGraph sub-graphs across all workspace types (thesis, sci, proposal,
-patent, software_copyright).
+This module is the central registry and executor for LangGraph sub-graphs
+across all workspace types (thesis, sci, proposal, patent,
+software_copyright).
 
 Key features:
 - Lazy loading of graph modules per workspace type
@@ -227,12 +227,15 @@ def _build_system_prompt(
     parts = [
         f"你是问津 (Wenjin) 的 {type_label} 工作助手。",
         f"当前工作区：{workspace_name}",
+        f"工作区类型：{workspace_type.upper()}",
         "",
         "执行规范：",
         "- 输出使用中文，专业术语可保留英文原文",
-        "- 保持学术规范，引用需有据可查",
-        "- 生成的内容需标注哪些部分需要用户补充实际数据",
+        "- 保持学术规范，引用、实验结论和事实表述需有据可查",
+        "- 优先生成可直接落稿、可直接执行、可直接评审的内容，避免空泛套话",
         "- 结构化输出优先（使用标题、列表、表格）",
+        "- 区分已知事实、合理推断和待补充信息；不要把待确认内容写成既定事实",
+        "- 如果上下文不足，保守生成并明确标注哪些部分需要用户补充实际数据或进一步核验",
     ]
     if discipline:
         parts.insert(2, f"学科领域：{discipline}")

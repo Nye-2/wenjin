@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -500,3 +501,72 @@ def get_default_skill_for_feature(
     if not workspace_type or not feature_id:
         return None
     return FEATURE_TO_DEFAULT_SKILL.get(workspace_type, {}).get(feature_id)
+
+
+def list_feature_skills(
+    workspace_type: str | None,
+    feature_id: str,
+) -> tuple[WorkspaceChatSkillDefinition, ...]:
+    """Return all chat skills that can launch the given feature."""
+    normalized_feature_id = str(feature_id or "").strip()
+    if not workspace_type or not normalized_feature_id:
+        return ()
+    return tuple(
+        skill
+        for skill in list_workspace_chat_skills(workspace_type)
+        if skill.feature_id == normalized_feature_id
+    )
+
+
+def list_feature_skill_ids(
+    workspace_type: str | None,
+    feature_id: str,
+) -> tuple[str, ...]:
+    """Return canonical chat skill IDs for a feature."""
+    return tuple(skill.id for skill in list_feature_skills(workspace_type, feature_id))
+
+
+def resolve_skill_for_feature(
+    workspace_type: str | None,
+    feature_id: str,
+    *,
+    params: Mapping[str, Any] | None = None,
+    preferred_skill_id: str | None = None,
+) -> WorkspaceChatSkillDefinition | None:
+    """Resolve the canonical chat skill for a feature execution."""
+    normalized_feature_id = str(feature_id or "").strip()
+    if not workspace_type or not normalized_feature_id:
+        return None
+
+    normalized_params = params if isinstance(params, Mapping) else {}
+    matching_skills = list_feature_skills(workspace_type, normalized_feature_id)
+    if not matching_skills:
+        return None
+
+    normalized_preferred_skill_id = str(preferred_skill_id or "").strip()
+    if normalized_preferred_skill_id:
+        preferred_skill = get_skill_by_id(workspace_type, normalized_preferred_skill_id)
+        if preferred_skill is not None and preferred_skill.feature_id == normalized_feature_id:
+            preferred_defaults = dict(preferred_skill.defaults)
+            if not normalized_params or not preferred_defaults:
+                return preferred_skill
+            if all(normalized_params.get(key) == value for key, value in preferred_defaults.items()):
+                return preferred_skill
+
+    if len(matching_skills) == 1:
+        return matching_skills[0]
+
+    for skill in matching_skills:
+        defaults = dict(skill.defaults)
+        if defaults and all(normalized_params.get(key) == value for key, value in defaults.items()):
+            return skill
+
+    if workspace_type == "thesis" and normalized_feature_id == "thesis_writing":
+        action = str(normalized_params.get("action") or "").strip().lower()
+        if action == "write_chapter":
+            return get_skill_by_id(workspace_type, "fullpaper-writer")
+
+    default_skill_id = get_default_skill_for_feature(workspace_type, normalized_feature_id)
+    if not default_skill_id:
+        return None
+    return get_skill_by_id(workspace_type, default_skill_id)

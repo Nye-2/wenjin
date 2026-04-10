@@ -85,6 +85,7 @@ async def test_sci_writing_payload_has_schema_and_output_language(
     assert payload["output_language"] == "en"
     assert payload["section_title"] == "Introduction"
     assert payload["generation_error"] is None
+    assert "latex_project_id" not in payload
 
 
 @pytest.mark.asyncio
@@ -174,6 +175,7 @@ async def test_sci_framework_outline_payload_has_required_fields(
     assert payload["document_type"] == "framework_outline"
     assert payload["output_language"] == "en"
     assert payload["generation_error"] is None
+    assert "latex_project_id" not in payload
 
 
 @pytest.mark.asyncio
@@ -265,6 +267,7 @@ async def test_proposal_payload_has_required_audit_fields(
     assert payload["output_language"] == "zh"
     assert payload["generated_at"]
     assert payload["generation_error"] is None
+    assert "latex_project_id" not in payload
 
 
 @pytest.mark.asyncio

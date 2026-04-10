@@ -114,6 +114,7 @@ async def test_execute_thesis_writing_generate_outline_persists_outline_artifact
     assert len(_FakeArtifactService.created) == 1
     persisted = _FakeArtifactService.created[0]
     assert persisted["type"] == ArtifactType.FRAMEWORK_OUTLINE.value
+    assert persisted["created_by_skill"] == "framework-designer"
     assert persisted["content"]["paper_title"] == "测试论文"
     assert persisted["content"]["outline"]["chapters"][0]["title"] == "绪论"
 
@@ -183,6 +184,7 @@ async def test_execute_thesis_writing_write_chapter_persists_chapter_artifact():
     assert len(_FakeArtifactService.created) == 1
     persisted = _FakeArtifactService.created[0]
     assert persisted["type"] == ArtifactType.THESIS_CHAPTER.value
+    assert persisted["created_by_skill"] == "fullpaper-writer"
     assert persisted["content"]["chapter_title"] == "绪论"
     assert persisted["content"]["model_id"] == "deepseek-v3.2"
 
@@ -283,3 +285,7 @@ async def test_execute_thesis_writing_write_all_persists_outline_and_chapters():
     persisted_types = [item["type"] for item in _FakeArtifactService.created]
     assert persisted_types.count(ArtifactType.FRAMEWORK_OUTLINE.value) == 1
     assert persisted_types.count(ArtifactType.THESIS_CHAPTER.value) == 2
+    assert all(
+        item["created_by_skill"] == "fullpaper-writer"
+        for item in _FakeArtifactService.created
+    )

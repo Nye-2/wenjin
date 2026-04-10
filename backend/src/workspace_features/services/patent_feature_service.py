@@ -7,21 +7,22 @@ This module keeps handler logic thin and reusable by encapsulating:
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import UTC, datetime
 from typing import Any
 
-from src.models.factory import create_chat_model
-from src.models.router import list_user_selectable_models, route_writing_model
-from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
-    emit_bound_runtime as _emit_bound_runtime,
-    runtime_progress_for_phase,
     upsert_runtime_block,
+)
+from src.task.runtime_blocks import (
+    emit_bound_runtime as _emit_bound_runtime,
+)
+from src.workspace_features.services.llm_json import (
+    build_json_prompt,
+    invoke_json_chat_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,44 +76,6 @@ def _build_patent_outline_template(
     }
 
 
-def _extract_response_text(response: Any) -> str:
-    content = getattr(response, "content", "")
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        texts: list[str] = []
-        for item in content:
-            if isinstance(item, dict) and isinstance(item.get("text"), str):
-                texts.append(item["text"])
-        return "\n".join(texts).strip()
-    return str(content).strip()
-
-
-def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
-    if not raw_text:
-        return None
-
-    candidates = [raw_text.strip()]
-
-    code_block_match = re.search(r"```json\s*(.*?)\s*```", raw_text, re.DOTALL | re.IGNORECASE)
-    if code_block_match:
-        candidates.append(code_block_match.group(1).strip())
-
-    first_brace = raw_text.find("{")
-    last_brace = raw_text.rfind("}")
-    if first_brace != -1 and last_brace != -1 and first_brace < last_brace:
-        candidates.append(raw_text[first_brace : last_brace + 1].strip())
-
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-            if isinstance(payload, dict):
-                return payload
-        except json.JSONDecodeError:
-            continue
-    return None
-
-
 async def _try_generate_patent_outline_llm(
     *,
     innovation_description: str,
@@ -122,65 +85,31 @@ async def _try_generate_patent_outline_llm(
     preferred_model: str | None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt LLM generation for patent outline."""
-    models = list_user_selectable_models(purpose="writing")
-    if not models:
-        return None, None, "no_generation_model_configured"
+    prompt = build_json_prompt(
+        instruction="请根据以下信息生成专利说明书框架。",
+        context_sections=[
+            ("创新点描述", innovation_description),
+            ("技术领域", technical_field or "未提供"),
+            ("应用场景", application_scenario or "未提供"),
+            ("预期实施方式", implementation_method or "未提供"),
+        ],
+        schema='{"sections":[{"id":"technical_field","title":"技术领域","content":"...","hints":["..."]}],"claims_draft":{"independent_claims":[{"id":"claim_1","type":"独立权利要求","content":"..."}],"dependent_claims":[{"id":"claim_2","type":"从属权利要求","content":"..."}],"hints":["..."]}}',
+        requirements=[
+            "内容专业、准确，符合专利说明书写作规范。",
+            "权利要求应具有层次性，独立权利要求覆盖核心创新。",
+            "避免模糊表述，尽量使用具体技术术语。",
+        ],
+        output_language="zh",
+    )
 
-    try:
-        model_id = route_writing_model(requested_model=preferred_model)
-    except Exception:
-        model_id = models[0].id
-
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
-
-    prompt = "\n".join([
-        "请根据以下信息生成专利说明书框架，返回 JSON 格式。",
-        f"创新点描述：{innovation_description}",
-        f"技术领域：{technical_field or '未提供'}",
-        f"应用场景：{application_scenario or '未提供'}",
-        f"预期实施方式：{implementation_method or '未提供'}",
-        "",
-        "你必须输出如下结构：",
-        "{",
-        '  "sections": [',
-        '    {"id": "technical_field", "title": "技术领域", "content": "...", "hints": ["..."]},',
-        '    {"id": "background_art", "title": "背景技术", "content": "...", "hints": ["..."]},',
-        '    {"id": "invention_content", "title": "发明内容", "content": "...", "hints": ["..."]},',
-        '    {"id": "drawings_description", "title": "附图说明", "content": "...", "hints": ["..."]},',
-        '    {"id": "detailed_implementation", "title": "具体实施方式", "content": "...", "hints": ["..."]}',
-        "  ],",
-        '  "claims_draft": {',
-        '    "independent_claims": [{"id": "claim_1", "type": "独立权利要求", "content": "..."}],',
-        '    "dependent_claims": [{"id": "claim_2", "type": "从属权利要求", "content": "..."}],',
-        '    "hints": ["..."]',
-        "  }",
-        "}",
-        "",
-        "要求：",
-        "1. 内容专业、准确，符合专利说明书写作规范",
-        "2. 权利要求应具有层次性，独立权利要求涵盖核心创新",
-        "3. 避免模糊表述，尽量使用具体技术术语",
-    ])
-
-    try:
-        response = await model.ainvoke([
-            SystemMessage(content="你是专业的专利撰写助手，只输出 JSON。"),
-            HumanMessage(content=prompt),
-        ])
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    parsed = _parse_json_payload(_extract_response_text(response))
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="你是专业的专利撰写助手。",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.3,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
 
     # Validate required structure
     if "sections" not in parsed or "claims_draft" not in parsed:
@@ -297,27 +226,6 @@ async def build_patent_outline_payload(
         "evidence_points_needed": template_data["evidence_points_needed"],
         "generated_at": _utc_now_iso(),
     }
-    try:
-        async with get_db_session() as db:
-            bridge_service = WorkspaceLatexProjectService(db)
-            linked_project, section_map = await bridge_service.sync_patent_outline_project(
-                workspace_id=workspace_id,
-                project_title=workspace_name or normalized_innovation,
-                sections=llm_sections,
-                claims_draft=claims_draft,
-            )
-            result["latex_project_id"] = str(linked_project.id)
-            result["main_file"] = linked_project.main_file
-            result["section_map"] = section_map
-            linked_metadata = (
-                linked_project.llm_config.get("metadata")
-                if isinstance(linked_project.llm_config, dict)
-                else {}
-            )
-            if isinstance(linked_metadata, dict):
-                result["sync_conflicts"] = linked_metadata.get("sync_conflicts", [])
-    except Exception:
-        logger.exception("Failed to sync patent outline into linked latex project")
     if runtime is not None:
         upsert_runtime_block(
             runtime,
@@ -393,66 +301,33 @@ async def _try_generate_prior_art_llm(
     preferred_model: str | None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt LLM generation for prior art analysis."""
-    models = list_user_selectable_models(purpose="writing")
-    if not models:
-        return None, None, "no_generation_model_configured"
-
-    try:
-        model_id = route_writing_model(requested_model=preferred_model)
-    except Exception:
-        model_id = models[0].id
-
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
-
     keywords_str = "、".join(keywords) if keywords else "相关技术"
     ipc_str = "、".join(ipc_codes) if ipc_codes else "未指定"
 
-    prompt = "\n".join([
-        "请根据以下检索条件生成现有技术对比分析报告，返回 JSON 格式。",
-        f"检索关键词：{keywords_str}",
-        f"IPC/CPC分类：{ipc_str}",
-        f"时间范围：{time_range or '不限'}",
-        "",
-        "你必须输出如下结构：",
-        "{",
-        '  "search_scope": {"keywords": [...], "ipc_codes": [...], "time_range": "..."},',
-        '  "comparison_table": [',
-        '    {"id": "ref_1", "title": "专利名称", "patent_number": "...", "key_features": [...], ',
-        '     "comparison": {"similarities": "...", "differences": "...", "novelty_assessment": "..."}}',
-        "  ],",
-        '  "novelty_risks": [',
-        '    {"id": "risk_1", "level": "high/medium/low", "description": "...", "mitigation": "..."}',
-        "  ],",
-        '  "avoidance_suggestions": [',
-        '    {"id": "suggestion_1", "category": "...", "content": "..."}',
-        "  ]",
-        "}",
-        "",
-        "要求：",
-        "1. 分析专业、客观，符合专利审查实务",
-        "2. 新颖性风险分级为 high/medium/low",
-        "3. 规避建议具体可执行",
-    ])
+    prompt = build_json_prompt(
+        instruction="请根据以下检索条件生成现有技术对比分析报告。",
+        context_sections=[
+            ("检索关键词", keywords_str),
+            ("IPC/CPC 分类", ipc_str),
+            ("时间范围", time_range or "不限"),
+        ],
+        schema='{"search_scope":{"keywords":[],"ipc_codes":[],"time_range":"..."},"comparison_table":[{"id":"ref_1","title":"专利名称","patent_number":"...","key_features":[],"comparison":{"similarities":"...","differences":"...","novelty_assessment":"..."}}],"novelty_risks":[{"id":"risk_1","level":"high","description":"...","mitigation":"..."}],"avoidance_suggestions":[{"id":"suggestion_1","category":"...","content":"..."}]}',
+        requirements=[
+            "分析专业、客观，符合专利审查实务。",
+            "新颖性风险分级使用 high/medium/low。",
+            "comparison_table、novelty_risks、avoidance_suggestions 都要给出可执行内容。",
+        ],
+        output_language="zh",
+    )
 
-    try:
-        response = await model.ainvoke([
-            SystemMessage(content="你是专业的专利检索分析助手，只输出 JSON。"),
-            HumanMessage(content=prompt),
-        ])
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    parsed = _parse_json_payload(_extract_response_text(response))
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="你是专业的专利检索分析助手。",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.3,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
 
     # Validate required structure
     required_keys = ["comparison_table", "novelty_risks", "avoidance_suggestions"]

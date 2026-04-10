@@ -30,12 +30,16 @@ async def test_run_workspace_feature_tool_uses_shared_executor(
     )
 
     result = await workspace.run_workspace_feature_tool.coroutine(
-        workspace_id="ws-1",
-        thread_id="thread-1",
-        user_id="user-1",
         feature_id="framework_outline",
         params={"topic": "LLM planning"},
         tool_call_id="tc-1",
+        config={
+            "configurable": {
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+            }
+        },
         state={
             "messages": [
                 AIMessage(
@@ -52,6 +56,7 @@ async def test_run_workspace_feature_tool_uses_shared_executor(
         "user_id": "user-1",
         "feature_id": "framework_outline",
         "params": {"topic": "LLM planning"},
+        "skill_id": None,
     }
     assert result.update["response_blocks"][0]["type"] == "task"
     assert (
@@ -75,12 +80,16 @@ async def test_run_workspace_feature_tool_returns_explicit_error_when_unavailabl
     )
 
     result = await workspace.run_workspace_feature_tool.coroutine(
-        workspace_id="ws-1",
-        thread_id="thread-1",
-        user_id="user-1",
         feature_id="framework_outline",
         params={"topic": "LLM planning"},
         tool_call_id="tc-2",
+        config={
+            "configurable": {
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+            }
+        },
         state={
             "messages": [
                 AIMessage(
@@ -113,12 +122,16 @@ async def test_run_workspace_feature_tool_requires_confirmation_before_execution
     )
 
     result = await workspace.run_workspace_feature_tool.coroutine(
-        workspace_id="ws-1",
-        thread_id="thread-1",
-        user_id="user-1",
         feature_id="framework_outline",
         params={"topic": "LLM planning"},
         tool_call_id="tc-3",
+        config={
+            "configurable": {
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+            }
+        },
         state={"messages": [HumanMessage(content="请帮我生成论文框架")]},
     )
 
@@ -145,12 +158,16 @@ async def test_run_workspace_feature_tool_suppresses_repeat_confirmation_in_same
     )
 
     result = await workspace.run_workspace_feature_tool.coroutine(
-        workspace_id="ws-1",
-        thread_id="thread-1",
-        user_id="user-1",
         feature_id="framework_outline",
         params={"topic": "LLM planning"},
         tool_call_id="tc-4",
+        config={
+            "configurable": {
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+            }
+        },
         state={
             "messages": [HumanMessage(content="请帮我开始这个功能")],
             "response_metadata": {
@@ -166,3 +183,87 @@ async def test_run_workspace_feature_tool_suppresses_repeat_confirmation_in_same
     assert called is False
     assert result.update["response_metadata"]["orchestration"]["status"] == "awaiting_user_confirmation"
     assert "仍在等待你的确认" in result.update["messages"][0].content
+
+
+@pytest.mark.asyncio
+async def test_run_workspace_feature_tool_derives_feature_and_skill_from_current_skill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_execute_workspace_feature_request(**kwargs):
+        captured.update(kwargs)
+        return BridgedChatResponse(content="task submitted")
+
+    monkeypatch.setattr(
+        workspace,
+        "execute_workspace_feature_request",
+        _fake_execute_workspace_feature_request,
+    )
+
+    result = await workspace.run_workspace_feature_tool.coroutine(
+        params={"topic": "LLM planning"},
+        tool_call_id="tc-5",
+        config={
+            "configurable": {
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+            }
+        },
+        state={
+            "workspace_type": "sci",
+            "current_skill": "framework-designer",
+            "messages": [
+                AIMessage(
+                    content="[orchestration: feature=framework_outline, status=confirmation_required]"
+                ),
+                HumanMessage(content="开始吧"),
+            ],
+        },
+    )
+
+    assert captured["feature_id"] == "framework_outline"
+    assert captured["skill_id"] == "framework-designer"
+    assert captured["params"] == {"topic": "LLM planning"}
+    assert result.update["messages"][0].content == "task submitted"
+
+
+@pytest.mark.asyncio
+async def test_run_workspace_feature_tool_rejects_skill_feature_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    async def _fake_execute_workspace_feature_request(**kwargs):
+        nonlocal called
+        called = True
+        return BridgedChatResponse(content="should not run")
+
+    monkeypatch.setattr(
+        workspace,
+        "execute_workspace_feature_request",
+        _fake_execute_workspace_feature_request,
+    )
+
+    result = await workspace.run_workspace_feature_tool.coroutine(
+        feature_id="writing",
+        params={"topic": "LLM planning"},
+        tool_call_id="tc-6",
+        config={
+            "configurable": {
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+            }
+        },
+        state={
+            "workspace_type": "sci",
+            "current_skill": "framework-designer",
+            "messages": [HumanMessage(content="开始吧")],
+        },
+    )
+
+    assert called is False
+    assert result.update["response_metadata"]["orchestration"]["status"] == "skill_contract_error"
+    assert "framework-designer" in result.update["messages"][0].content

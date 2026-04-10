@@ -1,20 +1,18 @@
 "use client";
 
 import { Sparkles } from "lucide-react";
-import type { ThreadSummary, Workspace } from "@/lib/api";
+import type { ThreadSummary } from "@/lib/api";
 import { ConversationExportTrigger } from "@/components/workspace/ConversationExportTrigger";
 import type { Message } from "@/stores/chat";
 
 interface WorkspaceChatHeaderProps {
   workspaceName: string | null | undefined;
-  workspaceType?: Workspace["type"] | null;
   currentThreadSummary: ThreadSummary | null;
   messages: Message[];
 }
 
 export function WorkspaceChatHeader({
   workspaceName,
-  workspaceType,
   currentThreadSummary,
   messages,
 }: WorkspaceChatHeaderProps) {
@@ -34,7 +32,6 @@ export function WorkspaceChatHeader({
           <ConversationExportTrigger
             thread={currentThreadSummary}
             messages={messages}
-            workspaceType={workspaceType}
           />
         </div>
       </div>

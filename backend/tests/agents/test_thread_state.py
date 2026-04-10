@@ -3,18 +3,16 @@
 Tests the AgentState-based ThreadState with:
 - shared runtime fields (sandbox, thread_data, title, artifacts, todos, uploaded_files, viewed_images)
 - Academic fields (workspace_id, discipline, etc.) as NotRequired
-- Custom reducers (merge_artifacts, merge_academic_artifacts, merge_cited_papers, merge_viewed_images)
+- Custom reducers (merge_artifacts, merge_cited_papers, merge_viewed_images)
 - Dict-like access patterns (replacing Pydantic .attribute access)
 """
 
 from src.agents.thread_state import (
-    AcademicArtifact,
     AgentState,
     SandboxState,
     ThreadDataState,
     ThreadState,
     ViewedImageData,
-    merge_academic_artifacts,
     merge_artifacts,
     merge_cited_papers,
     merge_response_blocks,
@@ -208,49 +206,6 @@ class TestAcademicFields:
         )
         assert state["subagent_tasks"]["task-1"]["status"] == "running"
 
-
-# ============ AcademicArtifact Tests ============
-
-
-class TestAcademicArtifact:
-    """Test AcademicArtifact Pydantic model."""
-
-    def test_creation(self):
-        """Test basic artifact creation."""
-        artifact = AcademicArtifact(
-            id="a1",
-            workspace_id="ws1",
-            type="research_idea",
-            content={"title": "Test"},
-            created_by_skill="deep-research",
-        )
-        assert artifact.type == "research_idea"
-        assert artifact.created_by_skill == "deep-research"
-        assert artifact.created_at is not None
-
-    def test_creation_with_defaults(self):
-        """Test artifact creation with default values."""
-        artifact = AcademicArtifact(
-            id="a2",
-            workspace_id="ws1",
-            type="methodology",
-            content={"steps": [1, 2, 3]},
-        )
-        assert artifact.created_by_skill is None
-        assert artifact.created_at is not None
-
-    def test_content_is_dict(self):
-        """Test that content field is a dict."""
-        artifact = AcademicArtifact(
-            id="a3",
-            workspace_id="ws1",
-            type="paper_draft",
-            content={"text": "some paper", "sections": ["intro", "conclusion"]},
-        )
-        assert isinstance(artifact.content, dict)
-        assert artifact.content["text"] == "some paper"
-
-
 # ============ Reducer Tests ============
 
 
@@ -313,44 +268,6 @@ class TestMergeStructuredResponse:
         new = ["/path/c"]
         result = merge_artifacts(existing, new)
         assert result == ["/path/a", "/path/b", "/path/c"]
-
-
-class TestMergeAcademicArtifacts:
-    """Test merge_academic_artifacts reducer."""
-
-    def test_deduplicates_by_id(self):
-        """Test deduplication by artifact ID (new takes precedence)."""
-        existing = [
-            AcademicArtifact(id="a1", workspace_id="ws1", type="idea", content={"v": 1}),
-            AcademicArtifact(id="a2", workspace_id="ws1", type="method", content={"v": 1}),
-        ]
-        new = [
-            AcademicArtifact(id="a2", workspace_id="ws1", type="method", content={"v": 2}),
-            AcademicArtifact(id="a3", workspace_id="ws1", type="abstract", content={"v": 1}),
-        ]
-        result = merge_academic_artifacts(existing, new)
-        assert len(result) == 3
-        # a2 should be updated (new takes precedence)
-        a2 = next(a for a in result if a.id == "a2")
-        assert a2.content == {"v": 2}
-
-    def test_with_none_existing(self):
-        """Test merge when existing is None."""
-        new = [AcademicArtifact(id="a1", workspace_id="ws1", type="idea", content={})]
-        result = merge_academic_artifacts(None, new)
-        assert len(result) == 1
-
-    def test_with_none_new(self):
-        """Test merge when new is None."""
-        existing = [AcademicArtifact(id="a1", workspace_id="ws1", type="idea", content={})]
-        result = merge_academic_artifacts(existing, None)
-        assert len(result) == 1
-
-    def test_both_none(self):
-        """Test merge when both are None."""
-        result = merge_academic_artifacts(None, None)
-        assert result == []
-
 
 class TestMergeCitedPapers:
     """Test merge_cited_papers reducer."""

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { GlobalWorkerOptions, getDocument, renderTextLayer, version as pdfjsVersion } from "pdfjs-dist";
+import { GlobalWorkerOptions, getDocument, TextLayer, version as pdfjsVersion } from "pdfjs-dist";
 
 import type { LatexPdfAnchor } from "@/lib/api";
 
@@ -235,11 +235,13 @@ export function LatexPdfPreview({
     if (!container || !pdfUrl) return;
 
     let cancelled = false;
+    let loadingTask: ReturnType<typeof getDocument> | null = null;
+    const renderedTextLayers: TextLayer[] = [];
     container.innerHTML = "";
 
     const render = async () => {
       try {
-        const loadingTask = getDocument(pdfUrl);
+        loadingTask = getDocument(pdfUrl);
         const pdf = await loadingTask.promise;
 
         const firstPage = await pdf.getPage(1);
@@ -275,20 +277,22 @@ export function LatexPdfPreview({
           textLayer.className = "latex-pdf-text-layer";
           textLayer.style.width = `${viewport.width}px`;
           textLayer.style.height = `${viewport.height}px`;
+          textLayer.style.setProperty("--scale-factor", String(viewport.scale));
           pageEl.appendChild(textLayer);
 
           const textContent = await page.getTextContent();
-          const task = renderTextLayer({
+          const layer = new TextLayer({
             textContentSource: textContent,
             container: textLayer,
             viewport,
-          }) as { promise?: Promise<void> };
-          if (task.promise) {
-            await task.promise;
+          });
+          renderedTextLayers.push(layer);
+          await layer.render();
+
+          if (cancelled) {
+            return;
           }
-          if (!cancelled) {
-            container.appendChild(pageEl);
-          }
+          container.appendChild(pageEl);
         };
 
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
@@ -308,6 +312,11 @@ export function LatexPdfPreview({
 
     return () => {
       cancelled = true;
+      for (const layer of renderedTextLayers) {
+        layer.cancel();
+      }
+      renderedTextLayers.length = 0;
+      void loadingTask?.destroy();
       container.innerHTML = "";
     };
   }, [pdfUrl]);

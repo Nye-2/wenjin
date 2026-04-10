@@ -93,6 +93,7 @@ class TestProposalOutlineGraph:
     async def test_basic_execution(self, monkeypatch: pytest.MonkeyPatch):
         """Test basic graph execution with minimal payload."""
         from src.agents.graphs.proposal.proposal_outline import proposal_outline_graph
+        from src.workspace_features.latex_sync import LatexSyncResult
 
         async def _fake_build_proposal_outline_payload(**kwargs):
             _ = kwargs
@@ -110,9 +111,22 @@ class TestProposalOutlineGraph:
                 "generated_at": "2026-03-20T00:00:00+00:00",
             }
 
+        async def _fake_sync_proposal_outline_payload(**kwargs):
+            _ = kwargs
+            return LatexSyncResult(
+                latex_project_id="latex-proj-1",
+                main_file="main.tex",
+                section_map={"basis": "sections/01_basis.tex"},
+                sync_conflicts=[{"logical_key": "basis", "path": "sections/01_basis.tex", "reason": "user_modified"}],
+            )
+
         monkeypatch.setattr(
             "src.agents.graphs.proposal.proposal_outline.build_proposal_outline_payload",
             _fake_build_proposal_outline_payload,
+        )
+        monkeypatch.setattr(
+            "src.agents.graphs.proposal.proposal_outline.sync_proposal_outline_payload",
+            _fake_sync_proposal_outline_payload,
         )
 
         initial_state = {
@@ -136,11 +150,16 @@ class TestProposalOutlineGraph:
         assert "sections" in result
         assert result["topic"] == "人工智能研究"
         assert result["proposal_type"] == "national_natural_science"
+        assert result["latex_project_id"] == "latex-proj-1"
+        assert result["main_file"] == "main.tex"
+        assert result["section_map"] == {"basis": "sections/01_basis.tex"}
+        assert result["sync_conflicts"] == [{"logical_key": "basis", "path": "sections/01_basis.tex", "reason": "user_modified"}]
 
     @pytest.mark.asyncio
     async def test_fallback_to_workspace_name(self, monkeypatch: pytest.MonkeyPatch):
         """Test that topic falls back to workspace name."""
         from src.agents.graphs.proposal.proposal_outline import proposal_outline_graph
+        from src.workspace_features.latex_sync import LatexSyncResult
 
         async def _fake_build_proposal_outline_payload(**kwargs):
             return {
@@ -157,9 +176,17 @@ class TestProposalOutlineGraph:
                 "generated_at": "2026-03-20T00:00:00+00:00",
             }
 
+        async def _fake_sync_proposal_outline_payload(**kwargs):
+            _ = kwargs
+            return LatexSyncResult()
+
         monkeypatch.setattr(
             "src.agents.graphs.proposal.proposal_outline.build_proposal_outline_payload",
             _fake_build_proposal_outline_payload,
+        )
+        monkeypatch.setattr(
+            "src.agents.graphs.proposal.proposal_outline.sync_proposal_outline_payload",
+            _fake_sync_proposal_outline_payload,
         )
 
         initial_state = {

@@ -159,6 +159,11 @@ async def test_compile_export_graph_propagates_model_id():
         return_value="resolved-writing-model",
     ) as resolve_model, patch.object(
         compile_export,
+        "_load_outline_context",
+        new_callable=AsyncMock,
+        return_value={"paper_title": "topic"},
+    ), patch.object(
+        compile_export,
         "_load_chapter_summaries",
         new_callable=AsyncMock,
         return_value=[{"title": "Chapter 1", "summary": "summary"}],
@@ -188,12 +193,6 @@ async def test_compile_export_graph_propagates_model_id():
             "build_compile_payload",
             new_callable=AsyncMock,
             return_value={
-                "compile_status": "success",
-                "pdf_path": "/mnt/user-data/execution/latex_compile/test.pdf",
-                "pdf_url": "/uploads/sandboxes/default/execution/latex_compile/test.pdf",
-                "page_count": 12,
-                "compile_error": None,
-                "compile_logs": "ok",
                 "latex_content": "\\documentclass{article}",
                 "bib_content": "",
                 "source_summary": {"chapter_count": 1},
@@ -202,13 +201,30 @@ async def test_compile_export_graph_propagates_model_id():
                 "bibliography_style": "gbt7714",
                 "paper_title": "topic",
             },
-        ) as build_compile:
+        ) as build_compile, patch.object(
+            compile_export,
+            "compile_thesis_payload",
+            new_callable=AsyncMock,
+            return_value=SimpleNamespace(
+                latex_project_id="latex-thesis-1",
+                main_file="main.tex",
+                compile_status="success",
+                pdf_path="/mnt/user-data/execution/latex_compile/test.pdf",
+                pdf_url="/api/threads/default/artifacts/mnt/user-data/execution/latex_compile/test.pdf",
+                pdf_endpoint="/api/threads/default/artifacts/mnt/user-data/execution/latex_compile/test.pdf",
+                page_count=12,
+                compile_error=None,
+                compile_logs="ok",
+                sync_conflicts=[],
+            ),
+        ) as compile_thesis:
             result = await compile_export.compile_export_graph({}, payload)
 
     resolve_model.assert_called_once_with("picked-model")
     assert review_consistency.await_args.kwargs["model_id"] == "resolved-writing-model"
     assert gen_abstract.await_args.kwargs["model_id"] == "resolved-writing-model"
     assert build_compile.await_args.kwargs["workspace_id"] == "ws-1"
+    assert compile_thesis.await_args.kwargs["workspace_id"] == "ws-1"
     assert result["model_id"] == "resolved-writing-model"
     assert result["compile_status"] == "success"
 

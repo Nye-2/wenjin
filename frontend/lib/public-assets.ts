@@ -14,16 +14,6 @@ function normalizeRelativeUrl(value: string): string {
   return value;
 }
 
-function sandboxPathToPublicUrl(path: string): string | null {
-  const prefix = "/mnt/user-data/";
-  if (!path.startsWith(prefix)) {
-    return null;
-  }
-
-  const relative = path.slice(prefix.length).replace(/^\/+/, "");
-  return `/uploads/sandboxes/default/${relative}`;
-}
-
 export function resolvePublicAssetUrl(value: string | null | undefined): string | null {
   if (!value) {
     return null;
@@ -34,10 +24,27 @@ export function resolvePublicAssetUrl(value: string | null | undefined): string 
     return null;
   }
 
-  const sandboxUrl = sandboxPathToPublicUrl(trimmed);
-  const normalized = sandboxUrl ?? normalizeRelativeUrl(trimmed);
   if (isAbsoluteUrl(trimmed)) {
-    return trimmed;
+    try {
+      const parsed = new URL(trimmed);
+      if (
+        parsed.pathname.startsWith("/mnt/user-data/") ||
+        parsed.pathname.startsWith("/uploads/")
+      ) {
+        return null;
+      }
+      return trimmed;
+    } catch {
+      return trimmed;
+    }
+  }
+
+  const normalized = normalizeRelativeUrl(trimmed);
+  if (normalized.startsWith("/mnt/user-data/")) {
+    return null;
+  }
+  if (normalized.startsWith("/uploads/")) {
+    return null;
   }
 
   if (API_SERVER_BASE_URL) {
@@ -59,8 +66,6 @@ export function extractArtifactFileUrl(
     content.thread_url,
     content.public_url,
     content.pdf_url,
-    content.file_path,
-    content.pdf_path,
   ];
   for (const candidate of directCandidates) {
     if (typeof candidate === "string") {
@@ -81,7 +86,6 @@ export function extractArtifactFileUrl(
       renderData.stored_url,
       renderData.thread_url,
       renderData.public_url,
-      renderData.file_path,
     ];
     for (const candidate of nestedCandidates) {
       if (typeof candidate === "string") {
@@ -111,12 +115,15 @@ function hasSignedAssetParams(url: string): boolean {
 function isProtectedAssetUrl(url: string): boolean {
   try {
     const parsed = new URL(url, typeof window !== "undefined" ? window.location.origin : "http://localhost");
+    const normalizedPath = parsed.pathname.startsWith("/api/")
+      ? parsed.pathname.slice(4)
+      : parsed.pathname;
     return (
-      parsed.pathname.startsWith("/api/workspaces/") &&
-      parsed.pathname.includes("/files/")
+      normalizedPath.startsWith("/workspaces/") &&
+      normalizedPath.includes("/files/")
     ) || (
-      parsed.pathname.startsWith("/api/threads/") &&
-      parsed.pathname.includes("/artifacts/")
+      normalizedPath.startsWith("/threads/") &&
+      normalizedPath.includes("/artifacts/")
     );
   } catch {
     return false;

@@ -70,6 +70,20 @@ def serialize_activity_item(item: dict[str, Any]) -> dict[str, Any]:
         "feature_id": (
             str(item["feature_id"]) if item.get("feature_id") is not None else None
         ),
+        "skill": str(item["skill"]) if item.get("skill") is not None else None,
+        "skill_name": (
+            str(item["skill_name"]) if item.get("skill_name") is not None else None
+        ),
+        "created_by_skill": (
+            str(item["created_by_skill"])
+            if item.get("created_by_skill") is not None
+            else None
+        ),
+        "created_by_skill_name": (
+            str(item["created_by_skill_name"])
+            if item.get("created_by_skill_name") is not None
+            else None
+        ),
         "subagent_type": item.get("subagent_type"),
         "metadata": item.get("metadata") or {},
     }
@@ -81,6 +95,7 @@ def build_chat_activity_item(
     workspace_id: str | None,
     title: str | None,
     skill: str | None,
+    skill_name: str | None,
     message_count: int,
     last_message_preview: str | None,
     last_message_role: str | None,
@@ -99,9 +114,14 @@ def build_chat_activity_item(
         "task_id": None,
         "artifact_id": None,
         "feature_id": None,
+        "skill": skill,
+        "skill_name": skill_name,
+        "created_by_skill": None,
+        "created_by_skill_name": None,
         "subagent_type": None,
         "metadata": {
             "skill": skill,
+            "skill_name": skill_name,
             "message_count": message_count,
             "last_message_role": last_message_role,
         },
@@ -144,6 +164,10 @@ def build_task_activity_item(
         "task_id": task_id,
         "artifact_id": None,
         "feature_id": str(feature_id) if feature_id else None,
+        "skill": None,
+        "skill_name": None,
+        "created_by_skill": None,
+        "created_by_skill_name": None,
         "subagent_type": None,
         "metadata": {
             "task_type": task_type,
@@ -187,6 +211,10 @@ def build_subagent_activity_item(
         "task_id": task_id,
         "artifact_id": None,
         "feature_id": None,
+        "skill": None,
+        "skill_name": None,
+        "created_by_skill": None,
+        "created_by_skill_name": None,
         "subagent_type": subagent_type,
         "metadata": {
             "prompt": prompt,

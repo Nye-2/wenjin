@@ -2,8 +2,12 @@
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+from langgraph.prebuilt import InjectedState
 from pydantic import BaseModel, Field
+from typing import Annotated
 
+from src.agents.thread_state import ThreadState
+from src.subagents.context_snapshot import build_subagent_context_snapshot
 from src.subagents.academic.registry import get_all_subagent_types, get_subagent_config
 from src.subagents.manager import SubagentAccessError
 from src.subagents.models import SubagentStatus
@@ -43,6 +47,7 @@ async def task_tool(
     subagent_type: str,
     max_turns: int | None = None,
     config: RunnableConfig | None = None,
+    state: Annotated[ThreadState, InjectedState] | None = None,
 ) -> str:
     """Delegate a task to a specialized subagent for parallel execution.
 
@@ -73,6 +78,10 @@ async def task_tool(
     runtime_context = SubagentRuntimeContext.from_mapping(
         runtime_config.get("configurable", {})
     )
+    context_snapshot = await build_subagent_context_snapshot(
+        runtime_context=runtime_context,
+        state=state,
+    )
     manager = get_manager()
 
     task = build_subagent_task(
@@ -86,6 +95,7 @@ async def task_tool(
             description=description,
             subagent_type=subagent_type,
             system_prompt=subagent_config.system_prompt,
+            context_snapshot=context_snapshot,
             runtime_context=runtime_context,
             include_workspace=runtime_context.thread_id is not None,
             include_user=runtime_context.thread_id is not None,

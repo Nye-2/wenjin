@@ -1,5 +1,6 @@
 """Base task execution function."""
 
+import inspect
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -12,11 +13,31 @@ from src.task.registry import PAPER_EXTRACTION_TASK
 logger = logging.getLogger(__name__)
 
 
-def _resolve_thread_skill(payload: Mapping[str, object], task_type: str) -> str:
+async def _maybe_await(value: Any) -> Any:
+    """Await async values while tolerating sync test doubles."""
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+def _resolve_thread_skill(
+    payload: Mapping[str, object],
+    task_type: str,
+) -> tuple[str, str | None]:
+    skill_id = payload.get("skill_id")
+    if isinstance(skill_id, str) and skill_id.strip():
+        skill_name = payload.get("skill_name")
+        normalized_skill_name = (
+            skill_name.strip()
+            if isinstance(skill_name, str) and skill_name.strip()
+            else None
+        )
+        return skill_id.strip(), normalized_skill_name
+
     feature_id = payload.get("feature_id")
     if isinstance(feature_id, str) and feature_id.strip():
-        return feature_id
-    return task_type
+        return feature_id.strip(), None
+    return task_type, None
 
 
 async def _append_task_chat_message(
@@ -179,10 +200,10 @@ async def _execute_task_async(
     # Reset event-loop-bound resources for this worker process.
     # Celery forks workers after module import, so global singletons
     # (redis_client, DB engine) may hold Futures from the parent loop.
-    await reset_db_engine(dispose_current=False)
-    await redis_client.reset_client(close_current=False)
+    await _maybe_await(reset_db_engine(dispose_current=False))
+    await _maybe_await(redis_client.reset_client(close_current=False))
     if redis_client._client is None:
-        await redis_client.connect()
+        await _maybe_await(redis_client.connect())
 
     # Get dependencies
     progress = ProgressTracker(
@@ -210,6 +231,7 @@ async def _execute_task_async(
 
             # Track agent status in Redis
             thread_id = payload.get("thread_id")
+            thread_skill, thread_skill_name = _resolve_thread_skill(payload, task_type)
             if thread_id:
                 from src.services.chat_thread_events import set_thread_status
 
@@ -217,7 +239,8 @@ async def _execute_task_async(
                     str(payload.get("workspace_id") or "") or None,
                     str(thread_id),
                     status="running",
-                    skill=_resolve_thread_skill(payload, task_type),
+                    skill=thread_skill,
+                    skill_name=thread_skill_name,
                     subagent_count=0,
                 )
 
@@ -231,7 +254,8 @@ async def _execute_task_async(
                     str(payload.get("workspace_id") or "") or None,
                     str(thread_id),
                     status="completed",
-                    skill=_resolve_thread_skill(payload, task_type),
+                    skill=thread_skill,
+                    skill_name=thread_skill_name,
                     subagent_count=0,
                 )
 
@@ -307,7 +331,8 @@ async def _execute_task_async(
                     str(payload.get("workspace_id") or "") or None,
                     str(thread_id),
                     status="failed",
-                    skill=_resolve_thread_skill(payload, task_type),
+                    skill=thread_skill,
+                    skill_name=thread_skill_name,
                     subagent_count=0,
                 )
 

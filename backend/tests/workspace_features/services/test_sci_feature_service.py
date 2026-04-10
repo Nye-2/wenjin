@@ -96,3 +96,93 @@ async def test_build_paper_analysis_payload_uses_fallback_title_and_returns_mode
     assert payload["model_id"] == "sci-analysis-model"
     assert payload["analysis_mode"] == "llm"
     assert payload["sections"]["methodology"]["title"] == "研究方法"
+
+
+@pytest.mark.asyncio
+async def test_build_framework_outline_payload_stays_pure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_load_context_summaries(**_kwargs):
+        return []
+
+    async def _fake_try_llm_framework_outline(**_kwargs):
+        return (
+            {
+                "abstract": "Abstract",
+                "keywords": ["agents"],
+                "sections": [{"title": "Introduction", "focus": "Background"}],
+                "contributions": ["Contribution A"],
+            },
+            "sci-outline-model",
+            None,
+        )
+
+    monkeypatch.setattr(
+        sci_feature_service,
+        "_load_artifact_context_summaries",
+        _fake_load_context_summaries,
+    )
+    monkeypatch.setattr(
+        sci_feature_service,
+        "_try_llm_framework_outline",
+        _fake_try_llm_framework_outline,
+    )
+
+    payload = await sci_feature_service.build_framework_outline_payload(
+        workspace_id="ws-sci",
+        paper_title="Paper Title",
+        topic="Agent Planning",
+    )
+
+    assert payload["paper_title"] == "Paper Title"
+    assert payload["generation_mode"] == "llm"
+    assert payload["model_id"] == "sci-outline-model"
+    assert payload["sections"][0]["title"] == "Introduction"
+    assert "latex_project_id" not in payload
+
+
+@pytest.mark.asyncio
+async def test_build_sci_writing_payload_stays_pure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_load_context_summaries(**_kwargs):
+        return []
+
+    async def _fake_try_llm_sci_writing(**_kwargs):
+        return (
+            {
+                "section_title": "Introduction",
+                "content": "Draft content",
+                "outline": ["Background"],
+                "references": ["Ref A"],
+                "writing_mode": "llm",
+            },
+            "sci-writing-model",
+            None,
+        )
+
+    monkeypatch.setattr(
+        sci_feature_service,
+        "_load_artifact_context_summaries",
+        _fake_load_context_summaries,
+    )
+    monkeypatch.setattr(
+        sci_feature_service,
+        "_try_llm_sci_writing",
+        _fake_try_llm_sci_writing,
+    )
+
+    payload = await sci_feature_service.build_sci_writing_payload(
+        workspace_id="ws-sci",
+        workspace_name="SCI Workspace",
+        workspace_description="desc",
+        paper_title="Paper Title",
+        section_type="introduction",
+        target_words=800,
+    )
+
+    assert payload["section_title"] == "Introduction"
+    assert payload["writing_mode"] == "llm"
+    assert payload["model_id"] == "sci-writing-model"
+    assert payload["word_count"] > 0
+    assert "latex_project_id" not in payload

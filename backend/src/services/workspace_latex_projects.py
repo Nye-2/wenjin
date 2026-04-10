@@ -184,6 +184,7 @@ class WorkspaceLatexProjectService:
         main_file: str,
         main_tex: str,
         bib_tex: str,
+        extra_files: list[dict[str, str]] | None = None,
         template: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> LatexProject:
@@ -205,6 +206,20 @@ class WorkspaceLatexProjectService:
             )
 
         project_metadata = self._merge_bridge_metadata(linked_project, metadata or {})
+        for file_spec in extra_files or []:
+            if not isinstance(file_spec, dict):
+                continue
+            relative_path = str(file_spec.get("path") or "").strip()
+            content = file_spec.get("content")
+            if not relative_path or not isinstance(content, str):
+                continue
+            await self._safe_bridge_write(
+                linked_project,
+                relative_path=relative_path,
+                content=content,
+                logical_key=f"project:asset:{relative_path}",
+                metadata=project_metadata,
+            )
         await self._safe_bridge_write(
             linked_project,
             relative_path=main_file,

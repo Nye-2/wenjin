@@ -101,7 +101,7 @@ export interface LatexFeedbackItem {
   anchor?: LatexFeedbackAnchor | null;
   source?: "tex" | "pdf";
   pdf_anchor?: LatexPdfAnchor | null;
-  tex_anchor?: Record<string, unknown> | null;
+  tex_anchor?: LatexFeedbackAnchor | null;
   last_status?: "idle" | "pending" | "done" | "error" | null;
   last_error?: string | null;
 }
@@ -242,6 +242,7 @@ export interface Thread {
   title?: string | null;
   model: string;
   skill?: string | null;
+  skill_name?: string | null;
   messages: ChatMessage[];
   created_at: string;
   updated_at: string;
@@ -253,6 +254,7 @@ export interface ThreadSummary {
   title?: string | null;
   model: string;
   skill?: string | null;
+  skill_name?: string | null;
   message_count?: number;
   last_message_preview?: string | null;
   last_message_role?: "user" | "assistant" | "system" | null;
@@ -264,6 +266,7 @@ export interface ThreadAgentStatus {
   thread_id: string;
   status: "idle" | "running" | "completed" | "failed";
   current_skill?: string | null;
+  current_skill_name?: string | null;
   subagent_count?: number;
 }
 
@@ -279,6 +282,10 @@ export interface WorkspaceActivityItem {
   task_id?: string | null;
   artifact_id?: string | null;
   feature_id?: string | null;
+  skill?: string | null;
+  skill_name?: string | null;
+  created_by_skill?: string | null;
+  created_by_skill_name?: string | null;
   subagent_type?: string | null;
   metadata?: Record<string, unknown>;
 }
@@ -374,7 +381,6 @@ export interface ChatRequest {
   skill?: string | null;
   thinking_enabled?: boolean;
   reasoning_effort?: ReasoningEffort;
-  stream?: boolean;
   attachments?: ChatAttachment[];
   metadata?: Record<string, unknown>;
 }

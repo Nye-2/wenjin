@@ -184,12 +184,12 @@ class IndexService:
 
         # Look up section by path
         section = sections.get(section_path)
-        if not section:
+        if not isinstance(section, dict):
             return None
 
         return {
-            "title": section.get("title", ""),
-            "content": section.get("content", ""),
+            "title": str(section.get("title") or ""),
+            "content": str(section.get("content") or ""),
         }
 
     async def get_paper_section_by_title(
@@ -312,22 +312,10 @@ class IndexService:
                 or item.get("path")
                 or idx
             ).strip()
-            level_raw = item.get("level")
-            try:
-                level = int(level_raw) if level_raw is not None else 1
-            except (TypeError, ValueError):
-                level = 1
-            page_raw = item.get("page")
-            try:
-                page = int(page_raw) if page_raw is not None else 1
-            except (TypeError, ValueError):
-                page = 1
             items.append(
                 {
                     "number": number or str(idx),
                     "title": title,
-                    "level": max(level, 1),
-                    "page": max(page, 1),
                 }
             )
         return items
@@ -357,11 +345,20 @@ class IndexService:
         if section is None:
             return None
 
+        section_title = getattr(section, "section_title", None)
+        section_content = getattr(section, "content", None)
+        section_path = getattr(section, "section_path", None)
+        page_start = getattr(section, "page_start", None)
+        page_end = getattr(section, "page_end", None)
+        level = getattr(section, "level", None)
+        if not isinstance(section_title, str) or not isinstance(section_content, str):
+            return None
+
         return {
-            "title": str(section.section_title or ""),
-            "content": str(section.content or ""),
-            "section_path": str(section.section_path or ""),
-            "page_start": int(section.page_start or 1),
-            "page_end": int(section.page_end or 1),
-            "level": int(section.level or 1),
+            "title": section_title,
+            "content": section_content,
+            "section_path": str(section_path or ""),
+            "page_start": int(page_start or 1),
+            "page_end": int(page_end or 1),
+            "level": int(level or 1),
         }

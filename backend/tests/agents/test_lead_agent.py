@@ -216,9 +216,9 @@ class TestApplyPromptTemplate:
         prompt = apply_prompt_template(state, config)
 
         assert "Available Skills" in prompt
-        assert "deep-research" in prompt
-        assert "peer-reviewer" in prompt
-        assert "journal-recommender" in prompt
+        assert "deep-research -> literature_search" in prompt
+        assert "peer-reviewer -> peer_review" in prompt
+        assert "journal-recommender -> journal_recommend" in prompt
         assert "fullpaper-writer" not in prompt
         assert "proposal-writer" not in prompt
 
@@ -230,7 +230,17 @@ class TestApplyPromptTemplate:
         prompt = apply_prompt_template(state, config)
 
         assert "Available Skills" in prompt
-        assert "patent-drafter" in prompt
+        assert "patent-drafter -> patent_outline" in prompt
+
+    def test_prompt_includes_selected_skill_bound_feature(self):
+        """Selected skill guidance should explicitly state the bound feature."""
+        state = ThreadState(messages=[], workspace_type="sci")
+        config = {"configurable": {"selected_skill": "framework-designer"}}
+
+        prompt = apply_prompt_template(state, config)
+
+        assert "The user selected `framework-designer`" in prompt
+        assert "Bound feature: `framework_outline`." in prompt
 
 
 class TestMakeLeadAgent:

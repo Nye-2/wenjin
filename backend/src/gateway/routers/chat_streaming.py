@@ -12,12 +12,18 @@ def encode_sse_event(payload: Mapping[str, Any]) -> str:
     return f"data: {json.dumps(dict(payload))}\n\n"
 
 
-def stream_thread_context_event(*, thread_id: str, skill: str | None) -> str:
+def stream_thread_context_event(
+    *,
+    thread_id: str,
+    skill: str | None,
+    skill_name: str | None,
+) -> str:
     return encode_sse_event(
         {
             "type": "thread_id",
             "thread_id": thread_id,
             "skill": skill,
+            "skill_name": skill_name,
         }
     )
 

@@ -172,6 +172,8 @@ class TestWorkspaceFeaturesRouter:
             "agent_label": "Writer",
             "handler_key": "software_copyright.copyright_materials",
             "thread_id": "thread-9",
+            "skill_id": "copyright-writer",
+            "skill_name": "著作权材料",
             "params": {"project_name": "Alpha"},
         }
 

@@ -11,10 +11,11 @@ from typing import Any
 from src.agents.graphs._shared import (
     _normalize_list,
     _read_optional_int,
-    _read_payload_params,
     _read_optional_str,
+    _read_payload_params,
 )
 from src.agents.workspace_lead_agent import register_feature_graph
+from src.workspace_features.latex_sync import sync_sci_writing_payload
 from src.workspace_features.services import build_sci_writing_payload
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,11 @@ async def writing_graph(
         context_artifact_ids=context_artifact_ids,
         preferred_model=preferred_model,
     )
+    sync_result = await sync_sci_writing_payload(
+        workspace_id=workspace_id,
+        workspace_name=workspace_name,
+        payload=result,
+    )
 
     # Build output
     section_title = str(
@@ -99,14 +105,10 @@ async def writing_graph(
         "outline": result.get("outline", []),
         "references": result.get("references", []),
         "word_count": result.get("word_count", 0),
-        "latex_project_id": result.get("latex_project_id"),
-        "main_file": result.get("main_file"),
-        "section_file": result.get("section_file"),
-        "section_map": result.get("section_map", {}),
-        "sync_conflicts": result.get("sync_conflicts", []),
         "writing_mode": result.get("writing_mode", "llm"),
         "output_language": result.get("output_language", DEFAULT_OUTPUT_LANGUAGE),
         "model_id": result.get("model_id"),
         "generation_error": result.get("generation_error"),
         "generated_at": result.get("generated_at"),
+        **sync_result.as_payload(),
     }

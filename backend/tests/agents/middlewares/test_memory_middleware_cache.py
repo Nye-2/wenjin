@@ -179,3 +179,27 @@ def test_cache_set_with_eviction_logs(caplog):
     assert any("evict" in r.message.lower() for r in caplog.records)
     assert "old-key" not in middleware._memory_cache
     assert "new-key" in middleware._memory_cache
+
+
+@pytest.mark.asyncio
+async def test_after_model_requires_thread_id_when_capture_enabled():
+    """Memory capture must not silently collapse into a shared default thread."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    middleware = MemoryMiddleware(enabled=True, inject_enabled=False, capture_enabled=True)
+    state = {
+        "messages": [
+            HumanMessage(content="Remember that I prefer concise answers."),
+            AIMessage(content="Understood."),
+        ],
+        "workspace_id": "ws-1",
+    }
+
+    with patch("src.agents.middlewares.memory.enqueue_memory_capture") as enqueue_mock:
+        with pytest.raises(RuntimeError, match="MemoryMiddleware requires config.configurable.thread_id"):
+            await middleware.after_model(
+                state,
+                {"configurable": {"user_id": "user-1", "workspace_id": "ws-1"}},
+            )
+
+    enqueue_mock.assert_not_called()

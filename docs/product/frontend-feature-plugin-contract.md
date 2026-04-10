@@ -1,6 +1,6 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-04-03
+更新时间: 2026-04-10
 
 本文档定义 workspace 功能插件化渲染的前后端契约，避免前端硬编码 feature 逻辑。
 
@@ -54,10 +54,11 @@
 - `frontend/lib/workspace-feature-routes.ts`
 - `frontend/lib/workspace-chat-entry.ts`
 - `frontend/stores/features.ts`
-- `frontend/hooks/useFeatureTaskRunner.ts`
-- `frontend/components/workspace/QuickActions.tsx`
+- `frontend/lib/workspace-feature-execution.ts`
 - `frontend/components/workspace/TaskFeedbackBanner.tsx`
 - `frontend/components/workspace/WorkspaceResultPanel.tsx`
+- `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
+- `frontend/app/(workbench)/workspaces/[id]/components/KnowledgePanel.tsx`
 
 ## 3. Chat-Only Entry Contract
 
@@ -72,7 +73,7 @@
   - 在第一次 chat turn 中把 `metadata.orchestration.feature_id + params` 一并发给后端
 - 后端职责:
   - 优先消费显式 `metadata.orchestration`
-  - 命中 feature bridge 时直接走 canonical feature execution
+  - 由 lead-agent / `run_workspace_feature` 接回 canonical feature execution
 
 ## 4. 交互约束
 
@@ -90,9 +91,8 @@
 - `papers` -> `fetchPapers(workspaceId)`
 - `workspace` -> `loadWorkspace(workspaceId)`
 
-实现位置: `frontend/hooks/useFeatureTaskRunner.ts`
+实现位置: `frontend/lib/workspace-feature-execution.ts` 与 `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
 
 ## 6. Compatibility Notes
 
-- 兼容老任务: 如果缺少 `refresh_targets`，默认刷新 `artifacts`。
 - 兼容 warning 场景: `status=warning` 且无 `task_id` 时，前端应直接提示，不进入轮询。

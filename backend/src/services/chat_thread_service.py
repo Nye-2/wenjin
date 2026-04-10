@@ -12,6 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agents.middlewares.thread_data import delete_thread_directory
 from src.database import ChatThread
 from src.models.router import route_model, validate_requested_model
+from src.services.workspace_skill_labels import (
+    list_workspace_types,
+    resolve_workspace_skill_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,52 @@ class ChatThreadService:
         self.db = db
         self._model = model
 
+    async def _lock_thread_row(self, thread_id: str) -> None:
+        """Lock and refresh a thread row to prevent lost updates on JSON message writes."""
+        await self.db.execute(
+            select(self._model)
+            .where(self._model.id == thread_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+    @staticmethod
+    def _hydrate_thread_skill_metadata(
+        thread: ChatThread,
+        *,
+        workspace_type: str | None,
+    ) -> ChatThread:
+        """Attach resolved workspace skill metadata to a thread object."""
+        setattr(thread, "workspace_type", workspace_type)
+        setattr(
+            thread,
+            "skill_name",
+            resolve_workspace_skill_name(workspace_type, thread.skill),
+        )
+        return thread
+
+    async def _attach_workspace_skill_metadata(
+        self,
+        thread: ChatThread | None,
+        *,
+        workspace_types: dict[str, str] | None = None,
+    ) -> ChatThread | None:
+        """Attach resolved workspace skill metadata to a thread object."""
+        if thread is None:
+            return None
+        workspace_id = str(thread.workspace_id).strip() if thread.workspace_id else None
+        workspace_type = None
+        if workspace_id and workspace_types is not None:
+            workspace_type = workspace_types.get(workspace_id)
+        if workspace_type is None and workspace_id:
+            workspace_type = (
+                await list_workspace_types(self.db, [workspace_id])
+            ).get(workspace_id)
+        return self._hydrate_thread_skill_metadata(
+            thread,
+            workspace_type=workspace_type,
+        )
+
     @staticmethod
     def _resolve_model(model: str | None) -> str:
         """Resolve model id through env-backed config without silent user fallback."""
@@ -45,6 +95,13 @@ class ChatThreadService:
             allowed_categories=("tool", "gen"),
             require_tools=False,
         )
+
+    @classmethod
+    def resolve_requested_model(cls, model: str | None) -> str | None:
+        """Validate and resolve an optional requested model id."""
+        if model is None or not model.strip():
+            return None
+        return cls._resolve_model(model)
 
     async def create_thread(
         self,
@@ -70,14 +127,15 @@ class ChatThreadService:
         self.db.add(thread)
         await self.db.commit()
         await self.db.refresh(thread)
-        return thread
+        hydrated_thread = await self._attach_workspace_skill_metadata(thread)
+        return hydrated_thread or thread
 
     async def get_by_id(self, thread_id: str) -> ChatThread | None:
         """Fetch a thread regardless of owner."""
         result = await self.db.execute(
             select(self._model).where(self._model.id == thread_id)
         )
-        return result.scalar_one_or_none()
+        return await self._attach_workspace_skill_metadata(result.scalar_one_or_none())
 
     async def get_thread(self, thread_id: str, user_id: str) -> ChatThread | None:
         """Fetch a thread owned by the active user."""
@@ -102,7 +160,7 @@ class ChatThreadService:
             .order_by(self._model.updated_at.desc())
             .limit(1)
         )
-        return result.scalar_one_or_none()
+        return await self._attach_workspace_skill_metadata(result.scalar_one_or_none())
 
     async def get_or_create_thread(
         self,
@@ -137,7 +195,10 @@ class ChatThreadService:
                     thread.updated_at = datetime.now(UTC)
                     await self.db.commit()
                     await self.db.refresh(thread)
+                    hydrated_thread = await self._attach_workspace_skill_metadata(thread)
+                    return hydrated_thread or thread
                 return thread
+            raise ChatThreadAccessError("Thread not found")
 
         if workspace_id:
             thread = await self.get_latest_workspace_thread(
@@ -156,6 +217,8 @@ class ChatThreadService:
                     thread.updated_at = datetime.now(UTC)
                     await self.db.commit()
                     await self.db.refresh(thread)
+                    hydrated_thread = await self._attach_workspace_skill_metadata(thread)
+                    return hydrated_thread or thread
                 return thread
 
         return await self.create_thread(
@@ -176,6 +239,7 @@ class ChatThreadService:
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Append a message and persist JSON history safely."""
+        await self._lock_thread_row(str(thread.id))
         resolved_timestamp = timestamp or datetime.now(UTC)
         message = {
             "role": role,
@@ -214,6 +278,7 @@ class ChatThreadService:
         if not resolved_task_id:
             return False
 
+        await self._lock_thread_row(str(thread.id))
         messages = copy.deepcopy(list(thread.messages or []))
         changed = False
 
@@ -287,7 +352,22 @@ class ChatThreadService:
         result = await self.db.execute(
             query.order_by(self._model.updated_at.desc()).limit(limit)
         )
-        return list(result.scalars().all())
+        threads = list(result.scalars().all())
+        workspace_types = await list_workspace_types(
+            self.db,
+            [thread.workspace_id for thread in threads],
+        )
+        return [
+            self._hydrate_thread_skill_metadata(
+                thread,
+                workspace_type=(
+                    workspace_types.get(str(thread.workspace_id))
+                    if thread.workspace_id is not None
+                    else None
+                ),
+            )
+            for thread in threads
+        ]
 
     async def delete_thread(self, thread_id: str, user_id: str) -> bool:
         """Delete an owned thread."""

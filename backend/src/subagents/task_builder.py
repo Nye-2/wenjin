@@ -70,6 +70,7 @@ def build_subagent_metadata(
     *,
     subagent_type: str | None = None,
     system_prompt: str | None = None,
+    context_snapshot: str | None = None,
     description: str | None = None,
     runtime_context: SubagentRuntimeContext | None = None,
     include_workspace: bool = False,
@@ -84,8 +85,15 @@ def build_subagent_metadata(
         metadata["description"] = str(description)
     if subagent_type is not None:
         metadata["subagent_type"] = str(subagent_type)
-    if system_prompt is not None:
-        metadata["system_prompt"] = str(system_prompt)
+    resolved_system_prompt = str(system_prompt) if system_prompt is not None else ""
+    resolved_context_snapshot = str(context_snapshot) if context_snapshot is not None else ""
+    if resolved_context_snapshot:
+        if resolved_system_prompt:
+            metadata["system_prompt"] = f"{resolved_system_prompt}\n\n{resolved_context_snapshot}"
+        else:
+            metadata["system_prompt"] = resolved_context_snapshot
+    elif system_prompt is not None:
+        metadata["system_prompt"] = resolved_system_prompt
 
     if runtime_context is not None:
         if include_workspace and runtime_context.workspace_id is not None:

@@ -7,11 +7,13 @@ import re
 from typing import Annotated, Any
 
 from langchain_core.messages import ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from src.agents.lead_agent.chat_skill_catalog import get_skill_by_id
 from src.agents.lead_agent.feature_bridge_cards import (
     build_confirmation_required_response,
 )
@@ -25,24 +27,23 @@ from src.agents.lead_agent.feature_bridge import (
 
 class ListWorkspaceFeaturesInput(BaseModel):
     """Input for list_workspace_features."""
-
-    workspace_id: str = Field(description="Current workspace id")
+    pass
 
 
 class ListWorkspaceArtifactsInput(BaseModel):
     """Input for list_workspace_artifacts."""
 
-    workspace_id: str = Field(description="Current workspace id")
     limit: int = Field(default=8, ge=1, le=20, description="Maximum artifact count to return")
 
 
 class RunWorkspaceFeatureInput(BaseModel):
     """Input for run_workspace_feature."""
 
-    workspace_id: str = Field(description="Current workspace id")
-    thread_id: str = Field(description="Current chat thread id")
-    user_id: str = Field(description="Current authenticated user id")
-    feature_id: str = Field(description="Workspace feature id to execute")
+    feature_id: str | None = Field(default=None, description="Workspace feature id to execute")
+    skill_id: str | None = Field(
+        default=None,
+        description="Optional workspace skill id. Must match the feature when provided.",
+    )
     params: dict[str, Any] = Field(default_factory=dict, description="Structured feature params")
 
 
@@ -70,6 +71,87 @@ def _coerce_message_text(message: Any) -> str:
                 text_parts.append(block["text"].strip())
         return "\n".join(part for part in text_parts if part).strip()
     return str(content or "").strip()
+
+
+def _normalize_optional_str(value: Any) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+def _runtime_context(config: RunnableConfig | None) -> tuple[str | None, str | None, str | None]:
+    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+    if not isinstance(configurable, dict):
+        return None, None, None
+    return (
+        _normalize_optional_str(configurable.get("workspace_id")),
+        _normalize_optional_str(configurable.get("thread_id")),
+        _normalize_optional_str(configurable.get("user_id")),
+    )
+
+
+def _tool_error_command(
+    *,
+    tool_call_id: str,
+    message: str,
+    status: str,
+    feature_id: str | None = None,
+) -> Command[Any]:
+    return Command(
+        update={
+            "messages": [
+                ToolMessage(
+                    content=message,
+                    tool_call_id=tool_call_id,
+                )
+            ],
+            "response_metadata": {
+                "orchestration": {
+                    "mode": "feature_execution",
+                    "feature_id": feature_id,
+                    "status": status,
+                }
+            },
+        }
+    )
+
+
+def _resolve_feature_execution_contract(
+    *,
+    feature_id: str | None,
+    skill_id: str | None,
+    params: dict[str, Any] | None,
+    state: ThreadState | None,
+) -> tuple[str | None, str | None, dict[str, Any], str | None]:
+    resolved_params = dict(params or {})
+    workspace_type = _normalize_optional_str(state.get("workspace_type")) if isinstance(state, dict) else None
+    current_skill = _normalize_optional_str(state.get("current_skill")) if isinstance(state, dict) else None
+    effective_skill_id = _normalize_optional_str(skill_id) or current_skill
+    resolved_feature_id = _normalize_optional_str(feature_id)
+
+    if effective_skill_id and workspace_type:
+        skill_def = get_skill_by_id(workspace_type, effective_skill_id)
+        if skill_def is None:
+            if _normalize_optional_str(skill_id):
+                return None, None, resolved_params, f"未知 skill_id: {effective_skill_id}"
+        else:
+            skill_defaults = dict(skill_def.defaults)
+            resolved_params = {**skill_defaults, **resolved_params}
+            expected_feature_id = skill_def.feature_id
+            if resolved_feature_id is None:
+                resolved_feature_id = expected_feature_id
+            elif resolved_feature_id != expected_feature_id:
+                return (
+                    None,
+                    None,
+                    resolved_params,
+                    f"当前 skill `{effective_skill_id}` 只能执行 `{expected_feature_id}`，"
+                    f"不能执行 `{resolved_feature_id}`。",
+                )
+            return resolved_feature_id, skill_def.id, resolved_params, None
+
+    if resolved_feature_id is None:
+        return None, None, resolved_params, "缺少 feature_id，且当前没有可推断的 skill 上下文。"
+    return resolved_feature_id, None, resolved_params, None
 
 
 def _latest_user_message_text(state: ThreadState) -> str | None:
@@ -189,18 +271,35 @@ def _awaiting_confirmation_command(
 
 
 @tool("list_workspace_features", args_schema=ListWorkspaceFeaturesInput)
-async def list_workspace_features_tool(workspace_id: str) -> str:
+async def list_workspace_features_tool(
+    config: RunnableConfig | None = None,
+) -> str:
     """List available workspace features for the current workspace."""
-    overview = await build_workspace_feature_overview(workspace_id)
+    workspace_id, _, user_id = _runtime_context(config)
+    if workspace_id is None or user_id is None:
+        return json.dumps({"error": "runtime_context_missing"}, ensure_ascii=False)
+    overview = await build_workspace_feature_overview(workspace_id, user_id=user_id)
     if overview is None:
         return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
     return json.dumps(overview, ensure_ascii=False)
 
 
 @tool("list_workspace_artifacts", args_schema=ListWorkspaceArtifactsInput)
-async def list_workspace_artifacts_tool(workspace_id: str, limit: int = 8) -> str:
+async def list_workspace_artifacts_tool(
+    limit: int = 8,
+    config: RunnableConfig | None = None,
+) -> str:
     """List recent artifacts produced inside the current workspace."""
-    artifacts = await build_workspace_artifact_overview(workspace_id, limit=limit)
+    workspace_id, _, user_id = _runtime_context(config)
+    if workspace_id is None or user_id is None:
+        return json.dumps({"error": "runtime_context_missing"}, ensure_ascii=False)
+    artifacts = await build_workspace_artifact_overview(
+        workspace_id,
+        user_id=user_id,
+        limit=limit,
+    )
+    if artifacts is None:
+        return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
     return json.dumps(
         {"workspace_id": workspace_id, "count": len(artifacts), "artifacts": artifacts},
         ensure_ascii=False,
@@ -209,48 +308,73 @@ async def list_workspace_artifacts_tool(workspace_id: str, limit: int = 8) -> st
 
 @tool("run_workspace_feature", args_schema=RunWorkspaceFeatureInput)
 async def run_workspace_feature_tool(
-    workspace_id: str,
-    thread_id: str,
-    user_id: str,
-    feature_id: str,
+    feature_id: str | None = None,
+    skill_id: str | None = None,
     params: dict[str, Any] | None = None,
     tool_call_id: Annotated[str, InjectedToolCallId] = "",
     state: Annotated[ThreadState, InjectedState] | None = None,
+    config: RunnableConfig | None = None,
 ) -> Command[Any]:
     """Run a canonical workspace feature and return structured execution metadata."""
+    workspace_id, thread_id, user_id = _runtime_context(config)
+    if workspace_id is None or thread_id is None or user_id is None:
+        return _tool_error_command(
+            tool_call_id=tool_call_id,
+            message="当前运行时缺少 workspace/thread/user 上下文，无法执行该功能。",
+            status="runtime_context_missing",
+            feature_id=feature_id,
+        )
+
+    resolved_feature_id, resolved_skill_id, resolved_params, contract_error = (
+        _resolve_feature_execution_contract(
+            feature_id=feature_id,
+            skill_id=skill_id,
+            params=params,
+            state=state,
+        )
+    )
+    if contract_error:
+        return _tool_error_command(
+            tool_call_id=tool_call_id,
+            message=contract_error,
+            status="skill_contract_error",
+            feature_id=resolved_feature_id or feature_id,
+        )
+
     if state is not None and _state_has_pending_confirmation(
         state=state,
-        feature_id=feature_id,
+        feature_id=str(resolved_feature_id),
     ):
         latest_user_message = _latest_user_message_text(state)
         if not _message_is_affirmative_confirmation(latest_user_message):
             return _awaiting_confirmation_command(
                 tool_call_id=tool_call_id,
-                feature_id=feature_id,
+                feature_id=str(resolved_feature_id),
             )
 
     if state is None or not _is_feature_execution_confirmed(
         state=state,
-        feature_id=feature_id,
+        feature_id=str(resolved_feature_id),
     ):
         return _confirmation_command(
             tool_call_id=tool_call_id,
-            feature_id=feature_id,
-            params=params,
+            feature_id=str(resolved_feature_id),
+            params=resolved_params,
         )
 
     reply = await execute_workspace_feature_request(
         workspace_id=workspace_id,
         thread_id=thread_id,
         user_id=user_id,
-        feature_id=feature_id,
-        params=params,
+        feature_id=str(resolved_feature_id),
+        params=resolved_params,
+        skill_id=resolved_skill_id,
     )
     if reply is None:
         payload = json.dumps(
             {
                 "error": "feature_execution_unavailable",
-                "feature_id": feature_id,
+                "feature_id": resolved_feature_id,
             },
             ensure_ascii=False,
         )

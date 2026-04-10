@@ -88,10 +88,23 @@ class TestGlobalSubagentManager:
         GlobalSubagentManager.reset()
         manager = GlobalSubagentManager(subagent_config)
         manager._load_thread_binding = AsyncMock(
-            side_effect=lambda thread_id: {
-                "owner_user_id": "user-1",
-                "workspace_id": "ws-1" if thread_id == "thread-ctx" else None,
-            }
+            side_effect=lambda thread_id: (
+                {
+                    "owner_user_id": "user-1",
+                    "workspace_id": "ws-1" if thread_id == "thread-ctx" else None,
+                    "skill_id": "framework-designer" if thread_id == "thread-status" else None,
+                    "skill_name": "框架大纲" if thread_id == "thread-status" else None,
+                }
+                if thread_id
+                in {
+                    "thread-ctx",
+                    "owned-thread",
+                    "shared-thread",
+                    "thread-status",
+                    "thread-1",
+                }
+                else None
+            )
         )
         GlobalSubagentManager._instance = manager
         yield manager
@@ -431,31 +444,30 @@ class TestGlobalSubagentManager:
         mock_graph.ainvoke = slow_invoke
 
         with patch.object(manager._graph_registry, "get", return_value=mock_graph), \
-             patch("src.academic.cache.redis_client.redis_client.set_agent_status", new=AsyncMock()) as mock_set_status:
-            from src.academic.cache.redis_client import redis_client
+             patch("src.services.chat_thread_events.set_thread_status", new=AsyncMock()) as mock_set_status:
+            await manager.spawn(task)
+            await asyncio.wait_for(started.wait(), timeout=1)
 
-            original_client = redis_client._client
-            redis_client._client = object()
-            try:
-                await manager.spawn(task)
-                await asyncio.wait_for(started.wait(), timeout=1)
+            mock_set_status.assert_any_await(
+                None,
+                "thread-status",
+                status="running",
+                skill="framework-designer",
+                skill_name="框架大纲",
+                subagent_count=1,
+            )
 
-                mock_set_status.assert_any_await(
-                    "thread-status",
-                    "running",
-                    subagent_count=1,
-                )
+            release.set()
+            await asyncio.sleep(0.1)
 
-                release.set()
-                await asyncio.sleep(0.1)
-
-                mock_set_status.assert_any_await(
-                    "thread-status",
-                    "completed",
-                    subagent_count=0,
-                )
-            finally:
-                redis_client._client = original_client
+            mock_set_status.assert_any_await(
+                None,
+                "thread-status",
+                status="completed",
+                skill="framework-designer",
+                skill_name="框架大纲",
+                subagent_count=0,
+            )
 
     @pytest.mark.asyncio
     async def test_publish_subagent_update_includes_canonical_activity(self, manager):
@@ -703,6 +715,81 @@ class TestGlobalSubagentManager:
         await task
         assert len(received) == 1
         assert "owned" in received[0]
+
+    @pytest.mark.asyncio
+    async def test_global_event_subscription_falls_back_to_persisted_thread_binding(self, manager):
+        """Global subscriptions should still receive owned events after live context is gone."""
+        manager._threads.clear()
+        manager._load_thread_binding = AsyncMock(
+            side_effect=lambda thread_id: (
+                {"owner_user_id": "user-1", "workspace_id": "ws-1", "skill_id": None, "skill_name": None}
+                if thread_id == "thread-1"
+                else {"owner_user_id": "user-2", "workspace_id": "ws-2", "skill_id": None, "skill_name": None}
+            )
+        )
+
+        received: list[str] = []
+
+        async def collect():
+            async for sse in manager.subscribe_events(user_id="user-1"):
+                received.append(sse)
+                if len(received) >= 1:
+                    break
+
+        task = asyncio.create_task(collect())
+        await asyncio.sleep(0.05)
+
+        await manager._event_stream.publish(SubagentEvent(
+            event_type="started",
+            task_id="task-2",
+            thread_id="thread-2",
+            data={"msg": "foreign"},
+            timestamp=datetime.now(),
+        ))
+        await manager._event_stream.publish(SubagentEvent(
+            event_type="started",
+            task_id="task-1",
+            thread_id="thread-1",
+            data={"msg": "owned"},
+            timestamp=datetime.now(),
+        ))
+        await manager._event_stream.close()
+
+        await task
+        assert len(received) == 1
+        assert "owned" in received[0]
+
+    @pytest.mark.asyncio
+    async def test_get_status_falls_back_to_persisted_record(self, manager):
+        """Durable subagent records should remain queryable after in-memory context is gone."""
+        persisted = MagicMock(
+            id="task-persisted",
+            thread_id="thread-1",
+            status="completed",
+            output_preview="Persisted output",
+            error=None,
+            user_id="user-1",
+        )
+        manager._load_persisted_task_record = AsyncMock(return_value=persisted)
+
+        status = await manager.get_status("thread-1", "task-persisted", user_id="user-1")
+        result = await manager.get_result("thread-1", "task-persisted", user_id="user-1")
+
+        assert status == SubagentStatus.COMPLETED
+        assert result is not None
+        assert result.output == "Persisted output"
+        assert result.metadata["durable_preview"] is True
+
+    @pytest.mark.asyncio
+    async def test_check_thread_access_falls_back_to_thread_binding(self, manager):
+        """Access checks should honor canonical thread ownership even without live context."""
+        manager._threads.clear()
+
+        own_access = await manager.check_thread_access("thread-1", user_id="user-1")
+        foreign_access = await manager.check_thread_access("thread-1", user_id="user-2")
+
+        assert own_access is True
+        assert foreign_access is False
 
     @pytest.mark.asyncio
     async def test_list_thread_tasks_returns_recent_task_summaries(self, manager):

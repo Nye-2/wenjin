@@ -7,6 +7,7 @@ from typing import Any, Literal, TypedDict
 
 from src.agents.lead_agent.feature_bridge_models import BridgedChatResponse
 from src.agents.lead_agent.feature_bridge_presenters import (
+    feature_follow_up_prompt as _feature_follow_up_prompt,
     feature_title as _feature_title,
 )
 from src.agents.lead_agent.feature_bridge_presenters import (
@@ -353,32 +354,44 @@ def build_feature_task_completion_card(
     )
     summary = _feature_result_summary(feature_id, data, artifacts)
     params = coerce_workspace_feature_params(payload)
+    follow_up_prompt = _feature_follow_up_prompt(feature_id)
+    blocks = [
+        _build_result_block(
+            title=f"{_feature_title(feature_id)} 已完成",
+            summary=summary,
+            feature_id=feature_id,
+        ),
+    ]
+    if follow_up_prompt:
+        blocks.append(
+            _build_result_block(
+                title="建议下一轮继续",
+                summary=follow_up_prompt,
+                feature_id=feature_id,
+            )
+        )
+    blocks.append(
+        _build_next_steps_block(
+            [
+                _build_open_feature_step(
+                    feature_id,
+                    label="直接打开模块",
+                ),
+                _build_continue_chat_step(
+                    feature_id,
+                    label="继续追问结果",
+                ),
+                _build_rerun_from_artifact_step(
+                    feature_id,
+                    label="基于 artifact 再执行",
+                ),
+            ]
+        )
+    )
 
     return BridgedChatResponse(
         content=summary,
-        blocks=[
-            _build_result_block(
-                title=f"{_feature_title(feature_id)} 已完成",
-                summary=summary,
-                feature_id=feature_id,
-            ),
-            _build_next_steps_block(
-                [
-                    _build_open_feature_step(
-                        feature_id,
-                        label="直接打开模块",
-                    ),
-                    _build_continue_chat_step(
-                        feature_id,
-                        label="继续追问结果",
-                    ),
-                    _build_rerun_from_artifact_step(
-                        feature_id,
-                        label="基于 artifact 再执行",
-                    ),
-                ]
-            ),
-        ],
+        blocks=blocks,
         metadata={
             "orchestration": {
                 "mode": "feature_execution",
@@ -387,6 +400,7 @@ def build_feature_task_completion_card(
                 "task_id": task_id,
                 "params": params,
                 "artifacts": artifacts,
+                "suggested_follow_up": follow_up_prompt,
             }
         },
     )

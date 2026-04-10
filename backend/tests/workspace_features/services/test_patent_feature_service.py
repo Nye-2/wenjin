@@ -55,6 +55,7 @@ async def test_build_patent_outline_payload_uses_workspace_fallback_and_marks_ll
     assert payload["claims_draft"]["independent_claims"][0]["source"] == "llm"
     assert payload["claims_draft"]["dependent_claims"][0]["source"] == "llm"
     assert payload["evidence_points_needed"]
+    assert "latex_project_id" not in payload
 
 
 @pytest.mark.asyncio

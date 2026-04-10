@@ -2,13 +2,11 @@
 
 from .lead_agent.agent import make_lead_agent
 from .thread_state import (
-    AcademicArtifact,
     AgentState,
     SandboxState,
     ThreadDataState,
     ThreadState,
     ViewedImageData,
-    merge_academic_artifacts,
     merge_artifacts,
     merge_cited_papers,
     merge_viewed_images,
@@ -17,12 +15,10 @@ from .thread_state import (
 __all__ = [
     "AgentState",
     "ThreadState",
-    "AcademicArtifact",
     "SandboxState",
     "ThreadDataState",
     "ViewedImageData",
     "merge_artifacts",
-    "merge_academic_artifacts",
     "merge_cited_papers",
     "merge_viewed_images",
     "make_lead_agent",

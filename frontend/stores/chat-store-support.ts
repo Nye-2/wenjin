@@ -339,6 +339,7 @@ export function buildPendingThreadSummary(options: {
   workspaceId?: string;
   model?: string;
   skill: string | null;
+  skillName?: string | null;
   messageCount: number;
   createdAt: string;
 }): ThreadSummary {
@@ -348,6 +349,7 @@ export function buildPendingThreadSummary(options: {
     title: null,
     model: options.model ?? "default",
     skill: options.skill,
+    skill_name: options.skillName ?? null,
     message_count: options.messageCount,
     last_message_role: "assistant",
     last_message_preview: null,
@@ -364,6 +366,7 @@ export function toThreadSummary(thread: Thread | ThreadSummary): ThreadSummary {
       title: thread.title ?? null,
       model: thread.model,
       skill: thread.skill ?? null,
+      skill_name: thread.skill_name ?? null,
       created_at: thread.created_at,
       updated_at: thread.updated_at,
       ...buildThreadPreview(thread.messages),

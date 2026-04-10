@@ -1,9 +1,8 @@
-import type { ThreadSummary, Workspace } from "@/lib/api";
+import type { ThreadSummary } from "@/lib/api";
 import type { Message } from "@/stores/chat";
 
 interface ExportableThread extends Partial<ThreadSummary> {
   id: string;
-  workspace_type?: Workspace["type"] | null;
 }
 
 function sanitizeFilenameSegment(value: string | null | undefined): string {
@@ -13,11 +12,12 @@ function sanitizeFilenameSegment(value: string | null | undefined): string {
 }
 
 function resolveConversationSkillLabel(thread: ExportableThread): string | null {
-  const skillId = thread.skill?.trim();
-  if (!skillId) {
-    return null;
+  const skillName = thread.skill_name?.trim();
+  if (skillName) {
+    return skillName;
   }
-  return skillId.replace(/[-_]/g, " ");
+  const skillId = thread.skill?.trim();
+  return skillId || null;
 }
 
 function resolveConversationTitle(thread: ExportableThread): string {
@@ -139,6 +139,7 @@ export function exportConversationAsJson(
       workspace_id: thread.workspace_id || null,
       model: thread.model || "default",
       skill: thread.skill || null,
+      skill_name: thread.skill_name || null,
       updated_at: thread.updated_at || null,
     },
     exported_at: new Date().toISOString(),

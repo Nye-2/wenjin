@@ -1,5 +1,7 @@
 """Tests for copyright_materials sub-graph helper functions."""
 
+from __future__ import annotations
+
 import pytest
 
 from src.agents.graphs._shared import _normalize_list
@@ -7,6 +9,7 @@ from src.agents.graphs.software_copyright.copyright_materials import (
     _build_required_materials,
     _build_review_checklist,
 )
+from src.workspace_features.latex_sync import LatexSyncResult
 
 
 class TestNormalizeList:
@@ -100,10 +103,18 @@ class TestBuildReviewChecklist:
 
 class TestCopyrightMaterialsGraph:
     @pytest.mark.asyncio
-    async def test_basic_execution(self):
+    async def test_basic_execution(self, monkeypatch: pytest.MonkeyPatch):
         """Test basic graph execution with minimal payload."""
         from src.agents.graphs.software_copyright.copyright_materials import (
             copyright_materials_graph,
+        )
+
+        async def _fake_sync_software_materials_payload(**_kwargs):
+            return LatexSyncResult()
+
+        monkeypatch.setattr(
+            "src.agents.graphs.software_copyright.copyright_materials.sync_software_materials_payload",
+            _fake_sync_software_materials_payload,
         )
 
         initial_state = {
@@ -130,10 +141,18 @@ class TestCopyrightMaterialsGraph:
         assert len(result["required_materials"]) == 5
 
     @pytest.mark.asyncio
-    async def test_fallback_to_workspace_name(self):
+    async def test_fallback_to_workspace_name(self, monkeypatch: pytest.MonkeyPatch):
         """Test that software_name falls back to workspace name."""
         from src.agents.graphs.software_copyright.copyright_materials import (
             copyright_materials_graph,
+        )
+
+        async def _fake_sync_software_materials_payload(**_kwargs):
+            return LatexSyncResult()
+
+        monkeypatch.setattr(
+            "src.agents.graphs.software_copyright.copyright_materials.sync_software_materials_payload",
+            _fake_sync_software_materials_payload,
         )
 
         initial_state = {
@@ -151,3 +170,32 @@ class TestCopyrightMaterialsGraph:
 
         assert "software_profile" in result
         assert result["software_profile"]["software_name"] == "My Awesome Software"
+
+    @pytest.mark.asyncio
+    async def test_graph_merges_sync_metadata(self, monkeypatch: pytest.MonkeyPatch):
+        from src.agents.graphs.software_copyright.copyright_materials import (
+            copyright_materials_graph,
+        )
+
+        async def _fake_sync_software_materials_payload(**_kwargs):
+            return LatexSyncResult(
+                latex_project_id="latex-soft-2",
+                main_file="main.tex",
+                section_file="sections/70_materials_checklist.tex",
+                section_map={"materials_checklist": "sections/70_materials_checklist.tex"},
+                sync_conflicts=[],
+            )
+
+        monkeypatch.setattr(
+            "src.agents.graphs.software_copyright.copyright_materials.sync_software_materials_payload",
+            _fake_sync_software_materials_payload,
+        )
+
+        result = await copyright_materials_graph(
+            {"workspace_id": "ws-soft", "workspace_type": "software_copyright"},
+            {"workspace_id": "ws-soft", "workspace_name": "Agent Studio", "params": {}},
+        )
+
+        assert result["latex_project_id"] == "latex-soft-2"
+        assert result["main_file"] == "main.tex"
+        assert result["section_file"] == "sections/70_materials_checklist.tex"

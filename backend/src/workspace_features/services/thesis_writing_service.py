@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from typing import Any
 
 from src.artifacts import ArtifactType
-from src.models.factory import create_chat_model
-from src.models.router import list_user_selectable_models, route_writing_model
+from src.workspace_features.services.llm_json import (
+    build_json_prompt,
+    invoke_json_chat_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,44 +32,6 @@ def _clean_str_list(value: Any, *, max_items: int = 12) -> list[str]:
         if len(result) >= max_items:
             break
     return result
-
-
-def _extract_response_text(response: Any) -> str:
-    content = getattr(response, "content", "")
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        texts: list[str] = []
-        for item in content:
-            if isinstance(item, dict) and isinstance(item.get("text"), str):
-                texts.append(item["text"])
-        return "\n".join(texts).strip()
-    return str(content).strip()
-
-
-def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
-    if not raw_text:
-        return None
-
-    candidates = [raw_text.strip()]
-    code_block_match = re.search(r"```json\s*(.*?)\s*```", raw_text, re.DOTALL | re.IGNORECASE)
-    if code_block_match:
-        candidates.append(code_block_match.group(1).strip())
-
-    first_brace = raw_text.find("{")
-    last_brace = raw_text.rfind("}")
-    if first_brace != -1 and last_brace != -1 and first_brace < last_brace:
-        candidates.append(raw_text[first_brace : last_brace + 1].strip())
-
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-            if isinstance(payload, dict):
-                return payload
-        except json.JSONDecodeError:
-            continue
-    return None
-
 
 def _summarize_deep_research_ideas(raw: Any, *, max_items: int = 8) -> list[dict[str, str]]:
     if not isinstance(raw, list):
@@ -208,40 +170,15 @@ async def _invoke_json_llm(
     preferred_model: str | None,
     temperature: float = 0.3,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
-    models = list_user_selectable_models(purpose="writing")
-    if not models:
-        return None, None, "no_generation_model_configured"
-
-    try:
-        model_id = route_writing_model(requested_model=preferred_model)
-    except Exception:
-        model_id = models[0].id
-
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=temperature)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
-
-    try:
-        response = await model.ainvoke(
-            [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=prompt),
-            ]
-        )
-    except Exception as exc:
-        logger.exception("Thesis writing LLM call failed")
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    parsed = _parse_json_payload(_extract_response_text(response))
-    if parsed is None:
-        return None, model_id, "llm_output_not_json"
-    return parsed, model_id, None
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt=system_prompt,
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=temperature,
+    )
+    if parsed is None and generation_error and generation_error.startswith("llm_generation_failed"):
+        logger.exception("Thesis writing LLM call failed: %s", generation_error)
+    return parsed, model_id, generation_error
 
 
 def _normalize_outline(raw_outline: dict[str, Any], *, target_words: int) -> dict[str, Any]:
@@ -302,34 +239,37 @@ async def build_outline_payload(
     ) or "- 无"
     gaps_text = "\n".join(f"- {item}" for item in gap_highlights) or "- 无"
 
-    prompt = "\n".join(
-        [
-            "请生成一份可直接用于毕业论文写作的结构化大纲，返回 JSON。",
-            f"论文题目：{paper_title}",
-            f"目标总字数：{target_words}",
-            f"当前文献数量：{literature_count}",
-            f"深度调研产物数量：{len(deep_research_snapshot.get('artifact_ids') or [])}",
-            "可复用 Deep Research 研究构想：",
-            ideas_text,
-            "可复用 Deep Research 研究空白：",
-            gaps_text,
-            "必须输出结构：",
+    prompt = build_json_prompt(
+        instruction="请生成一份可直接用于毕业论文写作的结构化大纲。",
+        context_sections=[
+            ("论文题目", paper_title),
+            ("目标总字数", str(target_words)),
+            ("当前文献数量", str(literature_count)),
             (
-                '{"abstract":"中文摘要","keywords":["关键词1","关键词2"],'
-                '"chapters":[{"title":"章节标题","position":"本章定位","targetWords":3000,'
-                '"keyPoints":["要点1","要点2"],"sections":["1.1 小节","1.2 小节"]}]}'
+                "Deep Research 上下文",
+                [
+                    f"- 产物数量：{len(deep_research_snapshot.get('artifact_ids') or [])}",
+                    f"- 研究构想：\n{ideas_text}",
+                    f"- 研究空白：\n{gaps_text}",
+                ],
             ),
-            "要求：",
-            "1. 章节应覆盖绪论、相关工作、方法、实验、结论等完整链路。",
-            "2. 应尽量吸收并体现已有 Deep Research 构想与研究空白。",
-            "3. 每章给出清晰定位与可执行小节结构。",
-            "4. targetWords 总体应接近目标总字数。",
-            "5. 只返回 JSON，不要包含额外解释。",
-        ]
+        ],
+        schema=(
+            '{"abstract":"中文摘要","keywords":["关键词1","关键词2"],'
+            '"chapters":[{"title":"章节标题","position":"本章定位","targetWords":3000,'
+            '"keyPoints":["要点1","要点2"],"sections":["1.1 小节","1.2 小节"]}]}'
+        ),
+        requirements=[
+            "章节应覆盖绪论、相关工作、方法、实验、结论等完整链路。",
+            "尽量吸收并体现已有 Deep Research 构想与研究空白。",
+            "每章给出清晰定位与可执行小节结构。",
+            "targetWords 总体应接近目标总字数。",
+        ],
+        output_language="zh",
     )
 
     parsed, model_id, generation_error = await _invoke_json_llm(
-        system_prompt="你是严谨的学术论文写作助手，只输出 JSON。",
+        system_prompt="你是严谨的学术论文写作助手。",
         prompt=prompt,
         preferred_model=preferred_model,
     )
@@ -372,27 +312,26 @@ async def build_chapter_payload(
     normalized_refs = [str(ref).strip() for ref in (references_used or []) if str(ref).strip()]
     refs_text = "\n".join(f"- {ref}" for ref in normalized_refs[:20]) or "- 无明确参考文献"
 
-    prompt = "\n".join(
-        [
-            "请撰写毕业论文单章节草稿并返回 JSON。",
-            f"论文题目：{paper_title}",
-            f"章节序号：{chapter_index + 1}",
-            f"章节标题：{chapter_title}",
-            f"目标字数：{target_words}",
-            "可用参考线索：",
-            refs_text,
-            "必须输出结构：",
-            '{"markdown":"完整章节 Markdown","estimated_words":2300,"references_used":["参考1","参考2"]}',
-            "要求：",
-            "1. markdown 必须是可直接落库的章节正文，包含标题和若干小节。",
-            "2. 内容具备学术写作风格，避免口语化表达。",
-            "3. estimated_words 为正文实际估算字数。",
-            "4. 只返回 JSON，不要附加解释。",
-        ]
+    prompt = build_json_prompt(
+        instruction="请撰写毕业论文单章节草稿。",
+        context_sections=[
+            ("论文题目", paper_title),
+            ("章节序号", str(chapter_index + 1)),
+            ("章节标题", chapter_title),
+            ("目标字数", str(target_words)),
+            ("可用参考线索", refs_text),
+        ],
+        schema='{"markdown":"完整章节 Markdown","estimated_words":2300,"references_used":["参考1","参考2"]}',
+        requirements=[
+            "markdown 必须是可直接落库的章节正文，包含标题和若干小节。",
+            "内容具备学术写作风格，避免口语化表达。",
+            "estimated_words 为正文实际估算字数。",
+        ],
+        output_language="zh",
     )
 
     parsed, model_id, generation_error = await _invoke_json_llm(
-        system_prompt="你是学术论文章节写作助手，只输出 JSON。",
+        system_prompt="你是学术论文章节写作助手。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.35,

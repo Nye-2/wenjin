@@ -15,7 +15,11 @@ export function streamChat(
   data: ChatRequest,
   onMessage: (content: string) => void,
   onReasoning?: (content: string) => void,
-  onThreadId?: (context: { threadId: string; skill: string | null }) => void,
+  onThreadId?: (context: {
+    threadId: string;
+    skill: string | null;
+    skillName: string | null;
+  }) => void,
   onAssistantMessage?: (message: ChatMessage) => void,
   onError?: (error: string) => void,
   onDone?: () => void
@@ -27,7 +31,7 @@ export function streamChat(
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ ...data, stream: true }),
+    body: JSON.stringify(data),
     signal: controller.signal,
   })
     .then(async (response) => {
@@ -61,6 +65,8 @@ export function streamChat(
               onThreadId?.({
                 threadId: json.thread_id,
                 skill: typeof json.skill === "string" ? json.skill : null,
+                skillName:
+                  typeof json.skill_name === "string" ? json.skill_name : null,
               });
               break;
             case "content":

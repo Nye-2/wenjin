@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Workspace, WorkspaceType
 
-_CHAT_ROLLOUT_DEFAULT_TYPES = {
+_CHAT_COCKPIT_DEFAULT_TYPES = {
     "thesis",
     "sci",
     "proposal",
@@ -52,9 +52,8 @@ class WorkspaceService:
         base_config = dict(config or {})
         rollout = base_config.get("rollout")
         rollout_config = dict(rollout) if isinstance(rollout, dict) else {}
-        enabled_by_default = type_value in _CHAT_ROLLOUT_DEFAULT_TYPES
+        enabled_by_default = type_value in _CHAT_COCKPIT_DEFAULT_TYPES
         rollout_config.setdefault("chat_cockpit_enabled", enabled_by_default)
-        rollout_config.setdefault("chat_feature_orchestration_enabled", enabled_by_default)
         base_config["rollout"] = rollout_config
         return base_config
 

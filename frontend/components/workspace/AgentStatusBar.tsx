@@ -98,6 +98,7 @@ export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
     threadId,
     activeSkill,
     isStreaming,
+    currentThreadSummary,
     threadStatuses,
     setThreadStatus,
   } = useChatStore();
@@ -238,7 +239,14 @@ export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
 
     const effectiveSkillId = visibleThreadStatus?.current_skill || activeSkill;
     const skillLabel = effectiveSkillId
-      ? (getSkillById(effectiveSkillId)?.name ?? effectiveSkillId)
+      ? (
+          visibleThreadStatus?.current_skill_name ||
+          (currentThreadSummary?.skill === effectiveSkillId
+            ? currentThreadSummary.skill_name
+            : null) ||
+          getSkillById(effectiveSkillId)?.name ||
+          effectiveSkillId
+        )
       : "chat";
 
     return (

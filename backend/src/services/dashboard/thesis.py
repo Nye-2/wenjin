@@ -9,12 +9,17 @@ from sqlalchemy import func, select
 from src.artifacts.types import ArtifactType
 from src.database import Artifact, WorkspaceLiterature
 from src.services.dashboard.shared import DashboardStatusSharedMixin
+from src.services.workspace_skill_labels import list_workspace_feature_creator_ids
 
 
 class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
     """Feature status builders for thesis workspace modules."""
 
     db: Any
+
+    @staticmethod
+    def _creator_ids(feature_id: str) -> tuple[str, ...]:
+        return list_workspace_feature_creator_ids("thesis", feature_id)
 
     async def _get_deep_research_status(self, workspace_id: str) -> dict[str, Any]:
         running_count = await self._count_running_workspace_feature_tasks(
@@ -101,10 +106,10 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
         }
 
     async def _get_opening_research_status(self, workspace_id: str) -> dict[str, Any]:
+        creator_ids = self._creator_ids("opening_research")
         result = await self.db.execute(
             select(Artifact)
             .where(Artifact.workspace_id == workspace_id)
-            .where(Artifact.created_by_skill == "thesis.opening_research")
             .where(
                 Artifact.type.in_(
                     [
@@ -114,6 +119,7 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
                     ]
                 )
             )
+            .where(Artifact.created_by_skill.in_(creator_ids))
         )
         artifacts = result.scalars().all()
 
@@ -224,11 +230,12 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
             workspace_id,
             "compile_export",
         )
+        creator_ids = self._creator_ids("compile_export")
         result = await self.db.execute(
             select(Artifact)
             .where(Artifact.workspace_id == workspace_id)
             .where(Artifact.type == ArtifactType.PAPER_DRAFT.value)
-            .where(Artifact.created_by_skill == "thesis.compile_export")
+            .where(Artifact.created_by_skill.in_(creator_ids))
             .order_by(Artifact.created_at.desc())
             .limit(1)
         )

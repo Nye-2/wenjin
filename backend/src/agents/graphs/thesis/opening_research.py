@@ -14,9 +14,19 @@ from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     advance_runtime_phase,
     append_runtime_activity,
-    emit_bound_runtime as _emit_bound_runtime,
-    runtime_progress_for_phase,
     upsert_runtime_block,
+)
+from src.task.runtime_blocks import (
+    emit_bound_runtime as _emit_bound_runtime,
+)
+from src.workspace_features.services.llm_json import (
+    build_json_prompt,
+    invoke_json_chat_model,
+    parse_json_array,
+    parse_json_payload,
+)
+from src.workspace_features.services.thesis_feature_service import (
+    load_thesis_workspace_literature as _load_literature,
 )
 
 logger = logging.getLogger(__name__)
@@ -247,25 +257,6 @@ def _normalize_report_type(report_type: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Helper: load literature from DB
-# ---------------------------------------------------------------------------
-async def _load_literature(workspace_id: str) -> list[dict[str, Any]]:
-    """Load workspace literature from DB."""
-    from src.database import get_db_session
-    from src.services.literature_service import LiteratureService
-
-    try:
-        async with get_db_session() as db:
-            service = LiteratureService(db)
-            response = await service.list_literature(workspace_id, offset=0, limit=120)
-        items = response.get("items")
-        return items if isinstance(items, list) else []
-    except Exception:
-        logger.exception("Failed to load literature for opening research")
-        return []
-
-
-# ---------------------------------------------------------------------------
 # Helper: build literature highlights
 # ---------------------------------------------------------------------------
 def _build_literature_highlights(literature: list[dict[str, Any]], max_items: int = 8) -> list[str]:
@@ -283,35 +274,14 @@ def _build_literature_highlights(literature: list[dict[str, Any]], max_items: in
     return highlights
 
 
-# ---------------------------------------------------------------------------
-# Helper: parse JSON from LLM response
-# ---------------------------------------------------------------------------
 def _parse_json_response(text: str) -> dict[str, Any] | None:
-    """Parse JSON from LLM response, handling markdown fences."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    try:
-        parsed = json.loads(text)
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        return None
+    """Compatibility wrapper for tests around JSON parsing behavior."""
+    return parse_json_payload(text)
 
 
 def _parse_json_list_response(text: str) -> list[dict[str, Any]] | None:
-    """Parse JSON list from LLM response, handling markdown fences."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, list) and all(isinstance(item, dict) for item in parsed):
-            return parsed
-        return None
-    except json.JSONDecodeError:
-        return None
+    """Compatibility wrapper for tests around JSON list parsing behavior."""
+    return parse_json_array(text)
 
 
 # ---------------------------------------------------------------------------
@@ -329,26 +299,12 @@ def _build_literature_summary(literature: list[dict[str, Any]], max_items: int =
     return "\n".join(summaries) if summaries else "（暂无文献）"
 
 
-# ---------------------------------------------------------------------------
-# LLM Step 1: Analyze research status
-# ---------------------------------------------------------------------------
-_STEP1_PROMPT = """你是学术研究分析专家。基于以下文献列表和研究方向，分析当前研究现状。
-
-研究方向: {topic}
-
-文献列表:
-{literature_summary}
-{memory_context}
-
-请分析并返回 JSON:
-{{
+_STEP1_SCHEMA = """{
   "research_status": "对该领域当前研究状态的概述（3-5句话）",
   "key_trends": ["趋势1", "趋势2", "趋势3"],
   "research_gaps": ["研究空白1", "研究空白2"],
   "theoretical_foundations": ["理论基础1", "理论基础2"]
-}}
-
-仅返回 JSON。"""
+}"""
 
 
 async def _analyze_research_status(
@@ -359,51 +315,42 @@ async def _analyze_research_status(
     model_id: str = "default",
 ) -> dict[str, Any] | None:
     """Step 1: LLM analyzes research landscape. Returns None on failure."""
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return None
-
     lit_text = _build_literature_summary(literature)
-    mem_text = f"\n用户记忆上下文:\n{memory_context}" if memory_context else ""
-
-    prompt = _STEP1_PROMPT.format(
-        topic=focus_topic,
-        literature_summary=lit_text,
-        memory_context=mem_text,
+    prompt = build_json_prompt(
+        instruction="请基于已有文献，分析当前研究现状并指出后续开题最值得展开的脉络。",
+        context_sections=(
+            ("研究方向", focus_topic),
+            ("文献列表", lit_text),
+            ("工作记忆", memory_context),
+        ),
+        schema=_STEP1_SCHEMA,
+        requirements=(
+            "research_status 需要概括研究主题、主要方法和现阶段成熟度。",
+            "key_trends 与 research_gaps 要尽量基于文献摘要可见的信息，不要空泛堆词。",
+            "如果文献不足，明确指出“待补充/待核验”，但仍给出保守分析。",
+        ),
+        output_language="中文",
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_response(content)
-    except Exception:
-        logger.exception("Step 1 (analyze_research_status) failed")
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术研究分析专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.2,
+    )
+    if isinstance(parsed, dict):
+        return parsed
+    if generation_error:
+        logger.warning("Step 1 (analyze_research_status) failed: %s", generation_error)
         return None
+    return None
 
 
-# ---------------------------------------------------------------------------
-# LLM Step 2: Plan methodology
-# ---------------------------------------------------------------------------
-_STEP2_PROMPT = """你是学术方法论规划专家。基于前一步的研究现状分析，为以下报告类型规划研究方法。
-
-报告类型: {report_type}
-研究方向: {topic}
-
-研究现状分析:
-{research_analysis}
-
-请规划并返回 JSON:
-{{
+_STEP2_SCHEMA = """{
   "objectives": ["研究目标1", "研究目标2", "研究目标3"],
   "methodology": "研究方法论概述（3-5句话）",
   "technical_approach": "技术路线概述（3-5句话）",
   "innovation_points": ["创新点1", "创新点2"]
-}}
-
-仅返回 JSON。"""
+}"""
 
 
 async def _plan_methodology(
@@ -414,54 +361,41 @@ async def _plan_methodology(
     model_id: str = "default",
 ) -> dict[str, Any] | None:
     """Step 2: LLM plans research methodology. Returns None on failure."""
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return None
-
-    analysis_text = json.dumps(research_analysis, ensure_ascii=False, indent=2) if research_analysis else "（前一步分析未生成，请基于通用学术方法论进行规划）"
-
-    prompt = _STEP2_PROMPT.format(
-        report_type=report_type,
-        topic=topic,
-        research_analysis=analysis_text,
+    analysis_text = (
+        json.dumps(research_analysis, ensure_ascii=False, indent=2)
+        if research_analysis
+        else "（前一步分析未生成，请基于通用学术方法论进行保守规划）"
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_response(content)
-    except Exception:
-        logger.exception("Step 2 (plan_methodology) failed")
+    prompt = build_json_prompt(
+        instruction="请结合研究现状分析，为该开题/综述任务规划可执行的方法路线。",
+        context_sections=(
+            ("报告类型", report_type),
+            ("研究方向", topic),
+            ("研究现状分析", analysis_text),
+        ),
+        schema=_STEP2_SCHEMA,
+        requirements=(
+            "objectives 要具体、可验证，不要写成空泛口号。",
+            "technical_approach 需要体现研究步骤或模块关系，而不是重复 methodology。",
+            "innovation_points 只能基于已有分析推导，不要编造未经支持的突破性结论。",
+        ),
+        output_language="中文",
+    )
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术方法论规划专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.2,
+    )
+    if isinstance(parsed, dict):
+        return parsed
+    if generation_error:
+        logger.warning("Step 2 (plan_methodology) failed: %s", generation_error)
         return None
+    return None
 
 
-# ---------------------------------------------------------------------------
-# LLM Step 3: Generate report sections
-# ---------------------------------------------------------------------------
-_STEP3_PROMPT = """你是学术报告撰写专家。基于研究分析和方法论规划，生成完整的报告章节。
-
-报告类型: {report_type}
-研究方向: {topic}
-
-研究现状分析:
-{research_analysis}
-
-方法论规划:
-{methodology_plan}
-
-参考文献线索:
-{literature_highlights}
-{memory_context}
-
-请按照以下结构生成报告章节，返回 JSON 列表:
-{section_schema}
-
-每个章节格式: {{"title": "章节标题", "content": "章节详细内容（200-500字）"}}
-
-仅返回 JSON 列表。"""
+_STEP3_ITEM_SCHEMA = '{"title": "章节标题", "content": "章节详细内容（200-500字）"}'
 
 _SECTION_SCHEMAS: dict[str, str] = {
     "opening_report": """[
@@ -499,13 +433,6 @@ async def _generate_report_sections(
     model_id: str = "default",
 ) -> list[dict[str, Any]] | None:
     """Step 3: LLM generates full report sections."""
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return None
-
     analysis_text = (
         json.dumps(research_analysis, ensure_ascii=False, indent=2)
         if research_analysis
@@ -517,29 +444,45 @@ async def _generate_report_sections(
         else "（未生成）"
     )
     lit_text = "\n".join(f"- {h}" for h in literature_highlights) if literature_highlights else "（暂无）"
-    mem_text = f"\n用户记忆上下文:\n{memory_context}" if memory_context else ""
     section_schema = _SECTION_SCHEMAS.get(report_type, _SECTION_SCHEMAS["opening_report"])
-
-    prompt = _STEP3_PROMPT.format(
-        report_type=report_type,
-        topic=topic,
-        research_analysis=analysis_text,
-        methodology_plan=methodology_text,
-        literature_highlights=lit_text,
-        memory_context=mem_text,
-        section_schema=section_schema,
+    prompt = build_json_prompt(
+        instruction="请将研究分析与方法规划整合为一份可直接落稿的报告章节草案。",
+        context_sections=(
+            ("报告类型", report_type),
+            ("研究方向", topic),
+            ("工作区描述", workspace_description),
+            ("研究现状分析", analysis_text),
+            ("方法论规划", methodology_text),
+            ("参考文献线索", lit_text),
+            ("工作记忆", memory_context),
+            ("目标章节结构", section_schema),
+        ),
+        schema=f"[{_STEP3_ITEM_SCHEMA}]",
+        requirements=(
+            "严格按照目标章节结构生成，章节顺序不要改动。",
+            "每个章节内容要围绕该章节标题展开，避免不同章节之间重复。",
+            "内容应体现研究背景、文献线索和方法规划，但不要编造具体数据或实验结果。",
+            "如果某章缺少事实基础，可保守写法并注明待补充方向。",
+        ),
+        output_language="中文",
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        parsed = _parse_json_list_response(content)
-        if parsed and len(parsed) >= 2:
-            return [
-                {"title": s.get("title", ""), "content": s.get("content", ""), "source": "llm"}
-                for s in parsed
-            ]
-    except Exception:
-        logger.exception("Step 3 (generate_report_sections) failed")
-
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术报告撰写专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.2,
+        expected_type="array",
+    )
+    if isinstance(parsed, list) and len(parsed) >= 2:
+        return [
+            {
+                "title": str(section.get("title") or ""),
+                "content": str(section.get("content") or ""),
+                "source": "llm",
+            }
+            for section in parsed
+            if isinstance(section, dict)
+        ]
+    if generation_error:
+        logger.warning("Step 3 (generate_report_sections) failed: %s", generation_error)
     return None

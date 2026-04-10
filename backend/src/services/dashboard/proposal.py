@@ -6,12 +6,17 @@ from typing import Any
 
 from src.artifacts.types import ArtifactType
 from src.services.dashboard.shared import DashboardStatusSharedMixin
+from src.services.workspace_skill_labels import list_workspace_feature_creator_ids
 
 
 class DashboardProposalStatusMixin(DashboardStatusSharedMixin):
     """Feature status builders for proposal workspace modules."""
 
     db: Any
+
+    @staticmethod
+    def _creator_ids(feature_id: str) -> tuple[str, ...]:
+        return list_workspace_feature_creator_ids("proposal", feature_id)
 
     async def _get_proposal_outline_status(self, workspace_id: str) -> dict[str, Any]:
         outline_count = await self._count_artifacts(
@@ -72,12 +77,12 @@ class DashboardProposalStatusMixin(DashboardStatusSharedMixin):
         design_count = await self._count_artifacts(
             workspace_id,
             ArtifactType.METHODOLOGY.value,
-            created_by_skill="proposal.experiment_design",
+            created_by_skills=self._creator_ids("experiment_design"),
         )
         latest_artifact = await self._get_latest_artifact(
             workspace_id,
             ArtifactType.METHODOLOGY.value,
-            created_by_skill="proposal.experiment_design",
+            created_by_skills=self._creator_ids("experiment_design"),
         )
         running_count = await self._count_running_workspace_feature_tasks(
             workspace_id,

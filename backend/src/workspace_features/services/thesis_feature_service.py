@@ -9,10 +9,10 @@ This module keeps handler logic thin and reusable by encapsulating:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from src.academic.services import ArtifactService
@@ -21,14 +21,14 @@ from src.database import Artifact, get_db_session
 from src.execution.capabilities import execution_type_readiness
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.execution.types import ExecutionType
-from src.models.factory import create_chat_model
-from src.models.router import list_user_selectable_models, route_writing_model
-from src.services.latex import LatexCompileService
 from src.services.literature_service import LiteratureService
-from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.thesis.execution import get_execution_service
 from src.thesis.execution.figure_tool import generate_figure
 from src.thesis.latex_template import get_template
+from src.workspace_features.services.llm_json import (
+    build_json_prompt,
+    invoke_json_chat_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,18 @@ def _coerce_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_string_list(value: Any, *, max_items: int = 8) -> list[str]:
+    """Normalize a dynamic list-like value into trimmed strings."""
+    if not isinstance(value, list):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text:
+            normalized.append(text)
+    return normalized[:max_items]
 
 
 def _normalize_figure_type(raw_type: str) -> str:
@@ -344,6 +356,100 @@ async def _load_workspace_literature(workspace_id: str) -> list[dict[str, Any]]:
     return items if isinstance(items, list) else []
 
 
+def extract_thesis_chapter_summaries(
+    artifacts: list[Artifact | dict[str, Any]],
+    max_content_chars: int = 500,
+) -> list[dict[str, str]]:
+    """Extract sorted thesis chapter summaries from artifact records."""
+    chapters: list[tuple[int, str, dict[str, str]]] = []
+    for artifact in artifacts:
+        if isinstance(artifact, dict):
+            artifact_type = artifact.get("type")
+            artifact_title = artifact.get("title")
+            artifact_content = artifact.get("content")
+            artifact_created_at = str(artifact.get("created_at") or "")
+        else:
+            artifact_type = artifact.type
+            artifact_title = artifact.title
+            artifact_content = _artifact_content(artifact)
+            artifact_created_at = str(getattr(artifact, "created_at", "") or "")
+
+        if artifact_type != ArtifactType.THESIS_CHAPTER.value:
+            continue
+        if not isinstance(artifact_content, dict):
+            continue
+
+        title = str(
+            artifact_content.get("chapter_title")
+            or artifact_title
+            or "未命名章节"
+        )
+        markdown = str(artifact_content.get("markdown") or "").strip()
+        summary = markdown[:max_content_chars] if markdown else ""
+        index = _coerce_int(artifact_content.get("chapter_index"))
+        chapters.append(
+            (
+                index if index is not None else 999,
+                artifact_created_at,
+                {"title": title, "summary": summary},
+            )
+        )
+
+    chapters.sort(key=lambda item: (item[0], item[1]))
+    return [chapter for _, _, chapter in chapters]
+
+
+async def load_thesis_workspace_literature(workspace_id: str) -> list[dict[str, Any]]:
+    """Load workspace literature for thesis feature graphs."""
+    try:
+        return await _load_workspace_literature(workspace_id)
+    except Exception:
+        logger.exception("Failed to load thesis workspace literature")
+        return []
+
+
+async def load_thesis_chapter_summaries(workspace_id: str) -> list[dict[str, str]]:
+    """Load chapter summaries for thesis compile-export preprocessing."""
+    try:
+        artifacts = await _load_workspace_artifacts(workspace_id)
+        artifact_dicts = [
+            {
+                "type": artifact.type,
+                "title": artifact.title,
+                "content": artifact.content if isinstance(artifact.content, dict) else {},
+                "created_at": str(getattr(artifact, "created_at", "") or ""),
+            }
+            for artifact in artifacts
+        ]
+        return extract_thesis_chapter_summaries(artifact_dicts)
+    except Exception:
+        logger.exception("Failed to load thesis chapter summaries")
+        return []
+
+
+async def load_thesis_literature_count(workspace_id: str) -> int:
+    """Return total literature count for thesis feature graphs."""
+    try:
+        async with get_db_session() as db:
+            service = LiteratureService(db)
+            response = await service.list_literature(workspace_id, offset=0, limit=1)
+        return int(response.get("total", 0))
+    except Exception:
+        logger.exception("Failed to load thesis literature count")
+        return 0
+
+
+async def load_thesis_outline_context(workspace_id: str) -> dict[str, Any]:
+    """Load outline-derived thesis context for compile/export orchestration."""
+    try:
+        artifacts = await _load_workspace_artifacts(workspace_id)
+        outline = _extract_outline_content(artifacts)
+        return outline if isinstance(outline, dict) else {}
+    except Exception:
+        logger.exception("Failed to load thesis outline context")
+        return {}
+
+
 def _extract_outline_content(artifacts: list[Artifact]) -> dict[str, Any]:
     for artifact in artifacts:
         if artifact.type == ArtifactType.FRAMEWORK_OUTLINE.value:
@@ -353,6 +459,242 @@ def _extract_outline_content(artifacts: list[Artifact]) -> dict[str, Any]:
                 return {"paper_title": content.get("paper_title"), **outline}
             return content
     return {}
+
+
+_THESIS_TEMPLATE_FIELDS = (
+    "title",
+    "author",
+    "abstract",
+    "content",
+    "acknowledgements",
+    "bibliography_style",
+)
+
+
+def _contains_thesis_template_slots(template_source: str) -> bool:
+    return any(f"{{{field}}}" in template_source for field in _THESIS_TEMPLATE_FIELDS)
+
+
+def _format_uploaded_latex_template(template_source: str, **values: str) -> str:
+    """Safely substitute known Wenjin slots without treating LaTeX braces as format tokens."""
+    escaped_template = template_source
+    markers = {
+        field: f"__WENJIN_TEMPLATE_SLOT_{field.upper()}__"
+        for field in _THESIS_TEMPLATE_FIELDS
+    }
+    for field, marker in markers.items():
+        escaped_template = escaped_template.replace(f"{{{field}}}", marker)
+    escaped_template = escaped_template.replace("{", "{{").replace("}", "}}")
+    for field, marker in markers.items():
+        escaped_template = escaped_template.replace(marker, f"{{{field}}}")
+    return escaped_template.format(**values)
+
+
+def _extract_uploaded_latex_preamble(template_source: str) -> str | None:
+    normalized = (template_source or "").strip()
+    if not normalized:
+        return None
+    if "\\begin{document}" in normalized:
+        normalized = normalized.split("\\begin{document}", 1)[0].rstrip()
+    if "\\documentclass" not in normalized:
+        return None
+    return normalized
+
+
+def _strip_thesis_preamble_metadata(preamble: str) -> str:
+    filtered_lines: list[str] = []
+    for line in preamble.splitlines():
+        stripped = line.strip()
+        if (
+            stripped.startswith("\\title{")
+            or stripped.startswith("\\author{")
+            or stripped.startswith("\\date{")
+        ):
+            continue
+        filtered_lines.append(line)
+    return "\n".join(filtered_lines).rstrip()
+
+
+def _detect_uploaded_latex_template_kind(
+    template_source: str,
+    template_filename: str | None,
+) -> str:
+    suffix = Path(template_filename or "").suffix.lower()
+    if suffix == ".cls":
+        return "class"
+    if suffix == ".sty":
+        return "style"
+
+    normalized = (template_source or "").strip()
+    if "\\ProvidesClass" in normalized or "\\LoadClass" in normalized:
+        return "class"
+    if "\\ProvidesPackage" in normalized:
+        return "style"
+    return "document"
+
+
+def _sanitize_latex_template_asset_name(template_filename: str | None, *, kind: str) -> str:
+    fallback_stem = f"wenjin_thesis_template_{kind}"
+    stem = Path(template_filename or fallback_stem).stem or fallback_stem
+    normalized = re.sub(r"[^0-9A-Za-z_-]+", "_", stem).strip("_")
+    if not normalized:
+        normalized = fallback_stem
+    if normalized[0].isdigit():
+        normalized = f"wenjin_{normalized}"
+    extension = ".cls" if kind == "class" else ".sty"
+    return f"{normalized}{extension}"
+
+
+def _build_uploaded_latex_template_asset(
+    template_source: str | None,
+    template_filename: str | None,
+) -> dict[str, str] | None:
+    normalized = (template_source or "").strip()
+    if not normalized:
+        return None
+
+    kind = _detect_uploaded_latex_template_kind(normalized, template_filename)
+    if kind not in {"class", "style"}:
+        return None
+
+    return {
+        "path": _sanitize_latex_template_asset_name(template_filename, kind=kind),
+        "content": normalized,
+    }
+
+
+def _build_default_thesis_preamble(language: str) -> str:
+    preamble = _extract_uploaded_latex_preamble(get_template(language))
+    if preamble:
+        return _strip_thesis_preamble_metadata(
+            preamble.replace("{{", "{").replace("}}", "}")
+        )
+    if language == "en":
+        return "\\documentclass[a4paper, 12pt, openany]{article}"
+    return "\\documentclass[UTF8, a4paper, 12pt, openany]{ctexart}"
+
+
+def _inject_package_into_preamble(preamble: str, package_name: str) -> str:
+    lines = preamble.splitlines()
+    for index, line in enumerate(lines):
+        if "\\documentclass" in line:
+            lines.insert(index + 1, f"\\usepackage{{{package_name}}}")
+            break
+    else:
+        lines.insert(0, f"\\usepackage{{{package_name}}}")
+    return "\n".join(lines).rstrip()
+
+
+def _build_thesis_document_template(
+    *,
+    language: str,
+    preamble: str | None = None,
+) -> str:
+    if preamble:
+        normalized_preamble = _strip_thesis_preamble_metadata(preamble)
+        acknowledgement_title = "Acknowledgements" if language == "en" else "致谢"
+        return "\n".join(
+            [
+                normalized_preamble.rstrip(),
+                "",
+                "\\title{{title}}",
+                "\\author{{author}}",
+                "\\date{\\today}",
+                "",
+                "\\begin{document}",
+                "",
+                "\\maketitle",
+                "",
+                "% Abstract",
+                "{abstract}",
+                "",
+                "% Table of contents",
+                "\\newpage",
+                "\\tableofcontents",
+                "",
+                "% Main content",
+                "{content}",
+                "",
+                "% Bibliography",
+                "\\newpage",
+                "\\bibliographystyle{{bibliography_style}}",
+                "\\bibliography{{refs}}",
+                "",
+                "% Acknowledgements",
+                "\\newpage",
+                f"\\section*{{{acknowledgement_title}}}",
+                "{acknowledgements}",
+                "",
+                "\\end{document}",
+            ]
+        )
+    return get_template(language)
+
+
+def _render_thesis_latex_document(
+    *,
+    template_source: str | None,
+    template_filename: str | None,
+    language: str,
+    title: str,
+    author: str,
+    abstract: str,
+    content: str,
+    acknowledgements: str,
+    bibliography_style: str,
+) -> str:
+    values = {
+        "title": title,
+        "author": author,
+        "abstract": abstract,
+        "content": content,
+        "acknowledgements": acknowledgements,
+        "bibliography_style": bibliography_style,
+    }
+    normalized_source = (template_source or "").strip()
+    if normalized_source:
+        template_asset = _build_uploaded_latex_template_asset(
+            normalized_source,
+            template_filename,
+        )
+        template_kind = _detect_uploaded_latex_template_kind(
+            normalized_source,
+            template_filename,
+        )
+        if template_asset and template_kind == "class":
+            class_name = Path(template_asset["path"]).stem
+            return _format_uploaded_latex_template(
+                _build_thesis_document_template(
+                    language=language,
+                    preamble=f"\\documentclass{{{class_name}}}",
+                ),
+                **values,
+            )
+        if template_asset and template_kind == "style":
+            package_name = Path(template_asset["path"]).stem
+            return _format_uploaded_latex_template(
+                _build_thesis_document_template(
+                    language=language,
+                    preamble=_inject_package_into_preamble(
+                        _build_default_thesis_preamble(language),
+                        package_name,
+                    ),
+                ),
+                **values,
+            )
+        if _contains_thesis_template_slots(normalized_source):
+            return _format_uploaded_latex_template(normalized_source, **values)
+        preamble = _extract_uploaded_latex_preamble(normalized_source)
+        if preamble:
+            return _format_uploaded_latex_template(
+                _build_thesis_document_template(
+                    language=language,
+                    preamble=preamble,
+                ),
+                **values,
+            )
+        logger.warning("Active thesis template is not a usable preamble, falling back to default template")
+    return _build_thesis_document_template(language=language).format(**values)
 
 
 def _extract_sorted_chapters(artifacts: list[Artifact]) -> list[dict[str, Any]]:
@@ -503,17 +845,26 @@ async def build_compile_payload(
     abstract_override: str | None = None,
     keywords_override: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Build compile artifact content with real assembly + compile attempt."""
+    """Build thesis compile payload without linked LaTeX side effects."""
+    _ = thread_id
     artifacts, literature = await asyncio.gather(
         _load_workspace_artifacts(workspace_id),
         _load_workspace_literature(workspace_id),
     )
 
     outline = _extract_outline_content(artifacts)
+    has_chapter_artifacts = any(
+        artifact.type == ArtifactType.THESIS_CHAPTER.value
+        for artifact in artifacts
+    )
     chapters = _extract_sorted_chapters(artifacts)
-    if not chapters:
+    if not has_chapter_artifacts:
         raise RuntimeError(
             "compile_export_failed: no thesis chapter artifacts found, run thesis writing first"
+        )
+    if not chapters:
+        raise RuntimeError(
+            "compile_export_failed: chapter artifacts exist but contain no renderable markdown content"
         )
     figures = _extract_figures(artifacts)
 
@@ -522,6 +873,7 @@ async def build_compile_payload(
         or workspace_name
         or "未命名论文"
     )
+    outline_keywords = _normalize_string_list(outline.get("keywords"))
     normalized_abstract_override = str(abstract_override or "").strip()
     if normalized_abstract_override:
         abstract_text = normalized_abstract_override
@@ -534,13 +886,9 @@ async def build_compile_payload(
         )
         abstract_source = "outline_or_workspace"
 
-    keywords: list[str] = []
-    if isinstance(keywords_override, list):
-        for item in keywords_override:
-            text = str(item or "").strip()
-            if text:
-                keywords.append(text)
-    keywords = keywords[:8]
+    keywords = _normalize_string_list(keywords_override)
+    if not keywords:
+        keywords = outline_keywords
 
     chapter_latex = []
     for chapter in chapters:
@@ -567,114 +915,43 @@ async def build_compile_payload(
     language = resolve_thesis_output_language(template)
 
     # Load workspace template if available
-    template_preamble = None
+    template_source = None
+    template_filename = None
+    template_assets: list[dict[str, str]] = []
     try:
         from src.services.template_service import TemplateService
         async with get_db_session() as template_db:
             ts = TemplateService(template_db)
             active_template = await ts.get_active(workspace_id)
             if active_template and active_template.latex_preamble:
-                template_preamble = active_template.latex_preamble
+                template_source = active_template.latex_preamble
+                template_filename = str(getattr(active_template, "source_file_path", "") or "") or None
     except Exception:
         logger.warning("Failed to load template for compilation, using default")
 
-    # Use workspace template preamble or default
-    if template_preamble:
-        latex_template = template_preamble
-    else:
-        latex_template = get_template(language)
+    template_asset = _build_uploaded_latex_template_asset(
+        template_source,
+        template_filename,
+    )
+    if template_asset:
+        template_assets.append(template_asset)
 
-    final_latex = latex_template.format(
+    final_latex = _render_thesis_latex_document(
+        template_source=template_source,
+        template_filename=template_filename,
+        language=language,
         title=_escape_latex(paper_title),
         author="",
         abstract=abstract_latex,
         content=content_body,
         acknowledgements="",
+        bibliography_style=bibliography_style,
     )
     bib_content = _build_bibtex(literature)
 
     normalized_compiler = compiler.lower().strip()
     if normalized_compiler not in {"xelatex", "pdflatex"}:
         normalized_compiler = "xelatex"
-
-    latex_project_id: str | None = None
-    pdf_path: str | None = None
-    pdf_url: str | None = None
-    compile_error: str | None = None
-    compile_logs: str | None = None
-    page_count: int | None = None
-    pdf_endpoint: str | None = None
-    sync_conflicts: list[dict[str, str]] = []
-
-    try:
-        async with get_db_session() as db:
-            bridge_service = WorkspaceLatexProjectService(db)
-            compile_service = LatexCompileService(db)
-            linked_project = await bridge_service.sync_project(
-                workspace_id=workspace_id,
-                project_name=paper_title,
-                main_file="main.tex",
-                main_tex=final_latex,
-                bib_tex=bib_content,
-                template=template,
-                metadata={
-                    "source_summary": {
-                        "outline_count": 1 if outline else 0,
-                        "chapter_count": len(chapters),
-                        "figure_count": len(figures),
-                        "literature_count": len(literature),
-                    },
-                    "bibliography_style": bibliography_style,
-                    "output_language": language,
-                },
-            )
-            latex_project_id = str(linked_project.id)
-            linked_metadata = (
-                linked_project.llm_config.get("metadata")
-                if isinstance(linked_project.llm_config, dict)
-                else {}
-            )
-            if isinstance(linked_metadata, dict):
-                raw_conflicts = linked_metadata.get("sync_conflicts")
-                if isinstance(raw_conflicts, list):
-                    sync_conflicts = [item for item in raw_conflicts if isinstance(item, dict)]
-            compile_response = await compile_service.compile_project(
-                linked_project,
-                main_file="main.tex",
-                engine=normalized_compiler,
-            )
-            compile_status = "success" if bool(compile_response.get("ok")) else "failed"
-            pdf_path = (
-                str(compile_response.get("pdf_path"))
-                if compile_response.get("pdf_path")
-                else None
-            )
-            pdf_endpoint = (
-                str(compile_response.get("pdf_endpoint"))
-                if compile_response.get("pdf_endpoint")
-                else None
-            )
-            pdf_url = pdf_endpoint
-            compile_error = (
-                str(compile_response.get("error"))
-                if compile_response.get("error")
-                else None
-            )
-            compile_logs = (
-                str(compile_response.get("log"))
-                if compile_response.get("log")
-                else None
-            )
-            page_count = (
-                int(compile_response.get("page_count"))
-                if compile_response.get("page_count") is not None
-                else None
-            )
-    except Exception as exc:
-        logger.exception("Failed to complete linked latex compile pipeline")
-        raise RuntimeError(
-            f"compile_export_failed: linked_latex_pipeline_failed: {exc}"
-        ) from exc
 
     return {
         "schema_version": THESIS_SCHEMA_VERSION,
@@ -683,17 +960,10 @@ async def build_compile_payload(
         "compiler": normalized_compiler,
         "bibliography_style": bibliography_style,
         "paper_title": paper_title,
-        "latex_project_id": latex_project_id,
         "main_file": "main.tex",
         "latex_content": final_latex,
         "bib_content": bib_content,
-        "compile_status": compile_status,
-        "pdf_path": pdf_path,
-        "pdf_url": pdf_url,
-        "pdf_endpoint": pdf_endpoint,
-        "page_count": page_count,
-        "compile_error": compile_error,
-        "compile_logs": _truncate(compile_logs or "", max_len=3000),
+        "template_assets": template_assets,
         "keywords": keywords,
         "abstract_source": abstract_source,
         "source_summary": {
@@ -702,7 +972,6 @@ async def build_compile_payload(
             "figure_count": len(figures),
             "literature_count": len(literature),
         },
-        "sync_conflicts": sync_conflicts,
         "generated_at": _utc_now_iso(),
     }
 
@@ -816,45 +1085,6 @@ def _build_opening_template_sections(
         )
     return sections
 
-
-def _extract_response_text(response: Any) -> str:
-    content = getattr(response, "content", "")
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        texts: list[str] = []
-        for item in content:
-            if isinstance(item, dict) and isinstance(item.get("text"), str):
-                texts.append(item["text"])
-        return "\n".join(texts).strip()
-    return str(content).strip()
-
-
-def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
-    if not raw_text:
-        return None
-
-    candidates = [raw_text.strip()]
-
-    code_block_match = re.search(r"```json\s*(.*?)\s*```", raw_text, re.DOTALL | re.IGNORECASE)
-    if code_block_match:
-        candidates.append(code_block_match.group(1).strip())
-
-    first_brace = raw_text.find("{")
-    last_brace = raw_text.rfind("}")
-    if first_brace != -1 and last_brace != -1 and first_brace < last_brace:
-        candidates.append(raw_text[first_brace : last_brace + 1].strip())
-
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-            if isinstance(payload, dict):
-                return payload
-        except json.JSONDecodeError:
-            continue
-    return None
-
-
 def _normalize_llm_sections(
     raw_sections: Any,
     template_sections: list[dict[str, str]],
@@ -889,53 +1119,30 @@ async def _try_generate_opening_sections(
     literature_highlights: list[str],
     preferred_model: str | None,
 ) -> tuple[list[dict[str, str]] | None, str | None, str | None]:
-    models = list_user_selectable_models(purpose="writing")
-    if not models:
-        return None, None, "no_generation_model_configured"
-
-    try:
-        model_id = route_writing_model(requested_model=preferred_model)
-    except Exception:
-        model_id = models[0].id
-
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
-
-    prompt = "\n".join(
-        [
-            f"请根据主题生成一份{report_type}报告，返回 JSON。",
-            f"主题：{topic}",
-            f"工作区描述：{workspace_description or '无'}",
-            "你必须输出如下结构：",
-            '{"sections":[{"title":"章节标题","content":"章节内容"}]}',
-            "章节标题必须和以下模板顺序一致：",
-            "\n".join(f"- {section['title']}" for section in template_sections),
-            "可参考文献线索：",
-            "\n".join(f"- {item}" for item in literature_highlights) or "- 无",
-            "要求：学术写作风格、内容可直接用于开题材料，避免空话。",
-        ]
+    prompt = build_json_prompt(
+        instruction=f"请根据主题生成一份{report_type}报告。",
+        context_sections=[
+            ("主题", topic),
+            ("工作区描述", workspace_description or "无"),
+            ("章节模板顺序", [f"- {section['title']}" for section in template_sections]),
+            ("可参考文献线索", [f"- {item}" for item in literature_highlights] or "- 无"),
+        ],
+        schema='{"sections":[{"title":"章节标题","content":"章节内容"}]}',
+        requirements=[
+            "章节标题必须和模板顺序保持一致。",
+            "内容应可直接用于开题材料或综述材料，避免空话套话。",
+            "优先吸收给定的文献线索和工作区描述。",
+        ],
+        output_language="zh",
     )
-
-    try:
-        response = await model.ainvoke(
-            [
-                SystemMessage(content="你是严谨的学术写作助手，只输出 JSON。"),
-                HumanMessage(content=prompt),
-            ]
-        )
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    parsed = _parse_json_payload(_extract_response_text(response))
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="你是严谨的学术写作助手。",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.3,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
 
     sections = _normalize_llm_sections(parsed.get("sections"), template_sections)
     if sections is None:

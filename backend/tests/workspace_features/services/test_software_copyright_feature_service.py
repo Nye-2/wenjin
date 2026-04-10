@@ -87,3 +87,30 @@ async def test_build_technical_description_payload_uses_material_defaults_and_no
     assert profile["database_middleware"] == ["PostgreSQL", "Redis"]
     assert profile["interface_protocols"] == ["HTTP", "WebSocket"]
     assert profile["highlights"] == ["多租户", "自动评审"]
+    assert "latex_project_id" not in payload
+
+
+@pytest.mark.asyncio
+async def test_build_copyright_materials_payload_stays_pure() -> None:
+    payload = await software_copyright_feature_service.build_copyright_materials_payload(
+        workspace_id="ws-copyright",
+        workspace_name="Agent Studio",
+        workspace_description="软件说明",
+        workspace_discipline="computer_science",
+        software_name="",
+        version="",
+        applicant_name="Test Company",
+        completion_date="2024-01-01",
+        highlights=["多租户", "自动评审"],
+        target_platforms=["Web", "Desktop"],
+        source_modules=["Core", "UI"],
+    )
+
+    profile = payload["software_profile"]
+    assert payload["document_type"] == "copyright_materials"
+    assert payload["output_language"] == "zh"
+    assert profile["software_name"] == "Agent Studio"
+    assert profile["version"] == "V1.0"
+    assert payload["required_materials"][1]["suggested_modules"] == ["Core", "UI"]
+    assert payload["review_checklist"]
+    assert "latex_project_id" not in payload

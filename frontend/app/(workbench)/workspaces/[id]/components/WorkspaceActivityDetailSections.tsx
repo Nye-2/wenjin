@@ -16,6 +16,7 @@ interface WorkspaceActivityDetailSectionsProps {
   selectedActivityFeatureName?: string;
   selectedActivityMeta: Record<string, unknown>;
   selectedActivityArtifact: Artifact | null;
+  selectedActivityFollowUpPrompt?: string | null;
   actionError: string | null;
   resolveSkillLabel: (skillId: string | null | undefined) => string | null;
 }
@@ -23,9 +24,10 @@ interface WorkspaceActivityDetailSectionsProps {
 function FeatureTaskSections({
   selectedActivity,
   selectedActivityMeta,
+  selectedActivityFollowUpPrompt,
 }: Pick<
   WorkspaceActivityDetailSectionsProps,
-  "selectedActivity" | "selectedActivityMeta"
+  "selectedActivity" | "selectedActivityMeta" | "selectedActivityFollowUpPrompt"
 >) {
   return (
     <>
@@ -84,6 +86,14 @@ function FeatureTaskSections({
         </DetailSection>
       )}
 
+      {selectedActivityFollowUpPrompt && selectedActivityFollowUpPrompt.trim() && (
+        <DetailSection title="建议下一步">
+          <p className="text-sm leading-6 text-[var(--text-primary)]">
+            {selectedActivityFollowUpPrompt}
+          </p>
+        </DetailSection>
+      )}
+
       {typeof selectedActivityMeta.error === "string" && selectedActivityMeta.error && (
         <DetailSection title="错误信息">
           <p className="text-sm leading-6 text-red-600">{selectedActivityMeta.error}</p>
@@ -94,11 +104,12 @@ function FeatureTaskSections({
 }
 
 function ChatThreadSection({
+  selectedActivity,
   selectedActivityMeta,
   resolveSkillLabel,
 }: Pick<
   WorkspaceActivityDetailSectionsProps,
-  "selectedActivityMeta" | "resolveSkillLabel"
+  "selectedActivity" | "selectedActivityMeta" | "resolveSkillLabel"
 >) {
   return (
     <DetailSection title="会话上下文">
@@ -106,9 +117,21 @@ function ChatThreadSection({
         fields={[
           [
             "能力",
-            typeof selectedActivityMeta.skill === "string"
-              ? resolveSkillLabel(selectedActivityMeta.skill) || "未设置"
-              : "未设置",
+            selectedActivity.skill_name ||
+              (typeof selectedActivityMeta.skill_name === "string"
+                ? selectedActivityMeta.skill_name
+                : null) ||
+              (typeof selectedActivity.skill === "string"
+                ? resolveSkillLabel(selectedActivity.skill)
+                : typeof selectedActivityMeta.skill === "string"
+                  ? resolveSkillLabel(selectedActivityMeta.skill)
+                  : null) ||
+              (typeof selectedActivity.skill === "string"
+                ? selectedActivity.skill
+                : typeof selectedActivityMeta.skill === "string"
+                  ? selectedActivityMeta.skill
+                  : null) ||
+              "未设置",
           ],
           [
             "消息数",
@@ -174,11 +197,16 @@ function SubagentTaskSections({
 }
 
 function ArtifactSections({
+  selectedActivity,
   selectedActivityMeta,
   selectedActivityArtifact,
+  resolveSkillLabel,
 }: Pick<
   WorkspaceActivityDetailSectionsProps,
-  "selectedActivityMeta" | "selectedActivityArtifact"
+  | "selectedActivity"
+  | "selectedActivityMeta"
+  | "selectedActivityArtifact"
+  | "resolveSkillLabel"
 >) {
   return (
     <>
@@ -199,9 +227,21 @@ function ArtifactSections({
             ],
             [
               "创建技能",
-              typeof selectedActivityMeta.created_by_skill === "string"
-                ? selectedActivityMeta.created_by_skill
-                : "未知",
+              selectedActivity.created_by_skill_name ||
+              (typeof selectedActivityMeta.created_by_skill_name === "string"
+                ? selectedActivityMeta.created_by_skill_name
+                : null) ||
+              (typeof selectedActivity.created_by_skill === "string"
+                ? resolveSkillLabel(selectedActivity.created_by_skill)
+                : typeof selectedActivityMeta.created_by_skill === "string"
+                  ? resolveSkillLabel(selectedActivityMeta.created_by_skill)
+                  : null) ||
+              (typeof selectedActivity.created_by_skill === "string"
+                ? selectedActivity.created_by_skill
+                : typeof selectedActivityMeta.created_by_skill === "string"
+                  ? selectedActivityMeta.created_by_skill
+                  : null) ||
+              "未知",
             ],
           ]}
         />
@@ -221,6 +261,7 @@ export function WorkspaceActivityDetailSections({
   selectedActivityFeatureName,
   selectedActivityMeta,
   selectedActivityArtifact,
+  selectedActivityFollowUpPrompt,
   actionError,
   resolveSkillLabel,
 }: WorkspaceActivityDetailSectionsProps) {
@@ -268,11 +309,13 @@ export function WorkspaceActivityDetailSections({
         <FeatureTaskSections
           selectedActivity={selectedActivity}
           selectedActivityMeta={selectedActivityMeta}
+          selectedActivityFollowUpPrompt={selectedActivityFollowUpPrompt}
         />
       )}
 
       {selectedActivity.kind === "chat_thread" && (
         <ChatThreadSection
+          selectedActivity={selectedActivity}
           selectedActivityMeta={selectedActivityMeta}
           resolveSkillLabel={resolveSkillLabel}
         />
@@ -287,8 +330,10 @@ export function WorkspaceActivityDetailSections({
 
       {selectedActivity.kind === "artifact" && (
         <ArtifactSections
+          selectedActivity={selectedActivity}
           selectedActivityMeta={selectedActivityMeta}
           selectedActivityArtifact={selectedActivityArtifact}
+          resolveSkillLabel={resolveSkillLabel}
         />
       )}
     </div>

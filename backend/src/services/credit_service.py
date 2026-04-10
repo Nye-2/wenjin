@@ -511,7 +511,7 @@ class CreditService:
 
         user = await self._get_user_for_update(target_user_id)
         balance_before = int(user.credits)
-        actual_deduction = min(amount, max(balance_before, 0))
+        actual_deduction = amount
         user.credits = balance_before - actual_deduction
         user.total_credits_spent = int(user.total_credits_spent) + actual_deduction
 

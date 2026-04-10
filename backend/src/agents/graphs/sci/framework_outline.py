@@ -10,6 +10,7 @@ from src.agents.graphs._shared import (
     _read_payload_params,
 )
 from src.agents.workspace_lead_agent import register_feature_graph
+from src.workspace_features.latex_sync import sync_sci_framework_outline_payload
 from src.workspace_features.services import build_framework_outline_payload
 
 
@@ -28,10 +29,33 @@ async def framework_outline_graph(
     context_artifact_ids = _normalize_list(params.get("context_artifact_ids"))
     preferred_model = _read_optional_str(params.get("model_id"))
 
-    return await build_framework_outline_payload(
+    result = await build_framework_outline_payload(
         workspace_id=workspace_id,
         paper_title=paper_title,
         topic=topic,
         context_artifact_ids=context_artifact_ids,
         preferred_model=preferred_model,
     )
+    sync_result = await sync_sci_framework_outline_payload(
+        workspace_id=workspace_id,
+        workspace_name=workspace_name,
+        payload=result,
+    )
+    return {
+        "schema_version": result.get("schema_version", "v1"),
+        "document_type": result.get("document_type", "framework_outline"),
+        "output_language": result.get("output_language", "en"),
+        "paper_title": result.get("paper_title", paper_title),
+        "topic": result.get("topic", topic),
+        "abstract": result.get("abstract", ""),
+        "keywords": result.get("keywords", []),
+        "sections": result.get("sections", []),
+        "contributions": result.get("contributions", []),
+        "context_artifact_ids": result.get("context_artifact_ids", context_artifact_ids),
+        "context_artifacts_count": result.get("context_artifacts_count", len(context_artifact_ids)),
+        "generated_at": result.get("generated_at"),
+        "model_id": result.get("model_id"),
+        "generation_error": result.get("generation_error"),
+        "generation_mode": result.get("generation_mode", "template"),
+        **sync_result.as_payload(),
+    }

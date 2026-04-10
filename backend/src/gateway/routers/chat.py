@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from src.application.errors import ApplicationError
@@ -19,6 +19,10 @@ from src.application.results import (
 )
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
+from src.gateway.access_control import (
+    owner_check_session_from_service,
+    require_workspace_owner_by_session,
+)
 from src.gateway.deps import get_chat_thread_service, get_chat_turn_handler
 from src.gateway.error_mapping import to_http_exception
 from src.gateway.routers.chat_contracts import (
@@ -47,6 +51,7 @@ from src.academic.cache.redis_client import redis_client
 from src.config import redis_settings
 from src.services import ChatThreadService
 from src.services.chat_thread_events import publish_thread_deleted, publish_thread_updated
+from src.services.workspace_skill_labels import resolve_thread_skill_name
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +74,24 @@ def _to_turn_request(request: ChatRequest) -> ChatTurnRequest:
         attachments=tuple(_to_turn_attachment(item) for item in request.attachments),
         metadata=request.metadata,
         skill_explicit="skill" in request.model_fields_set,
+    )
+
+
+async def _require_owned_workspace_if_provided(
+    workspace_id: str | None,
+    *,
+    user_id: str,
+    chat_thread_service: ChatThreadService,
+) -> None:
+    if not workspace_id:
+        return
+    owner_session = owner_check_session_from_service(chat_thread_service)
+    if owner_session is None:
+        return
+    await require_workspace_owner_by_session(
+        owner_session,
+        workspace_id=workspace_id,
+        user_id=user_id,
     )
 
 
@@ -97,7 +120,7 @@ async def stream_chat_turn_events(
     handler: ChatTurnHandler,
 ) -> AsyncGenerator[str, None]:
     """Yield SSE chat events while allowing the turn to finish after disconnects."""
-    result_queue: asyncio.Queue[str | None] = asyncio.Queue()
+    result_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=256)
     client_connected = True
 
     async def _emit(event: str | None) -> None:
@@ -126,6 +149,7 @@ async def stream_chat_turn_events(
                 stream_thread_context_event(
                     thread_id=prepared.thread.id,
                     skill=prepared.thread.skill,
+                    skill_name=resolve_thread_skill_name(prepared.thread),
                 )
             )
             stream_run = handler.stream_turn(
@@ -149,14 +173,14 @@ async def stream_chat_turn_events(
                 except Exception:
                     pass
             await _emit(stream_error_event(exc.message))
-        except Exception as exc:
+        except Exception:
             logger.exception("Streaming chat failed")
             if stream_run is not None:
                 try:
                     await stream_run.wait_completed()
                 except Exception:
                     pass
-            await _emit(stream_error_event(str(exc)))
+            await _emit(stream_error_event("AI 服务内部错误，请稍后重试。"))
         finally:
             await _emit(None)
 
@@ -175,6 +199,11 @@ async def stream_chat_turn_events(
         client_connected = False
         heartbeat_task.cancel()
         await _await_stream_task(heartbeat_task)
+        while True:
+            try:
+                result_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
         if process_task.done() or stream_completed:
             await _await_stream_task(process_task)
@@ -190,9 +219,15 @@ async def create_thread(
     chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
 ):
     """Create a new chat thread."""
+    actor_id = str(current_user.id)
+    await _require_owned_workspace_if_provided(
+        request.workspace_id,
+        user_id=actor_id,
+        chat_thread_service=chat_thread_service,
+    )
     try:
         thread = await chat_thread_service.create_thread(
-            user_id=str(current_user.id),
+            user_id=actor_id,
             workspace_id=request.workspace_id,
             title=request.title,
             model=request.model,
@@ -214,9 +249,15 @@ async def ensure_workspace_chat_thread(
     chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
 ):
     """Return the canonical chat thread for a workspace, creating it when needed."""
+    actor_id = str(current_user.id)
+    await _require_owned_workspace_if_provided(
+        workspace_id,
+        user_id=actor_id,
+        chat_thread_service=chat_thread_service,
+    )
     try:
         thread = await chat_thread_service.get_or_create_thread(
-            user_id=str(current_user.id),
+            user_id=actor_id,
             workspace_id=workspace_id,
             model=request.model,
             skill=request.skill,
@@ -265,10 +306,16 @@ async def chat(
     handler: ChatTurnHandler = Depends(get_chat_turn_handler),
 ):
     """Send a message and get a response."""
+    actor_id = str(current_user.id)
+    await _require_owned_workspace_if_provided(
+        request.workspace_id,
+        user_id=actor_id,
+        chat_thread_service=handler.chat_thread_service,
+    )
     try:
         completed = await handler.run_turn(
             _to_turn_request(request),
-            actor_id=str(current_user.id),
+            actor_id=actor_id,
         )
     except ApplicationError as exc:
         raise to_http_exception(exc) from exc
@@ -278,6 +325,7 @@ async def chat(
         message=ChatMessage(**completed.assistant_message),
         workspace_id=completed.thread.workspace_id,
         skill=completed.thread.skill,
+        skill_name=resolve_thread_skill_name(completed.thread),
     )
 
 
@@ -288,11 +336,25 @@ async def chat_stream(
     handler: ChatTurnHandler = Depends(get_chat_turn_handler),
 ):
     """Send a message and get a streaming response."""
+    actor_id = str(current_user.id)
+    await _require_owned_workspace_if_provided(
+        request.workspace_id,
+        user_id=actor_id,
+        chat_thread_service=handler.chat_thread_service,
+    )
+    turn_request = _to_turn_request(request)
+    try:
+        await handler.preflight_stream_turn(
+            turn_request,
+            actor_id=actor_id,
+        )
+    except ApplicationError as exc:
+        raise to_http_exception(exc) from exc
 
     return StreamingResponse(
         stream_chat_turn_events(
-            _to_turn_request(request),
-            actor_id=str(current_user.id),
+            turn_request,
+            actor_id=actor_id,
             handler=handler,
         ),
         media_type="text/event-stream",
@@ -307,13 +369,19 @@ async def chat_stream(
 @router.get("/threads", response_model=ThreadListResponse)
 async def list_threads(
     workspace_id: str | None = None,
-    limit: int = 20,
+    limit: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
 ):
     """List all threads, optionally filtered by workspace."""
+    actor_id = str(current_user.id)
+    await _require_owned_workspace_if_provided(
+        workspace_id,
+        user_id=actor_id,
+        chat_thread_service=chat_thread_service,
+    )
     threads = await chat_thread_service.list_threads(
-        user_id=str(current_user.id),
+        user_id=actor_id,
         workspace_id=workspace_id,
         limit=limit,
     )
@@ -338,13 +406,26 @@ async def get_thread_agent_status(
         "thread_id": thread_id,
         "status": "idle",
         "current_skill": thread.skill,
+        "current_skill_name": resolve_thread_skill_name(thread),
         "subagent_count": 0,
     }
     if redis_settings.enabled and redis_client._client is not None:
-        status = await redis_client.get_agent_status(thread_id)
+        status = None
+        try:
+            status = await redis_client.get_agent_status(thread_id)
+        except Exception:
+            logger.debug(
+                "Failed to read agent status from Redis for thread %s",
+                thread_id,
+                exc_info=True,
+            )
         if status:
             payload["status"] = status.get("status", "idle")
             payload["current_skill"] = status.get("current_skill") or thread.skill
+            payload["current_skill_name"] = (
+                status.get("current_skill_name")
+                or payload["current_skill_name"]
+            )
             try:
                 payload["subagent_count"] = int(status.get("subagent_count", 0) or 0)
             except (TypeError, ValueError):

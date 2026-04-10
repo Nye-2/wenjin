@@ -14,6 +14,7 @@ from src.subagents import (
     SubagentStatus,
 )
 from src.subagents.manager import SubagentAccessError
+from src.subagents.context_snapshot import build_subagent_context_snapshot
 from src.subagents.runtime import get_manager
 from src.subagents.task_builder import (
     SubagentRuntimeContext,
@@ -126,6 +127,10 @@ async def spawn_subagent(
         workspace_id=str(workspace_id) if workspace_id is not None else None,
         user_id=str(current_user.id),
     )
+    context_snapshot = await build_subagent_context_snapshot(
+        runtime_context=runtime_context,
+        state=None,
+    )
 
     task = build_subagent_task(
         manager._config,
@@ -139,6 +144,7 @@ async def spawn_subagent(
         metadata=build_subagent_metadata(
             subagent_type=request.subagent_type,
             system_prompt=system_prompt,
+            context_snapshot=context_snapshot,
             runtime_context=runtime_context,
             include_workspace=True,
             include_user=True,

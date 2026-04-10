@@ -1,7 +1,8 @@
 # Workspace Feature Catalog
 
-更新时间: 2026-04-03
+更新时间: 2026-04-10
 数据源: `backend/src/workspace_features/registry.py`
+skill 数据源: `backend/src/agents/lead_agent/chat_skill_catalog.py`
 
 ## 1. Canonical Workspace Types
 
@@ -12,6 +13,7 @@
 - `patent`
 
 总计: 5 个 workspace 类型，20 个 feature。
+附加说明: 当前共有 21 个 chat skills。
 
 ## 2. Feature Matrix
 
@@ -65,3 +67,43 @@
 1. 新 feature 必须先改 registry，再改执行链路与前端展示。
 2. `feature_id` 与 `handler_key` 视为对外稳定标识，不应随意改名。
 3. `task_type`、`panel`、`stages` 变更时，必须同步回归前端路由、任务编排和 workspace feature 文档。
+
+## 4. Entry Skills
+
+skills 是 chat 层的 feature 入口语义。一个 skill 绑定一个 canonical feature，可附带默认参数与 follow-up skill。
+
+### 4.1 Thesis
+
+- `deep-research` -> `deep_research`
+- `literature-manager` -> `literature_management`
+- `literature-reviewer` -> `opening_research`
+- `framework-designer` -> `thesis_writing` (`action=generate_outline`)
+- `fullpaper-writer` -> `thesis_writing` (`action=write_all`)
+- `figure-designer` -> `figure_generation`
+- `doc-compiler` -> `compile_export`
+
+### 4.2 SCI
+
+- `deep-research` -> `literature_search`
+- `paper-analyst` -> `paper_analysis`
+- `section-writer` -> `writing`
+- `literature-reviewer` -> `literature_review`
+- `framework-designer` -> `framework_outline`
+- `peer-reviewer` -> `peer_review`
+- `journal-recommender` -> `journal_recommend`
+
+### 4.3 Proposal
+
+- `proposal-writer` -> `proposal_outline`
+- `background-scout` -> `background_research`
+- `experiment-designer` -> `experiment_design`
+
+### 4.4 Software Copyright
+
+- `copyright-writer` -> `copyright_materials`
+- `tech-doc-writer` -> `technical_description`
+
+### 4.5 Patent
+
+- `patent-drafter` -> `patent_outline`
+- `prior-art-scout` -> `prior_art_search`

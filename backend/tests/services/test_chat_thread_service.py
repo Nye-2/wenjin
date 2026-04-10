@@ -223,6 +223,24 @@ class TestChatThreadService:
             )
 
     @pytest.mark.asyncio
+    async def test_get_or_create_thread_rejects_missing_explicit_thread_id(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Explicit thread ids must exist; no silent fallback is allowed."""
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        mock_db_session.execute.return_value = result
+
+        with pytest.raises(ChatThreadAccessError):
+            await service.get_or_create_thread(
+                user_id="user-1",
+                thread_id="thread-missing",
+                workspace_id="ws-1",
+            )
+
+    @pytest.mark.asyncio
     async def test_add_message_appends_json_history(self, service, mock_db_session):
         """Message append reassigns JSON history so ORM persistence can detect it."""
         thread = _make_thread()

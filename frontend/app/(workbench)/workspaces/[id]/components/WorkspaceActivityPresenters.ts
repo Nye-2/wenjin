@@ -227,13 +227,21 @@ export function resolveMetadataLine(
   }
 
   if (item.kind === "chat_thread") {
-    const skill = typeof item.metadata?.skill === "string" ? item.metadata.skill : null;
+    const skill =
+      item.skill ??
+      (typeof item.metadata?.skill === "string" ? item.metadata.skill : null);
+    const skillName =
+      item.skill_name ??
+      (typeof item.metadata?.skill_name === "string"
+        ? item.metadata.skill_name
+        : null);
     const messageCount =
       typeof item.metadata?.message_count === "number"
         ? item.metadata.message_count
         : null;
     const detail = [
-      resolveSkillLabel ? resolveSkillLabel(skill) : skill?.replace(/-/g, " ") ?? null,
+      skillName ||
+        (resolveSkillLabel ? resolveSkillLabel(skill) : skill?.replace(/-/g, " ") ?? null),
       messageCount ? `${messageCount} 条消息` : null,
     ]
       .filter(Boolean)
@@ -251,13 +259,19 @@ export function resolveMetadataLine(
         ? item.metadata.artifact_type
         : null;
     const skill =
-      typeof item.metadata?.created_by_skill === "string"
+      item.created_by_skill ??
+      (typeof item.metadata?.created_by_skill === "string"
         ? item.metadata.created_by_skill
-        : null;
+        : null);
+    const skillName =
+      item.created_by_skill_name ??
+      (typeof item.metadata?.created_by_skill_name === "string"
+        ? item.metadata.created_by_skill_name
+        : null);
     return (
       [
         artifactType?.replace(/[_-]/g, " "),
-        resolveSkillLabel ? resolveSkillLabel(skill) : skill,
+        skillName || (resolveSkillLabel ? resolveSkillLabel(skill) : skill),
       ]
         .filter(Boolean)
         .join(" · ") || "工作区产出"

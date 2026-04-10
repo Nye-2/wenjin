@@ -71,10 +71,16 @@ class TestSpawnEndpoint:
     def test_spawn_success(self, client, mock_manager, app):
         """Test successful task spawn."""
         app.dependency_overrides[get_manager] = lambda: mock_manager
-        response = client.post(
-            "/subagents/threads/thread-123/spawn",
-            json={"prompt": "Test prompt"}
-        )
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                subagents,
+                "build_subagent_context_snapshot",
+                AsyncMock(return_value="## Inherited Workspace Context\n- workspace_type: sci"),
+            )
+            response = client.post(
+                "/subagents/threads/thread-123/spawn",
+                json={"prompt": "Test prompt"}
+            )
         assert response.status_code == 200
         data = response.json()
         assert "task_id" in data
@@ -82,6 +88,7 @@ class TestSpawnEndpoint:
         uuid.UUID(data["task_id"])
         task = mock_manager.spawn.await_args.args[0]
         assert task.metadata["user_id"] == "user-123"
+        assert "## Inherited Workspace Context" in task.metadata["system_prompt"]
         app.dependency_overrides = {}
 
     def test_spawn_rejects_missing_thread(self, client, mock_manager, app):

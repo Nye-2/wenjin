@@ -18,10 +18,12 @@ interface WorkspaceActivityDetailDialogProps {
   selectedActivityTitle: string;
   selectedActivityMeta: Record<string, unknown>;
   selectedActivityArtifact: Artifact | null;
+  selectedActivityFollowUpPrompt?: string | null;
   actionError: string | null;
   resolveSkillLabel: (skillId: string | null | undefined) => string | null;
   onOpenChange: (open: boolean) => void;
   onShowArtifact: (artifact: Artifact) => void;
+  onRetryFeatureTask: () => void;
   onOpenThread: (threadId: string) => void;
 }
 
@@ -31,10 +33,12 @@ export function WorkspaceActivityDetailDialog({
   selectedActivityTitle,
   selectedActivityMeta,
   selectedActivityArtifact,
+  selectedActivityFollowUpPrompt,
   actionError,
   resolveSkillLabel,
   onOpenChange,
   onShowArtifact,
+  onRetryFeatureTask,
   onOpenThread,
 }: WorkspaceActivityDetailDialogProps) {
   return (
@@ -55,6 +59,7 @@ export function WorkspaceActivityDetailDialog({
             selectedActivityFeatureName={selectedActivityFeatureName}
             selectedActivityMeta={selectedActivityMeta}
             selectedActivityArtifact={selectedActivityArtifact}
+            selectedActivityFollowUpPrompt={selectedActivityFollowUpPrompt}
             actionError={actionError}
             resolveSkillLabel={resolveSkillLabel}
           />
@@ -80,6 +85,16 @@ export function WorkspaceActivityDetailDialog({
             >
               <MessageSquareText className="h-4 w-4" />
               打开对话
+            </button>
+          )}
+          {selectedActivity?.kind === "feature_task" && (
+            <button
+              type="button"
+              onClick={onRetryFeatureTask}
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)]"
+            >
+              <MessageSquareText className="h-4 w-4" />
+              重新发起
             </button>
           )}
           {selectedActivity?.kind === "feature_task" &&

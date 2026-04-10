@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import func, select
@@ -21,13 +22,21 @@ class DashboardStatusSharedMixin:
         artifact_type: str,
         *,
         created_by_skill: str | None = None,
+        created_by_skills: Sequence[str] | None = None,
     ) -> int:
         stmt = (
             select(func.count())
             .where(Artifact.workspace_id == workspace_id)
             .where(Artifact.type == artifact_type)
         )
-        if created_by_skill:
+        normalized_creator_skills = [
+            skill_id.strip()
+            for skill_id in (created_by_skills or ())
+            if isinstance(skill_id, str) and skill_id.strip()
+        ]
+        if normalized_creator_skills:
+            stmt = stmt.where(Artifact.created_by_skill.in_(normalized_creator_skills))
+        elif created_by_skill:
             stmt = stmt.where(Artifact.created_by_skill == created_by_skill)
         result = await self.db.execute(stmt)
         return int(result.scalar() or 0)
@@ -38,6 +47,7 @@ class DashboardStatusSharedMixin:
         artifact_type: str,
         *,
         created_by_skill: str | None = None,
+        created_by_skills: Sequence[str] | None = None,
     ) -> Artifact | None:
         stmt = (
             select(Artifact)
@@ -46,7 +56,14 @@ class DashboardStatusSharedMixin:
             .order_by(Artifact.created_at.desc())
             .limit(1)
         )
-        if created_by_skill:
+        normalized_creator_skills = [
+            skill_id.strip()
+            for skill_id in (created_by_skills or ())
+            if isinstance(skill_id, str) and skill_id.strip()
+        ]
+        if normalized_creator_skills:
+            stmt = stmt.where(Artifact.created_by_skill.in_(normalized_creator_skills))
+        elif created_by_skill:
             stmt = stmt.where(Artifact.created_by_skill == created_by_skill)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()

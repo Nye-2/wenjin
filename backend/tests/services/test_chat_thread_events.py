@@ -21,6 +21,7 @@ def _make_thread():
         title="Main thread",
         model="gpt-4o",
         skill="deep-research",
+        workspace=SimpleNamespace(type="thesis"),
         messages=[
             {"role": "user", "content": "hello"},
             {"role": "assistant", "content": "latest response"},
@@ -34,6 +35,7 @@ def test_serialize_thread_summary_includes_preview() -> None:
     summary = serialize_thread_summary(_make_thread())
 
     assert summary["id"] == "thread-1"
+    assert summary["skill_name"] == "深度调研"
     assert summary["message_count"] == 2
     assert summary["last_message_role"] == "assistant"
     assert summary["last_message_preview"] == "latest response"
@@ -54,9 +56,12 @@ async def test_publish_thread_updated_includes_canonical_activity_item(
     publish_workspace_event.assert_awaited_once()
     payload = publish_workspace_event.await_args.args[2]
     assert payload["thread"]["id"] == "thread-1"
+    assert payload["thread"]["skill_name"] == "深度调研"
     assert payload["activity"]["id"] == "chat:thread-1"
     assert payload["activity"]["kind"] == "chat_thread"
+    assert payload["activity"]["skill_name"] == "深度调研"
     assert payload["activity"]["metadata"]["skill"] == "deep-research"
+    assert payload["activity"]["metadata"]["skill_name"] == "深度调研"
     assert payload["activity"]["summary"] == "latest response"
     assert "T" in payload["activity"]["occurred_at"]
 
@@ -97,17 +102,21 @@ async def test_set_thread_status_updates_redis_and_publishes_event(
         "ws-1",
         "thread-1",
         status="running",
-        skill="framework_outline",
+        skill="deep-research",
+        skill_name="深度调研",
         subagent_count=0,
     )
 
     mock_redis.set_agent_status.assert_awaited_once_with(
         "thread-1",
         "running",
-        skill="framework_outline",
+        skill="deep-research",
+        skill_name="深度调研",
         subagent_count=0,
+        clear_skill=False,
     )
     publish_workspace_event.assert_awaited_once()
     payload = publish_workspace_event.await_args.args[2]
     assert payload["thread"]["thread_id"] == "thread-1"
-    assert payload["thread"]["current_skill"] == "framework_outline"
+    assert payload["thread"]["current_skill"] == "deep-research"
+    assert payload["thread"]["current_skill_name"] == "深度调研"

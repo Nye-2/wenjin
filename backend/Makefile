@@ -1,55 +1,48 @@
 # Wenjin Backend Makefile
 
-.PHONY: install dev gateway test lint format clean
+.PHONY: install dev gateway worker dev-all debug-langgraph test test-file test-cov lint format typecheck clean db-migrate db-revision db-upgrade db-downgrade
 
-# Default target
 all: install
 
-# Install dependencies
 install:
-	uv sync
+	uv sync --extra dev
 
-# Run LangGraph server (port 2024)
-dev:
-	uv run langgraph dev --port 2024
+# Canonical local API entry
+dev: gateway
 
-# Run Gateway API (port 8001)
 gateway:
 	uv run uvicorn src.gateway.app:app --reload --port 8001
 
-# Run all services
-all-services:
-	@echo "Starting LangGraph on port 2024..."
-	@uv run langgraph dev --port 2024 &
-	@echo "Starting Gateway on port 8001..."
-	@uv run uvicorn src.gateway.app:app --reload --port 8001 &
-	@wait
+worker:
+	uv run python -m src.task.worker
 
-# Run tests
+dev-all:
+	@echo "Start the gateway and worker in separate terminals:"
+	@echo "  make gateway"
+	@echo "  make worker"
+
+# Optional debug entry for inspecting the lead-agent graph directly.
+debug-langgraph:
+	uv run langgraph dev --port 2024 --config langgraph.json
+
 test:
 	PYTHONPATH=. uv run pytest tests/ -v
 
-# Run specific test file
 test-file:
 	PYTHONPATH=. uv run pytest $(file) -v
 
-# Run tests with coverage
 test-cov:
 	PYTHONPATH=. uv run pytest tests/ --cov=src --cov-report=html
 
-# Lint with ruff
 lint:
 	uv run ruff check src/
 
-# Format with ruff
 format:
 	uv run ruff format src/
 
-# Type check with mypy
 typecheck:
 	uv run mypy src/
 
-# Clean up
 clean:
 	rm -rf .pytest_cache/
 	rm -rf .ruff_cache/
@@ -58,19 +51,15 @@ clean:
 	rm -rf __pycache__/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
-# Database migrations
 db-migrate:
 	uv run alembic revision --autogenerate -m "$(message)"
 	uv run alembic upgrade head
 
-# Create new migration
 db-revision:
 	uv run alembic revision -m "$(message)"
 
-# Apply migrations
 db-upgrade:
 	uv run alembic upgrade head
 
-# Rollback migrations
 db-downgrade:
 	uv run alembic downgrade -1

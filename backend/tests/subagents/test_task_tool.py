@@ -60,7 +60,10 @@ class TestTaskTool:
             )
         )
 
-        with patch("src.subagents.task_tool.get_manager", return_value=mock_manager):
+        with patch("src.subagents.task_tool.get_manager", return_value=mock_manager), patch(
+            "src.subagents.task_tool.build_subagent_context_snapshot",
+            AsyncMock(return_value="## Inherited Workspace Context\n- workspace_type: sci"),
+        ):
             result = await task_tool.coroutine(
                 description="Search papers",
                 prompt="Find LLM alignment papers",
@@ -72,6 +75,10 @@ class TestTaskTool:
                         "user_id": "user-1",
                         "model_name": "gpt-4o",
                     }
+                },
+                state={
+                    "workspace_type": "sci",
+                    "current_skill": "framework-designer",
                 },
             )
 
@@ -86,6 +93,7 @@ class TestTaskTool:
         assert task.metadata["workspace_id"] == "ws-1"
         assert task.metadata["user_id"] == "user-1"
         assert task.metadata["model_name"] == "gpt-4o"
+        assert "## Inherited Workspace Context" in task.metadata["system_prompt"]
         assert mock_manager.wait_for_completion.await_args.args == ("thread-1", task.task_id)
         assert mock_manager.wait_for_completion.await_args.kwargs == {"user_id": "user-1"}
 

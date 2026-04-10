@@ -44,7 +44,9 @@ class TestAgentStatusInLocalExecutor:
         assert len(calls) >= 2
         assert calls[0].args == ("thread-abc", "running")
         assert calls[0].kwargs.get("skill") == "test_type"
+        assert calls[0].kwargs.get("clear_skill") is False
         assert calls[1].args == ("thread-abc", "completed")
+        assert calls[1].kwargs.get("clear_skill") is False
 
     @pytest.mark.asyncio
     async def test_no_status_set_without_thread_id(self):
@@ -116,4 +118,6 @@ class TestAgentStatusInLocalExecutor:
         calls = mock_redis.set_agent_status.call_args_list
         assert len(calls) >= 2
         assert calls[0].args == ("thread-xyz", "running")
+        assert calls[0].kwargs.get("clear_skill") is False
         assert calls[1].args == ("thread-xyz", "failed")
+        assert calls[1].kwargs.get("clear_skill") is False

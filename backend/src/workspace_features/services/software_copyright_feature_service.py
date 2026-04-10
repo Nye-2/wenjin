@@ -1,12 +1,12 @@
 """Service helpers for software copyright workspace feature handlers.
 
 This module keeps handler logic thin and reusable by encapsulating:
-1. technical description payload generation (LLM-only).
+1. copyright-materials payload assembly,
+2. technical-description payload assembly (LLM-only).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import UTC, datetime
@@ -15,15 +15,17 @@ from typing import Any
 from src.academic.services import ArtifactService
 from src.artifacts import ArtifactType
 from src.database import Artifact, get_db_session
-from src.models.factory import create_chat_model
-from src.models.router import list_user_selectable_models, route_writing_model
-from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
-    emit_bound_runtime as _emit_bound_runtime,
-    runtime_progress_for_phase,
     upsert_runtime_block,
+)
+from src.task.runtime_blocks import (
+    emit_bound_runtime as _emit_bound_runtime,
+)
+from src.workspace_features.services.llm_json import (
+    build_json_prompt,
+    invoke_json_chat_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,172 @@ async def _load_copyright_materials_artifact(workspace_id: str) -> dict[str, Any
         if artifacts:
             return _artifact_content(artifacts[0])
     return None
+
+
+def _build_required_materials(
+    *,
+    software_name: str,
+    version: str,
+    applicant_name: str,
+    completion_date: str,
+    highlights: list[str],
+    target_platforms: list[str],
+    source_modules: list[str],
+) -> list[dict[str, Any]]:
+    """Build a deterministic materials checklist artifact."""
+    return [
+        {
+            "id": "application_form",
+            "title": "软件著作权登记申请表",
+            "status": "pending",
+            "required_fields": [
+                f"软件全称：{software_name}",
+                f"版本号：{version}",
+                f"申请人：{applicant_name}",
+                f"开发完成日期：{completion_date}",
+            ],
+            "tips": [
+                "名称需要与产品、原型图、说明文档保持一致。",
+                "版本号建议采用 V1.0 / V1.0.0 这格式。",
+            ],
+        },
+        {
+            "id": "source_code_excerpt",
+            "title": "源程序连续页",
+            "status": "pending",
+            "required_fields": [
+                "准备前后各连续 30 页代码样本",
+                "页眉标注软件名称、版本和页码",
+                "每页不少于 50 行，核心逻辑优先",
+            ],
+            "suggested_modules": source_modules or [
+                "启动入口与配置加载",
+                "核心业务流程",
+                "权限与数据持久化",
+            ],
+        },
+        {
+            "id": "manual_excerpt",
+            "title": "软件说明书/操作手册",
+            "status": "pending",
+            "required_fields": [
+                "包含软件简介、运行环境、主要功能、操作流程、界面截图",
+                "截图需要覆盖核心页面与关键流程",
+                "说明书名称应与软件全称一致",
+            ],
+            "recommended_sections": [
+                "软件概述",
+                "运行环境",
+                "功能模块说明",
+                "操作步骤",
+                "部署与维护",
+            ],
+        },
+        {
+            "id": "identity_support",
+            "title": "主体与权属证明材料",
+            "status": "pending",
+            "required_fields": [
+                "申请人身份证明/营业执照",
+                "委托代理材料（如有）",
+                "合作开发协议/权属说明（如有多人或单位参与）",
+            ],
+            "notes": [
+                "如果存在委托开发或合作开发，必须补齐权属归属说明",
+                "公司申请时需统一盖章信息与申请表主体名称一致",
+            ],
+        },
+        {
+            "id": "feature_summary",
+            "title": "软件功能亮点归纳",
+            "status": "draft",
+            "required_fields": highlights or [
+                "核心业务流程",
+                "权限与数据管理",
+                "结果导出与报表",
+            ],
+            "platforms": target_platforms or ["Web", "Desktop", "Server"],
+        },
+    ]
+
+
+def _build_review_checklist() -> list[str]:
+    """Build review checklist for completeness verification."""
+    return [
+        "软件名称、版本号、申请人保持一致。",
+        "截图、说明书标题与软件名称一致",
+        "申请表和源代码中的信息必须完全填写",
+        "软件功能亮点应具有原创性,不能使用空泛的功能描述",
+    ]
+
+
+async def build_copyright_materials_payload(
+    *,
+    workspace_id: str,
+    workspace_name: str,
+    workspace_description: str,
+    workspace_discipline: str,
+    software_name: str,
+    version: str,
+    applicant_name: str,
+    completion_date: str,
+    highlights: list[str],
+    target_platforms: list[str],
+    source_modules: list[str],
+) -> dict[str, Any]:
+    """Build copyright-materials artifact payload without LaTeX side effects."""
+    _ = workspace_id
+    normalized_name = str(software_name or workspace_name or "待确认软件名称").strip() or "待确认软件名称"
+    normalized_version = str(version or "V1.0").strip() or "V1.0"
+    normalized_applicant = str(applicant_name or "待确认申请主体").strip() or "待确认申请主体"
+    normalized_completion_date = (
+        str(completion_date or "待确认开发完成日期").strip()
+        or "待确认开发完成日期"
+    )
+    normalized_highlights = _normalize_list(highlights)
+    normalized_platforms = _normalize_list(target_platforms)
+    normalized_modules = _normalize_list(source_modules)
+
+    required_materials = _build_required_materials(
+        software_name=normalized_name,
+        version=normalized_version,
+        applicant_name=normalized_applicant,
+        completion_date=normalized_completion_date,
+        highlights=normalized_highlights,
+        target_platforms=normalized_platforms,
+        source_modules=normalized_modules,
+    )
+    review_checklist = _build_review_checklist()
+
+    return {
+        "schema_version": "v1",
+        "output_language": COPYRIGHT_OUTPUT_LANGUAGE,
+        "document_type": "copyright_materials",
+        "workspace": {
+            "id": workspace_id,
+            "name": workspace_name,
+            "type": "software_copyright",
+            "discipline": workspace_discipline,
+        },
+        "software_profile": {
+            "software_name": normalized_name,
+            "version": normalized_version,
+            "applicant_name": normalized_applicant,
+            "completion_date": normalized_completion_date,
+            "description": workspace_description,
+            "highlights": normalized_highlights,
+            "target_platforms": normalized_platforms,
+            "source_modules": normalized_modules,
+        },
+        "required_materials": required_materials,
+        "review_checklist": review_checklist,
+        "next_actions": [
+            "补齐基础信息后，先整理说明书目录与截图清单",
+            "从核心模块中截取连续代码页，优先选择最能体现原创性的部分",
+            "完成初稿后进行一次格式核对，再准备提交材料",
+        ],
+        "generated_at": _utc_now_iso(),
+    }
 
 
 def _build_technical_description_template(
@@ -167,44 +335,6 @@ def _build_operation_steps_content(highlights: list[str]) -> str:
     return "系统主要操作流程如下：\n" + "\n".join(steps)
 
 
-def _extract_response_text(response: Any) -> str:
-    content = getattr(response, "content", "")
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        texts: list[str] = []
-        for item in content:
-            if isinstance(item, dict) and isinstance(item.get("text"), str):
-                texts.append(item["text"])
-        return "\n".join(texts).strip()
-    return str(content).strip()
-
-
-def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
-    if not raw_text:
-        return None
-
-    candidates = [raw_text.strip()]
-
-    code_block_match = re.search(r"```json\s*(.*?)\s*```", raw_text, re.DOTALL | re.IGNORECASE)
-    if code_block_match:
-        candidates.append(code_block_match.group(1).strip())
-
-    first_brace = raw_text.find("{")
-    last_brace = raw_text.rfind("}")
-    if first_brace != -1 and last_brace != -1 and first_brace < last_brace:
-        candidates.append(raw_text[first_brace : last_brace + 1].strip())
-
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-            if isinstance(payload, dict):
-                return payload
-        except json.JSONDecodeError:
-            continue
-    return None
-
-
 def _normalize_llm_sections(
     raw_sections: Any,
     template_sections: dict[str, Any],
@@ -258,68 +388,40 @@ async def _try_generate_technical_sections(
     preferred_model: str | None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt to generate technical description sections using LLM."""
-    models = list_user_selectable_models(purpose="writing")
-    if not models:
-        return None, None, "no_generation_model_configured"
-
-    try:
-        model_id = route_writing_model(requested_model=preferred_model)
-    except Exception:
-        model_id = models[0].id
-
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
-
     modules_str = "、".join(core_modules) if core_modules else "核心业务模块"
     db_str = "、".join(database_middleware) if database_middleware else "关系型数据库"
     proto_str = "、".join(interface_protocols) if interface_protocols else "HTTP/REST"
     highlights_str = "、".join(highlights[:4]) if highlights else "核心功能"
 
-    prompt = "\n".join([
-        "请根据以下软件信息生成技术说明书内容，返回 JSON。",
-        f"软件名称：{software_name}",
-        f"版本号：{version}",
-        f"核心模块：{modules_str}",
-        f"部署架构：{deployment_architecture or 'B/S架构'}",
-        f"数据库/中间件：{db_str}",
-        f"接口协议：{proto_str}",
-        f"功能亮点：{highlights_str}",
-        "",
-        "你必须输出如下 JSON 结构：",
-        "{",
-        '  "system_overview": {"content": "系统概述内容"},',
-        '  "module_design": {"content": "模块设计内容"},',
-        '  "data_flow": {"content": "数据流程内容"},',
-        '  "deployment_architecture": {"content": "部署架构内容"},',
-        '  "security_and_permissions": {"content": "安全与权限内容"},',
-        '  "operation_steps": {"content": "操作步骤内容"}',
-        "}",
-        "",
-        "要求：",
-        "1. 内容应适合软件著作权登记的技术说明书",
-        "2. 使用专业、规范的技术文档语言",
-        "3. 每个章节内容不少于100字",
-        "4. 避免空泛的描述，尽量结合软件的具体特点",
-    ])
+    prompt = build_json_prompt(
+        instruction="请根据以下软件信息生成技术说明书内容。",
+        context_sections=[
+            ("软件名称", software_name),
+            ("版本号", version),
+            ("核心模块", modules_str),
+            ("部署架构", deployment_architecture or "B/S架构"),
+            ("数据库/中间件", db_str),
+            ("接口协议", proto_str),
+            ("功能亮点", highlights_str),
+        ],
+        schema='{"system_overview":{"content":"系统概述内容"},"module_design":{"content":"模块设计内容"},"data_flow":{"content":"数据流程内容"},"deployment_architecture":{"content":"部署架构内容"},"security_and_permissions":{"content":"安全与权限内容"},"operation_steps":{"content":"操作步骤内容"}}',
+        requirements=[
+            "内容应适合软件著作权登记的技术说明书。",
+            "使用专业、规范的技术文档语言。",
+            "每个章节内容不少于 100 字。",
+            "避免空泛描述，尽量结合软件的具体特点。",
+        ],
+        output_language="zh",
+    )
 
-    try:
-        response = await model.ainvoke([
-            SystemMessage(content="你是一个专业的软件技术文档撰写助手，只输出 JSON 格式的内容。"),
-            HumanMessage(content=prompt),
-        ])
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    parsed = _parse_json_payload(_extract_response_text(response))
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="你是专业的软件技术文档撰写助手。",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.3,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
 
     sections = _normalize_llm_sections(parsed, template_sections)
     if sections is None:
@@ -502,24 +604,4 @@ async def build_technical_description_payload(
             "last_error": None,
         },
     }
-    try:
-        async with get_db_session() as db:
-            bridge_service = WorkspaceLatexProjectService(db)
-            linked_project, section_map = await bridge_service.sync_software_copyright_technical_description(
-                workspace_id=workspace_id,
-                project_title=normalized_name,
-                sections=sections,
-            )
-            result["latex_project_id"] = str(linked_project.id)
-            result["main_file"] = linked_project.main_file
-            result["section_map"] = section_map
-            linked_metadata = (
-                linked_project.llm_config.get("metadata")
-                if isinstance(linked_project.llm_config, dict)
-                else {}
-            )
-            if isinstance(linked_metadata, dict):
-                result["sync_conflicts"] = linked_metadata.get("sync_conflicts", [])
-    except Exception:
-        logger.exception("Failed to sync technical description into linked latex project")
     return result

@@ -41,6 +41,7 @@ from src.services.chat_billing import (
     usage_to_metadata,
 )
 from src.services.chat_thread_events import publish_thread_updated, set_thread_status
+from src.services.workspace_skill_labels import resolve_thread_skill_name
 from src.services.credit_service import CreditService
 from src.tools.builtins.artifacts import (
     build_presented_artifact_items,
@@ -733,6 +734,7 @@ class ChatTurnHandler:
             thread.id,
             status="running",
             skill=thread.skill,
+            skill_name=resolve_thread_skill_name(thread),
         )
         return PreparedChatTurn(request=request, thread=thread)
 
@@ -772,6 +774,21 @@ class ChatTurnHandler:
     ) -> CompletedChatTurn:
         prepared = await self.prepare_turn(request, actor_id=actor_id)
         return await self.complete_turn(prepared, actor_id=actor_id)
+
+    async def preflight_stream_turn(
+        self,
+        request: ChatTurnRequest,
+        *,
+        actor_id: str,
+    ) -> None:
+        """Validate explicit stream thread routing before opening SSE."""
+        try:
+            self.chat_thread_service.resolve_requested_model(request.model)
+        except InvalidRequestedModelError as exc:
+            raise BadRequestError(str(exc)) from exc
+        if not request.thread_id:
+            return
+        await self._get_or_create_owned_thread(request, actor_id=actor_id)
 
     def stream_turn(
         self,
@@ -977,6 +994,7 @@ class ChatTurnHandler:
             thread.id,
             status="completed",
             skill=thread.skill,
+            skill_name=resolve_thread_skill_name(thread),
         )
         return assistant_message
 
@@ -986,6 +1004,7 @@ class ChatTurnHandler:
             thread.id,
             status="failed",
             skill=thread.skill,
+            skill_name=resolve_thread_skill_name(thread),
         )
 
     async def _generate_chat_response(

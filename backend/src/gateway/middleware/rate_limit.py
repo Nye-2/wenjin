@@ -170,6 +170,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     @staticmethod
     def _resolve_bucket(path: str) -> str:
         normalized = (path or "").strip()
+        if normalized == "/api":
+            normalized = "/"
+        elif normalized.startswith("/api/"):
+            normalized = normalized[4:]
+
         if normalized == "/chat/stream":
             return "streams"
         if normalized.startswith("/workspaces/") and normalized.endswith("/events"):
@@ -281,7 +286,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             results = await pipe.execute()
             current_count_raw = results[1] if len(results) > 1 else 0
             if not isinstance(current_count_raw, (int, float)):
-                return self._check_memory(key)
+                return self._check_memory(
+                    key,
+                    requests_per_window=requests_per_window,
+                    window_seconds=window_seconds,
+                )
             current_count = int(current_count_raw)
 
             return current_count < effective_limit

@@ -56,7 +56,7 @@ THESIS_TEMPLATE_ZH = r"""% 本科毕业设计论文
 
 % Bibliography
 \newpage
-\bibliographystyle{{gbt7714}}
+\bibliographystyle{{{bibliography_style}}}
 \bibliography{{refs}}
 
 % Acknowledgements
@@ -123,7 +123,7 @@ THESIS_TEMPLATE_EN = r"""% Undergraduate Thesis
 
 % Bibliography
 \newpage
-\bibliographystyle{{plain}}
+\bibliographystyle{{{bibliography_style}}}
 \bibliography{{refs}}
 
 % Acknowledgements

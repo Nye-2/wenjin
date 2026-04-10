@@ -19,11 +19,22 @@ _FEATURE_TITLES: dict[str, str] = {
     for feature in iter_workspace_features()
 }
 _FEATURE_TITLES.update(_FEATURE_TITLE_OVERRIDES)
+_FEATURE_FOLLOW_UP_PROMPTS: dict[str, str] = {
+    feature.id: feature.follow_up_prompt
+    for feature in iter_workspace_features()
+    if getattr(feature, "follow_up_prompt", None)
+}
 
 
 def feature_title(feature_id: str) -> str:
     """Resolve a human-friendly feature title."""
     return _FEATURE_TITLES.get(feature_id, feature_id)
+
+
+def feature_follow_up_prompt(feature_id: str) -> str | None:
+    """Resolve the canonical follow-up chat prompt for a feature."""
+    prompt = _FEATURE_FOLLOW_UP_PROMPTS.get(feature_id)
+    return str(prompt).strip() if isinstance(prompt, str) and prompt.strip() else None
 
 
 def _artifact_summary(artifacts: list[dict[str, Any]]) -> str | None:

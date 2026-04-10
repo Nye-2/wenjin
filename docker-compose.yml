@@ -114,7 +114,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@wenjin.ai}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
     command: ["uv", "run", "python", "-m", "src.database.bootstrap_admin"]
     depends_on:
@@ -141,7 +141,7 @@ services:
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - GATEWAY_HOST=0.0.0.0
       - GATEWAY_PORT=8001
-      - LANGGRAPH_URL=http://langgraph:2024
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     volumes:
       - uploads:/app/uploads
@@ -181,6 +181,9 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
+      - PROMETHEUS_WORKER_PORT=${PROMETHEUS_WORKER_PORT:-9153}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/wenjin-prometheus-worker
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     command: ["python", "-m", "src.task.worker"]
     volumes:
@@ -213,6 +216,7 @@ services:
 
   # LangGraph Agent Server
   langgraph:
+    profiles: ["langgraph"]
     image: ${LANGGRAPH_IMAGE:-wenjin-langgraph}
     build: *langgraph_build
     container_name: wenjin-langgraph
@@ -259,7 +263,6 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_LANGGRAPH_BASE_URL=/langgraph
       - NEXT_PUBLIC_API_URL=/api
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 >/dev/null || exit 1"]
@@ -269,8 +272,6 @@ services:
       start_period: 30s
     depends_on:
       gateway:
-        condition: service_healthy
-      langgraph:
         condition: service_healthy
     networks:
       - wenjin-network
@@ -284,19 +285,16 @@ services:
       - "2026:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - uploads:/var/www/uploads:ro
     depends_on:
       frontend:
         condition: service_healthy
       gateway:
         condition: service_healthy
-      langgraph:
-        condition: service_healthy
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "wget -qO- http://127.0.0.1/readyz >/dev/null && wget -qO- http://frontend:3000 >/dev/null && wget -qO- http://langgraph:2024/info >/dev/null || exit 1",
+          "wget -qO- http://127.0.0.1/readyz >/dev/null && wget -qO- http://frontend:3000 >/dev/null || exit 1",
         ]
       interval: 30s
       timeout: 10s
@@ -324,7 +322,7 @@ services:
     container_name: wenjin-grafana
     restart: unless-stopped
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana_data:/var/lib/grafana

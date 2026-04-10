@@ -238,6 +238,7 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     assert body["files"][0]["artifact_id"] == "artifact-1"
     assert body["files"][0]["metadata"]["stored_url"] == "/api/workspaces/ws-1/files/context/proposal.md"
     client.app.state.artifact_service.create.assert_awaited_once()
+    assert "created_by_skill" not in client.app.state.artifact_service.create.await_args.kwargs
     artifact_content = client.app.state.artifact_service.create.await_args.kwargs["content"]
     assert artifact_content["text_preview"] == "# proposal"
     assert artifact_content["stored_url"] == "/api/workspaces/ws-1/files/context/proposal.md"
@@ -284,6 +285,7 @@ def test_workspace_context_upload_degrades_when_memory_write_fails(client):
     body = response.json()
     assert body["files"][0]["artifact_id"] == "artifact-1"
     client.app.state.artifact_service.create.assert_awaited_once()
+    assert "created_by_skill" not in client.app.state.artifact_service.create.await_args.kwargs
     client.app.state.db.rollback.assert_awaited_once()
     publish_workspace_event.assert_awaited_once_with(
         "ws-1",

@@ -10,7 +10,10 @@ def test_sandbox_path_to_public_url_with_thread_id():
         "/mnt/user-data/execution/latex_compile/run-1/main.pdf",
         thread_id="thread-123",
     )
-    assert url == "/uploads/sandboxes/thread-123/execution/latex_compile/run-1/main.pdf"
+    assert (
+        url
+        == "/api/threads/thread-123/artifacts/mnt/user-data/execution/latex_compile/run-1/main.pdf"
+    )
 
 
 def test_sandbox_path_to_public_url_defaults_thread():
@@ -18,7 +21,10 @@ def test_sandbox_path_to_public_url_defaults_thread():
         "/mnt/user-data/execution/mermaid_diagram/run-1/chart.svg",
         thread_id=None,
     )
-    assert url == "/uploads/sandboxes/default/execution/mermaid_diagram/run-1/chart.svg"
+    assert (
+        url
+        == "/api/threads/default/artifacts/mnt/user-data/execution/mermaid_diagram/run-1/chart.svg"
+    )
 
 
 def test_sandbox_path_to_public_url_rejects_unknown_path():
@@ -32,8 +38,8 @@ def test_sandbox_path_to_public_url_sanitizes_thread_id():
         thread_id=thread_id,
     )
     assert url == (
-        f"/uploads/sandboxes/{normalize_thread_id(thread_id)}"
-        "/execution/latex_compile/run-1/main.pdf"
+        f"/api/threads/{normalize_thread_id(thread_id)}"
+        "/artifacts/mnt/user-data/execution/latex_compile/run-1/main.pdf"
     )
 
 

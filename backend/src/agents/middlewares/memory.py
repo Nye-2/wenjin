@@ -17,6 +17,7 @@ from src.agents.memory.capture import (
 )
 from src.agents.memory.queue import MemoryQueue, get_default_memory_queue
 from src.agents.middlewares.base import Middleware
+from src.agents.middlewares.config_utils import require_thread_id
 from src.agents.thread_state import ThreadState
 from src.services.user_memory_service import (
     _parse_knowledge_json,
@@ -205,7 +206,7 @@ class MemoryMiddleware(Middleware):
 
         # Get thread_id from config
         configurable = config.get("configurable", {})
-        thread_id = configurable.get("thread_id", "default")
+        thread_id = require_thread_id(config, component="MemoryMiddleware")
         user_id = configurable.get("user_id")
         workspace_id = configurable.get("workspace_id")
 

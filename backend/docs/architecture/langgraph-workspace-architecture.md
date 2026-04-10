@@ -1,6 +1,6 @@
 # LangGraph Workspace Architecture
 
-Last Updated: 2026-04-08
+Last Updated: 2026-04-10
 Status: Current
 
 ## Overview
@@ -14,6 +14,8 @@ Wenjin executes workspace features through a single canonical pipeline:
 5. `workspace_lead_agent` resolves and runs the registered feature graph.
 6. Results are normalized into artifacts, task state, and workspace refresh events.
 
+LangGraph 在当前架构中以进程内 graph runtime 形式存在，不要求独立外部 LangGraph 服务参与主链路。
+
 ## Canonical Entry
 
 - User-facing execution entry:
@@ -25,6 +27,7 @@ Wenjin executes workspace features through a single canonical pipeline:
   - `GET /api/tasks/{task_id}/stream`
 
 There is no separate public `/api/workspace-features/execute` compatibility entry.
+当 chat 需要触发 feature 时，也统一通过 `run_workspace_feature` 接回这条链。
 
 ## Execution Layers
 
@@ -64,6 +67,7 @@ There is no separate public `/api/workspace-features/execute` compatibility entr
   - `backend/src/agents/graphs/`
 
 Feature metadata is defined once in the registry and executed through registered graph functions.
+chat skills 不是独立 graph runtime；它们只是 lead-agent 在 chat 层使用的 feature 入口语义。
 
 ## Workspace Graph Modules
 

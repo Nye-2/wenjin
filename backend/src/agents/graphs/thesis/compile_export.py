@@ -13,11 +13,30 @@ from src.models.router import route_writing_model, validate_requested_model
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
-    emit_bound_runtime as _emit_bound_runtime,
-    runtime_progress_for_phase,
     upsert_runtime_block,
 )
-from src.workspace_features.services.thesis_feature_service import build_compile_payload
+from src.task.runtime_blocks import (
+    emit_bound_runtime as _emit_bound_runtime,
+)
+from src.workspace_features.latex_sync import compile_thesis_payload
+from src.workspace_features.services.llm_json import (
+    build_json_prompt,
+    invoke_json_chat_model,
+    parse_json_payload,
+)
+from src.workspace_features.services.thesis_feature_service import (
+    build_compile_payload,
+    extract_thesis_chapter_summaries,
+)
+from src.workspace_features.services.thesis_feature_service import (
+    load_thesis_chapter_summaries as _load_chapter_summaries,
+)
+from src.workspace_features.services.thesis_feature_service import (
+    load_thesis_literature_count as _load_literature_count,
+)
+from src.workspace_features.services.thesis_feature_service import (
+    load_thesis_outline_context as _load_outline_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,138 +51,33 @@ def _resolve_writing_model(requested_model: str | None) -> str:
     return route_writing_model(requested_model=requested)
 
 
-# ---------------------------------------------------------------------------
-# Helper: parse JSON from LLM response
-# ---------------------------------------------------------------------------
 def _parse_json_response(text: str) -> dict[str, Any] | None:
-    """Parse JSON from LLM response, handling markdown fences."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    try:
-        parsed = json.loads(text)
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        return None
+    """Compatibility wrapper for tests around JSON parsing behavior."""
+    return parse_json_payload(text)
 
 
-# ---------------------------------------------------------------------------
-# Helper: extract chapter summaries from artifact list (pure function)
-# ---------------------------------------------------------------------------
 def _extract_chapter_summaries(
     artifacts: list[dict[str, Any]],
     max_content_chars: int = 500,
 ) -> list[dict[str, str]]:
-    """Extract chapter title + truncated content from artifact dicts.
-
-    Each artifact dict is expected to have ``type``, ``title``, and ``content``
-    keys.  Only artifacts whose ``type`` equals ``"thesis_chapter"`` are
-    included.  The chapter content is taken from
-    ``content.get("markdown", "")`` and truncated to *max_content_chars*.
-
-    Returns a list of ``{"title": ..., "summary": ...}`` dicts sorted by
-    ``content.chapter_index`` (falling back to 999 for missing indices).
-    """
-    chapters: list[tuple[int, dict[str, str]]] = []
-    for art in artifacts:
-        if art.get("type") != "thesis_chapter":
-            continue
-        content = art.get("content")
-        if not isinstance(content, dict):
-            continue
-        title = str(
-            content.get("chapter_title")
-            or art.get("title")
-            or "未命名章节"
-        )
-        markdown = str(content.get("markdown") or "").strip()
-        summary = markdown[:max_content_chars] if markdown else ""
-        idx = content.get("chapter_index")
-        try:
-            idx = int(idx)
-        except (TypeError, ValueError):
-            idx = 999
-        chapters.append((idx, {"title": title, "summary": summary}))
-
-    chapters.sort(key=lambda t: t[0])
-    return [ch for _, ch in chapters]
+    """Compatibility wrapper for chapter-summary extraction tests."""
+    return extract_thesis_chapter_summaries(
+        artifacts,
+        max_content_chars=max_content_chars,
+    )
 
 
-# ---------------------------------------------------------------------------
-# DB loaders
-# ---------------------------------------------------------------------------
-async def _load_chapter_summaries(workspace_id: str) -> list[dict[str, str]]:
-    """Load workspace artifacts and extract chapter summaries."""
-    from src.academic.services import ArtifactService
-    from src.database import get_db_session
-
-    try:
-        async with get_db_session() as db:
-            service = ArtifactService(db)
-            artifacts = await service.list_by_workspace(
-                workspace_id=workspace_id, limit=300,
-            )
-        # Convert ORM objects to dicts for the pure helper
-        art_dicts: list[dict[str, Any]] = []
-        for art in artifacts:
-            art_dicts.append({
-                "type": art.type,
-                "title": art.title,
-                "content": art.content if isinstance(art.content, dict) else {},
-            })
-        return _extract_chapter_summaries(art_dicts)
-    except Exception:
-        logger.exception("Failed to load chapter summaries")
-        return []
-
-
-async def _load_literature_count(workspace_id: str) -> int:
-    """Return total literature count for the workspace."""
-    from src.database import get_db_session
-    from src.services.literature_service import LiteratureService
-
-    try:
-        async with get_db_session() as db:
-            service = LiteratureService(db)
-            response = await service.list_literature(workspace_id, offset=0, limit=1)
-        return int(response.get("total", 0))
-    except Exception:
-        logger.exception("Failed to load literature count")
-        return 0
-
-
-# ---------------------------------------------------------------------------
-# LLM Step 1: Consistency review
-# ---------------------------------------------------------------------------
-_REVIEW_CONSISTENCY_PROMPT = """你是学术论文一致性审查专家。请审查以下论文各章节内容，检查整体一致性。
-
-章节摘要:
-{chapter_summaries}
-
-参考文献数量: {literature_count}
-{memory_context}
-
-请从以下四个维度进行审查:
-1. 章节逻辑连贯性 — 各章节之间是否逻辑衔接自然？
-2. 引用一致性 — 参考文献使用是否前后一致？
-3. 术语统一性 — 全文是否使用相同的专业术语？
-4. 结构完整性 — 是否缺少必要的章节（如绪论、结论等）？
-
-返回 JSON:
-{{
+_REVIEW_CONSISTENCY_SCHEMA = """{
   "issues": [
-    {{
+    {
       "type": "logical_coherence | citation_consistency | terminology_uniformity | structural_completeness",
       "severity": "high | medium | low",
       "description": "问题描述",
       "suggestion": "修改建议"
-    }}
+    }
   ],
   "overall_assessment": "整体评估（2-3句话）"
-}}
-
-仅返回 JSON。"""
+}"""
 
 
 async def _review_consistency(
@@ -177,60 +91,44 @@ async def _review_consistency(
     if not chapter_summaries:
         return None
 
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return None
-
     summaries_text = "\n".join(
         f"- 【{ch['title']}】{ch['summary']}" for ch in chapter_summaries
     )
-    mem_text = f"\n用户记忆上下文:\n{memory_context}" if memory_context else ""
-
-    prompt = _REVIEW_CONSISTENCY_PROMPT.format(
-        chapter_summaries=summaries_text,
-        literature_count=literature_count,
-        memory_context=mem_text,
+    prompt = build_json_prompt(
+        instruction="请审查论文章节摘要的一致性，识别会影响成稿质量的关键问题。",
+        context_sections=(
+            ("章节摘要", summaries_text),
+            ("补充指标", [f"参考文献数量：{literature_count}"]),
+            ("工作记忆", memory_context),
+        ),
+        schema=_REVIEW_CONSISTENCY_SCHEMA,
+        requirements=(
+            "优先指出真正会影响逻辑、引用、术语统一和结构完整性的高价值问题。",
+            "issues 按严重程度从高到低排序；没有问题时返回空数组。",
+            "overall_assessment 需要明确说明当前稿件是否适合进入编译导出阶段。",
+        ),
+        output_language="中文",
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_response(content)
-    except Exception:
-        logger.exception("Step 1 (review_consistency) failed")
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术论文一致性审查专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.2,
+    )
+    if isinstance(parsed, dict):
+        return parsed
+    if generation_error:
+        logger.warning("Step 1 (review_consistency) failed: %s", generation_error)
         return None
+    return None
 
 
-# ---------------------------------------------------------------------------
-# LLM Step 2: Generate abstract and keywords
-# ---------------------------------------------------------------------------
-_GENERATE_ABSTRACT_PROMPT = """你是学术论文摘要撰写专家。根据以下论文信息，生成中英文摘要和关键词。
-
-论文主题: {topic}
-工作区描述: {workspace_description}
-
-章节摘要:
-{chapter_summaries}
-{memory_context}
-
-请生成:
-1. 中文摘要（200-300字，学术规范）
-2. 中文关键词（3-5个）
-3. 英文摘要（对应中文摘要的翻译）
-4. 英文关键词（对应中文关键词的翻译）
-
-返回 JSON:
-{{
+_GENERATE_ABSTRACT_SCHEMA = """{
   "abstract_zh": "中文摘要正文",
   "keywords_zh": ["关键词1", "关键词2", "关键词3"],
   "abstract_en": "English abstract text",
   "keywords_en": ["keyword1", "keyword2", "keyword3"]
-}}
-
-仅返回 JSON。"""
+}"""
 
 
 async def _generate_abstract_keywords(
@@ -245,32 +143,38 @@ async def _generate_abstract_keywords(
     if not chapter_summaries:
         return None
 
-    try:
-        from src.models.factory import create_chat_model
-
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception:
-        return None
-
     summaries_text = "\n".join(
         f"- 【{ch['title']}】{ch['summary']}" for ch in chapter_summaries
     )
-    mem_text = f"\n用户记忆上下文:\n{memory_context}" if memory_context else ""
-
-    prompt = _GENERATE_ABSTRACT_PROMPT.format(
-        topic=topic,
-        workspace_description=workspace_description,
-        chapter_summaries=summaries_text,
-        memory_context=mem_text,
+    prompt = build_json_prompt(
+        instruction="请基于论文主题与章节摘要，生成可直接用于学位论文导出的中英文摘要和关键词。",
+        context_sections=(
+            ("论文主题", topic),
+            ("工作区描述", workspace_description),
+            ("章节摘要", summaries_text),
+            ("工作记忆", memory_context),
+        ),
+        schema=_GENERATE_ABSTRACT_SCHEMA,
+        requirements=(
+            "中文摘要控制在 200-300 字，突出研究背景、方法、结果和价值。",
+            "英文摘要应忠实对应中文摘要，避免逐字硬译和不自然表达。",
+            "关键词保持 3-5 个，术语准确、便于检索。",
+            "如果章节信息不足，要在摘要中保守表达，不要编造实验结果。",
+        ),
+        output_language="中文；abstract_en 和 keywords_en 使用英文",
     )
-
-    try:
-        response = await model.ainvoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_response(content)
-    except Exception:
-        logger.exception("Step 2 (generate_abstract_keywords) failed")
+    parsed, _, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术论文摘要撰写专家。",
+        prompt=prompt,
+        resolved_model_id=model_id,
+        temperature=0.2,
+    )
+    if isinstance(parsed, dict):
+        return parsed
+    if generation_error:
+        logger.warning("Step 2 (generate_abstract_keywords) failed: %s", generation_error)
         return None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -317,8 +221,15 @@ async def compile_export_graph(
     runtime = get_runtime_state()
 
     # Load data
+    outline_context = await _load_outline_context(workspace_id)
     chapter_summaries = await _load_chapter_summaries(workspace_id)
     literature_count = await _load_literature_count(workspace_id)
+    paper_title = str(
+        outline_context.get("paper_title")
+        or workspace_name
+        or params.get("topic")
+        or "未命名论文"
+    ).strip() or "未命名论文"
     if runtime is not None:
         upsert_runtime_block(
             runtime,
@@ -379,7 +290,7 @@ async def compile_export_graph(
     # Step 2: Generate abstract and keywords
     abstract_keywords = await _generate_abstract_keywords(
         chapter_summaries=chapter_summaries,
-        topic=workspace_name,
+        topic=paper_title,
         workspace_description=workspace_description,
         memory_context=memory_context,
         model_id=model_id,
@@ -426,6 +337,10 @@ async def compile_export_graph(
         abstract_override=abstract_override,
         keywords_override=keywords_override,
     )
+    compile_result = await compile_thesis_payload(
+        workspace_id=workspace_id,
+        payload=compile_payload,
+    )
     if runtime is not None:
         upsert_runtime_block(
             runtime,
@@ -434,13 +349,13 @@ async def compile_export_graph(
                 "kind": "metrics",
                 "title": "编译结果",
                 "entries": [
-                    {"label": "编译状态", "value": str(compile_payload.get("compile_status") or "unknown")},
-                    {"label": "页数", "value": str(compile_payload.get("page_count") or 0)},
+                    {"label": "编译状态", "value": str(compile_result.compile_status or "unknown")},
+                    {"label": "页数", "value": str(compile_result.page_count or 0)},
                     {"label": "模板", "value": str(compile_payload.get("template") or "default")},
                 ],
             },
         )
-        compile_logs = str(compile_payload.get("compile_logs") or "")
+        compile_logs = str(compile_result.compile_logs or "")
         if compile_logs:
             upsert_runtime_block(
                 runtime,
@@ -455,7 +370,7 @@ async def compile_export_graph(
             runtime,
             title="编译流程完成",
             description="已生成摘要、关键词并完成编译尝试。",
-            tone="success" if compile_payload.get("compile_status") == "success" else "warning",
+            tone="success" if compile_result.compile_status == "success" else "warning",
         )
         await _emit_bound_runtime(
             message="正在整理编译导出产物...",
@@ -468,21 +383,25 @@ async def compile_export_graph(
         "workspace_name": workspace_name,
         "consistency_review": consistency_review,
         "abstract_keywords": abstract_keywords,
-        "compile_status": compile_payload.get("compile_status"),
-        "pdf_path": compile_payload.get("pdf_path"),
-        "pdf_url": compile_payload.get("pdf_url"),
-        "page_count": compile_payload.get("page_count"),
-        "compile_error": compile_payload.get("compile_error"),
-        "compile_logs": compile_payload.get("compile_logs"),
+        "latex_project_id": compile_result.latex_project_id,
+        "main_file": compile_result.main_file,
+        "compile_status": compile_result.compile_status,
+        "pdf_path": compile_result.pdf_path,
+        "pdf_url": compile_result.pdf_url,
+        "pdf_endpoint": compile_result.pdf_endpoint,
+        "page_count": compile_result.page_count,
+        "compile_error": compile_result.compile_error,
+        "compile_logs": compile_result.compile_logs,
         "latex_content": compile_payload.get("latex_content"),
         "bib_content": compile_payload.get("bib_content"),
         "keywords": compile_payload.get("keywords"),
         "abstract_source": compile_payload.get("abstract_source"),
         "source_summary": compile_payload.get("source_summary"),
+        "sync_conflicts": compile_result.sync_conflicts,
         "template": compile_payload.get("template"),
         "compiler": compile_payload.get("compiler"),
         "bibliography_style": compile_payload.get("bibliography_style"),
-        "paper_title": compile_payload.get("paper_title"),
+        "paper_title": compile_payload.get("paper_title") or paper_title,
         "model_id": model_id,
         "chapter_count": len(chapter_summaries),
         "literature_count": literature_count,

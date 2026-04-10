@@ -1,14 +1,14 @@
 """Service helpers for SCI workspace feature handlers.
 
 This module keeps handler logic thin and reusable by encapsulating:
-1. literature search (LLM synthesis),
-2. paper analysis (structured method/experiment/conclusion extraction).
-3. SCI section writing (context-aware draft generation).
+1. framework-outline payload assembly,
+2. literature search (LLM synthesis),
+3. paper analysis (structured method/experiment/conclusion extraction),
+4. SCI section-writing payload assembly.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import UTC, datetime
@@ -17,17 +17,20 @@ from typing import Any
 from src.academic.services import ArtifactService
 from src.artifacts import ArtifactType
 from src.database import get_db_session
-from src.models.factory import create_chat_model
-from src.models.router import list_user_selectable_models, route_writing_model
 from src.services.literature_service import LiteratureService
-from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     advance_runtime_phase,
     append_runtime_activity,
-    emit_bound_runtime as _emit_bound_runtime,
-    runtime_progress_for_phase,
     upsert_runtime_block,
+)
+from src.task.runtime_blocks import (
+    emit_bound_runtime as _emit_bound_runtime,
+)
+from src.workspace_features.services.llm_json import (
+    build_json_prompt,
+    invoke_json_chat_model,
+    resolve_writing_model_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,26 +107,6 @@ async def _try_llm_literature_search(
     preferred_model: str | None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt LLM-based literature search synthesis."""
-    models = list_user_selectable_models(purpose="writing")
-    if not models:
-        return None, None, "no_generation_model_configured"
-
-    try:
-        model_id = route_writing_model(requested_model=preferred_model)
-    except Exception:
-        model_id = models[0].id
-
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
-
-    # Build context from existing literature
     literature_context = ""
     if existing_literature:
         lit_summaries = []
@@ -134,35 +117,30 @@ async def _try_llm_literature_search(
             lit_summaries.append(f"- {title} ({year}) - {venue}")
         literature_context = "已有相关文献：\n" + "\n".join(lit_summaries)
 
-    prompt = "\n".join([
-        "请根据检索需求生成文献检索建议和分析，返回 JSON。",
-        f"检索查询：{query}",
-        f"学科领域：{discipline}",
-        literature_context if literature_context else "暂无已有文献",
-        "",
-        "你必须输出如下 JSON 结构：",
-        '{"papers":[{"title":"论文标题","authors":["作者1"],"year":2024,"venue":"期刊/会议","abstract":"摘要","relevance":"相关性说明"}],"top_hits":[{"title":"高相关论文","reason":"推荐理由"}],"filters":{"year_range":{"min":2020,"max":2025},"sources":["数据源"],"quartiles":["Q1","Q2"]},"summary":"检索结果综述"}',
-        "",
-        "要求：",
-        "1. papers 数组提供 5-10 篇推荐文献（基于已有文献或领域常识）",
-        "2. top_hits 提供 3 篇最相关的论文推荐",
-        "3. filters 提供合理的筛选维度建议",
-        "4. summary 提供检索结果综述和研究方向建议",
-        "5. 内容需与学科领域相关，具备学术价值",
-    ])
-
-    try:
-        response = await model.ainvoke([
-            SystemMessage(content="你是学术文献检索专家，输出 JSON 格式的检索结果。"),
-            HumanMessage(content=prompt),
-        ])
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    raw_text = _extract_response_text(response)
-    parsed = _parse_json_payload(raw_text)
+    prompt = build_json_prompt(
+        instruction="请根据检索需求生成文献检索建议和分析。",
+        context_sections=[
+            ("检索查询", query),
+            ("学科领域", discipline),
+            ("已有文献", literature_context or "暂无已有文献"),
+        ],
+        schema='{"papers":[{"title":"论文标题","authors":["作者1"],"year":2024,"venue":"期刊/会议","abstract":"摘要","relevance":"相关性说明"}],"top_hits":[{"title":"高相关论文","reason":"推荐理由"}],"filters":{"year_range":{"min":2020,"max":2025},"sources":["数据源"],"quartiles":["Q1","Q2"]},"summary":"检索结果综述"}',
+        requirements=[
+            "papers 数组提供 5-10 条建议条目；无法确认的具体论文需明确标注待核验。",
+            "top_hits 提供 3 条最相关命中及推荐理由。",
+            "filters 提供合理的筛选维度建议。",
+            "summary 提供检索结果综述和研究方向建议。",
+        ],
+        output_language="zh",
+    )
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术文献检索专家。",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.3,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
 
     return {
         "query": query,
@@ -180,54 +158,8 @@ async def _try_llm_literature_search(
     }, model_id, None
 
 
-def _extract_response_text(response: Any) -> str:
-    """Extract text from LLM response."""
-    content = getattr(response, "content", "")
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        texts: list[str] = []
-        for item in content:
-            if isinstance(item, dict) and isinstance(item.get("text"), str):
-                texts.append(item["text"])
-        return "\n".join(texts).strip()
-    return str(content).strip()
-
-
-def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
-    """Parse JSON from LLM response with multiple extraction strategies."""
-    if not raw_text:
-        return None
-
-    candidates = [raw_text.strip()]
-
-    code_block_match = re.search(r"```json\s*(.*?)\s*```", raw_text, re.DOTALL | re.IGNORECASE)
-    if code_block_match:
-        candidates.append(code_block_match.group(1).strip())
-
-    first_brace = raw_text.find("{")
-    last_brace = raw_text.rfind("}")
-    if first_brace != -1 and last_brace != -1 and first_brace < last_brace:
-        candidates.append(raw_text[first_brace : last_brace + 1].strip())
-
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-            if isinstance(payload, dict):
-                return payload
-        except json.JSONDecodeError:
-            continue
-    return None
-
-
 def _resolve_generation_model(preferred_model: str | None) -> str | None:
-    models = list_user_selectable_models(purpose="writing")
-    if not models:
-        return None
-    try:
-        return route_writing_model(requested_model=preferred_model)
-    except Exception:
-        return models[0].id
+    return resolve_writing_model_id(preferred_model)
 
 
 def _build_literature_review_template(topic: str, discipline: str) -> dict[str, Any]:
@@ -273,16 +205,6 @@ async def _try_llm_literature_review(
     if model_id is None:
         return None, None, "no_generation_model_configured"
 
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.2)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
-
     literature_lines = [
         f"- {item.get('title', 'Untitled')} ({item.get('year', 'n/a')})"
         for item in literature[:12]
@@ -292,34 +214,31 @@ async def _try_llm_literature_review(
         f"- {item.get('title', 'Untitled')}: {item.get('summary', '')}"
         for item in context_summaries[:5]
     ]
-    prompt = "\n".join(
-        [
-            "请生成 SCI 论文可直接复用的文献综述，输出 JSON。",
-            f"主题：{topic}",
-            f"学科：{discipline or '综合'}",
-            "已有文献信息：",
-            "\n".join(literature_lines) if literature_lines else "- 暂无明确文献条目",
-            "已有上下文产出：",
-            "\n".join(artifact_lines) if artifact_lines else "- 暂无上下文产出",
-            "",
-            "输出 JSON 结构：",
-            '{"summary":"综述摘要","sections":[{"title":"章节标题","content":"章节内容"}],"key_papers":[{"title":"论文标题","reason":"为什么重要"}],"research_gaps":["空白1"],"next_actions":["动作1"]}',
-        ]
+    prompt = build_json_prompt(
+        instruction="请生成 SCI 论文可直接复用的文献综述。",
+        context_sections=[
+            ("主题", topic),
+            ("学科", discipline or "综合"),
+            ("已有文献信息", "\n".join(literature_lines) if literature_lines else "- 暂无明确文献条目"),
+            ("已有上下文产出", "\n".join(artifact_lines) if artifact_lines else "- 暂无上下文产出"),
+        ],
+        schema='{"summary":"综述摘要","sections":[{"title":"章节标题","content":"章节内容"}],"key_papers":[{"title":"论文标题","reason":"为什么重要"}],"research_gaps":["空白1"],"next_actions":["动作1"]}',
+        requirements=[
+            "sections 至少覆盖背景、代表性路线和研究空白三个层次。",
+            "key_papers 优先使用给定文献；不确定时明确标注待核验。",
+            "research_gaps 要具体到可形成问题陈述。",
+        ],
+        output_language="zh",
     )
 
-    try:
-        response = await model.ainvoke(
-            [
-                SystemMessage(content="你是严谨的学术综述作者，只返回 JSON。"),
-                HumanMessage(content=prompt),
-            ]
-        )
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    parsed = _parse_json_payload(_extract_response_text(response))
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="你是严谨的学术综述作者。",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.2,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
     return parsed, model_id, None
 
 
@@ -402,46 +321,34 @@ async def _try_llm_framework_outline(
     if model_id is None:
         return None, None, "no_generation_model_configured"
 
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.2)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
-
     artifact_lines = [
         f"- {item.get('title', 'Untitled')}: {item.get('summary', '')}"
         for item in context_summaries[:6]
     ]
-    prompt = "\n".join(
-        [
-            "请为 SCI 论文生成摘要和章节大纲，返回 JSON。",
-            f"论文题目：{paper_title}",
-            f"研究主题：{topic}",
-            "上下文产出：",
-            "\n".join(artifact_lines) if artifact_lines else "- 暂无上下文",
-            "",
-            "输出 JSON：",
-            '{"abstract":"摘要","keywords":["kw1"],"sections":[{"title":"Introduction","focus":"..." }],"contributions":["贡献1"]}',
-        ]
+    prompt = build_json_prompt(
+        instruction="请为 SCI 论文生成摘要和章节大纲。",
+        context_sections=[
+            ("论文题目", paper_title),
+            ("研究主题", topic),
+            ("上下文产出", "\n".join(artifact_lines) if artifact_lines else "- 暂无上下文"),
+        ],
+        schema='{"abstract":"摘要","keywords":["kw1"],"sections":[{"title":"Introduction","focus":"..." }],"contributions":["贡献1"]}',
+        requirements=[
+            "sections 应覆盖 Introduction、Related Work、Methodology、Experiments、Results and Discussion、Conclusion。",
+            "contributions 应写成可直接进入论文的贡献点表达。",
+            "摘要、关键词和章节 focus 必须彼此一致。",
+        ],
+        output_language="en",
     )
 
-    try:
-        response = await model.ainvoke(
-            [
-                SystemMessage(content="你是学术写作规划助手，只返回 JSON。"),
-                HumanMessage(content=prompt),
-            ]
-        )
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    parsed = _parse_json_payload(_extract_response_text(response))
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术写作规划助手。",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.2,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
     return parsed, model_id, None
 
 
@@ -487,28 +394,6 @@ async def build_framework_outline_payload(
         "generation_error": generation_error,
         "generation_mode": "llm" if llm_result is not None else "template",
     }
-    try:
-        async with get_db_session() as db:
-            bridge_service = WorkspaceLatexProjectService(db)
-            linked_project, section_map = await bridge_service.sync_sci_outline_project(
-                workspace_id=workspace_id,
-                paper_title=resolved_title,
-                abstract=str(result.get("abstract") or "").strip(),
-                keywords=result.get("keywords") if isinstance(result.get("keywords"), list) else [],
-                sections=result.get("sections") if isinstance(result.get("sections"), list) else [],
-            )
-            result["latex_project_id"] = str(linked_project.id)
-            result["main_file"] = linked_project.main_file
-            result["section_map"] = section_map
-            linked_metadata = (
-                linked_project.llm_config.get("metadata")
-                if isinstance(linked_project.llm_config, dict)
-                else {}
-            )
-            if isinstance(linked_metadata, dict):
-                result["sync_conflicts"] = linked_metadata.get("sync_conflicts", [])
-    except Exception:
-        logger.exception("Failed to sync SCI framework outline into linked latex project")
     return result
 
 
@@ -546,41 +431,29 @@ async def _try_llm_peer_review(
     model_id = _resolve_generation_model(preferred_model)
     if model_id is None:
         return None, None, "no_generation_model_configured"
-
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.1)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
-
-    prompt = "\n".join(
-        [
-            "请以审稿人视角评审以下稿件内容，输出 JSON。",
-            f"题目：{paper_title}",
-            f"稿件摘录：{_truncate(manuscript_excerpt, 2600)}",
-            "",
-            "输出 JSON：",
-            '{"overall_assessment":"总体评价","score":7.5,"strengths":["优点1"],"weaknesses":["问题1"],"revision_actions":["修改建议1"]}',
-        ]
+    prompt = build_json_prompt(
+        instruction="请以审稿人视角评审以下稿件内容。",
+        context_sections=[
+            ("题目", paper_title),
+            ("稿件摘录", _truncate(manuscript_excerpt, 2600)),
+        ],
+        schema='{"overall_assessment":"总体评价","score":7.5,"strengths":["优点1"],"weaknesses":["问题1"],"revision_actions":["修改建议1"]}',
+        requirements=[
+            "strengths、weaknesses、revision_actions 都要具体，不要泛泛而谈。",
+            "score 使用 0-10 范围内的数字。",
+            "revision_actions 应能直接转化为下一轮写作动作。",
+        ],
+        output_language="zh",
     )
 
-    try:
-        response = await model.ainvoke(
-            [
-                SystemMessage(content="你是严格但建设性的学术审稿人，只返回 JSON。"),
-                HumanMessage(content=prompt),
-            ]
-        )
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    parsed = _parse_json_payload(_extract_response_text(response))
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="你是严格但建设性的学术审稿人。",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.1,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
     return parsed, model_id, None
 
 
@@ -655,42 +528,30 @@ async def _try_llm_journal_recommend(
     model_id = _resolve_generation_model(preferred_model)
     if model_id is None:
         return None, None, "no_generation_model_configured"
-
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.2)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
-
-    prompt = "\n".join(
-        [
-            "请根据论文题目和摘要推荐投稿期刊，输出 JSON。",
-            f"题目：{paper_title}",
-            f"学科：{discipline}",
-            f"摘要：{_truncate(abstract, 2400)}",
-            "",
-            "输出 JSON：",
-            '{"paper_profile":"论文画像","journals":[{"name":"期刊","fit":"适配度","reason":"推荐原因"}],"submission_notes":["建议1"]}',
-        ]
+    prompt = build_json_prompt(
+        instruction="请根据论文题目和摘要推荐投稿期刊。",
+        context_sections=[
+            ("题目", paper_title),
+            ("学科", discipline),
+            ("摘要", _truncate(abstract, 2400)),
+        ],
+        schema='{"paper_profile":"论文画像","journals":[{"name":"期刊","fit":"适配度","reason":"推荐原因"}],"submission_notes":["建议1"]}',
+        requirements=[
+            "journals 至少给出 3 个候选期刊。",
+            "fit 和 reason 必须具体到论文主题、方法或实验形态。",
+            "submission_notes 给出投稿前仍需补强的点。",
+        ],
+        output_language="zh",
     )
 
-    try:
-        response = await model.ainvoke(
-            [
-                SystemMessage(content="你是审稿策略顾问，只返回 JSON。"),
-                HumanMessage(content=prompt),
-            ]
-        )
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    parsed = _parse_json_payload(_extract_response_text(response))
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="你是审稿策略顾问。",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.2,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
     return parsed, model_id, None
 
 
@@ -865,24 +726,9 @@ async def _try_llm_paper_analysis(
     preferred_model: str | None = None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt LLM-based paper analysis."""
-    models = list_user_selectable_models(purpose="writing")
-    if not models:
+    model_id = resolve_writing_model_id(preferred_model)
+    if model_id is None:
         return None, None, "no_generation_model_configured"
-
-    try:
-        model_id = route_writing_model(requested_model=preferred_model)
-    except Exception:
-        model_id = models[0].id
-
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.3)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
 
     # Build context from paper info
     context_parts = [f"论文标题：{paper_title}"]
@@ -891,35 +737,28 @@ async def _try_llm_paper_analysis(
     if paper_content:
         context_parts.append(f"内容片段：{_truncate(paper_content, max_len=2000)}")
 
-    prompt = "\n".join([
-        "请对以下论文进行结构化分析，返回 JSON。",
-        "",
-        *context_parts,
-        "",
-        "你必须输出如下 JSON 结构：",
-        '{"sections":{"methodology":{"title":"研究方法","content":"方法描述","key_points":["要点1","要点2"]},"experiments":{"title":"实验设计","content":"实验描述","key_points":["要点1"]},"conclusions":{"title":"研究结论","content":"结论描述","key_points":["要点1"]},"innovations":{"title":"创新点","content":"创新描述","key_points":["要点1"]}},"summary":"论文整体评价","quality_assessment":{"methodology_rigor":"高/中/低","experiment_completeness":"高/中/低","contribution_level":"高/中/低"},"recommendations":["后续研究建议1","建议2"]}',
-        "",
-        "要求：",
-        "1. methodology 分析研究方法、技术路线和数据来源",
-        "2. experiments 分析实验设计、基准和评价指标",
-        "3. conclusions 总结主要发现和研究贡献",
-        "4. innovations 提炼核心创新点和理论贡献",
-        "5. summary 提供 100-200 字的整体评价",
-        "6. 内容需客观准确，具备学术参考价值",
-    ])
+    prompt = build_json_prompt(
+        instruction="请对以下论文进行结构化分析。",
+        context_sections=[("论文上下文", context_parts)],
+        schema='{"sections":{"methodology":{"title":"研究方法","content":"方法描述","key_points":["要点1","要点2"]},"experiments":{"title":"实验设计","content":"实验描述","key_points":["要点1"]},"conclusions":{"title":"研究结论","content":"结论描述","key_points":["要点1"]},"innovations":{"title":"创新点","content":"创新描述","key_points":["要点1"]}},"summary":"论文整体评价","quality_assessment":{"methodology_rigor":"高/中/低","experiment_completeness":"高/中/低","contribution_level":"高/中/低"},"recommendations":["后续研究建议1","建议2"]}',
+        requirements=[
+            "methodology 分析研究方法、技术路线和数据来源。",
+            "experiments 分析实验设计、基准和评价指标。",
+            "conclusions 总结主要发现和研究贡献。",
+            "innovations 提炼核心创新点和理论贡献。",
+            "summary 提供 100-200 字的整体评价。",
+        ],
+        output_language="zh",
+    )
 
-    try:
-        response = await model.ainvoke([
-            SystemMessage(content="你是学术论文分析专家，输出 JSON 格式的结构化分析。"),
-            HumanMessage(content=prompt),
-        ])
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    raw_text = _extract_response_text(response)
-    parsed = _parse_json_payload(raw_text)
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="你是学术论文分析专家。",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.3,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
 
     # Normalize sections
     sections = parsed.get("sections", {})
@@ -1234,24 +1073,9 @@ async def _try_llm_sci_writing(
     preferred_model: str | None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt LLM-based SCI section writing."""
-    models = list_user_selectable_models(purpose="writing")
-    if not models:
+    model_id = resolve_writing_model_id(preferred_model)
+    if model_id is None:
         return None, None, "no_generation_model_configured"
-
-    try:
-        model_id = route_writing_model(requested_model=preferred_model)
-    except Exception:
-        model_id = models[0].id
-
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception as exc:
-        return None, model_id, f"langchain_message_import_failed: {exc}"
-
-    try:
-        model = create_chat_model(model_id, temperature=0.4)
-    except Exception as exc:
-        return None, model_id, f"model_init_failed: {exc}"
 
     section_title = _resolve_section_title(section_type)
     context_lines = []
@@ -1261,41 +1085,32 @@ async def _try_llm_sci_writing(
         )
     context_block = "\n".join(context_lines) if context_lines else "- No usable context artifacts."
 
-    prompt = "\n".join(
-        [
-            "Write a SCI paper section draft in English and return JSON only.",
-            f"Paper title: {paper_title}",
-            f"Section type: {section_type}",
-            f"Section title: {section_title}",
-            f"Target length: around {target_words} words",
-            "",
-            "Available context summaries:",
-            context_block,
-            "",
-            "Required JSON schema:",
-            '{"section_title":"Section Title","content":"Section body in English","outline":["Subsection 1","Subsection 2"],"references":["Reference suggestion 1","Reference suggestion 2"]}',
-            "",
-            "Constraints:",
-            "1. content must be directly editable academic prose in English.",
-            "2. Keep a rigorous and specific academic tone.",
-            "3. If context lacks evidence, provide supplemental suggestions in references.",
-            "4. Do not output markdown code blocks or extra explanatory text.",
-        ]
+    prompt = build_json_prompt(
+        instruction="Write a SCI paper section draft.",
+        context_sections=[
+            ("Paper title", paper_title),
+            ("Section type", section_type),
+            ("Section title", section_title),
+            ("Target length", f"around {target_words} words"),
+            ("Available context summaries", context_block),
+        ],
+        schema='{"section_title":"Section Title","content":"Section body in English","outline":["Subsection 1","Subsection 2"],"references":["Reference suggestion 1","Reference suggestion 2"]}',
+        requirements=[
+            "content must be directly editable academic prose in English.",
+            "Maintain a rigorous, specific academic tone.",
+            "If context lacks evidence, keep the prose conservative and use references for supplemental suggestions only.",
+        ],
+        output_language="en",
     )
 
-    try:
-        response = await model.ainvoke(
-            [
-                SystemMessage(content="You are a SCI writing assistant. Output JSON only, in English."),
-                HumanMessage(content=prompt),
-            ]
-        )
-    except Exception as exc:
-        return None, model_id, f"llm_generation_failed: {exc}"
-
-    parsed = _parse_json_payload(_extract_response_text(response))
+    parsed, model_id, generation_error = await invoke_json_chat_model(
+        system_prompt="You are a SCI writing assistant.",
+        prompt=prompt,
+        preferred_model=preferred_model,
+        temperature=0.4,
+    )
     if parsed is None:
-        return None, model_id, "llm_output_not_json"
+        return None, model_id, generation_error
 
     content = str(parsed.get("content") or "").strip()
     if not content:
@@ -1479,27 +1294,4 @@ async def build_sci_writing_payload(
         "model_id": model_id,
         "generation_error": None,
     }
-    try:
-        async with get_db_session() as db:
-            bridge_service = WorkspaceLatexProjectService(db)
-            linked_project, section_file, section_map = await bridge_service.sync_sci_section_draft(
-                workspace_id=workspace_id,
-                paper_title=resolved_title,
-                section_type=normalized_section_type,
-                section_title=section_title or _resolve_section_title(normalized_section_type),
-                content=draft_content,
-            )
-            result["latex_project_id"] = str(linked_project.id)
-            result["main_file"] = linked_project.main_file
-            result["section_file"] = section_file
-            result["section_map"] = section_map
-            linked_metadata = (
-                linked_project.llm_config.get("metadata")
-                if isinstance(linked_project.llm_config, dict)
-                else {}
-            )
-            if isinstance(linked_metadata, dict):
-                result["sync_conflicts"] = linked_metadata.get("sync_conflicts", [])
-    except Exception:
-        logger.exception("Failed to sync SCI writing result into linked latex project")
     return result

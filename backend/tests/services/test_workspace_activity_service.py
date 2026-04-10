@@ -16,9 +16,15 @@ from src.services.workspace_activity_service import WorkspaceActivityService
 
 
 @pytest.mark.asyncio
-async def test_get_activity_merges_sources_and_sorts_descending():
+async def test_get_activity_merges_sources_and_sorts_descending(
+    monkeypatch: pytest.MonkeyPatch,
+):
     db = AsyncMock()
     service = WorkspaceActivityService(db)
+    monkeypatch.setattr(
+        "src.services.workspace_activity_service.get_workspace_type",
+        AsyncMock(return_value="thesis"),
+    )
 
     now = datetime.now(UTC)
     service._get_recent_threads = AsyncMock(return_value=[])
@@ -107,12 +113,15 @@ async def test_build_chat_activity_uses_latest_message_preview_and_skill():
         ],
     )
 
-    items = service._build_chat_activity([thread])
+    items = service._build_chat_activity([thread], workspace_type="thesis")
 
     assert len(items) == 1
     assert items[0]["title"] == "Literature review thread"
     assert items[0]["summary"] == "I found three themes across the literature."
+    assert items[0]["skill"] == "deep-research"
+    assert items[0]["skill_name"] == "深度调研"
     assert items[0]["metadata"]["skill"] == "deep-research"
+    assert items[0]["metadata"]["skill_name"] == "深度调研"
 
 
 def test_build_chat_activity_item_uses_canonical_chat_shape() -> None:
@@ -121,6 +130,7 @@ def test_build_chat_activity_item_uses_canonical_chat_shape() -> None:
         workspace_id="ws-1",
         title=None,
         skill="peer-reviewer",
+        skill_name="同行评审",
         message_count=3,
         last_message_preview=None,
         last_message_role="assistant",
@@ -139,9 +149,14 @@ def test_build_chat_activity_item_uses_canonical_chat_shape() -> None:
         "task_id": None,
         "artifact_id": None,
         "feature_id": None,
+        "skill": "peer-reviewer",
+        "skill_name": "同行评审",
+        "created_by_skill": None,
+        "created_by_skill_name": None,
         "subagent_type": None,
         "metadata": {
             "skill": "peer-reviewer",
+            "skill_name": "同行评审",
             "message_count": 3,
             "last_message_role": "assistant",
         },
@@ -198,6 +213,10 @@ def test_build_subagent_activity_item_uses_canonical_subagent_shape() -> None:
         "task_id": "sub-1",
         "artifact_id": None,
         "feature_id": None,
+        "skill": None,
+        "skill_name": None,
+        "created_by_skill": None,
+        "created_by_skill_name": None,
         "subagent_type": "paper_critic",
         "metadata": {
             "prompt": "Review the paper",
@@ -227,6 +246,27 @@ def test_serialize_activity_item_normalizes_datetime_fields() -> None:
     )
 
     assert item["occurred_at"] == "2026-03-25T00:00:00+00:00"
+
+
+def test_artifact_activity_uses_canonical_creator_skill_name() -> None:
+    db = AsyncMock()
+    service = WorkspaceActivityService(db)
+    artifact = SimpleNamespace(
+        id="artifact-1",
+        workspace_id="ws-1",
+        type="paper_draft",
+        title="编译预检结果",
+        created_by_skill="doc-compiler",
+        status="draft",
+        created_at=datetime(2026, 3, 25, tzinfo=UTC),
+    )
+
+    item = service._artifact_to_activity(artifact, workspace_type="thesis")
+
+    assert item["created_by_skill"] == "doc-compiler"
+    assert item["created_by_skill_name"] == "编译导出"
+    assert item["metadata"]["created_by_skill_name"] == "编译导出"
+    assert item["summary"] == "编译导出"
 
 
 @pytest.mark.asyncio
@@ -267,6 +307,10 @@ async def test_get_subagent_activity_reads_persisted_records() -> None:
             "task_id": "sub-1",
             "artifact_id": None,
             "feature_id": None,
+            "skill": None,
+            "skill_name": None,
+            "created_by_skill": None,
+            "created_by_skill_name": None,
             "subagent_type": "paper_critic",
             "metadata": {
                 "prompt": "Review this paper",

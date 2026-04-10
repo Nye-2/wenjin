@@ -1,15 +1,17 @@
 # Environment Variables
 
-更新时间: 2026-04-07
+更新时间: 2026-04-10
 
 配置基线以 `backend/.env.example` 与 `frontend/.env.example` 为准。
 
 约定:
 
 - `backend/.env` 是本地后端运行时配置，需从 `backend/.env.example` 复制生成，默认不提交。
-- `frontend/.env.local` 仅在需要覆盖前端 API / LangGraph 地址时才创建，默认不提交。
+- `frontend/.env.local` 仅在需要覆盖前端 API 地址时才创建，默认不提交。
 - 根目录 `.env` 用于 `docker compose` 的镜像源、构建参数等仓库级配置。
   - `WENJIN_PROJECT_DIR`：宿主机仓库绝对路径（用于 Docker-in-Docker 的 LaTeX 编译路径映射）。
+  - `ADMIN_PASSWORD`：`bootstrap-admin` 的初始管理员密码，compose 必填。
+  - `GRAFANA_PASSWORD`：Grafana 管理员密码，compose 必填。
 
 ## 1. Backend (`backend/.env`)
 
@@ -35,6 +37,8 @@
 | `LAYOUT_PARSING_USE_DOC_UNWARPING` | 是否启用文档去扭曲 |
 | `LAYOUT_PARSING_USE_CHART_RECOGNITION` | 是否启用图表识别 |
 | `PROMETHEUS_ENABLED` | 启用 Prometheus 指标 |
+| `PROMETHEUS_WORKER_PORT` | Celery worker Prometheus 指标端口（compose 默认 `9153`；若修改需同步更新 `monitoring/prometheus.yml`） |
+| `PROMETHEUS_MULTIPROC_DIR` | Celery worker Prometheus 多进程指标目录 |
 | `SENTRY_ENABLED`/`SENTRY_DSN` | 启用 Sentry 错误上报 |
 | `ENVIRONMENT`/`DEBUG`/`LOG_LEVEL` | 运行环境与日志等级 |
 | `REDIS_RATE_LIMIT_REQUESTS`/`REDIS_RATE_LIMIT_WINDOW` | API 限流窗口，当前默认 `120` 次 / `60` 秒 |
@@ -71,7 +75,6 @@
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | Gateway API 基路径 | 开发环境默认 `http://localhost:8001/api`，生产默认 `/api` |
-| `NEXT_PUBLIC_LANGGRAPH_BASE_URL` | LangGraph 反向代理路径 | `/langgraph` |
 
 ## 3. 配置建议
 
@@ -79,3 +82,4 @@
 2. 生产环境必须替换 `JWT_SECRET_KEY`，不要使用默认值。
 3. SMTP 联调时优先验证服务端连通性，再验证前端交互。
 4. 若部署在反向代理后，确认真实客户端 IP 会正确透传；否则限流会退化为按代理 IP 计数。
+5. `docker compose` 部署前必须在仓库根 `.env` 或 shell 环境中显式提供 `ADMIN_PASSWORD` 和 `GRAFANA_PASSWORD`。

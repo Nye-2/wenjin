@@ -1,5 +1,7 @@
 """Tests for Prometheus metrics integration."""
 
+import os
+from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI
@@ -65,3 +67,56 @@ class TestTaskMetrics:
         finally:
             prom._active_tasks_gauge = saved_gauge
             prom._task_duration_seconds = saved_hist
+
+
+class TestWorkerPrometheus:
+    def test_prepare_worker_prometheus_resets_multiproc_dir(self):
+        import src.observability.prometheus as prom
+
+        with TemporaryDirectory() as tmpdir:
+            stale_file = os.path.join(tmpdir, "stale.db")
+            with open(stale_file, "w", encoding="utf-8") as handle:
+                handle.write("stale")
+
+            saved_env = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+            try:
+                with patch("src.observability.prometheus.get_prometheus_settings") as mock:
+                    mock.return_value = MagicMock(
+                        enabled=True,
+                        worker_port=9153,
+                        multiproc_dir=tmpdir,
+                    )
+                    prom.prepare_worker_prometheus()
+
+                assert os.environ["PROMETHEUS_MULTIPROC_DIR"] == tmpdir
+                assert os.path.isdir(tmpdir)
+                assert not os.listdir(tmpdir)
+            finally:
+                if saved_env is None:
+                    os.environ.pop("PROMETHEUS_MULTIPROC_DIR", None)
+                else:
+                    os.environ["PROMETHEUS_MULTIPROC_DIR"] = saved_env
+
+    def test_start_worker_prometheus_server_is_idempotent(self):
+        import src.observability.prometheus as prom
+
+        saved_started = prom._worker_metrics_server_started
+        prom._worker_metrics_server_started = False
+        try:
+            with patch("src.observability.prometheus.get_prometheus_settings") as mock_settings:
+                mock_settings.return_value = MagicMock(
+                    enabled=True,
+                    worker_port=9153,
+                    multiproc_dir="",
+                )
+                with patch(
+                    "src.observability.prometheus._build_metrics_registry",
+                    return_value=object(),
+                ):
+                    with patch("prometheus_client.start_http_server") as mock_start:
+                        prom.start_worker_prometheus_server()
+                        prom.start_worker_prometheus_server()
+
+            mock_start.assert_called_once()
+        finally:
+            prom._worker_metrics_server_started = saved_started

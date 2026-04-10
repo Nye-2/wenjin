@@ -9,6 +9,7 @@ from typing import Any
 from src.academic.services import ArtifactService
 from src.artifacts.types import ArtifactType
 from src.database import get_db_session
+from src.services.workspace_skill_labels import resolve_workspace_feature_skill_id
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,29 @@ def _report_type_label(report_type: str) -> str:
         "literature_review": "文献综述",
         "feasibility_analysis": "可行性分析",
     }.get(report_type, "研究报告")
+
+
+def _resolve_artifact_creator_skill(
+    *,
+    workspace_type: str,
+    feature_id: str,
+    payload: dict[str, Any],
+) -> str:
+    explicit_skill_id = payload.get("skill_id")
+    if isinstance(explicit_skill_id, str) and explicit_skill_id.strip():
+        return explicit_skill_id.strip()
+
+    params = payload.get("params")
+    resolved_skill_id = resolve_workspace_feature_skill_id(
+        workspace_type,
+        feature_id,
+        params if isinstance(params, dict) else None,
+    )
+    if resolved_skill_id:
+        return resolved_skill_id
+    raise ValueError(
+        f"Missing canonical skill mapping for feature '{feature_id}' in workspace '{workspace_type}'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -628,7 +652,11 @@ async def persist_langgraph_artifacts(
     if not drafts:
         return []
 
-    created_by_skill = str(payload.get("handler_key") or f"{workspace_type}.{feature_id}")
+    created_by_skill = _resolve_artifact_creator_skill(
+        workspace_type=workspace_type,
+        feature_id=feature_id,
+        payload=payload,
+    )
     try:
         async with get_db_session() as db:
             service = ArtifactService(db)

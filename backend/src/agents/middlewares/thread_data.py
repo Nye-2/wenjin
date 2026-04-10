@@ -7,6 +7,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware
+from src.agents.middlewares.config_utils import require_thread_id
 from src.agents.thread_state import ThreadState
 from src.execution.path_utils import normalize_thread_id
 
@@ -53,7 +54,7 @@ class ThreadDataMiddleware(Middleware):
         if existing and existing.get("workspace_path"):
             return {}
 
-        thread_id = config.get("configurable", {}).get("thread_id", "default")
+        thread_id = require_thread_id(config, component="ThreadDataMiddleware")
         base = get_thread_data_root(thread_id, base_dir=self._base_dir)
 
         workspace_path = str(base / "workspace")

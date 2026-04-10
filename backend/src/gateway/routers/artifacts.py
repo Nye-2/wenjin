@@ -11,7 +11,7 @@ This module provides REST endpoints for:
 
 import mimetypes
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
@@ -50,6 +50,10 @@ from src.gateway.validators.artifact import (
 )
 from src.services import ChatThreadService
 from src.services.asset_url_signing import get_asset_url_signer
+from src.services.workspace_skill_labels import (
+    normalize_workspace_type,
+    resolve_workspace_skill_name,
+)
 from src.services.workspace_uploads import resolve_workspace_upload_relative_path
 
 router = APIRouter(tags=["artifacts"])
@@ -124,6 +128,7 @@ async def _create_workspace_artifact(
     request: ArtifactCreatePayloadValidator,
     current_user: User,
     artifact_service: ArtifactService,
+    workspace_service: WorkspaceService,
 ) -> ArtifactResponse:
     """Create an artifact within a workspace-scoped canonical route."""
     await _ensure_workspace_owner_for_artifact_service(
@@ -133,6 +138,19 @@ async def _create_workspace_artifact(
         owner_session_resolver=_owner_check_session_from_service,
         require_workspace_owner=_require_workspace_owner,
     )
+    if request.created_by_skill is not None:
+        workspace = await workspace_service.get(workspace_id)
+        workspace_type = normalize_workspace_type(getattr(workspace, "type", None))
+        if workspace_type is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Workspace type is not configured",
+            )
+        if resolve_workspace_skill_name(workspace_type, request.created_by_skill) is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid created_by_skill for workspace",
+            )
 
     artifact = await artifact_service.create(
         workspace_id=workspace_id,
@@ -287,13 +305,6 @@ async def sign_asset_url(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing asset url",
         )
-
-    signer = get_asset_url_signer()
-    signed_url = signer.sign_url(raw_url)
-
-    # Verify the caller is currently allowed to sign this asset.
-    from urllib.parse import urlparse
-
     parsed = urlparse(raw_url)
     route_path = parsed.path
     normalized_route_path = (
@@ -326,6 +337,8 @@ async def sign_asset_url(
             detail="Unsupported asset url",
         )
 
+    signer = get_asset_url_signer()
+    signed_url = signer.sign_url(raw_url)
     return {"signed_url": signed_url}
 
 
@@ -451,6 +464,7 @@ async def create_workspace_artifact(
     request: WorkspaceArtifactCreateRequest,
     current_user: User = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> ArtifactResponse:
     """Canonical workspace-scoped artifact creation route."""
     return await _create_workspace_artifact(
@@ -458,6 +472,7 @@ async def create_workspace_artifact(
         request=request,
         current_user=current_user,
         artifact_service=artifact_service,
+        workspace_service=workspace_service,
     )
 
 

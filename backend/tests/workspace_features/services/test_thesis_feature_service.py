@@ -31,43 +31,9 @@ async def test_build_compile_payload_uses_abstract_override_and_keywords(
     async def _fake_load_workspace_literature(_workspace_id: str):
         return []
 
-    captured: dict[str, str] = {}
-
     @asynccontextmanager
     async def _fake_db_session():
         yield object()
-
-    class _FakeBridgeService:
-        def __init__(self, _db) -> None:
-            pass
-
-        async def sync_project(self, **kwargs):
-            captured["latex_source"] = str(kwargs["main_tex"])
-            return SimpleNamespace(
-                id="latex-project-1",
-                main_file="main.tex",
-                llm_config={"metadata": {"sync_conflicts": []}},
-            )
-
-    class _FakeCompileService:
-        def __init__(self, _db) -> None:
-            pass
-
-        async def compile_project(self, _project, *, main_file: str, engine: str):
-            assert main_file == "main.tex"
-            assert engine == "xelatex"
-            return {
-                "ok": True,
-                "status": 0,
-                "engine": engine,
-                "main_file": main_file,
-                "pdf_path": "/tmp/main.pdf",
-                "pdf_endpoint": "/api/latex/projects/latex-project-1/compile/history-1/pdf",
-                "log": "ok",
-                "error": None,
-                "history_id": "history-1",
-                "page_count": 3,
-            }
 
     monkeypatch.setattr(
         thesis_feature_service,
@@ -84,16 +50,6 @@ async def test_build_compile_payload_uses_abstract_override_and_keywords(
         "get_db_session",
         _fake_db_session,
     )
-    monkeypatch.setattr(
-        thesis_feature_service,
-        "WorkspaceLatexProjectService",
-        _FakeBridgeService,
-    )
-    monkeypatch.setattr(
-        thesis_feature_service,
-        "LatexCompileService",
-        _FakeCompileService,
-    )
 
     payload = await thesis_feature_service.build_compile_payload(
         workspace_id="ws-1",
@@ -107,13 +63,13 @@ async def test_build_compile_payload_uses_abstract_override_and_keywords(
         keywords_override=["关键词A", "关键词B"],
     )
 
-    assert payload["compile_status"] == "success"
     assert payload["abstract_source"] == "llm_override"
     assert payload["keywords"] == ["关键词A", "关键词B"]
     assert "这是覆盖后的摘要内容。" in payload["latex_content"]
     assert "关键词A" in payload["latex_content"]
     assert "关键词B" in payload["latex_content"]
-    assert payload["latex_content"] == captured["latex_source"]
+    assert "latex_project_id" not in payload
+    assert "compile_status" not in payload
 
 
 @pytest.mark.asyncio
@@ -149,42 +105,89 @@ async def test_build_compile_payload_ignores_legacy_latex_project_artifact(
     async def _fake_load_workspace_literature(_workspace_id: str):
         return []
 
-    captured: dict[str, str] = {}
+    @asynccontextmanager
+    async def _fake_db_session():
+        yield object()
+
+    monkeypatch.setattr(
+        thesis_feature_service,
+        "_load_workspace_artifacts",
+        _fake_load_workspace_artifacts,
+    )
+    monkeypatch.setattr(
+        thesis_feature_service,
+        "_load_workspace_literature",
+        _fake_load_workspace_literature,
+    )
+    monkeypatch.setattr(
+        thesis_feature_service,
+        "get_db_session",
+        _fake_db_session,
+    )
+
+    payload = await thesis_feature_service.build_compile_payload(
+        workspace_id="ws-1",
+        workspace_name="测试论文",
+        workspace_description="默认摘要",
+        thread_id="thread-1",
+        template="default",
+        compiler="xelatex",
+        bibliography_style="gbt7714",
+    )
+
+    assert payload["paper_title"] == "测试论文"
+    assert "Hello Panel" not in payload["latex_content"]
+    assert "这是章节正文。" in payload["latex_content"]
+    assert payload["bib_content"] == ""
+    assert "latex_project_artifact_id" not in payload["source_summary"]
+    assert "latex_project_id" not in payload
+    assert "compile_status" not in payload
+
+
+@pytest.mark.asyncio
+async def test_build_compile_payload_falls_back_to_outline_keywords(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_load_workspace_artifacts(_workspace_id: str):
+        return [
+            SimpleNamespace(
+                type="framework_outline",
+                title="论文大纲",
+                content={
+                    "paper_title": "轮廓标题",
+                    "outline": {
+                        "abstract": "轮廓摘要",
+                        "keywords": ["关键词甲", "关键词乙"],
+                    },
+                },
+                created_at="2026-03-20T00:00:00+00:00",
+            ),
+            SimpleNamespace(
+                type="thesis_chapter",
+                title="绪论",
+                content={
+                    "chapter_index": 0,
+                    "chapter_title": "绪论",
+                    "markdown": "# 绪论\n\n这是章节正文。",
+                },
+                created_at="2026-03-20T00:00:00+00:00",
+            ),
+        ]
+
+    async def _fake_load_workspace_literature(_workspace_id: str):
+        return []
 
     @asynccontextmanager
     async def _fake_db_session():
         yield object()
 
-    class _FakeBridgeService:
-        def __init__(self, _db) -> None:
-            pass
+    class FakeTemplateService:
+        def __init__(self, db: object) -> None:
+            _ = db
 
-        async def sync_project(self, **kwargs):
-            captured["latex_source"] = str(kwargs["main_tex"])
-            captured["bibliography"] = str(kwargs["bib_tex"])
-            return SimpleNamespace(
-                id="latex-project-2",
-                main_file="main.tex",
-                llm_config={"metadata": {"sync_conflicts": []}},
-            )
-
-    class _FakeCompileService:
-        def __init__(self, _db) -> None:
-            pass
-
-        async def compile_project(self, _project, *, main_file: str, engine: str):
-            return {
-                "ok": True,
-                "status": 0,
-                "engine": engine,
-                "main_file": main_file,
-                "pdf_path": "/tmp/main.pdf",
-                "pdf_endpoint": "/api/latex/projects/latex-project-2/compile/history-2/pdf",
-                "log": "ok",
-                "error": None,
-                "history_id": "history-2",
-                "page_count": 2,
-            }
+        async def get_active(self, workspace_id: str):
+            _ = workspace_id
+            return None
 
     monkeypatch.setattr(
         thesis_feature_service,
@@ -202,14 +205,8 @@ async def test_build_compile_payload_ignores_legacy_latex_project_artifact(
         _fake_db_session,
     )
     monkeypatch.setattr(
-        thesis_feature_service,
-        "WorkspaceLatexProjectService",
-        _FakeBridgeService,
-    )
-    monkeypatch.setattr(
-        thesis_feature_service,
-        "LatexCompileService",
-        _FakeCompileService,
+        "src.services.template_service.TemplateService",
+        FakeTemplateService,
     )
 
     payload = await thesis_feature_service.build_compile_payload(
@@ -222,16 +219,14 @@ async def test_build_compile_payload_ignores_legacy_latex_project_artifact(
         bibliography_style="gbt7714",
     )
 
-    assert payload["paper_title"] == "测试论文"
-    assert payload["latex_content"] == captured["latex_source"]
-    assert "Hello Panel" not in payload["latex_content"]
-    assert "这是章节正文。" in payload["latex_content"]
-    assert captured["bibliography"] == ""
-    assert "latex_project_artifact_id" not in payload["source_summary"]
+    assert payload["paper_title"] == "轮廓标题"
+    assert payload["keywords"] == ["关键词甲", "关键词乙"]
+    assert "关键词甲" in payload["latex_content"]
+    assert "关键词乙" in payload["latex_content"]
 
 
 @pytest.mark.asyncio
-async def test_build_compile_payload_raises_when_linked_pipeline_fails(
+async def test_build_compile_payload_uses_uploaded_latex_template_preamble(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def _fake_load_workspace_artifacts(_workspace_id: str):
@@ -255,19 +250,21 @@ async def test_build_compile_payload_raises_when_linked_pipeline_fails(
     async def _fake_db_session():
         yield object()
 
-    class _FailingBridgeService:
-        def __init__(self, _db) -> None:
-            pass
+    class FakeTemplateService:
+        def __init__(self, db: object) -> None:
+            _ = db
 
-        async def sync_project(self, **_kwargs):
-            raise RuntimeError("bridge unavailable")
-
-    class _UnusedCompileService:
-        def __init__(self, _db) -> None:
-            pass
-
-        async def compile_project(self, *_args, **_kwargs):
-            raise AssertionError("compile_project should not run when sync_project fails")
+        async def get_active(self, workspace_id: str):
+            _ = workspace_id
+            return SimpleNamespace(
+                latex_preamble=(
+                    "\\documentclass{article}\n"
+                    "\\usepackage{geometry}\n"
+                    "\\begin{document}\n"
+                    "Template Body\n"
+                    "\\end{document}\n"
+                )
+            )
 
     monkeypatch.setattr(
         thesis_feature_service,
@@ -285,17 +282,228 @@ async def test_build_compile_payload_raises_when_linked_pipeline_fails(
         _fake_db_session,
     )
     monkeypatch.setattr(
+        "src.services.template_service.TemplateService",
+        FakeTemplateService,
+    )
+
+    payload = await thesis_feature_service.build_compile_payload(
+        workspace_id="ws-1",
+        workspace_name="测试论文",
+        workspace_description="默认摘要",
+        thread_id="thread-1",
+        template="default",
+        compiler="xelatex",
+        bibliography_style="apalike",
+    )
+
+    assert "\\documentclass{article}" in payload["latex_content"]
+    assert "\\bibliographystyle{apalike}" in payload["latex_content"]
+    assert "Template Body" not in payload["latex_content"]
+    assert "这是章节正文。" in payload["latex_content"]
+
+
+@pytest.mark.asyncio
+async def test_build_compile_payload_uses_uploaded_latex_class_template_asset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_load_workspace_artifacts(_workspace_id: str):
+        return [
+            SimpleNamespace(
+                type="thesis_chapter",
+                title="绪论",
+                content={
+                    "chapter_index": 0,
+                    "chapter_title": "绪论",
+                    "markdown": "# 绪论\n\n这是章节正文。",
+                },
+                created_at="2026-03-20T00:00:00+00:00",
+            )
+        ]
+
+    async def _fake_load_workspace_literature(_workspace_id: str):
+        return []
+
+    @asynccontextmanager
+    async def _fake_db_session():
+        yield object()
+
+    class FakeTemplateService:
+        def __init__(self, db: object) -> None:
+            _ = db
+
+        async def get_active(self, workspace_id: str):
+            _ = workspace_id
+            return SimpleNamespace(
+                source_file_path="/tmp/custom_thesis.cls",
+                latex_preamble=(
+                    "\\NeedsTeXFormat{LaTeX2e}\n"
+                    "\\ProvidesClass{custom_thesis}\n"
+                    "\\LoadClass{ctexart}\n"
+                ),
+            )
+
+    monkeypatch.setattr(
         thesis_feature_service,
-        "WorkspaceLatexProjectService",
-        _FailingBridgeService,
+        "_load_workspace_artifacts",
+        _fake_load_workspace_artifacts,
     )
     monkeypatch.setattr(
         thesis_feature_service,
-        "LatexCompileService",
-        _UnusedCompileService,
+        "_load_workspace_literature",
+        _fake_load_workspace_literature,
+    )
+    monkeypatch.setattr(
+        thesis_feature_service,
+        "get_db_session",
+        _fake_db_session,
+    )
+    monkeypatch.setattr(
+        "src.services.template_service.TemplateService",
+        FakeTemplateService,
     )
 
-    with pytest.raises(RuntimeError, match="linked_latex_pipeline_failed"):
+    payload = await thesis_feature_service.build_compile_payload(
+        workspace_id="ws-1",
+        workspace_name="测试论文",
+        workspace_description="默认摘要",
+        thread_id="thread-1",
+        template="default",
+        compiler="xelatex",
+        bibliography_style="gbt7714",
+    )
+
+    assert "\\documentclass{custom_thesis}" in payload["latex_content"]
+    assert "这是章节正文。" in payload["latex_content"]
+    assert payload["template_assets"] == [
+        {
+            "path": "custom_thesis.cls",
+            "content": (
+                "\\NeedsTeXFormat{LaTeX2e}\n"
+                "\\ProvidesClass{custom_thesis}\n"
+                "\\LoadClass{ctexart}"
+            ),
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_compile_payload_uses_uploaded_latex_style_template_asset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_load_workspace_artifacts(_workspace_id: str):
+        return [
+            SimpleNamespace(
+                type="thesis_chapter",
+                title="绪论",
+                content={
+                    "chapter_index": 0,
+                    "chapter_title": "绪论",
+                    "markdown": "# 绪论\n\n这是章节正文。",
+                },
+                created_at="2026-03-20T00:00:00+00:00",
+            )
+        ]
+
+    async def _fake_load_workspace_literature(_workspace_id: str):
+        return []
+
+    @asynccontextmanager
+    async def _fake_db_session():
+        yield object()
+
+    class FakeTemplateService:
+        def __init__(self, db: object) -> None:
+            _ = db
+
+        async def get_active(self, workspace_id: str):
+            _ = workspace_id
+            return SimpleNamespace(
+                source_file_path="/tmp/brandstyle.sty",
+                latex_preamble=(
+                    "\\NeedsTeXFormat{LaTeX2e}\n"
+                    "\\ProvidesPackage{brandstyle}\n"
+                    "\\RequirePackage{xcolor}\n"
+                ),
+            )
+
+    monkeypatch.setattr(
+        thesis_feature_service,
+        "_load_workspace_artifacts",
+        _fake_load_workspace_artifacts,
+    )
+    monkeypatch.setattr(
+        thesis_feature_service,
+        "_load_workspace_literature",
+        _fake_load_workspace_literature,
+    )
+    monkeypatch.setattr(
+        thesis_feature_service,
+        "get_db_session",
+        _fake_db_session,
+    )
+    monkeypatch.setattr(
+        "src.services.template_service.TemplateService",
+        FakeTemplateService,
+    )
+
+    payload = await thesis_feature_service.build_compile_payload(
+        workspace_id="ws-1",
+        workspace_name="测试论文",
+        workspace_description="默认摘要",
+        thread_id="thread-1",
+        template="default",
+        compiler="xelatex",
+        bibliography_style="gbt7714",
+    )
+
+    assert "\\usepackage{brandstyle}" in payload["latex_content"]
+    assert "\\documentclass[UTF8, a4paper, 12pt, openany]{ctexart}" in payload["latex_content"]
+    assert "这是章节正文。" in payload["latex_content"]
+    assert payload["template_assets"] == [
+        {
+            "path": "brandstyle.sty",
+            "content": (
+                "\\NeedsTeXFormat{LaTeX2e}\n"
+                "\\ProvidesPackage{brandstyle}\n"
+                "\\RequirePackage{xcolor}"
+            ),
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_compile_payload_raises_when_no_renderable_chapter_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_load_workspace_artifacts(_workspace_id: str):
+        return [
+            SimpleNamespace(
+                type="thesis_chapter",
+                title="绪论",
+                content={
+                    "chapter_index": 0,
+                    "chapter_title": "绪论",
+                    "markdown": "",
+                },
+                created_at="2026-03-20T00:00:00+00:00",
+            )
+        ]
+
+    async def _fake_load_workspace_literature(_workspace_id: str):
+        return []
+
+    monkeypatch.setattr(
+        thesis_feature_service,
+        "_load_workspace_artifacts",
+        _fake_load_workspace_artifacts,
+    )
+    monkeypatch.setattr(
+        thesis_feature_service,
+        "_load_workspace_literature",
+        _fake_load_workspace_literature,
+    )
+
+    with pytest.raises(RuntimeError, match="no renderable markdown content"):
         await thesis_feature_service.build_compile_payload(
             workspace_id="ws-1",
             workspace_name="测试论文",

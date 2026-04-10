@@ -71,11 +71,20 @@ interface ChatState {
   addMessage: (message: Message) => void;
   ensureWorkspaceThread: (
     workspaceId: string,
-    options?: { model?: string; skill?: string | null; preservePendingSkill?: boolean }
+    options?: {
+      model?: string;
+      skill?: string | null;
+      preservePendingSkill?: boolean;
+      forceRefresh?: boolean;
+    }
   ) => Promise<string | null>;
   refreshCurrentThread: (
     workspaceId: string,
-    options?: { model?: string; skill?: string | null; preservePendingSkill?: boolean }
+    options?: {
+      model?: string;
+      skill?: string | null;
+      preservePendingSkill?: boolean;
+    }
   ) => Promise<boolean>;
   syncCurrentThreadSummary: (summary: ThreadSummary) => void;
   clearCurrentThread: () => void;
@@ -147,6 +156,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const assistantMessageId = `assistant-${crypto.randomUUID()}`;
     let assistantContent = '';
     let assistantReasoning = '';
+    let streamAcceptedByServer = false;
     const assistantMessage = createPlaceholderAssistantMessage({
       id: assistantMessageId,
       createdAt: new Date().toISOString(),
@@ -185,7 +195,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ),
         }));
       },
-      ({ threadId: newThreadId, skill }) => {
+      ({ threadId: newThreadId, skill, skillName }) => {
+        streamAcceptedByServer = true;
         const createdAt = new Date().toISOString();
         set((state) => {
           const nextSkillState = syncCurrentSkillWithThread({
@@ -195,12 +206,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
           });
           const nextSummary =
             state.currentThreadSummary?.id === newThreadId
-              ? state.currentThreadSummary
+              ? {
+                  ...state.currentThreadSummary,
+                  skill,
+                  skill_name: skillName,
+                }
               : buildPendingThreadSummary({
                   threadId: newThreadId,
                   workspaceId: options?.workspaceId,
                   model: options?.model,
                   skill,
+                  skillName,
                   messageCount: state.messages.length + 1,
                   createdAt,
                 });
@@ -215,6 +231,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
       },
       (assistantMessage) => {
+        streamAcceptedByServer = true;
         const hydratedMessage = createStoreAssistantMessage({
           fallbackId: assistantMessageId,
           fallbackCreatedAt: new Date().toISOString(),
@@ -228,15 +245,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
         maybeStartStructuredTask(hydratedMessage, scopedWorkspaceId);
       },
       (error) => {
-        set((state) => ({
-          error,
-          isStreaming: false,
-          isSkillSelectionPending: false,
-          _abortStream: null,
-          messages: removeTrailingPendingAssistantMessage(
+        set((state) => {
+          const cleanedMessages = removeTrailingPendingAssistantMessage(
             removeTrailingEmptyAssistantMessage(state.messages)
-          ),
-        }));
+          );
+          return {
+            error,
+            isStreaming: false,
+            isSkillSelectionPending: false,
+            _abortStream: null,
+            messages: streamAcceptedByServer
+              ? cleanedMessages
+              : cleanedMessages.filter((message) => message.id !== userMessageId),
+          };
+        });
       },
       () => {
         set({ isStreaming: false, _abortStream: null });
@@ -264,15 +286,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   ensureWorkspaceThread: async (workspaceId, options) => {
     const state = get();
     if (
+      !options?.forceRefresh &&
       state.threadId &&
       state.currentThreadSummary?.workspace_id === workspaceId
     ) {
       return state.threadId;
     }
+    const shouldResetMessages = !options?.forceRefresh;
     set(() => ({
       isWorkspaceThreadLoading: true,
       isThreadLoading: true,
-      messages: [],
+      ...(shouldResetMessages ? { messages: [] } : {}),
     }));
 
     try {
@@ -316,7 +340,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   refreshCurrentThread: async (workspaceId, options) => {
-    const threadId = await get().ensureWorkspaceThread(workspaceId, options);
+    const threadId = await get().ensureWorkspaceThread(workspaceId, {
+      ...options,
+      forceRefresh: true,
+    });
     return Boolean(threadId);
   },
 

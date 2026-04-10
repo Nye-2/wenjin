@@ -22,6 +22,7 @@ class PaperSummaryResponse(BaseModel):
     source: str
     citation_count: int | None
     reference_count: int | None
+    file_path: str | None = None
     file_url: str | None = None
 
 
@@ -83,6 +84,7 @@ def _paper_summary_payload(
         "source": paper.source,
         "citation_count": paper.citation_count,
         "reference_count": paper.reference_count,
+        "file_path": getattr(paper, "file_path", None),
         "file_url": file_url,
     }
 

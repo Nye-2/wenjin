@@ -356,7 +356,6 @@ async def upload_thread_files(
                 workspace_id=resolved_workspace_id,
                 type=ArtifactType.NOTE.value,
                 title=f"上传上下文 - {persistent_path.name}",
-                created_by_skill="chat_upload",
                 content={
                     "source": "chat_upload",
                     "kind": "workspace_context",

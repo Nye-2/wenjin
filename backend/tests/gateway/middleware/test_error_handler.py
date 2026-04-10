@@ -338,6 +338,20 @@ class TestHTTPExceptionHandler:
         assert body["error"]["code"] == "UNAUTHORIZED"
 
     @pytest.mark.asyncio
+    async def test_forwards_http_exception_headers(self, mock_request):
+        """HTTP exception headers must be preserved in the JSON response."""
+        exc = HTTPException(
+            status_code=401,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+        response = await http_exception_handler(mock_request, exc)
+
+        assert response.status_code == 401
+        assert response.headers["WWW-Authenticate"] == "Bearer"
+
+    @pytest.mark.asyncio
     async def test_handles_500_exception(self, mock_request):
         """Test handler handles 500 HTTP exception."""
         exc = HTTPException(status_code=500, detail="Internal server error")

@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from src.subagents.academic.registry import registry
+from src.subagents.context_snapshot import build_subagent_context_snapshot
 from src.subagents.manager import SubagentAccessError
 from src.subagents.models import SubagentStatus
 from src.subagents.runtime import get_manager
@@ -244,6 +245,10 @@ class ParallelExecutor:
 
             manager = get_manager()
             runtime_context = SubagentRuntimeContext.from_mapping(context)
+            context_snapshot = await build_subagent_context_snapshot(
+                runtime_context=runtime_context,
+                state=context,
+            )
             if manager._llm is None and runtime_context.model_name is None:
                 return {
                     "subagent_type": subagent_type,
@@ -260,6 +265,7 @@ class ParallelExecutor:
                 metadata=build_subagent_metadata(
                     subagent_type=subagent_type,
                     system_prompt=subagent_config.system_prompt,
+                    context_snapshot=context_snapshot,
                     runtime_context=runtime_context,
                     include_workspace=True,
                     include_user=runtime_context.thread_id is not None,

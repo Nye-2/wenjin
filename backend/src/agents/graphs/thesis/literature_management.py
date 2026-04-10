@@ -14,9 +14,13 @@ from src.models.router import route_model, validate_requested_model
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
-    emit_bound_runtime as _emit_bound_runtime,
-    runtime_progress_for_phase,
     upsert_runtime_block,
+)
+from src.task.runtime_blocks import (
+    emit_bound_runtime as _emit_bound_runtime,
+)
+from src.workspace_features.services.thesis_feature_service import (
+    load_thesis_workspace_literature as _load_literature,
 )
 
 logger = logging.getLogger(__name__)
@@ -162,22 +166,6 @@ async def literature_management_graph(
             stage_transition=True,
         )
     return stats
-
-
-async def _load_literature(workspace_id: str) -> list[dict[str, Any]]:
-    """Load workspace literature from DB."""
-    from src.database import get_db_session
-    from src.services.literature_service import LiteratureService
-
-    try:
-        async with get_db_session() as db:
-            service = LiteratureService(db)
-            response = await service.list_literature(workspace_id, offset=0, limit=120)
-        items = response.get("items")
-        return items if isinstance(items, list) else []
-    except Exception:
-        logger.exception("Failed to load literature")
-        return []
 
 
 def _compute_statistics(literature: list[dict], focus_topic: str) -> dict[str, Any]:

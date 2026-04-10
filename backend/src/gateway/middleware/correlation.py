@@ -23,8 +23,8 @@ async def correlation_middleware(request: Request, call_next: Callable) -> Respo
     # Get or generate correlation ID
     correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4()))
 
-    # Store in context
-    correlation_id_var.set(correlation_id)
+    # Store in context and restore previous value after the request completes.
+    token = correlation_id_var.set(correlation_id)
 
     try:
         import sentry_sdk
@@ -32,13 +32,15 @@ async def correlation_middleware(request: Request, call_next: Callable) -> Respo
     except Exception:
         pass
 
-    # Process request
-    response = await call_next(request)
+    try:
+        # Process request
+        response = await call_next(request)
 
-    # Add to response headers
-    response.headers["X-Correlation-ID"] = correlation_id
-
-    return response
+        # Add to response headers
+        response.headers["X-Correlation-ID"] = correlation_id
+        return response
+    finally:
+        correlation_id_var.reset(token)
 
 
 def get_correlation_id() -> str | None:

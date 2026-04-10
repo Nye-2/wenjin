@@ -242,7 +242,11 @@ async def test_opening_research_status_filters_by_opening_handler():
 
     statement = db.execute.call_args_list[0].args[0]
     params = statement.compile().params
-    assert "thesis.opening_research" in params.values()
+    assert any(
+        value == "literature-reviewer"
+        or (isinstance(value, list) and "literature-reviewer" in value)
+        for value in params.values()
+    )
 
 
 @pytest.mark.asyncio

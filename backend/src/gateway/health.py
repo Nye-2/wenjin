@@ -21,6 +21,10 @@ from src.thesis.execution import get_execution_service
 logger = logging.getLogger(__name__)
 
 
+def _mcp_failure_status() -> str:
+    return "unhealthy" if settings.mcp_required_for_readiness else "degraded"
+
+
 async def check_database() -> dict[str, Any]:
     """Verify database connectivity."""
     try:
@@ -73,14 +77,22 @@ async def check_mcp() -> dict[str, Any]:
     """Verify MCP runtime/cache readiness when MCP servers are configured."""
     configured_servers = sorted(get_extensions_config().get_enabled_mcp_servers().keys())
     if not configured_servers:
-        return {"status": "healthy", "configured_servers": [], "tool_count": 0}
+        return {
+            "status": "healthy",
+            "configured_servers": [],
+            "tool_count": 0,
+            "required": bool(settings.mcp_required_for_readiness),
+        }
+
+    failed_status = _mcp_failure_status()
 
     manager = peek_mcp_manager()
     if manager is None:
         return {
-            "status": "unhealthy",
+            "status": failed_status,
             "configured_servers": configured_servers,
             "error": "MCP runtime is not initialized",
+            "required": bool(settings.mcp_required_for_readiness),
         }
 
     try:
@@ -88,21 +100,24 @@ async def check_mcp() -> dict[str, Any]:
         errors = manager.get_last_load_errors()
         if errors:
             return {
-                "status": "unhealthy",
+                "status": failed_status,
                 "configured_servers": configured_servers,
                 "tool_count": len(tools),
                 "errors": errors,
+                "required": bool(settings.mcp_required_for_readiness),
             }
         return {
             "status": "healthy",
             "configured_servers": configured_servers,
             "tool_count": len(tools),
+            "required": bool(settings.mcp_required_for_readiness),
         }
     except Exception as exc:
         return {
-            "status": "unhealthy",
+            "status": failed_status,
             "configured_servers": configured_servers,
             "error": str(exc),
+            "required": bool(settings.mcp_required_for_readiness),
         }
 
 
@@ -161,10 +176,32 @@ async def build_readiness_report() -> dict[str, Any]:
         "mcp": mcp,
         "execution": execution,
     }
-    overall = "healthy" if all(item.get("status") == "healthy" for item in checks.values()) else "unhealthy"
+    required_dependencies = ["database", "redis", "task_backend", "execution"]
+    if settings.mcp_required_for_readiness:
+        required_dependencies.append("mcp")
+
+    required_failures = [
+        name
+        for name in required_dependencies
+        if checks.get(name, {}).get("status") != "healthy"
+    ]
+    optional_degradations = [
+        name
+        for name, report in checks.items()
+        if name not in required_dependencies and report.get("status") != "healthy"
+    ]
+
+    if required_failures:
+        overall = "unhealthy"
+    elif optional_degradations:
+        overall = "degraded"
+    else:
+        overall = "healthy"
     return {
         "status": overall,
         "version": "2.0.0",
+        "required_dependencies": required_dependencies,
+        "degraded_dependencies": optional_degradations,
         "checks": checks,
     }
 

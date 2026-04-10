@@ -15,6 +15,10 @@ from src.services.workspace_activity_contracts import (
     summarize_task_payload,
     truncate_activity_preview,
 )
+from src.services.workspace_skill_labels import (
+    get_workspace_type,
+    resolve_workspace_skill_name,
+)
 
 
 class WorkspaceActivityService:
@@ -32,12 +36,17 @@ class WorkspaceActivityService:
     ) -> dict[str, Any]:
         """Build a unified recent activity feed for a workspace."""
         per_source_limit = max(limit, 20)
+        workspace_type = await get_workspace_type(self.db, workspace_id)
         threads = await self._get_recent_threads(workspace_id, limit=per_source_limit)
 
         items = [
             *await self._get_task_activity(workspace_id, limit=per_source_limit),
-            *self._build_chat_activity(threads),
-            *await self._get_artifact_activity(workspace_id, limit=per_source_limit),
+            *self._build_chat_activity(threads, workspace_type=workspace_type),
+            *await self._get_artifact_activity(
+                workspace_id,
+                workspace_type=workspace_type,
+                limit=per_source_limit,
+            ),
             *await self._get_subagent_activity(workspace_id, limit=per_source_limit),
         ]
         items.sort(key=lambda item: item["occurred_at"], reverse=True)
@@ -111,6 +120,8 @@ class WorkspaceActivityService:
     def _build_chat_activity(
         self,
         threads: Sequence[ChatThread],
+        *,
+        workspace_type: str | None,
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for thread in threads:
@@ -132,6 +143,7 @@ class WorkspaceActivityService:
                     ),
                     title=thread.title,
                     skill=thread.skill,
+                    skill_name=resolve_workspace_skill_name(workspace_type, thread.skill),
                     message_count=len(messages),
                     last_message_preview=truncate_activity_preview(last_message_content),
                     last_message_role=last_message_role,
@@ -144,6 +156,7 @@ class WorkspaceActivityService:
         self,
         workspace_id: str,
         *,
+        workspace_type: str | None,
         limit: int,
     ) -> list[dict[str, Any]]:
         result = await self.db.execute(
@@ -153,11 +166,23 @@ class WorkspaceActivityService:
             .limit(limit)
         )
         artifacts = list(result.scalars().all())
-        return [self._artifact_to_activity(artifact) for artifact in artifacts]
+        return [
+            self._artifact_to_activity(artifact, workspace_type=workspace_type)
+            for artifact in artifacts
+        ]
 
-    def _artifact_to_activity(self, artifact: Artifact) -> dict[str, Any]:
+    def _artifact_to_activity(
+        self,
+        artifact: Artifact,
+        *,
+        workspace_type: str | None,
+    ) -> dict[str, Any]:
         artifact_type = getattr(artifact, "type", "artifact")
         created_by_skill = getattr(artifact, "created_by_skill", None)
+        created_by_skill_name = resolve_workspace_skill_name(
+            workspace_type,
+            created_by_skill,
+        )
         artifact_title = getattr(artifact, "title", None)
         return {
             "id": f"artifact:{artifact.id}",
@@ -165,18 +190,23 @@ class WorkspaceActivityService:
             "workspace_id": str(artifact.workspace_id),
             "occurred_at": artifact.created_at,
             "title": artifact_title or humanize_activity_identifier(artifact_type),
-            "summary": truncate_activity_preview(created_by_skill)
-            if created_by_skill
+            "summary": truncate_activity_preview(created_by_skill_name or created_by_skill)
+            if (created_by_skill_name or created_by_skill)
             else humanize_activity_identifier(artifact_type),
             "status": artifact.status,
             "thread_id": None,
             "task_id": None,
             "artifact_id": str(artifact.id),
             "feature_id": None,
+            "skill": None,
+            "skill_name": None,
+            "created_by_skill": created_by_skill,
+            "created_by_skill_name": created_by_skill_name,
             "subagent_type": None,
             "metadata": {
                 "artifact_type": artifact_type,
                 "created_by_skill": created_by_skill,
+                "created_by_skill_name": created_by_skill_name,
                 "version": getattr(artifact, "version", None),
             },
         }

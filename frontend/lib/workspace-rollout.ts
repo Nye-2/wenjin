@@ -25,16 +25,3 @@ export function isWorkspaceChatCockpitEnabled(
   }
   return CHAT_COCKPIT_DEFAULT_TYPES.has(workspace.type);
 }
-
-export function isWorkspaceChatOrchestrationEnabled(
-  workspace: Workspace | null | undefined
-): boolean {
-  if (!workspace) {
-    return false;
-  }
-  const rollout = readRollout(workspace);
-  if (typeof rollout.chat_feature_orchestration_enabled === "boolean") {
-    return rollout.chat_feature_orchestration_enabled;
-  }
-  return CHAT_COCKPIT_DEFAULT_TYPES.has(workspace.type);
-}

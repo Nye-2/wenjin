@@ -67,6 +67,7 @@ class ExecuteRequest(BaseModel):
 
     params: dict[str, Any] = Field(default_factory=dict)
     thread_id: str | None = None
+    skill_id: str | None = None
 
 
 class ExecuteResponse(BaseModel):
@@ -148,7 +149,7 @@ async def execute_feature(
 
     try:
         result = await handler.execute(
-            workspace_id, feature_id, request.params, request.thread_id,
+            workspace_id, feature_id, request.params, request.thread_id, request.skill_id,
             idempotency_key=idempotency_key,
             redis_client=runtime_redis,
         )

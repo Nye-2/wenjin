@@ -6,6 +6,22 @@ type RouteParamValue =
   | null
   | undefined;
 
+function readFirstRouteParamValue(rawValue: RouteParamValue): string | null {
+  if (rawValue === null || rawValue === undefined || rawValue === "") {
+    return null;
+  }
+
+  const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+  for (const value of values) {
+    const normalized = String(value).trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
 function appendWorkspaceFeatureQuery(
   query: URLSearchParams,
   params?: Record<string, RouteParamValue>
@@ -48,7 +64,17 @@ export function getWorkspaceFeatureChatRoute(
   const pathname = `/workspaces/${workspaceId}/chat`;
   const query = new URLSearchParams();
   query.set("feature", featureId);
-  appendWorkspaceFeatureQuery(query, params);
+
+  const explicitSkillId = readFirstRouteParamValue(params?.skill);
+  if (explicitSkillId) {
+    query.set("skill", explicitSkillId);
+  }
+
+  if (params) {
+    const queryParams = { ...params };
+    delete queryParams.skill;
+    appendWorkspaceFeatureQuery(query, queryParams);
+  }
 
   const suffix = query.toString();
   return suffix ? `${pathname}?${suffix}` : pathname;

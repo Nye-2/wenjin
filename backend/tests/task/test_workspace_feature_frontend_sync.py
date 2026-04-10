@@ -12,11 +12,14 @@ FRONTEND_DIR = REPO_ROOT / "frontend"
 ROUTES_FILE = FRONTEND_DIR / "lib" / "workspace-feature-routes.ts"
 ACTIONS_FILE = FRONTEND_DIR / "lib" / "workspace-feature-actions.ts"
 EXECUTION_FILE = FRONTEND_DIR / "lib" / "workspace-feature-execution.ts"
-FEATURE_RUNNER_FILE = FRONTEND_DIR / "hooks" / "useFeatureTaskRunner.ts"
 CHAT_EXPORT_FILE = FRONTEND_DIR / "lib" / "chat-export.ts"
+COMPILE_BUTTON_FILE = FRONTEND_DIR / "components" / "workspace" / "CompileFeatureButton.tsx"
 WORKSPACE_API_FILE = FRONTEND_DIR / "lib" / "api" / "workspace.ts"
 CHAT_ROUTE_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "chat" / "page.tsx"
+)
+FEATURE_REDIRECT_FILE = (
+    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "features" / "[featureId]" / "page.tsx"
 )
 CHAT_ENTRY_FILE = FRONTEND_DIR / "lib" / "workspace-chat-entry.ts"
 CHAT_PANEL_FILE = (
@@ -32,6 +35,12 @@ WORKBENCH_LAYOUT_FILE = (
 WORKSPACE_STORE_FILE = FRONTEND_DIR / "stores" / "workspace.ts"
 WORKSPACE_EVENT_STREAM_FILE = FRONTEND_DIR / "hooks" / "useWorkspaceEventStream.ts"
 WORKSPACE_PAGES_DIR = FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]"
+FEATURE_RUNNER_FILE = FRONTEND_DIR / "hooks" / "useFeatureTaskRunner.ts"
+QUICK_ACTIONS_FILE = FRONTEND_DIR / "components" / "workspace" / "QuickActions.tsx"
+WORKSPACE_CHAT_SKILLS_FILE = FRONTEND_DIR / "lib" / "workspace-chat-skills.ts"
+MODULE_CARD_FILE = (
+    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "ModuleCard.tsx"
+)
 
 
 def _registry_feature_ids() -> set[str]:
@@ -96,11 +105,14 @@ def test_workspace_feature_routes_use_canonical_chat_entry() -> None:
     content = _read_text(ROUTES_FILE)
     assert 'const pathname = `/workspaces/${workspaceId}/chat`;' in content
     assert 'query.set("feature", featureId);' in content
+    assert "workspaceFeatureSkillMap" not in content
+    assert "resolveWorkspaceFeatureSkillId" not in content
     assert "query.append(key, value);" in content
 
 
 def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_thread() -> None:
     chat_route_body = _read_text(CHAT_ROUTE_FILE)
+    feature_redirect_body = _read_text(FEATURE_REDIRECT_FILE)
     chat_entry_body = _read_text(CHAT_ENTRY_FILE)
     chat_panel_body = _read_text(CHAT_PANEL_FILE)
     layout_body = _read_text(WORKBENCH_LAYOUT_FILE)
@@ -111,6 +123,8 @@ def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_threa
     assert "export function buildWorkspaceChatEntryPrompt(" in chat_entry_body
     assert 'feature_id: entrySeed.featureId' in chat_panel_body
     assert "params: entrySeed.params" in chat_panel_body
+    assert "feature.defaultSkillId" in feature_redirect_body
+    assert "useFeaturesStore" in feature_redirect_body
     assert "void loadThreads(workspaceId);" not in layout_body
     assert "ensureWorkspaceThread(workspaceId" in chat_route_body
 
@@ -143,6 +157,7 @@ def test_workspace_chat_skill_catalog_is_loaded_from_backend_api() -> None:
     )
     assert "useFeaturesStore((state) => state.skills)" in skill_selector_body
     assert "getSkillById" in chat_panel_body
+    assert not WORKSPACE_CHAT_SKILLS_FILE.exists()
 
 
 def test_knowledge_panel_retry_uses_feature_action_state() -> None:
@@ -152,34 +167,53 @@ def test_knowledge_panel_retry_uses_feature_action_state() -> None:
     assert "item.metadata?.params" not in body
 
 
-def test_chat_skill_labels_use_shared_formatter_in_human_readable_surfaces() -> None:
-    for path in (
-        CHAT_EXPORT_FILE,
-        CHAT_PANEL_FILE,
-        KNOWLEDGE_PANEL_FILE,
-        AGENT_STATUS_BAR_FILE,
-    ):
-        body = _read_text(path)
-        assert "getSkillById" in body or "skillLabel" in body or "thread.skill" in body
+def test_chat_skill_labels_use_backend_contract_or_backend_skill_catalog() -> None:
+    export_body = _read_text(CHAT_EXPORT_FILE)
+    chat_body = _read_text(CHAT_PANEL_FILE)
+    knowledge_body = _read_text(KNOWLEDGE_PANEL_FILE)
+    agent_status_bar_body = _read_text(AGENT_STATUS_BAR_FILE)
+
+    assert "workspace-chat-skills" not in export_body
+    assert "thread.skill_name" in export_body
+
+    assert "workspace-chat-skills" not in chat_body
+    assert "currentThreadSummary.skill_name" in chat_body
+    assert "currentThreadStatus.current_skill_name" in chat_body
+
+    assert "workspace-chat-skills" not in knowledge_body
+    assert "getSkillById" in knowledge_body
+
+    assert "current_skill_name" in agent_status_bar_body
 
 
-def test_chat_and_knowledge_submission_flow_use_shared_execution_helper() -> None:
+def test_chat_and_knowledge_panels_follow_canonical_chat_entry_and_retry_paths() -> None:
     execution_body = _read_text(EXECUTION_FILE)
     chat_body = _read_text(CHAT_PANEL_FILE)
     knowledge_body = _read_text(KNOWLEDGE_PANEL_FILE)
-    feature_runner_body = _read_text(FEATURE_RUNNER_FILE)
+    compile_button_body = _read_text(COMPILE_BUTTON_FILE)
 
     assert "export async function createWorkspaceFeatureTask(" in execution_body
     assert "export function ensureWorkspaceFeatureTaskCreated(" in execution_body
     assert "executeWorkspaceFeature(" in execution_body
 
-    assert "createWorkspaceFeatureTask({" in chat_body
-    assert "executeWorkspaceFeature(" not in chat_body
+    assert "buildWorkspaceChatEntryPrompt({" in chat_body
+    assert "sendMessage(prompt, {" in chat_body
+    assert "createWorkspaceFeatureTask({" not in chat_body
 
-    assert "createWorkspaceFeatureTask({" in knowledge_body
-    assert "executeWorkspaceFeature(" not in knowledge_body
+    assert "const retryFeatureTask = async" in knowledge_body
+    assert "router.push(actionState.route);" in knowledge_body
+    assert "createWorkspaceFeatureTask({" not in knowledge_body
 
-    assert "ensureWorkspaceFeatureTaskCreated(resp" in feature_runner_body
+    assert "getWorkspaceFeatureChatRoute" in compile_button_body
+    assert "router.push(chatRoute);" in compile_button_body
+    assert "createWorkspaceFeatureTask({" not in compile_button_body
+
+
+def test_legacy_feature_entry_shells_removed() -> None:
+    assert not FEATURE_RUNNER_FILE.exists()
+    assert not QUICK_ACTIONS_FILE.exists()
+    assert not WORKSPACE_CHAT_SKILLS_FILE.exists()
+    assert not MODULE_CARD_FILE.exists()
 
 
 def test_agent_status_bar_uses_backend_cancel_api_and_failed_task_branch() -> None:

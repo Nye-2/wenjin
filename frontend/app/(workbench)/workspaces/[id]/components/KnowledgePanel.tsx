@@ -15,6 +15,10 @@ import {
 } from "./WorkspaceKnowledgePanelSupport";
 import { WorkspaceActivityDetailDialog } from "./WorkspaceActivityDetailDialog";
 import { WorkspaceActivityTimeline } from "./WorkspaceActivityTimeline";
+import {
+  readWorkspaceFeatureOrchestrationParams,
+  resolveWorkspaceFeatureActionContext,
+} from "@/lib/workspace-feature-action-context";
 
 interface KnowledgePanelProps {
   workspaceId: string;
@@ -30,6 +34,7 @@ export function KnowledgePanel({
     activities,
     artifacts,
     isActivityLoading,
+    workspace,
   } = useWorkspaceStore();
   const { getFeatureById, getSkillById } = useFeaturesStore();
   const [filter, setFilter] = useState<ActivityFilter>("all");
@@ -38,7 +43,7 @@ export function KnowledgePanel({
   const [selectedActivity, setSelectedActivity] = useState<WorkspaceActivityItem | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const resolveSkillLabel = (skillId: string | null | undefined): string | null =>
-    skillId ? (getSkillById(skillId)?.name ?? skillId) : null;
+    skillId ? getSkillById(skillId)?.name ?? skillId : null;
 
   const moduleOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -83,6 +88,29 @@ export function KnowledgePanel({
         : {},
     [selectedActivity]
   );
+  const selectedActivityActionContext = useMemo(() => {
+    if (!selectedActivity?.feature_id) {
+      return null;
+    }
+
+    return resolveWorkspaceFeatureActionContext({
+      workspaceId,
+      featureId: selectedActivity.feature_id,
+      feature: selectedActivityFeature ?? null,
+      workspace,
+      artifacts,
+      orchestrationParams: readWorkspaceFeatureOrchestrationParams(
+        selectedActivityMeta.params
+      ),
+    });
+  }, [
+    artifacts,
+    selectedActivity,
+    selectedActivityFeature,
+    selectedActivityMeta.params,
+    workspace,
+    workspaceId,
+  ]);
   const selectedActivityArtifact =
     selectedActivity?.artifact_id
       ? artifacts.find((candidate) => candidate.id === selectedActivity.artifact_id) ?? null
@@ -105,6 +133,32 @@ export function KnowledgePanel({
   const openThread = async () => {
     router.push(`/workspaces/${workspaceId}/chat`);
     setSelectedActivity(null);
+  };
+
+  const retryFeatureTask = async () => {
+    const actionState = selectedActivityActionContext;
+    if (!actionState?.rerunParams) {
+      setActionError(
+        actionState?.rerunUnavailableReason ||
+        "当前活动没有可复用的执行上下文。"
+      );
+      return;
+    }
+
+    const rerunParams = actionState.rerunParams;
+    if (Object.keys(rerunParams).length === 0) {
+      setActionError("当前活动缺少可重试的参数。");
+      return;
+    }
+
+    if (!actionState.route) {
+      setActionError("当前活动缺少可重试的入口。");
+      return;
+    }
+
+    setActionError(null);
+    setSelectedActivity(null);
+    router.push(actionState.route);
   };
 
   return (
@@ -150,6 +204,7 @@ export function KnowledgePanel({
         }
         selectedActivityMeta={selectedActivityMeta}
         selectedActivityArtifact={selectedActivityArtifact}
+        selectedActivityFollowUpPrompt={selectedActivityActionContext?.followUpPrompt ?? null}
         actionError={actionError}
         resolveSkillLabel={resolveSkillLabel}
         onOpenChange={(open) => {
@@ -162,6 +217,7 @@ export function KnowledgePanel({
           setSelectedArtifact(artifact);
           setSelectedActivity(null);
         }}
+        onRetryFeatureTask={() => void retryFeatureTask()}
         onOpenThread={() => void openThread()}
       />
     </>

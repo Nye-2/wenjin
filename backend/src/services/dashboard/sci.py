@@ -6,12 +6,17 @@ from typing import Any
 
 from src.artifacts.types import ArtifactType
 from src.services.dashboard.shared import DashboardStatusSharedMixin
+from src.services.workspace_skill_labels import list_workspace_feature_creator_ids
 
 
 class DashboardSciStatusMixin(DashboardStatusSharedMixin):
     """Feature status builders for SCI workspace modules."""
 
     db: Any
+
+    @staticmethod
+    def _creator_ids(feature_id: str) -> tuple[str, ...]:
+        return list_workspace_feature_creator_ids("sci", feature_id)
 
     async def _get_literature_search_status(self, workspace_id: str) -> dict[str, Any]:
         results_count = await self._count_artifacts(
@@ -74,7 +79,7 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
         draft_count = await self._count_artifacts(
             workspace_id,
             ArtifactType.PAPER_DRAFT.value,
-            created_by_skill="sci.writing",
+            created_by_skills=self._creator_ids("writing"),
         )
         running_count = await self._count_running_workspace_feature_tasks(
             workspace_id,
@@ -102,12 +107,12 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
         review_count = await self._count_artifacts(
             workspace_id,
             ArtifactType.LITERATURE_REVIEW.value,
-            created_by_skill="sci.literature_review",
+            created_by_skills=self._creator_ids("literature_review"),
         )
         latest_artifact = await self._get_latest_artifact(
             workspace_id,
             ArtifactType.LITERATURE_REVIEW.value,
-            created_by_skill="sci.literature_review",
+            created_by_skills=self._creator_ids("literature_review"),
         )
         running_count = await self._count_running_workspace_feature_tasks(
             workspace_id,
@@ -145,12 +150,12 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
         outline_count = await self._count_artifacts(
             workspace_id,
             ArtifactType.FRAMEWORK_OUTLINE.value,
-            created_by_skill="sci.framework_outline",
+            created_by_skills=self._creator_ids("framework_outline"),
         )
         latest_artifact = await self._get_latest_artifact(
             workspace_id,
             ArtifactType.FRAMEWORK_OUTLINE.value,
-            created_by_skill="sci.framework_outline",
+            created_by_skills=self._creator_ids("framework_outline"),
         )
         running_count = await self._count_running_workspace_feature_tasks(
             workspace_id,
@@ -186,12 +191,12 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
         review_count = await self._count_artifacts(
             workspace_id,
             ArtifactType.REVIEW.value,
-            created_by_skill="sci.peer_review",
+            created_by_skills=self._creator_ids("peer_review"),
         )
         latest_artifact = await self._get_latest_artifact(
             workspace_id,
             ArtifactType.REVIEW.value,
-            created_by_skill="sci.peer_review",
+            created_by_skills=self._creator_ids("peer_review"),
         )
         running_count = await self._count_running_workspace_feature_tasks(
             workspace_id,
@@ -229,12 +234,12 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
         summary_count = await self._count_artifacts(
             workspace_id,
             ArtifactType.SUMMARY.value,
-            created_by_skill="sci.journal_recommend",
+            created_by_skills=self._creator_ids("journal_recommend"),
         )
         latest_artifact = await self._get_latest_artifact(
             workspace_id,
             ArtifactType.SUMMARY.value,
-            created_by_skill="sci.journal_recommend",
+            created_by_skills=self._creator_ids("journal_recommend"),
         )
         running_count = await self._count_running_workspace_feature_tasks(
             workspace_id,

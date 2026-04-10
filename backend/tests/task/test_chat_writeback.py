@@ -7,6 +7,7 @@ import pytest
 
 from src.task.tasks.base import (
     _append_task_chat_message,
+    _resolve_thread_skill,
     _sync_paper_extraction_attachment_state,
 )
 
@@ -20,6 +21,24 @@ class _FakeChatThreadService:
         if self._thread and self._thread.id == thread_id:
             return self._thread
         return None
+
+
+def test_resolve_thread_skill_prefers_canonical_skill_payload() -> None:
+    assert _resolve_thread_skill(
+        {
+            "skill_id": "doc-compiler",
+            "skill_name": "编译导出",
+            "feature_id": "compile_export",
+        },
+        "workspace_feature",
+    ) == ("doc-compiler", "编译导出")
+
+
+def test_resolve_thread_skill_falls_back_when_payload_lacks_skill() -> None:
+    assert _resolve_thread_skill(
+        {"feature_id": "compile_export"},
+        "workspace_feature",
+    ) == ("compile_export", None)
 
 
 @pytest.mark.asyncio

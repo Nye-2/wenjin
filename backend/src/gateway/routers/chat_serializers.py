@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from src.database import ChatThread
 from src.services.chat_thread_events import serialize_thread_summary
+from src.services.workspace_skill_labels import resolve_thread_skill_name
 
 from .chat_contracts import ChatMessage, ThreadResponse, ThreadSummaryResponse
 
@@ -42,6 +43,7 @@ def thread_to_response(
         title=thread.title,
         model=thread.model,
         skill=thread.skill,
+        skill_name=resolve_thread_skill_name(thread),
         messages=thread_messages_to_response(thread.messages or []) if include_messages else [],
         created_at=thread.created_at,
         updated_at=thread.updated_at,

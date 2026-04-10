@@ -328,16 +328,35 @@ class GlobalSubagentManager:
     ) -> dict[str, str | None] | None:
         """Load canonical thread ownership/workspace facts from the database."""
         from src.database import ChatThread, get_db_session
+        from src.services.workspace_skill_labels import (
+            get_workspace_type,
+            resolve_workspace_skill_name,
+        )
 
         async with get_db_session() as db:
             thread = await db.get(ChatThread, thread_id)
+            workspace_type = (
+                await get_workspace_type(
+                    db,
+                    str(thread.workspace_id) if thread is not None and thread.workspace_id is not None else None,
+                )
+                if thread is not None
+                else None
+            )
 
         if thread is None:
             return None
 
+        skill_id = (
+            str(thread.skill).strip()
+            if thread.skill is not None and str(thread.skill).strip()
+            else None
+        )
         return {
             "owner_user_id": str(thread.user_id),
             "workspace_id": str(thread.workspace_id) if thread.workspace_id is not None else None,
+            "skill_id": skill_id,
+            "skill_name": resolve_workspace_skill_name(workspace_type, skill_id),
         }
 
     async def _execute_task(self, task: SubagentTask) -> SubagentResult:
@@ -514,9 +533,19 @@ class GlobalSubagentManager:
         """
         async with self._lock:
             ctx = self._get_accessible_context(thread_id, user_id)
-            if not ctx:
-                return None
-            return ctx.get_task_status(task_id)
+            if ctx:
+                status = ctx.get_task_status(task_id)
+                if status is not None:
+                    return status
+
+        persisted = await self._load_persisted_task_record(
+            thread_id,
+            task_id,
+            user_id=user_id,
+        )
+        if persisted is None:
+            return None
+        return self._coerce_persisted_status(persisted.status)
 
     async def get_result(
         self,
@@ -535,9 +564,19 @@ class GlobalSubagentManager:
         """
         async with self._lock:
             ctx = self._get_accessible_context(thread_id, user_id)
-            if not ctx:
-                return None
-            return ctx.get_result(task_id)
+            if ctx:
+                result = ctx.get_result(task_id)
+                if result is not None:
+                    return result
+
+        persisted = await self._load_persisted_task_record(
+            thread_id,
+            task_id,
+            user_id=user_id,
+        )
+        if persisted is None:
+            return None
+        return self._persisted_record_to_result(persisted)
 
     async def wait_for_completion(
         self,
@@ -549,7 +588,16 @@ class GlobalSubagentManager:
         async with self._lock:
             ctx = self._get_accessible_context(thread_id, user_id)
             if not ctx:
-                return None
+                persisted = await self._load_persisted_task_record(
+                    thread_id,
+                    task_id,
+                    user_id=user_id,
+                )
+                return (
+                    self._persisted_record_to_result(persisted)
+                    if persisted is not None
+                    else None
+                )
 
             cached_result = ctx.get_result(task_id)
             if cached_result is not None:
@@ -652,26 +700,31 @@ class GlobalSubagentManager:
             SSE-formatted event strings.
         """
         if thread_id is not None:
-            async with self._lock:
-                ctx = self._get_accessible_context(thread_id, user_id)
-                if ctx is None:
-                    raise SubagentAccessError("Thread not found")
+            if not await self.check_thread_access(thread_id, user_id=user_id):
+                raise SubagentAccessError("Thread not found")
 
         async for event_str in self._event_stream.subscribe(thread_id):
             if thread_id is None and user_id is not None:
                 event_thread_id = self._extract_thread_id_from_sse(event_str)
                 if event_thread_id is None:
                     continue
-                async with self._lock:
-                    ctx = self._get_accessible_context(event_thread_id, user_id)
-                    if ctx is None:
-                        continue
+                if not await self.check_thread_access(event_thread_id, user_id=user_id):
+                    continue
             yield event_str
 
     async def check_thread_access(self, thread_id: str, user_id: str | None) -> bool:
         """Check whether a user can access a given thread."""
         async with self._lock:
-            return self._get_accessible_context(thread_id, user_id) is not None
+            if self._get_accessible_context(thread_id, user_id) is not None:
+                return True
+
+        binding = await self._load_thread_binding(thread_id)
+        if binding is None:
+            return False
+        owner_user_id = binding.get("owner_user_id")
+        if user_id and owner_user_id and str(owner_user_id) != user_id:
+            return False
+        return True
 
     async def cleanup_thread(self, thread_id: str) -> None:
         """Clean up a thread and cancel its tasks.
@@ -706,28 +759,33 @@ class GlobalSubagentManager:
     ) -> None:
         """Mirror subagent activity into the thread-scoped status cache."""
         try:
-            from src.academic.cache.redis_client import redis_client
+            from src.services.chat_thread_events import set_thread_status
 
-            if redis_client._client is None:
-                return
-            await redis_client.set_agent_status(
-                thread_id,
-                status,
-                subagent_count=subagent_count,
+            binding = await self._load_thread_binding(thread_id)
+            resolved_workspace_id = (
+                str(binding.get("workspace_id"))
+                if binding is not None and binding.get("workspace_id") is not None
+                else workspace_id
             )
-            from src.workspace_events import publish_workspace_event
-
-            await publish_workspace_event(
-                workspace_id,
-                "thread.status",
-                {
-                    "thread": {
-                        "thread_id": thread_id,
-                        "status": status,
-                        "current_skill": None,
-                        "subagent_count": subagent_count,
-                    }
-                },
+            resolved_skill_id = (
+                str(binding.get("skill_id"))
+                if binding is not None and binding.get("skill_id") is not None
+                else None
+            )
+            resolved_skill_name = (
+                str(binding.get("skill_name"))
+                if binding is not None and binding.get("skill_name") is not None
+                else None
+            )
+            if binding is None and resolved_workspace_id is None:
+                return
+            await set_thread_status(
+                resolved_workspace_id,
+                thread_id,
+                status=status,
+                skill=resolved_skill_id,
+                skill_name=resolved_skill_name,
+                subagent_count=subagent_count,
             )
         except Exception:
             logger.debug(
@@ -852,6 +910,34 @@ class GlobalSubagentManager:
             for record in records
         ]
 
+    async def _load_persisted_task_record(
+        self,
+        thread_id: str,
+        task_id: str,
+        *,
+        user_id: str | None,
+    ) -> Any | None:
+        try:
+            from src.database import get_db_session
+            from src.subagents.store import SubagentTaskStore
+
+            async with get_db_session() as db:
+                record = await SubagentTaskStore(db).get_task_record(task_id)
+        except Exception:
+            logger.debug(
+                "Failed to load persisted subagent record %s for thread %s",
+                task_id,
+                thread_id,
+                exc_info=True,
+            )
+            return None
+
+        if record is None or str(record.thread_id) != thread_id:
+            return None
+        if user_id and record.user_id and str(record.user_id) != user_id:
+            return None
+        return record
+
     def _get_or_create_context(
         self,
         thread_id: str,
@@ -937,6 +1023,37 @@ class GlobalSubagentManager:
         if status in {SubagentStatus.CANCELLED, SubagentStatus.FAILED, SubagentStatus.TIMED_OUT}:
             return "failed"
         return "running"
+
+    @staticmethod
+    def _coerce_persisted_status(value: str | None) -> SubagentStatus | None:
+        normalized = str(value or "").strip().lower()
+        if not normalized:
+            return None
+        try:
+            return SubagentStatus(normalized)
+        except ValueError:
+            return None
+
+    @classmethod
+    def _persisted_record_to_result(cls, record: Any) -> SubagentResult | None:
+        status = cls._coerce_persisted_status(getattr(record, "status", None))
+        if status is None:
+            return None
+        return SubagentResult(
+            task_id=str(record.id),
+            status=status,
+            output=(
+                str(record.output_preview)
+                if getattr(record, "output_preview", None) is not None
+                else None
+            ),
+            error=(
+                str(record.error)
+                if getattr(record, "error", None) is not None
+                else None
+            ),
+            metadata={"durable_preview": True},
+        )
 
     @staticmethod
     def _truncate_preview(content: str | None, limit: int = 120) -> str | None:

@@ -19,7 +19,6 @@ import {
 } from '../lib/api';
 import {
   isWorkspaceChatCockpitEnabled,
-  isWorkspaceChatOrchestrationEnabled,
 } from '@/lib/workspace-rollout';
 import { upsertWorkspaceActivityList } from '@/lib/workspace-event-ordering';
 
@@ -93,7 +92,6 @@ interface WorkspaceState {
   }) => Promise<Artifact>;
   clearError: () => void;
   isChatCockpitEnabled: () => boolean;
-  isChatOrchestrationEnabled: () => boolean;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -338,10 +336,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   isChatCockpitEnabled: () => {
     return isWorkspaceChatCockpitEnabled(get().workspace);
-  },
-
-  isChatOrchestrationEnabled: () => {
-    return isWorkspaceChatOrchestrationEnabled(get().workspace);
   },
 }));
 

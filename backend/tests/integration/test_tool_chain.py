@@ -4,7 +4,6 @@ This module tests that various tools work together in skill execution chains:
 - MCP tools (ArxivTool, DOITool) work correctly
 - SandboxExecutor executes code safely
 - Tools can be chained together
-- Skills integrate with tools properly
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -280,68 +279,6 @@ print(f"Median: {median_val}")
 
             result = await tool.resolve("10.1234/nonexistent")
             assert result is None
-
-
-class TestSkillWithTools:
-    """Tests for skills using tools."""
-
-    @pytest.mark.asyncio
-    async def test_deep_research_uses_tools(self):
-        """Deep Research skill should have tool integration."""
-        from src.skills.implementations.deep_research import DeepResearchSkill
-
-        skill = DeepResearchSkill()
-        # Verify skill has required interface
-        assert hasattr(skill, "execute")
-        assert hasattr(skill, "execute_async")
-        assert skill.name == "deep-research"
-
-    @pytest.mark.asyncio
-    async def test_deep_research_creates_artifacts(self):
-        """Deep Research skill should create artifacts."""
-        from src.agents.thread_state import ThreadState
-        from src.skills.base import SkillInput
-        from src.skills.implementations.deep_research import DeepResearchSkill, Paper
-
-        skill = DeepResearchSkill()
-        thread_state = ThreadState(
-            messages=[],
-            workspace_id="test-workspace",
-            academic_artifacts=[],
-            cited_papers=[],
-        )
-
-        # Mock the executor and search
-        sample_papers = [
-            Paper(
-                title="Test Paper",
-                authors=["Test Author"],
-                year=2024,
-                venue="Test Venue",
-                abstract="Test abstract",
-                citations=10,
-                url="https://example.com",
-                doi="10.1234/test",
-            )
-        ]
-
-        with patch.object(skill, "_executor") as mock_executor:
-            mock_executor.execute_plan = AsyncMock(return_value=[])
-            with patch.object(skill, "_search_papers", return_value=sample_papers):
-                skill_input = SkillInput(
-                    workspace_id="test-workspace",
-                    user_query="test query",
-                    context={},
-                )
-
-                output = skill.execute(skill_input, thread_state)
-
-                assert output.success
-                assert len(output.artifacts) >= 1
-                artifact_types = [a.type for a in output.artifacts]
-                assert "deep_research_report" in artifact_types
-
-
 
 class TestToolChainPerformance:
     """Tests for tool chain performance."""

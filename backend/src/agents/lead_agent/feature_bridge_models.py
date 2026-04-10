@@ -13,13 +13,3 @@ class BridgedChatResponse:
     content: str
     blocks: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class FeatureIntent:
-    """Resolved workspace feature intent."""
-
-    feature_id: str
-    params: dict[str, Any] = field(default_factory=dict)
-    missing_reason: str | None = None
-    missing_feature_id: str | None = None

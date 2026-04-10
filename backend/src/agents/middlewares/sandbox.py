@@ -9,6 +9,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware
+from src.agents.middlewares.config_utils import require_thread_id
 from src.agents.thread_state import ThreadState
 from src.sandbox import SandboxProvider
 
@@ -51,7 +52,7 @@ class SandboxMiddleware(Middleware):
             return {}
 
         # Get thread_id from config
-        thread_id = config.get("configurable", {}).get("thread_id", "default")
+        thread_id = require_thread_id(config, component="SandboxMiddleware")
 
         # Acquire sandbox from provider
         sandbox = await self._provider.acquire(thread_id)

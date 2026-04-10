@@ -1,6 +1,11 @@
 """Tests for shared subagent task-building helpers."""
 
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from src.subagents.config import SubagentConfig
+from src.subagents.context_snapshot import build_subagent_context_snapshot
 from src.subagents.task_builder import (
     SubagentRuntimeContext,
     build_subagent_metadata,
@@ -68,6 +73,20 @@ class TestSubagentMetadata:
             "model_name": "gpt-4o",
         }
 
+    def test_build_subagent_metadata_appends_context_snapshot_to_system_prompt(self):
+        context = SubagentRuntimeContext.from_mapping({"workspace_id": "ws-1"})
+
+        metadata = build_subagent_metadata(
+            subagent_type="scout",
+            system_prompt="You are Scout.",
+            context_snapshot="## Inherited Workspace Context\n- workspace_type: sci",
+            runtime_context=context,
+            include_workspace=True,
+        )
+
+        assert "You are Scout." in metadata["system_prompt"]
+        assert "## Inherited Workspace Context" in metadata["system_prompt"]
+
 
 class TestSubagentTaskBuilder:
     def test_build_subagent_task_clamps_runtime_limits(self):
@@ -87,3 +106,34 @@ class TestSubagentTaskBuilder:
         assert task.timeout == 3600
         assert task.tools == ["semantic_scholar_search"]
         assert task.metadata["workspace_id"] == "ws-1"
+
+
+class TestContextSnapshot:
+    @pytest.mark.asyncio
+    async def test_snapshot_skips_db_fallback_when_state_is_already_populated(self):
+        runtime_context = SubagentRuntimeContext.from_mapping(
+            {
+                "workspace_id": "ws-1",
+                "user_id": "user-1",
+                "thread_id": "thread-1",
+            }
+        )
+        state = {
+            "workspace_type": "sci",
+            "discipline": "computer_science",
+            "literature_context": "## 文献库概览\nPaper A",
+            "current_skill": "framework-designer",
+        }
+
+        with patch(
+            "src.subagents.context_snapshot._load_db_snapshot",
+            AsyncMock(return_value={"workspace_type": "should-not-be-used"}),
+        ) as load_db_snapshot:
+            snapshot = await build_subagent_context_snapshot(
+                runtime_context=runtime_context,
+                state=state,
+            )
+
+        load_db_snapshot.assert_not_awaited()
+        assert snapshot is not None
+        assert "workspace_type: sci" in snapshot

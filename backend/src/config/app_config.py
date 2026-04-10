@@ -106,6 +106,16 @@ class PrometheusSettings(BaseSettings):
     """Prometheus monitoring configuration."""
 
     enabled: bool = Field(default=False, description="Enable Prometheus metrics")
+    worker_port: int = Field(
+        default=9153,
+        ge=1,
+        le=65535,
+        description="HTTP port exposed by the Celery worker metrics server",
+    )
+    multiproc_dir: str = Field(
+        default="",
+        description="Directory used for Prometheus multiprocess worker metrics",
+    )
 
     model_config = _settings_config("PROMETHEUS_")
 
@@ -190,6 +200,16 @@ class AppConfig(BaseSettings):
     host: str = Field(default="0.0.0.0", description="Server host")
     port: int = Field(default=8000, ge=1, le=65535, description="Server port")
     log_level: str = Field(default="INFO", description="Logging level")
+    mcp_required_for_readiness: bool = Field(
+        default=False,
+        alias="MCP_REQUIRED_FOR_READINESS",
+        description="Treat MCP runtime/tool health as a hard readiness dependency",
+    )
+    mcp_required_for_worker_bootstrap: bool = Field(
+        default=False,
+        alias="MCP_REQUIRED_FOR_WORKER_BOOTSTRAP",
+        description="Fail worker bootstrap when MCP runtime has load errors",
+    )
 
     # Paths
     config_path: str | None = None

@@ -27,6 +27,10 @@ from src.application.results import (
 )
 from src.services.credit_service import CreditService, InsufficientCreditsError
 from src.services.literature_service import LiteratureService
+from src.services.workspace_skill_labels import (
+    resolve_workspace_feature_skill_id,
+    resolve_workspace_feature_skill_name,
+)
 from src.task.service import ConcurrencyLimitError, TaskService
 from src.workspace_features import get_workspace_feature
 
@@ -59,9 +63,22 @@ def build_task_payload(
     feature: Any,
     params: dict[str, Any],
     thread_id: str | None,
+    skill_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the canonical task payload for workspace feature execution."""
     sanitized_params = dict(params)
+    resolved_skill_id = resolve_workspace_feature_skill_id(
+        workspace_type,
+        feature.id,
+        sanitized_params,
+        preferred_skill_id=skill_id,
+    )
+    resolved_skill_name = resolve_workspace_feature_skill_name(
+        workspace_type,
+        feature.id,
+        sanitized_params,
+        preferred_skill_id=skill_id,
+    )
     return {
         "workspace_id": workspace_id,
         "workspace_type": workspace_type,
@@ -75,6 +92,8 @@ def build_task_payload(
         "agent_label": feature.agent_label,
         "handler_key": feature.handler_key,
         "thread_id": thread_id,
+        "skill_id": resolved_skill_id,
+        "skill_name": resolved_skill_name,
         "params": sanitized_params,
     }
 
@@ -103,6 +122,7 @@ class FeatureExecutionHandler:
         feature_id: str,
         params: dict[str, Any] | None = None,
         thread_id: str | None = None,
+        skill_id: str | None = None,
         *,
         idempotency_key: str | None = None,
         redis_client: Any | None = None,
@@ -235,6 +255,7 @@ class FeatureExecutionHandler:
             feature_id=feature_id,
             params=params,
             thread_id=thread_id,
+            skill_id=skill_id,
             credit_transaction=credit_transaction,
             idempotency_key=idempotency_key,
             redis_client=redis_client,
@@ -250,6 +271,7 @@ class FeatureExecutionHandler:
         feature_id: str,
         params: dict[str, Any],
         thread_id: str | None,
+        skill_id: str | None,
         credit_transaction: Any | None,
         idempotency_key: str | None,
         redis_client: Any | None,
@@ -295,6 +317,7 @@ class FeatureExecutionHandler:
                 feature=feature,
                 params=params,
                 thread_id=thread_id,
+                skill_id=skill_id,
             )
             if credit_transaction is not None:
                 task_payload["credit_transaction_id"] = str(credit_transaction.id)

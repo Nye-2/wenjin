@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 from celery.signals import worker_process_init, worker_process_shutdown
 
-from src.config.app_config import celery_settings
+from src.config.app_config import celery_settings, settings
 from src.task.celery_app import celery_app
 
 if TYPE_CHECKING:
@@ -121,8 +121,13 @@ async def _bootstrap_worker_runtime() -> None:
     )
     runtime_errors = manager.get_last_load_errors()
     if runtime_errors:
-        raise RuntimeError(
-            f"MCP runtime bootstrap failed for worker process: {runtime_errors}"
+        if settings.mcp_required_for_worker_bootstrap:
+            raise RuntimeError(
+                f"MCP runtime bootstrap failed for worker process: {runtime_errors}"
+            )
+        logger.warning(
+            "Worker MCP runtime degraded; continuing without MCP tools: %s",
+            runtime_errors,
         )
 
 
@@ -166,6 +171,12 @@ def _on_worker_process_shutdown(**_kwargs: object) -> None:
     except Exception:
         logger.warning("Worker process runtime shutdown failed", exc_info=True)
     finally:
+        try:
+            from src.observability.prometheus import mark_worker_process_dead
+
+            mark_worker_process_dead()
+        except Exception:
+            logger.warning("Failed to update Prometheus worker state", exc_info=True)
         close_worker_runner()
 
 
@@ -185,6 +196,14 @@ def start_worker(
         loglevel: Logging level (debug, info, warning, error)
         queues: List of queues to consume (default: all queues)
     """
+    from src.observability.prometheus import (
+        prepare_worker_prometheus,
+        start_worker_prometheus_server,
+    )
+
+    prepare_worker_prometheus()
+    start_worker_prometheus_server()
+
     concurrency = concurrency or celery_settings.worker_concurrency
     logger.info(f"Starting Celery worker with concurrency={concurrency}, loglevel={loglevel}")
 

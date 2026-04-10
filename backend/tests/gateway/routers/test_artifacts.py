@@ -164,6 +164,7 @@ class MockWorkspaceService:
         self._workspace = MagicMock()
         self._workspace.id = WORKSPACE_ID
         self._workspace.user_id = USER_ID
+        self._workspace.type = "thesis"
 
     async def get(self, workspace_id):
         if workspace_id == self._workspace.id:
@@ -300,7 +301,6 @@ class TestThreadArtifactFiles:
         assert response.status_code == 200
         assert response.text == "# Report"
 
-
 class TestWorkspaceFiles:
     """Test canonical workspace upload file serving."""
 
@@ -386,7 +386,7 @@ class TestCreateArtifact:
                 "type": "research_idea",
                 "title": "My Research Idea",
                 "content": {"idea": "Test idea"},
-                "created_by_skill": "brainstorm",
+                "created_by_skill": "deep-research",
             },
         )
 
@@ -396,9 +396,23 @@ class TestCreateArtifact:
         assert data["type"] == "research_idea"
         assert data["title"] == "My Research Idea"
         assert data["content"] == {"idea": "Test idea"}
-        assert data["created_by_skill"] == "brainstorm"
+        assert data["created_by_skill"] == "deep-research"
         assert data["status"] == "draft"
         assert data["version"] == 1
+
+    def test_create_artifact_rejects_noncanonical_skill(self, client):
+        response = client.post(
+            f"/workspaces/{WORKSPACE_ID}/artifacts",
+            json={
+                "type": "research_idea",
+                "title": "My Research Idea",
+                "content": {"idea": "Test idea"},
+                "created_by_skill": "brainstorm",
+            },
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid created_by_skill for workspace"
 
     def test_create_artifact_minimal(self, client):
         """Test artifact creation with minimal fields."""
