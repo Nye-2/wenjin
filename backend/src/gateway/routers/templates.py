@@ -1,7 +1,7 @@
 """Templates router for workspace template management."""
 
 import logging
-import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -12,12 +12,18 @@ from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_template_service, get_workspace_service
 from src.services.template_service import TemplateService, parse_template_content
+from src.services.workspace_uploads import (
+    DEFAULT_WORKSPACE_UPLOAD_ROOT,
+    persist_workspace_upload,
+    sanitize_upload_filename,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["templates"])
 
 TEMPLATE_EXTENSIONS = {".docx", ".tex", ".txt", ".md", ".cls", ".sty", ".markdown"}
 MAX_TEMPLATE_SIZE = 10 * 1024 * 1024
+_TEMPLATE_UPLOAD_ROOT = DEFAULT_WORKSPACE_UPLOAD_ROOT
 
 
 class TemplateResponse(BaseModel):
@@ -96,7 +102,7 @@ async def upload_template(
     if str(workspace.user_id) != str(current_user.id):
         raise HTTPException(403, "Access denied")
 
-    ext = os.path.splitext(file.filename or "")[1].lower()
+    ext = Path(file.filename or "").suffix.lower()
     if ext not in TEMPLATE_EXTENSIONS:
         raise HTTPException(400, f"Unsupported file type: {ext}")
 
@@ -113,16 +119,21 @@ async def upload_template(
         chunks.append(chunk)
     content_bytes = b"".join(chunks)
 
-    # Save file — sanitize filename to prevent path traversal
-    from src.config import get_data_dir
-    safe_filename = os.path.basename(file.filename or f"template{ext}")
-    if not safe_filename or safe_filename.startswith("."):
-        safe_filename = f"template{ext}"
-    template_dir = os.path.join(get_data_dir(), "workspace_uploads", workspace_id, "templates")
-    os.makedirs(template_dir, exist_ok=True)
-    file_path = os.path.join(template_dir, safe_filename)
-    with open(file_path, "wb") as f:
-        f.write(content_bytes)
+    # Save file using canonical workspace-upload storage helpers.
+    fallback_filename = f"template{ext}"
+    try:
+        safe_filename = sanitize_upload_filename(file.filename or fallback_filename)
+    except ValueError:
+        safe_filename = fallback_filename
+    if safe_filename.startswith("."):
+        safe_filename = fallback_filename
+    file_path = persist_workspace_upload(
+        workspace_id=workspace_id,
+        bucket="templates",
+        filename=safe_filename,
+        content=content_bytes,
+        root=_TEMPLATE_UPLOAD_ROOT,
+    )
 
     # Read text content
     file_content = ""
@@ -133,8 +144,9 @@ async def upload_template(
             file_content = content_bytes.decode("latin-1")
     elif ext == ".docx":
         try:
-            import docx
             from io import BytesIO
+
+            import docx
             doc = docx.Document(BytesIO(content_bytes))
             file_content = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
         except Exception:
@@ -153,7 +165,7 @@ async def upload_template(
         name=parsed.get("name") or file.filename or "未命名模板",
         category=workspace.type,
         source_type=source_type,
-        source_file_path=file_path,
+        source_file_path=str(file_path),
         structure=parsed.get("structure"),
         format_spec=parsed.get("format_spec"),
         content_guidelines=parsed.get("content_guidelines"),

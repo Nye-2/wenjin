@@ -81,7 +81,7 @@ export const workspaceActivityFilterOptions: Array<{
 }> = [
   { value: "all", label: "全部" },
   { value: "feature_task", label: "功能" },
-  { value: "chat_thread", label: "对话" },
+  { value: "thread", label: "对话" },
   { value: "subagent_task", label: "子代理" },
   { value: "artifact", label: "产出" },
 ];
@@ -180,7 +180,7 @@ export function getActivityMeta(
     };
   }
 
-  if (item.kind === "chat_thread") {
+  if (item.kind === "thread") {
     return {
       label: "对话",
       icon: MessageSquareText,
@@ -200,7 +200,7 @@ export function resolveSummary(item: WorkspaceActivityItem) {
     return item.summary;
   }
 
-  if (item.kind === "chat_thread") {
+  if (item.kind === "thread") {
     const count =
       typeof item.metadata?.message_count === "number"
         ? item.metadata.message_count
@@ -226,7 +226,7 @@ export function resolveMetadataLine(
     return featureName || item.title;
   }
 
-  if (item.kind === "chat_thread") {
+  if (item.kind === "thread") {
     const skill =
       item.skill ??
       (typeof item.metadata?.skill === "string" ? item.metadata.skill : null);

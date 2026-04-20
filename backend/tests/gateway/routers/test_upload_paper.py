@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 
 from src.application.errors import BadRequestError
 from src.application.handlers.papers_handler import UploadedPaperPayload
-from src.gateway.routers.papers import get_papers_handler, router
 from src.gateway.routers.auth import get_current_user
+from src.gateway.routers.papers import get_papers_handler, router
 
 
 def _create_mock_user():
@@ -119,3 +119,16 @@ class TestUploadPaperEndpoint:
             files={"file": ("paper.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
         )
         assert resp.status_code == 422
+
+    def test_upload_rejects_oversized_payload_before_handler(self, client, monkeypatch):
+        """Oversized uploads should be rejected by router-level size guard."""
+        monkeypatch.setattr("src.gateway.routers.papers._MAX_UPLOAD_SIZE_BYTES", 8)
+
+        resp = client.post(
+            "/api/papers/upload",
+            files={"file": ("big.pdf", io.BytesIO(b"123456789"), "application/pdf")},
+            data={"workspace_id": "ws-1"},
+        )
+
+        assert resp.status_code == 413
+        client.app.state.mock_handler.upload_paper.assert_not_awaited()

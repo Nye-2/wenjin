@@ -43,7 +43,6 @@ export const featureStageMap: Record<string, string> = {
   // Stage: review
   peer_review: "review",
   journal_recommend: "review",
-  compile_export: "review",
 };
 
 export function getFeatureStageId(featureId: string): string {

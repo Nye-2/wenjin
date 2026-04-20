@@ -19,7 +19,8 @@ from enum import StrEnum
 
 import asyncpg
 
-BOOTSTRAP_STAMP_REVISION = "007_chat_thread_model_default"
+LEGACY_BOOTSTRAP_STAMP_REVISION = "007_chat_thread_model_default"
+THREAD_BOOTSTRAP_STAMP_REVISION = "023_rename_chat_threads_table_to_threads"
 
 
 class MigrationBootstrapMode(StrEnum):
@@ -44,6 +45,13 @@ def decide_bootstrap_mode(table_names: set[str]) -> MigrationBootstrapMode:
         "Database has existing tables but no alembic_version/users marker; "
         "refusing to auto-stamp unknown schema."
     )
+
+
+def resolve_bootstrap_stamp_revision(table_names: set[str]) -> str:
+    """Pick the safest bootstrap stamp revision for detected schema flavor."""
+    if "threads" in table_names and "chat_threads" not in table_names:
+        return THREAD_BOOTSTRAP_STAMP_REVISION
+    return LEGACY_BOOTSTRAP_STAMP_REVISION
 
 
 def _to_asyncpg_url(database_url: str) -> str:
@@ -87,11 +95,12 @@ def main() -> int:
     mode = decide_bootstrap_mode(table_names)
 
     if mode is MigrationBootstrapMode.STAMP_THEN_UPGRADE:
+        stamp_revision = resolve_bootstrap_stamp_revision(table_names)
         print(
             "[migration-bootstrap] Existing schema detected without alembic_version; "
-            f"stamping {BOOTSTRAP_STAMP_REVISION} before upgrade."
+            f"stamping {stamp_revision} before upgrade."
         )
-        _run_alembic("stamp", BOOTSTRAP_STAMP_REVISION)
+        _run_alembic("stamp", stamp_revision)
 
     _run_alembic("upgrade", "head")
     return 0

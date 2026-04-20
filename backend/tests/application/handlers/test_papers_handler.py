@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.application.handlers.papers_handler import PapersHandler, UploadedPaperPayload
+from src.services.upload_preprocessor import UploadPreprocessResult
 
 
 @pytest.fixture
@@ -193,3 +194,66 @@ async def test_upload_paper_keeps_success_when_extraction_scheduling_fails(tmp_p
     assert response["success"] is True
     assert response["extraction"]["status"] == "failed"
     assert "queue offline" in response["extraction"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_upload_paper_preprocess_paths_use_workspace_relative_virtual_root(tmp_path):
+    paper_service = MagicMock()
+    paper_service.create_in_workspace = AsyncMock(
+        return_value=SimpleNamespace(id="paper-1")
+    )
+    workspace_service = MagicMock()
+    workspace_service.get = AsyncMock(
+        return_value=SimpleNamespace(id="ws-1", user_id="user-1")
+    )
+    task_service = MagicMock()
+    task_service.find_active_task_by_payload = AsyncMock(return_value=None)
+    task_service.submit_task = AsyncMock(return_value="task-paper-extract-1")
+    upload_preprocessor = MagicMock()
+    upload_preprocessor.preprocess_file = AsyncMock(
+        return_value=UploadPreprocessResult(
+            status="succeeded",
+            file_type="pdf",
+            markdown_paths=("/papers/_preprocessed/paper/doc_0.md",),
+            manifest_path="/papers/_preprocessed/paper/manifest.json",
+        )
+    )
+    handler = PapersHandler(
+        paper_service=paper_service,
+        workspace_service=workspace_service,
+        task_service=task_service,
+        upload_preprocessor=upload_preprocessor,
+    )
+
+    upload = UploadedPaperPayload(
+        filename="paper.pdf",
+        content=b"%PDF-1.4 body",
+        content_type="application/pdf",
+    )
+
+    with patch(
+        "src.application.handlers.papers_handler._PERSISTED_UPLOAD_ROOT",
+        tmp_path / "workspace_uploads",
+    ), patch(
+        "src.application.handlers.papers_handler.extract_document_preview",
+        return_value={
+            "title": "Detected Title",
+            "authors": [],
+            "page_count": None,
+            "text_preview": None,
+        },
+    ):
+        response = await handler.upload_paper(
+            workspace_id="ws-1",
+            user_id="user-1",
+            upload=upload,
+        )
+
+    preprocess_call = upload_preprocessor.preprocess_file.await_args
+    assert preprocess_call.kwargs["output_virtual_root"] == "papers/_preprocessed/paper"
+    preprocess = response["preprocess"]
+    assert preprocess["markdown_paths"] == ["/papers/_preprocessed/paper/doc_0.md"]
+    assert preprocess["markdown_urls"] == [
+        "/api/workspaces/ws-1/files/papers/_preprocessed/paper/doc_0.md"
+    ]
+    assert preprocess["manifest_url"] == "/api/workspaces/ws-1/files/papers/_preprocessed/paper/manifest.json"

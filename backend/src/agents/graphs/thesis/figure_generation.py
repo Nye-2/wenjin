@@ -17,9 +17,10 @@ from src.models.router import route_writing_model, validate_requested_model
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
-    emit_bound_runtime as _emit_bound_runtime,
-    runtime_progress_for_phase,
     upsert_runtime_block,
+)
+from src.task.runtime_blocks import (
+    emit_bound_runtime as _emit_bound_runtime,
 )
 from src.thesis.execution import get_execution_service
 from src.thesis.execution.figure_tool import generate_figure
@@ -259,6 +260,10 @@ async def _generate_figure_code(
 # ---------------------------------------------------------------------------
 # Main graph entry point
 # ---------------------------------------------------------------------------
+@register_feature_graph("figure_generation", workspace_type="software_copyright")
+@register_feature_graph("figure_generation", workspace_type="patent")
+@register_feature_graph("figure_generation", workspace_type="proposal")
+@register_feature_graph("figure_generation", workspace_type="sci")
 @register_feature_graph("figure_generation", workspace_type="thesis")
 async def figure_generation_graph(
     initial_state: dict[str, Any],

@@ -10,6 +10,7 @@ from langgraph.prebuilt import InjectedState
 from pydantic import BaseModel, Field
 
 from src.agents.thread_state import ThreadState
+from src.config.llm_config import LLMSettings
 from src.sandbox.runtime import resolve_runtime_sandbox
 
 
@@ -18,6 +19,13 @@ class BashInput(BaseModel):
 
     command: str = Field(description="The bash command to execute")
     timeout: int = Field(default=120, description="Timeout in seconds")
+
+
+def _truncate_tool_output(text: str) -> str:
+    max_chars = max(1, int(LLMSettings.TOOL_OUTPUT_MAX_CHARS))
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "\n...[truncated]"
 
 
 @tool("bash", args_schema=BashInput)
@@ -42,6 +50,6 @@ async def bash_tool(
 
     rendered = "\n".join(part.rstrip("\n") for part in output if part).strip()
     if rendered:
-        return rendered
+        return _truncate_tool_output(rendered)
 
     return f"Command completed with exit code {result.exit_code}"

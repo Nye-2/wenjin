@@ -14,7 +14,6 @@ from src.agents.lead_agent.agent import (
     build_middlewares,
     make_lead_agent,
 )
-from src.agents.middlewares.base import Middleware
 from src.agents.middlewares import (
     CitationContextMiddleware,
     DisciplineContextMiddleware,
@@ -22,6 +21,7 @@ from src.agents.middlewares import (
     LiteratureContextMiddleware,
     WorkspaceContextMiddleware,
 )
+from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
 
 
@@ -222,7 +222,7 @@ class TestApplyPromptTemplate:
         assert "fullpaper-writer" not in prompt
         assert "proposal-writer" not in prompt
 
-    def test_prompt_omits_available_skills_when_workspace_has_no_chat_skill_catalog(self):
+    def test_prompt_omits_available_skills_when_workspace_has_no_thread_skill_catalog(self):
         """Test that prompt renders the current workspace chat skill catalog."""
         state = ThreadState(messages=[], workspace_type="patent")
         config = {"configurable": {}}
@@ -417,8 +417,8 @@ class TestMakeLeadAgent:
             "src.agents.lead_agent.agent.get_default_model_id",
             return_value="gpt-4o",
         ), patch(
-            "src.agents.lead_agent.agent.get_model_config",
-            side_effect=lambda model_name: MagicMock(model=model_name),
+            "src.agents.lead_agent.agent.model_supports_vision",
+            side_effect=lambda model_name: str(model_name).startswith("gpt-4o"),
         ), patch(
             "src.models.factory.create_chat_model"
         ) as mock_model, patch(
@@ -443,8 +443,8 @@ class TestMakeLeadAgent:
         fake_agent.ainvoke = AsyncMock(return_value={"messages": []})
 
         with patch(
-            "src.agents.lead_agent.agent.get_model_config",
-            side_effect=lambda model_name: MagicMock(model=model_name),
+            "src.agents.lead_agent.agent.model_supports_vision",
+            side_effect=lambda model_name: str(model_name).startswith("gpt-4o"),
         ), patch(
             "src.models.factory.create_chat_model"
         ) as mock_model, patch(

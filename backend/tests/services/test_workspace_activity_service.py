@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.services.workspace_activity_contracts import (
-    build_chat_activity_item,
     build_subagent_activity_item,
     build_task_activity_item,
+    build_thread_activity_item,
     serialize_activity_item,
 )
 from src.services.workspace_activity_service import WorkspaceActivityService
@@ -47,14 +47,14 @@ async def test_get_activity_merges_sources_and_sorts_descending(
             }
         ]
     )
-    service._build_chat_activity = MagicMock(
+    service._build_thread_activity = MagicMock(
         return_value=[
             {
-                "id": "chat:1",
-                "kind": "chat_thread",
+                "id": "thread:1",
+                "kind": "thread",
                 "workspace_id": "ws-1",
                 "occurred_at": now,
-                "title": "Chat",
+                "title": "Thread",
                 "summary": "latest reply",
                 "status": None,
                 "thread_id": "thread-1",
@@ -90,7 +90,7 @@ async def test_get_activity_merges_sources_and_sorts_descending(
     result = await service.get_activity("ws-1", user_id="user-1", limit=10)
 
     assert [item["kind"] for item in result["items"]] == [
-        "chat_thread",
+        "thread",
         "artifact",
         "feature_task",
     ]
@@ -98,7 +98,7 @@ async def test_get_activity_merges_sources_and_sorts_descending(
 
 
 @pytest.mark.asyncio
-async def test_build_chat_activity_uses_latest_message_preview_and_skill():
+async def test_build_thread_activity_uses_latest_message_preview_and_skill():
     db = AsyncMock()
     service = WorkspaceActivityService(db)
     thread = SimpleNamespace(
@@ -113,7 +113,7 @@ async def test_build_chat_activity_uses_latest_message_preview_and_skill():
         ],
     )
 
-    items = service._build_chat_activity([thread], workspace_type="thesis")
+    items = service._build_thread_activity([thread], workspace_type="thesis")
 
     assert len(items) == 1
     assert items[0]["title"] == "Literature review thread"
@@ -124,8 +124,41 @@ async def test_build_chat_activity_uses_latest_message_preview_and_skill():
     assert items[0]["metadata"]["skill_name"] == "深度调研"
 
 
-def test_build_chat_activity_item_uses_canonical_chat_shape() -> None:
-    item = build_chat_activity_item(
+@pytest.mark.asyncio
+async def test_build_thread_activity_includes_token_usage_metadata():
+    db = AsyncMock()
+    service = WorkspaceActivityService(db)
+    thread = SimpleNamespace(
+        id="thread-usage",
+        workspace_id="ws-1",
+        title="Usage thread",
+        skill="deep-research",
+        updated_at=datetime.now(UTC),
+        messages=[
+            {"role": "user", "content": "hello"},
+            {
+                "role": "assistant",
+                "content": "latest response",
+                "metadata": {
+                    "usage": {
+                        "input_tokens": 12,
+                        "output_tokens": 4,
+                        "total_tokens": 16,
+                    }
+                },
+            },
+        ],
+    )
+
+    items = service._build_thread_activity([thread], workspace_type="thesis")
+
+    assert len(items) == 1
+    assert items[0]["metadata"]["last_message_token_usage"]["total_tokens"] == 16
+    assert items[0]["metadata"]["thread_token_usage"]["total_tokens"] == 16
+
+
+def test_build_thread_activity_item_uses_canonical_thread_shape() -> None:
+    item = build_thread_activity_item(
         thread_id="thread-1",
         workspace_id="ws-1",
         title=None,
@@ -138,11 +171,11 @@ def test_build_chat_activity_item_uses_canonical_chat_shape() -> None:
     )
 
     assert item == {
-        "id": "chat:thread-1",
-        "kind": "chat_thread",
+        "id": "thread:thread-1",
+        "kind": "thread",
         "workspace_id": "ws-1",
         "occurred_at": "2026-03-25T00:00:00Z",
-        "title": "Chat session",
+        "title": "Thread session",
         "summary": "3 messages",
         "status": None,
         "thread_id": "thread-1",
@@ -188,6 +221,34 @@ def test_build_task_activity_item_uses_canonical_task_shape() -> None:
     assert item["metadata"]["action"] == "generate_outline"
 
 
+def test_task_record_to_activity_includes_token_usage_metadata() -> None:
+    db = AsyncMock()
+    service = WorkspaceActivityService(db)
+    record = SimpleNamespace(
+        id="task-usage",
+        task_type="workspace_feature",
+        payload={"feature_id": "deep_research", "params": {"topic": "LLM"}},
+        status="completed",
+        progress=100,
+        message="done",
+        error=None,
+        result={"summary": "ok"},
+        created_at=datetime(2026, 4, 13, tzinfo=UTC),
+        started_at=datetime(2026, 4, 13, 0, 1, tzinfo=UTC),
+        completed_at=datetime(2026, 4, 13, 0, 2, tzinfo=UTC),
+    )
+
+    item = service._task_record_to_activity(
+        record,
+        "ws-1",
+        token_usage={"input_tokens": 120, "output_tokens": 30, "total_tokens": 150},
+        subagent_count=3,
+    )
+
+    assert item["metadata"]["token_usage"]["total_tokens"] == 150
+    assert item["metadata"]["subagent_count"] == 3
+
+
 def test_build_subagent_activity_item_uses_canonical_subagent_shape() -> None:
     item = build_subagent_activity_item(
         workspace_id="ws-1",
@@ -226,6 +287,38 @@ def test_build_subagent_activity_item_uses_canonical_subagent_shape() -> None:
     }
 
 
+def test_subagent_record_to_activity_includes_token_usage_metadata() -> None:
+    db = AsyncMock()
+    service = WorkspaceActivityService(db)
+    now = datetime.now(UTC)
+    record = SimpleNamespace(
+        id="sub-usage",
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        status="completed",
+        subagent_type="scout",
+        prompt="Find papers",
+        output_preview="Found 5 papers",
+        error=None,
+        task_metadata={
+            "token_usage": {
+                "input_tokens": 80,
+                "output_tokens": 20,
+                "total_tokens": 100,
+            },
+            "model_name": "gpt-4.1-mini",
+        },
+        created_at=now,
+        updated_at=now,
+        completed_at=now,
+    )
+
+    item = service._subagent_record_to_activity(record)
+
+    assert item["metadata"]["token_usage"]["total_tokens"] == 100
+    assert item["metadata"]["model_name"] == "gpt-4.1-mini"
+
+
 def test_serialize_activity_item_normalizes_datetime_fields() -> None:
     item = serialize_activity_item(
         {
@@ -254,19 +347,19 @@ def test_artifact_activity_uses_canonical_creator_skill_name() -> None:
     artifact = SimpleNamespace(
         id="artifact-1",
         workspace_id="ws-1",
-        type="paper_draft",
-        title="编译预检结果",
-        created_by_skill="doc-compiler",
+        type="figure",
+        title="图表草稿",
+        created_by_skill="figure-designer",
         status="draft",
         created_at=datetime(2026, 3, 25, tzinfo=UTC),
     )
 
     item = service._artifact_to_activity(artifact, workspace_type="thesis")
 
-    assert item["created_by_skill"] == "doc-compiler"
-    assert item["created_by_skill_name"] == "编译导出"
-    assert item["metadata"]["created_by_skill_name"] == "编译导出"
-    assert item["summary"] == "编译导出"
+    assert item["created_by_skill"] == "figure-designer"
+    assert item["created_by_skill_name"] == "图表设计"
+    assert item["metadata"]["created_by_skill_name"] == "图表设计"
+    assert item["summary"] == "图表设计"
 
 
 @pytest.mark.asyncio

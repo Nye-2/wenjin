@@ -32,6 +32,7 @@ function activityStatusRank(status: string | null | undefined): number {
     case 'pending':
       return 1;
     case 'running':
+    case 'awaiting_user_input':
       return 2;
     case 'success':
     case 'completed':

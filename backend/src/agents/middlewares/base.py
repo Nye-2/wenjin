@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 
 from src.agents.thread_state import ThreadState
@@ -88,3 +89,31 @@ class Middleware(ABC):
             Modified tool result
         """
         return tool_result
+
+    async def on_model_error(
+        self,
+        state: ThreadState,
+        config: RunnableConfig,
+        error: Exception,
+    ) -> dict[str, Any] | None:
+        """Called when a model invocation raises.
+
+        Return a partial state update to gracefully degrade the turn, or
+        ``None`` to propagate the original exception.
+        """
+        return None
+
+    async def on_tool_error(
+        self,
+        state: ThreadState,
+        config: RunnableConfig,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        error: Exception,
+    ) -> ToolMessage | str | None:
+        """Called when a tool call raises.
+
+        Return a ``ToolMessage`` (or string content) to gracefully degrade the
+        tool call, or ``None`` to use the default error conversion.
+        """
+        return None

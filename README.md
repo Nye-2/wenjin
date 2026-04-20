@@ -1,5 +1,7 @@
 # 问津 Wenjin
 
+更新时间：2026-04-20
+
 问津是一个面向学术研究与写作交付的 AI 工作台，核心场景覆盖论文、学位论文、申报书、专利与软著材料。项目当前已经收口到一条明确主链路：
 
 `chat -> run_workspace_feature -> FeatureExecutionHandler -> task/worker -> workspace feature graph/service -> artifact/activity/task writeback`
@@ -116,6 +118,10 @@ docker compose up -d --build
 ### 本地开发
 
 ```bash
+# （可选）交互式初始化与健康检查
+python scripts/setup_wizard.py
+python scripts/doctor.py
+
 # backend
 cd backend
 uv sync --extra dev
@@ -144,6 +150,7 @@ make debug-langgraph
 
 ## 文档入口
 
+- 全量导航：`docs/documentation-map.md`
 - 总览：`docs/README.md`
 - 架构：`docs/architecture/README.md`
 - 产品契约：`docs/product/README.md`
@@ -156,3 +163,4 @@ make debug-langgraph
 - 只保留“当前事实源”文档，历史方案与兼容迁移说明已清理
 - 架构、接口、运行方式变化后，必须同步更新 README 和对应 docs
 - 实现与文档冲突时，以实现为准，并立即回补文档
+- 提交前建议按 `docs/documentation-map.md` 的维护清单做一次最小回归

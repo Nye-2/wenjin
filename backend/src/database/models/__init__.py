@@ -2,9 +2,9 @@
 
 from .admin_log import AdminActionType, AdminLog
 from .artifact import Artifact, ArtifactType
-from .chat_thread import ChatThread
 from .citation import Citation, CitationType
 from .credit import CreditTransaction, CreditTransactionType
+from .execution_session import ExecutionSessionRecord
 from .generation import GenerationRecord
 from .knowledge import KnowledgeCategory, UserKnowledge
 from .latex_compile_history import LatexCompileHistory
@@ -13,6 +13,7 @@ from .latex_template import LatexTemplate
 from .paper import Paper, PaperChunk, PaperExtraction, PaperSection, WorkspacePaper
 from .subagent_task import SubagentTaskRecord
 from .task import TaskRecord
+from .thread import Thread
 from .user import User
 from .workspace import Workspace, WorkspaceType
 from .workspace_literature import WorkspaceLiterature
@@ -39,8 +40,8 @@ __all__ = [
     # Admin Audit
     "AdminLog",
     "AdminActionType",
-    # Chat
-    "ChatThread",
+    # Thread
+    "Thread",
     # Citation
     "Citation",
     "CitationType",
@@ -53,6 +54,7 @@ __all__ = [
     "LatexCompileHistory",
     # Generation
     "GenerationRecord",
+    "ExecutionSessionRecord",
     # Task
     "TaskRecord",
     "SubagentTaskRecord",

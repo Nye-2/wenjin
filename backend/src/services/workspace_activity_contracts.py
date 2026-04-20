@@ -49,6 +49,32 @@ def summarize_task_payload(payload: dict[str, Any] | None) -> str | None:
     return None
 
 
+def _normalize_token_usage(value: dict[str, Any] | None) -> dict[str, int] | None:
+    """Normalize token usage payloads into canonical non-negative counters."""
+    if not isinstance(value, dict):
+        return None
+
+    def _coerce_int(raw: Any) -> int:
+        try:
+            parsed = int(raw)
+        except (TypeError, ValueError):
+            return 0
+        return max(parsed, 0)
+
+    input_tokens = _coerce_int(value.get("input_tokens", 0) or 0)
+    output_tokens = _coerce_int(value.get("output_tokens", 0) or 0)
+    total_tokens = _coerce_int(value.get("total_tokens", 0) or 0)
+    if total_tokens <= 0:
+        total_tokens = input_tokens + output_tokens
+    if input_tokens <= 0 and output_tokens <= 0 and total_tokens <= 0:
+        return None
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
 def serialize_activity_item(item: dict[str, Any]) -> dict[str, Any]:
     """Convert an activity item into an event/API-safe payload."""
     occurred_at = item.get("occurred_at")
@@ -89,7 +115,7 @@ def serialize_activity_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_chat_activity_item(
+def build_thread_activity_item(
     *,
     thread_id: str,
     workspace_id: str | None,
@@ -99,15 +125,30 @@ def build_chat_activity_item(
     message_count: int,
     last_message_preview: str | None,
     last_message_role: str | None,
+    last_message_token_usage: dict[str, int] | None = None,
+    thread_token_usage: dict[str, int] | None = None,
     occurred_at: datetime | str | None,
 ) -> dict[str, Any]:
-    """Build the canonical workspace activity item for a chat thread."""
+    """Build the canonical workspace activity item for a thread."""
+    metadata: dict[str, Any] = {
+        "skill": skill,
+        "skill_name": skill_name,
+        "message_count": message_count,
+        "last_message_role": last_message_role,
+    }
+    normalized_last_usage = _normalize_token_usage(last_message_token_usage)
+    if normalized_last_usage is not None:
+        metadata["last_message_token_usage"] = normalized_last_usage
+    normalized_thread_usage = _normalize_token_usage(thread_token_usage)
+    if normalized_thread_usage is not None:
+        metadata["thread_token_usage"] = normalized_thread_usage
+
     return {
-        "id": f"chat:{thread_id}",
-        "kind": "chat_thread",
+        "id": f"thread:{thread_id}",
+        "kind": "thread",
         "workspace_id": workspace_id,
         "occurred_at": occurred_at,
-        "title": title or "Chat session",
+        "title": title or "Thread session",
         "summary": last_message_preview or f"{message_count} messages",
         "status": None,
         "thread_id": thread_id,
@@ -119,12 +160,7 @@ def build_chat_activity_item(
         "created_by_skill": None,
         "created_by_skill_name": None,
         "subagent_type": None,
-        "metadata": {
-            "skill": skill,
-            "skill_name": skill_name,
-            "message_count": message_count,
-            "last_message_role": last_message_role,
-        },
+        "metadata": metadata,
     }
 
 
@@ -139,6 +175,8 @@ def build_task_activity_item(
     message: str | None,
     error: str | None,
     result: dict[str, Any] | None = None,
+    token_usage: dict[str, int] | None = None,
+    subagent_count: int | None = None,
     occurred_at: datetime | str | None,
     created_at: datetime | str | None = None,
     started_at: datetime | str | None = None,
@@ -148,6 +186,7 @@ def build_task_activity_item(
     feature_id = payload.get("feature_id") if isinstance(payload, dict) else None
     title_id = str(feature_id or task_type or "task")
     params = payload.get("params") if isinstance(payload, dict) else None
+    normalized_usage = _normalize_token_usage(token_usage)
     return {
         "id": f"task:{task_id}",
         "kind": "feature_task",
@@ -180,6 +219,12 @@ def build_task_activity_item(
             "created_at": _serialize_timestamp(created_at),
             "started_at": _serialize_timestamp(started_at),
             "completed_at": _serialize_timestamp(completed_at),
+            **({"token_usage": normalized_usage} if normalized_usage is not None else {}),
+            **(
+                {"subagent_count": max(int(subagent_count or 0), 0)}
+                if subagent_count is not None
+                else {}
+            ),
         },
     }
 
@@ -194,11 +239,14 @@ def build_subagent_activity_item(
     prompt: str | None,
     output_preview: str | None,
     error: str | None,
+    token_usage: dict[str, int] | None = None,
+    model_name: str | None = None,
     occurred_at: datetime | str | None,
     created_at: datetime | str | None = None,
     completed_at: datetime | str | None = None,
 ) -> dict[str, Any]:
     """Build the canonical workspace activity item for a subagent task."""
+    normalized_usage = _normalize_token_usage(token_usage)
     return {
         "id": f"subagent:{task_id}",
         "kind": "subagent_task",
@@ -220,5 +268,7 @@ def build_subagent_activity_item(
             "prompt": prompt,
             "output_preview": output_preview,
             "error": error,
+            **({"token_usage": normalized_usage} if normalized_usage is not None else {}),
+            **({"model_name": model_name} if model_name else {}),
         },
     }

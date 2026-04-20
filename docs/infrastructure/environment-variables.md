@@ -1,6 +1,6 @@
 # Environment Variables
 
-更新时间: 2026-04-10
+更新时间: 2026-04-15
 
 配置基线以 `backend/.env.example` 与 `frontend/.env.example` 为准。
 
@@ -42,13 +42,16 @@
 | `SENTRY_ENABLED`/`SENTRY_DSN` | 启用 Sentry 错误上报 |
 | `ENVIRONMENT`/`DEBUG`/`LOG_LEVEL` | 运行环境与日志等级 |
 | `REDIS_RATE_LIMIT_REQUESTS`/`REDIS_RATE_LIMIT_WINDOW` | API 限流窗口，当前默认 `120` 次 / `60` 秒 |
+| `REDIS_STREAM_SOCKET_TIMEOUT_SECONDS` | Redis stream/pubsub 读超时（秒），默认 `30`，应大于 SSE block 间隔 |
+| `CELERY_WORKER_POOL` | Celery worker 池类型，建议 `solo`（避免 asyncio + prefork loop 绑定问题；`solo` 模式下运行时会自动把并发收敛为 `1`） |
+| `RUNTIME_DISCONNECT_CANCEL_GRACE_SECONDS` | SSE 断开后取消 run 前的宽限时间（秒，默认 `1.5`），用于降低临界断连导致的误中断 |
 | `GUANLAN_DB_AUTO_CREATE` | 仅限临时环境的 metadata 建表开关 |
 | `GUANLAN_EXTENSIONS_CONFIG_PATH` | 自定义 `extensions_config.json` 路径 |
 | `GUANLAN_TEXLIVE_IMAGE` | 覆盖 LaTeX Docker 镜像 |
 | `GUANLAN_TEXLIVE_IMAGE_TAR` | 覆盖本地 TeXLive 镜像 tar 包路径 |
 | `TEXLIVE_IMAGE_NAME` | `scripts/ensure_texlive_image.sh` 和 `scripts/package_texlive_image.sh` 的镜像名覆盖（优先级高于 `GUANLAN_TEXLIVE_IMAGE`） |
 | `TEXLIVE_IMAGE_TAR` | 上述脚本的 tar 路径覆盖（优先级高于 `GUANLAN_TEXLIVE_IMAGE_TAR`） |
-| `TEXLIVE_BASE_IMAGE` | 上述脚本构建 TeXLive 镜像时的 `BASE_IMAGE`（默认 `docker.m.daocloud.io/library/ubuntu:22.04`） |
+| `TEXLIVE_BASE_IMAGE` | 上述脚本构建 TeXLive 镜像时的 `BASE_IMAGE`（默认 `ubuntu:22.04`） |
 | `TEXLIVE_APT_MIRROR` | 上述脚本构建 TeXLive 镜像时的 apt 源覆盖（可留空） |
 | `WENJIN_LATEX_COMPILE_TIMEOUT_SECONDS` | LaTeX 编译容器超时（秒，默认 300，范围 30-1800） |
 

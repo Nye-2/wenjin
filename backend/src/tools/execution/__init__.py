@@ -1,6 +1,6 @@
 """Execution tools package."""
 
-from .compile_latex import compile_latex_tool, compile_latex
+from .compile_latex import compile_latex, compile_latex_tool
 
 __all__ = ["compile_latex_tool", "compile_latex"]
 

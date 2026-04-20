@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.subagents.academic.registry import SubagentConfig
 from src.subagents.models import SubagentResult, SubagentStatus
 from src.subagents.task_tool import task_tool
 
@@ -35,11 +36,12 @@ class TestTaskTool:
         )
 
         with patch("src.subagents.task_tool.get_manager", return_value=mock_manager):
-            result = await task_tool.ainvoke({
-                "description": "Search papers",
-                "prompt": "Find LLM alignment papers",
-                "subagent_type": "scout",
-            })
+            result = await task_tool.coroutine(
+                description="Search papers",
+                prompt="Find LLM alignment papers",
+                subagent_type="scout",
+                config={"configurable": {"execution_session_id": "exec-1"}},
+            )
         assert "completed" in result.lower() or "done" in result.lower()
         mock_manager.spawn.assert_awaited_once()
         mock_manager.wait_for_completion.assert_awaited_once()
@@ -73,6 +75,7 @@ class TestTaskTool:
                         "thread_id": "thread-1",
                         "workspace_id": "ws-1",
                         "user_id": "user-1",
+                        "execution_session_id": "exec-1",
                         "model_name": "gpt-4o",
                     }
                 },
@@ -86,20 +89,32 @@ class TestTaskTool:
         task = mock_manager.spawn.await_args.args[0]
         assert task.thread_id == "thread-1"
         assert task.max_turns == 10
-        assert task.timeout == 900
-        assert task.tools == ["semantic_scholar_search"]
+        assert task.timeout > 0
+        assert "semantic_scholar_search" in task.tools
         assert task.metadata["subagent_type"] == "scout"
         assert task.metadata["system_prompt"]
         assert task.metadata["workspace_id"] == "ws-1"
         assert task.metadata["user_id"] == "user-1"
+        assert task.metadata["execution_session_id"] == "exec-1"
         assert task.metadata["model_name"] == "gpt-4o"
         assert "## Inherited Workspace Context" in task.metadata["system_prompt"]
         assert mock_manager.wait_for_completion.await_args.args == ("thread-1", task.task_id)
         assert mock_manager.wait_for_completion.await_args.kwargs == {"user_id": "user-1"}
 
     @pytest.mark.asyncio
+    async def test_missing_execution_session_id_is_rejected(self):
+        """Subagent task tool now requires a bound execution session id."""
+        result = await task_tool.coroutine(
+            description="Search papers",
+            prompt="Find LLM alignment papers",
+            subagent_type="scout",
+            config={"configurable": {"model_name": "gpt-4o"}},
+        )
+        assert "missing execution_session_id" in result.lower()
+
+    @pytest.mark.asyncio
     async def test_known_type_without_parent_thread_uses_isolated_context(self):
-        """Detached task-tool runs should not require thread ownership state."""
+        """Detached task-tool runs can execute with execution session linkage."""
         mock_manager = MagicMock()
         mock_manager._config.default_timeout = 900
         mock_manager._config.max_turns_limit = 50
@@ -118,7 +133,12 @@ class TestTaskTool:
                 description="Search papers",
                 prompt="Find LLM alignment papers",
                 subagent_type="scout",
-                config={"configurable": {"model_name": "gpt-4o"}},
+                config={
+                    "configurable": {
+                        "execution_session_id": "exec-1",
+                        "model_name": "gpt-4o",
+                    }
+                },
             )
 
         assert "timed out" in result.lower()
@@ -126,4 +146,59 @@ class TestTaskTool:
         assert task.thread_id.startswith("subagent-tool-")
         assert "user_id" not in task.metadata
         assert "workspace_id" not in task.metadata
+        assert task.metadata["execution_session_id"] == "exec-1"
         assert task.metadata["model_name"] == "gpt-4o"
+
+    @pytest.mark.asyncio
+    async def test_model_is_routed_from_configured_pool(self):
+        mock_manager = MagicMock()
+        mock_manager._config.default_timeout = 900
+        mock_manager._config.max_turns_limit = 50
+        mock_manager.spawn = AsyncMock(return_value="task-123")
+        mock_manager.wait_for_completion = AsyncMock(
+            return_value=SubagentResult(
+                task_id="task-123",
+                status=SubagentStatus.COMPLETED,
+                output="Task done",
+                error=None,
+            )
+        )
+
+        overridden = SubagentConfig(
+            name="Scout",
+            description="x",
+            system_prompt="y",
+            tools=["semantic_scholar_search"],
+            max_turns=10,
+            timeout=777,
+        )
+
+        with patch("src.subagents.task_tool.get_manager", return_value=mock_manager), patch(
+            "src.subagents.task_tool.get_subagent_config",
+            return_value=overridden,
+        ) as get_config_mock, patch(
+            "src.subagents.task_tool.route_subagent_model",
+            return_value="tool-primary",
+        ):
+            await task_tool.coroutine(
+                description="Search papers",
+                prompt="Find LLM alignment papers",
+                subagent_type="scout",
+                config={
+                    "configurable": {
+                        "thread_id": "thread-1",
+                        "workspace_id": "ws-1",
+                        "user_id": "user-1",
+                        "execution_session_id": "exec-1",
+                        "model_name": "gpt-4o",
+                    }
+                },
+            )
+
+        get_config_mock.assert_called_once_with(
+            "scout",
+            apply_runtime_overrides=True,
+        )
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.timeout == 777
+        assert task.metadata["model_name"] == "tool-primary"

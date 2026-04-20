@@ -1,12 +1,13 @@
 """Tests for Prometheus task metrics in executor."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 
-class TestTaskMetricsInLocalExecutor:
-    """Verify the shared task runner still records metrics in local mode."""
+class TestTaskMetricsInSharedRunner:
+    """Verify the shared task runner records metrics consistently."""
 
     @pytest.mark.asyncio
     async def test_track_task_called_on_success(self):
@@ -38,9 +39,17 @@ class TestTaskMetricsInLocalExecutor:
             mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            from src.task.executor import _run_task_locally
+            from src.task.tasks.base import _execute_task_async
 
-            await _run_task_locally("task-1", "test_type", {"workspace_id": "ws-1"})
+            fake_task = SimpleNamespace(
+                request=SimpleNamespace(hostname="test-worker"),
+            )
+            await _execute_task_async(
+                fake_task,
+                "task-1",
+                "test_type",
+                {"workspace_id": "ws-1"},
+            )
 
         mock_start.assert_called_once()
         mock_end.assert_called_once()
@@ -79,9 +88,18 @@ class TestTaskMetricsInLocalExecutor:
             mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            from src.task.executor import _run_task_locally
+            from src.task.tasks.base import _execute_task_async
 
-            await _run_task_locally("task-1", "test_type", {"workspace_id": "ws-1"})
+            fake_task = SimpleNamespace(
+                request=SimpleNamespace(hostname="test-worker"),
+            )
+            with pytest.raises(ValueError, match="boom"):
+                await _execute_task_async(
+                    fake_task,
+                    "task-1",
+                    "test_type",
+                    {"workspace_id": "ws-1"},
+                )
 
         mock_start.assert_called_once()
         mock_end.assert_called_once()

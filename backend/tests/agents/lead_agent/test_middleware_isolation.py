@@ -1,6 +1,7 @@
 """Tests for middleware error isolation."""
 
 import pytest
+
 from src.agents.middlewares.base import Middleware
 
 

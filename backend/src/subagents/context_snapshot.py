@@ -7,7 +7,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from src.agents.lead_agent.chat_skill_catalog import get_skill_by_id
+from src.agents.lead_agent.thread_skill_catalog import get_skill_by_id
 from src.agents.middlewares.discipline_context import DisciplineRegistry
 from src.agents.thread_state import ThreadState
 from src.subagents.task_builder import SubagentRuntimeContext
@@ -137,7 +137,7 @@ async def _load_db_snapshot(
     from src.academic.literature.index_service import IndexService
     from src.academic.services.artifact_service import ArtifactService
     from src.academic.services.workspace_service import WorkspaceService
-    from src.database import ChatThread, get_db_session
+    from src.database import Thread, get_db_session
     from src.services.template_service import TemplateService
 
     try:
@@ -167,7 +167,7 @@ async def _load_db_snapshot(
                     IndexService(db).get_workspace_toc_summary(str(workspace.id)),
                     timeout=5.0,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 literature_context = ""
             if literature_context:
                 snapshot["literature_context"] = literature_context
@@ -177,13 +177,13 @@ async def _load_db_snapshot(
                     ArtifactService(db).list_by_workspace(str(workspace.id), limit=12),
                     timeout=5.0,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 artifacts = []
             if artifacts:
                 snapshot["artifact_snapshot"] = _render_artifact_snapshot(artifacts)
 
             if runtime_context.thread_id is not None:
-                thread = await db.get(ChatThread, runtime_context.thread_id)
+                thread = await db.get(Thread, runtime_context.thread_id)
                 if (
                     thread is not None
                     and str(thread.user_id) == runtime_context.user_id

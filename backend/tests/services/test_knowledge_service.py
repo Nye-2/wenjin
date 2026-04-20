@@ -41,6 +41,29 @@ class TestListActive:
         await service.list_active("user1", min_confidence=0.8)
         mock_db.execute.assert_called_once()
 
+    async def test_scopes_to_workspace_and_global_when_workspace_provided(self, service, mock_db):
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        await service.list_active("user1", workspace_context="ws-1")
+
+        stmt = mock_db.execute.call_args.args[0]
+        rendered = str(stmt)
+        assert "workspace_context = :workspace_context_1" in rendered
+        assert "workspace_context IS NULL" in rendered
+
+    async def test_scopes_to_global_only_without_workspace_context(self, service, mock_db):
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        await service.list_active("user1", workspace_context=None)
+
+        stmt = mock_db.execute.call_args.args[0]
+        rendered = str(stmt)
+        assert "workspace_context IS NULL" in rendered
+
 
 class TestUpsert:
     async def test_creates_new_entry(self, service, mock_db):

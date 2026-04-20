@@ -105,13 +105,21 @@ class TestRouterRegistration:
         expected_routers = [
             "artifacts",
             "auth",
-            "chat",
             "dashboard",
             "features",
+            "latex",
             "literature",
+            "mcp",
+            "memory",
             "models",
             "papers",
+            "runs",
+            "skills",
             "tasks",
+            "templates",
+            "thread_runs",
+            "threads",
+            "uploads",
             "workspaces",
         ]
 

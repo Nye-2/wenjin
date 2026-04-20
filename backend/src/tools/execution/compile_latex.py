@@ -48,7 +48,7 @@ async def compile_latex_tool(
     """Compile LaTeX source code to PDF.
 
     Use this tool when you have generated complete LaTeX code and need to
-    compile it into a PDF document. Supports both pdflatex and xelatex compilers.
+    compile it into a PDF document.
 
     For Chinese content, always use xelatex (the default).
 
@@ -58,7 +58,7 @@ async def compile_latex_tool(
     Args:
         latex_source: Complete LaTeX source code including documentclass and
                       all content.
-        compiler: LaTeX compiler (pdflatex or xelatex). Default: xelatex.
+        compiler: LaTeX compiler. Default: xelatex.
         bibliography: Optional BibTeX content for references.
         citation_ids: Optional list of paper IDs to cite. Used to fetch
                       citation data from the citation service.

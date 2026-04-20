@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,19 +31,50 @@ class WorkspaceLiterature(Base, UUIDMixin, TimestampMixin):
     """
 
     __tablename__ = "workspace_literature"
+    __table_args__ = (
+        Index("ix_workspace_literature_workspace_created", "workspace_id", "created_at"),
+        Index(
+            "ix_workspace_literature_workspace_core_created",
+            "workspace_id",
+            "is_core",
+            "created_at",
+        ),
+        Index(
+            "ix_workspace_literature_workspace_source_created",
+            "workspace_id",
+            "source",
+            "created_at",
+        ),
+    )
 
     workspace_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
-    title: Mapped[str] = mapped_column(String(500))
-    authors: Mapped[list] = mapped_column(JSONB, default=list)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    authors: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     citations: Mapped[int | None] = mapped_column(Integer, nullable=True)
     venue: Mapped[str | None] = mapped_column(String(300), nullable=True)
     quartile: Mapped[str | None] = mapped_column(String(10), nullable=True)
     abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
     doi: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    source: Mapped[str] = mapped_column(String(50), default="manual")
-    is_core: Mapped[bool] = mapped_column(Boolean, default=False)
+    source: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="manual",
+        server_default="manual",
+    )
+    is_core: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )

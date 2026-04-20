@@ -213,7 +213,7 @@ class TestMCPClient:
         )
 
         tools = await client.list_tools()
-        coroutine = getattr(tools[0], "coroutine")
+        coroutine = tools[0].coroutine
 
         assert coroutine is not None
         await coroutine()

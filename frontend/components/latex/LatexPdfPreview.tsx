@@ -303,7 +303,10 @@ export function LatexPdfPreview({
         }
       } catch (err) {
         if (!cancelled) {
-          container.innerHTML = `<div class="latex-pdf-error">PDF 渲染失败: ${String(err)}</div>`;
+          const errorNode = document.createElement("div");
+          errorNode.className = "latex-pdf-error";
+          errorNode.textContent = `PDF 渲染失败: ${String(err)}`;
+          container.replaceChildren(errorNode);
         }
       }
     };

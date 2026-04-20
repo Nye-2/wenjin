@@ -11,11 +11,11 @@ export {
   type Paper,
 } from './workspace';
 
-// Chat Store
+// Thread Store
 export {
-  useChatStore,
+  useThreadStore,
   type Message,
-} from './chat';
+} from './thread';
 
 // Locale Store (for i18n)
 export {

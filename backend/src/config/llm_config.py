@@ -119,8 +119,10 @@ class ModelConfig(BaseModel):
     max_tokens: int = Field(default=32768, description="Maximum output tokens")
     supports_streaming: bool = Field(default=True, description="Supports streaming output")
     supports_tools: bool = Field(default=False, description="Supports tool/function calling")
+    supports_thinking: bool = Field(default=False, description="Supports visible thinking/reasoning traces")
     supports_json_mode: bool = Field(default=True, description="Supports JSON response format")
     supports_json_schema: bool = Field(default=False, description="Supports JSON schema response format")
+    supports_vision: bool = Field(default=False, description="Supports image/vision inputs")
     supports_reasoning_effort: bool = Field(
         default=False,
         description="Supports configurable reasoning effort",
@@ -158,8 +160,10 @@ def _parse_model_from_json(data: dict) -> ModelConfig | None:
             max_tokens=data.get("max_tokens", 32768),
             supports_streaming=data.get("supports_streaming", True),
             supports_tools=data.get("supports_tools", False),
+            supports_thinking=data.get("supports_thinking", False),
             supports_json_mode=data.get("supports_json_mode", True),
             supports_json_schema=data.get("supports_json_schema", False),
+            supports_vision=data.get("supports_vision", False),
             supports_reasoning_effort=data.get("supports_reasoning_effort", False),
         )
     except Exception as e:
@@ -412,8 +416,11 @@ def get_model_full_config(model_id: str) -> dict[str, Any]:
         "max_tokens": model_config.max_tokens,
         "supports_streaming": model_config.supports_streaming,
         "supports_tools": model_config.supports_tools,
+        "supports_thinking": model_config.supports_thinking,
         "supports_json_mode": model_config.supports_json_mode,
         "supports_json_schema": model_config.supports_json_schema,
+        "supports_vision": model_config.supports_vision,
+        "supports_reasoning_effort": model_config.supports_reasoning_effort,
     }
 
 

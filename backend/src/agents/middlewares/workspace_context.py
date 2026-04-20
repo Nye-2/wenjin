@@ -46,7 +46,7 @@ class WorkspaceContextMiddleware(Middleware):
                 self.workspace_service.get(workspace_id),
                 timeout=self._timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "WorkspaceContextMiddleware: timed out loading workspace %s (%.1fs)",
                 workspace_id,
@@ -59,8 +59,8 @@ class WorkspaceContextMiddleware(Middleware):
         # Load active template for this workspace
         template_dict = None
         try:
-            from src.services.template_service import TemplateService
             from src.database import get_db_session
+            from src.services.template_service import TemplateService
             async with get_db_session() as template_db:
                 ts = TemplateService(template_db)
                 active_template = await asyncio.wait_for(
@@ -74,7 +74,7 @@ class WorkspaceContextMiddleware(Middleware):
                         "format_spec": active_template.format_spec,
                         "content_guidelines": active_template.content_guidelines,
                     }
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "WorkspaceContextMiddleware: timed out loading active template for workspace %s (%.1fs)",
                 workspace_id,

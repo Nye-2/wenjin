@@ -21,6 +21,9 @@ _http_requests_total: Any | None = None
 _http_request_duration_seconds: Any | None = None
 _active_tasks_gauge: Any | None = None
 _task_duration_seconds: Any | None = None
+_run_dispatch_total: Any | None = None
+_run_wait_seconds: Any | None = None
+_run_wait_polls: Any | None = None
 _worker_metrics_server_started = False
 _worker_metrics_lock = threading.Lock()
 
@@ -58,6 +61,7 @@ def _init_metrics() -> None:
     """Initialize Prometheus metric objects (idempotent)."""
     global _http_requests_total, _http_request_duration_seconds
     global _active_tasks_gauge, _task_duration_seconds
+    global _run_dispatch_total, _run_wait_seconds, _run_wait_polls
 
     if _http_requests_total is not None:
         return
@@ -88,6 +92,21 @@ def _init_metrics() -> None:
         "task_duration_seconds",
         "Task execution duration in seconds",
         ["task_type"],
+    )
+    _run_dispatch_total = Counter(
+        "run_dispatch_total",
+        "Total run dispatch attempts",
+        ["result"],
+    )
+    _run_wait_seconds = Histogram(
+        "run_wait_seconds",
+        "Run wait/join duration in seconds",
+        ["outcome"],
+    )
+    _run_wait_polls = Histogram(
+        "run_wait_polls",
+        "Number of poll iterations used to resolve run wait",
+        ["outcome"],
     )
 
 
@@ -226,3 +245,17 @@ def track_task_end(task_type: str, duration: float) -> None:
         _active_tasks_gauge.dec()
     if _task_duration_seconds is not None:
         _task_duration_seconds.labels(task_type=task_type).observe(duration)
+
+
+def track_run_dispatch(result: str) -> None:
+    """Increment run dispatch counter by result."""
+    if _run_dispatch_total is not None:
+        _run_dispatch_total.labels(result=result).inc()
+
+
+def observe_run_wait(outcome: str, duration: float, polls: int) -> None:
+    """Record run wait duration and polling effort."""
+    if _run_wait_seconds is not None:
+        _run_wait_seconds.labels(outcome=outcome).observe(max(0.0, float(duration)))
+    if _run_wait_polls is not None:
+        _run_wait_polls.labels(outcome=outcome).observe(max(0, int(polls)))

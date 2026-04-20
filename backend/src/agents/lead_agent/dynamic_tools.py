@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Coroutine, Sequence
-from typing import Any, Literal, TypeAlias, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,8 @@ from src.agents.thread_state import ThreadState, create_thread_state
 from src.config.llm_config import LLMSettings
 
 ToolLoader = Callable[[], Sequence[BaseTool]]
-ToolNodeInputType: TypeAlias = Literal["list", "dict", "tool_calls"]
-ToolRunOutput: TypeAlias = ToolMessage | Command[Any]
+type ToolNodeInputType = Literal["list", "dict", "tool_calls"]
+type ToolRunOutput = ToolMessage | Command[Any]
 T = TypeVar("T")
 
 
@@ -194,10 +194,11 @@ class DynamicToolNode(ToolNode):
                 )
             except Exception:
                 logger.exception(
-                    "Middleware %s.before_tool failed for tool %s, skipping",
+                    "Middleware %s.before_tool failed for tool %s",
                     type(middleware).__name__,
                     tool_name,
                 )
+                raise
 
         updated_call["name"] = tool_name
         updated_call["args"] = tool_args
@@ -240,6 +241,43 @@ class DynamicToolNode(ToolNode):
             tool_call_id=str(call["id"]),
         )
 
+    @staticmethod
+    def _normalize_command_tool_messages(
+        response: Command[Any],
+        call: ToolCall,
+    ) -> Command[Any]:
+        """Repair placeholder ToolMessage ids in Command.update payloads.
+
+        Some tools may emit a fallback `tool_call_id` (for example tool name)
+        when runtime injection is unavailable. LangGraph requires ToolMessage
+        ids to match the active tool-call id exactly for Command updates.
+        """
+        update = getattr(response, "update", None)
+        if not isinstance(update, dict):
+            return response
+
+        messages = update.get("messages")
+        if not isinstance(messages, list):
+            return response
+
+        expected_tool_call_id = str(call.get("id") or "").strip()
+        if not expected_tool_call_id:
+            return response
+
+        tool_name = str(call.get("name") or "").strip()
+        changed = False
+        for item in messages:
+            if not isinstance(item, ToolMessage):
+                continue
+            current = str(getattr(item, "tool_call_id", "") or "").strip()
+            if current in {"", "missing_tool_call_id", tool_name}:
+                item.tool_call_id = expected_tool_call_id
+                changed = True
+
+        if changed:
+            update["messages"] = messages
+        return response
+
     def _coerce_tool_error_message(
         self,
         *,
@@ -263,6 +301,47 @@ class DynamicToolNode(ToolNode):
             tool_call_id=str(call["id"]),
             status="error",
         )
+
+    async def _apply_on_tool_error(
+        self,
+        *,
+        state: ThreadState,
+        config: RunnableConfig,
+        call: ToolCall,
+        error: Exception,
+    ) -> ToolMessage:
+        tool_name = str(call.get("name") or "unknown_tool")
+        tool_args = _coerce_json_object(call.get("args") or {})
+
+        for middleware in self._middlewares:
+            try:
+                degraded = await middleware.on_tool_error(
+                    state,
+                    config,
+                    tool_name,
+                    tool_args,
+                    error,
+                )
+            except Exception:
+                logger.exception(
+                    "Middleware %s.on_tool_error failed for tool %s, skipping",
+                    type(middleware).__name__,
+                    tool_name,
+                )
+                continue
+
+            if degraded is None:
+                continue
+            if isinstance(degraded, ToolMessage):
+                return degraded
+            return ToolMessage(
+                content=cast(str | list[Any], msg_content_output(degraded)),
+                name=tool_name,
+                tool_call_id=str(call.get("id") or "missing_tool_call_id"),
+                status="error",
+            )
+
+        return self._coerce_tool_error_message(call=call, error=error)
 
     def _func(
         self,
@@ -319,6 +398,7 @@ class DynamicToolNode(ToolNode):
         if invalid_tool_message := self._validate_tool_call(call):
             return invalid_tool_message
 
+        current_call = call
         try:
             updated_call = self._run_coroutine_sync(
                 self._apply_before_tool(
@@ -327,6 +407,7 @@ class DynamicToolNode(ToolNode):
                     call=call,
                 )
             )
+            current_call = updated_call
             if invalid_tool_message := self._validate_tool_call(updated_call):
                 return invalid_tool_message
             call_args = {**updated_call, **{"type": "tool_call"}}
@@ -334,7 +415,14 @@ class DynamicToolNode(ToolNode):
         except GraphBubbleUp as exc:
             raise exc
         except Exception as exc:  # noqa: BLE001
-            return self._coerce_tool_error_message(call=call, error=exc)
+            return self._run_coroutine_sync(
+                self._apply_on_tool_error(
+                    state=state,
+                    config=config,
+                    call=current_call,
+                    error=exc,
+                )
+            )
 
         response = self._run_coroutine_sync(
             self._apply_after_tool(
@@ -346,11 +434,16 @@ class DynamicToolNode(ToolNode):
         )
 
         if isinstance(response, Command):
+            response = self._normalize_command_tool_messages(response, updated_call)
             return cast(
                 ToolRunOutput,
                 self._validate_tool_command(response, updated_call, input_type),
             )
         if isinstance(response, ToolMessage):
+            if isinstance(response.content, str):
+                max_chars = LLMSettings.TOOL_OUTPUT_MAX_CHARS
+                if len(response.content) > max_chars:
+                    response.content = response.content[:max_chars] + "\n...[truncated]"
             response.content = cast(str | list[Any], msg_content_output(response.content))
             return response
         raise TypeError(
@@ -368,12 +461,14 @@ class DynamicToolNode(ToolNode):
         if invalid_tool_message := self._validate_tool_call(call):
             return invalid_tool_message
 
+        current_call = call
         try:
             updated_call = await self._apply_before_tool(
                 state=state,
                 config=config,
                 call=call,
             )
+            current_call = updated_call
             if invalid_tool_message := self._validate_tool_call(updated_call):
                 return invalid_tool_message
             call_args = {**updated_call, **{"type": "tool_call"}}
@@ -382,7 +477,7 @@ class DynamicToolNode(ToolNode):
                     self.tools_by_name[updated_call["name"]].ainvoke(call_args, config),
                     timeout=LLMSettings.TOOL_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "Tool %s timed out after %.0fs",
                     updated_call["name"],
@@ -396,7 +491,12 @@ class DynamicToolNode(ToolNode):
         except GraphBubbleUp as exc:
             raise exc
         except Exception as exc:  # noqa: BLE001
-            return self._coerce_tool_error_message(call=call, error=exc)
+            return await self._apply_on_tool_error(
+                state=state,
+                config=config,
+                call=current_call,
+                error=exc,
+            )
 
         response = await self._apply_after_tool(
             state=state,
@@ -412,6 +512,7 @@ class DynamicToolNode(ToolNode):
                 response.content = response.content[:max_chars] + "\n...[truncated]"
 
         if isinstance(response, Command):
+            response = self._normalize_command_tool_messages(response, updated_call)
             return cast(
                 ToolRunOutput,
                 self._validate_tool_command(response, updated_call, input_type),

@@ -1,5 +1,6 @@
 """Summarization middleware for token limit management."""
 
+from functools import lru_cache
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -7,6 +8,23 @@ from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
+
+
+@lru_cache(maxsize=32)
+def _resolve_token_encoder(model_name: str | None):
+    """Resolve tokenizer encoder for a model, with stable fallback."""
+    try:
+        import tiktoken
+
+        normalized_model = str(model_name or "").strip()
+        if normalized_model:
+            try:
+                return tiktoken.encoding_for_model(normalized_model)
+            except Exception:
+                pass
+        return tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        return None
 
 
 class SummarizationMiddleware(Middleware):
@@ -43,8 +61,16 @@ class SummarizationMiddleware(Middleware):
         if not messages:
             return {}
 
-        token_count = self._count_tokens(messages)
+        configurable = config.get("configurable", {})
+        runtime_model_name = (
+            str(configurable.get("model_name")).strip()
+            if isinstance(configurable, dict) and configurable.get("model_name")
+            else None
+        )
+        token_count = self._count_tokens(messages, model_name=runtime_model_name)
         if token_count < self._trigger_tokens:
+            return {}
+        if len(messages) <= self._keep_messages:
             return {}
 
         # Perform summarization
@@ -68,18 +94,17 @@ class SummarizationMiddleware(Middleware):
         """No-op after model."""
         return {}
 
-    def _count_tokens(self, messages: list) -> int:
-        """Estimate token count using UTF-8 byte length.
+    def _count_tokens(self, messages: list, *, model_name: str | None = None) -> int:
+        """Estimate prompt token count, preferring model tokenizer when available."""
+        encoder = _resolve_token_encoder(model_name)
+        if encoder is not None:
+            total_tokens = 0
+            for msg in messages:
+                content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                total_tokens += len(encoder.encode(content))
+            return total_tokens
 
-        Heuristic: 3 bytes ≈ 1 token. This handles CJK content significantly
-        better than the naive chars//4 approach (a single Chinese character is
-        3 UTF-8 bytes and roughly 1 token, whereas chars//4 rounds down to 0
-        for any CJK run shorter than 4 characters).
-
-        Note: compared to the old chars//4 heuristic, this fires summarization
-        ~25% sooner for pure-ASCII conversations. That is intentional — the old
-        heuristic under-counted tokens, so summarization triggered too late.
-        """
+        # Fallback heuristic if tokenizer is unavailable.
         total_bytes = 0
         for msg in messages:
             content = msg.content if isinstance(msg.content, str) else str(msg.content)

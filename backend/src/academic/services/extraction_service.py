@@ -13,6 +13,7 @@ The service handles:
 
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -89,10 +90,7 @@ class ExtractionService:
     TYPE_TOC = "toc"
     TYPE_SECTIONS = "sections"
 
-    # LLM model identifiers for Tier 2 extraction
-    # These should match model IDs in the LLM configuration
-    LLM_MODEL_FAST = "claude-3-haiku"  # Fast model for basic extraction
-    LLM_MODEL_BALANCED = "qwen-turbo"  # Balanced model for detailed extraction
+    EXTRACTION_MODEL_ENV_KEY = "LLM_EXTRACTION_MODEL"
 
     def __init__(self, db: AsyncSession):
         """Initialize with database session.
@@ -102,6 +100,29 @@ class ExtractionService:
         """
         self.db = db
         self.pdf_extractor = PDFExtractor()
+        self._tier2_model_id = self._resolve_tier2_model_id()
+
+    def _resolve_tier2_model_id(self) -> str:
+        """Resolve Tier 2 extraction model from env-backed routing."""
+        from src.models.router import route_model
+
+        requested = os.environ.get(self.EXTRACTION_MODEL_ENV_KEY, "").strip() or None
+        try:
+            return route_model(
+                requested_model=requested,
+                preferred_categories=("utility", "gen", "tool"),
+                allowed_categories=("utility", "gen", "tool"),
+                require_tools=False,
+                require_vision=False,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to route Tier 2 extraction model (env %s=%s), fallback to default alias",
+                self.EXTRACTION_MODEL_ENV_KEY,
+                requested or "",
+                exc_info=True,
+            )
+            return "default"
 
     def _resolve_preprocessed_dir(self, file_path: str) -> Path:
         source = Path(file_path)
@@ -454,7 +475,7 @@ class ExtractionService:
             tier=self.TIER_LLM,
             extraction_type=self.TYPE_FULL_TEXT,
             structured_data=enhanced_data,
-            model_used=self.LLM_MODEL_FAST,
+            model_used=self._tier2_model_id,
         )
         self.db.add(extraction)
 
@@ -474,11 +495,11 @@ class ExtractionService:
         try:
             from src.models.factory import create_chat_model
 
-            return create_chat_model(self.LLM_MODEL_FAST, temperature=0)
+            return create_chat_model(self._tier2_model_id, temperature=0)
         except Exception:
             logger.warning(
                 "No LLM available for Tier 2 extraction with model %s",
-                self.LLM_MODEL_FAST,
+                self._tier2_model_id,
                 exc_info=True,
             )
             return None

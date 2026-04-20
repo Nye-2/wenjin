@@ -12,13 +12,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.agents.lead_agent.chat_skill_catalog import get_default_skill_for_feature
+from src.agents.lead_agent.thread_skill_catalog import get_default_skill_for_feature
 from src.application.errors import ApplicationError
-from src.application.handlers.feature_execution_handler import FeatureExecutionHandler, resolve_workspace_type
+from src.application.handlers.feature_execution_handler import resolve_workspace_type
 from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
+from src.application.services import FeatureIngressService
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps import get_feature_execution_handler, get_workspace_service
+from src.gateway.deps import get_feature_launch_service, get_workspace_service
 from src.gateway.error_mapping import to_http_exception
 from src.task.registry import WORKSPACE_FEATURE_TASK
 from src.workspace_features import list_workspace_features
@@ -68,12 +69,14 @@ class ExecuteRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     thread_id: str | None = None
     skill_id: str | None = None
+    execution_session_id: str | None = None
 
 
 class ExecuteResponse(BaseModel):
     """Response for feature execution."""
 
     task_id: str | None = None
+    execution_session_id: str | None = None
     status: str
     feature_id: str
     message: str
@@ -133,7 +136,7 @@ async def execute_feature(
     workspace_id: str,
     feature_id: str,
     request: ExecuteRequest,
-    handler: FeatureExecutionHandler = Depends(get_feature_execution_handler),
+    launch_service: FeatureIngressService = Depends(get_feature_launch_service),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> ExecuteResponse:
     """Execute a feature for a workspace via the unified task infrastructure."""
@@ -148,17 +151,25 @@ async def execute_feature(
     )
 
     try:
-        result = await handler.execute(
-            workspace_id, feature_id, request.params, request.thread_id, request.skill_id,
+        launch = await launch_service.launch(
+            workspace_id=workspace_id,
+            feature_id=feature_id,
+            params=request.params,
+            thread_id=request.thread_id,
+            skill_id=request.skill_id,
+            launch_source="panel",
             idempotency_key=idempotency_key,
             redis_client=runtime_redis,
+            execution_session_id=request.execution_session_id,
         )
     except ApplicationError as exc:
         raise to_http_exception(exc) from exc
 
+    result = launch.outcome
     if isinstance(result, FeatureTaskSubmission):
         return ExecuteResponse(
             task_id=result.task_id,
+            execution_session_id=launch.execution_session_id,
             status="pending",
             feature_id=result.feature_id,
             message=result.message,
@@ -169,7 +180,12 @@ async def execute_feature(
     if isinstance(result, FeatureExecutionAdvisory):
         return ExecuteResponse(
             task_id=None,
-            status="warning",
+            execution_session_id=launch.execution_session_id,
+            status=(
+                "awaiting_user_input"
+                if result.code == "missing_params"
+                else "warning"
+            ),
             feature_id=result.feature_id,
             message=result.message,
             warning=result.code,
@@ -178,6 +194,7 @@ async def execute_feature(
 
     return ExecuteResponse(
         task_id=result.get("task_id"),
+        execution_session_id=launch.execution_session_id,
         status=str(result.get("status", "success")),
         feature_id=str(result.get("feature_id", feature_id)),
         message=str(result.get("message", "")),

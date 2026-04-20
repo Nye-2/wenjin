@@ -1,7 +1,7 @@
 """LLM tools for citation management."""
 
 import logging
-from typing import Annotated, Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal
 
 from langchain_core.tools import InjectedToolArg, tool
 from sqlalchemy import select
@@ -17,8 +17,8 @@ from .service import CitationService
 logger = logging.getLogger(__name__)
 
 InjectedSession = Annotated[AsyncSession, InjectedToolArg]
-JsonObject: TypeAlias = dict[str, Any]
-FormatterClass: TypeAlias = (
+type JsonObject = dict[str, Any]
+type FormatterClass = (
     type[APAFormatter]
     | type[MLAFormatter]
     | type[ChicagoFormatter]

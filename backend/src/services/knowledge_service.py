@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.knowledge import KnowledgeCategory, UserKnowledge
@@ -134,8 +134,19 @@ class KnowledgeService:
     ) -> list[UserKnowledge]:
         """Return active knowledge ordered by confidence desc.
 
-        Workspace-specific entries appear first, then global entries.
+        Retrieval rules:
+        - with workspace_context: include current-workspace + global entries
+        - without workspace_context: include global entries only
+        Entries are ordered by workspace match first (when applicable), then confidence.
         """
+        scope_condition = (
+            or_(
+                UserKnowledge.workspace_context == workspace_context,
+                UserKnowledge.workspace_context.is_(None),
+            )
+            if workspace_context
+            else UserKnowledge.workspace_context.is_(None)
+        )
         stmt = (
             select(UserKnowledge)
             .where(
@@ -143,6 +154,7 @@ class KnowledgeService:
                     UserKnowledge.user_id == user_id,
                     UserKnowledge.is_active == True,  # noqa: E712
                     UserKnowledge.confidence >= min_confidence,
+                    scope_condition,
                 )
             )
             .order_by(

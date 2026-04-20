@@ -105,49 +105,6 @@ def _build_figure_generation_artifacts(
     ]
 
 
-@_register("compile_export")
-def _build_compile_export_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
-    title_prefix = workspace_name or "未命名工作区"
-    drafts = []
-    latex_content = str(result.get("latex_content") or "").strip()
-    bib_content = str(result.get("bib_content") or "").strip()
-    if latex_content:
-        drafts.append(
-            {
-                "type": ArtifactType.LATEX_PROJECT.value,
-                "title": f"{title_prefix} - 论文主稿 LaTeX",
-                "content": {
-                    "schema_version": "v2",
-                    "latex_project_id": result.get("latex_project_id"),
-                    "main_file": str(result.get("main_file") or "main.tex"),
-                    "pdf_endpoint": result.get("pdf_endpoint"),
-                    "pdf_url": result.get("pdf_url"),
-                    "paper_title": str(result.get("paper_title") or title_prefix),
-                    "main_tex": latex_content,
-                    "bib_tex": bib_content,
-                    "compiler": result.get("compiler"),
-                    "template": result.get("template"),
-                    "source_summary": (
-                        result.get("source_summary")
-                        if isinstance(result.get("source_summary"), dict)
-                        else {}
-                    ),
-                },
-            }
-        )
-
-    drafts.append(
-        {
-            "type": ArtifactType.PAPER_DRAFT.value,
-            "title": f"{title_prefix} - 编译预检结果",
-            "content": result,
-        }
-    )
-    return drafts
-
-
 @_register("deep_research")
 def _build_deep_research_artifacts(
     feature_id: str, workspace_name: str, workspace_type: str, result: dict

@@ -67,7 +67,7 @@ class LiteratureContextMiddleware(Middleware):
                 self.index_service.get_workspace_toc_summary(workspace_id),
                 timeout=self._timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "LiteratureContextMiddleware: timed out loading TOC for workspace %s (%.1fs)",
                 workspace_id,

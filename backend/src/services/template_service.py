@@ -10,6 +10,10 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.workspace_template import WorkspaceTemplate
+from src.services.workspace_uploads import (
+    resolve_workspace_upload_stored_path,
+    workspace_upload_root,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +65,7 @@ class TemplateService:
             select(WorkspaceTemplate)
             .where(
                 WorkspaceTemplate.workspace_id == workspace_id,
-                WorkspaceTemplate.is_active == True,
+                WorkspaceTemplate.is_active,
             )
             .order_by(WorkspaceTemplate.updated_at.desc())
             .limit(1)
@@ -93,7 +97,7 @@ class TemplateService:
             update(WorkspaceTemplate)
             .where(
                 WorkspaceTemplate.workspace_id == workspace_id,
-                WorkspaceTemplate.is_active == True,
+                WorkspaceTemplate.is_active,
             )
             .values(is_active=False)
         )
@@ -117,19 +121,22 @@ class TemplateService:
         return template
 
     async def activate(self, template_id: str, workspace_id: str) -> WorkspaceTemplate | None:
+        template = await self.get(template_id)
+        if template is None or template.workspace_id != workspace_id:
+            return None
+
         await self.db.execute(
             update(WorkspaceTemplate)
             .where(
                 WorkspaceTemplate.workspace_id == workspace_id,
-                WorkspaceTemplate.is_active == True,
+                WorkspaceTemplate.is_active,
+                WorkspaceTemplate.id != template_id,
             )
             .values(is_active=False)
         )
-        template = await self.get(template_id)
-        if template and template.workspace_id == workspace_id:
-            template.is_active = True
-            await self.db.commit()
-            await self.db.refresh(template)
+        template.is_active = True
+        await self.db.commit()
+        await self.db.refresh(template)
         return template
 
     async def delete(self, template_id: str, workspace_id: str | None = None) -> bool:
@@ -138,9 +145,52 @@ class TemplateService:
             return False
         if workspace_id and template.workspace_id != workspace_id:
             return False
+        source_file_path = str(template.source_file_path or "").strip() or None
+        template_workspace_id = str(template.workspace_id)
         await self.db.delete(template)
         await self.db.commit()
+        if source_file_path:
+            self._delete_template_source_file(
+                workspace_id=template_workspace_id,
+                source_file_path=source_file_path,
+            )
         return True
+
+    def _delete_template_source_file(
+        self,
+        *,
+        workspace_id: str,
+        source_file_path: str,
+    ) -> None:
+        try:
+            resolved = resolve_workspace_upload_stored_path(workspace_id, source_file_path)
+        except ValueError:
+            logger.warning(
+                "Skipping template source cleanup outside workspace upload root: workspace_id=%s path=%s",
+                workspace_id,
+                source_file_path,
+            )
+            return
+
+        try:
+            resolved.unlink(missing_ok=True)
+        except OSError:
+            logger.warning(
+                "Failed to remove template source file: workspace_id=%s path=%s",
+                workspace_id,
+                resolved,
+                exc_info=True,
+            )
+            return
+
+        workspace_root = workspace_upload_root(workspace_id).resolve()
+        parent = resolved.parent
+        while parent != workspace_root:
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
 
 
 async def parse_template_content(file_content: str) -> dict[str, Any]:

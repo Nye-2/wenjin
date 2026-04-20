@@ -77,7 +77,6 @@ export function resolveFeatureActionState(options: {
     case "opening_research":
     case "thesis_writing":
     case "figure_generation":
-    case "compile_export":
       return thesisFeatureActionResolvers[context.featureId](context);
     case "proposal_outline":
     case "background_research":

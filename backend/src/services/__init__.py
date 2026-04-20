@@ -17,8 +17,8 @@ from .auth import (
     verify_refresh_token,
     verify_refresh_token_recorded,
 )
-from .chat_thread_service import ChatThreadAccessError, ChatThreadService
 from .credit_service import CreditService, InsufficientCreditsError
+from .thread_service import ThreadAccessError, ThreadService
 from .user_service import UserService
 
 __all__ = [
@@ -37,8 +37,8 @@ __all__ = [
     "hash_token",
     "persist_refresh_token",
     "revoke_refresh_token",
-    "ChatThreadAccessError",
-    "ChatThreadService",
+    "ThreadAccessError",
+    "ThreadService",
     "CreditService",
     "InsufficientCreditsError",
     "UserService",

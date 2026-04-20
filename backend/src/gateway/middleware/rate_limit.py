@@ -4,6 +4,8 @@ This module provides rate limiting functionality using a sliding window
 algorithm with Redis as the backend storage.
 """
 
+import asyncio
+import logging
 import time
 from ipaddress import ip_address
 from typing import Protocol, cast
@@ -14,6 +16,8 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.types import ASGIApp
 
 from src.config import redis_settings
+
+logger = logging.getLogger(__name__)
 
 
 class RedisPipelineProtocol(Protocol):
@@ -175,8 +179,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         elif normalized.startswith("/api/"):
             normalized = normalized[4:]
 
-        if normalized == "/chat/stream":
+        # Run architecture stream endpoints
+        if normalized == "/runs/stream":
             return "streams"
+        if normalized.startswith("/runs/") and normalized.endswith("/stream"):
+            return "streams"
+        if normalized.startswith("/threads/") and "/runs/" in normalized and normalized.endswith("/stream"):
+            return "streams"
+        if normalized.startswith("/threads/") and "/runs/" in normalized and normalized.endswith("/join"):
+            return "streams"
+
         if normalized.startswith("/workspaces/") and normalized.endswith("/events"):
             return "streams"
         if normalized.startswith("/tasks/") and normalized.endswith("/stream"):
@@ -283,7 +295,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Set expiry
             pipe.expire(key, effective_window + 1)
 
-            results = await pipe.execute()
+            redis_timeout_seconds = getattr(
+                redis_settings,
+                "rate_limit_redis_timeout_seconds",
+                0.25,
+            )
+            results = await asyncio.wait_for(
+                pipe.execute(),
+                timeout=redis_timeout_seconds,
+            )
             current_count_raw = results[1] if len(results) > 1 else 0
             if not isinstance(current_count_raw, (int, float)):
                 return self._check_memory(
@@ -294,7 +314,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             current_count = int(current_count_raw)
 
             return current_count < effective_limit
-
+        except TimeoutError:
+            logger.warning(
+                "Rate limit Redis check timed out for key=%s, falling back to in-memory limiter",
+                key,
+            )
+            return self._check_memory(
+                key,
+                requests_per_window=requests_per_window,
+                window_seconds=window_seconds,
+            )
         except Exception:
             return self._check_memory(
                 key,

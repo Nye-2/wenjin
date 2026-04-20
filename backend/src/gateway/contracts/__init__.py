@@ -8,12 +8,12 @@ from src.gateway.contracts.artifact import (
 )
 from src.gateway.contracts.error import ErrorDetail, ErrorResponse
 from src.gateway.contracts.paper import (
-    PaperResponse,
     PaperExtractionTaskResponse,
+    PaperResponse,
     PaperSummaryResponse,
     SectionResponse,
-    paper_to_response,
     paper_extraction_task_to_response,
+    paper_to_response,
     paper_to_summary_response,
     section_to_response,
 )

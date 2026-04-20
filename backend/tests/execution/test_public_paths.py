@@ -1,8 +1,8 @@
+from src.execution.path_utils import normalize_thread_id
 from src.execution.public_paths import (
     get_default_sandbox_dir,
     sandbox_path_to_public_url,
 )
-from src.execution.path_utils import normalize_thread_id
 
 
 def test_sandbox_path_to_public_url_with_thread_id():

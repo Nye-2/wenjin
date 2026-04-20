@@ -79,7 +79,10 @@ class TestParallelExecutor:
         mock_manager = _make_manager(output="test result")
 
         with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
-            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
+            )
 
         assert len(results) == 1
         assert results[0].phase_name == "discovery"
@@ -113,7 +116,7 @@ class TestParallelExecutor:
         with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
             results = await executor.execute_plan(
                 plan,
-                context={"workspace_id": "test"},
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
                 phase_callback=phase_callback,
             )
 
@@ -138,14 +141,183 @@ class TestParallelExecutor:
         with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
             await executor.execute_plan(
                 plan,
-                context={"workspace_id": "ws-1"},
+                context={"workspace_id": "ws-1", "execution_session_id": "exec-1"},
             )
 
         task = mock_manager.spawn.await_args.args[0]
         assert task.thread_id == "thread-1"
         assert task.metadata["workspace_id"] == "ws-1"
         assert task.metadata["user_id"] == "user-1"
+        assert task.metadata["execution_session_id"] == "exec-1"
         assert task.metadata["model_name"] == "gpt-4o"
+        assert task.metadata["workflow_phase"] == "discovery"
+        assert task.metadata["workflow_phase_index"] == "0"
+        assert task.metadata["workflow_task_index"] == "0"
+
+    @pytest.mark.asyncio
+    async def test_execute_plan_routes_model_name(self):
+        """Parallel execution should route model_name through shared subagent routing."""
+        executor = ParallelExecutor()
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="discovery",
+                    tasks=[{"subagent_type": "scout", "prompt": "test search"}],
+                ),
+            ],
+            context={"model_name": "gen-fallback"},
+        )
+        mock_manager = _make_manager(output='{"papers": []}')
+
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager), patch(
+            "src.subagents.parallel.route_subagent_model",
+            return_value="tool-primary",
+        ) as route_mock:
+            await executor.execute_plan(
+                plan,
+                context={"workspace_id": "ws-1", "execution_session_id": "exec-1"},
+            )
+
+        route_mock.assert_called_once_with(thread_model="gen-fallback")
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.metadata["model_name"] == "tool-primary"
+
+    @pytest.mark.asyncio
+    async def test_execute_plan_applies_subagent_timeout_override(self):
+        """Per-type timeout/max_turns overrides should flow into spawned task limits."""
+        executor = ParallelExecutor()
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="discovery",
+                    tasks=[{"subagent_type": "scout", "prompt": "test search"}],
+                ),
+            ],
+        )
+        mock_manager = _make_manager(output='{"papers": []}')
+        override_config = MagicMock(
+            max_turns=12,
+            timeout=321,
+            tools=["semantic_scholar_search"],
+            system_prompt="prompt",
+        )
+
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager), patch(
+            "src.subagents.parallel.get_subagent_config",
+            return_value=override_config,
+        ):
+            await executor.execute_plan(
+                plan,
+                context={"workspace_id": "ws-1", "execution_session_id": "exec-1"},
+            )
+
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.max_turns == 12
+        assert task.timeout == 321
+
+    @pytest.mark.asyncio
+    async def test_execute_plan_propagates_workflow_strategy_and_phase_indexes(self):
+        """Subagent metadata should carry workflow strategy and phase indexes for tracing."""
+        executor = ParallelExecutor()
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="discovery",
+                    tasks=[
+                        {"subagent_type": "scout", "prompt": "search A"},
+                        {"subagent_type": "scout", "prompt": "search B"},
+                    ],
+                ),
+                ExecutionPhase(
+                    name="synthesis",
+                    tasks=[{"subagent_type": "synthesizer", "prompt": "synthesize"}],
+                    depends_on=["discovery"],
+                ),
+            ],
+        )
+        mock_manager = _make_manager(output={"ok": True})
+
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
+            await executor.execute_plan(
+                plan,
+                context={
+                    "workspace_id": "ws-1",
+                    "thread_id": "thread-1",
+                    "execution_session_id": "exec-1",
+                    "workflow_strategy": "deep_research:research_discovery",
+                },
+            )
+
+        spawned = [call.args[0] for call in mock_manager.spawn.await_args_list]
+        assert len(spawned) == 3
+        discovery_tasks = [
+            task for task in spawned if task.metadata.get("workflow_phase") == "discovery"
+        ]
+        synthesis_tasks = [
+            task for task in spawned if task.metadata.get("workflow_phase") == "synthesis"
+        ]
+        assert len(discovery_tasks) == 2
+        assert len(synthesis_tasks) == 1
+        assert {task.metadata.get("workflow_task_index") for task in discovery_tasks} == {"0", "1"}
+        assert synthesis_tasks[0].metadata.get("workflow_phase_index") == "1"
+        assert all(
+            task.metadata.get("workflow_strategy") == "deep_research:research_discovery"
+            for task in spawned
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_plan_requires_execution_session_id(self):
+        """Subagent execution no longer supports detached session-less plans."""
+        executor = ParallelExecutor()
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="discovery",
+                    tasks=[{"subagent_type": "scout", "prompt": "test search"}],
+                ),
+            ],
+        )
+        mock_manager = _make_manager(output='{"papers": []}')
+
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "ws-1"},
+            )
+
+        assert len(results) == 1
+        assert results[0].success is False
+        assert "missing execution_session_id" in str(results[0].task_results[0]["error"]).lower()
+        mock_manager.spawn.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_execute_plan_requires_llm_or_routed_model(self):
+        """Planner should fail when manager has no llm and model routing returns none."""
+        executor = ParallelExecutor()
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="discovery",
+                    tasks=[{"subagent_type": "scout", "prompt": "test search"}],
+                ),
+            ],
+        )
+        mock_manager = _make_manager(output='{"papers": []}')
+        mock_manager._llm = None
+
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager), patch(
+            "src.subagents.parallel.route_subagent_model",
+            return_value=None,
+        ):
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "ws-1", "execution_session_id": "exec-1"},
+            )
+
+        assert len(results) == 1
+        assert results[0].success is False
+        assert "no thread model is configured" in str(results[0].task_results[0]["error"]).lower()
+        mock_manager.spawn.assert_not_awaited()
 
 
 class TestExecutionPhase:
@@ -227,7 +399,10 @@ class TestParallelExecutorTimeout:
         mock_manager.wait_for_completion = AsyncMock(side_effect=_slow_wait)
 
         with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
-            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
+            )
 
         assert results[0].success is False
         assert "timed out" in results[0].error.lower()
@@ -255,7 +430,10 @@ class TestParallelExecutorTimeout:
         mock_manager = _make_manager(output="quick result")
 
         with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
-            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
+            )
 
         assert results[0].success is True
 
@@ -298,7 +476,10 @@ class TestParallelExecutorIntegration:
         with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
             # Track time to verify we're not using busy wait
             start_time = asyncio.get_event_loop().time()
-            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
+            )
             end_time = asyncio.get_event_loop().time()
 
             # Should complete quickly (not sleep for 0.1 multiple times)
@@ -322,7 +503,10 @@ class TestParallelExecutorIntegration:
         )
 
         with pytest.raises(ValueError, match="Unknown phase dependencies"):
-            await executor.execute_plan(plan, context={"workspace_id": "test"})
+            await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
+            )
 
     @pytest.mark.asyncio
     async def test_unknown_subagent_type_error_handling(self):
@@ -338,12 +522,19 @@ class TestParallelExecutorIntegration:
             ],
         )
 
-        # Mock registry to return None for unknown type
-        with patch("src.subagents.parallel.registry.get") as mock_get:
-            mock_get.return_value = None
+        # Mock config resolver to raise for unknown type
+        with patch("src.subagents.parallel.get_subagent_config") as mock_get:
+            mock_get.side_effect = ValueError("Unknown subagent type")
 
-            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
+            )
 
+            mock_get.assert_called_once_with(
+                "unknown_type",
+                apply_runtime_overrides=True,
+            )
             assert len(results) == 1
             assert results[0].success is False
             assert results[0].error is None  # PhaseResult error is None, individual task has error
@@ -373,7 +564,10 @@ class TestParallelExecutorIntegration:
         mock_manager = _make_manager(output="test result")
 
         with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
-            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
+            )
 
         assert len(results) == 1
         assert results[0].success is True
@@ -417,7 +611,10 @@ class TestParallelExecutorIntegration:
         )
 
         with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
-            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
+            )
 
         assert len(results) == 1
         assert results[0].success is False  # Phase should fail if any task fails
@@ -439,7 +636,10 @@ class TestParallelExecutorFailFast:
         )
         mock_manager = _make_manager(status=SubagentStatus.FAILED, output=None, error="task failed")
         with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
-            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
+            )
         assert len(results) == 2
         assert results[0].success is False
         assert results[1].success is False
@@ -473,7 +673,64 @@ class TestParallelExecutorFailFast:
         mock_manager = _make_manager()
         mock_manager.wait_for_completion = AsyncMock(side_effect=varying_result)
         with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
-            results = await executor.execute_plan(plan, context={"workspace_id": "test"})
+            results = await executor.execute_plan(
+                plan,
+                context={"workspace_id": "test", "execution_session_id": "exec-1"},
+            )
         assert len(results) == 2
         assert results[0].success is False
         assert results[1].success is True  # Still executed
+
+
+class TestParallelExecutorStress:
+    @pytest.mark.asyncio
+    async def test_high_fanout_plan_respects_concurrency_limit(self):
+        """Stress case: high fanout plans should respect executor semaphore limits."""
+        max_concurrent = 3
+        executor = ParallelExecutor(max_concurrent=max_concurrent)
+        fanout_tasks = [
+            {"subagent_type": "scout", "prompt": f"task {index}"}
+            for index in range(24)
+        ]
+        plan = PhasedPlan(
+            phases=[
+                ExecutionPhase(name="fanout", tasks=fanout_tasks),
+            ],
+        )
+
+        mock_manager = _make_manager(output={"ok": True})
+        in_flight = 0
+        observed_peak = 0
+        task_seq = 0
+
+        async def _wait_for_completion(*_args, **_kwargs):
+            nonlocal in_flight, observed_peak, task_seq
+            task_seq += 1
+            in_flight += 1
+            observed_peak = max(observed_peak, in_flight)
+            await asyncio.sleep(0.01)
+            in_flight -= 1
+            return SubagentResult(
+                task_id=f"task-{task_seq}",
+                status=SubagentStatus.COMPLETED,
+                output={"task": task_seq},
+                error=None,
+            )
+
+        mock_manager.wait_for_completion = AsyncMock(side_effect=_wait_for_completion)
+
+        with patch("src.subagents.parallel.get_manager", return_value=mock_manager):
+            results = await executor.execute_plan(
+                plan,
+                context={
+                    "workspace_id": "ws-stress",
+                    "thread_id": "thread-stress",
+                    "execution_session_id": "exec-stress",
+                },
+            )
+
+        assert len(results) == 1
+        assert results[0].success is True
+        assert len(results[0].task_results) == 24
+        assert mock_manager.spawn.await_count == 24
+        assert observed_peak <= max_concurrent

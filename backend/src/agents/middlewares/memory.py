@@ -12,8 +12,13 @@ from langchain_core.runnables import RunnableConfig
 
 from src.agents.memory.capture import (
     enqueue_memory_capture,
-    filter_messages_for_memory as _filter_messages_for_memory,
     messages_to_conversation_text,
+)
+from src.agents.memory.capture import (
+    filter_messages_for_memory as _filter_messages_for_memory,
+)
+from src.agents.memory.capture import (
+    select_incremental_capture_messages as _select_incremental_capture_messages,
 )
 from src.agents.memory.queue import MemoryQueue, get_default_memory_queue
 from src.agents.middlewares.base import Middleware
@@ -28,6 +33,17 @@ from src.services.user_memory_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "MemoryMiddleware",
+    "_filter_messages_for_memory",
+    "_parse_knowledge_json",
+    "enqueue_memory_capture",
+    "extract_and_persist_knowledge",
+    "format_knowledge_for_prompt",
+    "load_user_memory",
+    "messages_to_conversation_text",
+]
 
 
 class MemoryMiddleware(Middleware):
@@ -158,7 +174,7 @@ class MemoryMiddleware(Middleware):
                 ),
                 timeout=self._timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "MemoryMiddleware: timed out loading memory context for user %s (%.1fs)",
                 user_id,
@@ -204,6 +220,10 @@ class MemoryMiddleware(Middleware):
         if len(filtered_messages) < self._min_messages:
             return {}
 
+        capture_messages = _select_incremental_capture_messages(filtered_messages)
+        if len(capture_messages) < self._min_messages:
+            return {}
+
         # Get thread_id from config
         configurable = config.get("configurable", {})
         thread_id = require_thread_id(config, component="MemoryMiddleware")
@@ -214,8 +234,8 @@ class MemoryMiddleware(Middleware):
             thread_id=str(thread_id),
             user_id=str(user_id) if user_id else None,
             workspace_id=str(workspace_id) if workspace_id else None,
-            messages=filtered_messages,
-            source="chat.middleware",
+            messages=capture_messages,
+            source="thread.middleware",
             queue=self._queue,
         )
 
@@ -227,7 +247,7 @@ class MemoryMiddleware(Middleware):
         self._memory_cache.pop(cache_key, None)
 
         logger.debug(
-            f"Enqueued {len(filtered_messages)} messages for memory update "
+            f"Enqueued {len(capture_messages)} messages for memory update "
             f"(thread: {thread_id})"
         )
 

@@ -68,6 +68,24 @@ class TestTaskMetrics:
             prom._active_tasks_gauge = saved_gauge
             prom._task_duration_seconds = saved_hist
 
+    def test_track_run_noop_when_not_initialized(self):
+        """Run metrics helpers should not raise when metrics are None."""
+        import src.observability.prometheus as prom
+
+        saved_dispatch = prom._run_dispatch_total
+        saved_wait_seconds = prom._run_wait_seconds
+        saved_wait_polls = prom._run_wait_polls
+        prom._run_dispatch_total = None
+        prom._run_wait_seconds = None
+        prom._run_wait_polls = None
+        try:
+            prom.track_run_dispatch("success")
+            prom.observe_run_wait("success", 0.12, 3)
+        finally:
+            prom._run_dispatch_total = saved_dispatch
+            prom._run_wait_seconds = saved_wait_seconds
+            prom._run_wait_polls = saved_wait_polls
+
 
 class TestWorkerPrometheus:
     def test_prepare_worker_prometheus_resets_multiproc_dir(self):

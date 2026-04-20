@@ -1,15 +1,17 @@
 """Task delegation tool backed by the global subagent manager."""
 
+from typing import Annotated
+
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 from pydantic import BaseModel, Field
-from typing import Annotated
 
 from src.agents.thread_state import ThreadState
-from src.subagents.context_snapshot import build_subagent_context_snapshot
 from src.subagents.academic.registry import get_all_subagent_types, get_subagent_config
+from src.subagents.context_snapshot import build_subagent_context_snapshot
 from src.subagents.manager import SubagentAccessError
+from src.subagents.model_routing import route_subagent_model
 from src.subagents.models import SubagentStatus
 from src.subagents.runtime import get_manager
 from src.subagents.task_builder import (
@@ -69,7 +71,10 @@ async def task_tool(
         Results from the subagent
     """
     try:
-        subagent_config = get_subagent_config(subagent_type)
+        subagent_config = get_subagent_config(
+            subagent_type,
+            apply_runtime_overrides=True,
+        )
     except ValueError:
         available = get_all_subagent_types()
         return f"Error: Unknown subagent type '{subagent_type}'. Available: {available}"
@@ -78,11 +83,19 @@ async def task_tool(
     runtime_context = SubagentRuntimeContext.from_mapping(
         runtime_config.get("configurable", {})
     )
+    if runtime_context.execution_session_id is None:
+        return _format_subagent_result(
+            subagent_config.name,
+            SubagentStatus.FAILED,
+            "Missing execution_session_id in runtime context",
+        )
     context_snapshot = await build_subagent_context_snapshot(
         runtime_context=runtime_context,
         state=state,
     )
     manager = get_manager()
+
+    routed_model_name = route_subagent_model(thread_model=runtime_context.model_name)
 
     task = build_subagent_task(
         manager._config,
@@ -90,6 +103,7 @@ async def task_tool(
         thread_id=runtime_context.resolve_thread_id(fallback_prefix="subagent-tool"),
         fallback_max_turns=subagent_config.max_turns,
         requested_max_turns=max_turns,
+        requested_timeout=subagent_config.timeout,
         tools=subagent_config.tools,
         metadata=build_subagent_metadata(
             description=description,
@@ -99,6 +113,11 @@ async def task_tool(
             runtime_context=runtime_context,
             include_workspace=runtime_context.thread_id is not None,
             include_user=runtime_context.thread_id is not None,
+            extra_metadata=(
+                {"model_name": routed_model_name}
+                if routed_model_name
+                else None
+            ),
         ),
     )
     try:

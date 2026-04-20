@@ -186,6 +186,23 @@ class TestPipelineAssembly:
         type_names = [type(m).__name__ for m in pipeline]
         assert "ExecutionMiddleware" in type_names
 
+    def test_tool_error_handling_middleware_is_included(self):
+        from src.agents.lead_agent.agent import build_pipeline
+
+        config = _pipeline_config(subagent_enabled=False)
+
+        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.lead_agent.agent.get_sandbox_provider",
+            return_value=None,
+        ), patch(
+            "src.thesis.execution.get_execution_service",
+            side_effect=RuntimeError("execution disabled"),
+        ):
+            pipeline = build_pipeline(config=config)
+
+        type_names = [type(m).__name__ for m in pipeline]
+        assert "ToolErrorHandlingMiddleware" in type_names
+
     def test_memory_capture_is_enabled_without_explicit_queue(self):
         from src.agents.lead_agent.agent import build_pipeline
 

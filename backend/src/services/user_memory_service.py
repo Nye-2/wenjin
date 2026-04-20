@@ -92,7 +92,7 @@ def _format_memory_line(content: str, confidence: float) -> str:
 
 
 def _count_tokens(text: str) -> int:
-    """Count prompt tokens using the same tokenizer family as chat models."""
+    """Count prompt tokens using the same tokenizer family as thread models."""
     normalized = str(text or "").strip()
     if not normalized:
         return 0

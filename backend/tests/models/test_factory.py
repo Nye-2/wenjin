@@ -194,6 +194,27 @@ class TestCreateChatModel:
             assert model.model_name == "MiniMax-M2.7"
             assert model.extra_body == {"reasoning_split": True}
 
+    def test_reasoning_effort_defaults_when_model_explicitly_supports_it(self) -> None:
+        config = json.dumps([
+            {
+                "id": "reasoning-explicit",
+                "model": "provider/plain-model",
+                "api_key": "sk-reasoning",
+                "base_url": "https://example.com/v1",
+                "supports_reasoning_effort": True,
+            }
+        ])
+
+        with patch.dict(os.environ, {"LLM_GEN_MODELS": config}, clear=False):
+            from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
+
+            reload_models()
+            model = create_chat_model(model_id="reasoning-explicit")
+
+            # Default minimal reasoning_effort should be injected when supported.
+            assert getattr(model, "reasoning_effort", None) == "minimal"
+
 
 class TestModelProviderDetection:
     """Test provider detection logic."""

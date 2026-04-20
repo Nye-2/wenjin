@@ -2,7 +2,7 @@
 
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Protocol, TypeAlias, cast
+from typing import TYPE_CHECKING, Protocol, cast
 from uuid import uuid4
 
 from jose import JWTError, jwt
@@ -15,7 +15,7 @@ from src.config.app_config import jwt_settings
 if TYPE_CHECKING:
     from src.database import User
 
-JwtPayload: TypeAlias = dict[str, object]
+type JwtPayload = dict[str, object]
 
 
 class RefreshTokenUser(Protocol):

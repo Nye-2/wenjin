@@ -11,9 +11,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_DIR = REPO_ROOT / "frontend"
 ROUTES_FILE = FRONTEND_DIR / "lib" / "workspace-feature-routes.ts"
 ACTIONS_FILE = FRONTEND_DIR / "lib" / "workspace-feature-actions.ts"
-EXECUTION_FILE = FRONTEND_DIR / "lib" / "workspace-feature-execution.ts"
-CHAT_EXPORT_FILE = FRONTEND_DIR / "lib" / "chat-export.ts"
-COMPILE_BUTTON_FILE = FRONTEND_DIR / "components" / "workspace" / "CompileFeatureButton.tsx"
+THREAD_EXPORT_FILE = FRONTEND_DIR / "lib" / "thread-export.ts"
+FEATURE_PANEL_HOST_FILE = FRONTEND_DIR / "components" / "workspace" / "FeaturePanelHost.tsx"
 WORKSPACE_API_FILE = FRONTEND_DIR / "lib" / "api" / "workspace.ts"
 CHAT_ROUTE_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "chat" / "page.tsx"
@@ -21,10 +20,12 @@ CHAT_ROUTE_FILE = (
 FEATURE_REDIRECT_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "features" / "[featureId]" / "page.tsx"
 )
-CHAT_ENTRY_FILE = FRONTEND_DIR / "lib" / "workspace-chat-entry.ts"
+CHAT_ENTRY_FILE = FRONTEND_DIR / "lib" / "workspace-thread-entry.ts"
 CHAT_PANEL_FILE = (
-    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "ChatPanel.tsx"
+    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "ThreadPanel.tsx"
 )
+CHAT_STORE_FILE = FRONTEND_DIR / "stores" / "thread.ts"
+CHAT_STORE_SUPPORT_FILE = FRONTEND_DIR / "stores" / "thread-store-support.ts"
 AGENT_STATUS_BAR_FILE = FRONTEND_DIR / "components" / "workspace" / "AgentStatusBar.tsx"
 KNOWLEDGE_PANEL_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "KnowledgePanel.tsx"
@@ -37,7 +38,7 @@ WORKSPACE_EVENT_STREAM_FILE = FRONTEND_DIR / "hooks" / "useWorkspaceEventStream.
 WORKSPACE_PAGES_DIR = FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]"
 FEATURE_RUNNER_FILE = FRONTEND_DIR / "hooks" / "useFeatureTaskRunner.ts"
 QUICK_ACTIONS_FILE = FRONTEND_DIR / "components" / "workspace" / "QuickActions.tsx"
-WORKSPACE_CHAT_SKILLS_FILE = FRONTEND_DIR / "lib" / "workspace-chat-skills.ts"
+WORKSPACE_THREAD_SKILLS_FILE = FRONTEND_DIR / "lib" / "workspace-chat-skills.ts"
 MODULE_CARD_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "ModuleCard.tsx"
 )
@@ -96,9 +97,9 @@ def _extract_case_body(path: Path, case_name: str) -> str:
 
 def test_workspace_feature_routes_match_backend_registry() -> None:
     content = _read_text(ROUTES_FILE)
-    for feature_id in _registry_feature_ids():
-        assert f'query.set("feature", featureId);' in content
-        assert "return getWorkspaceFeatureChatRoute(workspaceId, featureId, params);" in content
+    for _feature_id in _registry_feature_ids():
+        assert 'query.set("feature", featureId);' in content
+        assert "return getWorkspaceFeatureThreadRoute(workspaceId, featureId, params);" in content
 
 
 def test_workspace_feature_routes_use_canonical_chat_entry() -> None:
@@ -117,10 +118,12 @@ def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_threa
     chat_panel_body = _read_text(CHAT_PANEL_FILE)
     layout_body = _read_text(WORKBENCH_LAYOUT_FILE)
 
-    assert "parseWorkspaceChatEntrySeed(searchParams)" in chat_route_body
-    assert "<ChatPanel workspaceId={workspaceId} entrySeed={effectiveEntrySeed} />" in chat_route_body
-    assert "export function parseWorkspaceChatEntrySeed(" in chat_entry_body
-    assert "export function buildWorkspaceChatEntryPrompt(" in chat_entry_body
+    assert "parseWorkspaceThreadEntrySeed(searchParams)" in chat_route_body
+    assert "<ThreadPanel workspaceId={workspaceId} entrySeed={effectiveEntrySeed} />" in chat_route_body
+    assert "export function parseWorkspaceThreadEntrySeed(" in chat_entry_body
+    assert "export function buildWorkspaceThreadEntryPrompt(" in chat_entry_body
+    assert 'intent: "launch"' in chat_panel_body
+    assert 'intent: "resume"' in chat_panel_body
     assert 'feature_id: entrySeed.featureId' in chat_panel_body
     assert "params: entrySeed.params" in chat_panel_body
     assert "feature.defaultSkillId" in feature_redirect_body
@@ -144,7 +147,7 @@ def test_workspace_feature_actions_explicitly_cover_all_features() -> None:
     assert not missing_action_cases, f"Missing action-state cases for: {missing_action_cases}"
 
 
-def test_workspace_chat_skill_catalog_is_loaded_from_backend_api() -> None:
+def test_workspace_thread_skill_catalog_is_loaded_from_backend_api() -> None:
     chat_panel_body = _read_text(CHAT_PANEL_FILE)
     skill_selector_body = _read_text(
         FRONTEND_DIR
@@ -157,7 +160,7 @@ def test_workspace_chat_skill_catalog_is_loaded_from_backend_api() -> None:
     )
     assert "useFeaturesStore((state) => state.skills)" in skill_selector_body
     assert "getSkillById" in chat_panel_body
-    assert not WORKSPACE_CHAT_SKILLS_FILE.exists()
+    assert not WORKSPACE_THREAD_SKILLS_FILE.exists()
 
 
 def test_knowledge_panel_retry_uses_feature_action_state() -> None:
@@ -168,7 +171,7 @@ def test_knowledge_panel_retry_uses_feature_action_state() -> None:
 
 
 def test_chat_skill_labels_use_backend_contract_or_backend_skill_catalog() -> None:
-    export_body = _read_text(CHAT_EXPORT_FILE)
+    export_body = _read_text(THREAD_EXPORT_FILE)
     chat_body = _read_text(CHAT_PANEL_FILE)
     knowledge_body = _read_text(KNOWLEDGE_PANEL_FILE)
     agent_status_bar_body = _read_text(AGENT_STATUS_BAR_FILE)
@@ -187,33 +190,43 @@ def test_chat_skill_labels_use_backend_contract_or_backend_skill_catalog() -> No
 
 
 def test_chat_and_knowledge_panels_follow_canonical_chat_entry_and_retry_paths() -> None:
-    execution_body = _read_text(EXECUTION_FILE)
     chat_body = _read_text(CHAT_PANEL_FILE)
+    chat_store_support_body = _read_text(CHAT_STORE_SUPPORT_FILE)
     knowledge_body = _read_text(KNOWLEDGE_PANEL_FILE)
-    compile_button_body = _read_text(COMPILE_BUTTON_FILE)
+    feature_panel_host_body = _read_text(FEATURE_PANEL_HOST_FILE)
 
-    assert "export async function createWorkspaceFeatureTask(" in execution_body
-    assert "export function ensureWorkspaceFeatureTaskCreated(" in execution_body
-    assert "executeWorkspaceFeature(" in execution_body
-
-    assert "buildWorkspaceChatEntryPrompt({" in chat_body
+    assert "buildWorkspaceThreadEntryPrompt({" in chat_body
     assert "sendMessage(prompt, {" in chat_body
     assert "createWorkspaceFeatureTask({" not in chat_body
+
+    assert "maybeHydrateStructuredExecution" in chat_store_support_body
+    assert "useExecutionStore" in chat_store_support_body
+    assert "useTaskStore" not in chat_store_support_body
 
     assert "const retryFeatureTask = async" in knowledge_body
     assert "router.push(actionState.route);" in knowledge_body
     assert "createWorkspaceFeatureTask({" not in knowledge_body
 
-    assert "getWorkspaceFeatureChatRoute" in compile_button_body
-    assert "router.push(chatRoute);" in compile_button_body
-    assert "createWorkspaceFeatureTask({" not in compile_button_body
+    assert "ensureWorkspacePrismProject" in feature_panel_host_body
+    assert "window.location.href = `/latex/${projectId}`;" in feature_panel_host_body
+    assert "createWorkspaceFeatureTask({" not in feature_panel_host_body
+
+
+def test_chat_store_scopes_pending_skill_and_thread_reuse_to_current_workspace() -> None:
+    body = _read_text(CHAT_STORE_FILE)
+
+    assert "pendingSkillWorkspaceId" in body
+    assert "currentThreadSummary?.workspace_id" in body
+    assert "requestedWorkspaceId === currentThreadWorkspaceId" in body
+    assert "pendingSkillWorkspaceId === requestedWorkspaceId" in body
 
 
 def test_legacy_feature_entry_shells_removed() -> None:
     assert not FEATURE_RUNNER_FILE.exists()
     assert not QUICK_ACTIONS_FILE.exists()
-    assert not WORKSPACE_CHAT_SKILLS_FILE.exists()
+    assert not WORKSPACE_THREAD_SKILLS_FILE.exists()
     assert not MODULE_CARD_FILE.exists()
+    assert not (FRONTEND_DIR / "lib" / "workspace-feature-execution.ts").exists()
 
 
 def test_agent_status_bar_uses_backend_cancel_api_and_failed_task_branch() -> None:
@@ -223,8 +236,8 @@ def test_agent_status_bar_uses_backend_cancel_api_and_failed_task_branch() -> No
     assert "export async function cancelTask(taskId: string): Promise<void>" in api_body
     assert 'await apiClient.delete(`/tasks/${taskId}`);' in api_body
 
-    assert 'currentTask?.status === "failed"' in body
-    assert "await cancelTaskRequest(currentTask.id);" in body
+    assert 'effectiveCurrentTask?.status === "failed"' in body
+    assert "await cancelTaskRequest(effectiveCurrentTask.id);" in body
 
 
 def test_workspace_event_stream_applies_thread_activity_incrementally() -> None:
@@ -241,7 +254,7 @@ def test_workspace_event_stream_applies_thread_activity_incrementally() -> None:
 
     assert "workspaceStore.upsertActivity(event.activity);" in updated_body
     assert 'refreshWorkspaceTargets(workspaceId, ["activity"]);' in updated_body
-    assert "chatStore.refreshCurrentThread(workspaceId" in updated_body
+    assert "options?.scheduleThreadRefresh?.(event);" in updated_body
 
     assert "workspaceStore.removeActivity(event.activity_id);" in deleted_body
     assert 'refreshWorkspaceTargets(workspaceId, ["activity"]);' in deleted_body

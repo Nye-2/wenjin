@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 import logging
 import re
@@ -30,6 +31,10 @@ _IMAGE_SUFFIXES = {
     ".webp",
 }
 _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+_MAX_REMOTE_BINARY_BYTES = 25 * 1024 * 1024
+_REMOTE_DOWNLOAD_CHUNK_SIZE = 64 * 1024
+_ALLOWED_REMOTE_DOWNLOAD_SCHEMES = {"http", "https"}
+_MAX_LAYOUT_RESULTS = 200
 
 
 def _is_within_root(candidate: Path, root: Path) -> bool:
@@ -62,6 +67,28 @@ def _is_image_upload(filename: str | None, content_type: str | None) -> bool:
     if normalized_content_type.startswith("image/"):
         return True
     return Path(str(filename or "")).suffix.lower() in _IMAGE_SUFFIXES
+
+
+def _is_forbidden_remote_host(hostname: str | None) -> bool:
+    normalized = str(hostname or "").strip().rstrip(".").lower()
+    if not normalized:
+        return True
+    if normalized in {"localhost", "localhost.localdomain"}:
+        return True
+    if normalized.endswith(".local"):
+        return True
+    try:
+        parsed_ip = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    return (
+        parsed_ip.is_private
+        or parsed_ip.is_loopback
+        or parsed_ip.is_link_local
+        or parsed_ip.is_multicast
+        or parsed_ip.is_reserved
+        or parsed_ip.is_unspecified
+    )
 
 
 def _safe_relative_target(
@@ -184,9 +211,42 @@ class UploadPreprocessor:
         client: httpx.AsyncClient,
         url: str,
     ) -> bytes:
-        response = await client.get(url)
-        response.raise_for_status()
-        return response.content
+        parsed = urlparse(url)
+        scheme = parsed.scheme.lower()
+        if scheme not in _ALLOWED_REMOTE_DOWNLOAD_SCHEMES or not parsed.netloc:
+            raise ValueError(f"Unsupported remote binary URL: {url}")
+        if _is_forbidden_remote_host(parsed.hostname):
+            raise ValueError(f"Unsupported remote binary URL: {url}")
+
+        async with client.stream("GET", url) as response:
+            response.raise_for_status()
+            content_length = response.headers.get("content-length")
+            if content_length:
+                try:
+                    if int(content_length) > _MAX_REMOTE_BINARY_BYTES:
+                        raise ValueError(
+                            "Remote binary is too large "
+                            f"(max {_MAX_REMOTE_BINARY_BYTES // (1024 * 1024)}MB)"
+                        )
+                except ValueError:
+                    if not content_length.isdigit():
+                        pass
+                    else:
+                        raise
+
+            chunks: list[bytes] = []
+            total_size = 0
+            async for chunk in response.aiter_bytes(_REMOTE_DOWNLOAD_CHUNK_SIZE):
+                if not chunk:
+                    continue
+                total_size += len(chunk)
+                if total_size > _MAX_REMOTE_BINARY_BYTES:
+                    raise ValueError(
+                        "Remote binary is too large "
+                        f"(max {_MAX_REMOTE_BINARY_BYTES // (1024 * 1024)}MB)"
+                    )
+                chunks.append(chunk)
+        return b"".join(chunks)
 
     async def preprocess_file(
         self,
@@ -251,6 +311,11 @@ class UploadPreprocessor:
                     file_bytes=content,
                     file_type=file_type,
                 )
+                if len(layout_results) > _MAX_LAYOUT_RESULTS:
+                    raise ValueError(
+                        "Layout parsing returned too many result segments "
+                        f"(max {_MAX_LAYOUT_RESULTS})"
+                    )
 
                 for index, layout_result in enumerate(layout_results):
                     markdown = layout_result.get("markdown")

@@ -1,6 +1,6 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-04-10
+更新时间: 2026-04-14
 
 本文档定义 workspace 功能插件化渲染的前后端契约，避免前端硬编码 feature 逻辑。
 
@@ -30,7 +30,8 @@
 ```json
 {
   "params": {},
-  "thread_id": "optional-thread-id"
+  "thread_id": "optional-thread-id",
+  "execution_session_id": "optional-resume-session-id"
 }
 ```
 
@@ -39,30 +40,36 @@
 ```json
 {
   "task_id": "task-xxx",
+  "execution_session_id": "exec-xxx",
   "status": "pending",
   "feature_id": "proposal_outline",
   "message": "任务已提交"
 }
 ```
 
+说明:
+
+- `execution_session_id` 为空时表示 launch；传入时表示 resume 同一 feature 事务。
+  - `status` 可能返回 `awaiting_user_input`（缺参追问状态），此时前端应回到 thread 路由（`/chat`）继续追问并在下一轮携带该 `execution_session_id`。
+
 ## 2. Frontend Integration Points
 
 关键文件:
 
 - `frontend/lib/api/workspace.ts`
-- `frontend/lib/api/chat.ts`
+- `frontend/lib/api/threads.ts`
 - `frontend/lib/workspace-feature-routes.ts`
-- `frontend/lib/workspace-chat-entry.ts`
+- `frontend/lib/workspace-thread-entry.ts`
 - `frontend/stores/features.ts`
-- `frontend/lib/workspace-feature-execution.ts`
-- `frontend/components/workspace/TaskFeedbackBanner.tsx`
-- `frontend/components/workspace/WorkspaceResultPanel.tsx`
-- `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
+- `frontend/stores/execution.ts`
+- `frontend/lib/execution-presenters.ts`
+- `frontend/hooks/useWorkspaceEventStream.ts`
+- `frontend/app/(workbench)/workspaces/[id]/components/ThreadPanel.tsx`
 - `frontend/app/(workbench)/workspaces/[id]/components/KnowledgePanel.tsx`
 
-## 3. Chat-Only Entry Contract
+## 3. Thread Route Entry Contract
 
-当前 feature 导航采用 chat-only 入口，不再依赖独立 feature slug 页面。
+当前 feature 导航采用 thread route 单入口（URL 为 `/chat`），不再依赖独立 feature slug 页面。
 
 - Canonical entry: `/workspaces/{workspace_id}/chat`
 - 必带 query: `feature=<feature_id>`
@@ -74,14 +81,14 @@
 - 后端职责:
   - 优先消费显式 `metadata.orchestration`
   - 由 lead-agent / `run_workspace_feature` 接回 canonical feature execution
+  - 在 `metadata.orchestration.execution_session_id` 存在时，走 ingress resume 继续同一 execution session
 
 ## 4. 交互约束
 
 1. Feature 按后端下发动态渲染，不做 workspace 类型硬编码按钮列表。
-2. 功能执行后统一进入任务轮询，直到终态。
-3. `TaskFeedbackBanner` 只展示执行状态和错误，不承载最终结果正文。
-4. `WorkspaceResultPanel` 消费标准 view model，容忍结果字段缺失。
-5. feature 卡片、artifact follow-up、activity retry 必须统一落到 `/chat`，不得重新引入中间 feature slug 页面。
+2. 功能执行后统一汇聚到 `ExecutionSession`，前端不再单独维护 task/panel 两套运行态。
+3. workspace SSE 以 `execution.* / task.updated / subagent.updated` 驱动 execution store 增量更新。
+4. feature 卡片、artifact follow-up、activity retry 必须统一落到 `/chat`，不得重新引入中间 feature slug 页面。
 
 ## 5. Refresh Targets Contract
 
@@ -91,8 +98,8 @@
 - `papers` -> `fetchPapers(workspaceId)`
 - `workspace` -> `loadWorkspace(workspaceId)`
 
-实现位置: `frontend/lib/workspace-feature-execution.ts` 与 `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
+实现位置: `frontend/hooks/useWorkspaceEventStream.ts` 与 `frontend/app/(workbench)/workspaces/[id]/components/ThreadPanel.tsx`
 
-## 6. Compatibility Notes
+## 6. Runtime Notes
 
-- 兼容 warning 场景: `status=warning` 且无 `task_id` 时，前端应直接提示，不进入轮询。
+- 执行态 UI 只消费 `ExecutionSession`；task/subagent 事件只作为 execution store 的增量补丁，不再直接驱动独立 task/panel store。

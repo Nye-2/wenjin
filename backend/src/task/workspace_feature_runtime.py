@@ -47,6 +47,174 @@ def _sync_conflicts(result: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _leader_workflow(result: dict[str, Any]) -> dict[str, Any]:
+    value = result.get("leader_workflow")
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _quality_issues(quality_report: dict[str, Any]) -> list[dict[str, str]]:
+    value = quality_report.get("issues")
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _workflow_phase_items(workflow: dict[str, Any]) -> list[dict[str, Any]]:
+    phases = workflow.get("phases")
+    if not isinstance(phases, list):
+        return []
+
+    items: list[dict[str, Any]] = []
+    for phase in phases[:8]:
+        if not isinstance(phase, dict):
+            continue
+        task_items = phase.get("tasks")
+        tasks = task_items if isinstance(task_items, list) else []
+        success_count = sum(
+            1
+            for task in tasks
+            if isinstance(task, dict) and bool(task.get("success"))
+        )
+        total_count = len(tasks)
+        error_text = str(phase.get("error") or "").strip()
+        status_label = "成功" if bool(phase.get("success")) else "失败"
+        description = error_text or f"{success_count}/{total_count} 子任务成功"
+        items.append(
+            {
+                "title": str(phase.get("phase") or "workflow_phase"),
+                "description": description,
+                "meta": status_label,
+                "badge": str(total_count),
+            }
+        )
+    return items
+
+
+_RESULT_BLOCK_PHASE_HINTS: dict[str, dict[str, str]] = {
+    "deep_research": {
+        "research-papers": "discovery",
+        "discovery-summary": "discovery",
+        "research-gaps": "gap_mining",
+        "research-ideas": "synthesis",
+        "recommended-actions": "finalize",
+    },
+    "literature_search": {
+        "search-results": "retrieve",
+    },
+    "paper_analysis": {
+        "analysis-sections": "analyze",
+    },
+    "writing": {
+        "draft-preview": "draft",
+        "references": "draft",
+    },
+    "literature_review": {
+        "review-sections": "synthesize",
+    },
+    "framework_outline": {
+        "framework-outline": "outline",
+    },
+    "peer_review": {
+        "peer-review": "review",
+    },
+    "journal_recommend": {
+        "journal-recommendations": "match",
+    },
+    "opening_research": {
+        "sections": "report",
+    },
+    "background_research": {
+        "sections": "research",
+    },
+    "proposal_outline": {
+        "outline-sections": "outline",
+        "milestones": "finalize",
+    },
+    "experiment_design": {
+        "experiment-variables": "variables",
+    },
+    "patent_outline": {
+        "patent-sections": "draft",
+        "claims": "draft",
+    },
+    "prior_art_search": {
+        "comparison-table": "analysis",
+        "novelty-risks": "analysis",
+    },
+    "copyright_materials": {
+        "required-materials": "materials",
+        "review-checklist": "finalize",
+    },
+    "technical_description": {
+        "technical-sections": "write",
+    },
+    "figure_generation": {
+        "figure-output": "render",
+        "figure-source": "render",
+    },
+    "literature_management": {
+        "literature-summary": "analyze",
+        "top-cited": "analyze",
+        "recommendations": "finalize",
+    },
+    "thesis_writing": {
+        "outline-chapters": "outline",
+        "chapter-drafts": "draft",
+        "chapter-draft": "draft",
+    },
+}
+
+_FINALIZE_BLOCK_IDS = {
+    "linked-latex-project",
+    "sync-conflicts",
+    "leader-workflow",
+    "leader-workflow-phases",
+    "quality-gate",
+    "quality-issues",
+    "result-summary",
+}
+
+
+def _default_finalize_phase_id(runtime: dict[str, Any]) -> str | None:
+    phases = runtime.get("phases")
+    if not isinstance(phases, list) or not phases:
+        return None
+    for phase in reversed(phases):
+        if isinstance(phase, dict):
+            phase_id = str(phase.get("id") or "").strip()
+            if phase_id:
+                return phase_id
+    return None
+
+
+def _annotate_runtime_block_phases(feature_id: str, runtime: dict[str, Any]) -> None:
+    blocks = runtime.get("blocks")
+    if not isinstance(blocks, list):
+        return
+
+    feature_hints = _RESULT_BLOCK_PHASE_HINTS.get(feature_id, {})
+    finalize_phase_id = _default_finalize_phase_id(runtime)
+    if not feature_hints and not finalize_phase_id:
+        return
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        block_id = str(block.get("id") or "").strip()
+        if not block_id:
+            continue
+        if block.get("phase_id"):
+            continue
+        hinted_phase = feature_hints.get(block_id)
+        if hinted_phase:
+            block["phase_id"] = hinted_phase
+            continue
+        if block_id in _FINALIZE_BLOCK_IDS and finalize_phase_id:
+            block["phase_id"] = finalize_phase_id
+
+
 def build_feature_runtime(
     feature_id: str,
     payload: dict[str, Any],
@@ -363,15 +531,6 @@ def build_feature_runtime(
                 },
             ],
         )
-    if feature_id == "compile_export":
-        return create_feature_runtime(
-            feature_id,
-            [
-                {"label": "模板", "value": str(params.get("template") or "default")},
-                {"label": "编译器", "value": str(params.get("compiler") or "xelatex")},
-                {"label": "参考样式", "value": str(params.get("bibliography_style") or "gbt7714")},
-            ],
-        )
     if feature_id == "literature_management":
         return create_feature_runtime(
             feature_id,
@@ -444,8 +603,6 @@ def resolve_runtime_next_phase(feature_id: str, params: dict[str, Any]) -> str |
         return "write"
     if feature_id == "figure_generation":
         return "render"
-    if feature_id == "compile_export":
-        return "compile"
     if feature_id == "literature_management":
         return "analyze"
     if feature_id == "thesis_writing":
@@ -458,6 +615,8 @@ def enrich_runtime_with_result(
     runtime: dict[str, Any],
     result: dict[str, Any],
     artifacts: list[dict[str, str]],
+    *,
+    quality_report: dict[str, Any] | None = None,
 ) -> None:
     """Attach feature-specific result blocks to the runtime state."""
     append_runtime_activity(
@@ -957,33 +1116,6 @@ def enrich_runtime_with_result(
                     "content": source_text[:1400],
                 },
             )
-    elif feature_id == "compile_export":
-        upsert_runtime_block(
-            runtime,
-            {
-                "id": "compile-status",
-                "kind": "metrics",
-                "title": "编译状态",
-                "entries": [
-                    {"label": "编译状态", "value": str(result.get("compile_status") or "unknown")},
-                    {"label": "章节数", "value": str(result.get("chapter_count") or 0)},
-                    {"label": "文献数", "value": str(result.get("literature_count") or 0)},
-                    {"label": "页数", "value": str(result.get("page_count") or 0)},
-                ],
-            },
-        )
-        compile_logs = str(result.get("compile_logs") or "")
-        if compile_logs:
-            upsert_runtime_block(
-                runtime,
-                {
-                    "id": "compile-logs",
-                    "kind": "text",
-                    "title": "编译日志",
-                    "content": compile_logs[:1600],
-                },
-            )
-
     elif feature_id == "literature_management":
         summary = _as_dict(result.get("summary"))
         top_cited = result.get("top_cited")
@@ -1142,6 +1274,116 @@ def enrich_runtime_with_result(
             },
         )
 
+    workflow = _leader_workflow(result)
+    if workflow:
+        strategy = str(workflow.get("strategy") or "dynamic")
+        status = str(workflow.get("status") or "unknown")
+        phase_count = workflow.get("phase_count")
+        if phase_count is None:
+            phase_count = len(workflow.get("phases") or []) if isinstance(workflow.get("phases"), list) else 0
+        task_count = workflow.get("task_count")
+        if task_count is None:
+            phase_list = workflow.get("phases") if isinstance(workflow.get("phases"), list) else []
+            task_count = sum(
+                len(phase.get("tasks") or [])
+                for phase in phase_list
+                if isinstance(phase, dict)
+            )
+        result_metrics.append({"label": "Workflow", "value": status})
+        result_metrics.append({"label": "子任务数", "value": str(task_count)})
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "leader-workflow",
+                "kind": "metrics",
+                "title": "Leader 编排",
+                "entries": [
+                    {"label": "策略", "value": strategy},
+                    {"label": "状态", "value": status},
+                    {"label": "阶段", "value": str(phase_count)},
+                    {"label": "子任务", "value": str(task_count)},
+                ],
+            },
+        )
+        phase_items = _workflow_phase_items(workflow)
+        if phase_items:
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "leader-workflow-phases",
+                    "kind": "list",
+                    "title": "Workflow 阶段",
+                    "description": "feature leader 的子代理编排执行结果",
+                    "items": phase_items,
+                },
+            )
+
+    if isinstance(quality_report, dict):
+        quality_status = str(quality_report.get("status") or "unknown")
+        quality_score = quality_report.get("score")
+        issues = _quality_issues(quality_report)
+        warning_count = sum(
+            1
+            for item in issues
+            if str(item.get("severity") or "").strip().lower() == "warning"
+        )
+        error_count = sum(
+            1
+            for item in issues
+            if str(item.get("severity") or "").strip().lower() == "error"
+        )
+        result_metrics.append({"label": "质量", "value": quality_status})
+        if quality_score is not None:
+            result_metrics.append({"label": "质量分", "value": str(quality_score)})
+        if warning_count > 0:
+            result_metrics.append({"label": "质量告警", "value": str(warning_count)})
+        if error_count > 0:
+            result_metrics.append({"label": "质量错误", "value": str(error_count)})
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "quality-gate",
+                "kind": "metrics",
+                "title": "质量门禁",
+                "entries": [
+                    {"label": "状态", "value": quality_status},
+                    {"label": "评分", "value": str(quality_score if quality_score is not None else "-")},
+                    {"label": "告警", "value": str(warning_count)},
+                    {"label": "错误", "value": str(error_count)},
+                ],
+            },
+        )
+        if issues:
+            upsert_runtime_block(
+                runtime,
+                {
+                    "id": "quality-issues",
+                    "kind": "list",
+                    "title": "质量问题",
+                    "description": "输出质量检查发现的问题。",
+                    "items": [
+                        {
+                            "title": str(item.get("code") or "quality_issue"),
+                            "description": str(item.get("message") or ""),
+                            "meta": str(item.get("severity") or ""),
+                        }
+                        for item in issues[:8]
+                    ],
+                },
+            )
+        append_runtime_activity(
+            runtime,
+            title="质量检查完成",
+            description=str(quality_report.get("summary") or "质量检查已完成。"),
+            tone=(
+                "danger"
+                if quality_status == "fail"
+                else "warning"
+                if quality_status == "warn"
+                else "success"
+            ),
+        )
+
     upsert_runtime_block(
         runtime,
         {
@@ -1151,3 +1393,4 @@ def enrich_runtime_with_result(
             "entries": result_metrics,
         },
     )
+    _annotate_runtime_block_phases(feature_id, runtime)

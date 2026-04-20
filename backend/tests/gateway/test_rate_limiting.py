@@ -112,6 +112,50 @@ class TestRateLimiting:
         assert asyncio.run(middleware._check_redis("rate_limit:test")) is True
         assert asyncio.run(middleware._check_redis("rate_limit:test")) is False
 
+    def test_redis_timeout_falls_back_to_memory_limit(self):
+        from src.gateway.middleware.rate_limit import RateLimitMiddleware
+
+        class SlowPipeline:
+            def zremrangebyscore(self, key, start, end):
+                return None
+
+            def zcard(self, key):
+                return None
+
+            def zadd(self, key, values):
+                return None
+
+            def expire(self, key, ttl_seconds):
+                return None
+
+            async def execute(self):
+                import asyncio
+
+                await asyncio.sleep(0.05)
+                return [None, 0, None, None]
+
+        class SlowRedis:
+            @property
+            def client(self):
+                return self
+
+            def pipeline(self):
+                return SlowPipeline()
+
+        middleware = RateLimitMiddleware(
+            FastAPI(),
+            requests_per_minute=1,
+            window_seconds=60,
+            redis_client=SlowRedis(),
+        )
+
+        import asyncio
+
+        with patch("src.gateway.middleware.rate_limit.redis_settings") as mock_settings:
+            mock_settings.rate_limit_redis_timeout_seconds = 0.01
+            assert asyncio.run(middleware._check_redis("rate_limit:test-timeout")) is True
+            assert asyncio.run(middleware._check_redis("rate_limit:test-timeout")) is False
+
     def test_setup_uses_redis_settings_values(self):
         from src.gateway.middleware.rate_limit import RateLimitMiddleware, setup_rate_limiting
 
@@ -193,6 +237,22 @@ class TestRateLimiting:
         async def events_endpoint():
             return {"ok": True}
 
+        @app.post("/api/runs/stream")
+        async def runs_stream_endpoint():
+            return {"ok": True}
+
+        @app.get("/api/runs/run-1/stream")
+        async def run_stream_endpoint():
+            return {"ok": True}
+
+        @app.get("/api/threads/thread-1/runs/run-1/stream")
+        async def thread_run_stream_endpoint():
+            return {"ok": True}
+
+        @app.get("/api/threads/thread-1/runs/run-1/join")
+        async def thread_run_join_endpoint():
+            return {"ok": True}
+
         with patch("src.gateway.middleware.rate_limit.redis_settings") as mock_settings:
             mock_settings.rate_limit_requests = 1
             mock_settings.rate_limit_window = 60
@@ -207,3 +267,19 @@ class TestRateLimiting:
         events_resp = client.get("/api/workspaces/workspace-1/events")
         assert events_resp.status_code == 200
         assert events_resp.headers["X-RateLimit-Bucket"] == "streams"
+
+        runs_stream_resp = client.post("/api/runs/stream")
+        assert runs_stream_resp.status_code == 200
+        assert runs_stream_resp.headers["X-RateLimit-Bucket"] == "streams"
+
+        run_stream_resp = client.get("/api/runs/run-1/stream")
+        assert run_stream_resp.status_code == 200
+        assert run_stream_resp.headers["X-RateLimit-Bucket"] == "streams"
+
+        thread_run_stream_resp = client.get("/api/threads/thread-1/runs/run-1/stream")
+        assert thread_run_stream_resp.status_code == 200
+        assert thread_run_stream_resp.headers["X-RateLimit-Bucket"] == "streams"
+
+        thread_run_join_resp = client.get("/api/threads/thread-1/runs/run-1/join")
+        assert thread_run_join_resp.status_code == 200
+        assert thread_run_join_resp.headers["X-RateLimit-Bucket"] == "streams"

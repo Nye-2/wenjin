@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import urllib.error
+import urllib.request
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy import text
 
 from src.academic.cache.redis_client import redis_client
 from src.config import get_extensions_config, settings
-from src.config.app_config import celery_settings
+from src.config.app_config import celery_settings, get_prometheus_settings
 from src.database.session import engine
 from src.execution.capabilities import execution_type_readiness
 from src.execution.types import ExecutionType
@@ -19,6 +22,7 @@ from src.task import celery_app
 from src.thesis.execution import get_execution_service
 
 logger = logging.getLogger(__name__)
+_READINESS_DEPENDENCY_TIMEOUT_SECONDS = 3.0
 
 
 def _mcp_failure_status() -> str:
@@ -39,6 +43,8 @@ async def check_redis() -> dict[str, Any]:
     """Verify Redis connectivity."""
     try:
         await redis_client.ping()
+        await redis_client.connect_stream()
+        await redis_client.stream_client.ping()
         return {"status": "healthy"}
     except Exception as exc:
         return {"status": "unhealthy", "error": str(exc)}
@@ -47,14 +53,13 @@ async def check_redis() -> dict[str, Any]:
 async def check_task_backend() -> dict[str, Any]:
     """Verify the configured async task backend is actually runnable."""
     if not celery_settings.enabled:
-        if settings.environment.lower() in {"development", "test"}:
-            return {"status": "healthy", "mode": "local_executor"}
         return {
             "status": "unhealthy",
-            "mode": "local_executor",
-            "error": "LocalExecutor is disabled for production readiness",
+            "mode": "celery",
+            "error": "CELERY_ENABLED must be true",
         }
 
+    inspect_error: str | None = None
     try:
         inspect = celery_app.control.inspect(timeout=1.5)
         ping_result = await asyncio.to_thread(inspect.ping)
@@ -62,15 +67,54 @@ async def check_task_backend() -> dict[str, Any]:
             return {
                 "status": "healthy",
                 "mode": "celery",
+                "probe": "inspect",
                 "workers": sorted(ping_result.keys()),
             }
-        return {
-            "status": "unhealthy",
-            "mode": "celery",
-            "error": "No Celery workers responded to ping",
-        }
     except Exception as exc:
-        return {"status": "unhealthy", "mode": "celery", "error": str(exc)}
+        inspect_error = str(exc)
+    else:
+        inspect_error = "No Celery workers responded to ping"
+
+    metrics_ok, metrics_error = await _check_worker_metrics_endpoint()
+    if metrics_ok:
+        report: dict[str, Any] = {
+            "status": "healthy",
+            "mode": "celery",
+            "probe": "worker_metrics",
+        }
+        if inspect_error:
+            report["warning"] = f"inspect ping unavailable: {inspect_error}"
+        return report
+
+    error_parts = [part for part in [inspect_error, metrics_error] if part]
+    return {
+        "status": "unhealthy",
+        "mode": "celery",
+        "error": "; ".join(error_parts) or "Task backend unavailable",
+        "inspect_error": inspect_error,
+        "metrics_error": metrics_error,
+    }
+
+
+async def _check_worker_metrics_endpoint() -> tuple[bool, str | None]:
+    """Fallback worker readiness probe through the worker metrics endpoint."""
+    worker_port = int(get_prometheus_settings().worker_port)
+    target = f"http://worker:{worker_port}/metrics"
+
+    def _fetch() -> int:
+        with urllib.request.urlopen(target, timeout=1.5) as response:
+            return int(getattr(response, "status", 200))
+
+    try:
+        status = await asyncio.to_thread(_fetch)
+    except urllib.error.URLError as exc:
+        return False, str(exc.reason or exc)
+    except Exception as exc:
+        return False, str(exc)
+
+    if 200 <= status < 300:
+        return True, None
+    return False, f"metrics probe returned HTTP {status}"
 
 
 async def check_mcp() -> dict[str, Any]:
@@ -162,12 +206,40 @@ async def check_execution() -> dict[str, Any]:
 
 async def build_readiness_report() -> dict[str, Any]:
     """Build aggregate readiness report for dependency-aware health checks."""
+    async def _run_check_with_timeout(
+        name: str,
+        checker: Callable[[], Awaitable[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        try:
+            return await asyncio.wait_for(
+                checker(),
+                timeout=_READINESS_DEPENDENCY_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Readiness check timed out: dependency=%s timeout=%.1fs",
+                name,
+                _READINESS_DEPENDENCY_TIMEOUT_SECONDS,
+            )
+            return {
+                "status": "unhealthy",
+                "error": f"timeout after {_READINESS_DEPENDENCY_TIMEOUT_SECONDS:.1f}s",
+            }
+        except Exception as exc:
+            logger.warning(
+                "Readiness check failed unexpectedly: dependency=%s error=%s",
+                name,
+                exc,
+                exc_info=True,
+            )
+            return {"status": "unhealthy", "error": str(exc)}
+
     database, redis, task_backend, mcp, execution = await asyncio.gather(
-        check_database(),
-        check_redis(),
-        check_task_backend(),
-        check_mcp(),
-        check_execution(),
+        _run_check_with_timeout("database", check_database),
+        _run_check_with_timeout("redis", check_redis),
+        _run_check_with_timeout("task_backend", check_task_backend),
+        _run_check_with_timeout("mcp", check_mcp),
+        _run_check_with_timeout("execution", check_execution),
     )
     checks = {
         "database": database,

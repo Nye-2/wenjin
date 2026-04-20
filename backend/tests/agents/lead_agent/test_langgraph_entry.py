@@ -18,7 +18,7 @@ def test_ensure_bootstrapped_calls_activate_once():
     import src.agents.lead_agent.langgraph_entry as entry_module
     entry_module._bootstrapped = False
 
-    with patch.object(entry_module, "activate_mcp_runtime") as mock_activate, \
+    with patch.object(entry_module, "activate_mcp_runtime"), \
          patch.object(entry_module, "get_extensions_config", return_value={}), \
          patch.object(entry_module, "asyncio") as mock_asyncio:
         # Simulate no running loop (RuntimeError on get_running_loop)
@@ -36,6 +36,6 @@ def test_make_lead_agent_graph_triggers_bootstrap():
     import src.agents.lead_agent.langgraph_entry as entry_module
 
     with patch.object(entry_module, "_ensure_bootstrapped") as mock_boot, \
-         patch.object(entry_module, "make_lead_agent") as mock_make:
+         patch.object(entry_module, "make_lead_agent"):
         entry_module.make_lead_agent_graph({"configurable": {}})
         mock_boot.assert_called_once()

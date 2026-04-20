@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import SubagentTaskRecord
+from src.services.thread_billing import extract_persisted_metadata_usage
 from src.subagents.models import SubagentResult, SubagentTask
 
 _TERMINAL_SUBAGENT_STATUSES = {"completed", "failed", "cancelled", "timed_out"}
@@ -49,7 +50,37 @@ class SubagentTaskStore:
         now = occurred_at or datetime.now(UTC)
         record = await self.get_task_record(task.task_id)
         subagent_type = task.metadata.get("subagent_type")
-        task_metadata = task.metadata if isinstance(task.metadata, dict) else {}
+        task_metadata = (
+            dict(task.metadata)
+            if isinstance(task.metadata, dict)
+            else {}
+        )
+        result_metadata = (
+            dict(result.metadata)
+            if result is not None and isinstance(result.metadata, dict)
+            else {}
+        )
+        usage = extract_persisted_metadata_usage(result_metadata)
+        if usage is None:
+            usage = extract_persisted_metadata_usage(task_metadata)
+        if usage is not None:
+            task_metadata["token_usage"] = usage.as_dict()
+        model_name = result_metadata.get("model_name")
+        if model_name is None:
+            model_name = task_metadata.get("model_name")
+        if isinstance(model_name, str) and model_name.strip():
+            task_metadata["model_name"] = model_name.strip()
+        if result is not None:
+            task_metadata["turns_used"] = max(int(result.turns_used or 0), 0)
+            try:
+                task_metadata["duration_seconds"] = max(float(result.duration_seconds), 0.0)
+            except (TypeError, ValueError):
+                task_metadata["duration_seconds"] = 0.0
+        execution_session_id = str(
+            task_metadata.get("execution_session_id") or ""
+        ).strip()
+        if not execution_session_id:
+            raise ValueError("execution_session_id is required for subagent task persistence")
         output_preview = _truncate_preview(result.output if result else None)
         error = result.error if result else None
 
@@ -66,6 +97,9 @@ class SubagentTaskStore:
                     if task.metadata.get("workspace_id") is not None
                     else None
                 ),
+                execution_session_id=(
+                    execution_session_id
+                ),
                 thread_id=task.thread_id,
                 subagent_type=str(subagent_type) if subagent_type is not None else None,
                 status=status,
@@ -81,6 +115,9 @@ class SubagentTaskStore:
         else:
             record.status = status
             record.prompt = task.prompt
+            record.execution_session_id = (
+                execution_session_id
+            )
             record.subagent_type = str(subagent_type) if subagent_type is not None else None
             record.output_preview = output_preview
             record.error = error

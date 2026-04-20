@@ -18,7 +18,7 @@ import {
   getWorkspaceActivity,
 } from '../lib/api';
 import {
-  isWorkspaceChatCockpitEnabled,
+  isWorkspaceThreadCockpitEnabled,
 } from '@/lib/workspace-rollout';
 import { upsertWorkspaceActivityList } from '@/lib/workspace-event-ordering';
 
@@ -91,7 +91,7 @@ interface WorkspaceState {
     parent_artifact_id?: string;
   }) => Promise<Artifact>;
   clearError: () => void;
-  isChatCockpitEnabled: () => boolean;
+  isThreadCockpitEnabled: () => boolean;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -334,8 +334,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ error: null });
   },
 
-  isChatCockpitEnabled: () => {
-    return isWorkspaceChatCockpitEnabled(get().workspace);
+  isThreadCockpitEnabled: () => {
+    return isWorkspaceThreadCockpitEnabled(get().workspace);
   },
 }));
 

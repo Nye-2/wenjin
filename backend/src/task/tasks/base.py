@@ -40,7 +40,7 @@ def _resolve_thread_skill(
     return task_type, None
 
 
-async def _append_task_chat_message(
+async def _append_task_thread_message(
     *,
     db: Any,
     task_id: str,
@@ -49,7 +49,7 @@ async def _append_task_chat_message(
     result: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> None:
-    """Best-effort task result write-back into the originating chat thread."""
+    """Best-effort task result write-back into the originating thread."""
     if task_type == PAPER_EXTRACTION_TASK:
         return
 
@@ -62,15 +62,15 @@ async def _append_task_chat_message(
         return
 
     try:
-        from src.agents.lead_agent.feature_bridge import (
+        from src.agents.lead_agent.thread_feature_cards import (
             build_feature_task_completion_card,
             build_feature_task_failure_card,
         )
-        from src.services.chat_thread_events import publish_thread_updated
-        from src.services.chat_thread_service import ChatThreadService
+        from src.services.thread_events import publish_thread_updated
+        from src.services.thread_service import ThreadService
 
-        chat_thread_service = ChatThreadService(db)
-        thread = await chat_thread_service.get_by_id(thread_id)
+        thread_service = ThreadService(db)
+        thread = await thread_service.get_by_id(thread_id)
         if thread is None:
             return
 
@@ -78,6 +78,7 @@ async def _append_task_chat_message(
             reply = build_feature_task_failure_card(
                 feature_id=feature_id,
                 task_id=task_id,
+                execution_session_id=str(payload.get("execution_session_id") or "") or None,
                 payload=payload,
                 error=error,
             )
@@ -85,11 +86,12 @@ async def _append_task_chat_message(
             reply = build_feature_task_completion_card(
                 feature_id=feature_id,
                 task_id=task_id,
+                execution_session_id=str(payload.get("execution_session_id") or "") or None,
                 payload=payload,
                 result=result or {},
             )
 
-        await chat_thread_service.add_message(
+        await thread_service.add_message(
             thread,
             role="assistant",
             content=reply.content,
@@ -126,14 +128,14 @@ async def _sync_paper_extraction_attachment_state(
         return
 
     try:
-        from src.services.chat_thread_service import ChatThreadService
+        from src.services.thread_service import ThreadService
 
-        chat_thread_service = ChatThreadService(db)
-        thread = await chat_thread_service.get_by_id(thread_id)
+        thread_service = ThreadService(db)
+        thread = await thread_service.get_by_id(thread_id)
         if thread is None:
             return
 
-        await chat_thread_service.update_attachment_extraction_state(
+        await thread_service.update_attachment_extraction_state(
             thread,
             task_id=task_id,
             status=status,
@@ -211,6 +213,7 @@ async def _execute_task_async(
         task_id,
         workspace_id=str(payload.get("workspace_id") or "") or None,
         thread_id=str(payload.get("thread_id") or "") or None,
+        execution_session_id=str(payload.get("execution_session_id") or "") or None,
         task_type=task_type,
         feature_id=str(payload.get("feature_id") or "") or None,
     )
@@ -233,7 +236,7 @@ async def _execute_task_async(
             thread_id = payload.get("thread_id")
             thread_skill, thread_skill_name = _resolve_thread_skill(payload, task_type)
             if thread_id:
-                from src.services.chat_thread_events import set_thread_status
+                from src.services.thread_events import set_thread_status
 
                 await set_thread_status(
                     str(payload.get("workspace_id") or "") or None,
@@ -248,7 +251,7 @@ async def _execute_task_async(
             result = await _dispatch_task(task_type, payload, progress)
 
             if thread_id:
-                from src.services.chat_thread_events import set_thread_status
+                from src.services.thread_events import set_thread_status
 
                 await set_thread_status(
                     str(payload.get("workspace_id") or "") or None,
@@ -281,7 +284,7 @@ async def _execute_task_async(
                 progress=100,
                 current_step="complete",
             )
-            await _append_task_chat_message(
+            await _append_task_thread_message(
                 db=db,
                 task_id=task_id,
                 task_type=task_type,
@@ -325,7 +328,7 @@ async def _execute_task_async(
                     )
             thread_id = payload.get("thread_id")
             if thread_id:
-                from src.services.chat_thread_events import set_thread_status
+                from src.services.thread_events import set_thread_status
 
                 await set_thread_status(
                     str(payload.get("workspace_id") or "") or None,
@@ -348,7 +351,7 @@ async def _execute_task_async(
                 message=str(e),
                 error=str(e),
             )
-            await _append_task_chat_message(
+            await _append_task_thread_message(
                 db=db,
                 task_id=task_id,
                 task_type=task_type,

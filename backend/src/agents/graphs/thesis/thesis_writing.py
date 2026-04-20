@@ -13,10 +13,12 @@ from src.models.router import route_writing_model, validate_requested_model
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
-    emit_bound_runtime as _emit_bound_runtime,
-    runtime_progress_for_phase,
     upsert_runtime_block,
 )
+from src.task.runtime_blocks import (
+    emit_bound_runtime as _emit_bound_runtime,
+)
+from src.workspace_features.latex_sync import sync_thesis_writing_payload
 from src.workspace_features.services.thesis_writing_service import (
     build_chapter_payload,
     build_outline_payload,
@@ -28,6 +30,13 @@ logger = logging.getLogger(__name__)
 # Max revision rounds
 # ---------------------------------------------------------------------------
 _MAX_REVISION_ROUNDS = 2
+_PRISM_SYNC_ACTIONS = {
+    "generate_outline",
+    "write_chapter",
+    "write_all",
+    "revise_section",
+    "review_and_revise",
+}
 
 
 def _resolve_writing_model(requested_model: str | None) -> str:
@@ -87,30 +96,65 @@ async def thesis_writing_graph(
     model_id = _resolve_writing_model(requested_model)
 
     if action == "generate_outline":
-        return await _handle_generate_outline(
+        result = await _handle_generate_outline(
             params,
             workspace_id=workspace_id,
             model_id=model_id,
         )
-
-    if action == "write_chapter":
-        return await _handle_write_chapter(params, model_id=model_id)
-
-    if action == "write_all":
-        return await _handle_write_all(
+    elif action == "write_chapter":
+        result = await _handle_write_chapter(params, model_id=model_id)
+    elif action == "write_all":
+        result = await _handle_write_all(
             params,
             workspace_id=workspace_id,
             model_id=model_id,
         )
+    elif action == "review_section":
+        result = await _handle_review_section(params, memory_context, model_id=model_id)
+    elif action == "revise_section":
+        result = await _handle_revise_section(params, memory_context, model_id=model_id)
+    else:
+        # Default: full review + auto-revise loop
+        result = await _handle_review_and_revise(
+            params,
+            memory_context,
+            model_id=model_id,
+        )
 
-    if action == "review_section":
-        return await _handle_review_section(params, memory_context, model_id=model_id)
-
-    if action == "revise_section":
-        return await _handle_revise_section(params, memory_context, model_id=model_id)
-
-    # Default: full review + auto-revise loop
-    return await _handle_review_and_revise(params, memory_context, model_id=model_id)
+    result_action = str(result.get("action") or "").strip().lower()
+    if workspace_id and result_action in _PRISM_SYNC_ACTIONS:
+        sync_result = await sync_thesis_writing_payload(
+            workspace_id=workspace_id,
+            workspace_name=str(payload.get("workspace_name") or ""),
+            payload=result,
+        )
+        next_actions = result.get("next_actions")
+        normalized_actions = (
+            list(next_actions)
+            if isinstance(next_actions, list)
+            else []
+        )
+        if sync_result.latex_project_id:
+            normalized_actions.append(
+                {
+                    "action": "open_prism",
+                    "label": "在 WenjinPrism 中继续编辑",
+                    "feature_id": "thesis_writing",
+                    "url": f"/latex/{sync_result.latex_project_id}",
+                    "reason": "写作结果已同步到 WenjinPrism，可继续编辑与导出。",
+                }
+            )
+        result = {
+            **result,
+            **sync_result.as_payload(),
+            "prism_url": (
+                f"/latex/{sync_result.latex_project_id}"
+                if sync_result.latex_project_id
+                else None
+            ),
+            "next_actions": normalized_actions,
+        }
+    return result
 
 
 # ---------------------------------------------------------------------------

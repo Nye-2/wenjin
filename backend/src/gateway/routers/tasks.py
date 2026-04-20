@@ -72,9 +72,16 @@ async def stream_task_progress(
     if not status:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    from src.task.sse import create_task_sse_stream
+    from src.task.sse import TaskEventStreamUnavailable, create_task_sse_stream
+    try:
+        stream = await create_task_sse_stream(task_id)
+    except TaskEventStreamUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Task event stream is temporarily unavailable",
+        ) from exc
     return StreamingResponse(
-        create_task_sse_stream(task_id),
+        stream,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

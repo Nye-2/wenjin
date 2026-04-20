@@ -9,11 +9,20 @@ import { LatexPdfPreview } from "@/components/latex/LatexPdfPreview";
 import { LatexToolbar } from "@/components/latex/LatexToolbar";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
-import type { LatexFeedbackAnchor, LatexFeedbackItem, LatexPdfAnchor } from "@/lib/api";
+import type {
+  LatexCompileEngine,
+  LatexFeedbackAnchor,
+  LatexFeedbackItem,
+  LatexPdfAnchor,
+  LatexFeedbackRewriteCandidate,
+  LatexFeedbackRewriteUndoPayload,
+} from "@/lib/api";
 import {
+  applyLatexFeedbackRewrite,
   getLatexProjectFeedback,
   mapLatexFeedbackSelection,
-  rewriteLatexFeedback,
+  previewLatexFeedbackRewrite,
+  revertLatexFeedbackRewrite,
   saveLatexProjectFeedback,
 } from "@/lib/api";
 import {
@@ -39,6 +48,11 @@ interface PdfDraftSelection {
     width: number;
     height: number;
   }>;
+}
+
+interface LastRewriteUndoState extends LatexFeedbackRewriteUndoPayload {
+  file_path: string;
+  feedback_id: string;
 }
 
 function isTextFile(path: string): boolean {
@@ -192,7 +206,7 @@ function resolveFeedbackRange(
     const found = content.indexOf(targetText, searchIndex);
     if (found === -1) break;
     candidateStarts.push(found);
-    if (candidateStarts.length >= 100) break;
+    if (candidateStarts.length >= 120) break;
     searchIndex = found + Math.max(1, targetText.length);
   }
   if (!candidateStarts.length) return null;
@@ -274,6 +288,151 @@ function resolveSnippetRange(
   }
   return best;
 }
+
+function readClientErrorMessage(error: unknown): string {
+  if (error && typeof error === "object" && "response" in error) {
+    const response = (error as { response?: { data?: unknown } }).response;
+    const data = response?.data;
+    if (typeof data === "string" && data.trim()) {
+      return data;
+    }
+    if (data && typeof data === "object" && "detail" in data) {
+      const detail = (data as { detail?: unknown }).detail;
+      if (typeof detail === "string" && detail.trim()) {
+        return detail;
+      }
+      if (detail && typeof detail === "object" && "message" in detail) {
+        const message = (detail as { message?: unknown }).message;
+        if (typeof message === "string" && message.trim()) {
+          return message;
+        }
+      }
+    }
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function readClientErrorCode(error: unknown): string | null {
+  if (!(error && typeof error === "object" && "response" in error)) {
+    return null;
+  }
+  const response = (error as { response?: { data?: unknown } }).response;
+  const data = response?.data;
+  if (!(data && typeof data === "object" && "detail" in data)) {
+    return null;
+  }
+  const detail = (data as { detail?: unknown }).detail;
+  if (!(detail && typeof detail === "object" && "code" in detail)) {
+    return null;
+  }
+  const code = (detail as { code?: unknown }).code;
+  if (typeof code !== "string" || !code.trim()) {
+    return null;
+  }
+  return code;
+}
+
+function readClientErrorDetailField(error: unknown, field: string): string | null {
+  if (!(error && typeof error === "object" && "response" in error)) {
+    return null;
+  }
+  const response = (error as { response?: { data?: unknown } }).response;
+  const data = response?.data;
+  if (!(data && typeof data === "object" && "detail" in data)) {
+    return null;
+  }
+  const detail = (data as { detail?: unknown }).detail;
+  if (!(detail && typeof detail === "object")) {
+    return null;
+  }
+  const value = (detail as Record<string, unknown>)[field];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function rewriteProfileLabel(profile: "balanced" | "conservative" | "aggressive"): string {
+  if (profile === "conservative") return "保守";
+  if (profile === "aggressive") return "激进";
+  return "平衡";
+}
+
+function riskLevelLabel(level: "low" | "medium" | "high"): string {
+  if (level === "high") return "高风险";
+  if (level === "medium") return "中风险";
+  return "低风险";
+}
+
+function riskLevelClass(level: "low" | "medium" | "high"): string {
+  if (level === "high") return "border-red-500/25 bg-red-500/10 text-red-700";
+  if (level === "medium") return "border-amber-500/25 bg-amber-500/10 text-amber-800";
+  return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700";
+}
+
+function riskFlagClass(flag: string): string {
+  if (["boundary_leak", "citation_drop", "label_drop", "brace_unbalanced"].includes(flag)) {
+    return "border-red-500/25 bg-red-500/10 text-red-700";
+  }
+  if (["math_structure_change", "math_change", "large_change"].includes(flag)) {
+    return "border-amber-500/25 bg-amber-500/10 text-amber-800";
+  }
+  return "border-[var(--border-default)] bg-white/80 text-[var(--text-muted)]";
+}
+
+function riskFlagLabel(flag: string): string {
+  const labels: Record<string, string> = {
+    boundary_leak: "越界改写",
+    citation_drop: "引用被删",
+    label_drop: "标签被删",
+    brace_unbalanced: "花括号不平衡",
+    math_structure_change: "数学结构变化",
+    math_change: "数学相关改动",
+    large_change: "改动较大",
+    citation_change: "引用改动",
+    label_change: "标签改动",
+  };
+  return labels[flag] || flag;
+}
+
+function tokenKindLabel(kind: string): string {
+  if (kind === "citation") return "引用";
+  if (kind === "label") return "标签";
+  if (kind === "math") return "数学";
+  if (kind === "env") return "环境";
+  if (kind === "latex_cmd") return "命令";
+  return "文本";
+}
+
+function diffOpLabel(op: "equal" | "insert" | "delete" | "replace"): string {
+  if (op === "replace") return "替换";
+  if (op === "insert") return "新增";
+  if (op === "delete") return "删除";
+  return "保持";
+}
+
+function isWhitespaceOnlyDiffOp(op: { old_text: string; new_text: string }): boolean {
+  const oldCompact = op.old_text.replace(/\s+/g, "");
+  const newCompact = op.new_text.replace(/\s+/g, "");
+  return oldCompact === newCompact && op.old_text !== op.new_text;
+}
+
+const STALE_REWRITE_ERROR_CODES = new Set([
+  "invalid_candidate_signature",
+  "base_file_hash_mismatch",
+  "base_range_hash_mismatch",
+  "target_range_out_of_bounds",
+]);
+
+const STRUCTURE_REWRITE_ERROR_CODES = new Set([
+  "boundary_leak",
+  "citation_drop",
+  "label_drop",
+  "ref_drop",
+  "brace_unbalanced",
+  "environment_unbalanced",
+  "math_delimiter_unbalanced",
+]);
 
 function parsePdfAnchor(
   value: unknown,
@@ -399,11 +558,13 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
     deletePath,
     saveOrder,
     uploadFiles,
+    uploadDirectory,
+    uploadArchive,
     resolveConflict,
     deleteProject,
     compileProject,
   } = useLatexStore();
-  const [engine, setEngine] = useState<"xelatex" | "pdflatex">("xelatex");
+  const [engine, setEngine] = useState<LatexCompileEngine>("xelatex");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedPathType, setSelectedPathType] = useState<"file" | "dir" | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
@@ -417,6 +578,15 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
   const [feedbackBusyId, setFeedbackBusyId] = useState<string | null>(null);
   const [feedbackStatus, setFeedbackStatus] = useState<string>("");
   const [feedbackError, setFeedbackError] = useState<string>("");
+  const [rewritePreviewFilePath, setRewritePreviewFilePath] = useState<string | null>(null);
+  const [rewritePreviewFeedbackId, setRewritePreviewFeedbackId] = useState<string | null>(null);
+  const [rewriteCandidates, setRewriteCandidates] = useState<LatexFeedbackRewriteCandidate[]>([]);
+  const [selectedRewriteCandidateId, setSelectedRewriteCandidateId] = useState<string | null>(null);
+  const [diffViewMode, setDiffViewMode] = useState<"inline" | "side-by-side">("inline");
+  const [showWhitespaceOnlyDiff, setShowWhitespaceOnlyDiff] = useState(false);
+  const [collapsedDiffHunks, setCollapsedDiffHunks] = useState<Record<string, boolean>>({});
+  const [isApplyingRewrite, setIsApplyingRewrite] = useState(false);
+  const [lastRewriteUndo, setLastRewriteUndo] = useState<LastRewriteUndoState | null>(null);
   const [pdfDraftSelection, setPdfDraftSelection] = useState<PdfDraftSelection | null>(null);
   const [transientPdfAnchor, setTransientPdfAnchor] = useState<LatexPdfAnchor | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -475,6 +645,53 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
       })),
     [feedbackItems],
   );
+  const selectedRewriteCandidate = useMemo(() => {
+    if (!rewriteCandidates.length) {
+      return null;
+    }
+    if (!selectedRewriteCandidateId) {
+      return rewriteCandidates[0];
+    }
+    return rewriteCandidates.find((item) => item.candidate_id === selectedRewriteCandidateId) || rewriteCandidates[0];
+  }, [rewriteCandidates, selectedRewriteCandidateId]);
+  const selectedRewriteCandidateIndex = useMemo(() => {
+    if (!selectedRewriteCandidate) {
+      return -1;
+    }
+    return rewriteCandidates.findIndex(
+      (item) => item.candidate_id === selectedRewriteCandidate.candidate_id,
+    );
+  }, [rewriteCandidates, selectedRewriteCandidate]);
+  const previewFeedbackItem = useMemo(
+    () => feedbackItems.find((item) => item.id === rewritePreviewFeedbackId) || null,
+    [feedbackItems, rewritePreviewFeedbackId],
+  );
+  const clearRewritePreview = useCallback((resetPending = true) => {
+    const previewFeedbackId = rewritePreviewFeedbackId;
+    if (resetPending && previewFeedbackId) {
+      setFeedbackItems((prev) =>
+        prev.map((entry) => (
+          entry.id === previewFeedbackId && entry.last_status === "pending"
+            ? {
+              ...entry,
+              last_status: "idle",
+              last_error: "",
+            }
+            : entry
+        )),
+      );
+    }
+    setRewritePreviewFilePath(null);
+    setRewritePreviewFeedbackId(null);
+    setRewriteCandidates([]);
+    setSelectedRewriteCandidateId(null);
+    setDiffViewMode("inline");
+    setCollapsedDiffHunks({});
+  }, [rewritePreviewFeedbackId]);
+
+  useEffect(() => {
+    setCollapsedDiffHunks({});
+  }, [selectedRewriteCandidateId, rewritePreviewFeedbackId]);
 
   const handlePdfSelection = useCallback(async (payload: PdfDraftSelection) => {
     setPdfDraftSelection(payload);
@@ -552,9 +769,10 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
     setFeedbackDraftComment("");
     setActiveFeedbackId(null);
     setFeedbackBusyId(null);
+    clearRewritePreview();
     setPdfDraftSelection(null);
     setTransientPdfAnchor(null);
-  }, [activeFilePath]);
+  }, [activeFilePath, clearRewritePreview]);
 
   useEffect(() => {
     if (
@@ -646,7 +864,7 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
         setFeedbackItems(normalized);
       } catch (err) {
         if (!cancelled) {
-          setFeedbackError(`加载点评失败: ${String(err)}`);
+          setFeedbackError(`加载点评失败: ${readClientErrorMessage(err)}`);
         }
       } finally {
         if (!cancelled) {
@@ -669,7 +887,7 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
     }
     feedbackSaveTimerRef.current = window.setTimeout(() => {
       void saveLatexProjectFeedback(projectId, feedbackItems).catch((err) => {
-        setFeedbackError(`保存点评失败: ${String(err)}`);
+        setFeedbackError(`保存点评失败: ${readClientErrorMessage(err)}`);
       });
     }, 500);
     return () => {
@@ -776,7 +994,6 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
       anchor,
       source,
       pdf_anchor: pdfAnchor,
-      tex_anchor: anchor,
       last_status: "idle",
       last_error: "",
     };
@@ -829,12 +1046,21 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
     if (activeFeedbackId === feedbackId) {
       setActiveFeedbackId(null);
     }
-  }, [activeFeedbackId]);
+    if (rewritePreviewFeedbackId === feedbackId) {
+      clearRewritePreview(false);
+    }
+    if (lastRewriteUndo?.feedback_id === feedbackId) {
+      setLastRewriteUndo(null);
+    }
+  }, [activeFeedbackId, clearRewritePreview, lastRewriteUndo, rewritePreviewFeedbackId]);
 
   const rewriteFromFeedback = useCallback(async (item: LatexFeedbackItem) => {
     if (!project || activeFileKind !== "text") {
       setFeedbackError("当前文件不可执行点评改写。");
       return;
+    }
+    if (rewritePreviewFeedbackId && rewritePreviewFeedbackId !== item.id) {
+      clearRewritePreview();
     }
     setFeedbackBusyId(item.id);
     setFeedbackError("");
@@ -844,7 +1070,7 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
       if (!resolved) {
         throw new Error("无法在当前文本中定位该点评原文。");
       }
-      const response = await rewriteLatexFeedback(project.id, {
+      const response = await previewLatexFeedbackRewrite(project.id, {
         file_path: item.file_path,
         selected_text: resolved.text,
         comment: item.comment,
@@ -853,28 +1079,99 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
         anchor: item.anchor || buildFeedbackAnchor(activeFileContent, resolved.start, resolved.end),
         scope: feedbackScope,
         file_content: activeFileContent,
-        apply: false,
       });
-      const nextContent = response.proposed_content;
-      setActiveFileContent(nextContent);
-      const nextStart = response.target_start;
-      const nextEnd = response.target_start + response.rewritten_text.length;
+      if (!response.candidates || response.candidates.length === 0) {
+        throw new Error("模型未返回可用改写候选。");
+      }
+      setRewritePreviewFilePath(response.file_path);
+      setRewritePreviewFeedbackId(item.id);
+      setRewriteCandidates(response.candidates);
+      setSelectedRewriteCandidateId(response.candidates[0].candidate_id);
+      setFeedbackItems((prev) =>
+        prev.map((entry) =>
+          entry.id === item.id
+            ? {
+              ...entry,
+              last_status: "pending",
+              last_error: "",
+            }
+            : entry,
+        ),
+      );
+      const nextStart = response.resolved_selection_start;
+      const nextEnd = response.resolved_selection_end;
       if (editorRef.current) {
         editorRef.current.focus();
         editorRef.current.setSelectionRange(nextStart, nextEnd);
       }
       setSelectionRange([nextStart, nextEnd]);
+      setActiveFeedbackId(item.id);
+      setFeedbackStatus("已生成改写候选，请先查看 diff 并确认应用。");
+    } catch (err) {
+      const message = readClientErrorMessage(err);
+      setFeedbackError(`点评改写失败: ${message}`);
+      clearRewritePreview(false);
+      setFeedbackItems((prev) =>
+        prev.map((entry) =>
+          entry.id === item.id
+            ? { ...entry, last_status: "error", last_error: message }
+            : entry,
+        ),
+      );
+    } finally {
+      setFeedbackBusyId(null);
+    }
+  }, [
+    activeFileContent,
+    activeFileKind,
+    clearRewritePreview,
+    feedbackScope,
+    project,
+    rewritePreviewFeedbackId,
+  ]);
+
+  const applyRewriteCandidate = useCallback(async () => {
+    if (!project || !selectedRewriteCandidate || !rewritePreviewFeedbackId || !rewritePreviewFilePath) {
+      return;
+    }
+    setIsApplyingRewrite(true);
+    setFeedbackError("");
+    try {
+      const response = await applyLatexFeedbackRewrite(project.id, {
+        file_path: rewritePreviewFilePath,
+        candidate_id: selectedRewriteCandidate.candidate_id,
+        candidate_signature: selectedRewriteCandidate.candidate_signature,
+        target_start: selectedRewriteCandidate.target_start,
+        target_end: selectedRewriteCandidate.target_end,
+        rewritten_text: selectedRewriteCandidate.rewritten_text,
+        base_file_hash: selectedRewriteCandidate.base_file_hash,
+        base_range_hash: selectedRewriteCandidate.base_range_hash,
+      });
+
+      if (activeFilePath !== response.file_path) {
+        setSelectedPath(response.file_path);
+        setSelectedPathType("file");
+      }
+      await openFile(response.file_path);
+
+      const nextEnd = response.target_start + response.rewritten_text.length;
+      setSelectionRange([response.target_start, nextEnd]);
+      if (editorRef.current) {
+        editorRef.current.focus();
+        editorRef.current.setSelectionRange(response.target_start, nextEnd);
+      }
+
       setFeedbackItems((prev) =>
         shiftFeedbacksAfterRewrite(
           prev,
-          item.file_path,
-          item.id,
+          response.file_path,
+          rewritePreviewFeedbackId,
           response.target_start,
           response.target_end,
           response.rewritten_text,
-          nextContent,
+          response.applied_content,
         ).map((entry) => (
-          entry.id === item.id
+          entry.id === rewritePreviewFeedbackId
             ? {
               ...entry,
               anchor: response.updated_anchor,
@@ -885,25 +1182,185 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
             : entry
         )),
       );
-      setActiveFeedbackId(item.id);
-      setFeedbackStatus(
-        response.scope === "section"
-          ? `已按点评重写 section：${response.section_title}`
-          : "已按点评重写选区。",
-      );
+      setActiveFeedbackId(rewritePreviewFeedbackId);
+      setLastRewriteUndo({
+        ...response.undo,
+        file_path: response.file_path,
+        feedback_id: rewritePreviewFeedbackId,
+      });
+      setFeedbackStatus("已应用改写并写回文件。");
+      clearRewritePreview(false);
     } catch (err) {
-      setFeedbackError(`点评改写失败: ${String(err)}`);
+      const code = readClientErrorCode(err);
+      let message = readClientErrorMessage(err);
+      if (code === "rewrite_compile_failed") {
+        const compileError = readClientErrorDetailField(err, "compile_error");
+        message = compileError
+          ? `编译校验未通过（已自动回滚）：${compileError}`
+          : "编译校验未通过，系统已自动回滚。";
+        setFeedbackStatus("候选未被应用，文件已自动回滚。");
+      } else if (code && STRUCTURE_REWRITE_ERROR_CODES.has(code)) {
+        message = "改写未通过结构安全校验，请切换候选或重新生成。";
+      }
+      const staleCandidate = Boolean(code && STALE_REWRITE_ERROR_CODES.has(code));
+      setFeedbackError(`应用改写失败: ${message}`);
       setFeedbackItems((prev) =>
         prev.map((entry) =>
-          entry.id === item.id
-            ? { ...entry, last_status: "error", last_error: String(err) }
+          entry.id === rewritePreviewFeedbackId
+            ? { ...entry, last_status: "error", last_error: message }
             : entry,
         ),
       );
+      if (staleCandidate) {
+        clearRewritePreview(false);
+        setFeedbackStatus("改写候选已失效，请重新生成 diff。");
+      }
     } finally {
-      setFeedbackBusyId(null);
+      setIsApplyingRewrite(false);
     }
-  }, [activeFileContent, activeFileKind, feedbackScope, project, setActiveFileContent]);
+  }, [
+    activeFilePath,
+    clearRewritePreview,
+    openFile,
+    project,
+    rewritePreviewFeedbackId,
+    rewritePreviewFilePath,
+    selectedRewriteCandidate,
+  ]);
+
+  const regenerateRewritePreview = useCallback(async () => {
+    if (!previewFeedbackItem || feedbackBusyId || isApplyingRewrite) {
+      return;
+    }
+    await rewriteFromFeedback(previewFeedbackItem);
+  }, [feedbackBusyId, isApplyingRewrite, previewFeedbackItem, rewriteFromFeedback]);
+
+  const copySelectedRewrite = useCallback(async () => {
+    if (!selectedRewriteCandidate) {
+      return;
+    }
+    if (!navigator?.clipboard?.writeText) {
+      setFeedbackError("当前环境不支持复制到剪贴板。");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(selectedRewriteCandidate.rewritten_text);
+      setFeedbackStatus("已复制当前候选改写文本。");
+    } catch {
+      setFeedbackError("复制失败，请检查浏览器剪贴板权限。");
+    }
+  }, [selectedRewriteCandidate]);
+
+  const toggleDiffHunkCollapsed = useCallback((hunkKey: string) => {
+    setCollapsedDiffHunks((prev) => ({
+      ...prev,
+      [hunkKey]: !prev[hunkKey],
+    }));
+  }, []);
+
+  const setAllDiffHunksCollapsed = useCallback((collapsed: boolean) => {
+    if (!selectedRewriteCandidate) {
+      return;
+    }
+    const next: Record<string, boolean> = {};
+    selectedRewriteCandidate.diff.hunks.forEach((hunk, index) => {
+      const key = `${hunk.old_start}-${hunk.old_end}-${hunk.new_start}-${hunk.new_end}-${index}`;
+      next[key] = collapsed;
+    });
+    setCollapsedDiffHunks(next);
+  }, [selectedRewriteCandidate]);
+
+  const undoLastRewrite = useCallback(async () => {
+    if (!project || !lastRewriteUndo) {
+      return;
+    }
+    setIsApplyingRewrite(true);
+    setFeedbackError("");
+    try {
+      const response = await revertLatexFeedbackRewrite(project.id, {
+        file_path: lastRewriteUndo.file_path,
+        candidate_id: lastRewriteUndo.candidate_id,
+        revert_start: lastRewriteUndo.revert_start,
+        revert_end: lastRewriteUndo.revert_end,
+        rewritten_text: lastRewriteUndo.rewritten_text,
+        previous_text: lastRewriteUndo.previous_text,
+        applied_file_hash: lastRewriteUndo.applied_file_hash,
+        revert_signature: lastRewriteUndo.revert_signature,
+      });
+
+      if (activeFilePath !== response.file_path) {
+        setSelectedPath(response.file_path);
+        setSelectedPathType("file");
+      }
+      await openFile(response.file_path);
+
+      const nextEnd = response.revert_start + response.restored_text.length;
+      setSelectionRange([response.revert_start, nextEnd]);
+      if (editorRef.current) {
+        editorRef.current.focus();
+        editorRef.current.setSelectionRange(response.revert_start, nextEnd);
+      }
+
+      setFeedbackItems((prev) =>
+        shiftFeedbacksAfterRewrite(
+          prev,
+          response.file_path,
+          lastRewriteUndo.feedback_id,
+          response.revert_start,
+          response.revert_end,
+          response.restored_text,
+          response.reverted_content,
+        ).map((entry) =>
+          entry.id === lastRewriteUndo.feedback_id
+            ? {
+              ...entry,
+              anchor: response.updated_anchor,
+              pdf_anchor: null,
+              last_status: "idle",
+              last_error: "",
+            }
+            : entry,
+        ),
+      );
+      setActiveFeedbackId(lastRewriteUndo.feedback_id);
+      setFeedbackStatus("已撤销最近一次改写。");
+      setLastRewriteUndo(null);
+    } catch (err) {
+      setFeedbackError(`撤销改写失败: ${readClientErrorMessage(err)}`);
+    } finally {
+      setIsApplyingRewrite(false);
+    }
+  }, [activeFilePath, lastRewriteUndo, openFile, project]);
+
+  useEffect(() => {
+    if (!rewritePreviewFeedbackId || !selectedRewriteCandidate) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "enter") {
+        if (!isApplyingRewrite && !isSaving) {
+          event.preventDefault();
+          void applyRewriteCandidate();
+        }
+        return;
+      }
+      if (event.key === "Escape" && !isApplyingRewrite) {
+        event.preventDefault();
+        clearRewritePreview();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [
+    applyRewriteCandidate,
+    clearRewritePreview,
+    isApplyingRewrite,
+    isSaving,
+    rewritePreviewFeedbackId,
+    selectedRewriteCandidate,
+  ]);
 
   const addFeedbackAndRewrite = useCallback(async () => {
     const item = await createFeedbackFromSelection(true);
@@ -985,6 +1442,8 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
               onCreateFile={(path) => createFile(path)}
               onCreateFolder={(path) => createFolder(path)}
               onUploadFiles={(files) => uploadFiles(files, currentFolder || undefined)}
+              onUploadDirectory={(files) => uploadDirectory(files, currentFolder || undefined)}
+              onUploadArchive={(archive) => uploadArchive(archive, currentFolder || undefined)}
               isSaving={isSaving}
               isCompiling={isCompiling}
               disableActions={isProjectLoading}
@@ -1095,6 +1554,261 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
                   {feedbackStatus}
                 </div>
               ) : null}
+              {lastRewriteUndo ? (
+                <div className="mt-2 flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-white/80 px-3 py-2">
+                  <p className="text-xs text-[var(--text-muted)]">可撤销最近一次改写</p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void undoLastRewrite()}
+                    disabled={isApplyingRewrite || isSaving}
+                  >
+                    {isApplyingRewrite ? "处理中..." : "撤销最近改写"}
+                  </Button>
+                </div>
+              ) : null}
+              {rewritePreviewFeedbackId && selectedRewriteCandidate ? (
+                <div className="mt-3 rounded-xl border border-[var(--border-default)] bg-white/80 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                        Rewrite Diff Preview
+                      </p>
+                      <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                        候选 {selectedRewriteCandidateIndex + 1}/{rewriteCandidates.length} · Ctrl/Cmd + Enter 应用 · Esc 取消
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="inline-flex rounded-md border border-[var(--border-default)] bg-white/80 p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setDiffViewMode("inline")}
+                          className={`rounded px-2 py-1 text-xs ${diffViewMode === "inline" ? "bg-[var(--brand-navy)] text-white" : "text-[var(--text-muted)]"}`}
+                        >
+                          Inline
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDiffViewMode("side-by-side")}
+                          className={`rounded px-2 py-1 text-xs ${diffViewMode === "side-by-side" ? "bg-[var(--brand-navy)] text-white" : "text-[var(--text-muted)]"}`}
+                        >
+                          Side-by-side
+                        </button>
+                      </div>
+                      <select
+                        value={selectedRewriteCandidate.candidate_id}
+                        onChange={(event) => setSelectedRewriteCandidateId(event.target.value)}
+                        className="rounded-md border border-[var(--border-default)] bg-white px-2 py-1 text-xs"
+                      >
+                        {rewriteCandidates.map((candidate, index) => (
+                          <option key={candidate.candidate_id} value={candidate.candidate_id}>
+                            候选 {index + 1} · {rewriteProfileLabel(candidate.profile)} · {riskLevelLabel(candidate.risk_level)}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void regenerateRewritePreview()}
+                        disabled={!previewFeedbackItem || Boolean(feedbackBusyId) || isApplyingRewrite}
+                      >
+                        {feedbackBusyId ? "重生成中..." : "重生成"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void copySelectedRewrite()}
+                        disabled={isApplyingRewrite}
+                      >
+                        复制改写
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => clearRewritePreview()}
+                        disabled={isApplyingRewrite}
+                      >
+                        取消
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => void applyRewriteCandidate()}
+                        disabled={isApplyingRewrite || isSaving}
+                      >
+                        {isApplyingRewrite ? "应用中..." : "确认应用"}
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-[var(--text-muted)]">
+                    {selectedRewriteCandidate.scope === "section"
+                      ? `重写范围：section（${selectedRewriteCandidate.section_title}）`
+                      : "重写范围：仅选区"}
+                    {" · "}
+                    风格：{rewriteProfileLabel(selectedRewriteCandidate.profile)}
+                    {" · "}
+                    <span className={`inline-flex rounded-full border px-1.5 py-0.5 ${riskLevelClass(selectedRewriteCandidate.risk_level)}`}>
+                      {riskLevelLabel(selectedRewriteCandidate.risk_level)}
+                    </span>
+                    {" · "}
+                    变更 token {selectedRewriteCandidate.diff.stats.tokens_changed}
+                    {" · +"}
+                    {selectedRewriteCandidate.diff.stats.chars_added}
+                    {" / -"}
+                    {selectedRewriteCandidate.diff.stats.chars_deleted}
+                  </p>
+                  {selectedRewriteCandidate.changes_summary.trim() ? (
+                    <p className="mt-2 rounded-lg border border-[var(--border-default)] bg-white/80 px-2 py-1 text-xs text-[var(--text-primary)]">
+                      模型摘要：{selectedRewriteCandidate.changes_summary.trim()}
+                    </p>
+                  ) : null}
+                  {selectedRewriteCandidate.diff.risk_flags.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {selectedRewriteCandidate.diff.risk_flags.map((flag) => (
+                        <span
+                          key={flag}
+                          className={`rounded-full border px-2 py-0.5 text-[11px] ${riskFlagClass(flag)}`}
+                        >
+                          {riskFlagLabel(flag)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowWhitespaceOnlyDiff((prev) => !prev)}
+                    >
+                      {showWhitespaceOnlyDiff ? "隐藏空白改动" : "显示空白改动"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setAllDiffHunksCollapsed(true)}
+                    >
+                      折叠全部 Hunk
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setAllDiffHunksCollapsed(false)}
+                    >
+                      展开全部 Hunk
+                    </Button>
+                  </div>
+                  <div className="mt-3 max-h-[320px] space-y-2 overflow-auto rounded-lg border border-[var(--border-default)] bg-[rgba(19,34,53,0.03)] p-2">
+                    {selectedRewriteCandidate.diff.hunks.length === 0 ? (
+                      <p className="text-xs text-[var(--text-muted)]">未检测到文本差异。</p>
+                    ) : (
+                      selectedRewriteCandidate.diff.hunks.map((hunk, index) => {
+                        const hunkKey = `${hunk.old_start}-${hunk.old_end}-${hunk.new_start}-${hunk.new_end}-${index}`;
+                        const changedOps = hunk.ops.filter((op) => op.op !== "equal");
+                        const hiddenWhitespaceCount = changedOps.filter((op) => isWhitespaceOnlyDiffOp(op)).length;
+                        const visibleOps = showWhitespaceOnlyDiff
+                          ? changedOps
+                          : changedOps.filter((op) => !isWhitespaceOnlyDiffOp(op));
+                        const isCollapsed = Boolean(collapsedDiffHunks[hunkKey]);
+                        return (
+                          <div key={hunkKey} className="rounded-md border border-[var(--border-default)] bg-white/80 p-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-[11px] text-[var(--text-muted)]">
+                                Hunk #{index + 1} · old {hunk.old_start}-{hunk.old_end} · new {hunk.new_start}-{hunk.new_end}
+                              </p>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => toggleDiffHunkCollapsed(hunkKey)}
+                              >
+                                {isCollapsed ? "展开" : "折叠"}
+                              </Button>
+                            </div>
+                            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                              token {hunk.stats.tokens_changed} · +{hunk.stats.chars_added} / -{hunk.stats.chars_deleted}
+                              {hiddenWhitespaceCount > 0 && !showWhitespaceOnlyDiff
+                                ? ` · 已隐藏空白改动 ${hiddenWhitespaceCount} 条`
+                                : ""}
+                            </p>
+                            {hunk.risk_flags.length > 0 ? (
+                              <div className="mt-1 flex flex-wrap gap-1.5">
+                                {hunk.risk_flags.map((flag) => (
+                                  <span key={flag} className={`rounded-full border px-2 py-0.5 text-[10px] ${riskFlagClass(flag)}`}>
+                                    {riskFlagLabel(flag)}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            {!isCollapsed ? (
+                              visibleOps.length > 0 ? (
+                                diffViewMode === "inline" ? (
+                                  <div className="mt-1 space-y-1">
+                                    {visibleOps.map((op, opIndex) => (
+                                      <div key={`${op.old_start}-${op.new_start}-${opIndex}`} className="text-xs leading-5">
+                                        <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+                                          <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                                            {diffOpLabel(op.op)}
+                                          </span>
+                                          <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                                            {tokenKindLabel(op.token_kind)}
+                                          </span>
+                                          {isWhitespaceOnlyDiffOp(op) ? (
+                                            <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                                              仅空白改动
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                        {op.op === "replace" ? (
+                                          <>
+                                            <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-red-500/10 px-2 py-0.5 font-mono text-[12px] text-red-700">- {op.old_text || "(空)"}</pre>
+                                            <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-emerald-500/10 px-2 py-0.5 font-mono text-[12px] text-emerald-700">+ {op.new_text || "(空)"}</pre>
+                                          </>
+                                        ) : op.op === "insert" ? (
+                                          <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-emerald-500/10 px-2 py-0.5 font-mono text-[12px] text-emerald-700">+ {op.new_text || "(空)"}</pre>
+                                        ) : (
+                                          <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-red-500/10 px-2 py-0.5 font-mono text-[12px] text-red-700">- {op.old_text || "(空)"}</pre>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 space-y-1">
+                                    {visibleOps.map((op, opIndex) => (
+                                      <div key={`${op.old_start}-${op.new_start}-${opIndex}`} className="space-y-1">
+                                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+                                          <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                                            {diffOpLabel(op.op)}
+                                          </span>
+                                          <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                                            {tokenKindLabel(op.token_kind)}
+                                          </span>
+                                          {isWhitespaceOnlyDiffOp(op) ? (
+                                            <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                                              仅空白改动
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                        <div className="grid gap-2 md:grid-cols-2">
+                                          <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "insert" ? "bg-[rgba(19,34,53,0.04)] text-[var(--text-muted)]" : "bg-red-500/10 text-red-700"}`}>
+                                            {op.op === "insert" ? "(空)" : op.old_text || "(空)"}
+                                          </pre>
+                                          <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "delete" ? "bg-[rgba(19,34,53,0.04)] text-[var(--text-muted)]" : "bg-emerald-500/10 text-emerald-700"}`}>
+                                            {op.op === "delete" ? "(空)" : op.new_text || "(空)"}
+                                          </pre>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )
+                              ) : (
+                                <p className="mt-1 text-xs text-[var(--text-muted)]">当前 hunk 仅包含空白改动。</p>
+                              )
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
               <div className="mt-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
                   当前文件点评
@@ -1120,7 +1834,7 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
                             {item.last_status === "error"
                               ? "失败"
                               : item.last_status === "pending"
-                                ? "待采纳"
+                                ? "待确认"
                                 : item.last_status === "done"
                                   ? "已采纳"
                                   : "已保存"}
@@ -1140,7 +1854,7 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
                           <Button
                             size="sm"
                             onClick={() => void rewriteFromFeedback(item)}
-                            disabled={feedbackBusyId === item.id}
+                            disabled={feedbackBusyId === item.id || isApplyingRewrite}
                           >
                             {feedbackBusyId === item.id ? "生成中..." : "AI 重写"}
                           </Button>

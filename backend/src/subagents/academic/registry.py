@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 
+from src.config.config_loader import get_app_config
+
 from .prompts import (
     ANALYST_PROMPT,
     GAP_MINER_PROMPT,
@@ -51,6 +53,8 @@ class SubagentConfig:
     tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
     max_turns: int = 10
+    timeout: int | None = None
+    model_name: str | None = None
 
     def __post_init__(self) -> None:
         self.tools = _normalize_tool_names(self.tools)
@@ -62,6 +66,8 @@ class SubagentConfig:
         tools: Iterable[str] | None = None,
         disallowed_tools: Iterable[str] | None = None,
         max_turns: int | None = None,
+        timeout: int | None = None,
+        model_name: str | None = None,
     ) -> SubagentConfig:
         """Return a copied config with selected overrides applied."""
         return replace(
@@ -71,6 +77,8 @@ class SubagentConfig:
                 self.disallowed_tools if disallowed_tools is None else disallowed_tools
             ),
             max_turns=self.max_turns if max_turns is None else max_turns,
+            timeout=self.timeout if timeout is None else timeout,
+            model_name=self.model_name if model_name is None else model_name,
         )
 
 
@@ -225,9 +233,73 @@ class SubagentRegistry:
 
 
 registry = SubagentRegistry(DEFAULT_SUBAGENTS)
-def get_subagent_config(subagent_type: str) -> SubagentConfig:
+
+
+def _resolve_config_overrides(subagent_type: str) -> dict[str, object]:
+    """Resolve optional subagent-type overrides from app config."""
+    normalized_type = _normalize_subagent_type(subagent_type)
+    try:
+        app_config = get_app_config()
+    except Exception:
+        return {}
+
+    subagents = getattr(app_config, "subagents", None)
+    type_map = getattr(subagents, "types", None)
+    if not isinstance(type_map, dict):
+        return {}
+
+    override = type_map.get(normalized_type)
+    if override is None:
+        return {}
+
+    allowed_tools = list(getattr(override, "allowed_tools", []) or [])
+    disallowed_tools = list(getattr(override, "disallowed_tools", []) or [])
+    max_turns = getattr(override, "max_turns", None)
+    timeout = getattr(override, "timeout", None)
+    model_name = getattr(override, "model_name", None)
+
+    resolved: dict[str, object] = {}
+    if allowed_tools:
+        resolved["tools"] = _normalize_tool_names(allowed_tools)
+    if disallowed_tools:
+        resolved["disallowed_tools"] = _normalize_tool_names(disallowed_tools)
+    if isinstance(max_turns, int) and max_turns > 0:
+        resolved["max_turns"] = max_turns
+    if isinstance(timeout, int) and timeout > 0:
+        resolved["timeout"] = timeout
+    if isinstance(model_name, str) and model_name.strip():
+        resolved["model_name"] = model_name.strip()
+    return resolved
+
+
+def get_subagent_config(
+    subagent_type: str,
+    *,
+    apply_runtime_overrides: bool = False,
+) -> SubagentConfig:
     """Get subagent configuration by type."""
-    return registry.require(subagent_type)
+    base = registry.require(subagent_type)
+    if not apply_runtime_overrides:
+        return base
+
+    overrides = _resolve_config_overrides(subagent_type)
+    if not overrides:
+        return base
+
+    tools_override = overrides.get("tools")
+    disallowed_override = overrides.get("disallowed_tools")
+    max_turns_override = overrides.get("max_turns")
+    timeout_override = overrides.get("timeout")
+    model_override = overrides.get("model_name")
+    return base.copy_with(
+        tools=tools_override if isinstance(tools_override, list) else None,
+        disallowed_tools=(
+            disallowed_override if isinstance(disallowed_override, list) else None
+        ),
+        max_turns=max_turns_override if isinstance(max_turns_override, int) else None,
+        timeout=timeout_override if isinstance(timeout_override, int) else None,
+        model_name=model_override if isinstance(model_override, str) else None,
+    )
 
 
 def get_all_subagent_types() -> list[str]:

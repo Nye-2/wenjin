@@ -133,6 +133,55 @@ class WorkspaceSummaryResponse(BaseModel):
     recent_activity: WorkspaceSummaryRecentActivityResponse | None = None
 
 
+class ExecutionSessionResponse(BaseModel):
+    """Execution session aggregate exposed to frontend runtime surfaces."""
+
+    id: str
+    user_id: str
+    workspace_id: str
+    thread_id: str | None = None
+    workspace_type: str
+    feature_id: str
+    entry_skill_id: str | None = None
+    launch_source: str
+    launch_message: str | None = None
+    status: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    task_ids: list[str] = Field(default_factory=list)
+    primary_task_id: str | None = None
+    runtime_snapshot: dict[str, Any] | None = None
+    progress: int | None = None
+    task_message: str | None = None
+    current_step: str | None = None
+    result_payload: dict[str, Any] | None = None
+    token_usage: dict[str, int] | None = None
+    subagents: list[dict[str, Any]] = Field(default_factory=list)
+    result_summary: str | None = None
+    artifact_ids: list[str] = Field(default_factory=list)
+    next_actions: list[dict[str, Any]] = Field(default_factory=list)
+    advisory_code: str | None = None
+    last_error: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+
+
+class WorkspaceExecutionSessionsResponse(BaseModel):
+    """Execution session list for a workspace."""
+
+    items: list[ExecutionSessionResponse]
+    count: int
+
+
+class WorkspacePrismEnsureResponse(BaseModel):
+    """Workspace Prism linkage payload."""
+
+    latex_project_id: str
+    url: str
+    sync_status: str
+
+
 CreateWorkspaceRequest = CreateWorkspaceValidator
 UpdateWorkspaceRequest = UpdateWorkspaceValidator
 AddPaperRequest = AddPaperToWorkspaceValidator

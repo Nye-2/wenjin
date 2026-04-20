@@ -76,7 +76,7 @@ EXPOSE 8001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8001/readyz || exit 1
+    CMD curl -f "http://localhost:8001/api/models?purpose=chat" || exit 1
 
 # Default command - run gateway server
 CMD ["python", "-m", "uvicorn", "src.gateway.app:app", "--host", "0.0.0.0", "--port", "8001"]

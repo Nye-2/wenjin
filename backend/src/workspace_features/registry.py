@@ -168,26 +168,6 @@ THESIS_FEATURES = (
         runtime_profile_key="figure_generation",
         follow_up_prompt="请基于这次图表结果继续优化图意表达，并给出适合写入正文的说明文字。",
     ),
-    WorkspaceFeatureDefinition(
-        workspace_type="thesis",
-        id="compile_export",
-        name="编译导出",
-        description="编译 LaTeX 并导出 PDF",
-        icon="package",
-        agent="thesis_writer",
-        agent_label="ThesisWriter",
-        handler_key="thesis.compile_export",
-        panel="compile_panel",
-        color="indigo",
-        stages=(
-            _stage("compile", "编译 LaTeX"),
-            _stage("preview", "预览检查"),
-            _stage("export", "导出文件"),
-        ),
-        credit_cost=10,
-        runtime_profile_key="compile_export",
-        follow_up_prompt="请基于这次编译结果继续定位错误或优化排版，并给出下一步修复建议。",
-    ),
 )
 
 SCI_FEATURES = (
@@ -292,6 +272,26 @@ SCI_FEATURES = (
     ),
     WorkspaceFeatureDefinition(
         workspace_type="sci",
+        id="figure_generation",
+        name="图表生成",
+        description="规划和生成论文图表与示意图",
+        icon="image",
+        agent="figure_planner",
+        agent_label="FigurePlanner",
+        handler_key="sci.figure_generation",
+        panel="figure_panel",
+        color="rose",
+        stages=(
+            _stage("analyze", "分析需求"),
+            _stage("design", "设计方案"),
+            _stage("generate", "生成图表"),
+        ),
+        credit_cost=30,
+        runtime_profile_key="figure_generation",
+        follow_up_prompt="请基于这次图表结果继续优化图意表达，并给出适合写入正文的说明文字。",
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="sci",
         id="peer_review",
         name="同行评审",
         description="对当前稿件进行审稿式批评与修改建议输出",
@@ -391,6 +391,26 @@ PROPOSAL_FEATURES = (
         runtime_profile_key="experiment_design",
         follow_up_prompt="请基于这次实验设计继续细化变量定义、样本方案、实验步骤和评估指标。",
     ),
+    WorkspaceFeatureDefinition(
+        workspace_type="proposal",
+        id="figure_generation",
+        name="图表生成",
+        description="生成申报书中的技术路线图与流程图",
+        icon="image",
+        agent="figure_planner",
+        agent_label="FigurePlanner",
+        handler_key="proposal.figure_generation",
+        panel="figure_panel",
+        color="rose",
+        stages=(
+            _stage("analyze", "分析需求"),
+            _stage("design", "设计方案"),
+            _stage("generate", "生成图表"),
+        ),
+        credit_cost=30,
+        runtime_profile_key="figure_generation",
+        follow_up_prompt="请基于这次图表结果继续优化图意表达，并给出可直接写入申报书的图注说明。",
+    ),
 )
 
 SOFTWARE_COPYRIGHT_FEATURES = (
@@ -434,6 +454,26 @@ SOFTWARE_COPYRIGHT_FEATURES = (
         runtime_profile_key="technical_description",
         follow_up_prompt="请基于这次技术说明书继续补齐章节细节，并指出最需要补充的技术实现信息。",
     ),
+    WorkspaceFeatureDefinition(
+        workspace_type="software_copyright",
+        id="figure_generation",
+        name="图表生成",
+        description="生成软著材料中的架构图、流程图与界面关系图",
+        icon="image",
+        agent="figure_planner",
+        agent_label="FigurePlanner",
+        handler_key="software_copyright.figure_generation",
+        panel="figure_panel",
+        color="rose",
+        stages=(
+            _stage("analyze", "分析需求"),
+            _stage("design", "设计方案"),
+            _stage("generate", "生成图表"),
+        ),
+        credit_cost=30,
+        runtime_profile_key="figure_generation",
+        follow_up_prompt="请基于这次图表结果继续优化结构表达，并给出软著材料可用的图示说明文字。",
+    ),
 )
 
 PATENT_FEATURES = (
@@ -475,6 +515,26 @@ PATENT_FEATURES = (
         credit_cost=30,
         runtime_profile_key="prior_art_search",
         follow_up_prompt="请基于这次现有技术检索继续评估新颖性风险，并给出可执行的规避改写建议。",
+    ),
+    WorkspaceFeatureDefinition(
+        workspace_type="patent",
+        id="figure_generation",
+        name="图表生成",
+        description="生成专利交底与说明书中的结构图、流程图和关系图",
+        icon="image",
+        agent="figure_planner",
+        agent_label="FigurePlanner",
+        handler_key="patent.figure_generation",
+        panel="figure_panel",
+        color="rose",
+        stages=(
+            _stage("analyze", "分析需求"),
+            _stage("design", "设计方案"),
+            _stage("generate", "生成图表"),
+        ),
+        credit_cost=30,
+        runtime_profile_key="figure_generation",
+        follow_up_prompt="请基于这次图表结果继续优化技术方案表达，并给出专利说明书可用的图示描述。",
     ),
 )
 

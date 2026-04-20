@@ -1,5 +1,8 @@
 """Tests for academic subagent registry."""
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
 import pytest
 
 from src.subagents.academic.prompts import (
@@ -144,6 +147,33 @@ class TestSubagentRegistry:
             assert isinstance(config.tools, list)
             assert len(config.tools) > 0
             assert config.max_turns > 0
+
+    def test_registry_applies_app_config_overrides(self):
+        override_cfg = SimpleNamespace(
+            subagents=SimpleNamespace(
+                types={
+                    "scout": SimpleNamespace(
+                        allowed_tools=["read_file"],
+                        disallowed_tools=["semantic_scholar_search"],
+                        max_turns=6,
+                        timeout=321,
+                        model_name="resolved-tool-model",
+                    )
+                }
+            )
+        )
+
+        with patch(
+            "src.subagents.academic.registry.get_app_config",
+            return_value=override_cfg,
+        ):
+            config = get_subagent_config("scout", apply_runtime_overrides=True)
+
+        assert config.tools == ["read_file"]
+        assert config.disallowed_tools == ["semantic_scholar_search"]
+        assert config.max_turns == 6
+        assert config.timeout == 321
+        assert config.model_name == "resolved-tool-model"
 
 class TestSubagentToolAssignments:
     """Tests for correct tool assignments to subagents."""

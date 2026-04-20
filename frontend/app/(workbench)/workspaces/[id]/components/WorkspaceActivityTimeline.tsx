@@ -147,7 +147,7 @@ export function WorkspaceActivityTimeline({
                 const actions = [];
 
                 if (
-                  (item.kind === "chat_thread" ||
+                  (item.kind === "thread" ||
                     item.kind === "subagent_task" ||
                     item.kind === "feature_task") &&
                   item.thread_id

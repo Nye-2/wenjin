@@ -1,10 +1,12 @@
 # 问津 Wenjin Backend
 
+更新时间：2026-04-20
+
 后端当前采用分层执行架构：
 
 `gateway -> application handlers -> task runtime -> workspace feature graphs/services -> persistence/writeback`
 
-chat 主链与 feature 主链已经收口到同一套运行时，不再依赖旧 skill 子系统，也不要求独立外部 LangGraph 服务参与生产主流程。
+thread（路由仍为 `/chat`）主链与 feature 主链已经收口到同一套运行时，不再依赖旧 skill 子系统，也不要求独立外部 LangGraph 服务参与生产主流程。
 
 ## 技术栈
 
@@ -21,10 +23,11 @@ chat 主链与 feature 主链已经收口到同一套运行时，不再依赖旧
 
 - 认证、用户、workspace、paper、artifact、dashboard、LaTeX API
 - chat 主链路：线程、流式 SSE、skill 选择、feature orchestration
-- workspace feature 执行：五类 workspace、20 个 canonical features
+- workspace feature 执行：五类 workspace、23 个 canonical features
 - subagent runtime：spawn、状态、事件、持久化回退
 - LaTeX 主稿台：文件读写、编译、反馈改写、PDF/SyncTeX
 - observability：Prometheus 指标、Sentry/日志钩子、相关健康检查
+- 模型路由：统一从 `backend/.env` 的 `LLM_*_MODELS` 加载并按类别路由，不在业务代码硬编码模型 ID
 
 ## 目录结构
 
@@ -88,9 +91,9 @@ graph 负责 orchestration 与结果整形，service 负责模型调用、payloa
 
 ### 5. Chat / Skills / Features
 
-- chat 入口：`src/gateway/routers/chat.py`
+- chat 入口（runs + threads）：`src/gateway/routers/threads.py`、`src/gateway/routers/thread_runs.py`、`src/gateway/routers/runs.py`
 - lead-agent：`src/agents/lead_agent/agent.py`
-- skills 目录：`src/agents/lead_agent/chat_skill_catalog.py`
+- skills 目录：`src/agents/lead_agent/thread_skill_catalog.py`
 - tool bridge：`src/tools/builtins/workspace.py`
 
 当前 skill 是 chat 层的 feature 入口语义，不再是独立执行框架。真正执行始终走 `run_workspace_feature`。
@@ -146,6 +149,9 @@ uv run pytest tests/subagents/ -q
 ## 参考文档
 
 - `../README.md`
+- `../docs/documentation-map.md`
 - `../docs/architecture/workspace-execution-pipeline.md`
+- `../docs/architecture/api-surface-map.md`
+- `docs/README.md`
 - `docs/architecture/langgraph-workspace-architecture.md`
 - `docs/async-task-system.md`

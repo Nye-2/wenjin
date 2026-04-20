@@ -55,6 +55,20 @@ def resolve_workspace_type(workspace: Any) -> str:
     return resolved
 
 
+def _merge_workspace_description_with_thread_context(
+    *,
+    workspace_description: Any,
+    params: dict[str, Any],
+) -> str:
+    base_description = str(workspace_description or "").strip()
+    thread_context_digest = str(params.get("__thread_context_digest") or "").strip()
+    if not thread_context_digest:
+        return base_description
+    if base_description:
+        return f"{base_description}\n\n[线程上下文摘要]\n{thread_context_digest}"
+    return f"[线程上下文摘要]\n{thread_context_digest}"
+
+
 def build_task_payload(
     *,
     workspace: Any,
@@ -64,6 +78,7 @@ def build_task_payload(
     params: dict[str, Any],
     thread_id: str | None,
     skill_id: str | None = None,
+    execution_session_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the canonical task payload for workspace feature execution."""
     sanitized_params = dict(params)
@@ -79,11 +94,15 @@ def build_task_payload(
         sanitized_params,
         preferred_skill_id=skill_id,
     )
+    workspace_description = _merge_workspace_description_with_thread_context(
+        workspace_description=getattr(workspace, "description", ""),
+        params=sanitized_params,
+    )
     return {
         "workspace_id": workspace_id,
         "workspace_type": workspace_type,
         "workspace_name": getattr(workspace, "name", ""),
-        "workspace_description": getattr(workspace, "description", ""),
+        "workspace_description": workspace_description,
         "workspace_discipline": getattr(workspace, "discipline", ""),
         "workspace_config": getattr(workspace, "config", {}) or {},
         "feature_id": feature.id,
@@ -92,6 +111,7 @@ def build_task_payload(
         "agent_label": feature.agent_label,
         "handler_key": feature.handler_key,
         "thread_id": thread_id,
+        "execution_session_id": execution_session_id,
         "skill_id": resolved_skill_id,
         "skill_name": resolved_skill_name,
         "params": sanitized_params,
@@ -126,6 +146,7 @@ class FeatureExecutionHandler:
         *,
         idempotency_key: str | None = None,
         redis_client: Any | None = None,
+        execution_session_id: str | None = None,
     ) -> FeatureExecutionOutcome:
         """Execute a workspace feature.
 
@@ -259,6 +280,7 @@ class FeatureExecutionHandler:
             credit_transaction=credit_transaction,
             idempotency_key=idempotency_key,
             redis_client=redis_client,
+            execution_session_id=execution_session_id,
         )
 
     async def _submit_with_lock(
@@ -275,6 +297,7 @@ class FeatureExecutionHandler:
         credit_transaction: Any | None,
         idempotency_key: str | None,
         redis_client: Any | None,
+        execution_session_id: str | None,
     ) -> FeatureExecutionOutcome:
         """Submit task, optionally guarded by distributed workspace lock.
 
@@ -318,6 +341,7 @@ class FeatureExecutionHandler:
                 params=params,
                 thread_id=thread_id,
                 skill_id=skill_id,
+                execution_session_id=execution_session_id,
             )
             if credit_transaction is not None:
                 task_payload["credit_transaction_id"] = str(credit_transaction.id)

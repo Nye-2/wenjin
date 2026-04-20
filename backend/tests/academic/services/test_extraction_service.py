@@ -762,7 +762,8 @@ class TestTierConstants(TestExtractionService):
         assert service.TYPE_TOC == "toc"
         assert service.TYPE_SECTIONS == "sections"
 
-    def test_llm_model_constants(self, service):
-        """Test that LLM model constants are defined."""
-        assert service.LLM_MODEL_FAST == "claude-3-haiku"
-        assert service.LLM_MODEL_BALANCED == "qwen-turbo"
+    def test_tier2_model_routing_config(self, service):
+        """Test Tier 2 model routing metadata is configured."""
+        assert service.EXTRACTION_MODEL_ENV_KEY == "LLM_EXTRACTION_MODEL"
+        assert isinstance(service._tier2_model_id, str)
+        assert service._tier2_model_id

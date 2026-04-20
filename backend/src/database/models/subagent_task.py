@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Index, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +25,12 @@ class SubagentTaskRecord(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    execution_session_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("execution_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     thread_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     subagent_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")

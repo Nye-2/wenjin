@@ -1,8 +1,12 @@
 """Graph template registry for subagent graphs."""
 
+import logging
 import threading
+import warnings
 from collections import OrderedDict
 from typing import Any, cast
+
+logger = logging.getLogger(__name__)
 
 
 def build_subagent_tool_middlewares() -> list[Any]:
@@ -15,6 +19,10 @@ def build_subagent_tool_middlewares() -> list[Any]:
 
         execution_service = get_execution_service()
     except Exception:
+        logger.warning(
+            "Subagent execution middleware unavailable; proceeding without execution tools",
+            exc_info=True,
+        )
         execution_service = None
 
     if execution_service is not None:
@@ -50,7 +58,18 @@ def _create_subagent_react_agent(
     if system_prompt:
         kwargs["prompt"] = system_prompt
 
-    return cast(Any, create_react_agent)(_resolve_model, tool_node, **kwargs)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*create_react_agent has been moved to `langchain.agents`.*",
+            category=Warning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*AgentStatePydantic has been moved to `langchain.agents`.*",
+            category=Warning,
+        )
+        return cast(Any, create_react_agent)(_resolve_model, tool_node, **kwargs)
 
 
 class GraphTemplateRegistry:

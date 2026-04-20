@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { getWorkspaceFeatureChatRoute } from "@/lib/workspace-feature-routes";
+import { getWorkspaceFeatureThreadRoute } from "@/lib/workspace-feature-routes";
 import { useFeaturesStore } from "@/stores/features";
 
 export default function WorkspaceFeatureRedirect() {
@@ -62,7 +62,7 @@ export default function WorkspaceFeatureRedirect() {
     });
 
     const chatRoute = feature
-      ? getWorkspaceFeatureChatRoute(workspaceId, featureId, {
+      ? getWorkspaceFeatureThreadRoute(workspaceId, featureId, {
           ...(feature.defaultSkillId ? { skill: feature.defaultSkillId } : {}),
           ...queryParams,
         })

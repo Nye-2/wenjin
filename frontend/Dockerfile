@@ -1,19 +1,38 @@
+# syntax=docker/dockerfile:1.7
+
 # Wenjin (问津) - Frontend Dockerfile
 # Next.js 16 with standalone output
 
 ARG NODE_IMAGE=node:20-alpine
+ARG ALPINE_MIRROR=
 ARG NPM_REGISTRY=https://registry.npmjs.org
+ARG NPM_FALLBACK_REGISTRY=https://registry.npmjs.org
+ARG NPM_FETCH_RETRIES=5
+ARG NPM_FETCH_RETRY_MINTIMEOUT=20000
+ARG NPM_FETCH_RETRY_MAXTIMEOUT=120000
+ARG NPM_FETCH_TIMEOUT=300000
 
 # ============================================
 # Dependencies Stage
 # ============================================
 FROM ${NODE_IMAGE} AS deps
 
+ARG ALPINE_MIRROR
 ARG NPM_REGISTRY
+ARG NPM_FALLBACK_REGISTRY
+ARG NPM_FETCH_RETRIES
+ARG NPM_FETCH_RETRY_MINTIMEOUT
+ARG NPM_FETCH_RETRY_MAXTIMEOUT
+ARG NPM_FETCH_TIMEOUT
 
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine
 # for compatible version of libc6-compat
-RUN apk add --no-cache libc6-compat
+RUN set -eux; \
+    if [ -n "${ALPINE_MIRROR}" ]; then \
+      sed -i "s|https://dl-cdn.alpinelinux.org/alpine|${ALPINE_MIRROR%/}|g" /etc/apk/repositories; \
+      sed -i "s|http://dl-cdn.alpinelinux.org/alpine|${ALPINE_MIRROR%/}|g" /etc/apk/repositories; \
+    fi; \
+    apk add --no-cache libc6-compat
 
 WORKDIR /app
 
@@ -21,8 +40,26 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install all dependencies for build (dev deps are required by next build)
-RUN npm config set registry "${NPM_REGISTRY}"
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    set -eux; \
+    npm config set fetch-retries "${NPM_FETCH_RETRIES}"; \
+    npm config set fetch-retry-mintimeout "${NPM_FETCH_RETRY_MINTIMEOUT}"; \
+    npm config set fetch-retry-maxtimeout "${NPM_FETCH_RETRY_MAXTIMEOUT}"; \
+    npm config set fetch-timeout "${NPM_FETCH_TIMEOUT}"; \
+    npm config set fund false; \
+    npm config set audit false; \
+    npm config set prefer-offline true; \
+    npm config set registry "${NPM_REGISTRY}"; \
+    if npm ci --no-progress; then \
+      exit 0; \
+    fi; \
+    if [ "${NPM_FALLBACK_REGISTRY}" = "${NPM_REGISTRY}" ]; then \
+      echo "npm ci failed and fallback registry equals primary: ${NPM_REGISTRY}"; \
+      exit 1; \
+    fi; \
+    echo "npm ci failed with ${NPM_REGISTRY}, retrying with fallback ${NPM_FALLBACK_REGISTRY}"; \
+    npm config set registry "${NPM_FALLBACK_REGISTRY}"; \
+    npm ci --no-progress
 
 # ============================================
 # Builder Stage

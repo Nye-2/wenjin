@@ -13,7 +13,6 @@ from .models import (
     # Artifact
     Artifact,
     ArtifactType,
-    ChatThread,
     # Citation
     Citation,
     CitationType,
@@ -21,6 +20,7 @@ from .models import (
     CreditTransaction,
     CreditTransactionType,
     # Generation
+    ExecutionSessionRecord,
     GenerationRecord,
     KnowledgeCategory,
     LatexCompileHistory,
@@ -34,6 +34,7 @@ from .models import (
     SubagentTaskRecord,
     # Task
     TaskRecord,
+    Thread,
     # User
     User,
     # Knowledge
@@ -76,8 +77,8 @@ __all__ = [
     # Models - Workspace
     "Workspace",
     "WorkspaceType",
-    # Models - Chat
-    "ChatThread",
+    # Models - Thread
+    "Thread",
     # Models - Paper
     "Paper",
     "WorkspacePaper",
@@ -105,6 +106,7 @@ __all__ = [
     "LatexCompileHistory",
     # Models - Generation
     "GenerationRecord",
+    "ExecutionSessionRecord",
     # Models - Task
     "TaskRecord",
     "SubagentTaskRecord",

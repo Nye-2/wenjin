@@ -5,9 +5,12 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
+from langgraph.types import Command
 
 from src.agents.lead_agent.dynamic_tools import DynamicToolNode
 from src.agents.middlewares.base import Middleware
+from src.agents.middlewares.sandbox_audit import SandboxAuditMiddleware
+from src.agents.middlewares.tool_error_handling import ToolErrorHandlingMiddleware
 
 
 @tool
@@ -58,9 +61,194 @@ async def test_dynamic_tool_node_applies_tool_middlewares():
         store=None,
     )
 
-    tool_message = result["messages"][-1]
+    if isinstance(result, dict):
+        tool_message = result["messages"][-1]
+    else:
+        tool_message = result[-1]
     assert isinstance(tool_message, ToolMessage)
     assert tool_message.content == "hello world!"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_tool_node_before_tool_error_returns_tool_message():
+    called = {"value": False}
+
+    @tool
+    async def tracked_tool() -> str:
+        """Return a fixed payload when invoked."""
+        called["value"] = True
+        return "ok"
+
+    class _BlockingMiddleware(Middleware):
+        async def before_model(self, state, config):
+            return {}
+
+        async def before_tool(self, state, config, tool_name, tool_args):
+            raise RuntimeError("blocked by middleware")
+
+    node = DynamicToolNode(
+        lambda: [tracked_tool],
+        middlewares=[_BlockingMiddleware()],
+    )
+
+    result = await node.ainvoke(
+        {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "tracked_tool",
+                            "args": {},
+                            "id": "call-err-1",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            ]
+        },
+        config={"configurable": {"thread_id": "thread-1", "tool_call_id": "call-err-1"}},
+        store=None,
+    )
+
+    tool_message = (
+        result["messages"][-1]
+        if isinstance(result, dict)
+        else result[-1]
+    )
+    assert isinstance(tool_message, ToolMessage)
+    assert getattr(tool_message, "status", None) == "error"
+    assert "blocked by middleware" in str(tool_message.content)
+    assert called["value"] is False
+
+
+@pytest.mark.asyncio
+async def test_dynamic_tool_node_enforces_sandbox_audit_block():
+    called = {"value": False}
+
+    @tool("bash")
+    async def fake_bash(command: str) -> str:
+        """Fake bash tool for middleware integration checks."""
+        called["value"] = True
+        return f"ran: {command}"
+
+    node = DynamicToolNode(
+        lambda: [fake_bash],
+        middlewares=[SandboxAuditMiddleware()],
+    )
+
+    result = await node.ainvoke(
+        {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "bash",
+                            "args": {"command": "rm -rf /"},
+                            "id": "call-audit-1",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            ]
+        },
+        config={"configurable": {"thread_id": "thread-1", "tool_call_id": "call-audit-1"}},
+        store=None,
+    )
+
+    tool_message = result["messages"][-1]
+    assert isinstance(tool_message, ToolMessage)
+    assert getattr(tool_message, "status", None) == "error"
+    assert "Command blocked by sandbox audit" in str(tool_message.content)
+    assert called["value"] is False
+
+
+@pytest.mark.asyncio
+async def test_dynamic_tool_node_uses_tool_error_handling_middleware_message():
+    @tool
+    async def failing_tool() -> str:
+        """Raise a deterministic tool failure."""
+        raise ValueError("boom")
+
+    node = DynamicToolNode(
+        lambda: [failing_tool],
+        middlewares=[ToolErrorHandlingMiddleware()],
+    )
+
+    result = await node.ainvoke(
+        {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "failing_tool",
+                            "args": {},
+                            "id": "call-tool-err-1",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            ]
+        },
+        config={"configurable": {"thread_id": "thread-1", "tool_call_id": "call-tool-err-1"}},
+        store=None,
+    )
+
+    tool_message = result["messages"][-1]
+    assert isinstance(tool_message, ToolMessage)
+    assert getattr(tool_message, "status", None) == "error"
+    assert "Tool 'failing_tool' failed with ValueError" in str(tool_message.content)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_tool_node_normalizes_placeholder_tool_call_id_in_command_update():
+    @tool
+    async def command_tool() -> Command:
+        """Return Command update with a placeholder tool_call_id."""
+        return Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        content="ok",
+                        tool_call_id="command_tool",
+                    )
+                ]
+            }
+        )
+
+    node = DynamicToolNode(lambda: [command_tool])
+
+    result = await node.ainvoke(
+        {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "command_tool",
+                            "args": {},
+                            "id": "call-command-1",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            ]
+        },
+        config={"configurable": {}},
+        store=None,
+    )
+
+    last_item = result["messages"][-1] if isinstance(result, dict) else result[-1]
+    if isinstance(last_item, Command):
+        tool_message = last_item.update["messages"][-1]
+    else:
+        tool_message = last_item
+
+    assert isinstance(tool_message, ToolMessage)
+    assert tool_message.tool_call_id == "call-command-1"
+    assert str(tool_message.content) == "ok"
 
 
 def test_tool_refresh_skips_rebuild_within_ttl():
@@ -147,8 +335,8 @@ def test_invalidate_tool_cache_forces_rebuild():
 
 def test_run_coroutine_sync_warns_when_loop_is_running(caplog):
     """_run_coroutine_sync must emit a WARNING when called inside a running event loop."""
-    import logging
     import asyncio
+    import logging
 
     async def _check_warning():
         async def noop():
@@ -169,8 +357,8 @@ def test_run_coroutine_sync_warns_when_loop_is_running(caplog):
 
 def test_run_coroutine_sync_raises_on_thread_timeout(monkeypatch):
     """_run_coroutine_sync must raise TimeoutError if thread does not finish within 30s."""
-    import asyncio
     import threading
+
     import src.agents.lead_agent.dynamic_tools as dt_module
 
     def patched_join(self, timeout=None):

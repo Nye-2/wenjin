@@ -7,7 +7,13 @@ import logging
 import shutil
 from pathlib import Path
 
-from src.execution.docker.client import DockerClient, DockerExecutionError
+from src.execution.docker.client import (
+    SANDBOX_KIND_LABEL,
+    SANDBOX_MANAGED_LABEL,
+    SANDBOX_THREAD_LABEL,
+    DockerClient,
+    DockerExecutionError,
+)
 from src.sandbox.base import CommandResult, Sandbox
 from src.sandbox.providers.base import SandboxProvider
 from src.sandbox.providers.local import LocalSandbox, LocalSandboxProvider, SandboxSecurityError
@@ -20,6 +26,7 @@ class DockerSandbox(LocalSandbox):
 
     _CONTAINER_USER_DATA_ROOT = "/mnt/user-data"
     _CONTAINER_WORKSPACE_ROOT = f"{_CONTAINER_USER_DATA_ROOT}/workspace"
+    _CONTAINER_KIND = "sandbox_exec"
 
     def __init__(
         self,
@@ -65,6 +72,11 @@ class DockerSandbox(LocalSandbox):
                 network_disabled=True,
                 mem_limit=self._memory,
                 nano_cpus=int(self._cpu_limit * 1_000_000_000),
+                labels={
+                    SANDBOX_MANAGED_LABEL: "true",
+                    SANDBOX_KIND_LABEL: self._CONTAINER_KIND,
+                    SANDBOX_THREAD_LABEL: self.sandbox_id,
+                },
             )
             return CommandResult(
                 stdout=stdout,
@@ -109,11 +121,31 @@ class DockerSandboxProvider(SandboxProvider):
         self._docker_client = docker_client or DockerClient()
         self._sandboxes: dict[str, DockerSandbox] = {}
         self._lock = asyncio.Lock()
+        self._reconciled = False
+
+    async def _reconcile_orphaned_exec_containers(self) -> None:
+        if self._reconciled:
+            return
+
+        labels = {
+            SANDBOX_MANAGED_LABEL: "true",
+            SANDBOX_KIND_LABEL: DockerSandbox._CONTAINER_KIND,
+        }
+        try:
+            removed = await self._docker_client.cleanup_containers_by_label(labels)
+            if removed:
+                logger.info("Reconciled %d orphaned sandbox execution container(s)", removed)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to reconcile orphaned sandbox containers: %s", exc)
+        finally:
+            self._reconciled = True
 
     async def acquire(self, thread_id: str) -> DockerSandbox:
         async with self._lock:
             if thread_id in self._sandboxes:
                 return self._sandboxes[thread_id]
+
+            await self._reconcile_orphaned_exec_containers()
 
             user_data_path = LocalSandboxProvider._get_user_data_root(self.base_dir, thread_id)
             for subdir in ("workspace", "uploads", "outputs"):

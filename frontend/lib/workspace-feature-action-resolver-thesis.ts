@@ -96,23 +96,4 @@ export const thesisFeatureActionResolvers: Record<string, FeatureActionResolver>
         : "缺少可复用的图表描述。",
     });
   },
-  compile_export: (context) => {
-    const template = readString(context.orchestrationParams?.template) ?? "default";
-    const compiler = readString(context.orchestrationParams?.compiler) ?? "xelatex";
-    const bibliographyStyle =
-      readString(context.orchestrationParams?.bibliography_style) ?? "gbt7714";
-    return buildFeatureActionState(context, {
-      routeParams: {
-        template,
-        compiler,
-        bibliography_style: bibliographyStyle,
-      },
-      rerunParams: {
-        template,
-        compiler,
-        bibliography_style: bibliographyStyle,
-      },
-      rerunUnavailableReason: null,
-    });
-  },
 };

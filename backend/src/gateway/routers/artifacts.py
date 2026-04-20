@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from src.academic.services import ArtifactService, WorkspaceService
@@ -34,7 +34,7 @@ from src.gateway.contracts.artifact import (
 )
 from src.gateway.deps import (
     get_artifact_service,
-    get_chat_thread_service,
+    get_thread_service,
     get_workspace_service,
 )
 from src.gateway.resource_access import (
@@ -48,7 +48,7 @@ from src.gateway.validators.artifact import (
     ArtifactCreatePayloadValidator,
     UpdateArtifactValidator,
 )
-from src.services import ChatThreadService
+from src.services import ThreadService
 from src.services.asset_url_signing import get_asset_url_signer
 from src.services.workspace_skill_labels import (
     normalize_workspace_type,
@@ -61,6 +61,11 @@ router = APIRouter(tags=["artifacts"])
 WorkspaceArtifactCreateRequest = ArtifactCreatePayloadValidator
 WorkspaceArtifactUpdateRequest = UpdateArtifactValidator
 _THREAD_ARTIFACT_VIRTUAL_PREFIX = "/mnt/user-data/"
+_UNSAFE_INLINE_MIME_TYPES = {
+    "application/xhtml+xml",
+    "image/svg+xml",
+    "text/html",
+}
 
 
 class AssetSignRequest(BaseModel):
@@ -102,18 +107,18 @@ def _resolve_thread_file_path(thread_id: str, path: str) -> Path:
 def _build_inline_file_response(actual_path: Path, mime_type: str | None) -> Response:
     """Return an inline response suitable for browser viewing."""
     encoded_filename = quote(actual_path.name)
-    if mime_type == "text/html":
-        return HTMLResponse(content=actual_path.read_text(encoding="utf-8", errors="replace"))
-    if mime_type and mime_type.startswith("text/"):
-        return PlainTextResponse(
-            content=actual_path.read_text(encoding="utf-8", errors="replace"),
-            media_type=mime_type,
-        )
-    return Response(
-        content=actual_path.read_bytes(),
-        media_type=mime_type or "application/octet-stream",
+    normalized_mime = str(mime_type or "").split(";", 1)[0].strip().lower()
+    safe_mime_type = (
+        "text/plain; charset=utf-8"
+        if normalized_mime in _UNSAFE_INLINE_MIME_TYPES
+        else (mime_type or "application/octet-stream")
+    )
+    return FileResponse(
+        path=actual_path,
+        media_type=safe_mime_type,
         headers={
-            "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"
+            "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}",
+            "X-Content-Type-Options": "nosniff",
         },
     )
 
@@ -295,7 +300,7 @@ async def _get_workspace_artifact_lineage(
 async def sign_asset_url(
     payload: AssetSignRequest,
     current_user: User = Depends(get_current_user),
-    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+    thread_service: ThreadService = Depends(get_thread_service),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, str]:
     """Mint a short-lived signed URL for a protected asset route."""
@@ -306,6 +311,11 @@ async def sign_asset_url(
             detail="Missing asset url",
         )
     parsed = urlparse(raw_url)
+    if parsed.scheme or parsed.netloc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Asset url must be a relative API path",
+        )
     route_path = parsed.path
     normalized_route_path = (
         route_path.removeprefix("/api")
@@ -316,7 +326,7 @@ async def sign_asset_url(
         prefix = "/threads/"
         remainder = normalized_route_path.removeprefix(prefix)
         thread_id, _, _artifact_path = remainder.partition("/artifacts/")
-        thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
+        thread = await thread_service.get_thread(thread_id, str(current_user.id))
         if thread is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -351,7 +361,7 @@ async def get_thread_artifact(
     path: str,
     request: Request,
     current_user: User | None = Depends(get_current_user_optional),
-    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+    thread_service: ThreadService = Depends(get_thread_service),
 ) -> Response:
     """Serve a thread-scoped sandbox file after ownership verification."""
     if not _request_has_valid_signature(request):
@@ -360,7 +370,7 @@ async def get_thread_artifact(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not authenticated",
             )
-        thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
+        thread = await thread_service.get_thread(thread_id, str(current_user.id))
         if thread is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

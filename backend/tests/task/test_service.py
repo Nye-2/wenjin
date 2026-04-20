@@ -1,9 +1,11 @@
 """Tests for TaskService."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
+from pydantic import BaseModel
 
 from src.task.service import ConcurrencyLimitError, TaskService
 from src.task.store import TaskStore
@@ -17,6 +19,14 @@ async def task_service(test_session, mock_redis):
     store = TaskStore(mock_redis, test_session)
     store._test_model = FixtureTaskRecord
     yield TaskService(store)
+
+
+@pytest.fixture(autouse=True)
+def mock_task_executor():
+    """Avoid external Celery dependency for TaskService unit tests."""
+    mock_executor = AsyncMock()
+    with patch("src.task.service.get_executor", return_value=mock_executor):
+        yield mock_executor
 
 
 class TestTaskService:
@@ -339,6 +349,45 @@ class TestTaskService:
 
         assert found_task_id is None
 
+    def test_serialize_task_status_normalizes_non_json_values(self, task_service):
+        """Task status serialization should normalize pydantic/datetime payload values."""
+
+        class _ResultPayload(BaseModel):
+            artifact: str
+
+        record = MagicMock()
+        record.id = "task-x"
+        record.execution_session_id = "exec-x"
+        record.task_type = "workspace_feature"
+        record.status = "running"
+        record.progress = 17
+        record.message = "working"
+        record.result = _ResultPayload(artifact="paper.md")
+        record.error = None
+        record.workspace_id = "ws-1"
+        record.feature_id = "deep_research"
+        record.thread_id = "thread-1"
+        record.action = None
+        record.created_at = datetime(2026, 4, 13, 10, 0, tzinfo=UTC)
+        record.started_at = None
+        record.completed_at = None
+        record.runtime_state = None
+
+        runtime_state = {
+            "status": "success",
+            "progress": "100",
+            "message": "done",
+            "current_step": "finalize",
+            "metadata": {"finished_at": datetime(2026, 4, 13, 10, 1, tzinfo=UTC)},
+        }
+
+        status = task_service._serialize_task_status(record, runtime_state)
+
+        assert status["status"] == "success"
+        assert status["progress"] == 100
+        assert status["result"] == {"artifact": "paper.md"}
+        assert "2026-04-13" in str(status["metadata"]["finished_at"])
+
     @pytest.mark.asyncio
     async def test_find_active_task_matches_full_workspace_feature_params(self, task_service):
         """Workspace feature dedupe must not collide across different params."""
@@ -389,3 +438,26 @@ class TestTaskService:
         assert first_match == first_task_id
         assert second_match == second_task_id
         assert missing_match is None
+
+    @pytest.mark.asyncio
+    async def test_find_active_task_queries_only_active_statuses(self, task_service):
+        """Service should constrain dedupe query at SQL layer with active statuses."""
+        expected_task = MagicMock()
+        expected_task.id = "task-active"
+        expected_task.payload = {"params": {"action": "research"}}
+        expected_task.status = "pending"
+        task_service._store.list_user_tasks = AsyncMock(return_value=[expected_task])
+
+        matched = await task_service.find_active_task(
+            user_id="user-1",
+            task_type="workspace_feature",
+            workspace_id="ws-1",
+            feature_id="feature-1",
+            action="research",
+            params={"action": "research"},
+        )
+
+        assert matched == "task-active"
+        task_service._store.list_user_tasks.assert_awaited_once()
+        kwargs = task_service._store.list_user_tasks.await_args.kwargs
+        assert kwargs["status"] == ["pending", "running"]

@@ -2,9 +2,6 @@
 
 import importlib
 import os
-from typing import TypeVar
-
-T = TypeVar("T")
 
 MODULE_TO_PACKAGE_HINTS = {
     "langchain_google_genai": "langchain-google-genai",
@@ -14,7 +11,10 @@ MODULE_TO_PACKAGE_HINTS = {
 }
 
 
-def resolve_variable(variable_path: str, expected_type: type[T] | tuple[type, ...] | None = None) -> T:
+def resolve_variable[T](
+    variable_path: str,
+    expected_type: type[T] | tuple[type, ...] | None = None,
+) -> T:
     """Resolve a variable from 'module.path:variable_name'.
 
     Args:
@@ -56,7 +56,7 @@ def resolve_variable(variable_path: str, expected_type: type[T] | tuple[type, ..
     return variable
 
 
-def resolve_class(class_path: str, base_class: type[T] | None = None) -> type[T]:
+def resolve_class[T](class_path: str, base_class: type[T] | None = None) -> type[T]:
     """Resolve a class from path and optionally validate its base class."""
     cls = resolve_variable(class_path, expected_type=type)
     if base_class is not None and not issubclass(cls, base_class):

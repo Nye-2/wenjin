@@ -78,3 +78,26 @@ class TestClientLifecycle:
         assert build_calls == ["build"]
         assert client._client is second_client
         second_client.ping.assert_awaited_once()
+
+    def test_build_stream_client_uses_stream_socket_timeout(self, monkeypatch):
+        captured_kwargs: dict[str, object] = {}
+
+        def _fake_from_url(_url: str, **kwargs: object):
+            captured_kwargs.update(kwargs)
+            return object()
+
+        monkeypatch.setattr(
+            "src.academic.cache.redis_client.redis.from_url",
+            _fake_from_url,
+        )
+
+        client = RedisClient(url="redis://test")
+        monkeypatch.setattr(
+            client._settings,
+            "stream_socket_timeout_seconds",
+            17.0,
+        )
+
+        client._build_stream_client()
+
+        assert captured_kwargs.get("socket_timeout") == 17.0

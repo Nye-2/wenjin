@@ -33,7 +33,6 @@ THESIS_FEATURE_IDS = (
     "opening_research",
     "thesis_writing",
     "figure_generation",
-    "compile_export",
 )
 
 # Type alias for feature graph functions
@@ -50,7 +49,6 @@ _WORKSPACE_GRAPH_MODULES: dict[str, tuple[str, ...]] = {
         "src.agents.graphs.thesis.opening_research",
         "src.agents.graphs.thesis.thesis_writing",
         "src.agents.graphs.thesis.figure_generation",
-        "src.agents.graphs.thesis.compile_export",
     ),
     "sci": (
         "src.agents.graphs.sci.literature_search",
@@ -60,21 +58,37 @@ _WORKSPACE_GRAPH_MODULES: dict[str, tuple[str, ...]] = {
         "src.agents.graphs.sci.framework_outline",
         "src.agents.graphs.sci.peer_review",
         "src.agents.graphs.sci.journal_recommend",
+        "src.agents.graphs.thesis.figure_generation",
     ),
     "proposal": (
         "src.agents.graphs.proposal.proposal_outline",
         "src.agents.graphs.proposal.background_research",
         "src.agents.graphs.proposal.experiment_design",
+        "src.agents.graphs.thesis.figure_generation",
     ),
     "patent": (
         "src.agents.graphs.patent.patent_outline",
         "src.agents.graphs.patent.prior_art_search",
+        "src.agents.graphs.thesis.figure_generation",
     ),
     "software_copyright": (
         "src.agents.graphs.software_copyright.copyright_materials",
         "src.agents.graphs.software_copyright.technical_description",
+        "src.agents.graphs.thesis.figure_generation",
     ),
 }
+_FEATURE_MEMORY_CONTEXT_KEYS = (
+    "__thread_context_focus",
+    "__leader_workflow_highlights",
+    "topic",
+    "query",
+    "keywords",
+    "goal",
+    "task",
+    "question",
+    "requirements",
+    "__thread_context_digest",
+)
 
 
 def register_feature_graph(feature_id: str, workspace_type: str):
@@ -155,10 +169,7 @@ async def execute_feature_graph(
     Raises:
         ValueError: If no graph is registered or execution fails
     """
-    from src.services.user_memory_service import (
-        format_knowledge_for_prompt,
-        load_user_memory,
-    )
+    from src.services.user_memory_service import build_memory_context
 
     # Load graphs for workspace type
     _ensure_graphs_loaded(workspace_type)
@@ -169,10 +180,13 @@ async def execute_feature_graph(
     discipline = payload.get("workspace_discipline")
 
     # Load user memory
-    memory_items: list[dict] = []
+    memory_text: str | None = None
     if user_id:
-        memory_items = await load_user_memory(user_id, workspace_id)
-    memory_text = format_knowledge_for_prompt(memory_items) if memory_items else None
+        memory_text = await build_memory_context(
+            str(user_id),
+            workspace_id or None,
+            current_context=_derive_feature_memory_context(payload),
+        )
 
     # Build system prompt
     system_prompt = _build_system_prompt(
@@ -251,3 +265,36 @@ async def execute_thesis_feature_graph(
 ) -> dict[str, Any]:
     """Convenience wrapper for thesis workspace feature execution."""
     return await execute_feature_graph("thesis", feature_id, payload, user_id=user_id)
+
+
+def _derive_feature_memory_context(payload: dict[str, Any]) -> str | None:
+    """Extract a compact feature context hint to rank memory injection."""
+    params = payload.get("params")
+    if not isinstance(params, dict):
+        return None
+
+    snippets: list[str] = []
+    for key in _FEATURE_MEMORY_CONTEXT_KEYS:
+        value = params.get(key)
+        if isinstance(value, str):
+            normalized = " ".join(value.split())
+            if normalized:
+                snippets.append(normalized)
+            continue
+        if isinstance(value, list):
+            normalized_items = [
+                " ".join(str(item).split())
+                for item in value
+                if str(item).strip()
+            ]
+            if normalized_items:
+                snippets.append("；".join(normalized_items))
+
+    if not snippets:
+        return None
+
+    deduped_snippets = list(dict.fromkeys(snippets))
+    context = "\n".join(deduped_snippets[:5]).strip()
+    if len(context) > 2400:
+        return context[:2399].rstrip() + "…"
+    return context

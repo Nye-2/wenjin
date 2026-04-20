@@ -22,13 +22,15 @@ x-frontend-build: &frontend_build
   dockerfile: Dockerfile
   args:
     NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
+    ALPINE_MIRROR: ${ALPINE_MIRROR:-}
     NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    NPM_FALLBACK_REGISTRY: ${NPM_FALLBACK_REGISTRY:-https://registry.npmjs.org}
 
 x-texlive-build: &texlive_build
   context: ./backend/docker/images/texlive
   dockerfile: Dockerfile
   args:
-    BASE_IMAGE: ${TEXLIVE_BASE_IMAGE:-docker.m.daocloud.io/library/ubuntu:22.04}
+    BASE_IMAGE: ${TEXLIVE_BASE_IMAGE:-ubuntu:22.04}
     APT_MIRROR: ${TEXLIVE_APT_MIRROR:-}
 
 services:
@@ -135,6 +137,8 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_URL=redis://redis:6379/0
+      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
+      - REDIS_STREAM_MAX_CONNECTIONS=${REDIS_STREAM_MAX_CONNECTIONS:-200}
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
@@ -159,7 +163,7 @@ services:
       texlive:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/readyz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/models?purpose=chat"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -177,6 +181,8 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_URL=redis://redis:6379/0
+      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
+      - REDIS_STREAM_MAX_CONNECTIONS=${REDIS_STREAM_MAX_CONNECTIONS:-200}
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
@@ -202,10 +208,8 @@ services:
     healthcheck:
       test:
         [
-          "CMD",
-          "python",
-          "-c",
-          "from src.task import celery_app; import sys; inspect = celery_app.control.inspect(timeout=2); sys.exit(0 if inspect.ping() else 1)",
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:${PROMETHEUS_WORKER_PORT:-9153}/metrics >/dev/null",
         ]
       interval: 30s
       timeout: 10s
@@ -226,6 +230,8 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_URL=redis://redis:6379/0
+      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
+      - REDIS_STREAM_MAX_CONNECTIONS=${REDIS_STREAM_MAX_CONNECTIONS:-200}
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
@@ -294,7 +300,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget -qO- http://127.0.0.1/readyz >/dev/null && wget -qO- http://frontend:3000 >/dev/null || exit 1",
+          "wget -qO- http://127.0.0.1/api/models?purpose=chat >/dev/null && wget -qO- http://frontend:3000 >/dev/null || exit 1",
         ]
       interval: 30s
       timeout: 10s

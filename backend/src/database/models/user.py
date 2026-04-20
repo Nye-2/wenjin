@@ -10,9 +10,9 @@ from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from .admin_log import AdminLog
-    from .chat_thread import ChatThread
     from .credit import CreditTransaction
     from .knowledge import UserKnowledge
+    from .thread import Thread
     from .workspace import Workspace
 
 
@@ -83,8 +83,8 @@ class User(Base, UUIDMixin, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    chat_threads: Mapped[list["ChatThread"]] = relationship(
-        "ChatThread",
+    threads: Mapped[list["Thread"]] = relationship(
+        "Thread",
         back_populates="user",
         cascade="all, delete-orphan",
     )

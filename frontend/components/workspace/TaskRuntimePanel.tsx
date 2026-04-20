@@ -43,6 +43,52 @@ function phaseIcon(status: TaskRuntimePhase["status"]) {
   return <Clock3 className="h-3.5 w-3.5" />;
 }
 
+function normalizePhaseToken(value: string | null | undefined): string {
+  if (!value) {
+    return "";
+  }
+  return value.toLowerCase().replace(/[_\s-]+/g, "");
+}
+
+function blockMatchesPhase(
+  block: TaskRuntimeBlock,
+  phase: TaskRuntimePhase
+): boolean {
+  const phaseIdToken = normalizePhaseToken(phase.id);
+  const phaseLabelToken = normalizePhaseToken(phase.label);
+  const phaseTokenSet = new Set([phaseIdToken, phaseLabelToken].filter(Boolean));
+
+  const phaseIdValue =
+    typeof block.phase_id === "string" ? block.phase_id.trim() : "";
+  if (phaseIdValue) {
+    const blockPhaseToken = normalizePhaseToken(phaseIdValue);
+    if (phaseTokenSet.has(blockPhaseToken)) {
+      return true;
+    }
+    return Array.from(phaseTokenSet).some(
+      (token) =>
+        token.includes(blockPhaseToken) || blockPhaseToken.includes(token)
+    );
+  }
+
+  const sourceTokens = [
+    normalizePhaseToken(block.id),
+    normalizePhaseToken(block.title),
+    normalizePhaseToken(block.description),
+  ].filter(Boolean);
+
+  if (sourceTokens.length === 0) {
+    return false;
+  }
+
+  return sourceTokens.some((sourceToken) =>
+    Array.from(phaseTokenSet).some(
+      (phaseToken) =>
+        sourceToken.includes(phaseToken) || phaseToken.includes(sourceToken)
+    )
+  );
+}
+
 function BlockRenderer({ block }: { block: TaskRuntimeBlock }) {
   if (block.kind === "metrics") {
     return (
@@ -145,6 +191,8 @@ interface TaskRuntimePanelProps {
   isRunning: boolean;
   status?: string | null;
   error?: string | null;
+  selectedPhaseId?: string | null;
+  onSelectPhase?: (phaseId: string | null) => void;
   title?: string;
   emptyTitle?: string;
   emptyDescription?: string;
@@ -156,6 +204,8 @@ export function TaskRuntimePanel({
   isRunning,
   status,
   error,
+  selectedPhaseId = null,
+  onSelectPhase,
   title,
   emptyTitle = "运行时面板",
   emptyDescription = "长任务执行时，这里会显示阶段进度和中间结果。",
@@ -163,10 +213,25 @@ export function TaskRuntimePanel({
 }: TaskRuntimePanelProps) {
   const phases = runtime?.phases || [];
   const blocks = runtime?.blocks || [];
+  const effectiveSelectedPhaseId =
+    selectedPhaseId && phases.some((phase) => phase.id === selectedPhaseId)
+      ? selectedPhaseId
+      : null;
   const currentPhase =
     runtime?.current_phase && phases.length > 0
       ? phases.find((phase) => phase.id === runtime.current_phase)
       : null;
+  const focusPhase =
+    effectiveSelectedPhaseId && phases.length > 0
+      ? phases.find((phase) => phase.id === effectiveSelectedPhaseId) ?? currentPhase
+      : currentPhase;
+  const matchedBlocks =
+    focusPhase && blocks.length > 0
+      ? blocks.filter((block) => blockMatchesPhase(block, focusPhase))
+      : blocks;
+  const hasPhaseFilteredBlocks =
+    Boolean(focusPhase) && matchedBlocks.length > 0;
+  const visibleBlocks = hasPhaseFilteredBlocks ? matchedBlocks : blocks;
   const overallProgress =
     phases.length > 0
       ? Math.round(
@@ -192,7 +257,7 @@ export function TaskRuntimePanel({
             </h3>
           </div>
           <p className="mt-1 text-xs text-[var(--text-muted)]">
-            {error || status || currentPhase?.description || emptyDescription}
+            {error || status || focusPhase?.description || emptyDescription}
           </p>
         </div>
         {(isRunning || runtime) && (
@@ -210,50 +275,104 @@ export function TaskRuntimePanel({
 
       {phases.length > 0 && (
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {phases.map((phase) => (
-            <div
-              key={phase.id}
-            className="rounded-2xl border border-[var(--border-default)] bg-white/78 px-3 py-3"
-          >
-              <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    "inline-flex h-7 w-7 items-center justify-center rounded-full text-xs",
-                    phaseStatusStyles(phase.status)
-                  )}
-                >
-                  {phaseIcon(phase.status)}
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-[var(--text-primary)]">
-                    {phase.label}
-                  </p>
-                  {phase.description && (
-                    <p className="text-[11px] text-[var(--text-muted)]">
-                      {phase.description}
+          {phases.map((phase) => {
+            const isSelected = effectiveSelectedPhaseId === phase.id;
+            const body = (
+              <>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "inline-flex h-7 w-7 items-center justify-center rounded-full text-xs",
+                      phaseStatusStyles(phase.status)
+                    )}
+                  >
+                    {phaseIcon(phase.status)}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-[var(--text-primary)]">
+                      {phase.label}
                     </p>
-                  )}
+                    {phase.description && (
+                      <p className="text-[11px] text-[var(--text-muted)]">
+                        {phase.description}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {typeof phase.progress === "number" && (
-                <div className="mt-3">
-                  <Progress
-                    value={phase.progress}
-                    className="h-1.5 bg-[var(--bg-surface)]"
-                  />
+                {typeof phase.progress === "number" && (
+                  <div className="mt-3">
+                    <Progress
+                      value={phase.progress}
+                      className="h-1.5 bg-[var(--bg-surface)]"
+                    />
+                  </div>
+                )}
+              </>
+            );
+
+            const containerClass = cn(
+              "rounded-2xl border bg-white/78 px-3 py-3",
+              isSelected
+                ? "border-[var(--accent-primary)]/40 ring-1 ring-[var(--accent-primary)]/20"
+                : "border-[var(--border-default)]",
+              onSelectPhase
+                ? "cursor-pointer text-left transition-colors hover:border-[var(--accent-primary)]/25"
+                : ""
+            );
+
+            if (!onSelectPhase) {
+              return (
+                <div key={phase.id} className={containerClass}>
+                  {body}
                 </div>
-              )}
-            </div>
-          ))}
+              );
+            }
+
+            return (
+              <button
+                key={phase.id}
+                type="button"
+                onClick={() => onSelectPhase(isSelected ? null : phase.id)}
+                className={containerClass}
+              >
+                {body}
+              </button>
+            );
+          })}
         </div>
       )}
 
-      {blocks.length > 0 ? (
+      {focusPhase && onSelectPhase ? (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-[var(--accent-primary)]/25 bg-[var(--accent-primary)]/10 px-2.5 py-1 text-[10px] text-[var(--accent-primary)]">
+            阶段聚焦: {focusPhase.label}
+          </span>
+          <span className="rounded-full border border-[var(--border-default)] bg-white/80 px-2.5 py-1 text-[10px] text-[var(--text-muted)]">
+            {hasPhaseFilteredBlocks
+              ? `匹配 ${matchedBlocks.length}/${blocks.length} 个运行块`
+              : "未找到阶段专属运行块，已显示全部"}
+          </span>
+          <button
+            type="button"
+            onClick={() => onSelectPhase(null)}
+            className="rounded-full border border-[var(--border-default)] bg-white/80 px-2.5 py-1 text-[10px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
+          >
+            清除聚焦
+          </button>
+        </div>
+      ) : null}
+
+      {visibleBlocks.length > 0 ? (
         <div className="mt-5 space-y-4">
-          {blocks.map((block) => (
+          {visibleBlocks.map((block) => (
             <div
               key={block.id}
-              className="rounded-2xl border border-[var(--border-default)] bg-white/76 p-4"
+              className={cn(
+                "rounded-2xl border bg-white/76 p-4",
+                hasPhaseFilteredBlocks && focusPhase && blockMatchesPhase(block, focusPhase)
+                  ? "border-[var(--accent-primary)]/30 ring-1 ring-[var(--accent-primary)]/12"
+                  : "border-[var(--border-default)]"
+              )}
             >
               <div className="mb-3">
                 <p className="text-sm font-medium text-[var(--text-primary)]">

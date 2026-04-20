@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.agents.graphs.thesis import (
-    compile_export,
     deep_research,
     figure_generation,
     literature_management,
@@ -143,90 +142,6 @@ async def test_figure_generation_graph_propagates_model_id():
     assert result["model_id"] == "resolved-writing-model"
     assert result["strategy"] == "python"
     assert result["render_data"]["file_path"] == "/mnt/user-data/execution/mermaid/test.svg"
-
-
-@pytest.mark.asyncio
-async def test_compile_export_graph_propagates_model_id():
-    payload = {
-        "workspace_id": "ws-1",
-        "workspace_name": "topic",
-        "workspace_description": "desc",
-        "params": {"model_id": "picked-model"},
-    }
-    with patch.object(
-        compile_export,
-        "_resolve_writing_model",
-        return_value="resolved-writing-model",
-    ) as resolve_model, patch.object(
-        compile_export,
-        "_load_outline_context",
-        new_callable=AsyncMock,
-        return_value={"paper_title": "topic"},
-    ), patch.object(
-        compile_export,
-        "_load_chapter_summaries",
-        new_callable=AsyncMock,
-        return_value=[{"title": "Chapter 1", "summary": "summary"}],
-    ), patch.object(
-        compile_export,
-        "_load_literature_count",
-        new_callable=AsyncMock,
-        return_value=7,
-    ), patch.object(
-        compile_export,
-        "_review_consistency",
-        new_callable=AsyncMock,
-        return_value={"issues": [], "overall_assessment": "ok"},
-    ) as review_consistency, patch.object(
-        compile_export,
-        "_generate_abstract_keywords",
-        new_callable=AsyncMock,
-        return_value={
-            "abstract_zh": "a",
-            "keywords_zh": ["k1"],
-            "abstract_en": "b",
-            "keywords_en": ["k2"],
-        },
-    ) as gen_abstract:
-        with patch.object(
-            compile_export,
-            "build_compile_payload",
-            new_callable=AsyncMock,
-            return_value={
-                "latex_content": "\\documentclass{article}",
-                "bib_content": "",
-                "source_summary": {"chapter_count": 1},
-                "template": "default",
-                "compiler": "xelatex",
-                "bibliography_style": "gbt7714",
-                "paper_title": "topic",
-            },
-        ) as build_compile, patch.object(
-            compile_export,
-            "compile_thesis_payload",
-            new_callable=AsyncMock,
-            return_value=SimpleNamespace(
-                latex_project_id="latex-thesis-1",
-                main_file="main.tex",
-                compile_status="success",
-                pdf_path="/mnt/user-data/execution/latex_compile/test.pdf",
-                pdf_url="/api/threads/default/artifacts/mnt/user-data/execution/latex_compile/test.pdf",
-                pdf_endpoint="/api/threads/default/artifacts/mnt/user-data/execution/latex_compile/test.pdf",
-                page_count=12,
-                compile_error=None,
-                compile_logs="ok",
-                sync_conflicts=[],
-            ),
-        ) as compile_thesis:
-            result = await compile_export.compile_export_graph({}, payload)
-
-    resolve_model.assert_called_once_with("picked-model")
-    assert review_consistency.await_args.kwargs["model_id"] == "resolved-writing-model"
-    assert gen_abstract.await_args.kwargs["model_id"] == "resolved-writing-model"
-    assert build_compile.await_args.kwargs["workspace_id"] == "ws-1"
-    assert compile_thesis.await_args.kwargs["workspace_id"] == "ws-1"
-    assert result["model_id"] == "resolved-writing-model"
-    assert result["compile_status"] == "success"
 
 
 @pytest.mark.asyncio

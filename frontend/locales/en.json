@@ -343,10 +343,6 @@
       "name": "Figure Design",
       "description": "Academic figure and visualization design"
     },
-    "doc-compiler": {
-      "name": "Compile & Export",
-      "description": "Paper formatting, compilation, and export"
-    },
     "paper-analyst": {
       "name": "Paper Analysis",
       "description": "In-depth analysis of paper structure and methods"

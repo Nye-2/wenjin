@@ -261,6 +261,7 @@ class TestGlobalSubagentManager:
             metadata={
                 "workspace_id": "ws-1",
                 "user_id": "user-1",
+                "execution_session_id": "exec-1",
                 "model_name": "gpt-4o",
             },
         )
@@ -280,10 +281,42 @@ class TestGlobalSubagentManager:
                 "thread_id": "thread-ctx",
                 "workspace_id": "ws-1",
                 "user_id": "user-1",
+                "execution_session_id": "exec-1",
                 "model_name": "gpt-4o",
                 "subagent_enabled": False,
             }
         }
+
+    @pytest.mark.asyncio
+    async def test_execute_task_collects_token_usage_metadata(self, manager):
+        """Completed subagent results should carry normalized token usage metadata."""
+        task = SubagentTask(
+            task_id="usage-test",
+            thread_id="thread-ctx",
+            prompt="Test",
+            created_at=datetime.now(),
+            timeout=60,
+            metadata={"model_name": "gpt-4.1-mini"},
+        )
+
+        usage_message = MagicMock(content="Done")
+        usage_message.usage_metadata = {
+            "input_tokens": 30,
+            "output_tokens": 6,
+            "total_tokens": 36,
+        }
+        usage_message.response_metadata = {}
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(return_value={"messages": [usage_message]})
+
+        with patch.object(manager._graph_registry, "get", return_value=mock_graph):
+            result = await manager._execute_task(task)
+
+        assert result.status == SubagentStatus.COMPLETED
+        assert result.metadata["token_usage"]["input_tokens"] == 30
+        assert result.metadata["token_usage"]["output_tokens"] == 6
+        assert result.metadata["token_usage"]["total_tokens"] == 36
+        assert result.metadata["model_name"] == "gpt-4.1-mini"
 
     def test_build_graph_cache_key_includes_model_name(self):
         """Task graph cache must isolate runs with different models."""
@@ -444,7 +477,7 @@ class TestGlobalSubagentManager:
         mock_graph.ainvoke = slow_invoke
 
         with patch.object(manager._graph_registry, "get", return_value=mock_graph), \
-             patch("src.services.chat_thread_events.set_thread_status", new=AsyncMock()) as mock_set_status:
+             patch("src.services.thread_events.set_thread_status", new=AsyncMock()) as mock_set_status:
             await manager.spawn(task)
             await asyncio.wait_for(started.wait(), timeout=1)
 
@@ -478,7 +511,14 @@ class TestGlobalSubagentManager:
             prompt="Review the paper",
             created_at=datetime.now(),
             timeout=60,
-            metadata={"subagent_type": "paper_critic"},
+            metadata={
+                "subagent_type": "paper_critic",
+                "execution_session_id": "exec-1",
+                "workflow_phase": "discovery",
+                "workflow_phase_index": "0",
+                "workflow_task_index": "1",
+                "workflow_strategy": "deep_research:research_discovery",
+            },
         )
         result = SubagentResult(
             task_id="subagent-1",
@@ -486,6 +526,14 @@ class TestGlobalSubagentManager:
             output="Found three revision points",
             error=None,
             duration_seconds=1.2,
+            metadata={
+                "token_usage": {
+                    "input_tokens": 42,
+                    "output_tokens": 8,
+                    "total_tokens": 50,
+                },
+                "model_name": "gpt-4.1-mini",
+            },
         )
         activity = {
             "id": "subagent:subagent-1",
@@ -516,6 +564,13 @@ class TestGlobalSubagentManager:
         assert payload["activity"]["id"] == "subagent:subagent-1"
         assert payload["activity"]["kind"] == "subagent_task"
         assert payload["activity"]["summary"] == "Found three revision points"
+        assert payload["subagent"]["execution_session_id"] == "exec-1"
+        assert payload["subagent"]["workflow_phase"] == "discovery"
+        assert payload["subagent"]["workflow_phase_index"] == "0"
+        assert payload["subagent"]["workflow_task_index"] == "1"
+        assert payload["subagent"]["workflow_strategy"] == "deep_research:research_discovery"
+        assert payload["subagent"]["token_usage"]["total_tokens"] == 50
+        assert payload["subagent"]["model_name"] == "gpt-4.1-mini"
 
     @pytest.mark.asyncio
     async def test_persist_subagent_activity_uses_durable_record_timestamp(self, manager):

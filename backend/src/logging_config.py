@@ -24,6 +24,8 @@ class StructuredFormatter(logging.Formatter):
             log_data["user_id"] = record.user_id
         if hasattr(record, "workspace_id"):
             log_data["workspace_id"] = record.workspace_id
+        if record.exc_info:
+            log_data["exception"] = self.formatException(record.exc_info).replace("\n", "\\n")
 
         # Format as key=value pairs (readable but structured)
         return " ".join(f"{k}={v}" for k, v in log_data.items())

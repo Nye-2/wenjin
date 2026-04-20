@@ -223,6 +223,31 @@ class TestGetModelConfig:
             assert full_config["model"] == "test/gen-model"
             assert full_config["temperature"] == 0.7
             assert full_config["max_tokens"] == 4096
+            assert full_config["supports_thinking"] is False
+            assert full_config["supports_vision"] is False
+            assert full_config["supports_reasoning_effort"] is False
+
+    def test_get_model_full_config_includes_capability_flags(self) -> None:
+        sample_models = json.dumps([
+            {
+                "id": "capability-model",
+                "model": "provider/capability-model",
+                "api_key": "sk-cap",
+                "base_url": "https://example.com/v1",
+                "supports_thinking": True,
+                "supports_vision": True,
+                "supports_reasoning_effort": True,
+            }
+        ])
+        with patch.dict(os.environ, {"LLM_GEN_MODELS": sample_models}, clear=False):
+            from src.config.llm_config import get_model_full_config, reload_models
+
+            reload_models()
+            full_config = get_model_full_config("capability-model")
+
+            assert full_config["supports_thinking"] is True
+            assert full_config["supports_vision"] is True
+            assert full_config["supports_reasoning_effort"] is True
 
     def test_get_model_full_config_raises_for_unknown(self, sample_models: str) -> None:
         """Test that get_model_full_config raises ValueError for unknown model."""

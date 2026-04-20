@@ -21,12 +21,12 @@ import {
   Search,
   ShieldCheck,
 } from "lucide-react";
+import { useExecutionStore } from "@/stores/execution";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeaturesStore } from "@/stores/features";
-import { useDashboardStore } from "@/stores/dashboard";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
-import type { WorkspaceFeature } from "@/lib/api";
+import type { ExecutionSession, WorkspaceFeature } from "@/lib/api";
 import { useI18n } from "@/components/i18n-provider";
 import { workspaceStages, getFeatureStageId } from "@/lib/workspace-feature-stages";
 import { WorkspaceInspector } from "./components/WorkspaceInspector";
@@ -46,6 +46,7 @@ const workspaceTypeColors: Record<string, string> = {
   software_copyright: "bg-[rgba(120,135,139,0.08)] text-[var(--text-secondary)] border-[rgba(120,135,139,0.16)]",
   patent: "bg-[rgba(166,124,57,0.09)] text-[var(--brand-brass)] border-[rgba(166,124,57,0.16)]",
 };
+const EMPTY_EXECUTION_SESSIONS: ExecutionSession[] = [];
 
 interface RunningTask {
   id: string;
@@ -113,7 +114,7 @@ function inferRecommendedFeature(
   if (hasDraft) {
     return (
       features.find((f) =>
-        ["peer_review", "compile_export", "journal_recommend"].includes(f.id),
+        ["peer_review", "journal_recommend"].includes(f.id),
       ) ?? features[0]
     );
   }
@@ -277,18 +278,15 @@ export default function WorkbenchPage() {
   useI18n();
   const workspaceId = params.id as string;
 
-  const { workspace, isWorkspaceLoading, isArtifactsLoading, error, artifacts } = useWorkspaceStore();
-  const { features } = useFeaturesStore();
-  const { modules, fetchDashboard, reset: resetDashboard } = useDashboardStore();
-
-  useEffect(() => {
-    if (workspaceId) {
-      void fetchDashboard(workspaceId);
-    }
-    return () => {
-      resetDashboard();
-    };
-  }, [workspaceId, fetchDashboard, resetDashboard]);
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const isWorkspaceLoading = useWorkspaceStore((state) => state.isWorkspaceLoading);
+  const isArtifactsLoading = useWorkspaceStore((state) => state.isArtifactsLoading);
+  const error = useWorkspaceStore((state) => state.error);
+  const artifacts = useWorkspaceStore((state) => state.artifacts);
+  const features = useFeaturesStore((state) => state.features);
+  const executionSessions = useExecutionStore(
+    (state) => state.byWorkspace[workspaceId] ?? EMPTY_EXECUTION_SESSIONS
+  );
 
   // Auto-redirect new workspaces to onboarding chat (only on first load)
   useEffect(() => {
@@ -307,17 +305,25 @@ export default function WorkbenchPage() {
 
   const runningTasks = useMemo<RunningTask[]>(() => {
     const featureById = new Map(features.map((feature) => [feature.id, feature]));
-    return modules
-      .filter((module) => module.status === "in_progress")
-      .map((module) => ({
-        id: module.id,
-        name: featureById.get(module.id)?.name ?? module.id,
+    return executionSessions
+      .filter(
+        (execution) =>
+          execution.status === "running" ||
+          execution.status === "pending" ||
+          execution.status === "awaiting_user_input"
+      )
+      .map((execution) => ({
+        id: execution.primary_task_id || execution.id,
+        name:
+          featureById.get(execution.feature_id)?.name ?? execution.feature_id,
         progress:
-          typeof module.summary?.progress === "number"
-            ? Math.round(module.summary.progress as number)
-            : 0,
+          typeof execution.progress === "number"
+            ? Math.round(execution.progress)
+            : typeof execution.runtime_snapshot?.progress === "number"
+              ? Math.round(execution.runtime_snapshot.progress as number)
+              : 0,
       }));
-  }, [modules, features]);
+  }, [executionSessions, features]);
 
   const recommendedFeature = useMemo(
     () => inferRecommendedFeature(features, artifacts),
@@ -365,7 +371,7 @@ export default function WorkbenchPage() {
     <div className="flex h-screen flex-col bg-[var(--bg-base)]">
       <ErrorBoundary>
         <main className="flex-1 overflow-auto p-6 atmosphere-mesh">
-          <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(430px,520px)]">
             <div className="space-y-6">
               {/* ── Hero Section ────────────────────────────────────── */}
               <motion.section

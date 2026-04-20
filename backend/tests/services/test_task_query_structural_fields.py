@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 # Files that should not contain JSONB path queries for workspace_id/feature_id
 _TARGET_FILES = [
     Path(__file__).parents[2] / "src" / "services" / "dashboard" / "shared.py",

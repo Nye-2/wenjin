@@ -1,5 +1,6 @@
 """FastAPI Gateway Application."""
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -9,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from src.config.app_config import get_settings
+from src.config.app_config import celery_settings, get_settings, redis_settings
 from src.gateway.middleware.correlation import correlation_middleware
 from src.gateway.middleware.error_handler import register_error_handlers
 from src.logging_config import setup_logging
@@ -36,8 +37,54 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Connect Redis
     from src.academic.cache.redis_client import redis_client
     await redis_client.connect()
+    await redis_client.connect_stream()
 
-    # Reconcile any tasks that were interrupted while using the in-process executor.
+    # Initialize run runtime singletons.
+    from src.runtime.runs import RunManager
+    from src.runtime.stream_bridge import RedisStreamBridge
+
+    if not redis_settings.enabled:
+        raise RuntimeError("Gateway run runtime requires REDIS_ENABLED=true")
+    if not celery_settings.enabled:
+        raise RuntimeError("Gateway run runtime requires CELERY_ENABLED=true")
+
+    app.state.run_manager = RunManager(
+        redis_backend=redis_client.client,
+        run_ttl_seconds=settings.runtime_run_ttl_seconds,
+    )
+    await app.state.run_manager.hydrate_recent_runs(
+        limit=settings.runtime_run_recovery_limit
+    )
+    app.state.stream_bridge = RedisStreamBridge(
+        redis_client.stream_client,
+        queue_maxsize=512,
+        stream_ttl_seconds=settings.runtime_run_ttl_seconds,
+    )
+    logger.info(
+        "Runtime run subsystem configured with Redis persistence "
+        "(recovery_limit=%s ttl=%ss)",
+        settings.runtime_run_recovery_limit,
+        settings.runtime_run_ttl_seconds,
+    )
+    app.state.event_loop_watchdog_task = None
+
+    # Detect severe event-loop blocking and force process restart to recover.
+    # Skip in test environment to avoid destabilizing deterministic tests.
+    if (
+        settings.gateway_event_loop_watchdog_enabled
+        and settings.environment.lower() != "test"
+    ):
+        from src.gateway.watchdog import run_event_loop_watchdog
+
+        app.state.event_loop_watchdog_task = asyncio.create_task(
+            run_event_loop_watchdog(
+                interval_seconds=settings.gateway_event_loop_watchdog_interval_seconds,
+                lag_threshold_seconds=settings.gateway_event_loop_watchdog_lag_threshold_seconds,
+                max_consecutive_breaches=settings.gateway_event_loop_watchdog_max_breaches,
+            )
+        )
+
+    # Reconcile task states that may have been interrupted by process restarts.
     from src.task.recovery import reconcile_interrupted_tasks
 
     await reconcile_interrupted_tasks()
@@ -63,6 +110,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await shutdown_mcp_runtime()
     except Exception as exc:
         logger.warning("MCP runtime shutdown skipped: %s", exc, exc_info=True)
+    stream_bridge = getattr(app.state, "stream_bridge", None)
+    if stream_bridge is not None:
+        try:
+            await stream_bridge.close()
+        except Exception:
+            logger.warning("Failed to close stream bridge", exc_info=True)
+    watchdog_task = getattr(app.state, "event_loop_watchdog_task", None)
+    if watchdog_task is not None:
+        watchdog_task.cancel()
+        try:
+            await watchdog_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.warning("Failed to stop event loop watchdog", exc_info=True)
     await redis_client.disconnect()
     from src.database import close_db
 
@@ -128,11 +190,13 @@ async def readiness_check() -> Any:
 # Include routers (imported after app creation to avoid circular imports)
 from src.api.subagents import router as subagents_router  # noqa: E402
 
-from .routers import artifacts, auth, chat, dashboard, features, latex, literature, mcp, memory, models, papers, skills, tasks, templates, uploads, workspaces  # noqa: E402
+from .routers import artifacts, auth, dashboard, features, latex, literature, mcp, memory, models, papers, runs, skills, tasks, templates, thread_runs, threads, uploads, workspaces  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(subagents_router, prefix="/api", tags=["subagents"])
-app.include_router(chat.router, prefix="/api", tags=["chat"])
+app.include_router(threads.router, prefix="/api", tags=["threads"])
+app.include_router(thread_runs.router, prefix="/api", tags=["runs"])
+app.include_router(runs.router, prefix="/api", tags=["runs"])
 app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])

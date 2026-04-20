@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -26,7 +27,6 @@ FEATURE_HANDLER_MATRIX: list[tuple[str, str, dict[str, object], dict[str, object
         {"action": "generate_outline", "paper_title": "Agent Thesis", "outline": {"chapters": [{"title": "绪论"}]}},
     ),
     ("thesis", "figure_generation", {"description": "系统架构图"}, {"description": "系统架构图"}),
-    ("thesis", "compile_export", {"template": "default"}, {"compile_status": "success"}),
     ("sci", "literature_search", {"query": "LLM planning"}, {"top_hits": [{"title": "Paper A"}], "papers": []}),
     (
         "sci",
@@ -74,6 +74,44 @@ FEATURE_HANDLER_MATRIX: list[tuple[str, str, dict[str, object], dict[str, object
 ]
 
 
+@pytest.fixture(autouse=True)
+def _stub_feature_workflow_executor(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fake_execute_plan(
+        self: Any,  # noqa: ANN401
+        plan: Any,  # noqa: ANN401
+        context: dict[str, Any] | None = None,
+        phase_callback: Any = None,  # noqa: ANN401
+    ) -> list[Any]:  # noqa: ANN401
+        _ = context
+        from src.subagents.parallel import PhaseResult
+
+        phase_results: list[PhaseResult] = []
+        for phase in plan.phases:
+            task_results: list[dict[str, Any]] = []
+            for task in phase.tasks:
+                task_results.append(
+                    {
+                        "subagent_type": str(task.get("subagent_type") or "general"),
+                        "success": True,
+                        "result": {"summary": f"{phase.name} done"},
+                        "error": None,
+                    }
+                )
+            phase_result = PhaseResult(
+                phase_name=str(phase.name),
+                task_results=task_results,
+            )
+            if callable(phase_callback):
+                await phase_callback(phase_result)
+            phase_results.append(phase_result)
+        return phase_results
+
+    monkeypatch.setattr(
+        "src.agents.feature_leader.runtime.ParallelExecutor.execute_plan",
+        _fake_execute_plan,
+    )
+
+
 def test_feature_handler_matrix_matches_registry() -> None:
     declared_feature_ids = {feature.id for feature in iter_workspace_features()}
     covered_feature_ids = {feature_id for _, feature_id, _, _ in FEATURE_HANDLER_MATRIX}
@@ -101,6 +139,7 @@ async def test_execute_workspace_feature_wraps_langgraph_result_for_all_features
         "feature_id": feature_id,
         "feature_name": feature_id,
         "handler_key": f"{workspace_type}.{feature_id}",
+        "execution_session_id": "exec-1",
         "params": deepcopy(params),
         "user_id": "user-1",
     }
@@ -129,7 +168,12 @@ async def test_execute_workspace_feature_wraps_langgraph_result_for_all_features
     assert wrapped["feature_id"] == feature_id
     assert wrapped["workspace_type"] == workspace_type
     assert wrapped["handler_key"] == f"{workspace_type}.{feature_id}"
-    assert wrapped["data"] == result_payload
+    wrapped_data = wrapped["data"]
+    assert isinstance(wrapped_data, dict)
+    for key, value in result_payload.items():
+        assert wrapped_data.get(key) == value
+    extra_keys = set(wrapped_data) - set(result_payload)
+    assert extra_keys.issubset({"leader_workflow"})
     assert wrapped["artifacts"] == persisted_artifacts
     assert wrapped["refresh_targets"] == ["artifacts"]
     assert isinstance(wrapped.get("runtime"), dict)

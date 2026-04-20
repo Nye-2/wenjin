@@ -221,7 +221,9 @@ export function LiteraturePanel({
   workspaceId,
   embedded = false,
 }: LiteraturePanelProps) {
-  const { papers, fetchPapers, isPapersLoading } = useWorkspaceStore();
+  const papers = useWorkspaceStore((state) => state.papers);
+  const fetchPapers = useWorkspaceStore((state) => state.fetchPapers);
+  const isPapersLoading = useWorkspaceStore((state) => state.isPapersLoading);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [recentUploads, setRecentUploads] = useState<UploadState[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);

@@ -22,7 +22,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  CompileFeatureButton,
   ImportLiteratureButton,
   PanelActionBar,
   PanelSection,
@@ -30,9 +29,24 @@ import {
   SaveArtifactButton,
   TaskRuntimePanel,
 } from "@/components/workspace";
-import { deleteLatexProject } from "@/lib/api";
+import {
+  buildWorkflowPhaseIdentity,
+  ExecutionWorkflowGraph,
+} from "@/components/workspace/ExecutionWorkflowGraph";
+import {
+  deleteLatexProject,
+  ensureWorkspacePrismProject,
+  type ExecutionSession,
+} from "@/lib/api";
+import {
+  adaptExecutionToPanelSession,
+  type ExecutionPanelSession,
+  selectPreferredExecution,
+} from "@/lib/execution-presenters";
+import type { TaskRuntimePhase } from "@/lib/task-runtime";
+import { useExecutionStore } from "@/stores/execution";
+import { useFeaturesStore } from "@/stores/features";
 import { type Artifact, useWorkspaceStore } from "@/stores/workspace";
-import { type FeaturePanelSession, useFeaturePanelStore } from "@/stores/panels";
 import { cn } from "@/lib/utils";
 
 interface FeaturePanelHostProps {
@@ -41,8 +55,10 @@ interface FeaturePanelHostProps {
 
 interface FeaturePanelRendererProps {
   workspaceId: string;
-  session: FeaturePanelSession;
+  session: ExecutionPanelSession;
 }
+const EMPTY_EXECUTION_SESSIONS: ExecutionSession[] = [];
+const EMPTY_EXECUTION_IDS: string[] = [];
 
 function findLatestArtifact(
   artifacts: Artifact[],
@@ -235,10 +251,12 @@ function groupLatestChapterArtifacts(artifacts: Artifact[]) {
 
 function PanelStatusBadge({ status }: { status: string }) {
   const tone =
-    status === "success"
+    status === "success" || status === "completed"
       ? "bg-emerald-500/12 text-emerald-700"
       : status === "failed"
         ? "bg-red-500/12 text-red-700"
+        : status === "cancelled"
+          ? "bg-slate-500/12 text-slate-700"
         : "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]";
   return (
     <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-medium", tone)}>
@@ -253,13 +271,14 @@ function SessionSwitcher({
   onSelect,
 }: {
   sessions: Array<{
+    executionId: string;
     taskId: string;
     title: string;
     status: string;
     updatedAt: string;
   }>;
   activeSessionId: string | null;
-  onSelect: (taskId: string) => void;
+  onSelect: (executionId: string) => void;
 }) {
   if (sessions.length <= 1) {
     return null;
@@ -273,12 +292,12 @@ function SessionSwitcher({
       <div className="mt-3 flex flex-wrap gap-2">
         {sessions.map((session) => (
           <button
-            key={session.taskId}
+            key={session.executionId}
             type="button"
-            onClick={() => onSelect(session.taskId)}
+            onClick={() => onSelect(session.executionId)}
             className={cn(
               "rounded-full border px-3 py-1.5 text-left text-[11px] transition-colors",
-              activeSessionId === session.taskId
+              activeSessionId === session.executionId
                 ? "border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
                 : "border-[var(--border-default)] bg-white/78 text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
             )}
@@ -307,53 +326,450 @@ function EmptyWorkPanel() {
         当前没有进行中的工作面板
       </h3>
       <p className="mt-2 max-w-sm text-xs leading-6 text-[var(--text-secondary)]">
-        在 chat 中描述你要推进的任务，问津会先确认需求，再为你启动对应模块。
+        在线程中描述你要推进的任务，问津会先确认需求，再为你启动对应模块。
       </p>
     </div>
   );
 }
 
+function normalizePhaseToken(value: string | null | undefined): string {
+  if (!value) {
+    return "";
+  }
+  return value.toLowerCase().replace(/[_\s-]+/g, "");
+}
+
+function parseWorkflowPhaseIndex(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const [prefix] = value.split(":", 1);
+  const parsed = Number.parseInt(prefix ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+  return parsed;
+}
+
+function phaseTokenMatches(phase: TaskRuntimePhase, token: string): boolean {
+  if (!token) {
+    return false;
+  }
+  const idToken = normalizePhaseToken(phase.id);
+  const labelToken = normalizePhaseToken(phase.label);
+  return (
+    idToken === token ||
+    labelToken === token ||
+    idToken.includes(token) ||
+    token.includes(idToken) ||
+    labelToken.includes(token) ||
+    token.includes(labelToken)
+  );
+}
+
+function resolveRuntimePhaseIdForWorkflowSelection(
+  selection: { key: string; label: string } | null,
+  runtimePhases: TaskRuntimePhase[]
+): string | null {
+  if (!selection) {
+    return null;
+  }
+  const selectionToken = normalizePhaseToken(selection.label);
+  const phaseIndex = parseWorkflowPhaseIndex(selection.key);
+  if (phaseIndex !== null) {
+    const directCandidate = runtimePhases[phaseIndex] ?? null;
+    if (directCandidate && phaseTokenMatches(directCandidate, selectionToken)) {
+      return directCandidate.id;
+    }
+    const oneBasedCandidate =
+      phaseIndex > 0 ? runtimePhases[phaseIndex - 1] ?? null : null;
+    if (
+      oneBasedCandidate &&
+      phaseTokenMatches(oneBasedCandidate, selectionToken) &&
+      !directCandidate
+    ) {
+      return oneBasedCandidate.id;
+    }
+    if (directCandidate) {
+      return directCandidate.id;
+    }
+    if (oneBasedCandidate && phaseTokenMatches(oneBasedCandidate, selectionToken)) {
+      return oneBasedCandidate.id;
+    }
+  }
+  if (!selectionToken) {
+    return null;
+  }
+  const exact = runtimePhases.find((phase) => phaseTokenMatches(phase, selectionToken));
+  if (exact) {
+    return exact.id;
+  }
+
+  const fuzzy = runtimePhases.find((phase) => phaseTokenMatches(phase, selectionToken));
+  return fuzzy?.id ?? null;
+}
+
+function resolveWorkflowPhaseForRuntimeSelection(
+  runtimePhaseId: string | null,
+  workflowPhases: Array<{ key: string; label: string }>,
+  runtimePhases: TaskRuntimePhase[]
+): { key: string; label: string } | null {
+  if (!runtimePhaseId) {
+    return null;
+  }
+  const runtimePhase = runtimePhases.find((phase) => phase.id === runtimePhaseId);
+  if (!runtimePhase) {
+    return null;
+  }
+  const runtimePhaseIndex = runtimePhases.findIndex(
+    (phase) => phase.id === runtimePhaseId
+  );
+  if (runtimePhaseIndex >= 0) {
+    const byExactIndex = workflowPhases.find(
+      (phase) => parseWorkflowPhaseIndex(phase.key) === runtimePhaseIndex
+    );
+    if (byExactIndex) {
+      return byExactIndex;
+    }
+  }
+  const runtimeTokens = new Set([
+    normalizePhaseToken(runtimePhase.id),
+    normalizePhaseToken(runtimePhase.label),
+  ]);
+  const matched = workflowPhases.find((phase) => {
+    const phaseToken = normalizePhaseToken(phase.label);
+    return (
+      runtimeTokens.has(phaseToken) ||
+      Array.from(runtimeTokens).some(
+        (token) =>
+          token.includes(phaseToken) ||
+          phaseToken.includes(token)
+      )
+    );
+  });
+  return matched ?? null;
+}
+
+function useRuntimePhaseSelection(runtime: ExecutionPanelSession["runtime"]) {
+  const [selectedRuntimePhaseId, setSelectedRuntimePhaseId] = useState<string | null>(
+    null
+  );
+  const runtimePhaseIds = useMemo(
+    () => new Set((runtime?.phases ?? []).map((phase) => phase.id)),
+    [runtime]
+  );
+  const effectiveSelectedRuntimePhaseId =
+    selectedRuntimePhaseId && runtimePhaseIds.has(selectedRuntimePhaseId)
+      ? selectedRuntimePhaseId
+      : null;
+
+  return {
+    selectedRuntimePhaseId: effectiveSelectedRuntimePhaseId,
+    setSelectedRuntimePhaseId,
+  };
+}
+
 function SubagentTimeline({
   items,
+  runtimePhases = [],
+  selectedRuntimePhaseId = null,
+  onRuntimePhaseSelect,
 }: {
   items: Array<{
     id: string;
+    threadId: string;
     subagentType: string | null;
+    workflowPhase: string | null;
+    workflowPhaseIndex: number | null;
+    workflowTaskIndex: number | null;
+    workflowStrategy: string | null;
     status: string;
     outputPreview: string | null;
     error: string | null;
+    tokenUsage: { input_tokens: number; output_tokens: number; total_tokens: number } | null;
+    modelName: string | null;
     updatedAt: string;
   }>;
+  runtimePhases?: TaskRuntimePhase[];
+  selectedRuntimePhaseId?: string | null;
+  onRuntimePhaseSelect?: (phaseId: string | null) => void;
 }) {
+  const [selectedWorkflowPhase, setSelectedWorkflowPhase] = useState<{
+    key: string;
+    label: string;
+  } | null>(null);
+  const [selectedSubagent, setSelectedSubagent] = useState<{
+    id: string;
+    phaseKey: string;
+  } | null>(null);
+
+  const phaseByItemId = useMemo(() => {
+    const map = new Map<string, { key: string; label: string }>();
+    for (const item of items) {
+      const phase = buildWorkflowPhaseIdentity(item);
+      map.set(item.id, { key: phase.key, label: phase.label });
+    }
+    return map;
+  }, [items]);
+
+  const workflowPhaseCatalog = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          Array.from(phaseByItemId.values()).map((phase) => [phase.key, phase])
+        ).values()
+      ),
+    [phaseByItemId]
+  );
+
+  const runtimeSelectedWorkflowPhase = useMemo(
+    () =>
+      resolveWorkflowPhaseForRuntimeSelection(
+        selectedRuntimePhaseId,
+        workflowPhaseCatalog,
+        runtimePhases
+      ),
+    [runtimePhases, selectedRuntimePhaseId, workflowPhaseCatalog]
+  );
+
+  const effectiveSelectedSubagent =
+    selectedSubagent && phaseByItemId.has(selectedSubagent.id)
+      ? selectedSubagent
+      : null;
+  const fallbackSelectedWorkflowPhase =
+    selectedWorkflowPhase &&
+    Array.from(phaseByItemId.values()).some(
+      (phase) => phase.key === selectedWorkflowPhase.key
+    )
+      ? selectedWorkflowPhase
+      : null;
+  const hasUnmappedRuntimePhaseSelection =
+    Boolean(selectedRuntimePhaseId) && !runtimeSelectedWorkflowPhase;
+  const effectiveSelectedPhase =
+    selectedRuntimePhaseId
+      ? runtimeSelectedWorkflowPhase
+      : fallbackSelectedWorkflowPhase;
+  const effectiveSelectedSubagentInPhase =
+    !hasUnmappedRuntimePhaseSelection &&
+    effectiveSelectedSubagent &&
+    (!effectiveSelectedPhase ||
+      effectiveSelectedSubagent.phaseKey === effectiveSelectedPhase.key)
+      ? effectiveSelectedSubagent
+      : null;
+
+  const filteredItems = useMemo(() => {
+    let next = items;
+    if (effectiveSelectedPhase) {
+      next = next.filter(
+        (item) => buildWorkflowPhaseIdentity(item).key === effectiveSelectedPhase.key
+      );
+    }
+    if (effectiveSelectedSubagentInPhase) {
+      next = next.filter((item) => item.id === effectiveSelectedSubagentInPhase.id);
+    }
+    return next;
+  }, [effectiveSelectedPhase, effectiveSelectedSubagentInPhase, items]);
+
+  const statusSummary = useMemo(() => {
+    const summary = {
+      running: 0,
+      completed: 0,
+      failed: 0,
+      pending: 0,
+    };
+    for (const item of items) {
+      if (item.status === "running") {
+        summary.running += 1;
+      } else if (item.status === "completed" || item.status === "success") {
+        summary.completed += 1;
+      } else if (item.status === "failed") {
+        summary.failed += 1;
+      } else {
+        summary.pending += 1;
+      }
+    }
+    return summary;
+  }, [items]);
+  const tokenUsageSummary = useMemo(() => {
+    let input = 0;
+    let output = 0;
+    let total = 0;
+    for (const item of items) {
+      if (!item.tokenUsage) {
+        continue;
+      }
+      input += item.tokenUsage.input_tokens;
+      output += item.tokenUsage.output_tokens;
+      total += item.tokenUsage.total_tokens;
+    }
+    if (input <= 0 && output <= 0 && total <= 0) {
+      return null;
+    }
+    return { input, output, total };
+  }, [items]);
+
+  const selectedSubagentPreview =
+    effectiveSelectedSubagentInPhase
+      ? items.find((item) => item.id === effectiveSelectedSubagentInPhase.id)
+      : null;
+  const runtimeSelectedPhaseLabel =
+    selectedRuntimePhaseId
+      ? runtimePhases.find((phase) => phase.id === selectedRuntimePhaseId)?.label ??
+        selectedRuntimePhaseId
+      : null;
+
   if (items.length === 0) {
     return null;
   }
 
   return (
-    <section className="rounded-2xl border border-[var(--border-default)] bg-white/76 p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <Bot className="h-4 w-4 text-[var(--brand-teal)]" />
-        <h4 className="text-sm font-medium text-[var(--text-primary)]">子代理协作</h4>
-      </div>
-      <div className="space-y-2">
-        {items.map((item) => (
-          <div
-            key={item.id}
-            className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-3"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-medium text-[var(--text-primary)]">
-                {item.subagentType?.replace(/_/g, " ") || "subagent"}
-              </p>
-              <PanelStatusBadge status={item.status} />
+    <div className="space-y-3">
+      <ExecutionWorkflowGraph
+        items={items}
+        selectedPhaseKey={effectiveSelectedPhase?.key ?? null}
+        selectedSubagentId={effectiveSelectedSubagentInPhase?.id ?? null}
+        onSelectPhase={(selection) => {
+          if (!selection) {
+            setSelectedWorkflowPhase(null);
+            setSelectedSubagent(null);
+            onRuntimePhaseSelect?.(null);
+            return;
+          }
+
+          const runtimePhaseId = resolveRuntimePhaseIdForWorkflowSelection(
+            selection,
+            runtimePhases
+          );
+          if (runtimePhaseId) {
+            setSelectedWorkflowPhase(null);
+            onRuntimePhaseSelect?.(runtimePhaseId);
+          } else {
+            setSelectedWorkflowPhase(selection);
+            onRuntimePhaseSelect?.(null);
+          }
+          if (effectiveSelectedSubagentInPhase && effectiveSelectedSubagentInPhase.phaseKey !== selection.key) {
+            setSelectedSubagent(null);
+          }
+        }}
+        onSelectSubagent={(selection) => {
+          setSelectedSubagent(selection);
+          if (!selection) {
+            return;
+          }
+          const phase = workflowPhaseCatalog.find(
+            (item) => item.key === selection.phaseKey
+          );
+          const targetPhase = {
+            key: selection.phaseKey,
+            label: phase?.label || effectiveSelectedPhase?.label || "执行阶段",
+          };
+          const runtimePhaseId = resolveRuntimePhaseIdForWorkflowSelection(
+            targetPhase,
+            runtimePhases
+          );
+          if (runtimePhaseId) {
+            setSelectedWorkflowPhase(null);
+            onRuntimePhaseSelect?.(runtimePhaseId);
+          } else {
+            setSelectedWorkflowPhase(targetPhase);
+            onRuntimePhaseSelect?.(null);
+          }
+        }}
+      />
+
+      <section className="rounded-2xl border border-[var(--border-default)] bg-white/76 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Bot className="h-4 w-4 text-[var(--brand-teal)]" />
+          <h4 className="text-sm font-medium text-[var(--text-primary)]">子代理协作日志</h4>
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-[var(--border-default)] bg-[var(--bg-elevated)] px-2.5 py-1 text-[10px] text-[var(--text-muted)]">
+            运行中 {statusSummary.running}
+          </span>
+          <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] text-emerald-700">
+            完成 {statusSummary.completed}
+          </span>
+          <span className="rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-[10px] text-red-700">
+            失败 {statusSummary.failed}
+          </span>
+          {effectiveSelectedPhase ? (
+            <span className="rounded-full border border-[var(--accent-primary)]/25 bg-[var(--accent-primary)]/10 px-2.5 py-1 text-[10px] text-[var(--accent-primary)]">
+              phase: {effectiveSelectedPhase.label}
+            </span>
+          ) : null}
+          {hasUnmappedRuntimePhaseSelection ? (
+            <span className="rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-[10px] text-amber-700">
+              runtime phase: {runtimeSelectedPhaseLabel}（未映射，展示全部协作日志）
+            </span>
+          ) : null}
+          {selectedSubagentPreview ? (
+            <span className="rounded-full border border-[var(--accent-primary)]/25 bg-[var(--accent-primary)]/10 px-2.5 py-1 text-[10px] text-[var(--accent-primary)]">
+              subagent: {selectedSubagentPreview.id.slice(0, 8)}
+            </span>
+          ) : null}
+          {tokenUsageSummary ? (
+            <span className="rounded-full border border-[var(--brand-teal)]/25 bg-[var(--brand-teal)]/10 px-2.5 py-1 text-[10px] text-[var(--brand-teal)]">
+              tokens {tokenUsageSummary.total.toLocaleString()}（in {tokenUsageSummary.input.toLocaleString()} / out {tokenUsageSummary.output.toLocaleString()}）
+            </span>
+          ) : null}
+          {(effectiveSelectedPhase ||
+            effectiveSelectedSubagentInPhase ||
+            hasUnmappedRuntimePhaseSelection) ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedWorkflowPhase(null);
+                setSelectedSubagent(null);
+                onRuntimePhaseSelect?.(null);
+              }}
+              className="rounded-full border border-[var(--border-default)] bg-white/80 px-2.5 py-1 text-[10px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
+            >
+              清空筛选
+            </button>
+          ) : null}
+        </div>
+        <div className="space-y-2">
+          {filteredItems.length > 0 ? (
+            filteredItems.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-3"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-medium text-[var(--text-primary)]">
+                    {item.subagentType?.replace(/_/g, " ") || "subagent"}
+                  </p>
+                  <PanelStatusBadge status={item.status} />
+                </div>
+                <p className="mt-2 text-xs leading-6 text-[var(--text-secondary)]">
+                  {item.error || item.outputPreview || "正在处理上下文并返回摘要。"}
+                </p>
+                {(item.tokenUsage || item.modelName) && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px]">
+                    {item.tokenUsage ? (
+                      <span className="rounded-full border border-[var(--brand-teal)]/25 bg-[var(--brand-teal)]/10 px-2 py-0.5 text-[var(--brand-teal)]">
+                        {item.tokenUsage.total_tokens.toLocaleString()} tokens
+                      </span>
+                    ) : null}
+                    {item.modelName ? (
+                      <span className="rounded-full border border-[var(--border-default)] bg-white/70 px-2 py-0.5 text-[var(--text-muted)]">
+                        {item.modelName}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            ))
+          ) : (
+            <div
+              className="rounded-xl border border-dashed border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-4 text-center text-xs text-[var(--text-secondary)]"
+            >
+              当前筛选条件下暂无子代理日志。
             </div>
-            <p className="mt-2 text-xs leading-6 text-[var(--text-secondary)]">
-              {item.error || item.outputPreview || "正在处理上下文并返回摘要。"}
-            </p>
-          </div>
-        ))}
-      </div>
-    </section>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -385,6 +801,8 @@ function DeepResearchPanel({
       ? ((resultData.corpus as Record<string, unknown>).top_papers as Array<Record<string, unknown>>)
       : [];
   const reportArtifact = useMemo(() => readDeepResearchArtifact(artifacts), [artifacts]);
+  const { selectedRuntimePhaseId, setSelectedRuntimePhaseId } =
+    useRuntimePhaseSelection(session.runtime);
 
   return (
     <div className="space-y-4">
@@ -393,6 +811,8 @@ function DeepResearchPanel({
         isRunning={session.status === "running" || session.status === "pending"}
         status={session.message}
         error={session.error}
+        selectedPhaseId={selectedRuntimePhaseId}
+        onSelectPhase={setSelectedRuntimePhaseId}
         title="深度调研工作流"
       />
 
@@ -566,7 +986,14 @@ function DeepResearchPanel({
         )
       ) : null}
 
-      {activeTab === "timeline" ? <SubagentTimeline items={session.subagents} /> : null}
+      {activeTab === "timeline" ? (
+        <SubagentTimeline
+          items={session.subagents}
+          runtimePhases={session.runtime?.phases ?? []}
+          selectedRuntimePhaseId={selectedRuntimePhaseId}
+          onRuntimePhaseSelect={setSelectedRuntimePhaseId}
+        />
+      ) : null}
     </div>
   );
 }
@@ -591,6 +1018,8 @@ function LiteratureSearchPanel({
       ),
     [artifacts]
   );
+  const { selectedRuntimePhaseId, setSelectedRuntimePhaseId } =
+    useRuntimePhaseSelection(session.runtime);
 
   return (
     <div className="space-y-4">
@@ -599,6 +1028,8 @@ function LiteratureSearchPanel({
         isRunning={session.status === "running" || session.status === "pending"}
         status={session.message}
         error={session.error}
+        selectedPhaseId={selectedRuntimePhaseId}
+        onSelectPhase={setSelectedRuntimePhaseId}
         title="文献检索工作流"
       />
 
@@ -651,7 +1082,12 @@ function LiteratureSearchPanel({
         </div>
       </PanelSection>
 
-      <SubagentTimeline items={session.subagents} />
+      <SubagentTimeline
+        items={session.subagents}
+        runtimePhases={session.runtime?.phases ?? []}
+        selectedRuntimePhaseId={selectedRuntimePhaseId}
+        onRuntimePhaseSelect={setSelectedRuntimePhaseId}
+      />
     </div>
   );
 }
@@ -665,6 +1101,8 @@ function OpeningResearchPanel({
       : session.result ?? {};
   const sections = Array.isArray(resultData.sections) ? resultData.sections : [];
   const references = Array.isArray(resultData.reference_clues) ? resultData.reference_clues : [];
+  const { selectedRuntimePhaseId, setSelectedRuntimePhaseId } =
+    useRuntimePhaseSelection(session.runtime);
 
   return (
     <div className="space-y-4">
@@ -673,6 +1111,8 @@ function OpeningResearchPanel({
         isRunning={session.status === "running" || session.status === "pending"}
         status={session.message}
         error={session.error}
+        selectedPhaseId={selectedRuntimePhaseId}
+        onSelectPhase={setSelectedRuntimePhaseId}
         title="开题调研工作流"
       />
       <PanelSection title="研究报告概览" icon={Layers3}>
@@ -727,7 +1167,12 @@ function OpeningResearchPanel({
           </div>
         </PanelSection>
       ) : null}
-      <SubagentTimeline items={session.subagents} />
+      <SubagentTimeline
+        items={session.subagents}
+        runtimePhases={session.runtime?.phases ?? []}
+        selectedRuntimePhaseId={selectedRuntimePhaseId}
+        onRuntimePhaseSelect={setSelectedRuntimePhaseId}
+      />
     </div>
   );
 }
@@ -743,6 +1188,8 @@ function LiteratureReviewPanel({
   const keyPapers = Array.isArray(resultData.key_papers) ? resultData.key_papers : [];
   const researchGaps = Array.isArray(resultData.research_gaps) ? resultData.research_gaps : [];
   const nextActions = Array.isArray(resultData.next_actions) ? resultData.next_actions : [];
+  const { selectedRuntimePhaseId, setSelectedRuntimePhaseId } =
+    useRuntimePhaseSelection(session.runtime);
 
   return (
     <div className="space-y-4">
@@ -751,6 +1198,8 @@ function LiteratureReviewPanel({
         isRunning={session.status === "running" || session.status === "pending"}
         status={session.message}
         error={session.error}
+        selectedPhaseId={selectedRuntimePhaseId}
+        onSelectPhase={setSelectedRuntimePhaseId}
         title="文献综述工作流"
       />
       <PanelSection title="综述摘要" icon={Layers3}>
@@ -818,7 +1267,12 @@ function LiteratureReviewPanel({
           </div>
         </PanelSection>
       ) : null}
-      <SubagentTimeline items={session.subagents} />
+      <SubagentTimeline
+        items={session.subagents}
+        runtimePhases={session.runtime?.phases ?? []}
+        selectedRuntimePhaseId={selectedRuntimePhaseId}
+        onRuntimePhaseSelect={setSelectedRuntimePhaseId}
+      />
     </div>
   );
 }
@@ -835,6 +1289,8 @@ function FrameworkOutlinePanel({
   const contributions = Array.isArray(resultData.contributions) ? resultData.contributions : [];
   const latexProjectId = readLinkedLatexProjectId(resultData);
   const syncConflicts = readSyncConflicts(resultData);
+  const { selectedRuntimePhaseId, setSelectedRuntimePhaseId } =
+    useRuntimePhaseSelection(session.runtime);
 
   return (
     <div className="space-y-4">
@@ -843,6 +1299,8 @@ function FrameworkOutlinePanel({
         isRunning={session.status === "running" || session.status === "pending"}
         status={session.message}
         error={session.error}
+        selectedPhaseId={selectedRuntimePhaseId}
+        onSelectPhase={setSelectedRuntimePhaseId}
         title="框架与摘要工作流"
       />
       <PanelSection title="摘要草案" icon={FileText}>
@@ -893,7 +1351,12 @@ function FrameworkOutlinePanel({
           </div>
         </PanelSection>
       ) : null}
-      <SubagentTimeline items={session.subagents} />
+      <SubagentTimeline
+        items={session.subagents}
+        runtimePhases={session.runtime?.phases ?? []}
+        selectedRuntimePhaseId={selectedRuntimePhaseId}
+        onRuntimePhaseSelect={setSelectedRuntimePhaseId}
+      />
     </div>
   );
 }
@@ -910,6 +1373,8 @@ function ProposalOutlinePanel({
   const risks = Array.isArray(resultData.risks) ? resultData.risks : [];
   const latexProjectId = readLinkedLatexProjectId(resultData);
   const syncConflicts = readSyncConflicts(resultData);
+  const { selectedRuntimePhaseId, setSelectedRuntimePhaseId } =
+    useRuntimePhaseSelection(session.runtime);
 
   return (
     <div className="space-y-4">
@@ -918,6 +1383,8 @@ function ProposalOutlinePanel({
         isRunning={session.status === "running" || session.status === "pending"}
         status={session.message}
         error={session.error}
+        selectedPhaseId={selectedRuntimePhaseId}
+        onSelectPhase={setSelectedRuntimePhaseId}
         title="申报书大纲工作流"
       />
       <PanelSection title="项目概览" icon={Layers3}>
@@ -989,7 +1456,12 @@ function ProposalOutlinePanel({
           </div>
         </PanelSection>
       ) : null}
-      <SubagentTimeline items={session.subagents} />
+      <SubagentTimeline
+        items={session.subagents}
+        runtimePhases={session.runtime?.phases ?? []}
+        selectedRuntimePhaseId={selectedRuntimePhaseId}
+        onRuntimePhaseSelect={setSelectedRuntimePhaseId}
+      />
     </div>
   );
 }
@@ -1005,6 +1477,8 @@ function BackgroundResearchPanel({
   const references = Array.isArray(resultData.references) ? resultData.references : [];
   const latexProjectId = readLinkedLatexProjectId(resultData);
   const syncConflicts = readSyncConflicts(resultData);
+  const { selectedRuntimePhaseId, setSelectedRuntimePhaseId } =
+    useRuntimePhaseSelection(session.runtime);
 
   return (
     <div className="space-y-4">
@@ -1013,6 +1487,8 @@ function BackgroundResearchPanel({
         isRunning={session.status === "running" || session.status === "pending"}
         status={session.message}
         error={session.error}
+        selectedPhaseId={selectedRuntimePhaseId}
+        onSelectPhase={setSelectedRuntimePhaseId}
         title="背景调研工作流"
       />
       <PanelSection title="调研范围" icon={Layers3}>
@@ -1067,7 +1543,12 @@ function BackgroundResearchPanel({
           </div>
         </PanelSection>
       ) : null}
-      <SubagentTimeline items={session.subagents} />
+      <SubagentTimeline
+        items={session.subagents}
+        runtimePhases={session.runtime?.phases ?? []}
+        selectedRuntimePhaseId={selectedRuntimePhaseId}
+        onRuntimePhaseSelect={setSelectedRuntimePhaseId}
+      />
     </div>
   );
 }
@@ -1088,6 +1569,8 @@ function PaperAnalysisPanel({
       ? (resultData.quality_assessment as Record<string, unknown>)
       : {};
   const recommendations = Array.isArray(resultData.recommendations) ? resultData.recommendations : [];
+  const { selectedRuntimePhaseId, setSelectedRuntimePhaseId } =
+    useRuntimePhaseSelection(session.runtime);
 
   return (
     <div className="space-y-4">
@@ -1096,6 +1579,8 @@ function PaperAnalysisPanel({
         isRunning={session.status === "running" || session.status === "pending"}
         status={session.message}
         error={session.error}
+        selectedPhaseId={selectedRuntimePhaseId}
+        onSelectPhase={setSelectedRuntimePhaseId}
         title="论文分析工作流"
       />
       <PanelSection title="整体摘要" icon={Layers3}>
@@ -1145,7 +1630,12 @@ function PaperAnalysisPanel({
           </div>
         </PanelSection>
       ) : null}
-      <SubagentTimeline items={session.subagents} />
+      <SubagentTimeline
+        items={session.subagents}
+        runtimePhases={session.runtime?.phases ?? []}
+        selectedRuntimePhaseId={selectedRuntimePhaseId}
+        onRuntimePhaseSelect={setSelectedRuntimePhaseId}
+      />
     </div>
   );
 }
@@ -1163,13 +1653,27 @@ function ThesisWritingPanel({
   const [activeTab, setActiveTab] = useState<"overview" | "chapters" | "latex" | "preview">("overview");
   const [isCompileLogDialogOpen, setIsCompileLogDialogOpen] = useState(false);
   const [isDeletingLinkedProject, setIsDeletingLinkedProject] = useState(false);
+  const [isEnsuringPrismProject, setIsEnsuringPrismProject] = useState(false);
   const [deletedLinkedProjectId, setDeletedLinkedProjectId] = useState<string | null>(null);
   const source = useMemo(() => readCompileSourceArtifacts(artifacts), [artifacts]);
   const latestCompile = useMemo(() => readLatestCompileResult(artifacts), [artifacts]);
+  const sessionLinkedLatexProjectId = useMemo(() => {
+    if (!session.result || typeof session.result !== "object") {
+      return null;
+    }
+    const data =
+      session.result.data && typeof session.result.data === "object"
+        ? (session.result.data as Record<string, unknown>)
+        : (session.result as Record<string, unknown>);
+    return readLinkedLatexProjectId(data);
+  }, [session.result]);
   const linkedLatexProjectId =
-    source.latexProjectId && source.latexProjectId !== deletedLinkedProjectId
-      ? source.latexProjectId
+    (sessionLinkedLatexProjectId || source.latexProjectId) &&
+    (sessionLinkedLatexProjectId || source.latexProjectId) !== deletedLinkedProjectId
+      ? (sessionLinkedLatexProjectId || source.latexProjectId)
       : null;
+  const { selectedRuntimePhaseId, setSelectedRuntimePhaseId } =
+    useRuntimePhaseSelection(session.runtime);
 
   const outlineArtifact = useMemo(
     () => findLatestArtifact(artifacts, (artifact) => artifact.type === "framework_outline"),
@@ -1245,6 +1749,26 @@ function ThesisWritingPanel({
     0
   );
 
+  const handleOpenPrismProject = async () => {
+    setActionError(null);
+    try {
+      let projectId = linkedLatexProjectId;
+      if (!projectId) {
+        setIsEnsuringPrismProject(true);
+        const ensured = await ensureWorkspacePrismProject(workspaceId);
+        projectId = ensured.latex_project_id.trim();
+      }
+      if (!projectId) {
+        throw new Error("未能创建 WenjinPrism 项目，请稍后重试。");
+      }
+      window.location.href = `/latex/${projectId}`;
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "打开 WenjinPrism 失败");
+    } finally {
+      setIsEnsuringPrismProject(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <TaskRuntimePanel
@@ -1252,6 +1776,8 @@ function ThesisWritingPanel({
         isRunning={session.status === "running" || session.status === "pending"}
         status={session.message}
         error={session.error}
+        selectedPhaseId={selectedRuntimePhaseId}
+        onSelectPhase={setSelectedRuntimePhaseId}
         title="论文写作工作流"
       />
       <PanelTabBar
@@ -1302,12 +1828,15 @@ function ThesisWritingPanel({
             icon={FileText}
             description="章节结构与章节草稿会在这里持续累积，完成后可直接进入编译。"
             actions={
-              <CompileFeatureButton
-                workspaceId={workspaceId}
-                label="编译当前主稿"
-                className="border border-[var(--border-default)] bg-[var(--bg-surface)] !text-[var(--text-primary)] hover:bg-[var(--bg-muted)]"
-                onError={setActionError}
-              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isEnsuringPrismProject}
+                onClick={() => void handleOpenPrismProject()}
+                className="border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-muted)]"
+              >
+                {isEnsuringPrismProject ? "正在准备 Prism..." : "在 WenjinPrism 中继续"}
+              </Button>
             }
           >
             {actionError ? (
@@ -1408,11 +1937,13 @@ function ThesisWritingPanel({
       {activeTab === "latex" ? (
         <>
           <PanelActionBar>
-            <CompileFeatureButton
-              workspaceId={workspaceId}
-              label="一键编译"
-              onError={setActionError}
-            />
+            <Button
+              size="sm"
+              disabled={isEnsuringPrismProject}
+              onClick={() => void handleOpenPrismProject()}
+            >
+              {isEnsuringPrismProject ? "正在准备 Prism..." : "打开 WenjinPrism"}
+            </Button>
           </PanelActionBar>
           <PanelSection title="LaTeX 主稿与编译" icon={Layers3}>
             {actionError ? (
@@ -1556,16 +2087,14 @@ function ThesisWritingPanel({
         </DialogContent>
       </Dialog>
 
-      <SubagentTimeline items={session.subagents} />
+      <SubagentTimeline
+        items={session.subagents}
+        runtimePhases={session.runtime?.phases ?? []}
+        selectedRuntimePhaseId={selectedRuntimePhaseId}
+        onRuntimePhaseSelect={setSelectedRuntimePhaseId}
+      />
     </div>
   );
-}
-
-function CompilePanel({
-  workspaceId,
-  session,
-}: FeaturePanelRendererProps) {
-  return <ThesisWritingPanel workspaceId={workspaceId} session={session} />;
 }
 
 function GenericFeaturePanel({
@@ -1577,6 +2106,8 @@ function GenericFeaturePanel({
       : session.result ?? {};
   const latexProjectId = readLinkedLatexProjectId(resultData);
   const syncConflicts = readSyncConflicts(resultData);
+  const { selectedRuntimePhaseId, setSelectedRuntimePhaseId } =
+    useRuntimePhaseSelection(session.runtime);
 
   return (
     <div className="space-y-4">
@@ -1585,13 +2116,20 @@ function GenericFeaturePanel({
         isRunning={session.status === "running" || session.status === "pending"}
         status={session.message}
         error={session.error}
+        selectedPhaseId={selectedRuntimePhaseId}
+        onSelectPhase={setSelectedRuntimePhaseId}
         title={session.title}
       />
       {latexProjectId ? <LinkedLatexProjectCard projectId={latexProjectId} /> : null}
       {syncConflicts.length > 0 ? (
         <SyncConflictNotice conflicts={syncConflicts as Array<Record<string, unknown>>} />
       ) : null}
-      <SubagentTimeline items={session.subagents} />
+      <SubagentTimeline
+        items={session.subagents}
+        runtimePhases={session.runtime?.phases ?? []}
+        selectedRuntimePhaseId={selectedRuntimePhaseId}
+        onRuntimePhaseSelect={setSelectedRuntimePhaseId}
+      />
     </div>
   );
 }
@@ -1609,7 +2147,6 @@ const FEATURE_PANEL_RENDERERS: Record<
   proposal_outline: (props) => <ProposalOutlinePanel {...props} />,
   background_research: (props) => <BackgroundResearchPanel {...props} />,
   thesis_writing: (props) => <ThesisWritingPanel {...props} />,
-  compile_export: (props) => <CompilePanel {...props} />,
 };
 
 const PANEL_KEY_RENDERERS: Record<
@@ -1620,14 +2157,13 @@ const PANEL_KEY_RENDERERS: Record<
   literature_panel: (props) => <LiteratureSearchPanel {...props} />,
   opening_research_panel: (props) => <OpeningResearchPanel {...props} />,
   thesis_editor: (props) => <ThesisWritingPanel {...props} />,
-  compile_panel: (props) => <CompilePanel {...props} />,
   analysis_panel: (props) => <PaperAnalysisPanel {...props} />,
   editor_panel: (props) => <FrameworkOutlinePanel {...props} />,
   outline_editor: (props) => <ProposalOutlinePanel {...props} />,
 };
 
 function resolvePanelRenderer(
-  session: FeaturePanelSession
+  session: ExecutionPanelSession
 ): ((props: FeaturePanelRendererProps) => ReactNode) {
   const featureRenderer = FEATURE_PANEL_RENDERERS[session.featureId];
   if (featureRenderer) {
@@ -1645,20 +2181,62 @@ function resolvePanelRenderer(
 }
 
 export function FeaturePanelHost({ workspaceId }: FeaturePanelHostProps) {
-  const workspacePanel = useFeaturePanelStore(
-    (state) => state.byWorkspace[workspaceId] ?? { activeSessionId: null, sessions: [] }
+  const executionSessions = useExecutionStore(
+    (state) => state.byWorkspace[workspaceId] ?? EMPTY_EXECUTION_SESSIONS
   );
-  const setActiveSession = useFeaturePanelStore((state) => state.setActiveSession);
-  const dismissSession = useFeaturePanelStore((state) => state.dismissSession);
-  const session = workspacePanel.activeSessionId
-    ? workspacePanel.sessions.find((candidate) => candidate.taskId === workspacePanel.activeSessionId) ?? null
-    : workspacePanel.sessions[0] ?? null;
+  const activeExecutionId = useExecutionStore(
+    (state) => state.activeExecutionIdByWorkspace[workspaceId] ?? null
+  );
+  const dismissedExecutionIds = useExecutionStore(
+    (state) =>
+      state.dismissedExecutionIdsByWorkspace[workspaceId] ?? EMPTY_EXECUTION_IDS
+  );
+  const setActiveExecution = useExecutionStore((state) => state.setActiveExecution);
+  const dismissExecution = useExecutionStore((state) => state.dismissExecution);
+  const getFeatureById = useFeaturesStore((state) => state.getFeatureById);
+  const visibleExecutions = useMemo(
+    () =>
+      executionSessions.filter(
+        (execution) => !dismissedExecutionIds.includes(execution.id)
+      ),
+    [dismissedExecutionIds, executionSessions]
+  );
+
+  const selectedExecution = useMemo(() => {
+    if (visibleExecutions.length === 0) {
+      return null;
+    }
+    if (!activeExecutionId) {
+      return selectPreferredExecution(visibleExecutions);
+    }
+    return (
+      visibleExecutions.find((execution) => execution.id === activeExecutionId) ??
+      selectPreferredExecution(visibleExecutions)
+    );
+  }, [activeExecutionId, visibleExecutions]);
+
+  const session = useMemo(() => {
+    if (selectedExecution) {
+      return adaptExecutionToPanelSession(
+        selectedExecution,
+        getFeatureById(selectedExecution.feature_id)
+      );
+    }
+    return null;
+  }, [getFeatureById, selectedExecution]);
 
   if (!session) {
     return <EmptyWorkPanel />;
   }
 
   const renderPanel = resolvePanelRenderer(session);
+
+  const sessionList = visibleExecutions.map((execution) =>
+    adaptExecutionToPanelSession(
+      execution,
+      getFeatureById(execution.feature_id)
+    )
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -1683,6 +2261,11 @@ export function FeaturePanelHost({ workspaceId }: FeaturePanelHostProps) {
                   阶段 {session.currentStep}
                 </span>
               ) : null}
+              {session.tokenUsage ? (
+                <span className="rounded-full border border-[var(--brand-teal)]/25 bg-[var(--brand-teal)]/10 px-2.5 py-1 text-[10px] text-[var(--brand-teal)]">
+                  tokens {session.tokenUsage.total_tokens.toLocaleString()}
+                </span>
+              ) : null}
               <span className="rounded-full border border-[var(--border-default)] bg-white/80 px-2.5 py-1 text-[10px] text-[var(--text-muted)]">
                 最近更新 {new Date(session.updatedAt).toLocaleString("zh-CN", {
                   month: "2-digit",
@@ -1697,7 +2280,7 @@ export function FeaturePanelHost({ workspaceId }: FeaturePanelHostProps) {
             <PanelStatusBadge status={session.status} />
             <button
               type="button"
-              onClick={() => dismissSession(workspaceId, session.taskId)}
+              onClick={() => dismissExecution(workspaceId, session.executionId)}
               className="rounded-full border border-[var(--border-default)] p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-surface)]"
               aria-label="关闭当前工作面板"
             >
@@ -1708,14 +2291,15 @@ export function FeaturePanelHost({ workspaceId }: FeaturePanelHostProps) {
       </div>
 
       <SessionSwitcher
-        sessions={workspacePanel.sessions.map((item) => ({
+        sessions={sessionList.map((item) => ({
+          executionId: item.executionId,
           taskId: item.taskId,
           title: item.title,
           status: item.status,
           updatedAt: item.updatedAt,
         }))}
-        activeSessionId={workspacePanel.activeSessionId}
-        onSelect={(taskId) => setActiveSession(workspaceId, taskId)}
+        activeSessionId={session.executionId}
+        onSelect={(executionId) => setActiveExecution(workspaceId, executionId)}
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">

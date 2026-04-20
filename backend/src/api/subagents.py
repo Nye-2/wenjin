@@ -2,19 +2,21 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
-from src.database import User
+from src.database import User, get_db_session
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps import get_chat_thread_service
-from src.services import ChatThreadService
+from src.gateway.deps import get_thread_service
+from src.services import ThreadService
+from src.services.execution_session_service import ExecutionSessionService
 from src.subagents import (
     GlobalSubagentManager,
     SubagentResult,
     SubagentStatus,
 )
-from src.subagents.manager import SubagentAccessError
 from src.subagents.context_snapshot import build_subagent_context_snapshot
+from src.subagents.manager import SubagentAccessError
+from src.subagents.model_routing import route_subagent_model
 from src.subagents.runtime import get_manager
 from src.subagents.task_builder import (
     SubagentRuntimeContext,
@@ -25,14 +27,30 @@ from src.subagents.task_builder import (
 router = APIRouter(prefix="/subagents", tags=["subagents"])
 
 
+async def _load_execution_session(session_id: str):
+    """Load an execution session by id."""
+    async with get_db_session() as db:
+        return await ExecutionSessionService(db).get_by_id(session_id)
+
+
 class SpawnRequest(BaseModel):
     """Request to spawn a new subagent."""
     prompt: str
     subagent_type: str | None = None  # NEW: scout, writer, synthesizer, analyst
     tools: list[str] | None = None    # NEW: optional tool override
-    max_turns: int = 10
-    timeout: int = 900
+    model_name: str | None = None
+    max_turns: int | None = Field(default=None, ge=1)
+    timeout: int | None = Field(default=None, ge=1)
     graph_template: str = "default"
+    execution_session_id: str = Field(min_length=1)
+
+    @field_validator("execution_session_id")
+    @classmethod
+    def _normalize_execution_session_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("execution_session_id cannot be blank")
+        return normalized
 
 
 class SpawnResponse(BaseModel):
@@ -60,7 +78,7 @@ async def spawn_subagent(
     request: SpawnRequest,
     current_user: User = Depends(get_current_user),
     manager: GlobalSubagentManager = Depends(get_manager),
-    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+    thread_service: ThreadService = Depends(get_thread_service),
 ) -> SpawnResponse:
     """Spawn a new subagent task.
 
@@ -84,20 +102,20 @@ async def spawn_subagent(
     )
 
     # Resolve agent config if subagent_type specified
+    resolved_config = None
     system_prompt = None
     resolved_tools = None
-    if manager._llm is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Subagent manager is unavailable because no chat model is configured.",
-        )
+    requested_model_name = (request.model_name or "").strip() or None
 
     if request.subagent_type:
         resolver = AcademicAgentResolver(manager._tools)
         try:
             config = resolver.resolve_config(request.subagent_type, request.tools)
+            resolved_config = config
             system_prompt = config.system_prompt
             resolved_tools = config.tools
+            if config.model_name:
+                requested_model_name = config.model_name
         except UnknownSubagentTypeError as e:
             raise HTTPException(
                 status_code=400,
@@ -117,28 +135,60 @@ async def spawn_subagent(
                 }
             ) from e
 
-    thread = await chat_thread_service.get_thread(thread_id, str(current_user.id))
+    thread = await thread_service.get_thread(thread_id, str(current_user.id))
     if thread is None:
         raise HTTPException(status_code=404, detail="Thread not found")
     workspace_id = thread.workspace_id
+    routed_model_name = route_subagent_model(
+        requested_model=requested_model_name,
+        thread_model=getattr(thread, "model", None),
+    )
+    if manager._llm is None and routed_model_name is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Subagent manager is unavailable because no thread model is configured.",
+        )
+    execution_session = await _load_execution_session(request.execution_session_id)
+    if execution_session is None:
+        raise HTTPException(status_code=404, detail="Execution session not found")
+
+    expected_workspace_id = str(workspace_id) if workspace_id is not None else None
+    if (
+        str(execution_session.user_id) != str(current_user.id)
+        or expected_workspace_id is None
+        or str(execution_session.workspace_id) != expected_workspace_id
+        or str(execution_session.thread_id or "").strip() != thread_id
+    ):
+        raise HTTPException(status_code=404, detail="Execution session not found")
 
     runtime_context = SubagentRuntimeContext(
         thread_id=thread_id,
         workspace_id=str(workspace_id) if workspace_id is not None else None,
         user_id=str(current_user.id),
+        execution_session_id=str(execution_session.id),
+        model_name=routed_model_name,
     )
     context_snapshot = await build_subagent_context_snapshot(
         runtime_context=runtime_context,
         state=None,
     )
 
+    fallback_max_turns = (
+        int(resolved_config.max_turns)
+        if resolved_config is not None
+        else 10
+    )
+    requested_timeout = request.timeout
+    if requested_timeout is None and resolved_config is not None:
+        requested_timeout = resolved_config.timeout
+
     task = build_subagent_task(
         manager._config,
         prompt=request.prompt,
         thread_id=thread_id,
-        fallback_max_turns=request.max_turns,
+        fallback_max_turns=fallback_max_turns,
         requested_max_turns=request.max_turns,
-        requested_timeout=request.timeout,
+        requested_timeout=requested_timeout,
         graph_template=request.graph_template,
         tools=resolved_tools if resolved_tools is not None else (request.tools or []),
         metadata=build_subagent_metadata(

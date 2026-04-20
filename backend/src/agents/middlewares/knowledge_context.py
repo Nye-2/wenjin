@@ -86,7 +86,7 @@ class KnowledgeContextMiddleware(Middleware):
                 self.artifact_service.list_by_workspace(workspace_id),
                 timeout=self._timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "KnowledgeContextMiddleware: timed out loading artifacts for workspace %s (%.1fs)",
                 workspace_id,

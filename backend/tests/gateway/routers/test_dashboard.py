@@ -60,7 +60,6 @@ def test_dashboard_returns_module_statuses():
             {"id": "opening_research", "status": "not_started", "summary": {}},
             {"id": "thesis_writing", "status": "not_started", "summary": {"outline_done": False}},
             {"id": "figure_generation", "status": "not_started", "summary": {"count": 0}},
-            {"id": "compile_export", "status": "not_started", "summary": {}},
         ],
         "recent_artifacts": [],
     }
@@ -69,7 +68,7 @@ def test_dashboard_returns_module_statuses():
     resp = client.get("/workspaces/ws-1/dashboard")
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data["modules"]) == 6
+    assert len(data["modules"]) == 5
     assert data["modules"][0]["id"] == "deep_research"
     assert data["recent_artifacts"] == []
 
@@ -86,7 +85,6 @@ def test_dashboard_returns_recent_artifacts():
             {"id": "opening_research", "status": "not_started", "summary": {}},
             {"id": "thesis_writing", "status": "not_started", "summary": {"outline_done": False}},
             {"id": "figure_generation", "status": "not_started", "summary": {"count": 0}},
-            {"id": "compile_export", "status": "not_started", "summary": {}},
         ],
         "recent_artifacts": [
             {

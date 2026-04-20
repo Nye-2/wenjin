@@ -8,9 +8,10 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-from src.subagents.academic.registry import registry
+from src.subagents.academic.registry import get_subagent_config
 from src.subagents.context_snapshot import build_subagent_context_snapshot
 from src.subagents.manager import SubagentAccessError
+from src.subagents.model_routing import route_subagent_model
 from src.subagents.models import SubagentStatus
 from src.subagents.runtime import get_manager
 from src.subagents.task_builder import (
@@ -141,7 +142,7 @@ class ParallelExecutor:
 
         failed_phases: set[str] = set()
 
-        for phase in plan.phases:
+        for phase_index, phase in enumerate(plan.phases):
             # Wait for dependencies
             for dep in phase.depends_on:
                 await self._phase_events[dep].wait()
@@ -165,7 +166,7 @@ class ParallelExecutor:
                     continue
 
             # Execute phase
-            phase_result = await self._execute_phase(phase, context)
+            phase_result = await self._execute_phase(phase, phase_index, context)
             results[phase.name] = phase_result
 
             if not phase_result.success:
@@ -181,18 +182,19 @@ class ParallelExecutor:
     async def _execute_phase(
         self,
         phase: ExecutionPhase,
+        phase_index: int,
         context: dict[str, Any],
     ) -> PhaseResult:
         """Execute a single phase, applying the phase timeout if configured."""
         if self.phase_timeout is None:
-            return await self._execute_phase_inner(phase, context)
+            return await self._execute_phase_inner(phase, phase_index, context)
 
         try:
             return await asyncio.wait_for(
-                self._execute_phase_inner(phase, context),
+                self._execute_phase_inner(phase, phase_index, context),
                 timeout=self.phase_timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return PhaseResult(
                 phase_name=phase.name,
                 task_results=[],
@@ -202,6 +204,7 @@ class ParallelExecutor:
     async def _execute_phase_inner(
         self,
         phase: ExecutionPhase,
+        phase_index: int,
         context: dict[str, Any],
     ) -> PhaseResult:
         """Execute a single phase (possibly with parallel tasks)."""
@@ -210,14 +213,26 @@ class ParallelExecutor:
         if phase.is_parallel():
             # Execute tasks in parallel
             tasks = [
-                self._execute_task(task, context)
-                for task in phase.tasks
+                self._execute_task(
+                    task,
+                    phase_name=phase.name,
+                    phase_index=phase_index,
+                    task_index=task_index,
+                    context=context,
+                )
+                for task_index, task in enumerate(phase.tasks)
             ]
             task_results = await asyncio.gather(*tasks)
         else:
             # Execute sequentially
-            for task in phase.tasks:
-                result = await self._execute_task(task, context)
+            for task_index, task in enumerate(phase.tasks):
+                result = await self._execute_task(
+                    task,
+                    phase_name=phase.name,
+                    phase_index=phase_index,
+                    task_index=task_index,
+                    context=context,
+                )
                 task_results.append(result)
 
         return PhaseResult(
@@ -227,7 +242,11 @@ class ParallelExecutor:
 
     async def _execute_task(
         self,
-        task: dict[str, str],
+        task: dict[str, Any],
+        *,
+        phase_name: str,
+        phase_index: int,
+        task_index: int,
         context: dict[str, Any],
     ) -> dict[str, Any]:
         """Execute a single subagent task."""
@@ -235,8 +254,12 @@ class ParallelExecutor:
             subagent_type = task.get("subagent_type", "general")
             prompt = task.get("prompt", "")
 
-            subagent_config = registry.get(subagent_type)
-            if not subagent_config:
+            try:
+                subagent_config = get_subagent_config(
+                    subagent_type,
+                    apply_runtime_overrides=True,
+                )
+            except ValueError:
                 return {
                     "subagent_type": subagent_type,
                     "success": False,
@@ -245,22 +268,41 @@ class ParallelExecutor:
 
             manager = get_manager()
             runtime_context = SubagentRuntimeContext.from_mapping(context)
+            if runtime_context.execution_session_id is None:
+                return {
+                    "subagent_type": subagent_type,
+                    "success": False,
+                    "error": "Missing execution_session_id in runtime context",
+                }
+            routed_model_name = route_subagent_model(
+                thread_model=runtime_context.model_name
+            )
             context_snapshot = await build_subagent_context_snapshot(
                 runtime_context=runtime_context,
                 state=context,
             )
-            if manager._llm is None and runtime_context.model_name is None:
+            if manager._llm is None and routed_model_name is None:
                 return {
                     "subagent_type": subagent_type,
                     "success": False,
-                    "error": "Subagent manager is unavailable because no chat model is configured.",
+                    "error": "Subagent manager is unavailable because no thread model is configured.",
                 }
+
+            metadata: dict[str, str] = {
+                "workflow_phase": phase_name,
+                "workflow_phase_index": str(phase_index),
+                "workflow_task_index": str(task_index),
+                "workflow_strategy": str(context.get("workflow_strategy") or ""),
+            }
+            if routed_model_name is not None:
+                metadata["model_name"] = routed_model_name
 
             subagent_task = build_subagent_task(
                 manager._config,
                 prompt=prompt,
                 thread_id=str(context["_subagent_thread_id"]),
                 fallback_max_turns=subagent_config.max_turns,
+                requested_timeout=subagent_config.timeout,
                 tools=subagent_config.tools,
                 metadata=build_subagent_metadata(
                     subagent_type=subagent_type,
@@ -269,6 +311,7 @@ class ParallelExecutor:
                     runtime_context=runtime_context,
                     include_workspace=True,
                     include_user=runtime_context.thread_id is not None,
+                    extra_metadata=metadata,
                 ),
             )
 

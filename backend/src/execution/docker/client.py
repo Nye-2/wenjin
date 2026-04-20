@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="docker-")
 _LATEX_IMAGE = "wenjin/texlive:2024"
 _LATEX_IMAGE_ARCHIVE = "wenjin-texlive-2024.tar"
+SANDBOX_MANAGED_LABEL = "wenjin.sandbox.managed"
+SANDBOX_KIND_LABEL = "wenjin.sandbox.kind"
+SANDBOX_THREAD_LABEL = "wenjin.sandbox.thread_id"
 
 
 class DockerImagesProtocol(Protocol):
@@ -67,6 +70,13 @@ class DockerContainersProtocol(Protocol):
         **kwargs: Any,
     ) -> DockerContainerHandleProtocol: ...
 
+    def list(
+        self,
+        *,
+        all: bool = False,
+        filters: dict[str, Any] | None = None,
+    ) -> list[DockerContainerHandleProtocol]: ...
+
 
 class DockerSDKProtocol(Protocol):
     """Subset of Docker SDK client surface used by the wrapper."""
@@ -82,7 +92,7 @@ class DockerSDKProtocol(Protocol):
 
 def _create_docker_client() -> DockerSDKProtocol:
     """Create a Docker SDK client through the dynamically imported module."""
-    from_env = cast(Callable[[], DockerSDKProtocol], getattr(docker, "from_env"))
+    from_env = cast(Callable[[], DockerSDKProtocol], docker.from_env)
     return from_env()
 
 
@@ -291,6 +301,7 @@ class DockerClient:
         await self.ensure_image(image)
 
         def _run() -> tuple[int, str, str]:
+            container: DockerContainerHandleProtocol | None = None
             try:
                 # Create and run container
                 container = self.client.containers.run(
@@ -329,14 +340,6 @@ class DockerClient:
                 stdout = container.logs(stdout=True, stderr=False).decode("utf-8", errors="replace")
                 stderr = container.logs(stdout=False, stderr=True).decode("utf-8", errors="replace")
 
-                # Remove container if requested
-                if remove:
-                    try:
-                        container.remove(force=True)
-                        logger.debug(f"Removed container: {container.id[:12]}")
-                    except Exception as e:
-                        logger.warning(f"Failed to remove container: {e}")
-
                 return exit_code, stdout, stderr
 
             except DockerException as e:
@@ -344,9 +347,49 @@ class DockerClient:
                     f"Container execution failed: {e}",
                     original_error=e
                 ) from e
+            finally:
+                if remove and container is not None:
+                    try:
+                        container.remove(force=True)
+                        logger.debug(f"Removed container: {container.id[:12]}")
+                    except Exception as exc:
+                        logger.warning(f"Failed to remove container: {exc}")
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_executor, _run)
+
+    async def cleanup_containers_by_label(self, labels: dict[str, str]) -> int:
+        """Best-effort cleanup for containers matching all given labels."""
+        label_filters = [f"{key}={value}" for key, value in labels.items() if key and value]
+
+        def _cleanup() -> int:
+            try:
+                containers = self.client.containers.list(
+                    all=True,
+                    filters={"label": label_filters} if label_filters else None,
+                )
+            except DockerException as exc:
+                raise DockerExecutionError(
+                    f"Failed to list containers for cleanup: {exc}",
+                    original_error=exc,
+                ) from exc
+
+            removed = 0
+            for container in containers:
+                try:
+                    container.remove(force=True)
+                    removed += 1
+                except Exception as exc:  # noqa: BLE001
+                    cid = getattr(container, "id", "unknown")
+                    logger.warning(
+                        "Failed to remove container %s during cleanup: %s",
+                        str(cid)[:12],
+                        exc,
+                    )
+            return removed
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_executor, _cleanup)
 
     async def health_check(self) -> dict[str, Any]:
         """Check Docker daemon health.

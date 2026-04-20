@@ -7,7 +7,13 @@ from pydantic import BaseModel
 
 from src.config import get_default_model_id
 from src.config.llm_config import ModelConfig
-from src.models import get_model_category, list_user_selectable_models
+from src.models import (
+    get_model_category,
+    list_user_selectable_models,
+    model_supports_reasoning_effort,
+    model_supports_thinking,
+    model_supports_vision,
+)
 
 router = APIRouter()
 
@@ -53,21 +59,8 @@ def _infer_provider(model: ModelConfig) -> str:
     return "Custom"
 
 
-def _supports_thinking(model: ModelConfig) -> bool:
-    raw_model = (model.model or "").lower()
-    return raw_model.startswith("claude") or raw_model.startswith("minimax-")
-
-
-def _supports_reasoning_effort(model: ModelConfig) -> bool:
-    if getattr(model, "supports_reasoning_effort", False):
-        return True
-    raw_model = (model.model or "").lower()
-    return "gpt-5" in raw_model or "doubao" in raw_model
-
-
 def _supports_vision(model: ModelConfig) -> bool:
-    raw_model = (model.model or "").lower()
-    return any(tag in raw_model for tag in ("vision", "vl", "gpt-4o"))
+    return model_supports_vision(model.id)
 
 
 def _to_model_info(model: ModelConfig, *, category: str, mark_default: bool) -> ModelInfo:
@@ -82,8 +75,8 @@ def _to_model_info(model: ModelConfig, *, category: str, mark_default: bool) -> 
         provider=_infer_provider(model),
         max_tokens=model.max_tokens,
         supports_tools=(model.supports_tools or category == "tool"),
-        supports_thinking=_supports_thinking(model),
-        supports_reasoning_effort=_supports_reasoning_effort(model),
+        supports_thinking=model_supports_thinking(model.id),
+        supports_reasoning_effort=model_supports_reasoning_effort(model.id),
         supports_vision=_supports_vision(model),
         is_default=mark_default,
     )

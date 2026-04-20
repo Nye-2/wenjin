@@ -20,8 +20,7 @@ class _DummySessionContext:
 
 @pytest.mark.asyncio
 async def test_gateway_get_db_supports_async_context_manager(monkeypatch):
-    """gateway.dependencies.get_db should consume get_db_session() as a context manager."""
-    from src.gateway import dependencies
+    """gateway deps core.get_db should consume get_db_session() as a context manager."""
     from src.gateway.deps import core
 
     session = AsyncMock()
@@ -31,7 +30,7 @@ async def test_gateway_get_db_supports_async_context_manager(monkeypatch):
         lambda: _DummySessionContext(session),
     )
 
-    dependency_gen = dependencies.get_db()
+    dependency_gen = core.get_db()
     yielded = await anext(dependency_gen)
     assert yielded is session
     await dependency_gen.aclose()

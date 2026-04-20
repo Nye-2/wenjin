@@ -6,9 +6,10 @@
   "links": [],
   "panels": [
     {
+      "id": 1,
       "title": "HTTP QPS",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
       "targets": [
         {
           "expr": "sum(rate(http_requests_total[5m])) by (method)",
@@ -16,15 +17,13 @@
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
         }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "reqps" },
-        "overrides": []
-      }
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
     },
     {
-      "title": "HTTP Error Rate (5xx)",
+      "id": 2,
+      "title": "HTTP 5xx/s",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
       "targets": [
         {
           "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m]))",
@@ -32,15 +31,27 @@
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
         }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "reqps" },
-        "overrides": []
-      }
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
     },
     {
+      "id": 3,
+      "title": "Run Dispatch/s By Result",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(run_dispatch_total[5m])) by (result)",
+          "legendFormat": "{{result}}",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 4,
       "title": "Request Duration P95",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
@@ -48,27 +59,104 @@
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
         }
       ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "title": "Request Duration P99",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "title": "Run Dispatch Success Ratio",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(run_dispatch_total{result=\"success\"}[5m])) / clamp_min(sum(rate(run_dispatch_total[5m])), 1e-9)",
+          "legendFormat": "success_ratio",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
+        }
+      ],
       "fieldConfig": {
-        "defaults": { "unit": "s" },
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "max": 100
+        },
         "overrides": []
       }
     },
     {
-      "title": "Active Tasks",
-      "type": "stat",
-      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "id": 7,
+      "title": "Run Wait Duration P95 By Outcome",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "targets": [
         {
-          "expr": "active_tasks_total",
+          "expr": "histogram_quantile(0.95, sum(rate(run_wait_seconds_bucket[5m])) by (le, outcome))",
+          "legendFormat": "{{outcome}} p95",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "title": "Run Wait Polls P95 By Outcome",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(run_wait_polls_bucket[5m])) by (le, outcome))",
+          "legendFormat": "{{outcome}} p95",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "title": "Run Wait Outcomes/s",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(rate(run_wait_seconds_count[5m])) by (outcome)",
+          "legendFormat": "{{outcome}}",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "title": "Active Tasks",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(active_tasks_total)",
           "legendFormat": "active",
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
         }
       ]
     },
     {
+      "id": 11,
       "title": "Task Duration P95",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 24 },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(task_duration_seconds_bucket[5m])) by (le, task_type))",
@@ -76,10 +164,7 @@
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
         }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "s" },
-        "overrides": []
-      }
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
     }
   ],
   "schemaVersion": 39,

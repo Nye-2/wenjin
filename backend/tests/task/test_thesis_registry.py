@@ -8,11 +8,11 @@ from src.workspace_features.registry import (
 
 
 class TestThesisRegistryUpdate:
-    """Tests verifying the new 6-module thesis feature design."""
+    """Tests verifying thesis feature registry design."""
 
-    def test_thesis_has_six_features(self):
+    def test_thesis_has_five_features(self):
         features = list_workspace_features("thesis")
-        assert len(features) == 6
+        assert len(features) == 5
 
     def test_thesis_feature_ids(self):
         features = list_workspace_features("thesis")
@@ -23,7 +23,6 @@ class TestThesisRegistryUpdate:
             "opening_research",
             "thesis_writing",
             "figure_generation",
-            "compile_export",
         ]
 
     def test_deep_research_feature_uses_workspace_feature_task_type(self):

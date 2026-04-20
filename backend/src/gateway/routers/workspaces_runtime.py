@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterable, Awaitable, Callable
 from inspect import isawaitable
 
+from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from src.academic.services.workspace_service import WorkspaceService
@@ -61,7 +62,17 @@ async def create_workspace_events_response_with_stream(
 
     stream = stream_factory(workspace_id)
     if isawaitable(stream):
-        stream = await stream
+        try:
+            stream = await stream
+        except Exception as exc:
+            from src.workspace_events import WorkspaceEventStreamUnavailable
+
+            if isinstance(exc, WorkspaceEventStreamUnavailable):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Workspace event stream is temporarily unavailable",
+                ) from exc
+            raise
     return StreamingResponse(
         stream,
         media_type="text/event-stream",

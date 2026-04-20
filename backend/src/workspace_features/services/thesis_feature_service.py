@@ -860,11 +860,11 @@ async def build_compile_payload(
     chapters = _extract_sorted_chapters(artifacts)
     if not has_chapter_artifacts:
         raise RuntimeError(
-            "compile_export_failed: no thesis chapter artifacts found, run thesis writing first"
+            "thesis_sync_failed: no thesis chapter artifacts found, run thesis writing first"
         )
     if not chapters:
         raise RuntimeError(
-            "compile_export_failed: chapter artifacts exist but contain no renderable markdown content"
+            "thesis_sync_failed: chapter artifacts exist but contain no renderable markdown content"
         )
     figures = _extract_figures(artifacts)
 
@@ -897,7 +897,7 @@ async def build_compile_payload(
             chapter_latex.append(rendered)
     if not chapter_latex:
         raise RuntimeError(
-            "compile_export_failed: chapter artifacts exist but contain no renderable markdown content"
+            "thesis_sync_failed: chapter artifacts exist but contain no renderable markdown content"
         )
 
     figure_latex = _build_figure_latex(figures)

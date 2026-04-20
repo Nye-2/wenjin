@@ -1,0 +1,48 @@
+name: Backend Quality Gate
+
+on:
+  push:
+    branches: ["master", "main"]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: backend-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend-quality:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Sync dependencies
+        working-directory: backend
+        run: uv sync --extra dev
+
+      - name: Ruff
+        working-directory: backend
+        run: uv run ruff check src tests
+
+      - name: Pytest
+        working-directory: backend
+        run: uv run pytest -q
+
+      - name: Incremental Mypy Guard
+        working-directory: backend
+        run: make typecheck-incremental

@@ -1,10 +1,10 @@
 """thesis_feature_service is the single source for figure strategy mapping."""
 
-from src.workspace_features.services.thesis_feature_service import (
-    _FIGURE_STRATEGY_BY_TYPE as SERVICE_MAPPING,
-)
 from src.agents.graphs.thesis.figure_generation import (
     _FIGURE_STRATEGY_BY_TYPE as GRAPH_MAPPING,
+)
+from src.workspace_features.services.thesis_feature_service import (
+    _FIGURE_STRATEGY_BY_TYPE as SERVICE_MAPPING,
 )
 
 

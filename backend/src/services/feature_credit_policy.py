@@ -6,8 +6,6 @@ from this module rather than maintaining local copies.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from src.task.registry import WORKSPACE_FEATURE_TASK
 
 FEATURE_COSTS: dict[str, int | dict[str, int]] = {
@@ -21,7 +19,6 @@ FEATURE_COSTS: dict[str, int | dict[str, int]] = {
         "default": 200,
     },
     "figure_generation": 30,
-    "compile_export": 10,
     "literature_search": 20,
     "paper_analysis": 25,
     "writing": 60,
@@ -43,7 +40,6 @@ FEATURE_DISPLAY_NAMES: dict[str, str] = {
     "opening_research": "开题调研",
     "thesis_writing": "论文写作",
     "figure_generation": "图表生成",
-    "compile_export": "编译导出",
     "literature_search": "文献检索",
     "paper_analysis": "论文分析",
     "writing": "论文写作",

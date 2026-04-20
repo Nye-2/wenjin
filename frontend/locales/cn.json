@@ -156,7 +156,7 @@
       "subtitle": "选择你的工作类型，问津会配置对应的 AI 能力和工作流程。",
       "thesis": {
         "description": "从选题到答辩的全程支持",
-        "modules": "深度调研 · 文献管理 · 大纲设计 · 论文撰写 · 图表生成 · 编译导出"
+        "modules": "深度调研 · 文献管理 · 大纲设计 · 论文撰写 · 图表生成"
       },
       "sci": {
         "description": "面向期刊投稿的全流程辅助",
@@ -342,10 +342,6 @@
     "figure-designer": {
       "name": "图表设计",
       "description": "学术图表与可视化设计"
-    },
-    "doc-compiler": {
-      "name": "编译导出",
-      "description": "论文格式编译与导出"
     },
     "paper-analyst": {
       "name": "论文分析",

@@ -127,6 +127,7 @@ def resolve_workspace_upload_stored_path(
     stored_path: str,
     *,
     root: Path = DEFAULT_WORKSPACE_UPLOAD_ROOT,
+    allow_root_prefixed_relative: bool = False,
 ) -> Path:
     """Resolve a stored workspace upload path and verify it belongs to the workspace."""
     workspace_root = workspace_upload_root(workspace_id, root=root).resolve()
@@ -134,7 +135,25 @@ def resolve_workspace_upload_stored_path(
     if not normalized_path:
         raise ValueError("Missing file path")
 
-    candidate = Path(normalized_path).resolve()
+    raw_path = Path(normalized_path)
+    if raw_path.is_absolute():
+        candidate = raw_path.resolve()
+        if (
+            allow_root_prefixed_relative
+            and not _is_within_root(candidate, workspace_root)
+            and normalized_path.startswith("/")
+            and not candidate.exists()
+        ):
+            candidate = (workspace_root / normalized_path.lstrip("/")).resolve()
+    else:
+        # Backward-compat: many persisted rows store paths like
+        # ".wenjin/workspace_uploads/<ws>/bucket/file.ext" as cwd-relative.
+        # Keep honoring those if they already resolve under workspace_root.
+        legacy_candidate = raw_path.resolve()
+        if _is_within_root(legacy_candidate, workspace_root):
+            candidate = legacy_candidate
+        else:
+            candidate = (workspace_root / normalized_path.lstrip("/")).resolve()
     if not _is_within_root(candidate, workspace_root):
         raise ValueError("File path escapes workspace uploads root")
     return candidate
@@ -154,6 +173,7 @@ def workspace_upload_public_url(
         workspace_id,
         str(stored_path),
         root=root,
+        allow_root_prefixed_relative=True,
     )
     relative = actual_path.relative_to(
         workspace_upload_root(workspace_id, root=root).resolve()

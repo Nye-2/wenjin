@@ -147,14 +147,6 @@ _FEATURE_RUNTIME_CONFIG: dict[str, dict[str, Any]] = {
             {"id": "finalize", "label": "整理产物", "description": "封装图表 artifact"},
         ],
     },
-    "compile_export": {
-        "title": "编译导出",
-        "phases": [
-            {"id": "review", "label": "一致性检查", "description": "检查章节一致性并生成摘要"},
-            {"id": "compile", "label": "编译导出", "description": "生成 LaTeX、BibTeX 和 PDF"},
-            {"id": "finalize", "label": "整理产物", "description": "封装编译结果 artifact"},
-        ],
-    },
     "literature_management": {
         "title": "文献管理",
         "phases": [

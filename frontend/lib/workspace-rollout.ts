@@ -1,6 +1,6 @@
 import type { Workspace } from "@/lib/api";
 
-const CHAT_COCKPIT_DEFAULT_TYPES = new Set([
+const THREAD_COCKPIT_DEFAULT_TYPES = new Set([
   "thesis",
   "sci",
   "proposal",
@@ -13,15 +13,15 @@ function readRollout(workspace: Workspace | null | undefined): Record<string, un
   return rollout && typeof rollout === "object" ? rollout as Record<string, unknown> : {};
 }
 
-export function isWorkspaceChatCockpitEnabled(
+export function isWorkspaceThreadCockpitEnabled(
   workspace: Workspace | null | undefined
 ): boolean {
   if (!workspace) {
     return false;
   }
   const rollout = readRollout(workspace);
-  if (typeof rollout.chat_cockpit_enabled === "boolean") {
-    return rollout.chat_cockpit_enabled;
+  if (typeof rollout.thread_cockpit_enabled === "boolean") {
+    return rollout.thread_cockpit_enabled;
   }
-  return CHAT_COCKPIT_DEFAULT_TYPES.has(workspace.type);
+  return THREAD_COCKPIT_DEFAULT_TYPES.has(workspace.type);
 }

@@ -5,6 +5,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+_RESERVED_PATH_SEGMENTS = frozenset({".git", ".compile", "__pycache__"})
+_RESERVED_ROOT_FILES = frozenset({"project.json"})
+
 
 def _backend_root() -> Path:
     return Path(__file__).resolve().parents[3]
@@ -69,6 +72,19 @@ def normalize_relative_path(path: str) -> str:
     if any(segment in {".", ".."} for segment in parts):
         raise ValueError("File path contains invalid segments")
     return "/".join(parts)
+
+
+def is_reserved_project_path(path: str) -> bool:
+    """Return whether a user-provided relative path targets reserved internals."""
+    normalized = str(path or "").replace("\\", "/").strip().strip("/")
+    if not normalized:
+        return False
+    parts = [segment.lower() for segment in normalized.split("/") if segment]
+    if not parts:
+        return False
+    if parts[-1] in _RESERVED_ROOT_FILES:
+        return True
+    return any(segment in _RESERVED_PATH_SEGMENTS for segment in parts)
 
 
 def resolve_project_relative(project_dir: Path, relative_path: str) -> Path:

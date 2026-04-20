@@ -1,5 +1,5 @@
 import type {
-  ChatCreditStatus,
+  ThreadCreditStatus,
   CreditCostValue,
   CreditTransactionItem,
   UserDashboardData,
@@ -15,7 +15,7 @@ function getNumericValue(value: unknown): number | null {
 
 export function formatCreditCostLabel(key: string): string {
   switch (key) {
-    case "chat_token_billing":
+    case "thread_token_billing":
       return "主线对话";
     case "deep_research":
       return "深度研究";
@@ -40,7 +40,7 @@ export function formatCreditTransactionType(type: string): string {
       return "管理员扣减";
     case "workflow_consume":
       return "功能扣费";
-    case "chat_token_consume":
+    case "thread_token_consume":
       return "主线对话扣费";
     case "registration_bonus":
       return "注册奖励";
@@ -59,10 +59,10 @@ export function renderCostValue(value: CreditCostValue): string {
   return parts.join(" | ");
 }
 
-export function getChatCreditStatus(
+export function getThreadCreditStatus(
   credits: UserDashboardData["credits"] | null | undefined
-): ChatCreditStatus | null {
-  const candidate = credits?.chat;
+): ThreadCreditStatus | null {
+  const candidate = credits?.thread;
   if (!isRecord(candidate)) return null;
 
   const enabled = candidate.enabled;
@@ -70,7 +70,7 @@ export function getChatCreditStatus(
   const tokensPerCredit = getNumericValue(candidate.tokens_per_credit);
   const consumedTokens = getNumericValue(candidate.consumed_tokens);
   const remainingFreeTokens = getNumericValue(candidate.remaining_free_tokens);
-  const canStartChat = candidate.can_start_chat;
+  const canStartThread = candidate.can_start_thread;
   const overdraftCredits = getNumericValue(candidate.overdraft_credits);
 
   if (
@@ -79,7 +79,7 @@ export function getChatCreditStatus(
     tokensPerCredit === null ||
     consumedTokens === null ||
     remainingFreeTokens === null ||
-    typeof canStartChat !== "boolean" ||
+    typeof canStartThread !== "boolean" ||
     overdraftCredits === null
   ) {
     return null;
@@ -91,14 +91,14 @@ export function getChatCreditStatus(
     tokens_per_credit: tokensPerCredit,
     consumed_tokens: consumedTokens,
     remaining_free_tokens: remainingFreeTokens,
-    can_start_chat: canStartChat,
+    can_start_thread: canStartThread,
     overdraft_credits: overdraftCredits,
   };
 }
 
 export function summarizeCreditTransaction(item: CreditTransactionItem): string {
   const base = item.description?.trim() || "";
-  if (item.type !== "chat_token_consume" || !isRecord(item.metadata)) {
+  if (item.type !== "thread_token_consume" || !isRecord(item.metadata)) {
     return base || "-";
   }
 

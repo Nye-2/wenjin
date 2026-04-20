@@ -8,12 +8,10 @@ depending on unstable upstream import paths.
 """
 
 from collections.abc import Mapping
-from datetime import UTC
 from typing import Annotated, Any, NotRequired, TypedDict, cast
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
- 
 
 # ============ AgentState base ============
 
@@ -68,7 +66,7 @@ def merge_response_blocks(
     existing: list[dict[str, Any]] | None,
     new: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    """Reducer for structured response blocks emitted during a chat turn."""
+    """Reducer for structured response blocks emitted during a thread turn."""
     if existing is None:
         return [block for block in (new or []) if isinstance(block, dict)]
     if new is None:
@@ -83,7 +81,7 @@ def merge_response_metadata(
     existing: dict[str, Any] | None,
     new: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Reducer for structured response metadata emitted during a chat turn."""
+    """Reducer for structured response metadata emitted during a thread turn."""
     if existing is None:
         return dict(new or {})
     if new is None:
@@ -188,6 +186,8 @@ class ThreadState(AgentState):
     viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]
 
     # Academic context fields (formerly private attrs)
+    thread_id: NotRequired[str | None]
+    user_id: NotRequired[str | None]
     workspace_id: NotRequired[str | None]
     workspace_type: NotRequired[str | None]
     discipline: NotRequired[str | None]

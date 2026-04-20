@@ -141,6 +141,7 @@ class PapersHandler:
                         / "_preprocessed"
                         / persistent_path.stem
                     ),
+                    output_virtual_root=f"papers/_preprocessed/{persistent_path.stem}",
                 )
                 preprocess_metadata = preprocess_result.to_metadata()
                 for key in (

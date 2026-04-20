@@ -56,15 +56,31 @@ def override_auth(app):
     """Subagent routes are protected and require an authenticated user."""
     user = MagicMock()
     user.id = "user-123"
-    chat_thread_service = MagicMock()
-    chat_thread_service.get_thread = AsyncMock(
-        return_value=MagicMock(workspace_id="ws-1")
+    thread_service = MagicMock()
+    thread_service.get_thread = AsyncMock(
+        return_value=MagicMock(workspace_id="ws-1", model="gpt-4o")
     )
     app.dependency_overrides[get_current_user] = lambda: user
-    app.dependency_overrides[subagents.get_chat_thread_service] = lambda: chat_thread_service
+    app.dependency_overrides[subagents.get_thread_service] = lambda: thread_service
     yield
     app.dependency_overrides.pop(get_current_user, None)
-    app.dependency_overrides.pop(subagents.get_chat_thread_service, None)
+    app.dependency_overrides.pop(subagents.get_thread_service, None)
+
+
+@pytest.fixture(autouse=True)
+def override_execution_session_lookup(monkeypatch):
+    session = MagicMock(
+        id="exec-1",
+        user_id="user-123",
+        workspace_id="ws-1",
+        thread_id="thread-123",
+    )
+    monkeypatch.setattr(
+        subagents,
+        "_load_execution_session",
+        AsyncMock(return_value=session),
+    )
+    return session
 
 
 class TestSpawnEndpoint:
@@ -79,7 +95,7 @@ class TestSpawnEndpoint:
             )
             response = client.post(
                 "/subagents/threads/thread-123/spawn",
-                json={"prompt": "Test prompt"}
+                json={"prompt": "Test prompt", "execution_session_id": "exec-1"},
             )
         assert response.status_code == 200
         data = response.json()
@@ -91,19 +107,189 @@ class TestSpawnEndpoint:
         assert "## Inherited Workspace Context" in task.metadata["system_prompt"]
         app.dependency_overrides = {}
 
+    def test_spawn_routes_model_from_thread_and_request(self, client, mock_manager, app):
+        """Spawn should route subagent model from request/thread model inputs."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager
+        route_mock = MagicMock(return_value="tool-primary")
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(subagents, "route_subagent_model", route_mock)
+            response = client.post(
+                "/subagents/threads/thread-123/spawn",
+                json={
+                    "prompt": "Test prompt",
+                    "model_name": "gen-fallback",
+                    "execution_session_id": "exec-1",
+                },
+            )
+
+        assert response.status_code == 200
+        route_mock.assert_called_once_with(
+            requested_model="gen-fallback",
+            thread_model="gpt-4o",
+        )
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.metadata["model_name"] == "tool-primary"
+        app.dependency_overrides = {}
+
+    def test_spawn_returns_503_when_no_manager_model_and_routing_fails(self, client, mock_manager, app):
+        """Spawn should fail if neither manager llm nor routed model is available."""
+        mock_manager._llm = None
+        app.dependency_overrides[get_manager] = lambda: mock_manager
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(subagents, "route_subagent_model", MagicMock(return_value=None))
+            response = client.post(
+                "/subagents/threads/thread-123/spawn",
+                json={"prompt": "Test prompt", "execution_session_id": "exec-1"},
+            )
+
+        assert response.status_code == 503
+        mock_manager.spawn.assert_not_awaited()
+        app.dependency_overrides = {}
+
+    def test_spawn_forwards_execution_session_id(self, client, mock_manager, app):
+        """Spawn should propagate execution session linkage to subagent metadata."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager
+        response = client.post(
+            "/subagents/threads/thread-123/spawn",
+            json={
+                "prompt": "Test prompt",
+                "execution_session_id": "exec-1",
+            },
+        )
+
+        assert response.status_code == 200
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.metadata["execution_session_id"] == "exec-1"
+        app.dependency_overrides = {}
+
     def test_spawn_rejects_missing_thread(self, client, mock_manager, app):
         """Spawn should fail fast when the user does not own the thread."""
-        chat_thread_service = MagicMock()
-        chat_thread_service.get_thread = AsyncMock(return_value=None)
+        thread_service = MagicMock()
+        thread_service.get_thread = AsyncMock(return_value=None)
         app.dependency_overrides[get_manager] = lambda: mock_manager
-        app.dependency_overrides[subagents.get_chat_thread_service] = lambda: chat_thread_service
+        app.dependency_overrides[subagents.get_thread_service] = lambda: thread_service
 
         response = client.post(
             "/subagents/threads/thread-404/spawn",
-            json={"prompt": "Test prompt"},
+            json={"prompt": "Test prompt", "execution_session_id": "exec-1"},
         )
 
         assert response.status_code == 404
+        mock_manager.spawn.assert_not_awaited()
+        app.dependency_overrides = {}
+
+    def test_spawn_uses_subagent_type_limits_when_not_overridden(self, client, mock_manager, app):
+        """Per-type max_turns/timeout should be applied when request omits them."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager
+
+        class _Resolver:
+            def __init__(self, _tools):
+                pass
+
+            def resolve_config(self, *_args, **_kwargs):
+                return MagicMock(
+                    system_prompt="system",
+                    tools=["semantic_scholar_search"],
+                    model_name=None,
+                    max_turns=23,
+                    timeout=1234,
+                )
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr("src.subagents.academic.AcademicAgentResolver", _Resolver)
+            response = client.post(
+                "/subagents/threads/thread-123/spawn",
+                json={
+                    "prompt": "Test prompt",
+                    "subagent_type": "scout",
+                    "execution_session_id": "exec-1",
+                },
+            )
+
+        assert response.status_code == 200
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.max_turns == 23
+        assert task.timeout == 1234
+        app.dependency_overrides = {}
+
+    def test_spawn_request_limits_override_subagent_type_defaults(self, client, mock_manager, app):
+        """Explicit request limits should override per-type default max_turns/timeout."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager
+
+        class _Resolver:
+            def __init__(self, _tools):
+                pass
+
+            def resolve_config(self, *_args, **_kwargs):
+                return MagicMock(
+                    system_prompt="system",
+                    tools=["semantic_scholar_search"],
+                    model_name=None,
+                    max_turns=23,
+                    timeout=1234,
+                )
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr("src.subagents.academic.AcademicAgentResolver", _Resolver)
+            response = client.post(
+                "/subagents/threads/thread-123/spawn",
+                json={
+                    "prompt": "Test prompt",
+                    "subagent_type": "scout",
+                    "max_turns": 7,
+                    "timeout": 99,
+                    "execution_session_id": "exec-1",
+                },
+            )
+
+        assert response.status_code == 200
+        task = mock_manager.spawn.await_args.args[0]
+        assert task.max_turns == 7
+        assert task.timeout == 99
+        app.dependency_overrides = {}
+
+    def test_spawn_rejects_missing_execution_session(self, client, mock_manager, app):
+        """Spawn should fail when execution session does not exist."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                subagents,
+                "_load_execution_session",
+                AsyncMock(return_value=None),
+            )
+            response = client.post(
+                "/subagents/threads/thread-123/spawn",
+                json={"prompt": "Test prompt", "execution_session_id": "exec-missing"},
+            )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Execution session not found"
+        mock_manager.spawn.assert_not_awaited()
+        app.dependency_overrides = {}
+
+    def test_spawn_rejects_execution_session_thread_mismatch(self, client, mock_manager, app):
+        """Spawn should fail when execution session is not bound to the current thread."""
+        app.dependency_overrides[get_manager] = lambda: mock_manager
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                subagents,
+                "_load_execution_session",
+                AsyncMock(
+                    return_value=MagicMock(
+                        id="exec-1",
+                        user_id="user-123",
+                        workspace_id="ws-1",
+                        thread_id="thread-other",
+                    )
+                ),
+            )
+            response = client.post(
+                "/subagents/threads/thread-123/spawn",
+                json={"prompt": "Test prompt", "execution_session_id": "exec-1"},
+            )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Execution session not found"
         mock_manager.spawn.assert_not_awaited()
         app.dependency_overrides = {}
 
@@ -115,7 +301,7 @@ class TestSpawnEndpoint:
         client = TestClient(app)
         response = client.post(
             "/subagents/threads/thread-123/spawn",
-            json={"prompt": "Test prompt"},
+            json={"prompt": "Test prompt", "execution_session_id": "exec-1"},
         )
 
         assert response.status_code == 401
@@ -218,7 +404,8 @@ class TestSpawnWithSubagentType:
             "/subagents/threads/thread-123/spawn",
             json={
                 "prompt": "Search for papers",
-                "subagent_type": "scout"
+                "subagent_type": "scout",
+                "execution_session_id": "exec-1",
             }
         )
         assert response.status_code == 200
@@ -243,6 +430,7 @@ class TestSpawnWithSubagentType:
             json={
                 "prompt": "Search for papers",
                 "subagent_type": "scout",
+                "execution_session_id": "exec-1",
             },
         )
         assert response.status_code == 200
@@ -255,7 +443,8 @@ class TestSpawnWithSubagentType:
             "/subagents/threads/thread-123/spawn",
             json={
                 "prompt": "Search for papers",
-                "subagent_type": "researcher"  # Invalid type
+                "subagent_type": "researcher",  # Invalid type
+                "execution_session_id": "exec-1",
             }
         )
         assert response.status_code == 400
@@ -272,7 +461,8 @@ class TestSpawnWithSubagentType:
             json={
                 "prompt": "Search for papers",
                 "subagent_type": "scout",
-                "tools": ["read_file"]
+                "tools": ["read_file"],
+                "execution_session_id": "exec-1",
             }
         )
         assert response.status_code == 200
@@ -286,7 +476,8 @@ class TestSpawnWithSubagentType:
             json={
                 "prompt": "Search for papers",
                 "subagent_type": "scout",
-                "tools": ["nonexistent_tool"]
+                "tools": ["nonexistent_tool"],
+                "execution_session_id": "exec-1",
             }
         )
         assert response.status_code == 400
@@ -294,12 +485,12 @@ class TestSpawnWithSubagentType:
         assert "InvalidTool" in data["detail"]["error"]
         app.dependency_overrides = {}
 
-    def test_spawn_without_subagent_type_backward_compat(self, client, mock_manager_with_tools, app):
-        """Test backward compatibility - spawn without subagent_type."""
+    def test_spawn_requires_execution_session_id(self, client, mock_manager_with_tools, app):
+        """Subagent spawn must be bound to an execution session."""
         app.dependency_overrides[get_manager] = lambda: mock_manager_with_tools
         response = client.post(
             "/subagents/threads/thread-123/spawn",
             json={"prompt": "Test prompt"}
         )
-        assert response.status_code == 200
+        assert response.status_code == 422
         app.dependency_overrides = {}

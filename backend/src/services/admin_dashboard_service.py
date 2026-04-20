@@ -13,10 +13,12 @@ from src.database import (
     Artifact,
     CreditTransaction,
     CreditTransactionType,
+    SubagentTaskRecord,
     TaskRecord,
     User,
     Workspace,
 )
+from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
 
 class AdminDashboardService:
@@ -138,6 +140,7 @@ class AdminDashboardService:
             (await self.db.execute(select(func.count()).select_from(CreditTransaction))).scalar()
             or 0
         )
+        token_usage_summary = await self._get_token_usage_summary()
 
         return {
             "summary": {
@@ -167,8 +170,99 @@ class AdminDashboardService:
                     "overdraft_credits_total": overdraft_credits_total,
                     "total_transactions": tx_total,
                 },
+                "token_usage": token_usage_summary,
             },
             "updated_at": now.isoformat(),
+        }
+
+    async def _get_token_usage_summary(self) -> dict[str, Any]:
+        """Aggregate non-deduplicated token usage snapshots for admin overview."""
+        thread_rows = await self.db.execute(
+            select(
+                CreditTransaction.id,
+                CreditTransaction.user_id,
+                CreditTransaction.transaction_type,
+                CreditTransaction.tx_metadata,
+            ).where(
+                CreditTransaction.transaction_type.in_(
+                    [
+                        CreditTransactionType.THREAD_TOKEN_CONSUME,
+                        CreditTransactionType.REFUND,
+                    ]
+                )
+            )
+        )
+        thread_transactions = list(thread_rows.all())
+        refunded_ids = {
+            str(metadata.get("original_transaction_id"))
+            for _, _, transaction_type, metadata in thread_transactions
+            if transaction_type == CreditTransactionType.REFUND
+            and isinstance(metadata, dict)
+            and metadata.get("original_transaction_id")
+        }
+        thread_total_tokens = 0
+        thread_tx_count = 0
+        thread_user_ids: set[str] = set()
+        for tx_id, user_id, transaction_type, metadata in thread_transactions:
+            if transaction_type != CreditTransactionType.THREAD_TOKEN_CONSUME:
+                continue
+            if str(tx_id) in refunded_ids:
+                continue
+            usage = normalize_token_usage(
+                metadata.get("token_usage") if isinstance(metadata, dict) else None
+            )
+            if usage is None:
+                continue
+            thread_total_tokens += usage.total_tokens
+            thread_tx_count += 1
+            thread_user_ids.add(str(user_id))
+
+        feature_rows = await self.db.execute(select(TaskRecord.result))
+        feature_usages = []
+        feature_records = 0
+        for (result,) in feature_rows.all():
+            feature_records += 1
+            usage = normalize_token_usage(
+                result.get("token_usage") if isinstance(result, dict) else None
+            )
+            if usage is not None:
+                feature_usages.append(usage)
+        feature_total = combine_token_usage(feature_usages)
+
+        subagent_rows = await self.db.execute(select(SubagentTaskRecord.task_metadata))
+        subagent_usages = []
+        subagent_records = 0
+        for (task_metadata,) in subagent_rows.all():
+            subagent_records += 1
+            usage = normalize_token_usage(
+                task_metadata.get("token_usage")
+                if isinstance(task_metadata, dict)
+                else None
+            )
+            if usage is not None:
+                subagent_usages.append(usage)
+        subagent_total = combine_token_usage(subagent_usages)
+
+        return {
+            "thread": {
+                "total_tokens": thread_total_tokens,
+                "transactions": thread_tx_count,
+                "users": len(thread_user_ids),
+            },
+            "feature_tasks": {
+                "input_tokens": feature_total.input_tokens if feature_total is not None else 0,
+                "output_tokens": feature_total.output_tokens if feature_total is not None else 0,
+                "total_tokens": feature_total.total_tokens if feature_total is not None else 0,
+                "records": feature_records,
+                "records_with_usage": len(feature_usages),
+            },
+            "subagents": {
+                "input_tokens": subagent_total.input_tokens if subagent_total is not None else 0,
+                "output_tokens": subagent_total.output_tokens if subagent_total is not None else 0,
+                "total_tokens": subagent_total.total_tokens if subagent_total is not None else 0,
+                "records": subagent_records,
+                "records_with_usage": len(subagent_usages),
+            },
         }
 
     async def list_users(

@@ -45,27 +45,10 @@ def _resolve_action_state(payload: dict[str, object]) -> dict[str, object]:
     return json.loads(completed.stdout)
 
 
-def _resolve_warning_message(payload: dict[str, object]) -> str:
-    assert TSX_BIN.exists(), "tsx binary is required for frontend runtime tests"
-    code = (
-        'import { getWorkspaceFeatureExecutionWarningMessage } from "./lib/workspace-feature-execution.ts";'
-        f"const input = {json.dumps(payload, ensure_ascii=False)};"
-        'console.log(getWorkspaceFeatureExecutionWarningMessage(input, "fallback"));'
-    )
-    completed = subprocess.run(
-        [str(TSX_BIN), "-e", code],
-        cwd=FRONTEND_DIR,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip()
-
-
 def _sync_chat_skill_state(payload: dict[str, object]) -> dict[str, object]:
     assert TSX_BIN.exists(), "tsx binary is required for frontend runtime tests"
     code = (
-        'import { syncCurrentSkillWithThread } from "./lib/chat-skill-state.ts";'
+        'import { syncCurrentSkillWithThread } from "./lib/thread-skill-state.ts";'
         f"const input = {json.dumps(payload, ensure_ascii=False)};"
         "console.log(JSON.stringify(syncCurrentSkillWithThread(input)));"
     )
@@ -82,7 +65,7 @@ def _sync_chat_skill_state(payload: dict[str, object]) -> dict[str, object]:
 def _format_conversation_markdown(payload: dict[str, object]) -> str:
     assert TSX_BIN.exists(), "tsx binary is required for frontend runtime tests"
     code = (
-        'import { formatConversationAsMarkdown } from "./lib/chat-export.ts";'
+        'import { formatConversationAsMarkdown } from "./lib/thread-export.ts";'
         f"const input = {json.dumps(payload, ensure_ascii=False)};"
         "console.log(formatConversationAsMarkdown(input.thread, input.messages));"
     )
@@ -94,29 +77,6 @@ def _format_conversation_markdown(payload: dict[str, object]) -> str:
         text=True,
     )
     return completed.stdout
-
-
-def _ensure_task_created(payload: dict[str, object]) -> dict[str, object]:
-    assert TSX_BIN.exists(), "tsx binary is required for frontend runtime tests"
-    code = (
-        'import { ensureWorkspaceFeatureTaskCreated } from "./lib/workspace-feature-execution.ts";'
-        f"const input = {json.dumps(payload, ensure_ascii=False)};"
-        "try {"
-        '  const result = ensureWorkspaceFeatureTaskCreated(input.execution, input.fallbacks);'
-        '  console.log(JSON.stringify({ ok: true, result }));'
-        "} catch (error) {"
-        '  const message = error instanceof Error ? error.message : String(error);'
-        '  console.log(JSON.stringify({ ok: false, error: message }));'
-        "}"
-    )
-    completed = subprocess.run(
-        [str(TSX_BIN), "-e", code],
-        cwd=FRONTEND_DIR,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return json.loads(completed.stdout)
 
 
 @pytest.mark.parametrize(
@@ -173,30 +133,6 @@ def test_text_based_rerun_params_do_not_require_local_source_artifact(
     assert isinstance(rerun_params, dict)
     assert expected_keys.issubset(set(rerun_params))
     assert state["rerunUnavailableReason"] is None
-
-
-def test_warning_message_formats_literature_insufficient_detail() -> None:
-    message = _resolve_warning_message(
-        {
-            "warning": "literature_insufficient",
-            "message": "文献不足",
-            "detail": {"current": 2, "recommended": 15},
-        }
-    )
-
-    assert message == "文献数量不足（当前 2 / 推荐 15），请先在「文献管理」中补充文献。"
-
-
-def test_warning_message_falls_back_to_backend_message() -> None:
-    message = _resolve_warning_message(
-        {
-            "warning": "unknown_warning",
-            "message": "该功能暂不可用",
-            "detail": None,
-        }
-    )
-
-    assert message == "该功能暂不可用"
 
 
 def test_thread_skill_sync_preserves_pending_local_selection_until_server_catches_up() -> None:
@@ -266,58 +202,3 @@ def test_markdown_export_uses_backend_skill_name_for_human_readable_output() -> 
 
     assert "# Peer Review" in markdown
     assert "- Skill: Peer Review" in markdown
-
-
-def test_ensure_workspace_feature_task_created_returns_task_identity() -> None:
-    result = _ensure_task_created(
-        {
-            "execution": {
-                "task_id": "task-123",
-                "status": "submitted",
-                "feature_id": "deep_research",
-                "message": "任务已提交",
-            },
-            "fallbacks": {
-                "warningFallback": "warning",
-                "missingTaskFallback": "missing",
-            },
-        }
-    )
-
-    assert result == {
-        "ok": True,
-        "result": {
-            "taskId": "task-123",
-            "message": "任务已提交",
-            "execution": {
-                "task_id": "task-123",
-                "status": "submitted",
-                "feature_id": "deep_research",
-                "message": "任务已提交",
-            },
-        },
-    }
-
-
-def test_ensure_workspace_feature_task_created_surfaces_warning_message() -> None:
-    result = _ensure_task_created(
-        {
-            "execution": {
-                "task_id": None,
-                "status": "warning",
-                "feature_id": "thesis_writing",
-                "message": "文献不足",
-                "warning": "literature_insufficient",
-                "detail": {"current": 1, "recommended": 12},
-            },
-            "fallbacks": {
-                "warningFallback": "warning",
-                "missingTaskFallback": "missing",
-            },
-        }
-    )
-
-    assert result == {
-        "ok": False,
-        "error": "文献数量不足（当前 1 / 推荐 12），请先在「文献管理」中补充文献。",
-    }

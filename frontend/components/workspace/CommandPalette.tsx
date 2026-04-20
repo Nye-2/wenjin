@@ -11,8 +11,8 @@ import {
 } from "lucide-react";
 
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
-import { exportConversationAsJson, exportConversationAsMarkdown } from "@/lib/chat-export";
-import { useChatStore } from "@/stores/chat";
+import { exportConversationAsJson, exportConversationAsMarkdown } from "@/lib/thread-export";
+import { useThreadStore } from "@/stores/thread";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -40,7 +40,10 @@ interface CommandAction {
 
 export function CommandPalette({ workspaceId }: CommandPaletteProps) {
   const router = useRouter();
-  const { messages, currentThreadSummary } = useChatStore();
+  const messages = useThreadStore((state) => state.messages);
+  const currentThreadSummary = useThreadStore(
+    (state) => state.currentThreadSummary
+  );
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -54,9 +57,9 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
     {
       id: "workspace-overview",
       title: "打开工作台总览",
-      description: "返回 workspace 主界面，查看 chat、模块和知识面板。",
+      description: "返回 workspace 主界面，查看线程、模块和知识面板。",
       section: "通用",
-      keywords: ["workspace", "overview", "chat", "总览", "主页"],
+      keywords: ["workspace", "overview", "thread", "总览", "主页"],
       perform: () => router.push(`/workspaces/${workspaceId}`),
       icon: Compass,
     },

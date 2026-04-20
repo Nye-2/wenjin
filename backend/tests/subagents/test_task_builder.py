@@ -29,6 +29,7 @@ class TestSubagentRuntimeContext:
                 "thread_id": " thread-1 ",
                 "workspace_id": " ",
                 "user_id": "user-1",
+                "execution_session_id": " exec-1 ",
                 "model_name": "gpt-4o",
                 "trace_id": None,
             }
@@ -37,6 +38,7 @@ class TestSubagentRuntimeContext:
         assert context.thread_id == "thread-1"
         assert context.workspace_id is None
         assert context.user_id == "user-1"
+        assert context.execution_session_id == "exec-1"
         assert context.model_name == "gpt-4o"
 
     def test_resolve_thread_id_uses_trace_suffix_when_detached(self):
@@ -52,6 +54,7 @@ class TestSubagentMetadata:
                 "thread_id": "thread-1",
                 "workspace_id": "ws-1",
                 "user_id": "user-1",
+                "execution_session_id": "exec-1",
                 "model_name": "gpt-4o",
             }
         )
@@ -70,6 +73,7 @@ class TestSubagentMetadata:
             "subagent_type": "scout",
             "system_prompt": "You are Scout.",
             "workspace_id": "ws-1",
+            "execution_session_id": "exec-1",
             "model_name": "gpt-4o",
         }
 
@@ -98,7 +102,11 @@ class TestSubagentTaskBuilder:
             requested_max_turns=99,
             requested_timeout=9999,
             tools=["semantic_scholar_search"],
-            metadata={"subagent_type": "scout", "workspace_id": "ws-1"},
+            metadata={
+                "subagent_type": "scout",
+                "workspace_id": "ws-1",
+                "execution_session_id": "exec-1",
+            },
         )
 
         assert task.thread_id == "thread-1"
@@ -106,6 +114,16 @@ class TestSubagentTaskBuilder:
         assert task.timeout == 3600
         assert task.tools == ["semantic_scholar_search"]
         assert task.metadata["workspace_id"] == "ws-1"
+
+    def test_build_subagent_task_requires_execution_session_id(self):
+        with pytest.raises(ValueError, match="execution_session_id is required"):
+            build_subagent_task(
+                _manager_config(),
+                prompt="Find papers",
+                thread_id="thread-1",
+                fallback_max_turns=10,
+                metadata={"subagent_type": "scout"},
+            )
 
 
 class TestContextSnapshot:

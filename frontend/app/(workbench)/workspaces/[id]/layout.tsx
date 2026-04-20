@@ -3,10 +3,9 @@
 import { ReactNode, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
-import { useFeaturePanelStore } from "@/stores/panels";
 import { useFeaturesStore } from "@/stores/features";
-import { useChatStore } from "@/stores/chat";
-import { useTaskStore } from "@/stores/task";
+import { useThreadStore } from "@/stores/thread";
+import { useExecutionStore } from "@/stores/execution";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { CommandPalette } from "@/components/workspace/CommandPalette";
 import { AppShellSidebar } from "@/components/workspace/AppShellSidebar";
@@ -21,52 +20,56 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const workspaceId = params.id as string;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useWorkspaceEventStream(workspaceId || null);
-  const { loadWorkspace, fetchArtifacts, fetchActivity, clearWorkspace } = useWorkspaceStore();
-  const { fetchFeatures, fetchSkills, clearFeatures, clearSkills } = useFeaturesStore();
-  const hydratePanels = useFeaturePanelStore((state) => state.hydrateWorkspace);
-  const clearPanels = useFeaturePanelStore((state) => state.clearWorkspace);
-  const { clearMessages, abortStream } = useChatStore();
-  const clearWorkspaceTasks = useTaskStore((state) => state.clearWorkspaceTasks);
+  const loadWorkspace = useWorkspaceStore((state) => state.loadWorkspace);
+  const fetchArtifacts = useWorkspaceStore((state) => state.fetchArtifacts);
+  const fetchActivity = useWorkspaceStore((state) => state.fetchActivity);
+  const clearWorkspace = useWorkspaceStore((state) => state.clearWorkspace);
+  const setActiveWorkspace = useFeaturesStore((state) => state.setActiveWorkspace);
+  const fetchFeatures = useFeaturesStore((state) => state.fetchFeatures);
+  const fetchSkills = useFeaturesStore((state) => state.fetchSkills);
+  const clearFeatures = useFeaturesStore((state) => state.clearFeatures);
+  const clearSkills = useFeaturesStore((state) => state.clearSkills);
+  const clearMessages = useThreadStore((state) => state.clearMessages);
+  const abortStream = useThreadStore((state) => state.abortStream);
+  const hydrateExecutions = useExecutionStore((state) => state.hydrateWorkspace);
+  const clearExecutions = useExecutionStore((state) => state.clearWorkspace);
 
   useEffect(() => {
     if (!workspaceId) {
       return;
     }
 
+    setActiveWorkspace(workspaceId);
     void loadWorkspace(workspaceId);
-    void fetchFeatures(workspaceId).then(() =>
-      hydratePanels(
-        workspaceId,
-        (featureId) => useFeaturesStore.getState().getFeatureById(featureId)
-      )
-    );
+    void fetchFeatures(workspaceId);
     void fetchSkills(workspaceId);
     void fetchArtifacts(workspaceId);
     void fetchActivity(workspaceId);
+    void hydrateExecutions(workspaceId);
     return () => {
       abortStream();
+      setActiveWorkspace(null);
       clearWorkspace();
       clearFeatures();
       clearSkills();
-      clearWorkspaceTasks(workspaceId);
-      clearPanels(workspaceId);
+      clearExecutions(workspaceId);
       clearMessages();
     };
   }, [
     workspaceId,
+    setActiveWorkspace,
     loadWorkspace,
     fetchFeatures,
     fetchSkills,
     fetchArtifacts,
     fetchActivity,
+    hydrateExecutions,
     clearWorkspace,
     clearFeatures,
     clearSkills,
-    clearWorkspaceTasks,
-    clearPanels,
+    clearExecutions,
     clearMessages,
     abortStream,
-    hydratePanels,
   ]);
 
   return (

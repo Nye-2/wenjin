@@ -167,7 +167,6 @@ async def test_lru_promotion_saves_recently_hit_entry():
 def test_cache_set_with_eviction_logs(caplog):
     """Evicting a cache entry should emit a debug log."""
     import logging
-    import time
 
     middleware = MemoryMiddleware(queue=None, enabled=True, max_cache_size=1)
     # Pre-populate cache

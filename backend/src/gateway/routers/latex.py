@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import hmac
+import io
 import mimetypes
+import os
+import zipfile
 from copy import deepcopy
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
@@ -16,21 +25,61 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps.core import get_db
-from src.services.latex.paths import normalize_relative_path
 from src.services.latex import (
     LatexCompileService,
     LatexProjectService,
     LatexTemplateService,
     get_default_latex_engine,
 )
+from src.services.latex.engine_config import get_supported_latex_engines
 from src.services.latex.feedback_revision_service import (
     build_feedback_anchor,
     resolve_feedback_range,
     resolve_section_by_offset,
     rewrite_with_feedback,
 )
+from src.services.latex.paths import is_reserved_project_path, normalize_relative_path
+from src.services.latex.project_service import (
+    LatexTemplateError,
+    LatexTemplateNotFoundError,
+)
+from src.services.latex.rewrite_diff import (
+    build_latex_rewrite_diff,
+    compute_content_hash,
+    compute_range_hash,
+)
+from src.services.latex.rewrite_guard import (
+    LatexStructureValidationError,
+    validate_latex_document_structure,
+    validate_rewrite_segment,
+)
 
 router = APIRouter(prefix="/latex", tags=["latex"])
+
+LatexEngine = Literal["xelatex", "pdflatex"]
+RewriteProfile = Literal["balanced", "conservative", "aggressive"]
+RewriteRiskLevel = Literal["low", "medium", "high"]
+
+_MAX_UPLOAD_ARCHIVE_FILES = 5000
+_MAX_UPLOAD_ARCHIVE_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
+_MAX_UPLOAD_ARCHIVE_BYTES = 256 * 1024 * 1024
+_MAX_UPLOAD_FILES = 5000
+_MAX_UPLOAD_FILE_BYTES = 128 * 1024 * 1024
+_MAX_UPLOAD_TOTAL_BYTES = 512 * 1024 * 1024
+_UPLOAD_READ_CHUNK_SIZE = 64 * 1024
+_MAX_REWRITE_CANDIDATES = 3
+_REWRITE_CANDIDATE_TIMEOUT_SECONDS = 18
+
+_REWRITE_PROFILE_GUIDANCE: dict[RewriteProfile, str] = {
+    "balanced": "在保持原意与结构的前提下做中等强度优化，避免不必要扩写。",
+    "conservative": "优先最小改动，尽量保留原句与术语，仅修复明显表达问题。",
+    "aggressive": "可进行较大幅度重构以提升清晰度与逻辑性，但不要引入新事实。",
+}
+_REWRITE_PROFILE_ORDER: tuple[RewriteProfile, ...] = (
+    "balanced",
+    "conservative",
+    "aggressive",
+)
 
 
 class LatexProjectResponse(BaseModel):
@@ -137,7 +186,7 @@ class LatexCompileRequest(BaseModel):
     """Compile request."""
 
     main_file: str | None = Field(default=None, max_length=255)
-    engine: Literal["xelatex", "pdflatex"] = Field(default_factory=get_default_latex_engine)
+    engine: LatexEngine = Field(default_factory=get_default_latex_engine)
 
 
 class LatexCompileResponse(BaseModel):
@@ -183,6 +232,8 @@ class LatexUploadResponse(BaseModel):
 
     ok: bool = True
     files: list[str]
+    folders: list[str] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
 
 
 class LatexFeedbackAnchorPayload(BaseModel):
@@ -209,7 +260,6 @@ class LatexFeedbackItemPayload(BaseModel):
     anchor: LatexFeedbackAnchorPayload | None = None
     source: Literal["tex", "pdf"] = "tex"
     pdf_anchor: dict[str, Any] | None = None
-    tex_anchor: dict[str, Any] | None = None
     last_status: Literal["idle", "pending", "done", "error"] | None = None
     last_error: str | None = None
 
@@ -239,6 +289,7 @@ class LatexFeedbackRewriteRequest(BaseModel):
     scope: Literal["selection", "section"] = "section"
     model_id: str | None = None
     file_content: str | None = None
+    candidate_count: int | None = Field(default=None, ge=1, le=_MAX_REWRITE_CANDIDATES)
     apply: bool = False
 
 
@@ -260,6 +311,151 @@ class LatexFeedbackRewriteResponse(BaseModel):
     proposed_content: str
     updated_anchor: LatexFeedbackAnchorPayload
     applied: bool = False
+
+
+class LatexDiffStatsPayload(BaseModel):
+    """Aggregated diff statistics."""
+
+    chars_added: int = 0
+    chars_deleted: int = 0
+    tokens_changed: int = 0
+    citation_changed: int = 0
+    label_changed: int = 0
+    math_changed: int = 0
+
+
+class LatexDiffOpPayload(BaseModel):
+    """Single diff operation entry."""
+
+    op: Literal["equal", "insert", "delete", "replace"]
+    token_kind: Literal["text", "latex_cmd", "citation", "label", "math", "env"]
+    old_text: str = ""
+    new_text: str = ""
+    old_start: int = Field(ge=0)
+    old_end: int = Field(ge=0)
+    new_start: int = Field(ge=0)
+    new_end: int = Field(ge=0)
+
+
+class LatexDiffHunkPayload(BaseModel):
+    """Diff hunk with contextual operations and local stats."""
+
+    old_start: int = Field(ge=0)
+    old_end: int = Field(ge=0)
+    new_start: int = Field(ge=0)
+    new_end: int = Field(ge=0)
+    ops: list[LatexDiffOpPayload]
+    stats: LatexDiffStatsPayload
+    risk_flags: list[str] = Field(default_factory=list)
+
+
+class LatexDiffPayload(BaseModel):
+    """Full structured diff payload."""
+
+    hunks: list[LatexDiffHunkPayload]
+    stats: LatexDiffStatsPayload
+    risk_flags: list[str] = Field(default_factory=list)
+
+
+class LatexFeedbackRewriteCandidatePayload(BaseModel):
+    """Rewrite preview candidate with diff and integrity hashes."""
+
+    candidate_id: str = Field(min_length=1)
+    candidate_signature: str = Field(min_length=64, max_length=64)
+    profile: RewriteProfile = "balanced"
+    risk_level: RewriteRiskLevel = "low"
+    model_id: str
+    scope: Literal["selection", "section"]
+    section_title: str
+    section_level: str
+    target_start: int = Field(ge=0)
+    target_end: int = Field(ge=0)
+    rewritten_text: str
+    changes_summary: str = ""
+    proposed_content: str
+    updated_anchor: LatexFeedbackAnchorPayload
+    base_file_hash: str = Field(min_length=64, max_length=64)
+    base_range_hash: str = Field(min_length=64, max_length=64)
+    diff: LatexDiffPayload
+
+
+class LatexFeedbackRewritePreviewResponse(BaseModel):
+    """Rewrite preview response containing one or more candidates."""
+
+    ok: bool = True
+    file_path: str
+    resolved_selection_start: int = Field(ge=0)
+    resolved_selection_end: int = Field(ge=0)
+    candidates: list[LatexFeedbackRewriteCandidatePayload]
+
+
+class LatexFeedbackRewriteApplyRequest(BaseModel):
+    """Apply a previously previewed rewrite candidate."""
+
+    file_path: str = Field(min_length=1)
+    candidate_id: str = Field(min_length=1)
+    candidate_signature: str = Field(min_length=64, max_length=64)
+    target_start: int = Field(ge=0)
+    target_end: int = Field(ge=0)
+    rewritten_text: str
+    base_file_hash: str = Field(min_length=64, max_length=64)
+    base_range_hash: str = Field(min_length=64, max_length=64)
+
+
+class LatexFeedbackRewriteUndoPayload(BaseModel):
+    """Signed payload that allows one-click rewrite rollback."""
+
+    candidate_id: str = Field(min_length=1)
+    revert_start: int = Field(ge=0)
+    revert_end: int = Field(ge=0)
+    rewritten_text: str
+    previous_text: str
+    applied_file_hash: str = Field(min_length=64, max_length=64)
+    revert_signature: str = Field(min_length=64, max_length=64)
+
+
+class LatexFeedbackRewriteApplyResponse(BaseModel):
+    """Apply rewrite response."""
+
+    ok: bool = True
+    applied: bool = True
+    file_path: str
+    candidate_id: str
+    target_start: int = Field(ge=0)
+    target_end: int = Field(ge=0)
+    rewritten_text: str
+    applied_content: str
+    updated_anchor: LatexFeedbackAnchorPayload
+    file_hash: str = Field(min_length=64, max_length=64)
+    undo: LatexFeedbackRewriteUndoPayload
+
+
+class LatexFeedbackRewriteRevertRequest(BaseModel):
+    """Revert a previously applied rewrite candidate."""
+
+    file_path: str = Field(min_length=1)
+    candidate_id: str = Field(min_length=1)
+    revert_start: int = Field(ge=0)
+    revert_end: int = Field(ge=0)
+    rewritten_text: str
+    previous_text: str
+    applied_file_hash: str = Field(min_length=64, max_length=64)
+    revert_signature: str = Field(min_length=64, max_length=64)
+
+
+class LatexFeedbackRewriteRevertResponse(BaseModel):
+    """Revert rewrite response."""
+
+    ok: bool = True
+    reverted: bool = True
+    file_path: str
+    candidate_id: str
+    revert_start: int = Field(ge=0)
+    revert_end: int = Field(ge=0)
+    restored_text: str
+    reverted_content: str
+    updated_anchor: LatexFeedbackAnchorPayload
+    file_hash: str = Field(min_length=64, max_length=64)
 
 
 class LatexFeedbackMapRequest(BaseModel):
@@ -309,6 +505,134 @@ def _normalize_upload_relative_path(filename: str | None, base_path: str | None)
     return normalize_relative_path(merged)
 
 
+def _is_reserved_upload_path(relative_path: str) -> bool:
+    return is_reserved_project_path(relative_path)
+
+
+def _sorted_folder_paths(paths: set[str]) -> list[str]:
+    return sorted(paths, key=lambda item: (item.count("/"), item))
+
+
+async def _read_upload_bytes_with_limit(
+    upload: UploadFile,
+    *,
+    max_size_bytes: int,
+    chunk_size: int = _UPLOAD_READ_CHUNK_SIZE,
+    error_label: str = "Archive file",
+) -> bytes:
+    chunks: list[bytes] = []
+    total_size = 0
+    while True:
+        chunk = await upload.read(chunk_size)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > max_size_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=(
+                    f"{error_label} too large. Maximum size is "
+                    f"{max_size_bytes // (1024 * 1024)}MB"
+                ),
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _common_upload_root_prefix(paths: list[str]) -> str | None:
+    cleaned = [path for path in paths if path]
+    if not cleaned:
+        return None
+    first_parts = cleaned[0].split("/")
+    if len(first_parts) < 2:
+        return None
+    root = first_parts[0]
+    for current in cleaned:
+        parts = current.split("/")
+        if not parts or parts[0] != root:
+            return None
+    return root
+
+
+def _collect_archive_upload_payload(
+    archive_bytes: bytes,
+    *,
+    base_path: str | None,
+    strip_root: bool = True,
+) -> tuple[list[tuple[str, bytes]], list[str], list[str]]:
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(archive_bytes))
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Invalid ZIP archive") from exc
+
+    parsed_entries: list[tuple[str, bool, bytes | None]] = []
+
+    with archive:
+        entries = archive.infolist()
+        if len(entries) > _MAX_UPLOAD_ARCHIVE_FILES:
+            raise ValueError("Archive contains too many files")
+
+        total_uncompressed_bytes = 0
+        for entry in entries:
+            total_uncompressed_bytes += max(0, int(entry.file_size or 0))
+            if total_uncompressed_bytes > _MAX_UPLOAD_ARCHIVE_UNCOMPRESSED_BYTES:
+                raise ValueError("Archive is too large after extraction")
+
+            try:
+                normalized = _normalize_upload_relative_path(entry.filename, None)
+            except ValueError as exc:
+                raise ValueError(f"Invalid archive path: {entry.filename}") from exc
+
+            if not normalized:
+                continue
+            parsed_entries.append(
+                (
+                    normalized,
+                    entry.is_dir(),
+                    None if entry.is_dir() else archive.read(entry),
+                )
+            )
+
+    if strip_root:
+        root_prefix = _common_upload_root_prefix([path for path, _, _ in parsed_entries])
+        if root_prefix:
+            prefix = f"{root_prefix}/"
+            adjusted_entries: list[tuple[str, bool, bytes | None]] = []
+            for path, is_dir, payload in parsed_entries:
+                if path == root_prefix:
+                    continue
+                if path.startswith(prefix):
+                    next_path = path[len(prefix):]
+                else:
+                    next_path = path
+                if not next_path:
+                    continue
+                adjusted_entries.append((next_path, is_dir, payload))
+            parsed_entries = adjusted_entries
+
+    files: dict[str, bytes] = {}
+    folders: set[str] = set()
+    skipped: list[str] = []
+    for path, is_dir, payload in parsed_entries:
+        try:
+            final_path = _normalize_upload_relative_path(path, base_path)
+        except ValueError as exc:
+            raise ValueError(f"Invalid archive path: {path}") from exc
+
+        if _is_reserved_upload_path(final_path):
+            skipped.append(final_path)
+            continue
+        if is_dir:
+            folders.add(final_path)
+            continue
+        files[final_path] = payload or b""
+        parent = Path(final_path).parent.as_posix()
+        if parent not in {"", "."}:
+            folders.add(parent)
+
+    return list(files.items()), _sorted_folder_paths(folders), list(dict.fromkeys(skipped))
+
+
 def _not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
@@ -338,6 +662,242 @@ async def _write_feedback_items_to_project(
     await service.update_llm_config(project, llm_config)
 
 
+@lru_cache(maxsize=1)
+def _rewrite_signature_secret() -> bytes:
+    raw = str(os.getenv("WENJIN_LATEX_REWRITE_SIGNING_KEY", "")).strip()
+    if not raw:
+        raw = "wenjin-latex-rewrite-signing-key"
+    return raw.encode("utf-8")
+
+
+def _compute_candidate_signature(
+    *,
+    file_path: str,
+    candidate_id: str,
+    target_start: int,
+    target_end: int,
+    rewritten_text: str,
+    base_file_hash: str,
+    base_range_hash: str,
+) -> str:
+    payload = "\x1f".join(
+        [
+            str(file_path),
+            str(candidate_id),
+            str(target_start),
+            str(target_end),
+            str(base_file_hash),
+            str(base_range_hash),
+            str(rewritten_text),
+        ]
+    )
+    return hmac.new(
+        _rewrite_signature_secret(),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _compute_revert_signature(
+    *,
+    file_path: str,
+    candidate_id: str,
+    revert_start: int,
+    revert_end: int,
+    rewritten_text: str,
+    previous_text: str,
+    applied_file_hash: str,
+) -> str:
+    payload = "\x1f".join(
+        [
+            str(file_path),
+            str(candidate_id),
+            str(revert_start),
+            str(revert_end),
+            str(rewritten_text),
+            str(previous_text),
+            str(applied_file_hash),
+        ]
+    )
+    return hmac.new(
+        _rewrite_signature_secret(),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+@lru_cache(maxsize=1)
+def _rewrite_compile_guard_enabled() -> bool:
+    raw = str(os.getenv("WENJIN_LATEX_REWRITE_ENFORCE_COMPILE", "1")).strip().lower()
+    return raw not in {"0", "false", "off", "no"}
+
+
+def _profiled_comment(comment: str, profile: RewriteProfile) -> str:
+    guidance = _REWRITE_PROFILE_GUIDANCE.get(profile, "").strip()
+    base = str(comment or "").strip()
+    if not guidance:
+        return base
+    return f"{base}\n\n【改写策略】\n{guidance}"
+
+
+def _candidate_risk_level(
+    *,
+    risk_flags: list[str],
+    tokens_changed: int,
+) -> RewriteRiskLevel:
+    high_flags = {"boundary_leak", "citation_drop", "label_drop", "brace_unbalanced"}
+    if any(flag in high_flags for flag in risk_flags) or tokens_changed >= 120:
+        return "high"
+    if risk_flags or tokens_changed >= 45:
+        return "medium"
+    return "low"
+
+
+def _build_rewrite_candidate(
+    *,
+    source_content: str,
+    file_path: str,
+    scope: Literal["selection", "section"],
+    profile: RewriteProfile,
+    rewrite_result: dict[str, Any],
+) -> LatexFeedbackRewriteCandidatePayload:
+    target_start = int(rewrite_result["target_start"])
+    target_end = int(rewrite_result["target_end"])
+    rewritten_text = str(rewrite_result["rewritten_text"])
+    original_segment = str(source_content)[target_start:target_end]
+    validate_rewrite_segment(
+        original_text=original_segment,
+        rewritten_text=rewritten_text,
+        scope=scope,
+        target_start=target_start,
+        target_end=target_end,
+        resolved_selection_start=int(rewrite_result["resolved_selection_start"]),
+        resolved_selection_end=int(rewrite_result["resolved_selection_end"]),
+    )
+    proposed_content = (
+        str(source_content)[:target_start]
+        + rewritten_text
+        + str(source_content)[target_end:]
+    )
+    updated_anchor = build_feedback_anchor(
+        proposed_content,
+        target_start,
+        target_start + len(rewritten_text),
+    )
+    diff_payload = build_latex_rewrite_diff(
+        original_text=original_segment,
+        rewritten_text=rewritten_text,
+        target_start=target_start,
+        target_end=target_end,
+        scope=scope,
+        resolved_selection_start=int(rewrite_result["resolved_selection_start"]),
+        resolved_selection_end=int(rewrite_result["resolved_selection_end"]),
+    )
+    diff_model = LatexDiffPayload.model_validate(diff_payload)
+    risk_level = _candidate_risk_level(
+        risk_flags=list(diff_model.risk_flags),
+        tokens_changed=int(diff_model.stats.tokens_changed),
+    )
+    candidate_id = uuid4().hex
+    base_file_hash = compute_content_hash(str(source_content))
+    base_range_hash = compute_range_hash(target_start, target_end, original_segment)
+    return LatexFeedbackRewriteCandidatePayload(
+        candidate_id=candidate_id,
+        candidate_signature=_compute_candidate_signature(
+            file_path=file_path,
+            candidate_id=candidate_id,
+            target_start=target_start,
+            target_end=target_end,
+            rewritten_text=rewritten_text,
+            base_file_hash=base_file_hash,
+            base_range_hash=base_range_hash,
+        ),
+        profile=profile,
+        risk_level=risk_level,
+        model_id=str(rewrite_result.get("model_id") or "default"),
+        scope=scope,
+        section_title=str(rewrite_result.get("section_title") or "未命名章节"),
+        section_level=str(rewrite_result.get("section_level") or "section"),
+        target_start=target_start,
+        target_end=target_end,
+        rewritten_text=rewritten_text,
+        changes_summary=str(rewrite_result.get("changes_summary") or ""),
+        proposed_content=proposed_content,
+        updated_anchor=LatexFeedbackAnchorPayload.model_validate(updated_anchor),
+        base_file_hash=base_file_hash,
+        base_range_hash=base_range_hash,
+        diff=diff_model,
+    )
+
+
+async def _generate_rewrite_candidates(
+    *,
+    source_content: str,
+    request: LatexFeedbackRewriteRequest,
+) -> list[tuple[LatexFeedbackRewriteCandidatePayload, dict[str, Any]]]:
+    requested_count = int(request.candidate_count or _MAX_REWRITE_CANDIDATES)
+    requested_count = max(1, min(_MAX_REWRITE_CANDIDATES, requested_count))
+    profiles = list(_REWRITE_PROFILE_ORDER[:requested_count])
+
+    async def run_profile(profile: RewriteProfile) -> dict[str, Any]:
+        task = rewrite_with_feedback(
+            content=str(source_content),
+            comment=_profiled_comment(request.comment, profile),
+            selected_text=request.selected_text,
+            selection_start=request.selection_start,
+            selection_end=request.selection_end,
+            anchor=request.anchor.model_dump(mode="json") if request.anchor else None,
+            scope=request.scope,
+            requested_model_id=request.model_id,
+        )
+        try:
+            return await asyncio.wait_for(
+                task,
+                timeout=_REWRITE_CANDIDATE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            raise RuntimeError(f"rewrite candidate timed out: {profile}") from exc
+
+    tasks = [run_profile(profile) for profile in profiles]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    candidate_pairs: list[tuple[LatexFeedbackRewriteCandidatePayload, dict[str, Any]]] = []
+    seen_rewrites: set[str] = set()
+    first_error: Exception | None = None
+
+    for profile, result in zip(profiles, results, strict=False):
+        if isinstance(result, Exception):
+            if first_error is None:
+                first_error = result
+            continue
+        try:
+            candidate = _build_rewrite_candidate(
+                source_content=str(source_content),
+                file_path=request.file_path,
+                scope=request.scope,
+                profile=profile,
+                rewrite_result=result,
+            )
+        except LatexStructureValidationError as exc:
+            if first_error is None:
+                first_error = ValueError(
+                    f"unsafe rewrite candidate rejected ({profile}): {exc.code}",
+                )
+            continue
+        signature = candidate.rewritten_text.strip()
+        if signature in seen_rewrites:
+            continue
+        seen_rewrites.add(signature)
+        candidate_pairs.append((candidate, result))
+
+    if candidate_pairs:
+        return candidate_pairs
+
+    if first_error is not None:
+        raise first_error
+    raise RuntimeError("Model did not return rewrite candidates")
+
+
 @router.get("/health")
 async def latex_health() -> dict[str, str]:
     """Module health endpoint."""
@@ -362,11 +922,16 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
 ) -> LatexProjectResponse:
     service = LatexProjectService(db)
-    project = await service.create(
-        user_id=str(current_user.id),
-        name=request.name,
-        template_id=request.template_id,
-    )
+    try:
+        project = await service.create(
+            user_id=str(current_user.id),
+            name=request.name,
+            template_id=request.template_id,
+        )
+    except LatexTemplateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except LatexTemplateError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return LatexProjectResponse.model_validate(project)
 
 
@@ -515,6 +1080,364 @@ async def save_project_feedback(
     return {"ok": True}
 
 
+@router.post(
+    "/projects/{project_id}/feedback/rewrite/preview",
+    response_model=LatexFeedbackRewritePreviewResponse,
+)
+async def preview_project_feedback_rewrite(
+    project_id: str,
+    request: LatexFeedbackRewriteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LatexFeedbackRewritePreviewResponse:
+    service = LatexProjectService(db)
+    project = await service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    try:
+        source_content = (
+            request.file_content
+            if request.file_content is not None
+            else service.read_text_file(project, request.file_path)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    try:
+        candidate_pairs = await _generate_rewrite_candidates(
+            source_content=str(source_content),
+            request=request,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    candidates = [pair[0] for pair in candidate_pairs]
+    primary_result = candidate_pairs[0][1]
+    return LatexFeedbackRewritePreviewResponse(
+        ok=True,
+        file_path=request.file_path,
+        resolved_selection_start=int(primary_result["resolved_selection_start"]),
+        resolved_selection_end=int(primary_result["resolved_selection_end"]),
+        candidates=candidates,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/feedback/rewrite/apply",
+    response_model=LatexFeedbackRewriteApplyResponse,
+)
+async def apply_project_feedback_rewrite(
+    project_id: str,
+    request: LatexFeedbackRewriteApplyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LatexFeedbackRewriteApplyResponse:
+    service = LatexProjectService(db)
+    project = await service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    if request.target_end < request.target_start:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid target range")
+
+    try:
+        current_content = service.read_text_file(project, request.file_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    expected_signature = _compute_candidate_signature(
+        file_path=request.file_path,
+        candidate_id=request.candidate_id,
+        target_start=request.target_start,
+        target_end=request.target_end,
+        rewritten_text=request.rewritten_text,
+        base_file_hash=request.base_file_hash,
+        base_range_hash=request.base_range_hash,
+    )
+    if not hmac.compare_digest(expected_signature, request.candidate_signature):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "invalid_candidate_signature",
+                "message": "Rewrite candidate signature mismatch. Re-generate rewrite preview.",
+            },
+        )
+
+    current_hash = compute_content_hash(current_content)
+    if current_hash != request.base_file_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "base_file_hash_mismatch",
+                "message": "File content changed. Re-generate rewrite preview.",
+                "current_file_hash": current_hash,
+            },
+        )
+
+    if request.target_end > len(current_content):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "target_range_out_of_bounds",
+                "message": "Target range is no longer valid. Re-generate rewrite preview.",
+            },
+        )
+
+    current_segment = current_content[request.target_start:request.target_end]
+    current_range_hash = compute_range_hash(
+        request.target_start,
+        request.target_end,
+        current_segment,
+    )
+    if current_range_hash != request.base_range_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "base_range_hash_mismatch",
+                "message": "Target range changed. Re-generate rewrite preview.",
+                "current_range_hash": current_range_hash,
+            },
+        )
+
+    try:
+        validate_rewrite_segment(
+            original_text=current_segment,
+            rewritten_text=request.rewritten_text,
+            scope=None,
+        )
+    except LatexStructureValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": exc.code,
+                "message": f"Rewrite rejected by structure guard: {exc.message}",
+            },
+        ) from exc
+
+    applied_content = (
+        current_content[:request.target_start]
+        + request.rewritten_text
+        + current_content[request.target_end:]
+    )
+    try:
+        validate_latex_document_structure(applied_content)
+    except LatexStructureValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": exc.code,
+                "message": f"Rewrite rejected by document structure guard: {exc.message}",
+            },
+        ) from exc
+
+    try:
+        await service.write_text_file(project, request.file_path, applied_content)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    compile_error: str | None = None
+    if _rewrite_compile_guard_enabled():
+        compile_service = LatexCompileService(db)
+        compile_errors: list[str] = []
+        ordered_engines: list[str] = [get_default_latex_engine()]
+        for engine in get_supported_latex_engines():
+            if engine not in ordered_engines:
+                ordered_engines.append(engine)
+        for engine in ordered_engines:
+            try:
+                compile_payload = await compile_service.compile_project(
+                    project,
+                    main_file=project.main_file,
+                    engine=engine,
+                    record_history=False,
+                )
+                if bool(compile_payload.get("ok")):
+                    compile_errors = []
+                    break
+                error_message = str(
+                    compile_payload.get("error")
+                    or compile_payload.get("log")
+                    or "No PDF generated.",
+                ).strip()
+            except Exception as exc:
+                error_message = str(exc).strip() or "Compile validation failed."
+            compile_errors.append(f"{engine}: {error_message}")
+        if compile_errors:
+            compile_error = " | ".join(compile_errors)
+
+    if compile_error:
+        try:
+            await service.write_text_file(project, request.file_path, current_content)
+        except Exception as rollback_exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "code": "rewrite_compile_rollback_failed",
+                    "message": "Rewrite compile validation failed and rollback also failed.",
+                    "compile_error": compile_error,
+                    "rollback_error": str(rollback_exc),
+                },
+            ) from rollback_exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "rewrite_compile_failed",
+                "message": "Rewrite rejected because project no longer compiles. Changes were rolled back.",
+                "compile_error": compile_error,
+            },
+        )
+
+    next_end = request.target_start + len(request.rewritten_text)
+    updated_anchor = build_feedback_anchor(
+        applied_content,
+        request.target_start,
+        next_end,
+    )
+    applied_file_hash = compute_content_hash(applied_content)
+    undo_payload = LatexFeedbackRewriteUndoPayload(
+        candidate_id=request.candidate_id,
+        revert_start=request.target_start,
+        revert_end=next_end,
+        rewritten_text=request.rewritten_text,
+        previous_text=current_segment,
+        applied_file_hash=applied_file_hash,
+        revert_signature=_compute_revert_signature(
+            file_path=request.file_path,
+            candidate_id=request.candidate_id,
+            revert_start=request.target_start,
+            revert_end=next_end,
+            rewritten_text=request.rewritten_text,
+            previous_text=current_segment,
+            applied_file_hash=applied_file_hash,
+        ),
+    )
+    return LatexFeedbackRewriteApplyResponse(
+        ok=True,
+        applied=True,
+        file_path=request.file_path,
+        candidate_id=request.candidate_id,
+        target_start=request.target_start,
+        target_end=request.target_end,
+        rewritten_text=request.rewritten_text,
+        applied_content=applied_content,
+        updated_anchor=LatexFeedbackAnchorPayload.model_validate(updated_anchor),
+        file_hash=applied_file_hash,
+        undo=undo_payload,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/feedback/rewrite/revert",
+    response_model=LatexFeedbackRewriteRevertResponse,
+)
+async def revert_project_feedback_rewrite(
+    project_id: str,
+    request: LatexFeedbackRewriteRevertRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LatexFeedbackRewriteRevertResponse:
+    service = LatexProjectService(db)
+    project = await service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    if request.revert_end < request.revert_start:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid revert range")
+
+    try:
+        current_content = service.read_text_file(project, request.file_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    expected_signature = _compute_revert_signature(
+        file_path=request.file_path,
+        candidate_id=request.candidate_id,
+        revert_start=request.revert_start,
+        revert_end=request.revert_end,
+        rewritten_text=request.rewritten_text,
+        previous_text=request.previous_text,
+        applied_file_hash=request.applied_file_hash,
+    )
+    if not hmac.compare_digest(expected_signature, request.revert_signature):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "invalid_revert_signature",
+                "message": "Invalid revert signature. Re-generate rewrite preview.",
+            },
+        )
+
+    current_hash = compute_content_hash(current_content)
+    if current_hash != request.applied_file_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "revert_file_hash_mismatch",
+                "message": "File content changed, cannot auto-revert this rewrite.",
+                "current_file_hash": current_hash,
+            },
+        )
+
+    if request.revert_end > len(current_content):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "revert_range_out_of_bounds",
+                "message": "Revert range is no longer valid.",
+            },
+        )
+
+    current_segment = current_content[request.revert_start:request.revert_end]
+    if current_segment != request.rewritten_text:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "revert_target_mismatch",
+                "message": "Current text no longer matches the applied rewrite.",
+            },
+        )
+
+    reverted_content = (
+        current_content[:request.revert_start]
+        + request.previous_text
+        + current_content[request.revert_end:]
+    )
+    try:
+        await service.write_text_file(project, request.file_path, reverted_content)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    restored_end = request.revert_start + len(request.previous_text)
+    updated_anchor = build_feedback_anchor(
+        reverted_content,
+        request.revert_start,
+        restored_end,
+    )
+    return LatexFeedbackRewriteRevertResponse(
+        ok=True,
+        reverted=True,
+        file_path=request.file_path,
+        candidate_id=request.candidate_id,
+        revert_start=request.revert_start,
+        revert_end=request.revert_end,
+        restored_text=request.previous_text,
+        reverted_content=reverted_content,
+        updated_anchor=LatexFeedbackAnchorPayload.model_validate(updated_anchor),
+        file_hash=compute_content_hash(reverted_content),
+    )
+
+
 @router.post("/projects/{project_id}/feedback/rewrite", response_model=LatexFeedbackRewriteResponse)
 async def rewrite_project_feedback(
     project_id: str,
@@ -554,43 +1477,46 @@ async def rewrite_project_feedback(
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-    target_start = int(rewrite_result["target_start"])
-    target_end = int(rewrite_result["target_end"])
-    rewritten_text = str(rewrite_result["rewritten_text"])
-    proposed_content = (
-        str(source_content)[:target_start]
-        + rewritten_text
-        + str(source_content)[target_end:]
-    )
-    updated_anchor = build_feedback_anchor(
-        proposed_content,
-        target_start,
-        target_start + len(rewritten_text),
-    )
+    try:
+        candidate = _build_rewrite_candidate(
+            source_content=str(source_content),
+            file_path=request.file_path,
+            scope=request.scope,
+            profile="balanced",
+            rewrite_result=rewrite_result,
+        )
+    except LatexStructureValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": exc.code,
+                "message": f"Rewrite rejected by structure guard: {exc.message}",
+            },
+        ) from exc
 
     applied = False
     if request.apply:
         try:
-            await service.write_text_file(project, request.file_path, proposed_content)
+            await service.write_text_file(project, request.file_path, candidate.proposed_content)
             applied = True
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
     return LatexFeedbackRewriteResponse(
         ok=True,
-        model_id=str(rewrite_result.get("model_id") or "default"),
-        scope=request.scope,
+        model_id=candidate.model_id,
+        scope=candidate.scope,
         file_path=request.file_path,
-        section_title=str(rewrite_result.get("section_title") or "未命名章节"),
-        section_level=str(rewrite_result.get("section_level") or "section"),
+        section_title=candidate.section_title,
+        section_level=candidate.section_level,
         resolved_selection_start=int(rewrite_result["resolved_selection_start"]),
         resolved_selection_end=int(rewrite_result["resolved_selection_end"]),
-        target_start=target_start,
-        target_end=target_end,
-        rewritten_text=rewritten_text,
-        changes_summary=str(rewrite_result.get("changes_summary") or ""),
-        proposed_content=proposed_content,
-        updated_anchor=LatexFeedbackAnchorPayload.model_validate(updated_anchor),
+        target_start=candidate.target_start,
+        target_end=candidate.target_end,
+        rewritten_text=candidate.rewritten_text,
+        changes_summary=candidate.changes_summary,
+        proposed_content=candidate.proposed_content,
+        updated_anchor=candidate.updated_anchor,
         applied=applied,
     )
 
@@ -910,18 +1836,19 @@ async def read_project_blob(
     if project is None:
         raise _not_found()
     try:
-        payload, media_type = service.read_blob(project, path)
+        blob_file, media_type = service.resolve_blob_file(project, path)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return Response(content=payload, media_type=media_type)
+    return FileResponse(path=blob_file, media_type=media_type)
 
 
 @router.post("/projects/{project_id}/upload", response_model=LatexUploadResponse)
 async def upload_project_files(
     project_id: str,
-    files: list[UploadFile] = File(...),
+    files: list[UploadFile] | None = File(default=None),
+    folders: list[str] | None = Form(default=None),
     base_path: str | None = Form(default=None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -931,18 +1858,115 @@ async def upload_project_files(
     if project is None:
         raise _not_found()
 
-    saved_files: list[str] = []
-    for upload in files:
+    upload_files = files or []
+    if len(upload_files) > _MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"Too many files in one upload batch (max {_MAX_UPLOAD_FILES})",
+        )
+
+    pending_files: dict[str, bytes] = {}
+    pending_folders: set[str] = set()
+    skipped_paths: list[str] = []
+    total_upload_bytes = 0
+
+    for folder in folders or []:
+        try:
+            relative_folder = _normalize_upload_relative_path(folder, base_path)
+            if not relative_folder:
+                continue
+            if _is_reserved_upload_path(relative_folder):
+                skipped_paths.append(relative_folder)
+                continue
+            pending_folders.add(relative_folder)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    for upload in upload_files:
         try:
             relative_path = _normalize_upload_relative_path(upload.filename, base_path)
             if not relative_path:
                 continue
-            saved = await service.save_upload(project, relative_path, await upload.read())
+            if _is_reserved_upload_path(relative_path):
+                skipped_paths.append(relative_path)
+                continue
+            content = await _read_upload_bytes_with_limit(
+                upload,
+                max_size_bytes=_MAX_UPLOAD_FILE_BYTES,
+                error_label="Uploaded file",
+            )
+            total_upload_bytes += len(content)
+            if total_upload_bytes > _MAX_UPLOAD_TOTAL_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    detail=(
+                        "Upload batch too large. Maximum total size is "
+                        f"{_MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)}MB"
+                    ),
+                )
+            pending_files[relative_path] = content
+            parent = Path(relative_path).parent.as_posix()
+            if parent not in {"", "."}:
+                pending_folders.add(parent)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-        saved_files.append(saved)
 
-    return LatexUploadResponse(ok=True, files=saved_files)
+    saved_files, created_folders = await service.save_uploads(
+        project,
+        files=list(pending_files.items()),
+        folders=_sorted_folder_paths(pending_folders),
+    )
+
+    return LatexUploadResponse(
+        ok=True,
+        files=saved_files,
+        folders=created_folders,
+        skipped=list(dict.fromkeys(skipped_paths)),
+    )
+
+
+@router.post("/projects/{project_id}/upload-archive", response_model=LatexUploadResponse)
+async def upload_project_archive(
+    project_id: str,
+    archive: UploadFile = File(...),
+    base_path: str | None = Form(default=None),
+    strip_root: bool = Form(default=True),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LatexUploadResponse:
+    service = LatexProjectService(db)
+    project = await service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    try:
+        archive_bytes = await _read_upload_bytes_with_limit(
+            archive,
+            max_size_bytes=_MAX_UPLOAD_ARCHIVE_BYTES,
+        )
+        archive_files, archive_folders, skipped = _collect_archive_upload_payload(
+            archive_bytes,
+            base_path=base_path,
+            strip_root=strip_root,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        saved_files, created_folders = await service.save_uploads(
+            project,
+            files=archive_files,
+            folders=archive_folders,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    return LatexUploadResponse(
+        ok=True,
+        files=saved_files,
+        folders=created_folders,
+        skipped=skipped,
+    )
 
 
 @router.post("/projects/{project_id}/compile", response_model=LatexCompileResponse)

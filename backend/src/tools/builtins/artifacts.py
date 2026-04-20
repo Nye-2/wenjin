@@ -92,7 +92,7 @@ def build_presented_artifact_items(
     *,
     thread_id: str | None,
 ) -> list[dict[str, str]]:
-    """Build structured file descriptors consumable by chat UI."""
+    """Build structured file descriptors consumable by thread UI."""
     items: list[dict[str, str]] = []
     for virtual_path in normalized_files:
         normalized_virtual_path = (
@@ -115,7 +115,7 @@ def build_presented_artifact_items(
 def build_presented_artifacts_block(
     items: list[dict[str, str]],
 ) -> dict[str, object]:
-    """Build a chat block describing presented files."""
+    """Build a thread block describing presented files."""
     return {
         "type": "artifacts",
         "title": "输出文件",

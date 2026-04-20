@@ -61,15 +61,15 @@ class TestConfigLoader:
         assert config.subagents.enabled is False
         assert config.memory.enabled is False
         assert config.sandbox is None
-        assert config.billing.chat.enabled is True
-        assert config.billing.chat.free_tokens == 100000
-        assert config.billing.chat.tokens_per_credit == 10000
+        assert config.billing.thread.enabled is True
+        assert config.billing.thread.free_tokens == 100000
+        assert config.billing.thread.tokens_per_credit == 10000
 
-    def test_load_chat_billing_config(self, tmp_path):
+    def test_load_thread_billing_config(self, tmp_path):
         cfg_path = self._write_config(tmp_path, {
             "models": [],
             "billing": {
-                "chat": {
+                "thread": {
                     "enabled": False,
                     "free_tokens": 2048,
                     "tokens_per_credit": 512,
@@ -77,9 +77,9 @@ class TestConfigLoader:
             },
         })
         config = load_config(str(cfg_path))
-        assert config.billing.chat.enabled is False
-        assert config.billing.chat.free_tokens == 2048
-        assert config.billing.chat.tokens_per_credit == 512
+        assert config.billing.thread.enabled is False
+        assert config.billing.thread.free_tokens == 2048
+        assert config.billing.thread.tokens_per_credit == 512
 
 
 class TestModelConfig:

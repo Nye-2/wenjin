@@ -87,7 +87,7 @@ class TestCreateWorkspace:
         assert added_workspace.discipline == "computer_science"
         assert added_workspace.description == "A test workspace"
         assert added_workspace.config["setting1"] == "value1"
-        assert added_workspace.config["rollout"]["chat_cockpit_enabled"] is True
+        assert added_workspace.config["rollout"]["thread_cockpit_enabled"] is True
 
     @pytest.mark.asyncio
     async def test_create_workspace_with_enum_type(
@@ -129,7 +129,7 @@ class TestCreateWorkspace:
         )
 
         added_workspace = mock_db_session.add.call_args[0][0]
-        assert added_workspace.config["rollout"]["chat_cockpit_enabled"] is True
+        assert added_workspace.config["rollout"]["thread_cockpit_enabled"] is True
 
 
 class TestGetWorkspace:
@@ -339,7 +339,7 @@ class TestUpdateWorkspace:
 
         assert mock_workspace.config["setting1"] == "value1"
         assert mock_workspace.config["setting2"] == "value2"
-        assert mock_workspace.config["rollout"]["chat_cockpit_enabled"] is False
+        assert mock_workspace.config["rollout"]["thread_cockpit_enabled"] is False
 
 
 class TestDeleteWorkspace:

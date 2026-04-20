@@ -18,6 +18,7 @@ from src.workspace_features.latex_sync import (
     sync_sci_writing_payload,
     sync_software_materials_payload,
     sync_software_technical_description_payload,
+    sync_thesis_writing_payload,
 )
 
 
@@ -619,6 +620,46 @@ async def test_sync_software_materials_payload_preserves_section_file(
         "section_map": {"materials_checklist": "sections/70_materials_checklist.tex"},
         "sync_conflicts": [],
     }
+
+
+@pytest.mark.asyncio
+async def test_sync_thesis_writing_payload_skips_when_no_renderable_sections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge_calls: list[dict[str, object]] = []
+
+    class FakeBridge:
+        def __init__(self, db: object) -> None:
+            _ = db
+
+        async def sync_project(self, **kwargs: object) -> object:
+            bridge_calls.append(kwargs)
+            return SimpleNamespace(
+                id="latex-thesis-skip",
+                main_file="main.tex",
+                llm_config={"metadata": {}},
+            )
+
+    monkeypatch.setattr(
+        "src.workspace_features.latex_sync.get_db_session",
+        lambda: _AsyncContextManager(object()),
+    )
+    monkeypatch.setattr(
+        "src.workspace_features.latex_sync.WorkspaceLatexProjectService",
+        FakeBridge,
+    )
+
+    result = await sync_thesis_writing_payload(
+        workspace_id="ws-thesis",
+        workspace_name="Thesis Workspace",
+        payload={
+            "action": "review_section",
+            "review": {"overall_score": 8.6},
+        },
+    )
+
+    assert result == LatexSyncResult()
+    assert bridge_calls == []
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,7 @@
 """Tests for SummarizationMiddleware."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -40,6 +42,24 @@ class TestSummarizationMiddleware:
         result = await mw.before_model(state, config)
         # Should have summarized (injected summary message)
         assert result == {} or "messages" in result
+
+    @pytest.mark.asyncio
+    async def test_skip_summarization_when_no_old_messages_to_fold(self):
+        """When all messages are in keep window, middleware should no-op."""
+        mw = SummarizationMiddleware(trigger_tokens=1, keep_messages=2)
+        state = {
+            "messages": [
+                HumanMessage(content="x" * 200),
+                AIMessage(content="y" * 200),
+            ],
+        }
+        config = {"configurable": {}}
+
+        with patch.object(mw, "_summarize", new=AsyncMock(return_value="summary")) as summarize:
+            result = await mw.before_model(state, config)
+
+        assert result == {}
+        summarize.assert_not_awaited()
 
     def test_count_tokens_approximate(self):
         """Token counting should be approximate."""

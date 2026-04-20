@@ -1,14 +1,97 @@
 import { authorizedFetch, apiClient, readErrorMessage } from "@/lib/api/client";
 import type {
+  LatexCompileEngine,
   LatexCompileResult,
   LatexFeedbackItem,
+  LatexFeedbackRewriteApplyResponse,
+  LatexFeedbackRewritePreviewResponse,
+  LatexFeedbackRewriteRevertResponse,
   LatexFeedbackMapResponse,
-  LatexFeedbackRewriteResponse,
   LatexFileItem,
   LatexProject,
   LatexProjectCreate,
   LatexTemplate,
 } from "@/lib/api/types";
+
+interface UploadLatexFilesOptions {
+  flatten_root_directory?: boolean;
+}
+
+function normalizeUploadPath(rawPath: string): string {
+  return rawPath.replace(/\\/g, "/").replace(/^\/+/, "").trim();
+}
+
+function resolveDirectoryRootPrefix(paths: string[]): string | null {
+  if (!paths.length) {
+    return null;
+  }
+  const first = paths[0].split("/").filter(Boolean);
+  if (first.length < 2) {
+    return null;
+  }
+  const root = first[0];
+  for (const currentPath of paths) {
+    const parts = currentPath.split("/").filter(Boolean);
+    if (parts.length < 2 || parts[0] !== root) {
+      return null;
+    }
+  }
+  return root;
+}
+
+function buildUploadEntries(
+  files: File[],
+  options?: UploadLatexFilesOptions,
+): Array<{ file: File; relativePath: string }> {
+  const entries = files.map((file) => {
+    const webkitRelativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+    const rawPath = normalizeUploadPath(webkitRelativePath || file.name);
+    return {
+      file,
+      relativePath: rawPath || normalizeUploadPath(file.name),
+    };
+  });
+
+  if (!options?.flatten_root_directory) {
+    return entries;
+  }
+
+  const rootPrefix = resolveDirectoryRootPrefix(entries.map((entry) => entry.relativePath));
+  if (!rootPrefix) {
+    return entries;
+  }
+
+  const stripPrefix = `${rootPrefix}/`;
+  return entries.map((entry) => {
+    const nextPath = entry.relativePath.startsWith(stripPrefix)
+      ? entry.relativePath.slice(stripPrefix.length)
+      : entry.relativePath;
+    return {
+      file: entry.file,
+      relativePath: nextPath || normalizeUploadPath(entry.file.name),
+    };
+  });
+}
+
+function collectFolderHintsFromEntries(entries: Array<{ relativePath: string }>): string[] {
+  const folders = new Set<string>();
+  for (const entry of entries) {
+    const parts = entry.relativePath.split("/").filter(Boolean);
+    if (parts.length <= 1) {
+      continue;
+    }
+    for (let index = 1; index < parts.length; index += 1) {
+      const folder = parts.slice(0, index).join("/");
+      if (folder) {
+        folders.add(folder);
+      }
+    }
+  }
+  return Array.from(folders).sort((left, right) => {
+    const depthDelta = left.split("/").length - right.split("/").length;
+    return depthDelta !== 0 ? depthDelta : left.localeCompare(right);
+  });
+}
 
 export async function listLatexProjects(params?: {
   include_trashed?: boolean;
@@ -121,19 +204,45 @@ export async function uploadLatexFiles(
   projectId: string,
   files: File[],
   basePath?: string,
+  options?: UploadLatexFilesOptions,
 ): Promise<{ ok: boolean; files: string[] }> {
+  const entries = buildUploadEntries(files, options);
+  const folders = collectFolderHintsFromEntries(entries);
   const form = new FormData();
-  for (const file of files) {
-    const relativePath =
-      (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
-      file.name;
-    form.append("files", file, relativePath);
+  for (const entry of entries) {
+    form.append("files", entry.file, entry.relativePath);
   }
   if (basePath) {
     form.append("base_path", basePath);
   }
+  for (const folder of folders) {
+    if (folder.trim()) {
+      form.append("folders", folder.trim());
+    }
+  }
   const response = await apiClient.post(
     `/latex/projects/${projectId}/upload`,
+    form,
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+    },
+  );
+  return response.data;
+}
+
+export async function uploadLatexArchive(
+  projectId: string,
+  archive: File,
+  basePath?: string,
+): Promise<{ ok: boolean; files: string[] }> {
+  const form = new FormData();
+  form.append("archive", archive, archive.name);
+  if (basePath) {
+    form.append("base_path", basePath);
+  }
+  form.append("strip_root", "true");
+  const response = await apiClient.post(
+    `/latex/projects/${projectId}/upload-archive`,
     form,
     {
       headers: { "Content-Type": "multipart/form-data" },
@@ -146,7 +255,7 @@ export async function compileLatexProject(
   projectId: string,
   payload: {
     main_file?: string | null;
-    engine: "xelatex" | "pdflatex";
+    engine: LatexCompileEngine;
   },
 ): Promise<LatexCompileResult> {
   const response = await apiClient.post(`/latex/projects/${projectId}/compile`, payload);
@@ -227,7 +336,7 @@ export async function saveLatexProjectFeedback(
   return response.data;
 }
 
-export async function rewriteLatexFeedback(
+export async function previewLatexFeedbackRewrite(
   projectId: string,
   payload: {
     file_path: string;
@@ -246,10 +355,43 @@ export async function rewriteLatexFeedback(
     scope?: "selection" | "section";
     model_id?: string | null;
     file_content?: string | null;
-    apply?: boolean;
   },
-): Promise<LatexFeedbackRewriteResponse> {
-  const response = await apiClient.post(`/latex/projects/${projectId}/feedback/rewrite`, payload);
+): Promise<LatexFeedbackRewritePreviewResponse> {
+  const response = await apiClient.post(`/latex/projects/${projectId}/feedback/rewrite/preview`, payload);
+  return response.data;
+}
+
+export async function applyLatexFeedbackRewrite(
+  projectId: string,
+  payload: {
+    file_path: string;
+    candidate_id: string;
+    candidate_signature: string;
+    target_start: number;
+    target_end: number;
+    rewritten_text: string;
+    base_file_hash: string;
+    base_range_hash: string;
+  },
+): Promise<LatexFeedbackRewriteApplyResponse> {
+  const response = await apiClient.post(`/latex/projects/${projectId}/feedback/rewrite/apply`, payload);
+  return response.data;
+}
+
+export async function revertLatexFeedbackRewrite(
+  projectId: string,
+  payload: {
+    file_path: string;
+    candidate_id: string;
+    revert_start: number;
+    revert_end: number;
+    rewritten_text: string;
+    previous_text: string;
+    applied_file_hash: string;
+    revert_signature: string;
+  },
+): Promise<LatexFeedbackRewriteRevertResponse> {
+  const response = await apiClient.post(`/latex/projects/${projectId}/feedback/rewrite/revert`, payload);
   return response.data;
 }
 

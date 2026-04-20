@@ -6,8 +6,9 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import TaskRecord, User, Workspace
+from src.database import SubagentTaskRecord, TaskRecord, User, Workspace
 from src.services.credit_service import CreditService
+from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
 
 class UserDashboardService:
@@ -25,10 +26,14 @@ class UserDashboardService:
         credit_service = CreditService(self.db)
         workspace_stats = await self._get_workspace_stats(user_id)
         task_stats, recent_tasks = await self._get_task_stats(user_id)
-        chat_credit_status = await self._get_chat_credit_status(
+        thread_credit_status = await self._get_thread_credit_status(
             user_id,
             credit_service=credit_service,
             current_balance=int(user.credits),
+        )
+        token_usage = await self._get_token_usage_stats(
+            user_id=user_id,
+            thread_credit_status=thread_credit_status,
         )
 
         return {
@@ -46,10 +51,11 @@ class UserDashboardService:
                 "total_earned": int(user.total_credits_earned),
                 "total_spent": int(user.total_credits_spent),
                 "costs": CreditService.get_workflow_costs(),
-                "chat": chat_credit_status,
+                "thread": thread_credit_status,
             },
             "workspaces": workspace_stats,
             "tasks": task_stats,
+            "token_usage": token_usage,
             "recent_tasks": recent_tasks,
             "updated_at": datetime.now(UTC).isoformat(),
         }
@@ -124,18 +130,18 @@ class UserDashboardService:
             recent_tasks,
         )
 
-    async def _get_chat_credit_status(
+    async def _get_thread_credit_status(
         self,
         user_id: str,
         *,
         credit_service: CreditService,
         current_balance: int,
     ) -> dict[str, Any]:
-        """Build chat-specific credit status for dashboard display."""
-        policy = credit_service.get_chat_billing_policy()
-        consumed_tokens = await credit_service.get_consumed_chat_tokens(user_id)
+        """Build thread-specific credit status for dashboard display."""
+        policy = credit_service.get_thread_billing_policy()
+        consumed_tokens = await credit_service.get_consumed_thread_tokens(user_id)
         remaining_free_tokens = max(policy.free_tokens - consumed_tokens, 0)
-        can_start_chat = (
+        can_start_thread = (
             (not policy.enabled)
             or consumed_tokens < policy.free_tokens
             or current_balance > 0
@@ -147,6 +153,90 @@ class UserDashboardService:
             "tokens_per_credit": policy.tokens_per_credit,
             "consumed_tokens": consumed_tokens,
             "remaining_free_tokens": remaining_free_tokens,
-            "can_start_chat": can_start_chat,
+            "can_start_thread": can_start_thread,
             "overdraft_credits": max(-current_balance, 0),
+        }
+
+    async def _get_token_usage_stats(
+        self,
+        *,
+        user_id: str,
+        thread_credit_status: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build token usage aggregates for thread, feature tasks, and subagents."""
+        feature_rows = await self.db.execute(
+            select(TaskRecord.result).where(TaskRecord.user_id == user_id)
+        )
+        feature_usages = []
+        feature_total_records = 0
+        for (result,) in feature_rows.all():
+            feature_total_records += 1
+            usage = None
+            if isinstance(result, dict):
+                usage = normalize_token_usage(result.get("token_usage"))
+            if usage is not None:
+                feature_usages.append(usage)
+        feature_usage_total = combine_token_usage(feature_usages)
+
+        subagent_rows = await self.db.execute(
+            select(SubagentTaskRecord.task_metadata).where(
+                SubagentTaskRecord.user_id == user_id
+            )
+        )
+        subagent_usages = []
+        subagent_total_records = 0
+        for (task_metadata,) in subagent_rows.all():
+            subagent_total_records += 1
+            usage = None
+            if isinstance(task_metadata, dict):
+                usage = normalize_token_usage(task_metadata.get("token_usage"))
+            if usage is not None:
+                subagent_usages.append(usage)
+        subagent_usage_total = combine_token_usage(subagent_usages)
+
+        consumed_thread_tokens = max(
+            int(thread_credit_status.get("consumed_tokens", 0) or 0),
+            0,
+        )
+        free_thread_tokens = max(
+            int(thread_credit_status.get("free_tokens", 0) or 0),
+            0,
+        )
+
+        return {
+            "thread": {
+                "total_tokens": consumed_thread_tokens,
+                "free_tokens": free_thread_tokens,
+                "billable_tokens": max(consumed_thread_tokens - free_thread_tokens, 0),
+                "remaining_free_tokens": max(
+                    int(thread_credit_status.get("remaining_free_tokens", 0) or 0),
+                    0,
+                ),
+            },
+            "feature_tasks": {
+                "input_tokens": (
+                    feature_usage_total.input_tokens if feature_usage_total is not None else 0
+                ),
+                "output_tokens": (
+                    feature_usage_total.output_tokens if feature_usage_total is not None else 0
+                ),
+                "total_tokens": (
+                    feature_usage_total.total_tokens if feature_usage_total is not None else 0
+                ),
+                "records": feature_total_records,
+                "records_with_usage": len(feature_usages),
+            },
+            "subagents": {
+                "input_tokens": (
+                    subagent_usage_total.input_tokens if subagent_usage_total is not None else 0
+                ),
+                "output_tokens": (
+                    subagent_usage_total.output_tokens if subagent_usage_total is not None else 0
+                ),
+                "total_tokens": (
+                    subagent_usage_total.total_tokens if subagent_usage_total is not None else 0
+                ),
+                "records": subagent_total_records,
+                "records_with_usage": len(subagent_usages),
+            },
         }

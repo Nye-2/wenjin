@@ -67,7 +67,7 @@ class LatexProject(Base, UUIDMixin, TimestampMixin):
         nullable=True,
     )
 
-    compile_history: Mapped[list["LatexCompileHistory"]] = relationship(
+    compile_history: Mapped[list[LatexCompileHistory]] = relationship(
         "LatexCompileHistory",
         back_populates="project",
         cascade="all, delete-orphan",

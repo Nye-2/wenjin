@@ -101,17 +101,20 @@ class TestSubmitTaskUsesExecutor:
         mock_store.update_task_record.assert_called_once()
 
 
-class TestCancelTaskInLocalMode:
-    """TaskService.cancel_task should cancel local asyncio tasks when Celery is disabled."""
+class TestCancelTaskInCeleryMode:
+    """TaskService.cancel_task should revoke backend task and persist cancellation."""
 
     @pytest.mark.asyncio
-    async def test_cancel_uses_local_cancel_helper_when_celery_disabled(self, mock_store):
+    async def test_cancel_revokes_celery_task(self, mock_store):
         service = TaskService(mock_store)
 
         record = MagicMock()
         record.user_id = "user-1"
         record.status = "running"
         record.task_type = "workspace_feature"
+        record.id = "task-1"
+        record.progress = 42
+        record.execution_session_id = "exec-1"
         record.payload = {
             "workspace_id": "ws-1",
             "feature_id": "deep_research",
@@ -120,21 +123,118 @@ class TestCancelTaskInLocalMode:
         record.created_at = datetime.now(UTC)
         record.started_at = datetime.now(UTC)
         mock_store.get_task_record = AsyncMock(return_value=record)
+        mock_store.get_task_state = AsyncMock(
+            return_value={
+                "status": "running",
+                "progress": 73,
+                "message": "Halfway done",
+                "metadata": {"runtime": {"current_phase": "drafting"}},
+            }
+        )
         mock_store.update_task_record = AsyncMock()
         mock_store.set_task_state = AsyncMock()
 
         with (
             patch("src.task.service.celery_settings") as mock_celery_settings,
-            patch("src.task.service.cancel_local_task", return_value=True) as mock_cancel_local,
             patch("src.task.service.celery_app.control.revoke") as mock_revoke,
             patch("src.task.service.publish_workspace_event", new=AsyncMock()) as publish_workspace_event,
+            patch(
+                "src.task.service.ExecutionSessionService.update_session",
+                new=AsyncMock(),
+            ) as update_execution_session,
         ):
-            mock_celery_settings.enabled = False
+            mock_celery_settings.enabled = True
             cancelled = await service.cancel_task("task-1", "user-1")
 
         assert cancelled is True
-        mock_cancel_local.assert_called_once_with("task-1")
-        mock_revoke.assert_not_called()
+        mock_revoke.assert_called_once_with("task-1", terminate=True)
+        mock_store.set_task_state.assert_awaited_once_with(
+            "task-1",
+            "cancelled",
+            progress=73,
+            message="Cancelled by user",
+            metadata={"runtime": {"current_phase": "drafting"}},
+        )
         first_payload = publish_workspace_event.await_args_list[0].args[2]
         assert first_payload["activity"]["id"] == "task:task-1"
         assert first_payload["activity"]["status"] == "cancelled"
+        assert first_payload["task"]["progress"] == 73
+        assert first_payload["task"]["metadata"] == {"runtime": {"current_phase": "drafting"}}
+        assert first_payload["activity"]["metadata"]["progress"] == 73
+        update_execution_session.assert_awaited_once()
+        assert update_execution_session.await_args.args[0] == "exec-1"
+        assert update_execution_session.await_args.kwargs["status"] == "cancelled"
+        assert update_execution_session.await_args.kwargs["runtime_snapshot"] == {
+            "current_phase": "drafting"
+        }
+
+    @pytest.mark.asyncio
+    async def test_cancel_falls_back_to_record_progress_when_runtime_state_missing(self, mock_store):
+        service = TaskService(mock_store)
+
+        record = MagicMock()
+        record.user_id = "user-1"
+        record.status = "running"
+        record.task_type = "workspace_feature"
+        record.id = "task-2"
+        record.progress = 58
+        record.execution_session_id = "exec-2"
+        record.payload = {
+            "workspace_id": "ws-1",
+            "feature_id": "deep_research",
+            "params": {"topic": "LLM agents"},
+        }
+        record.created_at = datetime.now(UTC)
+        record.started_at = datetime.now(UTC)
+        mock_store.get_task_record = AsyncMock(return_value=record)
+        mock_store.get_task_state = AsyncMock(return_value=None)
+        mock_store.update_task_record = AsyncMock()
+        mock_store.set_task_state = AsyncMock()
+
+        with (
+            patch("src.task.service.celery_settings") as mock_celery_settings,
+            patch("src.task.service.celery_app.control.revoke") as mock_revoke,
+            patch("src.task.service.publish_workspace_event", new=AsyncMock()) as publish_workspace_event,
+            patch(
+                "src.task.service.ExecutionSessionService.update_session",
+                new=AsyncMock(),
+            ) as update_execution_session,
+        ):
+            mock_celery_settings.enabled = True
+            cancelled = await service.cancel_task("task-2", "user-1")
+
+        assert cancelled is True
+        mock_revoke.assert_called_once_with("task-2", terminate=True)
+        mock_store.set_task_state.assert_awaited_once_with(
+            "task-2",
+            "cancelled",
+            progress=58,
+            message="Cancelled by user",
+            metadata=None,
+        )
+        first_payload = publish_workspace_event.await_args_list[0].args[2]
+        assert first_payload["task"]["progress"] == 58
+        assert first_payload["task"]["metadata"] is None
+        assert first_payload["activity"]["metadata"]["progress"] == 58
+        assert update_execution_session.await_args.kwargs["runtime_snapshot"] is None
+
+    @pytest.mark.asyncio
+    async def test_cancel_raises_when_celery_disabled(self, mock_store):
+        service = TaskService(mock_store)
+
+        record = MagicMock()
+        record.user_id = "user-1"
+        record.status = "running"
+        record.task_type = "workspace_feature"
+        record.id = "task-3"
+        record.progress = 0
+        record.execution_session_id = None
+        record.payload = {"workspace_id": "ws-1"}
+        record.created_at = datetime.now(UTC)
+        record.started_at = datetime.now(UTC)
+        mock_store.get_task_record = AsyncMock(return_value=record)
+
+        with patch("src.task.service.celery_settings") as mock_celery_settings:
+            mock_celery_settings.enabled = False
+            with pytest.raises(RuntimeError, match="CELERY_ENABLED=true"):
+                await service.cancel_task("task-3", "user-1")

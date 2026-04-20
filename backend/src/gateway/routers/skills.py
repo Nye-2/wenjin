@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.agents.lead_agent.chat_skill_catalog import list_workspace_chat_skills
+from src.agents.lead_agent.thread_skill_catalog import list_workspace_thread_skills
 from src.application.handlers.feature_execution_handler import resolve_workspace_type
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
@@ -64,6 +64,6 @@ async def get_workspace_skills(
 
     skills = [
         SkillResponse(**skill.to_api_dict())
-        for skill in list_workspace_chat_skills(workspace_type)
+        for skill in list_workspace_thread_skills(workspace_type)
     ]
     return SkillsListResponse(skills=skills)

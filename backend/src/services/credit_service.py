@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.config_loader import get_app_config
 from src.database import CreditTransaction, CreditTransactionType, User
-from src.services.chat_billing import TokenUsage
 from src.services.feature_credit_policy import (
     FEATURE_COSTS as WORKFLOW_CREDIT_COSTS,
 )
@@ -18,13 +17,14 @@ from src.services.feature_credit_policy import (
     THESIS_ACTION_LABELS,
     get_feature_cost,
 )
+from src.services.thread_billing import TokenUsage
 
 REGISTRATION_BONUS = 100
 
 
 @dataclass(slots=True)
-class ChatBillingPolicy:
-    """Configurable chat token billing policy."""
+class ThreadBillingPolicy:
+    """Configurable thread token billing policy."""
 
     enabled: bool
     free_tokens: int
@@ -32,8 +32,8 @@ class ChatBillingPolicy:
 
 
 @dataclass(slots=True)
-class ChatCreditConsumption:
-    """Result of settling one chat turn against the credit ledger."""
+class ThreadCreditConsumption:
+    """Result of settling one thread turn against the credit ledger."""
 
     token_usage: dict[str, int]
     model_name: str | None
@@ -47,9 +47,9 @@ class ChatCreditConsumption:
     charged: bool
 
     def as_metadata(self) -> dict[str, Any]:
-        """Return persisted billing metadata for chat messages."""
+        """Return persisted billing metadata for thread messages."""
         return {
-            "type": "chat_token_billing",
+            "type": "thread_token_billing",
             "token_usage": dict(self.token_usage),
             "model_name": self.model_name,
             "free_tokens_applied": self.free_tokens_applied,
@@ -84,22 +84,22 @@ class CreditService:
         return get_feature_cost(feature_id, action)
 
     @staticmethod
-    def get_chat_billing_policy() -> ChatBillingPolicy:
-        """Return the configured chat token billing policy."""
-        chat_config = get_app_config().billing.chat
-        return ChatBillingPolicy(
-            enabled=bool(chat_config.enabled),
-            free_tokens=max(int(chat_config.free_tokens), 0),
-            tokens_per_credit=max(int(chat_config.tokens_per_credit), 1),
+    def get_thread_billing_policy() -> ThreadBillingPolicy:
+        """Return the configured thread token billing policy."""
+        thread_config = get_app_config().billing.thread
+        return ThreadBillingPolicy(
+            enabled=bool(thread_config.enabled),
+            free_tokens=max(int(thread_config.free_tokens), 0),
+            tokens_per_credit=max(int(thread_config.tokens_per_credit), 1),
         )
 
     @classmethod
     def get_workflow_costs(cls) -> dict[str, Any]:
-        """Expose workflow and chat billing configuration."""
-        policy = cls.get_chat_billing_policy()
+        """Expose workflow and thread billing configuration."""
+        policy = cls.get_thread_billing_policy()
         return {
             **WORKFLOW_CREDIT_COSTS,
-            "chat_token_billing": {
+            "thread_token_billing": {
                 "enabled": policy.enabled,
                 "free_tokens": policy.free_tokens,
                 "tokens_per_credit": policy.tokens_per_credit,
@@ -220,14 +220,14 @@ class CreditService:
         await self.db.refresh(tx)
         return tx
 
-    async def get_consumed_chat_tokens(self, user_id: str) -> int:
-        """Return successfully settled historical chat tokens for a user."""
+    async def get_consumed_thread_tokens(self, user_id: str) -> int:
+        """Return successfully settled historical thread tokens for a user."""
         result = await self.db.execute(
             select(CreditTransaction).where(
                 CreditTransaction.user_id == user_id,
                 CreditTransaction.transaction_type.in_(
                     [
-                        CreditTransactionType.CHAT_TOKEN_CONSUME,
+                        CreditTransactionType.THREAD_TOKEN_CONSUME,
                         CreditTransactionType.REFUND,
                     ]
                 ),
@@ -243,7 +243,7 @@ class CreditService:
 
         total = 0
         for tx in transactions:
-            if tx.transaction_type != CreditTransactionType.CHAT_TOKEN_CONSUME:
+            if tx.transaction_type != CreditTransactionType.THREAD_TOKEN_CONSUME:
                 continue
             if str(tx.id) in refunded_ids:
                 continue
@@ -253,18 +253,18 @@ class CreditService:
                 total += max(int(token_usage.get("total_tokens", 0) or 0), 0)
         return total
 
-    async def can_start_chat_turn(self, user_id: str) -> bool:
-        """Return whether the user can start a billable chat turn.
+    async def can_start_thread_turn(self, user_id: str) -> bool:
+        """Return whether the user can start a billable thread turn.
 
         Uses ``SELECT ... FOR UPDATE`` on the user row so that concurrent
         requests serialise on the same balance, preventing two callers from
         both passing the check before either deducts credits.
         """
-        policy = self.get_chat_billing_policy()
+        policy = self.get_thread_billing_policy()
         if not policy.enabled:
             return True
 
-        consumed_tokens = await self.get_consumed_chat_tokens(user_id)
+        consumed_tokens = await self.get_consumed_thread_tokens(user_id)
         if consumed_tokens < policy.free_tokens:
             return True
 
@@ -273,7 +273,7 @@ class CreditService:
         user = await self._get_user_for_update(user_id)
         return int(user.credits) > 0
 
-    async def consume_for_chat_usage(
+    async def consume_for_thread_usage(
         self,
         *,
         user_id: str,
@@ -283,9 +283,9 @@ class CreditService:
         thread_id: str | None = None,
         description: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> ChatCreditConsumption:
-        """Consume credits for a completed chat turn based on token usage."""
-        policy = self.get_chat_billing_policy()
+    ) -> ThreadCreditConsumption:
+        """Consume credits for a completed thread turn based on token usage."""
+        policy = self.get_thread_billing_policy()
         if isinstance(token_usage, TokenUsage):
             normalized_usage = token_usage.as_dict()
         else:
@@ -300,11 +300,11 @@ class CreditService:
             )
 
         total_tokens = normalized_usage["total_tokens"]
-        historical_tokens_before = await self.get_consumed_chat_tokens(user_id)
+        historical_tokens_before = await self.get_consumed_thread_tokens(user_id)
         historical_tokens_after = historical_tokens_before + total_tokens
 
         if not policy.enabled or total_tokens <= 0:
-            return ChatCreditConsumption(
+            return ThreadCreditConsumption(
                 token_usage=normalized_usage,
                 model_name=model_name,
                 free_tokens_applied=0,
@@ -356,15 +356,15 @@ class CreditService:
 
         tx = CreditTransaction(
             user_id=user_id,
-            transaction_type=CreditTransactionType.CHAT_TOKEN_CONSUME,
+            transaction_type=CreditTransactionType.THREAD_TOKEN_CONSUME,
             amount=-credits_to_charge,
             balance_after=user.credits,
-            description=description or self._build_chat_description(
+            description=description or self._build_thread_description(
                 total_tokens=total_tokens,
                 credits_charged=credits_to_charge,
                 free_tokens_applied=free_tokens_applied,
             ),
-            feature_id="chat",
+            feature_id="thread",
             workspace_id=workspace_id,
             task_id=None,
             tx_metadata=tx_metadata,
@@ -372,7 +372,7 @@ class CreditService:
         self.db.add(tx)
         await self.db.commit()
         await self.db.refresh(tx)
-        return ChatCreditConsumption(
+        return ThreadCreditConsumption(
             token_usage=normalized_usage,
             model_name=model_name,
             free_tokens_applied=free_tokens_applied,
@@ -417,7 +417,7 @@ class CreditService:
             or original_tx.transaction_type
             not in {
                 CreditTransactionType.WORKFLOW_CONSUME,
-                CreditTransactionType.CHAT_TOKEN_CONSUME,
+                CreditTransactionType.THREAD_TOKEN_CONSUME,
             }
         ):
             return None
@@ -434,7 +434,7 @@ class CreditService:
             return None
 
         refund_amount = abs(int(original_tx.amount))
-        if refund_amount <= 0 and original_tx.transaction_type != CreditTransactionType.CHAT_TOKEN_CONSUME:
+        if refund_amount <= 0 and original_tx.transaction_type != CreditTransactionType.THREAD_TOKEN_CONSUME:
             return None
 
         user = await self._get_user_for_update(user_id)
@@ -587,7 +587,7 @@ class CreditService:
             return f"{base} - {action_label}"
         return f"{base} 执行消耗"
 
-    def _build_chat_description(
+    def _build_thread_description(
         self,
         *,
         total_tokens: int,
@@ -596,9 +596,9 @@ class CreditService:
     ) -> str:
         if credits_charged <= 0:
             if free_tokens_applied > 0:
-                return f"Chat token 用量记录（{total_tokens} tokens，免费额度内）"
-            return f"Chat token 用量记录（{total_tokens} tokens）"
-        return f"Chat token 扣费（{total_tokens} tokens）"
+                return f"Thread token 用量记录（{total_tokens} tokens，免费额度内）"
+            return f"Thread token 用量记录（{total_tokens} tokens）"
+        return f"Thread token 扣费（{total_tokens} tokens）"
 
     def _to_dict(self, tx: CreditTransaction) -> dict[str, Any]:
         return {

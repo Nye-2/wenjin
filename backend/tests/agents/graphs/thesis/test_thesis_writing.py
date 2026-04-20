@@ -10,6 +10,7 @@ from src.agents.graphs.thesis.thesis_writing import (
     _validate_review_result,
     thesis_writing_graph,
 )
+from src.workspace_features.latex_sync import LatexSyncResult
 
 
 class TestParseJsonResponse:
@@ -107,6 +108,105 @@ async def test_write_chapter_action(monkeypatch: pytest.MonkeyPatch):
     assert result["action"] == "write_chapter"
     assert result["generation_mode"] == "llm"
     assert result["chapter"]["markdown"].startswith("#")
+
+
+@pytest.mark.asyncio
+async def test_generate_outline_action_syncs_prism_context(monkeypatch: pytest.MonkeyPatch):
+    async def _fake_build_outline_payload(**kwargs):
+        _ = kwargs
+        return {
+            "paper_title": "测试论文",
+            "outline": {"abstract": "摘要", "keywords": [], "chapters": [{"title": "绪论"}]},
+            "schema_version": "v1",
+            "source_context": {},
+            "generation_mode": "llm",
+            "model_id": "mock-model",
+        }
+
+    async def _fake_sync_thesis_writing_payload(**kwargs):
+        _ = kwargs
+        return LatexSyncResult(
+            latex_project_id="latex-proj-1",
+            main_file="main.tex",
+            sync_conflicts=[],
+        )
+
+    monkeypatch.setattr(
+        "src.agents.graphs.thesis.thesis_writing.build_outline_payload",
+        _fake_build_outline_payload,
+    )
+    monkeypatch.setattr(
+        "src.agents.graphs.thesis.thesis_writing.sync_thesis_writing_payload",
+        _fake_sync_thesis_writing_payload,
+    )
+    monkeypatch.setattr(
+        "src.agents.graphs.thesis.thesis_writing._resolve_writing_model",
+        lambda _requested_model: "mock-model",
+    )
+
+    result = await thesis_writing_graph(
+        initial_state={},
+        payload={
+            "workspace_id": "ws-1",
+            "workspace_name": "测试工作区",
+            "params": {"action": "generate_outline", "paper_title": "测试论文"},
+        },
+    )
+    assert result["latex_project_id"] == "latex-proj-1"
+    assert result["prism_url"] == "/latex/latex-proj-1"
+    next_actions = result.get("next_actions")
+    assert isinstance(next_actions, list)
+    assert any(
+        isinstance(action, dict) and action.get("action") == "open_prism"
+        for action in next_actions
+    )
+
+
+@pytest.mark.asyncio
+async def test_review_section_action_does_not_sync_prism(monkeypatch: pytest.MonkeyPatch):
+    sync_calls: list[dict[str, object]] = []
+
+    async def _fake_review_section(*args, **kwargs):
+        _ = args, kwargs
+        return {
+            "overall_score": 8.5,
+            "issues": [],
+            "strengths": ["结构清晰"],
+            "revision_needed": False,
+        }
+
+    async def _fake_sync(**kwargs):
+        sync_calls.append(kwargs)
+        return LatexSyncResult(latex_project_id="latex-proj-should-not-be-used")
+
+    monkeypatch.setattr(
+        "src.agents.graphs.thesis.thesis_writing._review_section",
+        _fake_review_section,
+    )
+    monkeypatch.setattr(
+        "src.agents.graphs.thesis.thesis_writing.sync_thesis_writing_payload",
+        _fake_sync,
+    )
+    monkeypatch.setattr(
+        "src.agents.graphs.thesis.thesis_writing._resolve_writing_model",
+        lambda _requested_model: "mock-model",
+    )
+
+    result = await thesis_writing_graph(
+        initial_state={},
+        payload={
+            "workspace_id": "ws-1",
+            "workspace_name": "测试工作区",
+            "params": {
+                "action": "review_section",
+                "section_title": "绪论",
+                "section_content": "这是章节内容。",
+            },
+        },
+    )
+    assert result["action"] == "review_section"
+    assert "latex_project_id" not in result
+    assert sync_calls == []
 
 
 @pytest.mark.asyncio

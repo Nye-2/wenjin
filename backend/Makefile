@@ -1,6 +1,6 @@
 # Wenjin Backend Makefile
 
-.PHONY: install dev gateway worker dev-all debug-langgraph test test-file test-cov lint format typecheck clean db-migrate db-revision db-upgrade db-downgrade
+.PHONY: install dev gateway worker dev-all debug-langgraph test test-file test-cov lint format typecheck typecheck-incremental clean db-migrate db-revision db-upgrade db-downgrade
 
 all: install
 
@@ -42,6 +42,9 @@ format:
 
 typecheck:
 	uv run mypy src/
+
+typecheck-incremental:
+	uv run mypy --follow-imports=skip src/services/thread_service.py src/services/thread_events.py src/subagents/graph.py src/runtime/runs/manager.py
 
 clean:
 	rm -rf .pytest_cache/

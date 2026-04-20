@@ -50,6 +50,7 @@ class SubagentTypeConfig(BaseModel):
     disallowed_tools: list[str] = Field(default_factory=list)
     max_turns: int = 10
     timeout: int = 900  # 15 min default
+    model_name: str | None = None
 
 
 class SubagentsConfig(BaseModel):
@@ -107,11 +108,25 @@ class AcademicMiddlewareConfig(BaseModel):
     citation_tracking: bool = True
 
 
+class LLMErrorHandlingConfig(BaseModel):
+    """LLM error handling middleware toggles."""
+
+    enabled: bool = True
+
+
 class MiddlewaresConfig(BaseModel):
     """Middleware configuration."""
     summarization: SummarizationConfig = Field(default_factory=SummarizationConfig)
     title: TitleConfig = Field(default_factory=TitleConfig)
     academic: AcademicMiddlewareConfig = Field(default_factory=AcademicMiddlewareConfig)
+    llm_error_handling: LLMErrorHandlingConfig = Field(default_factory=LLMErrorHandlingConfig)
+
+
+class CircuitBreakerConfig(BaseModel):
+    """LLM circuit breaker configuration."""
+
+    failure_threshold: int = 5
+    recovery_timeout_sec: int = 60
 
 
 class DatabaseConfig(BaseModel):
@@ -125,8 +140,8 @@ class RedisConfig(BaseModel):
     url: str = ""
 
 
-class ChatBillingConfig(BaseModel):
-    """Chat token billing configuration."""
+class ThreadBillingConfig(BaseModel):
+    """Thread token billing configuration."""
 
     enabled: bool = True
     free_tokens: int = 100000
@@ -136,7 +151,7 @@ class ChatBillingConfig(BaseModel):
 class BillingConfig(BaseModel):
     """Billing configuration."""
 
-    chat: ChatBillingConfig = Field(default_factory=ChatBillingConfig)
+    thread: ThreadBillingConfig = Field(default_factory=ThreadBillingConfig)
 
 
 class AppConfig(BaseModel):
@@ -158,6 +173,7 @@ class AppConfig(BaseModel):
     sandbox: SandboxConfig | None = None
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     middlewares: MiddlewaresConfig = Field(default_factory=MiddlewaresConfig)
+    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
     billing: BillingConfig = Field(default_factory=BillingConfig)

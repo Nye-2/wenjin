@@ -154,6 +154,20 @@ class TestSubagentEvent:
         assert lines[0].startswith("event: ")
         assert lines[1].startswith("data: ")
 
+    def test_event_to_sse_handles_datetime_in_data(self):
+        """SSE serialization should handle datetime payloads via shared runtime serializer."""
+        now = datetime(2026, 4, 13, 10, 30, 0, tzinfo=UTC)
+        event = SubagentEvent(
+            event_type="progress",
+            task_id="task-123",
+            thread_id="thread-456",
+            data={"started_at": now},
+            timestamp=now,
+        )
+        sse = event.to_sse()
+        assert "2026-04-13" in sse
+        assert sse.endswith("\n\n")
+
     def test_event_to_dict(self):
         """Test event serialization to dictionary."""
         now = datetime.now(UTC)

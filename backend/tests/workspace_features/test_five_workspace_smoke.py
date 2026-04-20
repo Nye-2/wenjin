@@ -16,14 +16,17 @@ Workspace types and representative features:
   - patent         → patent_outline
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.gateway.deps import get_credit_service, get_literature_service
+from src.application.handlers.feature_execution_handler import FeatureExecutionHandler
+from src.application.services import FeatureIngressService
 from src.database import WorkspaceType
+from src.gateway.deps import get_credit_service, get_feature_launch_service, get_literature_service
 from src.gateway.routers import features
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.tasks import get_task_service
@@ -67,6 +70,65 @@ def _mock_credit_service() -> AsyncMock:
     return svc
 
 
+class _FakeExecutionSessionService:
+    def __init__(self) -> None:
+        self._sessions: dict[str, SimpleNamespace] = {}
+        self._counter = 0
+
+    async def create_session(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        workspace_type: str,
+        feature_id: str,
+        thread_id: str | None,
+        entry_skill_id: str | None,
+        launch_source: str,
+        launch_message: str | None,
+        params: dict[str, object],
+    ) -> SimpleNamespace:
+        self._counter += 1
+        session = SimpleNamespace(
+            id=f"exec-smoke-{self._counter}",
+            user_id=user_id,
+            workspace_id=workspace_id,
+            workspace_type=workspace_type,
+            feature_id=feature_id,
+            thread_id=thread_id,
+            entry_skill_id=entry_skill_id,
+            launch_source=launch_source,
+            launch_message=launch_message,
+            params=dict(params),
+            status="launching",
+        )
+        self._sessions[str(session.id)] = session
+        return session
+
+    async def update_session_record(
+        self,
+        session: SimpleNamespace,
+        **kwargs,
+    ) -> SimpleNamespace:
+        for key, value in kwargs.items():
+            setattr(session, key, value)
+        self._sessions[str(session.id)] = session
+        return session
+
+    async def update_session(self, session_id: str, **kwargs) -> None:
+        session = self._sessions.get(str(session_id))
+        if session is None:
+            return
+        for key, value in kwargs.items():
+            setattr(session, key, value)
+
+    async def get_by_id(self, session_id: str) -> SimpleNamespace | None:
+        return self._sessions.get(str(session_id))
+
+    async def delete_session(self, session_id: str) -> None:
+        self._sessions.pop(str(session_id), None)
+
+
 def _make_client(
     ws_type: WorkspaceType,
     task_id: str = "task-smoke-1",
@@ -80,6 +142,21 @@ def _make_client(
     task_service.submit_task = AsyncMock(return_value=task_id)
     task_service.find_active_task = AsyncMock(return_value=None)
 
+    credit_service = _mock_credit_service()
+    literature = literature_service or AsyncMock()
+    handler = FeatureExecutionHandler(
+        actor_id="smoke-user",
+        workspace_service=workspace_service,
+        task_service=task_service,
+        literature_service=literature,
+        credit_service=credit_service,
+    )
+    launch_service = FeatureIngressService(
+        actor_id="smoke-user",
+        feature_execution_handler=handler,
+        execution_session_service=_FakeExecutionSessionService(),
+    )
+
     app = FastAPI()
 
     async def override_user():
@@ -92,16 +169,20 @@ def _make_client(
         yield task_service
 
     async def override_lit():
-        return literature_service or AsyncMock()
+        return literature
 
     async def override_credit():
-        return _mock_credit_service()
+        return credit_service
+
+    async def override_feature_launch():
+        return launch_service
 
     app.dependency_overrides[get_current_user] = override_user
     app.dependency_overrides[features.get_workspace_service] = override_ws
     app.dependency_overrides[get_task_service] = override_task
     app.dependency_overrides[get_literature_service] = override_lit
     app.dependency_overrides[get_credit_service] = override_credit
+    app.dependency_overrides[get_feature_launch_service] = override_feature_launch
     app.include_router(features.router)
 
     return TestClient(app), task_service

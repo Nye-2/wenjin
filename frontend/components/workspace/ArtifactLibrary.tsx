@@ -55,7 +55,7 @@ export function ArtifactLibrary({
   onExport,
   embedded = false,
 }: ArtifactLibraryProps) {
-  const { artifacts } = useWorkspaceStore();
+  const artifacts = useWorkspaceStore((state) => state.artifacts);
 
   // 按类型分组并排序
   const groupedArtifacts = artifacts.reduce((acc, artifact) => {

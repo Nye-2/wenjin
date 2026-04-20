@@ -62,7 +62,10 @@ class AcademicAgentResolver:
         """
         # Get base config from registry (raises ValueError if unknown)
         try:
-            base_config = get_subagent_config(subagent_type)
+            base_config = get_subagent_config(
+                subagent_type,
+                apply_runtime_overrides=True,
+            )
         except ValueError as exc:
             raise UnknownSubagentTypeError(subagent_type) from exc
 

@@ -223,16 +223,14 @@ export default function WorkspacesPage() {
     description: "",
   });
 
-  const {
-    workspaces,
-    isWorkspacesLoading,
-    isWorkspaceMutating,
-    error,
-    fetchWorkspaces,
-    createWorkspace,
-    removeWorkspace,
-    clearError,
-  } = useWorkspaceStore();
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const isWorkspacesLoading = useWorkspaceStore((state) => state.isWorkspacesLoading);
+  const isWorkspaceMutating = useWorkspaceStore((state) => state.isWorkspaceMutating);
+  const error = useWorkspaceStore((state) => state.error);
+  const fetchWorkspaces = useWorkspaceStore((state) => state.fetchWorkspaces);
+  const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
+  const removeWorkspace = useWorkspaceStore((state) => state.removeWorkspace);
+  const clearError = useWorkspaceStore((state) => state.clearError);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {

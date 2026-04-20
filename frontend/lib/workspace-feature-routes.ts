@@ -49,10 +49,10 @@ export function getWorkspaceFeatureRoute(
   featureId: string | null | undefined,
   params?: Record<string, RouteParamValue>
 ): string | null {
-  return getWorkspaceFeatureChatRoute(workspaceId, featureId, params);
+  return getWorkspaceFeatureThreadRoute(workspaceId, featureId, params);
 }
 
-export function getWorkspaceFeatureChatRoute(
+export function getWorkspaceFeatureThreadRoute(
   workspaceId: string,
   featureId: string | null | undefined,
   params?: Record<string, RouteParamValue>

@@ -30,13 +30,12 @@ export function KnowledgePanel({
   embedded = false,
 }: KnowledgePanelProps) {
   const router = useRouter();
-  const {
-    activities,
-    artifacts,
-    isActivityLoading,
-    workspace,
-  } = useWorkspaceStore();
-  const { getFeatureById, getSkillById } = useFeaturesStore();
+  const activities = useWorkspaceStore((state) => state.activities);
+  const artifacts = useWorkspaceStore((state) => state.artifacts);
+  const isActivityLoading = useWorkspaceStore((state) => state.isActivityLoading);
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const getFeatureById = useFeaturesStore((state) => state.getFeatureById);
+  const getSkillById = useFeaturesStore((state) => state.getSkillById);
   const [filter, setFilter] = useState<ActivityFilter>("all");
   const [moduleFilter, setModuleFilter] = useState<string>("all");
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);

@@ -1,7 +1,6 @@
 """Tests for MemoryMiddleware."""
 
-from unittest.mock import AsyncMock, MagicMock
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -112,9 +111,11 @@ class TestMemoryMiddleware:
         mock_queue.enqueue.assert_called_once()
         call_args = mock_queue.enqueue.call_args
         assert call_args[0][0] == "test-thread-123"  # thread_id
-        # Messages should be filtered (only Human and AI messages)
+        # Capture should only enqueue the newest user->assistant delta.
         enqueued_messages = call_args[0][1]
-        assert len(enqueued_messages) == 4
+        assert len(enqueued_messages) == 2
+        assert enqueued_messages[0].content == "User message 2"
+        assert enqueued_messages[1].content == "AI response 2"
         assert "callback" in call_args.kwargs
         assert result == {}
 

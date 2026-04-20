@@ -9,15 +9,94 @@ _ALL_CATEGORIES: tuple[str, ...] = ("tool", "gen", "utility", "image")
 _USER_TEXT_CATEGORIES: tuple[str, ...] = ("tool", "gen")
 _WRITING_TEXT_CATEGORIES: tuple[str, ...] = ("gen", "tool")
 _USER_ALL_CATEGORIES: tuple[str, ...] = ("tool", "gen", "image")
+_VISION_HINT_TAGS: tuple[str, ...] = ("vision", "vl")
+_THINKING_HINT_PREFIXES: tuple[str, ...] = ("claude", "minimax-")
+_REASONING_HINT_TAGS: tuple[str, ...] = ("gpt-5", "doubao")
 
 
 class InvalidRequestedModelError(ValueError):
     """Raised when an explicit user-selected model id is unknown or disallowed."""
 
 
+def _supports_vision_raw(raw_model: str) -> bool:
+    normalized = raw_model.lower().strip()
+    if not normalized:
+        return False
+    return any(tag in normalized for tag in _VISION_HINT_TAGS)
+
+
+def _supports_thinking_raw(raw_model: str) -> bool:
+    normalized = raw_model.lower().strip()
+    if not normalized:
+        return False
+    return normalized.startswith(_THINKING_HINT_PREFIXES)
+
+
+def _supports_reasoning_effort_raw(raw_model: str) -> bool:
+    normalized = raw_model.lower().strip()
+    if not normalized:
+        return False
+    return any(tag in normalized for tag in _REASONING_HINT_TAGS)
+
+
 def _supports_vision(model: ModelConfig) -> bool:
+    if getattr(model, "supports_vision", False):
+        return True
     raw_model = (model.model or "").lower()
-    return any(tag in raw_model for tag in ("vision", "vl", "gpt-4o"))
+    return _supports_vision_raw(raw_model)
+
+
+def _supports_thinking(model: ModelConfig) -> bool:
+    if getattr(model, "supports_thinking", False):
+        return True
+    raw_model = (model.model or "").lower()
+    return _supports_thinking_raw(raw_model)
+
+
+def _supports_reasoning_effort(model: ModelConfig) -> bool:
+    if getattr(model, "supports_reasoning_effort", False):
+        return True
+    raw_model = (model.model or "").lower()
+    return _supports_reasoning_effort_raw(raw_model)
+
+
+def model_supports_vision(model_id_or_name: str | None) -> bool:
+    """Return whether a model supports vision inputs."""
+    normalized = (model_id_or_name or "").strip()
+    if not normalized:
+        return False
+
+    model = get_model_config(normalized)
+    if model is not None:
+        return _supports_vision(model)
+
+    return _supports_vision_raw(normalized)
+
+
+def model_supports_thinking(model_id_or_name: str | None) -> bool:
+    """Return whether a model supports visible thinking/reasoning traces."""
+    normalized = (model_id_or_name or "").strip()
+    if not normalized:
+        return False
+
+    model = get_model_config(normalized)
+    if model is not None:
+        return _supports_thinking(model)
+
+    return _supports_thinking_raw(normalized)
+
+
+def model_supports_reasoning_effort(model_id_or_name: str | None) -> bool:
+    """Return whether a model supports reasoning_effort."""
+    normalized = (model_id_or_name or "").strip()
+    if not normalized:
+        return False
+
+    model = get_model_config(normalized)
+    if model is not None:
+        return _supports_reasoning_effort(model)
+
+    return _supports_reasoning_effort_raw(normalized)
 
 
 def _grouped_models() -> dict[str, list[ModelConfig]]:

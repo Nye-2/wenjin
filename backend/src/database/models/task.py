@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Index, Integer, String, Text
+from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,6 +42,7 @@ class TaskRecord(Base):
     workspace_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     feature_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     thread_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    execution_session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     action: Mapped[str | None] = mapped_column(String, nullable=True)
 
     status: Mapped[str] = mapped_column(
@@ -80,8 +81,33 @@ class TaskRecord(Base):
 
     __table_args__ = (
         Index("ix_task_records_user_status", "user_id", "status"),
+        Index("ix_task_records_user_created", "user_id", "created_at"),
         Index("ix_task_records_created_at", "created_at"),
         Index("ix_task_workspace_feature_status", "workspace_id", "feature_id", "status"),
+        Index(
+            "ix_task_records_dedupe_lookup",
+            "user_id",
+            "task_type",
+            "workspace_id",
+            "feature_id",
+            "action",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "ix_task_records_active_dedupe_lookup",
+            "user_id",
+            "task_type",
+            "workspace_id",
+            "feature_id",
+            "action",
+            "created_at",
+            postgresql_where=text("status IN ('pending', 'running')"),
+        ),
+        CheckConstraint(
+            "progress >= 0 AND progress <= 100",
+            name="ck_task_records_progress_range",
+        ),
     )
 
     def __repr__(self) -> str:

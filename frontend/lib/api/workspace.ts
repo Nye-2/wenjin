@@ -11,7 +11,9 @@ import type {
   Workspace,
   WorkspaceActivityResponse,
   WorkspaceCreate,
-  WorkspaceChatSkill,
+  WorkspaceExecutionSessionsResponse,
+  WorkspacePrismEnsureResponse,
+  WorkspaceThreadSkill,
   WorkspaceFeature,
   WorkspaceSummaryData,
   WorkspaceTemplate,
@@ -24,6 +26,13 @@ export async function listWorkspaces(): Promise<{ workspaces: Workspace[] }> {
 
 export async function getWorkspace(id: string): Promise<Workspace> {
   const response = await apiClient.get(`/workspaces/${id}`);
+  return response.data;
+}
+
+export async function ensureWorkspacePrismProject(
+  workspaceId: string
+): Promise<WorkspacePrismEnsureResponse> {
+  const response = await apiClient.post(`/workspaces/${workspaceId}/prism/ensure`);
   return response.data;
 }
 
@@ -141,7 +150,7 @@ export async function getWorkspaceFeatures(
 
 export async function getWorkspaceSkills(
   workspaceId: string
-): Promise<{ skills: WorkspaceChatSkill[] }> {
+): Promise<{ skills: WorkspaceThreadSkill[] }> {
   const response = await apiClient.get(`/workspaces/${workspaceId}/skills`);
   return response.data;
 }
@@ -150,13 +159,17 @@ export async function executeWorkspaceFeature(
   workspaceId: string,
   featureId: string,
   params: Record<string, unknown> = {},
-  threadId?: string
+  threadId?: string,
+  executionSessionId?: string | null,
+  skillId?: string | null
 ): Promise<ExecuteWorkspaceFeatureResponse> {
   const response = await apiClient.post(
     `/workspaces/${workspaceId}/features/${featureId}/execute`,
     {
       params,
       thread_id: threadId,
+      execution_session_id: executionSessionId,
+      skill_id: skillId,
     }
   );
   return response.data;
@@ -202,6 +215,16 @@ export async function getWorkspaceActivity(
   limit: number = 40
 ): Promise<WorkspaceActivityResponse> {
   const response = await apiClient.get(`/workspaces/${workspaceId}/activity`, {
+    params: { limit },
+  });
+  return response.data;
+}
+
+export async function getWorkspaceExecutionSessions(
+  workspaceId: string,
+  limit: number = 20
+): Promise<WorkspaceExecutionSessionsResponse> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/executions`, {
     params: { limit },
   });
   return response.data;

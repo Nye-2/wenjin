@@ -165,6 +165,33 @@ class TestTaskStorePostgres:
         assert len(tasks) == 3
 
     @pytest.mark.asyncio
+    async def test_list_user_tasks_supports_multi_status_filter(self, task_store):
+        """List API should accept a status list and filter in SQL."""
+        await task_store.create_task_record(
+            task_id="test-task-status-1",
+            user_id="user-status-list",
+            task_type="workspace_feature",
+            priority=5,
+            payload={"feature_id": "deep_research"},
+        )
+        await task_store.create_task_record(
+            task_id="test-task-status-2",
+            user_id="user-status-list",
+            task_type="workspace_feature",
+            priority=5,
+            payload={"feature_id": "deep_research"},
+        )
+        await task_store.update_task_record("test-task-status-2", status="success")
+
+        active = await task_store.list_user_tasks(
+            "user-status-list",
+            status=["pending", "running"],
+        )
+
+        assert len(active) == 1
+        assert active[0].id == "test-task-status-1"
+
+    @pytest.mark.asyncio
     async def test_count_active_tasks(self, task_store):
         """Test counting active (pending/running) tasks for a user."""
         for i in range(3):

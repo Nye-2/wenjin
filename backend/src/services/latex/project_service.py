@@ -6,10 +6,11 @@ import json
 import logging
 import mimetypes
 import shutil
+from collections.abc import Iterable
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models.latex_project import LatexProject
 from src.database.models.latex_template import LatexTemplate
 
-from .paths import get_latex_template_dir, project_root, resolve_project_relative
+from .paths import (
+    get_latex_template_dir,
+    is_reserved_project_path,
+    project_root,
+    resolve_project_relative,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +33,18 @@ _DEFAULT_MAIN_TEX = (
     "Hello from Wenjin LaTeX.\n"
     "\\end{document}\n"
 )
+
+
+class LatexTemplateError(ValueError):
+    """Base error for invalid LaTeX template selection."""
+
+
+class LatexTemplateNotFoundError(LatexTemplateError):
+    """Raised when selected template id does not exist."""
+
+
+class LatexTemplateUnavailableError(LatexTemplateError):
+    """Raised when selected template assets are unavailable."""
 
 
 class LatexProjectService:
@@ -135,6 +153,9 @@ class LatexProjectService:
         root = project_root(project.id)
         if root.exists():
             shutil.rmtree(root, ignore_errors=True)
+        compile_root = root.parent / "_compile_runs" / str(project.id)
+        if compile_root.exists():
+            shutil.rmtree(compile_root, ignore_errors=True)
         await self.db.delete(project)
         await self.db.commit()
 
@@ -144,7 +165,7 @@ class LatexProjectService:
             return []
 
         items: list[dict[str, str]] = []
-        skip_roots = {".compile", ".git", "__pycache__"}
+        skip_roots = {".compile", ".git", "__pycache__", "project.json"}
         file_order = dict(project.file_order or {})
 
         def emit_dir(directory: Path, folder: str) -> None:
@@ -168,6 +189,7 @@ class LatexProjectService:
         return items
 
     def read_text_file(self, project: LatexProject, relative_path: str) -> str:
+        self._ensure_user_path_allowed(relative_path)
         target = resolve_project_relative(project_root(project.id), relative_path)
         if not target.exists() or not target.is_file():
             raise FileNotFoundError(relative_path)
@@ -179,6 +201,7 @@ class LatexProjectService:
         relative_path: str,
         content: str,
     ) -> None:
+        self._ensure_user_path_allowed(relative_path)
         target = resolve_project_relative(project_root(project.id), relative_path)
         existed = target.exists()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -194,12 +217,17 @@ class LatexProjectService:
         await self.db.refresh(project)
         await self.sync_project_meta(project)
 
-    def read_blob(self, project: LatexProject, relative_path: str) -> tuple[bytes, str]:
+    def resolve_blob_file(self, project: LatexProject, relative_path: str) -> tuple[Path, str]:
+        self._ensure_user_path_allowed(relative_path)
         target = resolve_project_relative(project_root(project.id), relative_path)
         if not target.exists() or not target.is_file():
             raise FileNotFoundError(relative_path)
 
         media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        return target, media_type
+
+    def read_blob(self, project: LatexProject, relative_path: str) -> tuple[bytes, str]:
+        target, media_type = self.resolve_blob_file(project, relative_path)
         return target.read_bytes(), media_type
 
     async def save_upload(
@@ -208,6 +236,7 @@ class LatexProjectService:
         relative_path: str,
         content: bytes,
     ) -> str:
+        self._ensure_user_path_allowed(relative_path)
         target = resolve_project_relative(project_root(project.id), relative_path)
         existed = target.exists()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -223,6 +252,83 @@ class LatexProjectService:
         await self.db.refresh(project)
         await self.sync_project_meta(project)
         return target.relative_to(project_root(project.id)).as_posix()
+
+    async def save_uploads(
+        self,
+        project: LatexProject,
+        *,
+        files: list[tuple[str, bytes]],
+        folders: list[str] | None = None,
+    ) -> tuple[list[str], list[str]]:
+        """Persist uploaded files/folders in one transaction for large batches."""
+        root = project_root(project.id)
+        next_order = dict(project.file_order or {})
+        saved_files: list[str] = []
+        created_folders: list[str] = []
+        touched = False
+
+        for folder_path in folders or []:
+            self._ensure_user_path_allowed(folder_path)
+            target = resolve_project_relative(root, folder_path)
+            existed = target.exists()
+            target.mkdir(parents=True, exist_ok=True)
+            normalized = target.relative_to(root).as_posix()
+            if not existed:
+                next_order = self._append_child_to_order(next_order, normalized)
+                created_folders.append(normalized)
+                touched = True
+
+        for relative_path, content in files:
+            self._ensure_user_path_allowed(relative_path)
+            target = resolve_project_relative(root, relative_path)
+            existed = target.exists()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+            normalized = target.relative_to(root).as_posix()
+            saved_files.append(normalized)
+            if not existed:
+                next_order = self._append_child_to_order(next_order, normalized)
+            touched = True
+
+        if touched:
+            uploaded_main_candidate = self._pick_preferred_tex_path(saved_files)
+            try:
+                current_main_path = resolve_project_relative(root, project.main_file)
+            except ValueError:
+                current_main_path = root / project.main_file
+
+            current_main_exists = current_main_path.exists() and current_main_path.is_file()
+            if not current_main_exists:
+                detected_main = self._detect_main_file(root, preferred=uploaded_main_candidate)
+                if detected_main:
+                    project.main_file = detected_main
+            elif project.main_file == "main.tex":
+                uploaded_tex_paths = [
+                    path for path in saved_files if path.lower().endswith(".tex")
+                ]
+                uploaded_has_root_main = any(
+                    path.lower() == "main.tex" for path in uploaded_tex_paths
+                )
+                if uploaded_tex_paths and not uploaded_has_root_main:
+                    try:
+                        current_main_content = current_main_path.read_text(encoding="utf-8")
+                    except UnicodeDecodeError:
+                        current_main_content = ""
+                    if current_main_content == _DEFAULT_MAIN_TEX:
+                        detected_main = self._detect_main_file(
+                            root,
+                            preferred=uploaded_main_candidate,
+                        )
+                        if detected_main:
+                            project.main_file = detected_main
+
+            project.file_order = next_order
+            project.updated_at = datetime.now(tz=UTC)
+            await self.db.commit()
+            await self.db.refresh(project)
+            await self.sync_project_meta(project)
+
+        return saved_files, created_folders
 
     async def update_file_order(
         self,
@@ -251,6 +357,7 @@ class LatexProjectService:
         return project
 
     async def create_folder(self, project: LatexProject, relative_path: str) -> str:
+        self._ensure_user_path_allowed(relative_path)
         target = resolve_project_relative(project_root(project.id), relative_path)
         existed = target.exists()
         target.mkdir(parents=True, exist_ok=True)
@@ -272,6 +379,8 @@ class LatexProjectService:
         from_path: str,
         to_path: str,
     ) -> str:
+        self._ensure_user_path_allowed(from_path)
+        self._ensure_user_path_allowed(to_path)
         root = project_root(project.id)
         source = resolve_project_relative(root, from_path)
         destination = resolve_project_relative(root, to_path)
@@ -302,6 +411,7 @@ class LatexProjectService:
         return destination.relative_to(root).as_posix()
 
     async def delete_path(self, project: LatexProject, relative_path: str) -> None:
+        self._ensure_user_path_allowed(relative_path)
         root = project_root(project.id)
         target = resolve_project_relative(root, relative_path)
         if not target.exists():
@@ -356,7 +466,7 @@ class LatexProjectService:
 
         template = await self.db.get(LatexTemplate, template_id)
         if template is None:
-            return False
+            raise LatexTemplateNotFoundError(f"Template not found: {template_id}")
 
         template_dir = get_latex_template_dir()
         candidate: Path | None = None
@@ -365,7 +475,9 @@ class LatexProjectService:
             candidate = raw if raw.is_absolute() else (template_dir / raw)
         if candidate is None or not candidate.exists() or not candidate.is_dir():
             logger.warning("Template path not found for template_id=%s", template_id)
-            return False
+            raise LatexTemplateUnavailableError(
+                f"Template assets unavailable: {template_id}"
+            )
 
         shutil.copytree(candidate, target_root, dirs_exist_ok=True)
 
@@ -415,9 +527,34 @@ class LatexProjectService:
         return None
 
     @staticmethod
+    def _pick_preferred_tex_path(paths: Iterable[str]) -> str | None:
+        tex_paths = [path for path in paths if path.lower().endswith(".tex")]
+        if not tex_paths:
+            return None
+
+        def key(path: str) -> tuple[int, int, int, str]:
+            lower = path.lower()
+            name = Path(path).name.lower()
+            if lower == "main.tex" or name == "main.tex":
+                priority = 0
+            elif lower == "template.tex" or name == "template.tex":
+                priority = 1
+            else:
+                priority = 2
+            depth = path.count("/")
+            return priority, depth, len(path), path
+
+        return min(tex_paths, key=key)
+
+    @staticmethod
     def _folder_key(path: str) -> str:
         folder = Path(path).parent.as_posix()
         return "" if folder == "." else folder
+
+    @staticmethod
+    def _ensure_user_path_allowed(relative_path: str) -> None:
+        if is_reserved_project_path(relative_path):
+            raise ValueError("File path is reserved")
 
     @staticmethod
     def _basename(path: str) -> str:

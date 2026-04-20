@@ -76,6 +76,11 @@ ignore = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+filterwarnings = [
+    "ignore:.*AgentStatePydantic has been moved to `langchain.agents`.*:Warning",
+    "ignore:.*create_react_agent has been moved to `langchain.agents`.*:Warning",
+    "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning",
+]
 markers = [
     "integration: marks tests as integration tests (require external services like Docker)",
 ]

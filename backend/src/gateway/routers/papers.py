@@ -19,16 +19,16 @@ from src.database import (
 )
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.paper import (
-    PaperResponse,
     PaperExtractionTaskResponse,
+    PaperResponse,
     SectionResponse,
     paper_extraction_task_to_response,
     paper_to_response,
     section_to_response,
 )
 from src.gateway.deps import (
-    get_papers_handler,
     get_paper_service,
+    get_papers_handler,
     get_workspace_service,
 )
 from src.gateway.error_mapping import to_http_exception
@@ -49,6 +49,35 @@ __all__ = [
 ]
 
 # ============ Endpoints ============
+
+_MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
+_UPLOAD_READ_CHUNK_SIZE = 64 * 1024
+
+
+async def _read_upload_content_with_limit(
+    file: UploadFile,
+    *,
+    max_size_bytes: int,
+    chunk_size: int = _UPLOAD_READ_CHUNK_SIZE,
+) -> bytes:
+    chunks: list[bytes] = []
+    total_size = 0
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > max_size_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    "File too large. Maximum size is "
+                    f"{max_size_bytes // (1024 * 1024)}MB"
+                ),
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 
 @router.post("", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
 async def create_paper(
@@ -86,14 +115,12 @@ async def upload_paper(
     handler: PapersHandler = Depends(get_papers_handler),
 ) -> Any:
     """Upload a paper PDF into a workspace."""
-    # Server-side file size validation (50 MB limit)
-    MAX_UPLOAD_SIZE = 50 * 1024 * 1024
-    content = await file.read()
-    if len(content) > MAX_UPLOAD_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE // (1024 * 1024)}MB",
-        )
+    # Server-side file size validation (50 MB limit) with chunked reads to
+    # prevent oversized uploads from being fully buffered in memory.
+    content = await _read_upload_content_with_limit(
+        file,
+        max_size_bytes=_MAX_UPLOAD_SIZE_BYTES,
+    )
     try:
         return await handler.upload_paper(
             workspace_id=workspace_id,

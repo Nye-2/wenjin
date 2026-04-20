@@ -11,6 +11,9 @@ from src.config.llm_config import reload_models
 from src.models.router import (
     InvalidRequestedModelError,
     list_user_selectable_models,
+    model_supports_reasoning_effort,
+    model_supports_thinking,
+    model_supports_vision,
     route_chat_model,
     route_writing_model,
     validate_requested_model,
@@ -277,3 +280,67 @@ def test_list_user_selectable_models_hides_utility_by_default() -> None:
         assert "tool-primary" in selectable_ids
         assert "gen-primary" in selectable_ids
         assert "qwen-flash" not in selectable_ids
+
+
+def test_model_supports_vision_honors_explicit_flag() -> None:
+    tool_models = json.dumps([
+        {
+            "id": "tool-text",
+            "model": "provider/tool-text",
+            "api_key": "sk-tool",
+            "base_url": "https://example.com/v1",
+            "supports_vision": True,
+        }
+    ])
+    with patch.dict(
+        os.environ,
+        {"LLM_TOOL_MODELS": tool_models},
+        clear=False,
+    ):
+        reload_models()
+        assert model_supports_vision("tool-text") is True
+
+
+def test_model_supports_vision_uses_name_hints_for_unknown_model() -> None:
+    assert model_supports_vision("qwen-vl-plus") is True
+    assert model_supports_vision("plain-text-model") is False
+
+
+def test_model_supports_thinking_honors_explicit_flag() -> None:
+    tool_models = json.dumps([
+        {
+            "id": "tool-think",
+            "model": "provider/tool-think",
+            "api_key": "sk-tool",
+            "base_url": "https://example.com/v1",
+            "supports_thinking": True,
+        }
+    ])
+    with patch.dict(
+        os.environ,
+        {"LLM_TOOL_MODELS": tool_models},
+        clear=False,
+    ):
+        reload_models()
+        assert model_supports_thinking("tool-think") is True
+        assert model_supports_thinking("tool-plain") is False
+
+
+def test_model_supports_reasoning_effort_honors_explicit_flag() -> None:
+    tool_models = json.dumps([
+        {
+            "id": "tool-reasoning",
+            "model": "provider/tool-reasoning",
+            "api_key": "sk-tool",
+            "base_url": "https://example.com/v1",
+            "supports_reasoning_effort": True,
+        }
+    ])
+    with patch.dict(
+        os.environ,
+        {"LLM_TOOL_MODELS": tool_models},
+        clear=False,
+    ):
+        reload_models()
+        assert model_supports_reasoning_effort("tool-reasoning") is True
+        assert model_supports_reasoning_effort("tool-plain") is False

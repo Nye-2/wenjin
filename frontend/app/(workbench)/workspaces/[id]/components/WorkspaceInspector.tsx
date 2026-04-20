@@ -2,9 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { Activity, BookOpen, BriefcaseBusiness, FileText } from "lucide-react";
+import type { ExecutionSession } from "@/lib/api";
+import {
+  type ExecutionCurrentTask,
+  buildExecutionCurrentTask,
+} from "@/lib/execution-presenters";
 import { useWorkspaceStore, type Artifact } from "@/stores/workspace";
-import { useFeaturePanelStore } from "@/stores/panels";
-import { type CurrentTask, useTaskStore } from "@/stores/task";
+import { useExecutionStore } from "@/stores/execution";
+import { useFeaturesStore } from "@/stores/features";
 import { ArtifactLibrary } from "@/components/workspace/ArtifactLibrary";
 import { FeaturePanelHost } from "@/components/workspace/FeaturePanelHost";
 import { ArtifactDetailDialog } from "@/components/workspace/ArtifactDetailDialog";
@@ -14,6 +19,8 @@ import { LiteraturePanel } from "./LiteraturePanel";
 import { cn } from "@/lib/utils";
 
 type InspectorTab = "work" | "outputs" | "sources" | "activity";
+const EMPTY_EXECUTION_SESSIONS: ExecutionSession[] = [];
+const EMPTY_EXECUTION_IDS: string[] = [];
 
 interface WorkspaceInspectorProps {
   workspaceId: string;
@@ -61,7 +68,7 @@ function formatRuntimeTimestamp(value?: string): string {
   });
 }
 
-function buildTaskRuntimeState(task: CurrentTask | null) {
+function buildTaskRuntimeState(task: ExecutionCurrentTask | null) {
   if (!task) {
     return null;
   }
@@ -116,17 +123,60 @@ function buildTaskRuntimeState(task: CurrentTask | null) {
 }
 
 export function WorkspaceInspector({ workspaceId }: WorkspaceInspectorProps) {
-  const { artifacts, papers, activities } = useWorkspaceStore();
-  const { currentTask, recentCompleted } = useTaskStore((state) =>
-    state.getWorkspaceTaskState(workspaceId)
+  const artifacts = useWorkspaceStore((state) => state.artifacts);
+  const papers = useWorkspaceStore((state) => state.papers);
+  const activities = useWorkspaceStore((state) => state.activities);
+  const executionSessions = useExecutionStore(
+    (state) => state.byWorkspace[workspaceId] ?? EMPTY_EXECUTION_SESSIONS
   );
-  const workspacePanels = useFeaturePanelStore(
-    (state) => state.byWorkspace[workspaceId] ?? { activeSessionId: null, sessions: [] }
+  const dismissedExecutionIds = useExecutionStore(
+    (state) =>
+      state.dismissedExecutionIdsByWorkspace[workspaceId] ?? EMPTY_EXECUTION_IDS
   );
-  const hasActiveWork = workspacePanels.sessions.length > 0;
+  const activeExecutionId = useExecutionStore(
+    (state) => state.activeExecutionIdByWorkspace[workspaceId] ?? null
+  );
+  const getFeatureById = useFeaturesStore((state) => state.getFeatureById);
+  const visibleExecutions = useMemo(
+    () =>
+      executionSessions.filter(
+        (execution) => !dismissedExecutionIds.includes(execution.id)
+      ),
+    [dismissedExecutionIds, executionSessions]
+  );
+  const activeExecution =
+    visibleExecutions.find(
+      (execution) => execution.id === activeExecutionId
+    ) ??
+    visibleExecutions.find(
+      (execution) =>
+        execution.status === "running" ||
+        execution.status === "pending" ||
+        execution.status === "awaiting_user_input"
+    ) ?? null;
+  const latestCompletedExecution =
+    [...visibleExecutions]
+      .filter((execution) => execution.status === "completed")
+      .sort((left, right) =>
+        String(right.updated_at || right.created_at || "").localeCompare(
+          String(left.updated_at || left.created_at || "")
+        )
+      )[0] ?? null;
+  const hasActiveWork = visibleExecutions.length > 0;
   const [preferredTab, setPreferredTab] = useState<InspectorTab>("outputs");
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
-  const visibleRuntimeTask = currentTask ?? recentCompleted ?? null;
+  const visibleRuntimeTask =
+    (activeExecution
+      ? buildExecutionCurrentTask(
+          activeExecution,
+          getFeatureById(activeExecution.feature_id)
+        )
+      : latestCompletedExecution
+        ? buildExecutionCurrentTask(
+            latestCompletedExecution,
+            getFeatureById(latestCompletedExecution.feature_id)
+          )
+        : null);
   const runtimeState = useMemo(
     () => buildTaskRuntimeState(visibleRuntimeTask),
     [visibleRuntimeTask]
@@ -146,12 +196,17 @@ export function WorkspaceInspector({ workspaceId }: WorkspaceInspectorProps) {
 
   const counts = useMemo(
     () => ({
-      work: workspacePanels.sessions.length,
+      work: visibleExecutions.length,
       outputs: artifacts.length,
       sources: papers.length,
       activity: activities.length,
     }),
-    [activities.length, artifacts.length, papers.length, workspacePanels.sessions.length]
+    [
+      activities.length,
+      artifacts.length,
+      visibleExecutions.length,
+      papers.length,
+    ]
   );
   const visibleTabs = useMemo(() => {
     const tabs = [...inspectorTabs];

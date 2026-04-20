@@ -1,19 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FolderPlus, Save, Sparkles, SquarePen, Upload } from "lucide-react";
+import { Archive, FolderPlus, Save, Sparkles, SquarePen, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { LatexCompileEngine } from "@/lib/api";
 
 interface LatexToolbarProps {
-  engine: "xelatex" | "pdflatex";
-  onEngineChange: (engine: "xelatex" | "pdflatex") => void;
+  engine: LatexCompileEngine;
+  onEngineChange: (engine: LatexCompileEngine) => void;
   onSave: () => void;
   onCompile: () => void;
   onCreateFile: (path: string) => Promise<void>;
   onCreateFolder: (path: string) => Promise<void>;
   onUploadFiles: (files: File[]) => Promise<void>;
+  onUploadDirectory: (files: File[]) => Promise<void>;
+  onUploadArchive: (archive: File) => Promise<void>;
   isSaving: boolean;
   isCompiling: boolean;
   disableActions: boolean;
@@ -28,6 +31,8 @@ export function LatexToolbar({
   onCreateFile,
   onCreateFolder,
   onUploadFiles,
+  onUploadDirectory,
+  onUploadArchive,
   isSaving,
   isCompiling,
   disableActions,
@@ -52,7 +57,7 @@ export function LatexToolbar({
       <div className="flex flex-wrap items-center gap-3">
         <select
           value={engine}
-          onChange={(event) => onEngineChange(event.target.value as "xelatex" | "pdflatex")}
+          onChange={(event) => onEngineChange(event.target.value as LatexCompileEngine)}
           className="h-10 rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 text-sm"
         >
           <option value="xelatex">XeLaTeX</option>
@@ -64,7 +69,7 @@ export function LatexToolbar({
           {isSaving ? "保存中..." : "保存"}
         </Button>
 
-        <Button onClick={onCompile} disabled={disableActions || isCompiling}>
+        <Button onClick={onCompile} disabled={disableActions || isCompiling || isSaving}>
           <Sparkles className="mr-2 h-4 w-4" />
           {isCompiling ? "编译中..." : "编译"}
         </Button>
@@ -100,7 +105,25 @@ export function LatexToolbar({
               if (!files.length) {
                 return;
               }
-              await onUploadFiles(files);
+              await onUploadDirectory(files);
+              event.currentTarget.value = "";
+            }}
+          />
+        </label>
+
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-surface)]">
+          <Archive className="h-4 w-4" />
+          上传 ZIP 目录到 {currentFolderLabel}
+          <input
+            type="file"
+            accept=".zip,application/zip"
+            className="hidden"
+            onChange={async (event) => {
+              const archive = event.target.files?.[0] || null;
+              if (!archive) {
+                return;
+              }
+              await onUploadArchive(archive);
               event.currentTarget.value = "";
             }}
           />

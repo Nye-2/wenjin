@@ -6,7 +6,7 @@ import asyncio
 import logging
 import sys
 from collections.abc import Awaitable, Callable, Coroutine
-from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Any
 
 from celery.signals import worker_process_init, worker_process_shutdown
 
@@ -29,18 +29,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _worker_runner: asyncio.Runner | None = None
-T = TypeVar("T")
-
-InitSentryFn: TypeAlias = Callable[[], None]
-ResetDbEngineFn: TypeAlias = Callable[..., Awaitable[None]]
-InitDbFn: TypeAlias = Callable[[], Awaitable[None]]
-CloseDbFn: TypeAlias = Callable[[], Awaitable[None]]
-GetExtensionsConfigFn: TypeAlias = Callable[[], "ExtensionsConfig"]
-ActivateMcpRuntimeFn: TypeAlias = Callable[
+type InitSentryFn = Callable[[], None]
+type ResetDbEngineFn = Callable[..., Awaitable[None]]
+type InitDbFn = Callable[[], Awaitable[None]]
+type CloseDbFn = Callable[[], Awaitable[None]]
+type GetExtensionsConfigFn = Callable[[], "ExtensionsConfig"]
+type ActivateMcpRuntimeFn = Callable[
     ...,
     Awaitable[tuple["MCPManager", list["BaseTool"]]],
 ]
-ShutdownMcpRuntimeFn: TypeAlias = Callable[[], Awaitable[None]]
+type ShutdownMcpRuntimeFn = Callable[[], Awaitable[None]]
+
+
+async def _maybe_call_async_method(target: object, method_name: str, **kwargs: object) -> None:
+    """Call an optional async method when the runtime object implements it."""
+    method = getattr(target, method_name, None)
+    if method is None:
+        return
+    await method(**kwargs)
 
 
 def _load_worker_runtime_dependencies() -> tuple[
@@ -113,8 +119,14 @@ async def _bootstrap_worker_runtime() -> None:
     init_sentry()
     await reset_db_engine(dispose_current=False)
     await redis_client.reset_client(close_current=False)
+    await _maybe_call_async_method(
+        redis_client,
+        "reset_stream_client",
+        close_current=False,
+    )
     await init_db()
     await redis_client.connect()
+    await _maybe_call_async_method(redis_client, "connect_stream")
     manager, _ = await activate_mcp_runtime(
         extensions_config=get_extensions_config(),
         warmup=True,
@@ -149,7 +161,7 @@ def _run_async(coro: Coroutine[Any, Any, object]) -> None:
     _get_worker_runner().run(coro)
 
 
-def run_worker_coroutine(coro: Coroutine[Any, Any, T]) -> T:
+def run_worker_coroutine[T](coro: Coroutine[Any, Any, T]) -> T:
     """Run an async coroutine on the shared worker process loop."""
     return _get_worker_runner().run(coro)
 
@@ -205,11 +217,26 @@ def start_worker(
     start_worker_prometheus_server()
 
     concurrency = concurrency or celery_settings.worker_concurrency
-    logger.info(f"Starting Celery worker with concurrency={concurrency}, loglevel={loglevel}")
+    worker_pool = str(celery_settings.worker_pool or "solo").strip() or "solo"
+    if concurrency < 1:
+        concurrency = 1
+    if worker_pool == "solo" and concurrency != 1:
+        logger.info(
+            "Celery pool=solo ignores >1 concurrency; coercing concurrency %s -> 1",
+            concurrency,
+        )
+        concurrency = 1
+    logger.info(
+        "Starting Celery worker with concurrency=%s, pool=%s, loglevel=%s",
+        concurrency,
+        worker_pool,
+        loglevel,
+    )
 
     argv: list[str] = [
         "worker",
         f"--concurrency={concurrency}",
+        f"--pool={worker_pool}",
         f"--loglevel={loglevel}",
         "--without-gossip",
         "--without-mingle",

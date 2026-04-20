@@ -8,6 +8,7 @@ result into a linked LaTeX workspace or to execute linked compile workflows.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -345,6 +346,203 @@ async def sync_software_materials_payload(
         return LatexSyncResult()
 
 
+_LATEX_ESCAPE_MAP = {
+    "\\": r"\textbackslash{}",
+    "&": r"\&",
+    "%": r"\%",
+    "$": r"\$",
+    "#": r"\#",
+    "_": r"\_",
+    "{": r"\{",
+    "}": r"\}",
+    "~": r"\textasciitilde{}",
+    "^": r"\textasciicircum{}",
+}
+
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_MARKDOWN_CODE_RE = re.compile(r"`([^`]+)`")
+_MARKDOWN_HEADING_RE = re.compile(r"^\s*#{1,6}\s*")
+_MARKDOWN_LIST_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+")
+
+
+def _escape_latex_text(value: Any) -> str:
+    text = str(value or "")
+    escaped = "".join(_LATEX_ESCAPE_MAP.get(char, char) for char in text)
+    return escaped.strip()
+
+
+def _markdown_to_plain_text(value: Any, *, max_chars: int = 6000) -> str:
+    text = str(value or "")
+    if not text.strip():
+        return ""
+    lines: list[str] = []
+    in_code_block = False
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if line.strip().startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+        line = _MARKDOWN_HEADING_RE.sub("", line)
+        line = _MARKDOWN_LIST_RE.sub("", line)
+        line = _MARKDOWN_LINK_RE.sub(r"\1", line)
+        line = _MARKDOWN_CODE_RE.sub(r"\1", line)
+        line = line.replace("**", "").replace("__", "").replace("*", "")
+        normalized = " ".join(line.split())
+        if normalized:
+            lines.append(normalized)
+    compact = "\n\n".join(lines).strip()
+    if len(compact) <= max_chars:
+        return compact
+    return f"{compact[: max(0, max_chars - 1)].rstrip()}…"
+
+
+def _render_thesis_seed_tex(
+    *,
+    paper_title: str,
+    sections: list[tuple[str, str]],
+) -> str:
+    title = _escape_latex_text(paper_title) or "Untitled Thesis"
+    body_parts: list[str] = []
+    for index, (section_title, section_body) in enumerate(sections, start=1):
+        safe_title = _escape_latex_text(section_title) or f"章节 {index}"
+        safe_body = _escape_latex_text(section_body) or "待补充内容。"
+        body_parts.append(f"\\section{{{safe_title}}}\n{safe_body}\n")
+    if not body_parts:
+        body_parts.append("\\section{研究内容}\n待补充内容。\n")
+    content = "\n".join(body_parts).strip()
+    return (
+        "\\documentclass[12pt]{ctexart}\n"
+        "\\usepackage[a4paper,margin=1in]{geometry}\n"
+        "\\usepackage{setspace}\n"
+        "\\setstretch{1.2}\n\n"
+        "\\title{" + title + "}\n"
+        "\\author{}\n"
+        "\\date{\\today}\n\n"
+        "\\begin{document}\n"
+        "\\maketitle\n"
+        "\\tableofcontents\n"
+        "\\clearpage\n\n"
+        + content
+        + "\n\\end{document}\n"
+    )
+
+
+def _build_thesis_outline_sections(payload: dict[str, Any]) -> list[tuple[str, str]]:
+    outline = payload.get("outline")
+    if not isinstance(outline, dict):
+        return []
+    chapters = outline.get("chapters")
+    if not isinstance(chapters, list):
+        return []
+    sections: list[tuple[str, str]] = []
+    for index, chapter in enumerate(chapters, start=1):
+        if not isinstance(chapter, dict):
+            continue
+        title = str(chapter.get("title") or f"章节 {index}").strip() or f"章节 {index}"
+        key_points = chapter.get("keyPoints")
+        if isinstance(key_points, list):
+            body = "；".join(str(item).strip() for item in key_points if str(item).strip())
+        else:
+            body = ""
+        if not body:
+            body = str(chapter.get("summary") or chapter.get("focus") or "").strip()
+        sections.append((title, body or "待补充内容。"))
+    return sections
+
+
+def _build_thesis_chapter_sections(payload: dict[str, Any]) -> list[tuple[str, str]]:
+    action = str(payload.get("action") or "").strip().lower()
+    sections: list[tuple[str, str]] = []
+    if action == "write_chapter":
+        chapter = payload.get("chapter")
+        if isinstance(chapter, dict):
+            title = str(chapter.get("chapter_title") or chapter.get("title") or "章节草稿").strip()
+            body = _markdown_to_plain_text(chapter.get("markdown") or chapter.get("content"))
+            if title:
+                sections.append((title, body or "待补充内容。"))
+        return sections
+    if action == "write_all":
+        chapters = payload.get("chapters")
+        if isinstance(chapters, list):
+            for index, chapter in enumerate(chapters, start=1):
+                if not isinstance(chapter, dict):
+                    continue
+                title = str(
+                    chapter.get("chapter_title")
+                    or chapter.get("title")
+                    or f"章节 {index}"
+                ).strip()
+                body = _markdown_to_plain_text(chapter.get("markdown") or chapter.get("content"))
+                sections.append((title or f"章节 {index}", body or "待补充内容。"))
+        return sections
+    section_title = str(payload.get("section_title") or "").strip()
+    section_body = _markdown_to_plain_text(
+        payload.get("final_content")
+        or payload.get("revised_content")
+        or payload.get("section_content")
+        or payload.get("content")
+    )
+    if section_title:
+        sections.append((section_title, section_body or "待补充内容。"))
+    return sections
+
+
+async def sync_thesis_writing_payload(
+    *,
+    workspace_id: str,
+    workspace_name: str,
+    payload: dict[str, Any],
+) -> LatexSyncResult:
+    """Ensure thesis writing outputs are linked into a Prism LaTeX project."""
+    paper_title = _pick_project_title(
+        payload.get("paper_title"),
+        workspace_name,
+        fallback="未命名论文",
+    )
+    sections = _build_thesis_chapter_sections(payload)
+    if not sections:
+        sections = _build_thesis_outline_sections(payload)
+    if not sections:
+        logger.info(
+            "Skip thesis writing sync because payload has no renderable sections",
+            extra={
+                "workspace_id": workspace_id,
+                "action": str(payload.get("action") or "").strip().lower(),
+            },
+        )
+        return LatexSyncResult()
+    seed_tex = _render_thesis_seed_tex(
+        paper_title=paper_title,
+        sections=sections,
+    )
+    source_summary = {
+        "action": str(payload.get("action") or "").strip().lower(),
+        "section_count": len(sections),
+        "generated_at": payload.get("generated_at"),
+    }
+    try:
+        async with get_db_session() as db:
+            bridge_service = WorkspaceLatexProjectService(db)
+            linked_project = await bridge_service.sync_project(
+                workspace_id=workspace_id,
+                project_name=paper_title,
+                main_file="main.tex",
+                main_tex=seed_tex,
+                bib_tex="",
+                template="thesis_default",
+                metadata={
+                    "source_summary": source_summary,
+                    "bridge_source": "thesis_writing",
+                },
+            )
+            return _build_sync_result(linked_project)
+    except Exception:
+        logger.exception("Failed to sync thesis writing output into linked latex project")
+        return LatexSyncResult()
+
+
 async def compile_thesis_payload(
     *,
     workspace_id: str,
@@ -408,7 +606,7 @@ async def compile_thesis_payload(
     except Exception as exc:
         logger.exception("Failed to complete linked latex compile pipeline")
         raise RuntimeError(
-            f"compile_export_failed: linked_latex_pipeline_failed: {exc}"
+            f"thesis_sync_failed: linked_latex_pipeline_failed: {exc}"
         ) from exc
 
     compile_logs = (

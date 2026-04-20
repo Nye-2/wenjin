@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type {
+  LatexCompileEngine,
   LatexCompileResult,
   LatexFileItem,
   LatexProject,
@@ -23,6 +24,7 @@ import {
   renameLatexPath,
   resolveLatexConflict,
   saveLatexFileOrder,
+  uploadLatexArchive,
   uploadLatexFiles,
   writeLatexFile,
 } from "@/lib/api";
@@ -60,13 +62,15 @@ interface LatexState {
   deletePath: (path: string) => Promise<void>;
   saveOrder: (folder: string, order: string[]) => Promise<void>;
   uploadFiles: (files: File[], folder?: string) => Promise<void>;
+  uploadDirectory: (files: File[], folder?: string) => Promise<void>;
+  uploadArchive: (archive: File, folder?: string) => Promise<void>;
   resolveConflict: (
     logicalKey: string,
     strategy: "keep_current" | "accept_feature",
     featureContent?: string | null,
   ) => Promise<void>;
   deleteProject: () => Promise<void>;
-  compileProject: (engine?: "xelatex" | "pdflatex") => Promise<void>;
+  compileProject: (engine?: LatexCompileEngine) => Promise<void>;
   clearCompiledPdf: () => void;
   clearActiveBlob: () => void;
   clearError: () => void;
@@ -205,9 +209,33 @@ export const useLatexStore = create<LatexState>((set, get) => ({
   },
 
   openFile: async (path) => {
-    const project = get().project;
+    const {
+      project,
+      activeFilePath,
+      activeFileKind,
+      activeFileContent,
+      activeFileSavedContent,
+    } = get();
     if (!project) {
       return;
+    }
+    if (
+      activeFileKind === "text"
+      && activeFilePath
+      && activeFilePath !== path
+      && activeFileContent !== activeFileSavedContent
+    ) {
+      set({ isSaving: true, error: null });
+      try {
+        await writeLatexFile(project.id, activeFilePath, activeFileContent);
+        set({
+          activeFileSavedContent: activeFileContent,
+          isSaving: false,
+        });
+      } catch (error) {
+        set({ error: (error as Error).message, isSaving: false });
+        return;
+      }
     }
     set({ isFileLoading: true, error: null });
     get().clearActiveBlob();
@@ -395,7 +423,57 @@ export const useLatexStore = create<LatexState>((set, get) => ({
     }
     set({ isSaving: true, error: null });
     try {
-      await uploadLatexFiles(project.id, files, folder);
+      await uploadLatexFiles(project.id, files, folder, {
+        flatten_root_directory: false,
+      });
+      const [nextProject, treeResponse] = await Promise.all([
+        getLatexProject(project.id),
+        getLatexProjectTree(project.id),
+      ]);
+      set({
+        project: nextProject,
+        tree: treeResponse.items,
+        syncConflicts: readProjectSyncConflicts(nextProject),
+        isSaving: false,
+      });
+    } catch (error) {
+      set({ error: (error as Error).message, isSaving: false });
+    }
+  },
+
+  uploadDirectory: async (files, folder) => {
+    const { project } = get();
+    if (!project || !files.length) {
+      return;
+    }
+    set({ isSaving: true, error: null });
+    try {
+      await uploadLatexFiles(project.id, files, folder, {
+        flatten_root_directory: true,
+      });
+      const [nextProject, treeResponse] = await Promise.all([
+        getLatexProject(project.id),
+        getLatexProjectTree(project.id),
+      ]);
+      set({
+        project: nextProject,
+        tree: treeResponse.items,
+        syncConflicts: readProjectSyncConflicts(nextProject),
+        isSaving: false,
+      });
+    } catch (error) {
+      set({ error: (error as Error).message, isSaving: false });
+    }
+  },
+
+  uploadArchive: async (archive, folder) => {
+    const { project } = get();
+    if (!project) {
+      return;
+    }
+    set({ isSaving: true, error: null });
+    try {
+      await uploadLatexArchive(project.id, archive, folder);
       const [nextProject, treeResponse] = await Promise.all([
         getLatexProject(project.id),
         getLatexProjectTree(project.id),
@@ -467,10 +545,33 @@ export const useLatexStore = create<LatexState>((set, get) => ({
     }
   },
 
-  compileProject: async (engine = "xelatex") => {
-    const { project } = get();
+  compileProject: async (engine: LatexCompileEngine = "xelatex") => {
+    const {
+      project,
+      activeFilePath,
+      activeFileKind,
+      activeFileContent,
+      activeFileSavedContent,
+    } = get();
     if (!project) {
       return;
+    }
+    if (
+      activeFileKind === "text"
+      && activeFilePath
+      && activeFileContent !== activeFileSavedContent
+    ) {
+      set({ isSaving: true, error: null });
+      try {
+        await writeLatexFile(project.id, activeFilePath, activeFileContent);
+        set({
+          activeFileSavedContent: activeFileContent,
+          isSaving: false,
+        });
+      } catch (error) {
+        set({ error: (error as Error).message, isSaving: false });
+        return;
+      }
     }
     set({ isCompiling: true, error: null });
     get().clearCompiledPdf();

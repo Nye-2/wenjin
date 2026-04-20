@@ -18,7 +18,6 @@ async def test_summary_prioritizes_failed_module_and_generates_risk():
                 {"id": "opening_research", "status": "failed", "summary": {}},
                 {"id": "thesis_writing", "status": "not_started", "summary": {}},
                 {"id": "figure_generation", "status": "not_started", "summary": {}},
-                {"id": "compile_export", "status": "not_started", "summary": {}},
             ],
             "recent_artifacts": [],
         }
@@ -83,8 +82,8 @@ async def test_summary_builds_progress_and_recommended_actions_for_in_progress_m
 
     assert result["progress"]["completed"] == 1
     assert result["progress"]["in_progress"] == 1
-    assert result["progress"]["total"] == 7
-    assert result["progress"]["percent"] == 21
+    assert result["progress"]["total"] == 8
+    assert result["progress"]["percent"] == 19
     assert result["current_phase"]["feature_id"] == "paper_analysis"
     assert result["recommended_actions"][0]["feature_id"] == "paper_analysis"
     assert result["recommended_actions"][1]["feature_id"] == "writing"
@@ -101,7 +100,6 @@ async def test_summary_warns_when_thesis_literature_is_thin():
                 {"id": "opening_research", "status": "not_started", "summary": {}},
                 {"id": "thesis_writing", "status": "not_started", "summary": {}},
                 {"id": "figure_generation", "status": "not_started", "summary": {}},
-                {"id": "compile_export", "status": "not_started", "summary": {}},
             ],
             "recent_artifacts": [],
         }
@@ -123,6 +121,56 @@ async def test_summary_warns_when_thesis_literature_is_thin():
     assert result["current_phase"]["feature_id"] == "literature_management"
     assert result["risk_items"][0]["tone"] == "warning"
     assert "文献储备偏少" in result["risk_items"][0]["title"]
+
+
+@pytest.mark.asyncio
+async def test_summary_prefers_active_execution_session_for_current_phase_and_next_step():
+    dashboard_service = AsyncMock()
+    dashboard_service.get_dashboard = AsyncMock(
+        return_value={
+            "modules": [
+                {"id": "literature_search", "status": "completed", "summary": {"results_count": 18}},
+                {"id": "framework_outline", "status": "not_started", "summary": {}},
+            ],
+            "recent_artifacts": [],
+        }
+    )
+    activity_service = AsyncMock()
+    activity_service.get_activity = AsyncMock(return_value={"items": []})
+    execution_service = AsyncMock()
+    execution_service.list_workspace_sessions = AsyncMock(
+        return_value=[
+            AsyncMock(
+                id="exec-1",
+                feature_id="framework_outline",
+                status="running",
+                primary_task_id="task-1",
+                result_summary="正在生成论文框架",
+                next_actions=[{"label": "补充摘要约束", "feature_id": "framework_outline"}],
+                runtime_snapshot={
+                    "current_phase": "outline",
+                },
+                updated_at="2026-04-10T12:00:00+00:00",
+            )
+        ]
+    )
+    service = WorkspaceSummaryService(
+        AsyncMock(),
+        dashboard_service=dashboard_service,
+        activity_service=activity_service,
+        execution_session_service=execution_service,
+    )
+
+    result = await service.get_summary(
+        "ws-exec",
+        workspace_type="sci",
+        user_id="user-exec",
+    )
+
+    assert result["current_phase"]["feature_id"] == "framework_outline"
+    assert result["current_phase"]["status"] == "in_progress"
+    assert result["next_step"]["feature_id"] == "framework_outline"
+    assert result["next_step"]["title"] == "补充摘要约束"
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,12 @@
 """Tests for agent status tracking in task execution."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 
-class TestAgentStatusInLocalExecutor:
+class TestAgentStatusInSharedRunner:
     @pytest.mark.asyncio
     async def test_sets_running_status_on_start(self):
         """Agent status is set to running when task starts with thread_id."""
@@ -31,13 +32,17 @@ class TestAgentStatusInLocalExecutor:
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch("src.task.tasks.base._dispatch_task", new_callable=AsyncMock, return_value={"status": "ok"}),
-            patch("src.task.tasks.base._append_task_chat_message", new_callable=AsyncMock),
+            patch("src.task.tasks.base._append_task_thread_message", new_callable=AsyncMock),
         ):
             mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            from src.task.executor import _run_task_locally
-            await _run_task_locally("task-1", "test_type", payload)
+            from src.task.tasks.base import _execute_task_async
+
+            fake_task = SimpleNamespace(
+                request=SimpleNamespace(hostname="test-worker"),
+            )
+            await _execute_task_async(fake_task, "task-1", "test_type", payload)
 
         # Check set_agent_status was called with "running" and then "completed"
         calls = mock_redis.set_agent_status.call_args_list
@@ -72,13 +77,17 @@ class TestAgentStatusInLocalExecutor:
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch("src.task.tasks.base._dispatch_task", new_callable=AsyncMock, return_value={"status": "ok"}),
-            patch("src.task.tasks.base._append_task_chat_message", new_callable=AsyncMock),
+            patch("src.task.tasks.base._append_task_thread_message", new_callable=AsyncMock),
         ):
             mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            from src.task.executor import _run_task_locally
-            await _run_task_locally("task-1", "test_type", payload)
+            from src.task.tasks.base import _execute_task_async
+
+            fake_task = SimpleNamespace(
+                request=SimpleNamespace(hostname="test-worker"),
+            )
+            await _execute_task_async(fake_task, "task-1", "test_type", payload)
 
         mock_redis.set_agent_status.assert_not_called()
 
@@ -107,13 +116,18 @@ class TestAgentStatusInLocalExecutor:
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch("src.task.tasks.base._dispatch_task", new_callable=AsyncMock, side_effect=ValueError("boom")),
-            patch("src.task.tasks.base._append_task_chat_message", new_callable=AsyncMock),
+            patch("src.task.tasks.base._append_task_thread_message", new_callable=AsyncMock),
         ):
             mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            from src.task.executor import _run_task_locally
-            await _run_task_locally("task-1", "test_type", payload)
+            from src.task.tasks.base import _execute_task_async
+
+            fake_task = SimpleNamespace(
+                request=SimpleNamespace(hostname="test-worker"),
+            )
+            with pytest.raises(ValueError, match="boom"):
+                await _execute_task_async(fake_task, "task-1", "test_type", payload)
 
         calls = mock_redis.set_agent_status.call_args_list
         assert len(calls) >= 2

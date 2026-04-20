@@ -13,6 +13,7 @@ class _FakeDockerClient:
     def __init__(self) -> None:
         self.ensure_image = AsyncMock(return_value=True)
         self.run_container = AsyncMock(return_value=(0, "ok", ""))
+        self.cleanup_containers_by_label = AsyncMock(return_value=0)
 
     @staticmethod
     def build_volume_mapping(host_path: str, container_path: str, mode: str = "rw"):
@@ -39,6 +40,7 @@ async def test_docker_provider_acquire_creates_thread_directories(tmp_path):
     assert (tmp_path / "thread-1" / "user-data" / "workspace").exists()
     assert (tmp_path / "thread-1" / "user-data" / "uploads").exists()
     assert (tmp_path / "thread-1" / "user-data" / "outputs").exists()
+    docker_client.cleanup_containers_by_label.assert_awaited_once()
     docker_client.ensure_image.assert_awaited_once_with("wenjin/sandbox:test")
 
 
@@ -65,3 +67,21 @@ async def test_docker_sandbox_executes_command_in_ephemeral_container(tmp_path):
     assert kwargs["timeout"] == 45
     assert kwargs["network_disabled"] is True
     assert kwargs["mem_limit"] == "512m"
+    assert kwargs["labels"]["wenjin.sandbox.managed"] == "true"
+    assert kwargs["labels"]["wenjin.sandbox.kind"] == "sandbox_exec"
+    assert kwargs["labels"]["wenjin.sandbox.thread_id"] == "thread-2"
+
+
+@pytest.mark.asyncio
+async def test_docker_provider_reconcile_runs_only_once(tmp_path):
+    docker_client = _FakeDockerClient()
+    provider = DockerSandboxProvider(
+        base_dir=str(tmp_path),
+        image="wenjin/sandbox:test",
+        docker_client=docker_client,
+    )
+
+    await provider.acquire("thread-a")
+    await provider.acquire("thread-b")
+
+    docker_client.cleanup_containers_by_label.assert_awaited_once()

@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.services.dashboard_service import DashboardService
+from src.services.execution_session_service import ExecutionSessionService
 from src.services.workspace_activity_service import WorkspaceActivityService
 from src.workspace_features import list_workspace_features
 
@@ -38,10 +39,12 @@ class WorkspaceSummaryService:
         *,
         dashboard_service: DashboardService | None = None,
         activity_service: WorkspaceActivityService | None = None,
+        execution_session_service: ExecutionSessionService | None = None,
     ) -> None:
         self.db = db
         self._dashboard_service = dashboard_service or DashboardService(db)
         self._activity_service = activity_service or WorkspaceActivityService(db)
+        self._execution_session_service = execution_session_service
 
     async def get_summary(
         self,
@@ -55,15 +58,20 @@ class WorkspaceSummaryService:
             workspace_id,
             workspace_type=workspace_type,
         )
+        execution_sessions = await self._list_execution_sessions(
+            workspace_id,
+            user_id=user_id,
+        )
         modules = self._normalize_modules(
             workspace_type,
             dashboard.get("modules") if isinstance(dashboard, dict) else [],
+            execution_sessions,
         )
         progress = self._build_progress(modules)
-        current_phase = self._build_current_phase(modules)
-        next_step = self._build_next_step(modules)
-        recommended_actions = self._build_recommended_actions(modules)
-        risk_items = self._build_risk_items(workspace_type, modules)
+        current_phase = self._build_current_phase(modules, execution_sessions)
+        next_step = self._build_next_step(modules, execution_sessions)
+        recommended_actions = self._build_recommended_actions(modules, execution_sessions)
+        risk_items = self._build_risk_items(workspace_type, modules, execution_sessions)
         recent_activity = await self._build_recent_activity(
             workspace_id,
             user_id=user_id,
@@ -90,6 +98,7 @@ class WorkspaceSummaryService:
         self,
         workspace_type: str,
         raw_modules: list[dict[str, Any]] | Any,
+        execution_sessions: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         module_by_id: dict[str, dict[str, Any]] = {}
         if isinstance(raw_modules, list):
@@ -106,19 +115,100 @@ class WorkspaceSummaryService:
                     "summary": summary if isinstance(summary, dict) else {},
                 }
 
+        latest_execution_by_feature: dict[str, dict[str, Any]] = {}
+        for execution in execution_sessions:
+            feature_id = str(execution.get("feature_id") or "").strip()
+            if not feature_id or feature_id in latest_execution_by_feature:
+                continue
+            latest_execution_by_feature[feature_id] = execution
+
         normalized: list[dict[str, Any]] = []
         for feature in list_workspace_features(workspace_type):
             module = module_by_id.get(feature.id, {})
+            execution = latest_execution_by_feature.get(feature.id)
+            if execution:
+                module_status = self._module_status_from_execution(execution)
+                module_summary = {
+                    **(module.get("summary") if isinstance(module.get("summary"), dict) else {}),
+                    "execution_session_id": execution.get("id"),
+                    "primary_task_id": execution.get("primary_task_id"),
+                    "result_summary": execution.get("result_summary"),
+                    "current_phase": self._execution_current_phase(execution),
+                }
+            else:
+                module_status = str(module.get("status") or "not_started")
+                module_summary = module.get("summary") or {}
             normalized.append(
                 {
                     "id": feature.id,
                     "title": feature.name,
                     "description": feature.description,
-                    "status": str(module.get("status") or "not_started"),
-                    "summary": module.get("summary") or {},
+                    "status": module_status,
+                    "summary": module_summary,
                 }
             )
         return normalized
+
+    async def _list_execution_sessions(
+        self,
+        workspace_id: str,
+        *,
+        user_id: str | None,
+    ) -> list[dict[str, Any]]:
+        if not user_id:
+            return []
+        service = self._execution_session_service
+        if service is None:
+            if not isinstance(self.db, AsyncSession):
+                return []
+            service = ExecutionSessionService(self.db)
+        try:
+            sessions = await service.list_workspace_sessions(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                limit=20,
+            )
+        except Exception:
+            return []
+
+        serialized: list[dict[str, Any]] = []
+        for session in sessions:
+            serialized.append(
+                {
+                    "id": session.id,
+                    "feature_id": session.feature_id,
+                    "status": session.status,
+                    "primary_task_id": session.primary_task_id,
+                    "result_summary": session.result_summary,
+                    "next_actions": list(session.next_actions or []),
+                    "runtime_snapshot": session.runtime_snapshot,
+                    "updated_at": session.updated_at,
+                }
+            )
+        serialized.sort(
+            key=lambda item: str(item.get("updated_at") or ""),
+            reverse=True,
+        )
+        return serialized
+
+    @staticmethod
+    def _module_status_from_execution(execution: dict[str, Any]) -> str:
+        status = str(execution.get("status") or "").strip().lower()
+        if status in {"running", "pending", "awaiting_user_input"}:
+            return "in_progress"
+        if status == "completed":
+            return "completed"
+        if status in {"failed", "advisory"}:
+            return "failed"
+        return "not_started"
+
+    @staticmethod
+    def _execution_current_phase(execution: dict[str, Any]) -> str | None:
+        runtime = execution.get("runtime_snapshot")
+        if not isinstance(runtime, dict):
+            return None
+        current_phase = runtime.get("current_phase")
+        return str(current_phase).strip() if current_phase else None
 
     def _build_progress(self, modules: list[dict[str, Any]]) -> dict[str, int]:
         total = len(modules)
@@ -137,7 +227,39 @@ class WorkspaceSummaryService:
             "percent": percent,
         }
 
-    def _build_current_phase(self, modules: list[dict[str, Any]]) -> dict[str, Any]:
+    def _build_current_phase(
+        self,
+        modules: list[dict[str, Any]],
+        execution_sessions: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        active_execution = next(
+            (
+                execution
+                for execution in execution_sessions
+                if str(execution.get("status") or "") in {"running", "pending", "awaiting_user_input"}
+            ),
+            None,
+        )
+        if active_execution:
+            feature_id = str(active_execution.get("feature_id") or "").strip() or None
+            module = next(
+                (item for item in modules if item["id"] == feature_id),
+                None,
+            )
+            current_phase = self._execution_current_phase(active_execution)
+            return {
+                "feature_id": feature_id,
+                "title": (
+                    str(current_phase or "").strip()
+                    or (module["title"] if module else "执行中")
+                ),
+                "status": "in_progress",
+                "description": (
+                    str(active_execution.get("result_summary") or "").strip()
+                    or "该执行会话正在推进中。"
+                ),
+            }
+
         failed = self._find_first(modules, "failed")
         if failed:
             return {
@@ -172,7 +294,35 @@ class WorkspaceSummaryService:
             "description": "核心模块已完成，可继续导出、评审或开启新的任务分支。",
         }
 
-    def _build_next_step(self, modules: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _build_next_step(
+        self,
+        modules: list[dict[str, Any]],
+        execution_sessions: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        active_execution = next(
+            (
+                execution
+                for execution in execution_sessions
+                if str(execution.get("status") or "") in {"running", "pending", "awaiting_user_input"}
+            ),
+            None,
+        )
+        if active_execution:
+            next_actions = active_execution.get("next_actions")
+            if isinstance(next_actions, list) and next_actions:
+                first_action = next_actions[0]
+                if isinstance(first_action, dict):
+                    feature_id = str(first_action.get("feature_id") or active_execution.get("feature_id") or "")
+                    module = next((item for item in modules if item["id"] == feature_id), None)
+                    return {
+                        "feature_id": feature_id,
+                        "title": str(first_action.get("label") or (module["title"] if module else feature_id)),
+                        "description": module.get("description") if module else None,
+                        "reason": str(active_execution.get("result_summary") or "当前执行建议优先跟进下一步。"),
+                        "status": "in_progress",
+                        "status_label": _STATUS_LABELS.get("in_progress"),
+                    }
+
         failed = self._find_first(modules, "failed")
         if failed:
             return self._action_from_module(
@@ -199,8 +349,38 @@ class WorkspaceSummaryService:
     def _build_recommended_actions(
         self,
         modules: list[dict[str, Any]],
+        execution_sessions: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         actions: list[dict[str, Any]] = []
+
+        active_execution = next(
+            (
+                execution
+                for execution in execution_sessions
+                if str(execution.get("status") or "") in {"running", "pending", "awaiting_user_input"}
+            ),
+            None,
+        )
+        if active_execution:
+            next_actions = active_execution.get("next_actions")
+            if isinstance(next_actions, list):
+                for item in next_actions:
+                    if not isinstance(item, dict):
+                        continue
+                    feature_id = str(item.get("feature_id") or active_execution.get("feature_id") or "")
+                    module = next((module for module in modules if module["id"] == feature_id), None)
+                    if not feature_id:
+                        continue
+                    actions.append(
+                        {
+                            "feature_id": feature_id,
+                            "title": str(item.get("label") or (module["title"] if module else feature_id)),
+                            "description": module.get("description") if module else None,
+                            "reason": str(active_execution.get("result_summary") or "当前执行建议优先跟进下一步。"),
+                            "status": "in_progress",
+                            "status_label": _STATUS_LABELS.get("in_progress"),
+                        }
+                    )
 
         failed = self._find_first(modules, "failed")
         if failed:
@@ -257,9 +437,26 @@ class WorkspaceSummaryService:
         self,
         workspace_type: str,
         modules: list[dict[str, Any]],
+        execution_sessions: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         risks: list[dict[str, Any]] = []
         module_by_id = {module["id"]: module for module in modules if module.get("id")}
+
+        for execution in execution_sessions:
+            if str(execution.get("status") or "") != "advisory":
+                continue
+            feature_id = str(execution.get("feature_id") or "").strip()
+            module = module_by_id.get(feature_id)
+            risks.append(
+                {
+                    "id": f"advisory:{feature_id or execution.get('id')}",
+                    "title": (
+                        str(execution.get("result_summary") or "").strip()
+                        or f"{module['title'] if module else feature_id} 当前需要补充输入后再执行。"
+                    ),
+                    "tone": "warning",
+                }
+            )
 
         for module in modules:
             if module["status"] != "failed":
@@ -416,12 +613,12 @@ class WorkspaceSummaryService:
             return f"{workspace_label}当前阻塞在「{current_title}」，建议先修复该模块后再推进。"
 
         if current_phase.get("status") == "in_progress":
-            return f"{workspace_label}正在推进「{current_title}」，可以在 chat 中继续补充上下文。"
+            return f"{workspace_label}正在推进「{current_title}」，可以在线程中继续补充上下文。"
 
         if next_step and next_step.get("title"):
             return f"{workspace_label}建议优先推进「{next_step['title']}」，保持任务链连续。"
 
-        return f"{workspace_label}已进入稳定推进阶段，可继续通过 chat 驱动下一步模块。"
+        return f"{workspace_label}已进入稳定推进阶段，可继续通过线程驱动下一步模块。"
 
     def _action_from_module(
         self,

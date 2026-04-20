@@ -1,7 +1,5 @@
 """Tests for compile_latex tool."""
 
-import pytest
-from langchain_core.tools import Tool
 from src.tools.execution.compile_latex import compile_latex_tool
 
 

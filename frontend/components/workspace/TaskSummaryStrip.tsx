@@ -107,7 +107,7 @@ export function TaskSummaryStrip({ summary }: TaskSummaryStripProps) {
             {summary.next_step && <ArrowRight className="h-3.5 w-3.5 text-[var(--accent-primary)]" />}
           </p>
           <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
-            {summary.next_step?.reason || "当前没有阻塞项，可以继续在 chat 中自由推进。"}
+            {summary.next_step?.reason || "当前没有阻塞项，可以继续在线程中自由推进。"}
           </p>
         </div>
 

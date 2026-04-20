@@ -8,7 +8,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 
 from src.gateway.exceptions import (
-    WenjinException,
     AuthenticationError,
     AuthorizationError,
     DuplicateError,
@@ -16,14 +15,15 @@ from src.gateway.exceptions import (
     RateLimitError,
     ServiceUnavailableError,
     ValidationError,
+    WenjinException,
     map_exception_to_status,
 )
 from src.gateway.middleware.error_handler import (
-    wenjin_exception_handler,
     generic_exception_handler,
     http_exception_handler,
     register_error_handlers,
     validation_exception_handler,
+    wenjin_exception_handler,
 )
 
 # ============================================================================ #

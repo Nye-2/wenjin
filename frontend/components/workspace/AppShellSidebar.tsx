@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -11,7 +12,13 @@ import {
   Loader2,
   MessageSquare,
 } from "lucide-react";
-import { groupFeaturePanelSessions, useFeaturePanelStore } from "@/stores/panels";
+import {
+  adaptExecutionToPanelSession,
+  groupExecutionSessions,
+} from "@/lib/execution-presenters";
+import type { ExecutionSession } from "@/lib/api";
+import { useExecutionStore } from "@/stores/execution";
+import { useFeaturesStore } from "@/stores/features";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useI18n } from "@/components/i18n-provider";
 import { cn } from "@/lib/utils";
@@ -21,6 +28,8 @@ interface AppShellSidebarProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }
+const EMPTY_EXECUTION_SESSIONS: ExecutionSession[] = [];
+const EMPTY_EXECUTION_IDS: string[] = [];
 
 function sessionStatusTone(status: string) {
   if (status === "running" || status === "pending") {
@@ -31,6 +40,9 @@ function sessionStatusTone(status: string) {
   }
   if (status === "failed") {
     return "bg-red-500/10 text-red-700";
+  }
+  if (status === "cancelled") {
+    return "bg-slate-500/10 text-slate-700";
   }
   return "bg-[var(--bg-surface)] text-[var(--text-muted)]";
 }
@@ -43,6 +55,7 @@ function SessionGroup({
 }: {
   title: string;
   sessions: Array<{
+    executionId: string;
     taskId: string;
     title: string;
     status: string;
@@ -50,7 +63,7 @@ function SessionGroup({
     message: string | null;
   }>;
   activeSessionId: string | null;
-  onOpenSession: (taskId: string) => void;
+  onOpenSession: (executionId: string) => void;
 }) {
   if (sessions.length === 0) {
     return null;
@@ -67,13 +80,13 @@ function SessionGroup({
         </span>
       </div>
       {sessions.map((session) => {
-        const isActive = activeSessionId === session.taskId;
+        const isActive = activeSessionId === session.executionId;
         const isWorking = session.status === "running" || session.status === "pending";
         return (
           <button
-            key={session.taskId}
+            key={session.executionId}
             type="button"
-            onClick={() => onOpenSession(session.taskId)}
+            onClick={() => onOpenSession(session.executionId)}
             className={cn(
               "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-[var(--bg-surface)]",
               isActive && "bg-[rgba(166,124,57,0.06)]"
@@ -133,15 +146,45 @@ export function AppShellSidebar({
 
   const workspace = useWorkspaceStore((state) => state.workspace);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
-  const workspacePanels = useFeaturePanelStore(
-    (state) => state.byWorkspace[workspaceId] ?? { activeSessionId: null, sessions: [] }
+  const executionSessions = useExecutionStore(
+    (state) => state.byWorkspace[workspaceId] ?? EMPTY_EXECUTION_SESSIONS
   );
-  const setActiveSession = useFeaturePanelStore((state) => state.setActiveSession);
-  const groupedSessions = groupFeaturePanelSessions(workspacePanels.sessions);
+  const activeExecutionId = useExecutionStore(
+    (state) => state.activeExecutionIdByWorkspace[workspaceId] ?? null
+  );
+  const dismissedExecutionIds = useExecutionStore(
+    (state) =>
+      state.dismissedExecutionIdsByWorkspace[workspaceId] ?? EMPTY_EXECUTION_IDS
+  );
+  const setActiveExecution = useExecutionStore((state) => state.setActiveExecution);
+  const getFeatureById = useFeaturesStore((state) => state.getFeatureById);
+  const visibleExecutions = useMemo(
+    () =>
+      executionSessions.filter(
+        (execution) => !dismissedExecutionIds.includes(execution.id)
+      ),
+    [dismissedExecutionIds, executionSessions]
+  );
+  const displaySessions = useMemo(
+    () =>
+      visibleExecutions.map((execution) =>
+        adaptExecutionToPanelSession(
+          execution,
+          getFeatureById(execution.feature_id)
+        )
+      ),
+    [getFeatureById, visibleExecutions]
+  );
+  const resolvedActiveSessionId =
+    activeExecutionId &&
+    displaySessions.some((session) => session.executionId === activeExecutionId)
+      ? activeExecutionId
+      : displaySessions[0]?.executionId ?? null;
+  const groupedSessions = groupExecutionSessions(displaySessions);
   const primarySession =
-    workspacePanels.activeSessionId
-      ? workspacePanels.sessions.find((session) => session.taskId === workspacePanels.activeSessionId) ?? workspacePanels.sessions[0]
-      : workspacePanels.sessions[0];
+    resolvedActiveSessionId
+      ? displaySessions.find((session) => session.executionId === resolvedActiveSessionId) ?? displaySessions[0]
+      : displaySessions[0];
 
   const isOnChat = pathname.startsWith(`/workspaces/${workspaceId}/chat`);
   const isOnDashboard = pathname === `/workspaces/${workspaceId}`;
@@ -158,8 +201,8 @@ export function AppShellSidebar({
 
   const goToDashboard = () => router.push(`/workspaces/${workspaceId}`);
   const goToChat = () => router.push(`/workspaces/${workspaceId}/chat`);
-  const handleOpenSession = (taskId: string) => {
-    setActiveSession(workspaceId, taskId);
+  const handleOpenSession = (executionId: string) => {
+    setActiveExecution(workspaceId, executionId);
     router.push(`/workspaces/${workspaceId}/chat`);
   };
 
@@ -245,24 +288,24 @@ export function AppShellSidebar({
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
           工作面
         </p>
-        {workspacePanels.sessions.length > 0 ? (
+        {displaySessions.length > 0 ? (
           <div className="mt-2.5 space-y-3">
             <SessionGroup
               title="进行中"
               sessions={groupedSessions.active}
-              activeSessionId={workspacePanels.activeSessionId}
+              activeSessionId={resolvedActiveSessionId}
               onOpenSession={handleOpenSession}
             />
             <SessionGroup
               title="最近完成"
               sessions={groupedSessions.recent}
-              activeSessionId={workspacePanels.activeSessionId}
+              activeSessionId={resolvedActiveSessionId}
               onOpenSession={handleOpenSession}
             />
             <SessionGroup
               title="更早记录"
               sessions={groupedSessions.completed}
-              activeSessionId={workspacePanels.activeSessionId}
+              activeSessionId={resolvedActiveSessionId}
               onOpenSession={handleOpenSession}
             />
           </div>

@@ -3,29 +3,32 @@
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
+
 # Import models to register them with Base.metadata
+from src.config import settings
 from src.database import Base
+from src.database.alembic_version_guard import ensure_alembic_version_column_width
 from src.database.models import (  # noqa: F401
-    User,
-    Workspace,
+    Artifact,
+    ExecutionSessionRecord,
+    GenerationRecord,
+    LatexCompileHistory,
     LatexProject,
     LatexTemplate,
-    LatexCompileHistory,
     Paper,
-    WorkspacePaper,
-    PaperExtraction,
     PaperChunk,
-    Artifact,
-    UserKnowledge,
-    GenerationRecord,
+    PaperExtraction,
     TaskRecord,
+    User,
+    UserKnowledge,
+    Workspace,
+    WorkspacePaper,
 )
-from src.config import settings
 
 # Alembic Config object
 config = context.config
@@ -69,6 +72,7 @@ def do_run_migrations(connection: Connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
+        ensure_alembic_version_column_width(connection)
         context.run_migrations()
 
 

@@ -110,8 +110,8 @@ class TestCreateDefaultSubagentGraph:
 
     def test_create_graph_with_llm_and_tools(self):
         """Should create graph with LLM and tools."""
-        from src.subagents.graph import create_default_subagent_graph
         from src.agents.lead_agent.dynamic_tools import DynamicToolNode
+        from src.subagents.graph import create_default_subagent_graph
 
         mock_llm = MagicMock(name="llm")
         mock_tools = [_make_test_tool("tool1"), _make_test_tool("tool2")]
@@ -198,6 +198,7 @@ class TestCreateDefaultSubagentGraph:
 def test_registry_evicts_oldest_entry_at_max_size():
     """Registry must evict the LRU (oldest) entry when max_size is reached."""
     from unittest.mock import MagicMock
+
     from src.subagents.graph import GraphTemplateRegistry
 
     registry = GraphTemplateRegistry(max_size=3)
@@ -218,6 +219,7 @@ def test_registry_evicts_oldest_entry_at_max_size():
 def test_registry_get_moves_entry_to_most_recent():
     """Accessing an entry must make it the most recently used (not evicted next)."""
     from unittest.mock import MagicMock
+
     from src.subagents.graph import GraphTemplateRegistry
 
     registry = GraphTemplateRegistry(max_size=2)

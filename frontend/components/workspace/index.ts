@@ -2,7 +2,6 @@
 
 export { AgentStatusBar } from "./AgentStatusBar";
 export { ArtifactLibrary } from "./ArtifactLibrary";
-export { CompileFeatureButton } from "./CompileFeatureButton";
 export { ImportLiteratureButton } from "./ImportLiteratureButton";
 export { PanelActionBar } from "./PanelActionBar";
 export { PanelSection } from "./PanelSection";

@@ -1,6 +1,6 @@
 # Workspace Execution Pipeline
 
-更新时间：2026-04-10
+更新时间：2026-04-15
 
 本文档描述 workspace 当前的执行主链，覆盖 chat、skills、features、tasks、subagents 和最终 writeback。
 
@@ -8,10 +8,19 @@
 
 ### 1.1 Chat 主入口
 
-- `POST /api/chat`
-- `POST /api/chat/stream`
+- `POST /api/threads/{thread_id}/runs/stream`
+- `POST /api/runs/stream`
+- `POST /api/threads/{thread_id}/runs/wait`
+- `POST /api/runs/wait`
 
-chat 是用户侧统一入口。若用户或 UI seed 触发 workspace 功能，lead-agent 会通过 `run_workspace_feature` 进入 feature 执行链。
+chat 统一通过 runs API 入口。若用户或 UI seed 触发 workspace 功能，lead-agent 会通过 `run_workspace_feature` 进入 feature 执行链。
+
+补充（2026-04-15）：
+
+- run 元数据通过 Redis 持久化（`runtime:runs:*`），网关重启后可恢复最近 run 记录；
+- run 流事件通过 Redis Stream（`runtime:runs:stream:{run_id}`）支持 `Last-Event-ID` 回放；
+- 网关启动会自动水合最近 run，并把重启前 `pending/running` run 标记为 `interrupted`。
+- runs 主执行固定在 worker 内通过 `src.task.tasks.execute_run` 执行（`CELERY_ENABLED=true` 且 `REDIS_ENABLED=true` 为硬前置条件），gateway 仅负责 run 创建、SSE 汇聚与状态查询。
 
 ### 1.2 Feature 显式入口
 
@@ -19,20 +28,27 @@ chat 是用户侧统一入口。若用户或 UI seed 触发 workspace 功能，l
 
 这是所有 workspace feature 的 canonical 执行入口。任何新增功能都应接入这条链，而不是额外发明平行执行面。
 
+### 1.3 Domain Ingress（单领域入口）
+
+- `FeatureIngressService.launch(...)`
+- `FeatureIngressService.launch(..., execution_session_id=...)`（resume）
+
+chat / panel / tool / automation 可以有多入口 adapter，但必须统一调用 domain ingress，不允许绕过。
+
 ## 2. Chat -> Feature 协作链
 
-1. Chat router 接收消息，解析 thread/workspace/user 运行时上下文。
-2. `ChatTurnHandler` 调用 lead-agent。
+1. Runs router 接收消息，解析 thread/workspace/user 运行时上下文。
+2. `ThreadTurnHandler` 调用 lead-agent。
 3. lead-agent 根据用户消息、当前 thread、selected skill、workspace context 决定：
    - 直接回答
    - 或调用 `run_workspace_feature`
 4. `run_workspace_feature` 只接受业务参数与 `skill_id`，运行时 ids 由上下文自动注入。
-5. tool bridge 进入 `FeatureExecutionHandler.execute(...)`。
+5. `run_workspace_feature` 工具适配器进入 `execute_workspace_feature_request(...)`（`application/services/thread_feature_service.py`），再由该适配器调用 `FeatureIngressService.launch(...)` 与 `FeatureExecutionHandler.execute(...)`。
 
 约束：
 
 - skill 只作为 feature 入口语义，不再是独立执行框架。
-- `run_workspace_feature` 是 chat 到 feature 的唯一显式执行入口。
+- chat 直连路由、tool、panel 入口都只能通过 `FeatureIngressService` 发起 feature 执行。
 - feature 所需业务输入统一放在 `params`，不再平铺到顶层形成双事实源。
 
 ## 3. Feature Execution Chain
@@ -45,13 +61,18 @@ chat 是用户侧统一入口。若用户或 UI seed 触发 workspace 功能，l
    - 生成 canonical task payload
    - 提交给 `TaskService`
 3. Celery worker 拉取任务并交给 `task/handlers/workspace_feature_handler.py`
-4. handler 调用 `workspace_lead_agent.execute_feature_graph(...)`
+4. handler 调用专职 `FeatureLeaderRuntime.execute_feature(...)`
 5. feature graph 协调 service 层、subagents、LaTeX sync、runtime blocks
 6. 结果统一写回：
    - task status / result
    - artifacts
    - workspace activities
    - thread/task/subagent status events
+
+补充：
+
+- 若 feature 缺少关键上下文，ingress 会将 execution session 状态置为 `awaiting_user_input`，并返回结构化追问。
+- chat 下一轮回复携带 `metadata.orchestration.execution_session_id` 后进入 resume，同一 execution session 继续执行。
 
 ## 4. Feature Graph 和 Service 边界
 
@@ -77,6 +98,14 @@ chat 是用户侧统一入口。若用户或 UI seed 触发 workspace 功能，l
 
 - graph 保持轻量，不吸收大块 LLM 业务逻辑
 - service 统一通过共享 JSON helper 约束结构化生成
+
+### Feature Leader Runtime（专职）
+
+- 位置：`backend/src/agents/feature_leader/runtime.py`
+- 负责：
+  - feature 域执行入口封装（与 chat 主链路解耦）
+  - 调度 `workspace_lead_agent` graph registry
+  - 为 task handler 提供稳定调用面
 
 ## 5. Registry Is Source of Truth
 
@@ -129,14 +158,20 @@ workspace feature 结果的关键字段：
 
 ## 8. Key Files
 
-- `backend/src/gateway/routers/chat.py`
-- `backend/src/application/handlers/chat_turn_handler.py`
+- `backend/src/gateway/routers/threads.py`
+- `backend/src/runtime/runs/manager.py`
+- `backend/src/runtime/stream_bridge/redis.py`
+- `backend/src/application/handlers/thread_turn_handler.py`
 - `backend/src/tools/builtins/workspace.py`
+- `backend/src/application/services/thread_feature_service.py`
+- `backend/src/agents/lead_agent/thread_feature_cards.py`
+- `backend/src/agents/lead_agent/thread_feature_catalog.py`
 - `backend/src/application/handlers/feature_execution_handler.py`
 - `backend/src/task/handlers/workspace_feature_handler.py`
+- `backend/src/agents/feature_leader/runtime.py`
 - `backend/src/agents/workspace_lead_agent.py`
 - `backend/src/workspace_features/registry.py`
 - `backend/src/subagents/context_snapshot.py`
-- `frontend/lib/workspace-chat-entry.ts`
+- `frontend/lib/workspace-thread-entry.ts`
 - `frontend/lib/workspace-feature-routes.ts`
-- `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
+- `frontend/app/(workbench)/workspaces/[id]/components/ThreadPanel.tsx`

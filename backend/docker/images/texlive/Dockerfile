@@ -1,7 +1,7 @@
 # TeXLive Docker image for LaTeX compilation
 # Used by Wenjin (问津) execution service for compiling academic papers
 
-ARG BASE_IMAGE=docker.m.daocloud.io/library/ubuntu:22.04
+ARG BASE_IMAGE=ubuntu:22.04
 FROM ${BASE_IMAGE}
 
 LABEL maintainer="Wenjin Team"

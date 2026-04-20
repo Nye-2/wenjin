@@ -7,13 +7,13 @@ Write strategy (Phase 3 optimization):
 - fail(): Redis + Pub/Sub only (mark_task_completed handles DB)
 """
 
-import json
 import logging
 from contextvars import ContextVar, Token
 from datetime import UTC, datetime
 from typing import Any
 
 from src.config.task_config import task_settings
+from src.runtime.serialization import dumps_json, serialize_lc_object
 from src.services.workspace_activity_contracts import (
     build_task_activity_item,
     serialize_activity_item,
@@ -47,6 +47,7 @@ class ProgressTracker:
         *,
         workspace_id: str | None = None,
         thread_id: str | None = None,
+        execution_session_id: str | None = None,
         task_type: str | None = None,
         feature_id: str | None = None,
     ) -> None:
@@ -54,6 +55,7 @@ class ProgressTracker:
         self._task_id = task_id
         self._workspace_id = workspace_id
         self._thread_id = thread_id
+        self._execution_session_id = execution_session_id
         self._task_type = task_type
         self._feature_id = feature_id
 
@@ -117,7 +119,7 @@ class ProgressTracker:
             "updated_at": ts,
         }
         if metadata is not None:
-            data["metadata"] = json.dumps(metadata, ensure_ascii=False)
+            data["metadata"] = dumps_json(metadata, ensure_ascii=False)
         await self._redis.client.hset(key, mapping=data)
         await self._redis.client.expire(key, task_settings.task_redis_ttl)
 
@@ -139,10 +141,10 @@ class ProgressTracker:
             "progress": progress,
             "message": message,
             "current_step": current_step,
-            "metadata": metadata,
+            "metadata": serialize_lc_object(metadata),
             "timestamp": ts,
         }
-        event_data = json.dumps(event_payload)
+        event_data = dumps_json(event_payload)
         await self._redis.client.publish(self._channel_name(), event_data)
 
         if self._workspace_id and status == TaskStatus.RUNNING.value:
@@ -153,8 +155,9 @@ class ProgressTracker:
                 "task.updated",
                 {
                     "task": {
-                        "task_id": self._task_id,
-                        "task_type": self._task_type,
+                    "task_id": self._task_id,
+                    "execution_session_id": self._execution_session_id,
+                    "task_type": self._task_type,
                         "status": status,
                         "progress": progress,
                         "message": message,

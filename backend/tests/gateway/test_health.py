@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -181,3 +182,90 @@ async def test_check_mcp_is_unhealthy_in_strict_readiness_mode(monkeypatch):
 
     assert report["status"] == "unhealthy"
     assert report["errors"] == {"remote": "connection refused"}
+
+
+@pytest.mark.asyncio
+async def test_build_readiness_report_marks_dependency_unhealthy_on_timeout(monkeypatch):
+    async def _slow_check():
+        await asyncio.sleep(5)
+        return {"status": "healthy"}
+
+    monkeypatch.setattr(health_module, "check_database", _slow_check)
+    monkeypatch.setattr(
+        health_module,
+        "check_redis",
+        AsyncMock(return_value={"status": "healthy"}),
+    )
+    monkeypatch.setattr(
+        health_module,
+        "check_task_backend",
+        AsyncMock(return_value={"status": "healthy"}),
+    )
+    monkeypatch.setattr(
+        health_module,
+        "check_mcp",
+        AsyncMock(return_value={"status": "healthy"}),
+    )
+    monkeypatch.setattr(
+        health_module,
+        "check_execution",
+        AsyncMock(return_value={"status": "healthy"}),
+    )
+
+    report = await health_module.build_readiness_report()
+
+    assert report["status"] == "unhealthy"
+    assert report["checks"]["database"]["status"] == "unhealthy"
+    assert "timeout" in report["checks"]["database"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_check_task_backend_falls_back_to_worker_metrics(monkeypatch):
+    class _Inspect:
+        def ping(self):
+            return None
+
+    class _Control:
+        def inspect(self, timeout=1.5):  # noqa: ARG002
+            return _Inspect()
+
+    monkeypatch.setattr(health_module.celery_settings, "enabled", True)
+    monkeypatch.setattr(health_module.celery_app, "control", _Control())
+    monkeypatch.setattr(
+        health_module,
+        "_check_worker_metrics_endpoint",
+        AsyncMock(return_value=(True, None)),
+    )
+
+    report = await health_module.check_task_backend()
+
+    assert report["status"] == "healthy"
+    assert report["mode"] == "celery"
+    assert report["probe"] == "worker_metrics"
+    assert "warning" in report
+
+
+@pytest.mark.asyncio
+async def test_check_task_backend_unhealthy_when_inspect_and_metrics_fail(monkeypatch):
+    class _Inspect:
+        def ping(self):
+            return None
+
+    class _Control:
+        def inspect(self, timeout=1.5):  # noqa: ARG002
+            return _Inspect()
+
+    monkeypatch.setattr(health_module.celery_settings, "enabled", True)
+    monkeypatch.setattr(health_module.celery_app, "control", _Control())
+    monkeypatch.setattr(
+        health_module,
+        "_check_worker_metrics_endpoint",
+        AsyncMock(return_value=(False, "connection refused")),
+    )
+
+    report = await health_module.check_task_backend()
+
+    assert report["status"] == "unhealthy"
+    assert report["mode"] == "celery"
+    assert report["inspect_error"] == "No Celery workers responded to ping"
+    assert report["metrics_error"] == "connection refused"

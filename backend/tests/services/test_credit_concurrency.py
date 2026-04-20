@@ -1,6 +1,6 @@
 """Structural tests verifying billing concurrency safety.
 
-These tests ensure that ``CreditService.can_start_chat_turn`` acquires a
+These tests ensure that ``CreditService.can_start_thread_turn`` acquires a
 row-level lock (``SELECT ... FOR UPDATE``) on the user row when it needs to
 check the credit balance.  Without the lock two concurrent requests could both
 pass the budget gate before either deducts credits.
@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast
 import inspect
 import textwrap
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -95,11 +95,11 @@ async def _create_chat_transaction(
 ) -> CreditTransaction:
     tx = CreditTransaction(
         user_id=user_id,
-        transaction_type=CreditTransactionType.CHAT_TOKEN_CONSUME,
+        transaction_type=CreditTransactionType.THREAD_TOKEN_CONSUME,
         amount=amount,
         balance_after=balance_after,
         description="seed chat tx",
-        feature_id="chat",
+        feature_id="thread",
         tx_metadata={"token_usage": {"total_tokens": total_tokens}},
     )
     db_session.add(tx)
@@ -109,16 +109,16 @@ async def _create_chat_transaction(
 
 
 # ---------------------------------------------------------------------------
-# 1. Source-level structural test: can_start_chat_turn calls
+# 1. Source-level structural test: can_start_thread_turn calls
 #    _get_user_for_update (which issues SELECT … FOR UPDATE)
 # ---------------------------------------------------------------------------
 
 class TestCanStartChatTurnUsesRowLocking:
-    """Verify that can_start_chat_turn acquires a row-level lock."""
+    """Verify that can_start_thread_turn acquires a row-level lock."""
 
     def test_source_calls_get_user_for_update(self) -> None:
-        """The AST of can_start_chat_turn must contain a call to _get_user_for_update."""
-        source = textwrap.dedent(inspect.getsource(CreditService.can_start_chat_turn))
+        """The AST of can_start_thread_turn must contain a call to _get_user_for_update."""
+        source = textwrap.dedent(inspect.getsource(CreditService.can_start_thread_turn))
         tree = ast.parse(source)
 
         calls: list[str] = []
@@ -127,7 +127,7 @@ class TestCanStartChatTurnUsesRowLocking:
                 calls.append(node.attr)
 
         assert "_get_user_for_update" in calls, (
-            "can_start_chat_turn must call _get_user_for_update to acquire "
+            "can_start_thread_turn must call _get_user_for_update to acquire "
             "a row-level lock (SELECT … FOR UPDATE) on the user row."
         )
 
@@ -138,11 +138,11 @@ class TestCanStartChatTurnUsesRowLocking:
             "_get_user_for_update must use .with_for_update() in its SELECT."
         )
 
-    def test_can_start_chat_turn_does_not_use_plain_get_balance(self) -> None:
-        """can_start_chat_turn must NOT fall back to the non-locking get_balance."""
-        source = textwrap.dedent(inspect.getsource(CreditService.can_start_chat_turn))
+    def test_can_start_thread_turn_does_not_use_plain_get_balance(self) -> None:
+        """can_start_thread_turn must NOT fall back to the non-locking get_balance."""
+        source = textwrap.dedent(inspect.getsource(CreditService.can_start_thread_turn))
         assert "get_balance" not in source, (
-            "can_start_chat_turn should use _get_user_for_update (locking) "
+            "can_start_thread_turn should use _get_user_for_update (locking) "
             "instead of the plain get_balance (non-locking)."
         )
 
@@ -153,11 +153,11 @@ class TestCanStartChatTurnUsesRowLocking:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_can_start_chat_turn_invokes_locking_query_at_runtime(
+async def test_can_start_thread_turn_invokes_locking_query_at_runtime(
     db_session: AsyncSession,
     credit_service: CreditService,
 ) -> None:
-    """When free tokens are exhausted, can_start_chat_turn must invoke
+    """When free tokens are exhausted, can_start_thread_turn must invoke
     _get_user_for_update to lock the user row before reading the balance."""
     await _create_user(db_session, credits=5)
     # Exhaust free quota so the balance path is reached.
@@ -174,14 +174,14 @@ async def test_can_start_chat_turn_invokes_locking_query_at_runtime(
         "_get_user_for_update",
         wraps=credit_service._get_user_for_update,
     ) as spy:
-        result = await credit_service.can_start_chat_turn("user-1")
+        result = await credit_service.can_start_thread_turn("user-1")
 
     assert result is True, "User with positive balance should be allowed."
     spy.assert_called_once_with("user-1")
 
 
 @pytest.mark.asyncio
-async def test_can_start_chat_turn_does_not_lock_when_under_free_quota(
+async def test_can_start_thread_turn_does_not_lock_when_under_free_quota(
     db_session: AsyncSession,
     credit_service: CreditService,
 ) -> None:
@@ -201,14 +201,14 @@ async def test_can_start_chat_turn_does_not_lock_when_under_free_quota(
         "_get_user_for_update",
         wraps=credit_service._get_user_for_update,
     ) as spy:
-        result = await credit_service.can_start_chat_turn("user-1")
+        result = await credit_service.can_start_thread_turn("user-1")
 
     assert result is True, "User under free quota should be allowed."
     spy.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_can_start_chat_turn_blocks_zero_balance_with_locking(
+async def test_can_start_thread_turn_blocks_zero_balance_with_locking(
     db_session: AsyncSession,
     credit_service: CreditService,
 ) -> None:
@@ -228,7 +228,7 @@ async def test_can_start_chat_turn_blocks_zero_balance_with_locking(
         "_get_user_for_update",
         wraps=credit_service._get_user_for_update,
     ) as spy:
-        result = await credit_service.can_start_chat_turn("user-1")
+        result = await credit_service.can_start_thread_turn("user-1")
 
     assert result is False, "User with 0 balance after free quota should be blocked."
     spy.assert_called_once_with("user-1")

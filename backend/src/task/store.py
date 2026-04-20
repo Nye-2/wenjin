@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.task_config import task_settings
 from src.database.models.task import TaskRecord
+from src.runtime.serialization import dumps_json
+from src.services.execution_session_service import ExecutionSessionService
 from src.services.workspace_activity_contracts import (
     build_task_activity_item,
     serialize_activity_item,
@@ -28,6 +30,11 @@ class TaskStore:
     def __init__(self, redis_client: Any, db_session: AsyncSession) -> None:
         self._redis = redis_client
         self._db = db_session
+
+    @property
+    def db(self) -> AsyncSession:
+        """Expose the backing DB session for higher-level orchestration hooks."""
+        return self._db
 
     def _record_model(self) -> type[TaskRecord]:
         """Return the SQLAlchemy model used for task persistence."""
@@ -66,7 +73,7 @@ class TaskStore:
             "updated_at": datetime.now(UTC).isoformat(),
         }
         if metadata is not None:
-            data["metadata"] = json.dumps(metadata, ensure_ascii=False)
+            data["metadata"] = dumps_json(metadata, ensure_ascii=False)
         await self._redis.client.hset(key, mapping=data)
         await self._redis.client.expire(key, task_settings.task_redis_ttl)
 
@@ -122,6 +129,7 @@ class TaskStore:
             workspace_id=_payload.get("workspace_id") or _params.get("workspace_id"),
             feature_id=_payload.get("feature_id"),
             thread_id=_payload.get("thread_id"),
+            execution_session_id=_payload.get("execution_session_id"),
             action=_payload.get("action") or _params.get("action"),
         )
         self._db.add(record)
@@ -179,6 +187,7 @@ class TaskStore:
                 workspace_id=_payload.get("workspace_id") or _params.get("workspace_id"),
                 feature_id=_payload.get("feature_id"),
                 thread_id=_payload.get("thread_id"),
+                execution_session_id=_payload.get("execution_session_id"),
                 action=_payload.get("action") or _params.get("action"),
             )
             self._db.add(record)
@@ -216,7 +225,7 @@ class TaskStore:
     async def list_user_tasks(
         self,
         user_id: str,
-        status: str | None = None,
+        status: str | list[str] | tuple[str, ...] | None = None,
         task_type: str | None = None,
         limit: int = 20,
         workspace_id: str | None = None,
@@ -227,8 +236,18 @@ class TaskStore:
         record_model = self._record_model()
         query = select(record_model).where(record_model.user_id == user_id)
 
-        if status:
-            query = query.where(record_model.status == status)
+        if isinstance(status, str):
+            normalized_status = status.strip()
+            if normalized_status:
+                query = query.where(record_model.status == normalized_status)
+        elif isinstance(status, (list, tuple)):
+            normalized_statuses = [
+                str(item).strip()
+                for item in status
+                if isinstance(item, str) and str(item).strip()
+            ]
+            if normalized_statuses:
+                query = query.where(record_model.status.in_(normalized_statuses))
         if task_type:
             query = query.where(record_model.task_type == task_type)
         if workspace_id is not None:
@@ -266,6 +285,17 @@ class TaskStore:
             started_at=started_at,
         )
         await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
+        if record and record.execution_session_id:
+            await ExecutionSessionService(self._db).update_session(
+                record.execution_session_id,
+                status=TaskStatus.RUNNING.value,
+                started_at=started_at,
+                primary_task_id=record.id,
+                append_task_id=record.id,
+                next_actions=[],
+                advisory_code=None,
+                last_error=None,
+            )
         payload = record.payload if record and isinstance(record.payload, dict) else {}
         workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
         if workspace_id:
@@ -275,6 +305,7 @@ class TaskStore:
                 {
                     "task": {
                         "task_id": task_id,
+                        "execution_session_id": record.execution_session_id if record else None,
                         "task_type": record.task_type if record else None,
                         "status": TaskStatus.RUNNING.value,
                         "progress": record.progress if record else 0,
@@ -308,7 +339,14 @@ class TaskStore:
             runtime_candidate = metadata.get("runtime")
             if isinstance(runtime_candidate, dict):
                 runtime_state = runtime_candidate
-        await self.update_task_record(task_id, runtime_state=runtime_state)
+        record = await self.update_task_record(task_id, runtime_state=runtime_state)
+        if record and record.execution_session_id and runtime_state is not None:
+            await ExecutionSessionService(self._db).update_session(
+                record.execution_session_id,
+                status=record.status,
+                runtime_snapshot=runtime_state,
+                started_at=record.started_at,
+            )
 
     async def mark_task_completed(
         self,
@@ -347,6 +385,40 @@ class TaskStore:
         )
 
         payload = record.payload if record and isinstance(record.payload, dict) else {}
+        if record and record.execution_session_id:
+            result_summary = final_message if isinstance(final_message, str) and final_message else None
+            artifact_ids = []
+            next_actions = []
+            if isinstance(result, dict):
+                raw_artifact_ids = result.get("artifact_ids")
+                if isinstance(raw_artifact_ids, list):
+                    artifact_ids = [str(item) for item in raw_artifact_ids if str(item).strip()]
+                raw_next_actions = result.get("next_actions")
+                if isinstance(raw_next_actions, list):
+                    next_actions = [item for item in raw_next_actions if isinstance(item, dict)]
+                if result_summary is None:
+                    raw_summary = result.get("summary")
+                    if isinstance(raw_summary, str) and raw_summary.strip():
+                        result_summary = raw_summary.strip()
+
+            await ExecutionSessionService(self._db).update_session(
+                record.execution_session_id,
+                status="completed" if success else "failed",
+                runtime_snapshot=(
+                    runtime_state.get("metadata", {}).get("runtime")
+                    if runtime_state and isinstance(runtime_state.get("metadata"), dict)
+                    else None
+                ),
+                result_summary=result_summary,
+                artifact_ids=artifact_ids,
+                next_actions=next_actions,
+                advisory_code=None,
+                last_error=error,
+                started_at=record.started_at,
+                completed_at=completed_at,
+                primary_task_id=record.id,
+                append_task_id=record.id,
+            )
         workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
         if workspace_id:
             await publish_workspace_event(
@@ -355,6 +427,7 @@ class TaskStore:
                 {
                     "task": {
                         "task_id": task_id,
+                        "execution_session_id": record.execution_session_id if record else None,
                         "task_type": record.task_type if record else None,
                         "status": status,
                         "progress": final_progress,

@@ -36,6 +36,7 @@ celery_app.conf.update(
     # Task routing - route based on task type
     task_routes={
         "src.task.tasks.execute_task": {"queue": "default"},
+        "src.task.tasks.execute_run": {"queue": "long_running"},
     },
 
     # Queue definitions

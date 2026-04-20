@@ -63,6 +63,36 @@ class RedisSettings(BaseSettings):
     enabled: bool = Field(default=False, description="Enable Redis")
     url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
     max_connections: int = Field(default=20, ge=1, le=100, description="Max connection pool size")
+    stream_max_connections: int = Field(
+        default=100,
+        ge=1,
+        le=500,
+        description="Dedicated max connection pool size for SSE/pubsub streams",
+    )
+    socket_timeout_seconds: float = Field(
+        default=2.0,
+        ge=0.1,
+        le=30.0,
+        description="Redis socket read/write timeout in seconds",
+    )
+    stream_socket_timeout_seconds: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=120.0,
+        description="Redis stream/pubsub socket read timeout in seconds",
+    )
+    socket_connect_timeout_seconds: float = Field(
+        default=2.0,
+        ge=0.1,
+        le=30.0,
+        description="Redis socket connect timeout in seconds",
+    )
+    rate_limit_redis_timeout_seconds: float = Field(
+        default=0.25,
+        ge=0.05,
+        le=5.0,
+        description="Rate-limit middleware Redis operation timeout in seconds",
+    )
 
     # Cache TTL (seconds)
     llm_cache_ttl: int = Field(default=3600, ge=60, description="LLM response cache TTL")
@@ -84,6 +114,10 @@ class CelerySettings(BaseSettings):
     broker_url: str = Field(default="redis://localhost:6379/1", description="Celery broker URL")
     result_backend: str = Field(default="redis://localhost:6379/2", description="Celery result backend URL")
     worker_concurrency: int = Field(default=2, ge=1, le=16, description="Worker concurrency")
+    worker_pool: str = Field(
+        default="solo",
+        description="Celery worker pool implementation (solo or prefork)",
+    )
     task_soft_time_limit: int = Field(default=600, ge=60, description="Soft time limit (triggers exception)")
     task_time_limit: int = Field(default=900, ge=60, description="Hard time limit (force terminate)")
 
@@ -200,6 +234,53 @@ class AppConfig(BaseSettings):
     host: str = Field(default="0.0.0.0", description="Server host")
     port: int = Field(default=8000, ge=1, le=65535, description="Server port")
     log_level: str = Field(default="INFO", description="Logging level")
+    gateway_event_loop_watchdog_enabled: bool = Field(
+        default=True,
+        alias="GATEWAY_EVENT_LOOP_WATCHDOG_ENABLED",
+        description="Enable event loop lag watchdog for gateway self-healing",
+    )
+    gateway_event_loop_watchdog_interval_seconds: float = Field(
+        default=2.0,
+        alias="GATEWAY_EVENT_LOOP_WATCHDOG_INTERVAL_SECONDS",
+        ge=0.5,
+        le=30.0,
+        description="Watchdog sampling interval in seconds",
+    )
+    gateway_event_loop_watchdog_lag_threshold_seconds: float = Field(
+        default=20.0,
+        alias="GATEWAY_EVENT_LOOP_WATCHDOG_LAG_THRESHOLD_SECONDS",
+        ge=1.0,
+        le=300.0,
+        description="Lag threshold for considering the event loop blocked",
+    )
+    gateway_event_loop_watchdog_max_breaches: int = Field(
+        default=2,
+        alias="GATEWAY_EVENT_LOOP_WATCHDOG_MAX_BREACHES",
+        ge=1,
+        le=20,
+        description="Consecutive lag breaches before forcing process exit",
+    )
+    runtime_run_recovery_limit: int = Field(
+        default=300,
+        alias="RUNTIME_RUN_RECOVERY_LIMIT",
+        ge=10,
+        le=5000,
+        description="Maximum recent runs hydrated from Redis on gateway startup",
+    )
+    runtime_run_ttl_seconds: int = Field(
+        default=86400,
+        alias="RUNTIME_RUN_TTL_SECONDS",
+        ge=300,
+        le=604800,
+        description="Run metadata retention in Redis (seconds)",
+    )
+    runtime_disconnect_cancel_grace_seconds: float = Field(
+        default=1.5,
+        alias="RUNTIME_DISCONNECT_CANCEL_GRACE_SECONDS",
+        ge=0.0,
+        le=30.0,
+        description="Grace delay before canceling a disconnected run stream",
+    )
     mcp_required_for_readiness: bool = Field(
         default=False,
         alias="MCP_REQUIRED_FOR_READINESS",

@@ -67,7 +67,7 @@ class TestCreateFirstVersion:
             MockArtifact.return_value = mock_instance
             MockType.side_effect = lambda v: v
 
-            result = await service.create(
+            await service.create(
                 workspace_id="ws-1",
                 type="research_idea",
                 content={"body": "test"},
@@ -110,7 +110,7 @@ class TestCreateAutoIncrementsVersion:
             MockArtifact.return_value = mock_instance
             MockType.side_effect = lambda v: v
 
-            result = await service.create(
+            await service.create(
                 workspace_id="ws-1",
                 type="research_idea",
                 content={"body": "test v4"},
@@ -191,7 +191,7 @@ class TestCreateRespectsExplicitParent:
             MockArtifact.return_value = mock_instance
             MockType.side_effect = lambda v: v
 
-            result = await service.create(
+            await service.create(
                 workspace_id="ws-1",
                 type="research_idea",
                 content={"body": "test"},
@@ -223,7 +223,7 @@ class TestCreateNoVersioningWithoutTitle:
             MockArtifact.return_value = mock_instance
             MockType.side_effect = lambda v: v
 
-            result = await service.create(
+            await service.create(
                 workspace_id="ws-1",
                 type="research_idea",
                 content={"body": "untitled artifact"},

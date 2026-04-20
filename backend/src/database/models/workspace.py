@@ -12,9 +12,9 @@ from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from .artifact import Artifact
-    from .chat_thread import ChatThread
     from .generation import GenerationRecord
     from .paper import Paper, PaperChunk, PaperSection, WorkspacePaper
+    from .thread import Thread
     from .user import User
 
 
@@ -96,8 +96,8 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         back_populates="workspace",
         cascade="all, delete-orphan",
     )
-    chat_threads: Mapped[list["ChatThread"]] = relationship(
-        "ChatThread",
+    threads: Mapped[list["Thread"]] = relationship(
+        "Thread",
         back_populates="workspace",
         passive_deletes=True,
     )

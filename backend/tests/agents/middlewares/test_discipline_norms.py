@@ -1,12 +1,11 @@
 """Tests for externalized discipline norms."""
 
-from pathlib import Path
 
 import yaml
 
 from src.agents.middlewares.discipline_context import (
-    DisciplineRegistry,
     DISCIPLINE_NORMS_PATH,
+    DisciplineRegistry,
 )
 
 

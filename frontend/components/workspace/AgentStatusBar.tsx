@@ -12,16 +12,19 @@ import {
   Loader2,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   cancelTask as cancelTaskRequest,
-  getThreadAgentStatus,
-  type ThreadAgentStatus,
+  getThreadState,
+  type ExecutionSession,
+  type PlatformThreadState,
+  type ThreadRuntimeStatus,
 } from "@/lib/api";
+import { buildExecutionCurrentTask } from "@/lib/execution-presenters";
 import { cn } from "@/lib/utils";
-import { useChatStore } from "@/stores/chat";
+import { useThreadStore } from "@/stores/thread";
+import { useExecutionStore } from "@/stores/execution";
 import { useFeaturesStore } from "@/stores/features";
-import { useTaskStore } from "@/stores/task";
 
 type StageStatus = "completed" | "running" | "pending";
 
@@ -87,26 +90,116 @@ function StageConnector({ isCompleted }: StageConnectorProps) {
 interface AgentStatusBarProps {
   workspaceId: string;
 }
+const EMPTY_EXECUTION_SESSIONS: ExecutionSession[] = [];
+
+function toThreadRuntimeStatus(
+  threadId: string,
+  state: PlatformThreadState
+): ThreadRuntimeStatus {
+  const metadata =
+    state && typeof state.metadata === "object" && state.metadata
+      ? state.metadata
+      : {};
+  const rawStatus =
+    typeof metadata.status === "string" ? metadata.status.trim() : "idle";
+  const activeTaskCount = Array.isArray(state.tasks) ? state.tasks.length : 0;
+
+  let status: ThreadRuntimeStatus["status"] = "idle";
+  if (activeTaskCount > 0 || rawStatus === "busy" || rawStatus === "running") {
+    status = "running";
+  } else if (
+    rawStatus === "failed" ||
+    rawStatus === "error" ||
+    rawStatus === "interrupted"
+  ) {
+    status = "failed";
+  } else if (rawStatus === "completed" || rawStatus === "success") {
+    status = "completed";
+  }
+
+  return {
+    thread_id: threadId,
+    status,
+    current_skill:
+      typeof metadata.skill === "string" ? metadata.skill : null,
+    current_skill_name:
+      typeof metadata.skill_name === "string" ? metadata.skill_name : null,
+    subagent_count: activeTaskCount,
+  };
+}
 
 export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
-  const taskState = useTaskStore((state) => state.getWorkspaceTaskState(workspaceId));
-  const cancelTask = useTaskStore((state) => state.cancelTask);
-  const clearCurrentTask = useTaskStore((state) => state.clearCurrentTask);
-  const clearRecentCompleted = useTaskStore((state) => state.clearRecentCompleted);
-  const { currentTask, recentCompleted } = taskState;
-  const {
-    threadId,
-    activeSkill,
-    isStreaming,
-    currentThreadSummary,
-    threadStatuses,
-    setThreadStatus,
-  } = useChatStore();
+  const threadId = useThreadStore((state) => state.threadId);
+  const activeSkill = useThreadStore((state) => state.activeSkill);
+  const isStreaming = useThreadStore((state) => state.isStreaming);
+  const currentThreadSummary = useThreadStore(
+    (state) => state.currentThreadSummary
+  );
+  const threadStatuses = useThreadStore((state) => state.threadStatuses);
+  const setThreadStatus = useThreadStore((state) => state.setThreadStatus);
+  const executionSessions = useExecutionStore(
+    (state) => state.byWorkspace[workspaceId] ?? EMPTY_EXECUTION_SESSIONS
+  );
   const getSkillById = useFeaturesStore((state) => state.getSkillById);
+  const getFeatureById = useFeaturesStore((state) => state.getFeatureById);
   const [isExpanded, setIsExpanded] = useState(true);
   const [isCancelling, setIsCancelling] = useState(false);
   const [taskActionError, setTaskActionError] = useState<string | null>(null);
-  const threadStatus: ThreadAgentStatus | null = threadId ? threadStatuses[threadId] ?? null : null;
+  const [dismissedFailureExecutionId, setDismissedFailureExecutionId] = useState<string | null>(null);
+  const [dismissedCompletedExecutionId, setDismissedCompletedExecutionId] = useState<string | null>(null);
+  const threadStatus: ThreadRuntimeStatus | null = threadId ? threadStatuses[threadId] ?? null : null;
+  const sortedExecutions = useMemo(
+    () =>
+      [...executionSessions].sort((left, right) =>
+        String(right.updated_at || right.created_at || "").localeCompare(
+          String(left.updated_at || left.created_at || "")
+        )
+      ),
+    [executionSessions]
+  );
+  const activeExecution =
+    sortedExecutions.find(
+      (execution) =>
+        execution.status === "running" ||
+        execution.status === "pending" ||
+        execution.status === "awaiting_user_input"
+    ) ?? null;
+  const latestFailedExecution =
+    sortedExecutions.find(
+      (execution) =>
+        execution.status === "failed" || execution.status === "advisory"
+    ) ?? null;
+  const latestCompletedExecution =
+    sortedExecutions.find((execution) => execution.status === "completed") ?? null;
+  const effectiveCurrentTask =
+    activeExecution
+      ? buildExecutionCurrentTask(
+          activeExecution,
+          getFeatureById(activeExecution.feature_id)
+        )
+      : latestFailedExecution &&
+          dismissedFailureExecutionId !== latestFailedExecution.id
+        ? buildExecutionCurrentTask(
+            latestFailedExecution,
+            getFeatureById(latestFailedExecution.feature_id)
+          )
+        : null;
+  const effectiveRecentCompleted =
+    latestCompletedExecution &&
+    dismissedCompletedExecutionId !== latestCompletedExecution.id &&
+    Date.now() -
+      new Date(
+        latestCompletedExecution.completed_at ||
+          latestCompletedExecution.updated_at ||
+          latestCompletedExecution.created_at ||
+          0
+      ).getTime() <
+      2 * 60 * 1000
+      ? buildExecutionCurrentTask(
+          latestCompletedExecution,
+          getFeatureById(latestCompletedExecution.feature_id)
+        )
+      : null;
 
   useEffect(() => {
     if (!threadId || threadStatus) {
@@ -117,9 +210,9 @@ export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
 
     const loadStatus = async () => {
       try {
-        const status = await getThreadAgentStatus(threadId);
+        const state = await getThreadState(threadId);
         if (!cancelled) {
-          setThreadStatus(status);
+          setThreadStatus(toThreadRuntimeStatus(threadId, state));
         }
       } catch {
         // Ignore transient load errors; live workspace events will retry naturally.
@@ -136,26 +229,34 @@ export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
   useEffect(() => {
     setTaskActionError(null);
     setIsCancelling(false);
-  }, [currentTask?.id, currentTask?.status]);
+  }, [effectiveCurrentTask?.id, effectiveCurrentTask?.status]);
+
+  useEffect(() => {
+    if (!latestFailedExecution || latestFailedExecution.id !== dismissedFailureExecutionId) {
+      setDismissedFailureExecutionId(null);
+    }
+  }, [latestFailedExecution, dismissedFailureExecutionId]);
+
+  useEffect(() => {
+    if (!latestCompletedExecution) {
+      setDismissedCompletedExecutionId(null);
+    }
+  }, [latestCompletedExecution]);
 
   const handleDismissFailedTask = () => {
     setTaskActionError(null);
-    clearCurrentTask(workspaceId);
+    setDismissedFailureExecutionId(latestFailedExecution?.id ?? null);
   };
 
   const handleCancelCurrentTask = async () => {
-    if (!currentTask || currentTask.status !== "running" || isCancelling) {
+    if (!effectiveCurrentTask || effectiveCurrentTask.status !== "running" || isCancelling) {
       return;
     }
 
     setTaskActionError(null);
     setIsCancelling(true);
     try {
-      await cancelTaskRequest(currentTask.id);
-      cancelTask({
-        workspaceId,
-        taskId: currentTask.id,
-      });
+      await cancelTaskRequest(effectiveCurrentTask.id);
     } catch (error) {
       setTaskActionError(
         error instanceof Error ? error.message : "取消任务失败，请稍后重试"
@@ -165,35 +266,8 @@ export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
     }
   };
 
-  // 完成状态提示
-  if (recentCompleted) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -10 }}
-        className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20"
-      >
-        <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center">
-          <Check className="w-4 h-4 text-white" />
-        </div>
-        <div className="flex-1">
-          <p className="text-sm font-medium text-emerald-700">任务完成</p>
-          <p className="text-xs text-emerald-600/70">{recentCompleted.agentLabel}</p>
-        </div>
-        <button
-          onClick={() => clearRecentCompleted(workspaceId)}
-          className="p-1.5 rounded-lg text-emerald-600/70 hover:text-emerald-600 hover:bg-emerald-500/10 transition-colors"
-          aria-label="关闭"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </motion.div>
-    );
-  }
-
-  if (currentTask?.status === "failed") {
-    const failureMessage = currentTask.thinking.replace(/^错误:\s*/, "").trim();
+  if (effectiveCurrentTask?.status === "failed") {
+    const failureMessage = effectiveCurrentTask.thinking.replace(/^错误:\s*/, "").trim();
     return (
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -207,7 +281,7 @@ export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-red-700">任务失败</p>
-            <p className="text-xs text-red-600/80">{currentTask.agentLabel}</p>
+            <p className="text-xs text-red-600/80">{effectiveCurrentTask.agentLabel}</p>
             <p className="mt-1 text-xs leading-5 text-red-700/90">
               {failureMessage || "任务执行失败，请稍后重试。"}
             </p>
@@ -224,8 +298,37 @@ export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
     );
   }
 
+  // 完成状态提示
+  if (effectiveRecentCompleted) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20"
+      >
+        <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center">
+          <Check className="w-4 h-4 text-white" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-emerald-700">任务完成</p>
+          <p className="text-xs text-emerald-600/70">{effectiveRecentCompleted.agentLabel}</p>
+        </div>
+        <button
+          onClick={() =>
+            setDismissedCompletedExecutionId(latestCompletedExecution?.id ?? null)
+          }
+          className="p-1.5 rounded-lg text-emerald-600/70 hover:text-emerald-600 hover:bg-emerald-500/10 transition-colors"
+          aria-label="关闭"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </motion.div>
+    );
+  }
+
   // 空闲状态
-  if (!currentTask) {
+  if (!effectiveCurrentTask) {
     const visibleThreadStatus = threadId ? threadStatus : null;
     const effectiveStatus =
       isStreaming
@@ -247,7 +350,7 @@ export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
           getSkillById(effectiveSkillId)?.name ||
           effectiveSkillId
         )
-      : "chat";
+      : "thread";
 
     return (
       <motion.div
@@ -286,7 +389,7 @@ export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
     );
   }
 
-  const { agentLabel, thinking, stages } = currentTask;
+  const { agentLabel, thinking, stages } = effectiveCurrentTask;
   const completedCount = stages.filter((s) => s.status === "completed").length;
   const progress = stages.length > 0 ? (completedCount / stages.length) * 100 : 0;
 

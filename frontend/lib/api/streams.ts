@@ -5,14 +5,51 @@ import {
   subscribeJsonEventStream,
 } from "@/lib/api/client";
 import type {
-  ChatMessage,
-  ChatRequest,
+  ThreadMessage,
+  RunRequest,
   TaskProgressEvent,
   WorkspaceEvent,
 } from "@/lib/api/types";
 
-export function streamChat(
-  data: ChatRequest,
+export function resolveThreadStreamUrl(data: RunRequest): string {
+  const threadId =
+    typeof data.thread_id === "string" ? data.thread_id.trim() : "";
+  if (threadId) {
+    return `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/stream`;
+  }
+  return `${API_BASE_URL}/runs/stream`;
+}
+
+function toRunStreamUrl(contentLocation: string): string {
+  const normalized = contentLocation.trim();
+  if (!normalized) {
+    return normalized;
+  }
+  if (normalized.endsWith("/stream")) {
+    return normalized;
+  }
+  return `${normalized.replace(/\/+$/, "")}/stream`;
+}
+
+function extractRunIdFromStreamUrl(url: string): string | null {
+  const normalized = url.trim();
+  if (!normalized) {
+    return null;
+  }
+  const withoutQuery = normalized.split("?")[0]?.split("#")[0] ?? normalized;
+  const match = withoutQuery.match(/\/runs\/([^/]+)\/stream\/?$/);
+  if (!match || !match[1]) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+export function streamThread(
+  data: RunRequest,
   onMessage: (content: string) => void,
   onReasoning?: (content: string) => void,
   onThreadId?: (context: {
@@ -20,118 +57,250 @@ export function streamChat(
     skill: string | null;
     skillName: string | null;
   }) => void,
-  onAssistantMessage?: (message: ChatMessage) => void,
+  onAssistantMessage?: (message: ThreadMessage) => void,
   onError?: (error: string) => void,
   onDone?: () => void
 ): () => void {
   const controller = new AbortController();
+  const requestPayload: RunRequest = {
+    on_disconnect: "continue",
+    multitask_strategy: "reject",
+    ...data,
+  };
+  const requestBody = JSON.stringify(requestPayload);
+  const initialUrl = resolveThreadStreamUrl(data);
+  const MAX_RECONNECT_ATTEMPTS = 3;
+  const BASE_RECONNECT_DELAY_MS = 400;
 
-  authorizedFetch(`${API_BASE_URL}/chat/stream`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-    signal: controller.signal,
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(await readErrorMessage(response));
-      }
+  let finished = false;
+  let failed = false;
+  let reconnectAttempts = 0;
+  let resumeUrl: string | null = null;
+  let lastEventId: string | null = null;
+  let activeRunId: string | null = null;
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("No reader available");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let finished = false;
-
-      const processLine = (line: string) => {
-        if (!line.startsWith("data: ")) {
-          return;
-        }
-
-        const payload = line.slice(6).trim();
-        if (!payload) {
-          return;
-        }
-
-        try {
-          const json = JSON.parse(payload);
-          switch (json.type) {
-            case "thread_id":
-              onThreadId?.({
-                threadId: json.thread_id,
-                skill: typeof json.skill === "string" ? json.skill : null,
-                skillName:
-                  typeof json.skill_name === "string" ? json.skill_name : null,
-              });
-              break;
-            case "content":
-              onMessage(json.content);
-              break;
-            case "reasoning":
-              onReasoning?.(json.content);
-              break;
-            case "assistant_message":
-              onAssistantMessage?.(json.message as ChatMessage);
-              break;
-            case "error":
-              onError?.(json.error);
-              break;
-            case "done":
-              if (!finished) {
-                finished = true;
-                onDone?.();
-              }
-              break;
-          }
-        } catch {
-          // Ignore malformed SSE payloads.
-        }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const rawLine of lines) {
-          processLine(rawLine.trim());
-        }
-      }
-
-      buffer += decoder.decode();
-      const remaining = buffer.trim();
-      if (remaining) {
-        for (const rawLine of remaining.split("\n")) {
-          processLine(rawLine.trim());
-        }
-      }
-
+  const processPayload = (payload: string, eventName: string | null) => {
+    if (eventName === "end") {
       if (!finished) {
+        finished = true;
         onDone?.();
       }
-    })
-    .catch((error: unknown) => {
-      const errorName =
-        error instanceof DOMException
-          ? error.name
-          : typeof error === "object" && error && "name" in error
-            ? String(error.name)
-            : "";
-      if (errorName !== "AbortError") {
-        onError?.(error instanceof Error ? error.message : "Unknown stream error");
+      return;
+    }
+
+    if (!payload) {
+      return;
+    }
+    try {
+      const json = JSON.parse(payload);
+      if (!activeRunId) {
+        if (
+          eventName === "metadata" &&
+          typeof json.run_id === "string" &&
+          json.run_id.trim()
+        ) {
+          activeRunId = json.run_id.trim();
+        } else if (
+          typeof json.run_id === "string" &&
+          json.run_id.trim()
+        ) {
+          activeRunId = json.run_id.trim();
+        }
+        if (activeRunId && !resumeUrl) {
+          resumeUrl = `${API_BASE_URL}/runs/${encodeURIComponent(activeRunId)}/stream`;
+        }
       }
+      switch (json.type) {
+        case "thread_id":
+          onThreadId?.({
+            threadId: json.thread_id,
+            skill: typeof json.skill === "string" ? json.skill : null,
+            skillName:
+              typeof json.skill_name === "string" ? json.skill_name : null,
+          });
+          break;
+        case "content":
+          onMessage(json.content);
+          break;
+        case "reasoning":
+          onReasoning?.(json.content);
+          break;
+        case "assistant_message":
+          onAssistantMessage?.(json.message as ThreadMessage);
+          break;
+        case "error":
+          onError?.(json.error);
+          break;
+        case "done":
+          if (!finished) {
+            finished = true;
+            onDone?.();
+          }
+          break;
+      }
+    } catch {
+      // Ignore malformed SSE payloads.
+    }
+  };
+
+  const consumeStream = async (response: Response) => {
+    const contentLocation = response.headers.get("Content-Location");
+    if (contentLocation && contentLocation.trim()) {
+      resumeUrl = toRunStreamUrl(contentLocation);
+      activeRunId = extractRunIdFromStreamUrl(resumeUrl);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("No reader available");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let frameData: string[] = [];
+    let frameId: string | null = null;
+    let frameEvent: string | null = null;
+
+    const flushFrame = () => {
+      if (!frameData.length) {
+        frameId = null;
+        frameEvent = null;
+        return;
+      }
+      if (frameId) {
+        lastEventId = frameId;
+      }
+      processPayload(frameData.join("\n"), frameEvent);
+      frameData = [];
+      frameId = null;
+      frameEvent = null;
+    };
+
+    const processRawLine = (rawLine: string) => {
+      const line = rawLine.replace(/\r$/, "");
+      if (!line) {
+        flushFrame();
+        return;
+      }
+      if (line.startsWith(":")) {
+        return;
+      }
+      if (line.startsWith("id:")) {
+        frameId = line.slice(3).trim() || null;
+        return;
+      }
+      if (line.startsWith("event:")) {
+        frameEvent = line.slice(6).trim() || null;
+        return;
+      }
+      if (line.startsWith("data:")) {
+        frameData.push(line.slice(5).trimStart());
+      }
+    };
+
+    while (!controller.signal.aborted) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const rawLine of lines) {
+        processRawLine(rawLine);
+      }
+    }
+
+    buffer += decoder.decode();
+    const trailingLines = buffer.split("\n");
+    for (const rawLine of trailingLines) {
+      processRawLine(rawLine);
+    }
+    flushFrame();
+  };
+
+  const openStream = async (url: string, init: RequestInit): Promise<void> => {
+    const response = await authorizedFetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+    await consumeStream(response);
+  };
+
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve) => {
+      globalThis.setTimeout(resolve, ms);
     });
 
-  return () => controller.abort();
+  void (async () => {
+    let requestUrl = initialUrl;
+    let requestInit: RequestInit = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: requestBody,
+    };
+
+    while (!controller.signal.aborted && !finished && !failed) {
+      try {
+        await openStream(requestUrl, requestInit);
+        if (controller.signal.aborted || finished) {
+          break;
+        }
+      } catch (error: unknown) {
+        const errorName =
+          error instanceof DOMException
+            ? error.name
+            : typeof error === "object" && error && "name" in error
+              ? String(error.name)
+              : "";
+        if (errorName === "AbortError" || controller.signal.aborted) {
+          break;
+        }
+      }
+
+      if (!resumeUrl || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        failed = true;
+        onError?.("Thread stream disconnected");
+        break;
+      }
+
+      reconnectAttempts += 1;
+      await sleep(BASE_RECONNECT_DELAY_MS * reconnectAttempts);
+      if (controller.signal.aborted || finished) {
+        break;
+      }
+      requestUrl = resumeUrl;
+      requestInit = {
+        method: "GET",
+        headers: lastEventId
+          ? {
+              "Last-Event-ID": lastEventId,
+            }
+          : undefined,
+      };
+    }
+
+    if (!finished && !failed && !controller.signal.aborted) {
+      onDone?.();
+    }
+  })();
+
+  return () => {
+    if (!controller.signal.aborted && !finished && activeRunId) {
+      void authorizedFetch(
+        `${API_BASE_URL}/runs/${encodeURIComponent(activeRunId)}/cancel?action=interrupt`,
+        { method: "POST", keepalive: true }
+      ).catch(() => {
+        // Best effort: UI abort should not fail if cancel request errors.
+      });
+    }
+    controller.abort();
+  };
 }
 
 export function subscribeWorkspaceEvents(

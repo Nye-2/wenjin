@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,6 +10,8 @@ import pytest
 from src.sandbox.providers.local import LocalSandboxProvider
 from src.tools.builtins.bash import bash_tool
 from src.tools.builtins.file_ops import (
+    glob_tool,
+    grep_tool,
     ls_tool,
     read_file_tool,
     str_replace_tool,
@@ -80,6 +83,56 @@ async def test_file_tools_use_thread_workspace(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_glob_and_grep_tools_use_thread_workspace(tmp_path):
+    provider = LocalSandboxProvider(base_dir=str(tmp_path))
+    sandbox = await provider.acquire("thread-1")
+    runtime_state = {"messages": []}
+    runtime_config = {"configurable": {"thread_id": "thread-1"}}
+
+    with patch(
+        "src.tools.builtins.file_ops.resolve_runtime_sandbox",
+        AsyncMock(return_value=sandbox),
+    ):
+        await write_file_tool.coroutine(
+            file_path="src/main.py",
+            content="def main():\n    return 42\n",
+            state=runtime_state,
+            config=runtime_config,
+        )
+        await write_file_tool.coroutine(
+            file_path="src/utils/helpers.py",
+            content="MAIN = 'value'\n",
+            state=runtime_state,
+            config=runtime_config,
+        )
+        await write_file_tool.coroutine(
+            file_path="README.md",
+            content="project main doc\n",
+            state=runtime_state,
+            config=runtime_config,
+        )
+
+        glob_result = await glob_tool.coroutine(
+            pattern="**/*.py",
+            path=".",
+            state=runtime_state,
+            config=runtime_config,
+        )
+        grep_result = await grep_tool.coroutine(
+            pattern="main",
+            path=".",
+            glob_pattern="**/*.py",
+            state=runtime_state,
+            config=runtime_config,
+        )
+
+    assert "/mnt/user-data/workspace/src/main.py" in glob_result
+    assert "/mnt/user-data/workspace/src/utils/helpers.py" in glob_result
+    assert "/mnt/user-data/workspace/src/main.py:1: def main():" in grep_result
+    assert "/mnt/user-data/workspace/src/utils/helpers.py:1: MAIN = 'value'" in grep_result
+
+
+@pytest.mark.asyncio
 async def test_bash_tool_executes_inside_thread_workspace(tmp_path):
     provider = LocalSandboxProvider(base_dir=str(tmp_path))
     sandbox = await provider.acquire("thread-1")
@@ -132,3 +185,70 @@ async def test_bash_tool_rejects_relative_escape_paths(tmp_path):
         )
 
     assert "outside sandbox" in result
+
+
+@pytest.mark.asyncio
+async def test_bash_tool_truncates_long_output(tmp_path, monkeypatch):
+    from src.config.llm_config import LLMSettings
+
+    provider = LocalSandboxProvider(base_dir=str(tmp_path))
+    sandbox = await provider.acquire("thread-1")
+    monkeypatch.setattr(LLMSettings, "TOOL_OUTPUT_MAX_CHARS", 64)
+
+    with patch(
+        "src.tools.builtins.bash.resolve_runtime_sandbox",
+        AsyncMock(return_value=sandbox),
+    ):
+        result = await bash_tool.coroutine(
+            command="i=0; while [ $i -lt 200 ]; do printf a; i=$((i+1)); done",
+            state={"messages": []},
+            config={"configurable": {"thread_id": "thread-1"}},
+        )
+
+    assert result.endswith("\n...[truncated]")
+    assert len(result) <= 64 + len("\n...[truncated]")
+
+
+@pytest.mark.asyncio
+async def test_write_file_tool_serializes_same_path_concurrency():
+    class _ConcurrencyCheckingSandbox:
+        def __init__(self) -> None:
+            self.sandbox_id = "thread-1"
+            self.active_writes = 0
+            self.overlap_detected = False
+            self.buffer = ""
+
+        async def write_file(self, path: str, content: str, append: bool = False) -> None:
+            self.active_writes += 1
+            if self.active_writes > 1:
+                self.overlap_detected = True
+            await asyncio.sleep(0.01)
+            if append:
+                self.buffer += content
+            else:
+                self.buffer = content
+            self.active_writes -= 1
+
+    sandbox = _ConcurrencyCheckingSandbox()
+    runtime_state = {"messages": []}
+    runtime_config = {"configurable": {"thread_id": "thread-1"}}
+
+    with patch(
+        "src.tools.builtins.file_ops.resolve_runtime_sandbox",
+        AsyncMock(return_value=sandbox),
+    ):
+        await asyncio.gather(
+            *(
+                write_file_tool.coroutine(
+                    file_path="same.txt",
+                    content=f"{idx},",
+                    mode="append",
+                    state=runtime_state,
+                    config=runtime_config,
+                )
+                for idx in range(12)
+            )
+        )
+
+    assert sandbox.overlap_detected is False
+    assert sandbox.buffer.count(",") == 12

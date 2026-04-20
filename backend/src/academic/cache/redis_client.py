@@ -22,6 +22,7 @@ class RedisClient:
         self.url = url or redis_settings.url
         self._settings = redis_settings
         self._client: Any | None = None
+        self._stream_client: Any | None = None
         self._owner_pid = os.getpid()
 
     def _build_client(self) -> Any:
@@ -30,6 +31,22 @@ class RedisClient:
             self.url,
             decode_responses=True,
             max_connections=self._settings.max_connections,
+            health_check_interval=30,
+            socket_keepalive=True,
+            socket_timeout=self._settings.socket_timeout_seconds,
+            socket_connect_timeout=self._settings.socket_connect_timeout_seconds,
+        )
+
+    def _build_stream_client(self) -> Any:
+        """Build a dedicated Redis client for pubsub/SSE traffic."""
+        return cast(Any, redis.from_url)(
+            self.url,
+            decode_responses=True,
+            max_connections=self._settings.stream_max_connections,
+            health_check_interval=30,
+            socket_keepalive=True,
+            socket_timeout=self._settings.stream_socket_timeout_seconds,
+            socket_connect_timeout=self._settings.socket_connect_timeout_seconds,
         )
 
     def _forked_from_owner(self) -> bool:
@@ -51,11 +68,27 @@ class RedisClient:
         else:
             await current_client.close()
 
+    async def reset_stream_client(self, *, close_current: bool = True) -> None:
+        """Reset the dedicated pubsub client for the current process."""
+        current_client = self._stream_client
+        self._stream_client = None
+        self._owner_pid = os.getpid()
+
+        if not close_current or current_client is None:
+            return
+
+        close_method = getattr(current_client, "aclose", None)
+        if callable(close_method):
+            await close_method()
+        else:
+            await current_client.close()
+
     async def connect(self) -> None:
         """Establish Redis connection."""
         if self._forked_from_owner():
             logger.info("Resetting Redis client after process fork")
             await self.reset_client(close_current=False)
+            await self.reset_stream_client(close_current=False)
 
         if self._client is None:
             self._client = self._build_client()
@@ -74,10 +107,36 @@ class RedisClient:
             await self.disconnect()
             raise
 
+    async def connect_stream(self) -> None:
+        """Establish the dedicated Redis stream/pubsub connection."""
+        if self._forked_from_owner():
+            logger.info("Resetting Redis stream client after process fork")
+            await self.reset_client(close_current=False)
+            await self.reset_stream_client(close_current=False)
+
+        if self._stream_client is None:
+            self._stream_client = self._build_stream_client()
+
+        try:
+            await self._stream_client.ping()
+        except RuntimeError as exc:
+            if "attached to a different loop" not in str(exc):
+                await self.reset_stream_client(close_current=True)
+                raise
+            logger.warning("Redis stream client loop affinity changed; rebuilding client")
+            await self.reset_stream_client(close_current=False)
+            self._stream_client = self._build_stream_client()
+            await self._stream_client.ping()
+        except Exception:
+            await self.reset_stream_client(close_current=True)
+            raise
+
     async def disconnect(self) -> None:
         """Close Redis connection."""
         if self._client:
             await self.reset_client(close_current=True)
+        if self._stream_client:
+            await self.reset_stream_client(close_current=True)
 
     async def ping(self) -> bool:
         """Check whether Redis is reachable."""
@@ -91,6 +150,19 @@ class RedisClient:
         if self._client is None:
             raise RuntimeError("Redis not connected. Call connect() first.")
         return self._client
+
+    @property
+    def stream_client(self) -> Any:
+        """Get the dedicated Redis client for pubsub/SSE traffic."""
+        if self._stream_client is None:
+            raise RuntimeError("Redis stream client not connected. Call connect_stream() first.")
+        return self._stream_client
+
+    async def create_pubsub(self) -> Any:
+        """Create a pubsub handle on the dedicated stream client."""
+        if self._stream_client is None:
+            await self.connect_stream()
+        return self.stream_client.pubsub()
 
     # Key formatters
     @staticmethod

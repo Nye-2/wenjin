@@ -30,7 +30,13 @@ FeatureExecutionOutcome = FeatureTaskSubmission | FeatureExecutionAdvisory
 
 
 @dataclass(frozen=True, slots=True)
-class ChatTurnAttachment:
+class FeatureLaunchResult:
+    execution_session_id: str
+    outcome: FeatureExecutionOutcome
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadTurnAttachment:
     name: str
     path: str
     kind: str = "transient"
@@ -43,7 +49,7 @@ class ChatTurnAttachment:
 
 
 @dataclass(frozen=True, slots=True)
-class ChatTurnRequest:
+class ThreadTurnRequest:
     message: str
     workspace_id: str | None = None
     thread_id: str | None = None
@@ -51,14 +57,14 @@ class ChatTurnRequest:
     skill: str | None = None
     thinking_enabled: bool = False
     reasoning_effort: str | None = None
-    attachments: tuple[ChatTurnAttachment, ...] = ()
+    attachments: tuple[ThreadTurnAttachment, ...] = ()
     metadata: dict[str, Any] | None = None
     skill_explicit: bool = False
 
 
 @dataclass(slots=True)
-class GeneratedChatReply:
-    """Internal reply container supporting structured chat cards."""
+class GeneratedThreadReply:
+    """Internal reply container supporting structured thread cards."""
 
     content: str
     blocks: list[dict[str, Any]] = field(default_factory=list)
@@ -66,16 +72,16 @@ class GeneratedChatReply:
 
 
 @dataclass(frozen=True, slots=True)
-class PreparedChatTurn:
-    request: ChatTurnRequest
+class PreparedThreadTurn:
+    request: ThreadTurnRequest
     thread: Any
 
 
 @dataclass(frozen=True, slots=True)
-class CompletedChatTurn:
+class CompletedThreadTurn:
     thread: Any
     assistant_message: dict[str, Any]
-    reply: GeneratedChatReply
+    reply: GeneratedThreadReply
 
 
 @dataclass(frozen=True, slots=True)

@@ -17,10 +17,10 @@ export const LazyKnowledgePanel = dynamic(
   }
 );
 
-// Lazy load ChatPanel
-export const LazyChatPanel = dynamic(
-  () => import('@/app/(workbench)/workspaces/[id]/components/ChatPanel').then(
-    (mod) => mod.ChatPanel
+// Lazy load ThreadPanel
+export const LazyThreadPanel = dynamic(
+  () => import('@/app/(workbench)/workspaces/[id]/components/ThreadPanel').then(
+    (mod) => mod.ThreadPanel
   ),
   {
     loading: () => (

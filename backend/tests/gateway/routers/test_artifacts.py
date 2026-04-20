@@ -22,7 +22,7 @@ from src.gateway.auth_dependencies import get_current_user_optional
 from src.gateway.routers import artifacts as artifacts_router
 from src.gateway.routers.artifacts import (
     get_artifact_service,
-    get_chat_thread_service,
+    get_thread_service,
     router,
 )
 from src.gateway.routers.auth import get_current_user
@@ -143,7 +143,7 @@ class MockArtifactService:
         return list(reversed(lineage))
 
 
-class MockChatThreadService:
+class MockThreadService:
     """Mock chat thread service for thread artifact file serving."""
 
     def __init__(self):
@@ -179,9 +179,9 @@ def mock_service():
 
 
 @pytest.fixture
-def mock_chat_thread_service():
+def mock_thread_service():
     """Create a mock chat thread service."""
-    return MockChatThreadService()
+    return MockThreadService()
 
 
 @pytest.fixture
@@ -200,7 +200,7 @@ def create_mock_user():
 
 
 @pytest.fixture
-def app(mock_service, mock_chat_thread_service, mock_workspace_service):
+def app(mock_service, mock_thread_service, mock_workspace_service):
     """Create FastAPI app with artifacts router."""
     app = FastAPI()
 
@@ -211,14 +211,14 @@ def app(mock_service, mock_chat_thread_service, mock_workspace_service):
     async def get_current_user_override():
         return create_mock_user()
 
-    async def get_chat_thread_service_override():
-        return mock_chat_thread_service
+    async def get_thread_service_override():
+        return mock_thread_service
 
     async def get_workspace_service_override():
         return mock_workspace_service
 
     app.dependency_overrides[get_artifact_service] = get_artifact_service_override
-    app.dependency_overrides[get_chat_thread_service] = get_chat_thread_service_override
+    app.dependency_overrides[get_thread_service] = get_thread_service_override
     app.dependency_overrides[artifacts_router.get_workspace_service] = (
         get_workspace_service_override
     )
@@ -257,6 +257,68 @@ class TestThreadArtifactFiles:
 
         assert response.status_code == 200
         assert response.text == "# Report"
+
+    def test_get_thread_artifact_downgrades_html_to_plain_text(
+        self,
+        client,
+        monkeypatch,
+        tmp_path,
+    ):
+        thread_root = tmp_path / "thread-1" / "user-data"
+        artifact_path = thread_root / "outputs" / "report.html"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text("<script>alert('xss')</script>", encoding="utf-8")
+
+        monkeypatch.setattr(
+            artifacts_router,
+            "get_thread_data_root",
+            lambda thread_id: thread_root,
+        )
+
+        response = client.get("/threads/thread-1/artifacts/mnt/user-data/outputs/report.html")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/plain")
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert "<script>alert('xss')</script>" in response.text
+
+    def test_get_thread_artifact_inline_response_avoids_eager_file_reads(
+        self,
+        client,
+        monkeypatch,
+        tmp_path,
+    ):
+        thread_root = tmp_path / "thread-1" / "user-data"
+        artifact_path = thread_root / "outputs" / "report.txt"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text("stream me", encoding="utf-8")
+
+        monkeypatch.setattr(
+            artifacts_router,
+            "get_thread_data_root",
+            lambda thread_id: thread_root,
+        )
+
+        original_read_bytes = artifacts_router.Path.read_bytes
+        original_read_text = artifacts_router.Path.read_text
+
+        def _guard_read_bytes(path_obj):
+            if path_obj == artifact_path:
+                raise AssertionError("inline artifact response should not call read_bytes")
+            return original_read_bytes(path_obj)
+
+        def _guard_read_text(path_obj, *args, **kwargs):
+            if path_obj == artifact_path:
+                raise AssertionError("inline artifact response should not call read_text")
+            return original_read_text(path_obj, *args, **kwargs)
+
+        monkeypatch.setattr(artifacts_router.Path, "read_bytes", _guard_read_bytes)
+        monkeypatch.setattr(artifacts_router.Path, "read_text", _guard_read_text)
+
+        response = client.get("/threads/thread-1/artifacts/mnt/user-data/outputs/report.txt")
+
+        assert response.status_code == 200
+        assert response.text == "stream me"
 
     def test_get_thread_artifact_rejects_paths_outside_virtual_root(self, client):
         response = client.get("/threads/thread-1/artifacts/etc/passwd")
@@ -373,6 +435,15 @@ class TestWorkspaceFiles:
 
         assert response.status_code == 200
         assert response.content == b"%PDF-1.4"
+
+    def test_sign_asset_url_rejects_absolute_urls(self, client):
+        response = client.post(
+            "/assets/sign",
+            json={"url": f"https://evil.example/workspaces/{WORKSPACE_ID}/files/papers/paper.pdf"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Asset url must be a relative API path"
 
 
 class TestCreateArtifact:

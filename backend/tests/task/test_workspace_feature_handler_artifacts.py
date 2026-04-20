@@ -51,13 +51,6 @@ ARTIFACT_COVERAGE_MATRIX: list[tuple[str, str, str, dict[str, object], str]] = [
         "系统架构图",
     ),
     (
-        "thesis",
-        "compile_export",
-        ArtifactType.PAPER_DRAFT.value,
-        {"compile_status": "success"},
-        "编译预检结果",
-    ),
-    (
         "sci",
         "literature_search",
         ArtifactType.LITERATURE_SEARCH_RESULTS.value,

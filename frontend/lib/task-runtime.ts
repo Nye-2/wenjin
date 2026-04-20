@@ -34,6 +34,7 @@ export interface TaskRuntimeActivityItem {
 export type TaskRuntimeBlock =
   | {
       id: string;
+      phase_id?: string;
       kind: "metrics";
       title: string;
       description?: string;
@@ -41,6 +42,7 @@ export type TaskRuntimeBlock =
     }
   | {
       id: string;
+      phase_id?: string;
       kind: "list";
       title: string;
       description?: string;
@@ -48,6 +50,7 @@ export type TaskRuntimeBlock =
     }
   | {
       id: string;
+      phase_id?: string;
       kind: "activity";
       title: string;
       description?: string;
@@ -55,6 +58,7 @@ export type TaskRuntimeBlock =
     }
   | {
       id: string;
+      phase_id?: string;
       kind: "text";
       title: string;
       description?: string;

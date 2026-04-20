@@ -116,6 +116,33 @@ class WorkspaceLatexProjectService:
         }
         conflicts.append(entry)
 
+    @staticmethod
+    def _default_template_for_workspace(workspace_type: str | None) -> str | None:
+        normalized = str(workspace_type or "").strip().lower()
+        return {
+            "thesis": "thesis_default",
+            "sci": "sci_default",
+            "proposal": "proposal_default",
+            "patent": "patent_default",
+            "software_copyright": "software_copyright_default",
+        }.get(normalized)
+
+    @staticmethod
+    def _build_seed_main_tex(project_name: str) -> str:
+        title = str(project_name or "Untitled Project").replace("{", "").replace("}", "")
+        return (
+            "\\documentclass[12pt]{ctexart}\n"
+            "\\usepackage[a4paper,margin=1in]{geometry}\n\n"
+            "\\title{" + title + "}\n"
+            "\\author{}\n"
+            "\\date{\\today}\n\n"
+            "\\begin{document}\n"
+            "\\maketitle\n"
+            "\\section{待补充内容}\n"
+            "该项目已与工作区建立连接，请在 WenjinPrism 中继续编辑。\n"
+            "\\end{document}\n"
+        )
+
     async def _safe_bridge_write(
         self,
         project: LatexProject,
@@ -259,11 +286,53 @@ class WorkspaceLatexProjectService:
         )
         return linked_project
 
+    async def ensure_workspace_project(
+        self,
+        *,
+        workspace_id: str,
+        project_name: str | None = None,
+        template: str | None = None,
+    ) -> LatexProject:
+        """Ensure a workspace-linked LaTeX project exists and return it."""
+        workspace = await self._load_workspace_bridge_row(workspace_id)
+        if workspace is None:
+            raise ValueError(f"Workspace not found: {workspace_id}")
+
+        owner_user_id = str(workspace["user_id"])
+        resolved_template = template or self._default_template_for_workspace(
+            str(workspace.get("type") or "")
+        )
+        linked_project = await self._find_existing_project(
+            workspace_id,
+            owner_user_id=owner_user_id,
+            template=resolved_template,
+        )
+        if linked_project is not None:
+            return linked_project
+
+        resolved_project_name = (
+            str(project_name or "").strip()
+            or str(workspace.get("name") or "").strip()
+            or "Untitled Project"
+        )
+        seed_main_tex = self._build_seed_main_tex(resolved_project_name)
+        return await self.sync_project(
+            workspace_id=workspace_id,
+            project_name=resolved_project_name,
+            main_file="main.tex",
+            main_tex=seed_main_tex,
+            bib_tex="",
+            template=resolved_template,
+            metadata={
+                "source_summary": {"ensure_only": True},
+            },
+        )
+
     async def _load_workspace_bridge_row(self, workspace_id: str) -> dict[str, Any] | None:
         result = await self.db.execute(
             text(
                 """
-                select id, user_id, name, description
+                select id, user_id, name, description, type
                 from workspaces
                 where id = :workspace_id
                 limit 1
@@ -788,7 +857,7 @@ class WorkspaceLatexProjectService:
     @staticmethod
     def _proposal_sections_from_map(section_map: dict[str, str]) -> list[dict[str, str]]:
         ordered: list[dict[str, str]] = []
-        for section_id, path in sorted(section_map.items(), key=lambda item: item[1]):
+        for section_id, _path in sorted(section_map.items(), key=lambda item: item[1]):
             title = section_id.replace("_", " ").title()
             ordered.append({"id": section_id, "title": title})
         return ordered

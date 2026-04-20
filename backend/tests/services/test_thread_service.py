@@ -1,0 +1,488 @@
+"""Tests for ThreadService."""
+
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from src.database import Thread
+from src.models.router import InvalidRequestedModelError
+from src.services.thread_service import ThreadAccessError, ThreadService
+
+
+@pytest.fixture
+def mock_db_session():
+    """Create a mocked async database session."""
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock()
+    session.delete = AsyncMock()
+    session.execute = AsyncMock()
+    return session
+
+
+@pytest.fixture
+def service(mock_db_session):
+    """Create ThreadService instance."""
+    return ThreadService(mock_db_session)
+
+
+def _make_thread(
+    *,
+    user_id: str = "user-1",
+    workspace_id: str | None = None,
+    title: str | None = None,
+    skill: str | None = None,
+) -> Thread:
+    thread = Thread(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        title=title,
+        model="gpt-4o",
+        skill=skill,
+        message_count=0,
+        last_message_preview=None,
+        last_message_role=None,
+        messages=[],
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    thread.id = "thread-1"
+    return thread
+
+
+class TestThreadService:
+    """Tests for ThreadService behavior."""
+
+    @pytest.mark.asyncio
+    async def test_create_thread_persists_defaults(self, service, mock_db_session):
+        """Creating a thread initializes the persisted contract."""
+        with patch(
+            "src.services.thread_service.validate_requested_model",
+            return_value="resolved-tool-model",
+        ), patch(
+            "src.services.thread_service.route_model",
+            return_value="resolved-tool-model",
+        ):
+            thread = await service.create_thread(
+                user_id="user-1",
+                workspace_id="ws-1",
+                title="Draft thread",
+                model="resolved-tool-model",
+                skill="deep-research",
+            )
+
+        mock_db_session.add.assert_called_once_with(thread)
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+        assert thread.user_id == "user-1"
+        assert thread.workspace_id == "ws-1"
+        assert thread.title == "Draft thread"
+        assert thread.model == "resolved-tool-model"
+        assert thread.skill == "deep-research"
+        assert thread.messages == []
+
+    @pytest.mark.asyncio
+    async def test_create_thread_without_model_uses_resolved_default(self, service):
+        """Missing model should resolve through llm_config default resolver."""
+        with patch(
+            "src.services.thread_service.route_model",
+            return_value="resolved-model-id",
+        ):
+            thread = await service.create_thread(user_id="user-1")
+
+        assert thread.model == "resolved-model-id"
+        assert thread.skill is None
+
+    @pytest.mark.asyncio
+    async def test_create_thread_rejects_invalid_explicit_model(self, service, mock_db_session):
+        """Invalid explicit model ids should fail instead of being silently persisted."""
+        with patch(
+            "src.services.thread_service.validate_requested_model",
+            side_effect=InvalidRequestedModelError("Unknown model id: bad-model"),
+        ):
+            with pytest.raises(InvalidRequestedModelError, match="Unknown model id: bad-model"):
+                await service.create_thread(
+                    user_id="user-1",
+                    model="bad-model",
+                )
+
+        mock_db_session.add.assert_not_called()
+        mock_db_session.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_thread_reuses_owned_thread(self, service, mock_db_session):
+        """Existing owned threads are reused and can absorb workspace context."""
+        thread = _make_thread(workspace_id=None)
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = thread
+        mock_db_session.execute.return_value = result
+
+        resolved = await service.get_or_create_thread(
+            user_id="user-1",
+            thread_id="thread-1",
+            workspace_id="ws-2",
+        )
+
+        assert resolved is thread
+        assert resolved.workspace_id == "ws-2"
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_thread_updates_model_when_explicitly_selected(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Existing thread model is updated when user explicitly selects another model."""
+        thread = _make_thread(workspace_id="ws-1")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = thread
+        mock_db_session.execute.return_value = result
+
+        with patch(
+            "src.services.thread_service.validate_requested_model",
+            return_value="some-user-selected-model",
+        ), patch(
+            "src.services.thread_service.route_model",
+            return_value="resolved-model-id",
+        ):
+            resolved = await service.get_or_create_thread(
+                user_id="user-1",
+                thread_id="thread-1",
+                workspace_id="ws-1",
+                model="some-user-selected-model",
+            )
+
+        assert resolved is thread
+        assert resolved.model == "resolved-model-id"
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_thread_updates_skill_when_explicitly_selected(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Existing thread skill is updated when user explicitly selects another skill."""
+        thread = _make_thread(workspace_id="ws-1", skill="deep-research")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = thread
+        mock_db_session.execute.return_value = result
+
+        resolved = await service.get_or_create_thread(
+            user_id="user-1",
+            thread_id="thread-1",
+            workspace_id="ws-1",
+            skill="literature-review",
+            skill_explicit=True,
+        )
+
+        assert resolved is thread
+        assert resolved.skill == "literature-review"
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_thread_reuses_latest_workspace_thread_without_thread_id(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Workspace chat should reuse the latest thread when no explicit thread id is given."""
+        thread = _make_thread(workspace_id="ws-1", skill="deep-research")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = thread
+        mock_db_session.execute.return_value = result
+
+        resolved = await service.get_or_create_thread(
+            user_id="user-1",
+            workspace_id="ws-1",
+        )
+
+        assert resolved is thread
+        mock_db_session.add.assert_not_called()
+        mock_db_session.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_thread_rejects_other_users_thread(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Cross-user thread access returns a not-found style error."""
+        thread = _make_thread(user_id="user-2")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = thread
+        mock_db_session.execute.return_value = result
+
+        with pytest.raises(ThreadAccessError):
+            await service.get_or_create_thread(
+                user_id="user-1",
+                thread_id="thread-1",
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_thread_rejects_missing_explicit_thread_id(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Explicit thread ids must exist; no silent fallback is allowed."""
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        mock_db_session.execute.return_value = result
+
+        with pytest.raises(ThreadAccessError):
+            await service.get_or_create_thread(
+                user_id="user-1",
+                thread_id="thread-missing",
+                workspace_id="ws-1",
+            )
+
+    @pytest.mark.asyncio
+    async def test_add_message_appends_json_history(self, service, mock_db_session):
+        """Message append reassigns JSON history so ORM persistence can detect it."""
+        thread = _make_thread()
+
+        message = await service.add_message(
+            thread,
+            role="user",
+            content="Hello",
+        )
+
+        assert message["role"] == "user"
+        assert message["content"] == "Hello"
+        assert len(thread.messages) == 1
+        assert thread.messages[0]["content"] == "Hello"
+        assert thread.message_count == 1
+        assert thread.last_message_role == "user"
+        assert thread.last_message_preview == "Hello"
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_update_attachment_extraction_state_updates_matching_attachment(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Extraction task state should be written back into the matching attachment."""
+        thread = _make_thread()
+        thread.messages = [
+            {
+                "role": "user",
+                "content": "please read this paper",
+                "metadata": {
+                    "attachments": [
+                        {
+                            "name": "paper.pdf",
+                            "metadata": {
+                                "extraction": {
+                                    "task_id": "task-paper-1",
+                                    "status": "scheduled",
+                                    "message": "queued",
+                                }
+                            },
+                        }
+                    ]
+                },
+            }
+        ]
+
+        updated = await service.update_attachment_extraction_state(
+            thread,
+            task_id="task-paper-1",
+            status="success",
+            message="Paper extraction completed",
+            progress=100,
+            current_step="complete",
+        )
+
+        assert updated is True
+        extraction = thread.messages[0]["metadata"]["attachments"][0]["metadata"]["extraction"]
+        assert extraction["status"] == "success"
+        assert extraction["message"] == "Paper extraction completed"
+        assert extraction["progress"] == 100
+        assert extraction["current_step"] == "complete"
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_update_attachment_extraction_state_returns_false_when_missing_task(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Non-matching attachments should not trigger writes."""
+        thread = _make_thread()
+        thread.messages = [
+            {
+                "role": "user",
+                "content": "hello",
+                "metadata": {
+                    "attachments": [
+                        {
+                            "name": "paper.pdf",
+                            "metadata": {
+                                "extraction": {
+                                    "task_id": "another-task",
+                                    "status": "scheduled",
+                                }
+                            },
+                        }
+                    ]
+                },
+            }
+        ]
+
+        updated = await service.update_attachment_extraction_state(
+            thread,
+            task_id="task-paper-1",
+            status="failed",
+            error="boom",
+        )
+
+        assert updated is False
+        mock_db_session.commit.assert_not_awaited()
+        mock_db_session.refresh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rollback_last_user_message_removes_tail_user_turn(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Rollback should remove the most recent user message and refresh summary fields."""
+        thread = _make_thread()
+        thread.messages = [
+            {
+                "role": "assistant",
+                "content": "previous answer",
+                "timestamp": "2026-04-14T00:00:00+00:00",
+            },
+            {
+                "role": "user",
+                "content": "new question",
+                "timestamp": "2026-04-14T00:01:00+00:00",
+            },
+        ]
+        thread.message_count = 2
+        thread.last_message_role = "user"
+        thread.last_message_preview = "new question"
+
+        rolled_back = await service.rollback_last_user_message(
+            thread,
+            expected_content="new question",
+        )
+
+        assert rolled_back is True
+        assert len(thread.messages) == 1
+        assert thread.messages[0]["role"] == "assistant"
+        assert thread.message_count == 1
+        assert thread.last_message_role == "assistant"
+        assert thread.last_message_preview == "previous answer"
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_rollback_last_user_message_requires_matching_tail(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Rollback should be a no-op when trailing message does not match request content."""
+        thread = _make_thread()
+        thread.messages = [
+            {
+                "role": "assistant",
+                "content": "already done",
+                "timestamp": "2026-04-14T00:00:00+00:00",
+            }
+        ]
+        thread.message_count = 1
+        thread.last_message_role = "assistant"
+        thread.last_message_preview = "already done"
+
+        rolled_back = await service.rollback_last_user_message(
+            thread,
+            expected_content="new question",
+        )
+
+        assert rolled_back is False
+        assert len(thread.messages) == 1
+        assert thread.message_count == 1
+        mock_db_session.commit.assert_not_awaited()
+        mock_db_session.refresh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_set_title_if_empty_only_updates_opening_exchange(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Title derivation only applies to the first user-assistant exchange."""
+        thread = _make_thread()
+        thread.messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "world"},
+        ]
+
+        await service.set_title_if_empty(
+            thread,
+            "A much longer opening message that should still become a title",
+        )
+
+        assert thread.title is not None
+        assert thread.title.startswith("A much longer opening message")
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_delete_thread_removes_local_thread_directory(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Deleting a thread also cleans its persisted local thread directory."""
+        thread = _make_thread()
+
+        with patch.object(
+            service,
+            "get_thread",
+            AsyncMock(return_value=thread),
+        ), patch(
+            "src.services.thread_service.delete_thread_directory",
+        ) as delete_thread_directory:
+            deleted = await service.delete_thread("thread-1", "user-1")
+
+        assert deleted is True
+        mock_db_session.delete.assert_awaited_once_with(thread)
+        mock_db_session.commit.assert_awaited_once()
+        delete_thread_directory.assert_called_once_with("thread-1")
+
+    @pytest.mark.asyncio
+    async def test_delete_thread_survives_cleanup_failure(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Filesystem cleanup is best-effort and must not mask a successful delete."""
+        thread = _make_thread()
+
+        with patch.object(
+            service,
+            "get_thread",
+            AsyncMock(return_value=thread),
+        ), patch(
+            "src.services.thread_service.delete_thread_directory",
+            side_effect=RuntimeError("boom"),
+        ):
+            deleted = await service.delete_thread("thread-1", "user-1")
+
+        assert deleted is True
+        mock_db_session.delete.assert_awaited_once_with(thread)
+        mock_db_session.commit.assert_awaited_once()

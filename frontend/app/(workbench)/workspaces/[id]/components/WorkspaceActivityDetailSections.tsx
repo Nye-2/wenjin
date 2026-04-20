@@ -21,6 +21,58 @@ interface WorkspaceActivityDetailSectionsProps {
   resolveSkillLabel: (skillId: string | null | undefined) => string | null;
 }
 
+function readTokenCounter(value: unknown): number | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const total = (value as Record<string, unknown>).total_tokens;
+  if (typeof total === "number" && Number.isFinite(total)) {
+    return Math.max(0, Math.trunc(total));
+  }
+  if (typeof total === "string") {
+    const parsed = Number.parseInt(total.trim(), 10);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, parsed);
+    }
+  }
+  return null;
+}
+
+function readTokenUsage(
+  value: unknown
+): { input: number; output: number; total: number } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const payload = value as Record<string, unknown>;
+  const inputRaw = payload.input_tokens;
+  const outputRaw = payload.output_tokens;
+  const totalRaw = payload.total_tokens;
+  const input =
+    typeof inputRaw === "number"
+      ? Math.max(0, Math.trunc(inputRaw))
+      : typeof inputRaw === "string"
+        ? Math.max(0, Number.parseInt(inputRaw.trim(), 10) || 0)
+        : 0;
+  const output =
+    typeof outputRaw === "number"
+      ? Math.max(0, Math.trunc(outputRaw))
+      : typeof outputRaw === "string"
+        ? Math.max(0, Number.parseInt(outputRaw.trim(), 10) || 0)
+        : 0;
+  const parsedTotal =
+    typeof totalRaw === "number"
+      ? Math.max(0, Math.trunc(totalRaw))
+      : typeof totalRaw === "string"
+        ? Math.max(0, Number.parseInt(totalRaw.trim(), 10) || 0)
+        : 0;
+  const total = parsedTotal > 0 ? parsedTotal : input + output;
+  if (input <= 0 && output <= 0 && total <= 0) {
+    return null;
+  }
+  return { input, output, total };
+}
+
 function FeatureTaskSections({
   selectedActivity,
   selectedActivityMeta,
@@ -29,6 +81,11 @@ function FeatureTaskSections({
   WorkspaceActivityDetailSectionsProps,
   "selectedActivity" | "selectedActivityMeta" | "selectedActivityFollowUpPrompt"
 >) {
+  const taskTokenUsage = readTokenUsage(selectedActivityMeta.token_usage);
+  const subagentCount =
+    typeof selectedActivityMeta.subagent_count === "number"
+      ? selectedActivityMeta.subagent_count
+      : null;
   return (
     <>
       <DetailSection title="执行状态">
@@ -70,6 +127,20 @@ function FeatureTaskSections({
                 ? selectedActivityMeta.action
                 : "默认动作",
             ],
+            [
+              "执行累计 tokens",
+              taskTokenUsage ? taskTokenUsage.total.toLocaleString() : "未知",
+            ],
+            [
+              "Token 明细",
+              taskTokenUsage
+                ? `输入 ${taskTokenUsage.input.toLocaleString()} / 输出 ${taskTokenUsage.output.toLocaleString()}`
+                : "未知",
+            ],
+            [
+              "子代理数量",
+              typeof subagentCount === "number" ? subagentCount : "未知",
+            ],
           ]}
         />
       </DetailSection>
@@ -103,7 +174,7 @@ function FeatureTaskSections({
   );
 }
 
-function ChatThreadSection({
+function ThreadSection({
   selectedActivity,
   selectedActivityMeta,
   resolveSkillLabel,
@@ -111,6 +182,10 @@ function ChatThreadSection({
   WorkspaceActivityDetailSectionsProps,
   "selectedActivity" | "selectedActivityMeta" | "resolveSkillLabel"
 >) {
+  const threadTokenUsage = readTokenCounter(selectedActivityMeta.thread_token_usage);
+  const lastMessageTokenUsage = readTokenCounter(
+    selectedActivityMeta.last_message_token_usage
+  );
   return (
     <DetailSection title="会话上下文">
       <DetailFieldGrid
@@ -145,6 +220,18 @@ function ChatThreadSection({
               ? selectedActivityMeta.last_message_role
               : "未知",
           ],
+          [
+            "会话累计 tokens",
+            typeof threadTokenUsage === "number"
+              ? threadTokenUsage.toLocaleString()
+              : "未知",
+          ],
+          [
+            "最后一条 tokens",
+            typeof lastMessageTokenUsage === "number"
+              ? lastMessageTokenUsage.toLocaleString()
+              : "未知",
+          ],
         ]}
       />
     </DetailSection>
@@ -158,6 +245,11 @@ function SubagentTaskSections({
   WorkspaceActivityDetailSectionsProps,
   "selectedActivity" | "selectedActivityMeta"
 >) {
+  const tokenUsage = readTokenUsage(selectedActivityMeta.token_usage);
+  const modelName =
+    typeof selectedActivityMeta.model_name === "string"
+      ? selectedActivityMeta.model_name
+      : null;
   return (
     <>
       <DetailSection title="子代理上下文">
@@ -166,6 +258,17 @@ function SubagentTaskSections({
             ["代理类型", selectedActivity.title || "未指定"],
             ["Thread ID", selectedActivity.thread_id || "无"],
             ["状态", getStatusMeta(selectedActivity.status)?.label || "无"],
+            [
+              "累计 tokens",
+              tokenUsage ? tokenUsage.total.toLocaleString() : "未知",
+            ],
+            [
+              "Token 明细",
+              tokenUsage
+                ? `输入 ${tokenUsage.input.toLocaleString()} / 输出 ${tokenUsage.output.toLocaleString()}`
+                : "未知",
+            ],
+            ["模型", modelName || "未知"],
           ]}
         />
       </DetailSection>
@@ -313,8 +416,8 @@ export function WorkspaceActivityDetailSections({
         />
       )}
 
-      {selectedActivity.kind === "chat_thread" && (
-        <ChatThreadSection
+      {selectedActivity.kind === "thread" && (
+        <ThreadSection
           selectedActivity={selectedActivity}
           selectedActivityMeta={selectedActivityMeta}
           resolveSkillLabel={resolveSkillLabel}

@@ -1,7 +1,7 @@
 """Integration tests for task status/list/stream/cancel flow."""
 
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -11,8 +11,11 @@ from httpx import ASGITransport, AsyncClient
 from src.gateway.routers.tasks import (
     get_current_user_id,
     get_task_service,
+)
+from src.gateway.routers.tasks import (
     router as task_router,
 )
+from src.task.sse import TaskEventStreamUnavailable
 from tests.integration.conftest import FixtureUser
 
 
@@ -219,6 +222,42 @@ class TestTaskFlow:
         response = await client.get(f"/api/tasks/{fake_id}/stream")
         # Should return 404 for nonexistent task
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_task_sse_endpoint_returns_503_when_stream_unavailable(
+        self, task_client, test_user: FixtureUser
+    ):
+        """Task SSE should fail before streaming when Redis subscribe cannot start."""
+        client, app = task_client
+        fake_id = str(uuid.uuid4())
+
+        mock_service = AsyncMock()
+        mock_service.get_task_status = AsyncMock(return_value={
+            "task_id": fake_id,
+            "task_type": "workspace_feature",
+            "status": "running",
+            "progress": 10,
+            "message": "Running",
+            "result": None,
+            "error": None,
+            "created_at": "2024-01-01T00:00:00",
+            "started_at": None,
+            "completed_at": None,
+        })
+
+        async def override_get_task_service():
+            yield mock_service
+
+        app.dependency_overrides[get_task_service] = override_get_task_service
+
+        with patch(
+            "src.task.sse.create_task_sse_stream",
+            new=AsyncMock(side_effect=TaskEventStreamUnavailable("boom")),
+        ):
+            response = await client.get(f"/api/tasks/{fake_id}/stream")
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Task event stream is temporarily unavailable"
 
     @pytest.mark.asyncio
     async def test_filter_tasks_by_status(self, task_client, test_user: FixtureUser):

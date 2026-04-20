@@ -1,6 +1,6 @@
 """Tests for Docker client wrapper."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -96,3 +96,42 @@ class TestDockerClient:
         assert mapping == {
             "/host/path": {"bind": "/container/path", "mode": "rw"}
         }
+
+    @pytest.mark.asyncio
+    async def test_run_container_timeout_still_removes_container(self, client, mock_docker):
+        """Timeout path must still remove the created container to avoid leaks."""
+        container = mock_docker.from_env.return_value.containers.run.return_value
+        container.id = "abcdef123456"
+        container.wait.side_effect = RuntimeError("wait timeout")
+        container.kill.return_value = None
+        container.remove.return_value = None
+
+        with patch.object(client, "ensure_image", AsyncMock(return_value=True)):
+            with pytest.raises(TimeoutError):
+                await client.run_container(
+                    image="wenjin/sandbox:test",
+                    command=["/bin/sh", "-lc", "sleep 999"],
+                    timeout=1,
+                    remove=True,
+                )
+
+        container.remove.assert_called_once_with(force=True)
+
+    @pytest.mark.asyncio
+    async def test_cleanup_containers_by_label_removes_matches(self, client, mock_docker):
+        """cleanup_containers_by_label should remove every listed container."""
+        c1 = mock_docker.from_env.return_value.containers.run.return_value
+        c2 = type("ContainerStub", (), {"id": "deadbeef1234", "remove": lambda self, force=True: None})()
+        mock_docker.from_env.return_value.containers.list.return_value = [c1, c2]
+        c1.id = "abcabcabcabc"
+        c1.remove.return_value = None
+
+        removed = await client.cleanup_containers_by_label(
+            {"wenjin.sandbox.managed": "true", "wenjin.sandbox.kind": "sandbox_exec"}
+        )
+
+        assert removed == 2
+        mock_docker.from_env.return_value.containers.list.assert_called_once_with(
+            all=True,
+            filters={"label": ["wenjin.sandbox.managed=true", "wenjin.sandbox.kind=sandbox_exec"]},
+        )

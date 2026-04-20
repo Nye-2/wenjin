@@ -36,6 +36,7 @@ class SubagentRuntimeContext:
     thread_id: str | None = None
     workspace_id: str | None = None
     user_id: str | None = None
+    execution_session_id: str | None = None
     model_name: str | None = None
     trace_id: str | None = None
 
@@ -50,6 +51,9 @@ class SubagentRuntimeContext:
             thread_id=_normalize_optional_str(values.get("thread_id")),
             workspace_id=_normalize_optional_str(values.get("workspace_id")),
             user_id=_normalize_optional_str(values.get("user_id")),
+            execution_session_id=_normalize_optional_str(
+                values.get("execution_session_id")
+            ),
             model_name=_normalize_optional_str(values.get("model_name")),
             trace_id=_normalize_optional_str(values.get("trace_id")),
         )
@@ -75,6 +79,7 @@ def build_subagent_metadata(
     runtime_context: SubagentRuntimeContext | None = None,
     include_workspace: bool = False,
     include_user: bool = False,
+    include_execution_session: bool = True,
     include_model: bool = True,
     extra_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
@@ -100,6 +105,11 @@ def build_subagent_metadata(
             metadata["workspace_id"] = runtime_context.workspace_id
         if include_user and runtime_context.user_id is not None:
             metadata["user_id"] = runtime_context.user_id
+        if (
+            include_execution_session
+            and runtime_context.execution_session_id is not None
+        ):
+            metadata["execution_session_id"] = runtime_context.execution_session_id
         if include_model and runtime_context.model_name is not None:
             metadata["model_name"] = runtime_context.model_name
 
@@ -130,6 +140,18 @@ def build_subagent_task(
     max_turns_limit = _normalize_positive_int(getattr(manager_config, "max_turns_limit", None)) or max_turns
     max_timeout = _normalize_positive_int(getattr(manager_config, "max_timeout", None)) or timeout
 
+    normalized_metadata = {
+        str(key): str(value)
+        for key, value in (metadata or {}).items()
+        if value is not None
+    }
+    execution_session_id = str(
+        normalized_metadata.get("execution_session_id") or ""
+    ).strip()
+    if not execution_session_id:
+        raise ValueError("execution_session_id is required for subagent tasks")
+    normalized_metadata["execution_session_id"] = execution_session_id
+
     return SubagentTask(
         task_id=str(uuid4()),
         thread_id=str(thread_id),
@@ -139,9 +161,5 @@ def build_subagent_task(
         max_turns=max(1, min(max_turns, max_turns_limit)),
         timeout=max(1, min(timeout, max_timeout)),
         tools=[str(tool_name) for tool_name in tools or []],
-        metadata={
-            str(key): str(value)
-            for key, value in (metadata or {}).items()
-            if value is not None
-        },
+        metadata=normalized_metadata,
     )

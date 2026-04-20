@@ -1,6 +1,6 @@
 # API Surface Map
 
-Generated: 2026-04-08
+Generated: 2026-04-14
 Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gateway/routers/` + `backend/src/api/subagents.py`
 
 ## Global Endpoints
@@ -16,7 +16,9 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 |---|---|---|---|
 | Auth | `/api/auth/*` | Mixed | 注册、登录、刷新 token、邮箱验证码、当前用户 |
 | Models | `/api/models*` | Bearer | 前端可选模型列表与详情 |
-| Chat | `/api/threads*`, `/api/chat*` | Bearer | 会话管理、会话级 skill 选择、流式聊天 |
+| Thread Management | `/api/threads*`, `/api/workspaces/{workspace_id}/thread` | Bearer | 会话管理、会话级 skill 选择 |
+| Threads (Platform) | `/api/threads/search`, `/api/threads/{thread_id}/state`, `/api/threads/{thread_id}/history` | Bearer | Platform 风格线程检索、状态快照、历史快照 |
+| Runs | `/api/threads/{thread_id}/runs*`, `/api/runs*` | Bearer | Run 生命周期、流式对话（SSE）、断线续流 |
 | Subagents | `/api/subagents*` | Bearer | 子代理任务创建、状态、取消、SSE 事件 |
 | Workspaces | `/api/workspaces*` | Bearer | workspace CRUD、workspace 论文关联、workspace dashboard |
 | Features | `/api/workspaces/{workspace_id}/features*` | Bearer | 动态 feature 列表 + feature 执行 |
@@ -41,7 +43,24 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 
 - 新能力只应接入 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`。
 - artifact 的读写应统一接入 `/api/workspaces/{workspace_id}/artifacts*`。
-- thread skill 属于会话级状态，服务端持久化在 `chat_threads.skill`。
+- thread skill 属于会话级状态，服务端持久化在 `threads.skill`。
 - `POST /api/tasks` 已删除；新任务必须走 feature execute 或 papers extract 等 domain 入口。
 - 对长时任务，前端应使用 `/api/tasks/{task_id}` 或 `/api/tasks/{task_id}/stream` 获取进度。
-- `/api/chat/stream` 与 `/api/tasks/{task_id}/stream` 均为 SSE，需要反向代理禁用缓冲。
+- `/api/chat` 与 `/api/chat/stream` 已删除，chat 统一走 runs API（`/api/threads/{thread_id}/runs/stream`、`/api/runs/stream`、`/api/runs/wait`）。
+- `/api/threads/{thread_id}/runs/stream`、`/api/runs/stream`、`/api/runs/{run_id}/stream` 与 `/api/tasks/{task_id}/stream` 均为 SSE，需要反向代理禁用缓冲。
+
+## LaTeX Rewrite API (Current)
+
+WenjinPrism 划词改写当前采用 `preview -> apply -> revert` 三段式：
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/latex/projects/{project_id}/feedback/rewrite/preview` | 生成候选改写 + 结构化 diff |
+| POST | `/api/latex/projects/{project_id}/feedback/rewrite/apply` | 应用候选（签名/哈希校验 + 结构门禁 + 编译门禁） |
+| POST | `/api/latex/projects/{project_id}/feedback/rewrite/revert` | 撤销最近一次改写（签名 + 文件哈希校验） |
+
+关键约束：
+
+- `apply` 必须携带 `candidate_signature`、`base_file_hash`、`base_range_hash`。
+- `apply` 若失败并返回 `rewrite_compile_failed`，后端已自动回滚文件内容。
+- `revert` 必须使用 `apply` 返回的 `undo` payload，防止越权或错位回滚。

@@ -36,7 +36,7 @@ class LatexCompileHistory(Base, UUIDMixin):
         server_default=func.now(),
     )
 
-    project: Mapped["LatexProject"] = relationship(
+    project: Mapped[LatexProject] = relationship(
         "LatexProject",
         back_populates="compile_history",
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import shlex
@@ -10,13 +11,18 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.latex_compile_history import LatexCompileHistory
 from src.database.models.latex_project import LatexProject
 from src.execution.docker.client import DockerClient, DockerExecutionError
 
-from .engine_config import get_default_latex_engine, is_supported_latex_engine
+from .engine_config import (
+    get_default_latex_engine,
+    get_supported_latex_engines,
+    is_supported_latex_engine,
+)
 from .paths import (
     compile_runs_root,
     normalize_relative_path,
@@ -28,6 +34,11 @@ _DEFAULT_LATEX_DOCKER_IMAGE = "wenjin/texlive:2024"
 _DEFAULT_COMPILE_TIMEOUT_SECONDS = 300
 _MIN_COMPILE_TIMEOUT_SECONDS = 30
 _MAX_COMPILE_TIMEOUT_SECONDS = 1800
+_DEFAULT_COMPILE_HISTORY_RETENTION = 60
+_MIN_COMPILE_HISTORY_RETENTION = 10
+_MAX_COMPILE_HISTORY_RETENTION = 500
+
+logger = logging.getLogger(__name__)
 
 
 def get_latex_compile_timeout_seconds() -> int:
@@ -40,6 +51,21 @@ def get_latex_compile_timeout_seconds() -> int:
     except ValueError:
         return _DEFAULT_COMPILE_TIMEOUT_SECONDS
     return max(_MIN_COMPILE_TIMEOUT_SECONDS, min(_MAX_COMPILE_TIMEOUT_SECONDS, parsed))
+
+
+def get_latex_compile_history_retention() -> int:
+    """Resolve compile history retention from env with clamped safe bounds."""
+    raw = str(os.getenv("WENJIN_LATEX_COMPILE_HISTORY_RETENTION", "")).strip()
+    if not raw:
+        return _DEFAULT_COMPILE_HISTORY_RETENTION
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return _DEFAULT_COMPILE_HISTORY_RETENTION
+    return max(
+        _MIN_COMPILE_HISTORY_RETENTION,
+        min(_MAX_COMPILE_HISTORY_RETENTION, parsed),
+    )
 
 
 class LatexCompileService:
@@ -55,10 +81,12 @@ class LatexCompileService:
         *,
         main_file: str | None = None,
         engine: str | None = None,
+        record_history: bool = True,
     ) -> dict[str, object]:
         compiler = (engine or "").strip().lower() or get_default_latex_engine()
         if not is_supported_latex_engine(compiler):
-            raise ValueError(f"Unsupported compiler: {compiler}")
+            supported = ", ".join(get_supported_latex_engines())
+            raise ValueError(f"Unsupported compiler: {compiler}. Supported: {supported}")
 
         raw_entry_file = (main_file or project.main_file or "main.tex").strip() or "main.tex"
         entry_file = normalize_relative_path(raw_entry_file)
@@ -78,53 +106,62 @@ class LatexCompileService:
                 mounted_project_dir,
                 ignore=shutil.ignore_patterns(".compile", ".git", "__pycache__"),
             )
-            stdout, stderr, pdf_path = await self._run_compile_in_docker(
+            exit_code, stdout, stderr, pdf_path = await self._run_compile_in_docker(
                 mounted_project_dir,
                 entry_file=entry_file,
                 compiler=compiler,
             )
             log = "\n".join(part for part in (stdout, stderr) if part).strip() or None
             success = pdf_path.exists()
-            history = LatexCompileHistory(
-                project_id=project.id,
-                engine=compiler,
-                main_file=entry_file,
-                status=0 if success else 1,
-                log=log,
-                pdf_path=str(pdf_path) if success else None,
-            )
-            self.db.add(history)
-            await self.db.commit()
-            await self.db.refresh(history)
+            failure_status = exit_code if isinstance(exit_code, int) and exit_code != 0 else 1
+            page_count = self._count_pdf_pages(pdf_path) if success else None
+            history_id: str | None = None
+            pdf_endpoint: str | None = None
+            if record_history:
+                history = LatexCompileHistory(
+                    project_id=project.id,
+                    engine=compiler,
+                    main_file=entry_file,
+                    status=0 if success else 1,
+                    log=log,
+                    pdf_path=str(pdf_path) if success else None,
+                )
+                self.db.add(history)
+                await self.db.commit()
+                await self.db.refresh(history)
+                await self._best_effort_enforce_history_retention(project.id)
+                history_id = history.id
+                if success:
+                    pdf_endpoint = f"/api/latex/projects/{project.id}/compile/{history.id}/pdf"
 
             return {
                 "ok": success,
-                "status": 0 if success else 1,
+                "status": 0 if success else failure_status,
                 "engine": compiler,
                 "main_file": entry_file,
                 "pdf_path": str(pdf_path) if success else None,
-                "pdf_endpoint": (
-                    f"/api/latex/projects/{project.id}/compile/{history.id}/pdf"
-                    if success
-                    else None
-                ),
+                "pdf_endpoint": pdf_endpoint if success else None,
                 "log": log,
-                "error": None if success else "No PDF generated.",
-                "history_id": history.id,
-                "page_count": None,
+                "error": None if success else self._build_compile_error_message(log, compiler),
+                "history_id": history_id,
+                "page_count": page_count,
             }
         except (DockerExecutionError, FileNotFoundError, TimeoutError) as exc:
-            history = LatexCompileHistory(
-                project_id=project.id,
-                engine=compiler,
-                main_file=entry_file,
-                status=1,
-                log=str(exc),
-                pdf_path=None,
-            )
-            self.db.add(history)
-            await self.db.commit()
-            await self.db.refresh(history)
+            history_id: str | None = None
+            if record_history:
+                history = LatexCompileHistory(
+                    project_id=project.id,
+                    engine=compiler,
+                    main_file=entry_file,
+                    status=1,
+                    log=str(exc),
+                    pdf_path=None,
+                )
+                self.db.add(history)
+                await self.db.commit()
+                await self.db.refresh(history)
+                await self._best_effort_enforce_history_retention(project.id)
+                history_id = history.id
             return {
                 "ok": False,
                 "status": 1,
@@ -134,9 +171,92 @@ class LatexCompileService:
                 "pdf_endpoint": None,
                 "log": str(exc),
                 "error": str(exc),
-                "history_id": history.id,
+                "history_id": history_id,
                 "page_count": None,
             }
+
+    async def _best_effort_enforce_history_retention(self, project_id: str) -> None:
+        try:
+            await self._enforce_history_retention(project_id)
+        except Exception:
+            logger.warning(
+                "Failed to enforce LaTeX compile history retention for project_id=%s",
+                project_id,
+                exc_info=True,
+            )
+
+    @staticmethod
+    def _resolve_history_run_dir(
+        history: LatexCompileHistory,
+        *,
+        compile_root: Path,
+    ) -> Path | None:
+        if not history.pdf_path:
+            return None
+        candidate = Path(history.pdf_path).resolve()
+        try:
+            relative = candidate.relative_to(compile_root)
+        except ValueError:
+            return None
+        parts = relative.parts
+        if not parts:
+            return None
+        return (compile_root / parts[0]).resolve()
+
+    async def _enforce_history_retention(self, project_id: str) -> None:
+        keep_count = get_latex_compile_history_retention()
+        stmt = (
+            select(LatexCompileHistory)
+            .where(LatexCompileHistory.project_id == project_id)
+            .order_by(LatexCompileHistory.created_at.desc())
+        )
+        result = await self.db.execute(stmt)
+        history_items = list(result.scalars().all())
+        if len(history_items) <= keep_count:
+            return
+
+        compile_root = compile_runs_root(project_id).resolve()
+        retained = history_items[:keep_count]
+        retained_run_dirs = {
+            run_dir
+            for item in retained
+            if (run_dir := self._resolve_history_run_dir(item, compile_root=compile_root)) is not None
+        }
+        stale_items = history_items[keep_count:]
+        for item in stale_items:
+            await self.db.delete(item)
+        await self.db.commit()
+
+        if not compile_root.exists():
+            return
+        for child in compile_root.iterdir():
+            child_path = child.resolve()
+            if not child_path.is_dir():
+                continue
+            if child_path in retained_run_dirs:
+                continue
+            shutil.rmtree(child_path, ignore_errors=True)
+
+    @staticmethod
+    def _build_compile_error_message(log: str | None, compiler: str) -> str:
+        text = (log or "").lower()
+        if "command not found" in text or "not available" in text:
+            return f"{compiler} is not available in the LaTeX runtime."
+        if "timed out" in text or "timeout" in text:
+            return "Compilation timed out."
+        return "No PDF generated."
+
+    @staticmethod
+    def _count_pdf_pages(pdf_path: Path) -> int | None:
+        try:
+            from pypdf import PdfReader  # type: ignore
+        except Exception:
+            return None
+        try:
+            reader = PdfReader(str(pdf_path))
+            return len(reader.pages)
+        except Exception:
+            return None
 
     async def get_history_pdf(
         self,
@@ -393,7 +513,7 @@ class LatexCompileService:
         *,
         entry_file: str,
         compiler: str,
-    ) -> tuple[str, str, Path]:
+    ) -> tuple[int, str, str, Path]:
         command = self._build_command(entry_file=entry_file, compiler=compiler)
         exit_code, stdout, stderr = await self._docker.run_container(
             image=os.getenv("GUANLAN_TEXLIVE_IMAGE", _DEFAULT_LATEX_DOCKER_IMAGE),
@@ -411,8 +531,8 @@ class LatexCompileService:
             entry_file=entry_file,
         )
         if exit_code != 0 and not output_pdf.exists():
-            return stdout, stderr, output_pdf
-        return stdout, stderr, output_pdf
+            return exit_code, stdout, stderr, output_pdf
+        return exit_code, stdout, stderr, output_pdf
 
     @staticmethod
     def _resolve_output_pdf(mounted_project_dir: Path, *, entry_file: str) -> Path:
@@ -429,24 +549,50 @@ class LatexCompileService:
         main_dir_arg = shlex.quote(main_dir)
         main_name_arg = shlex.quote(main_name)
         main_stem_arg = shlex.quote(main_stem)
-        script = "\n".join(
-            [
-                "set +e",
-                "cd /workspace/project",
-                f"cd {main_dir_arg}",
-                f"{compiler} {latex_flags} {main_name_arg} > compile-pass1.log 2>&1",
-                (
-                    f"if [ -f {main_stem_arg}.aux ] && grep -q '\\\\abx@aux@' {main_stem_arg}.aux; "
-                    f"then biber {main_stem_arg} > compile-bib.log 2>&1; "
-                    f"elif [ -f {main_stem_arg}.aux ] && grep -Eq '\\\\citation|\\\\bibdata' {main_stem_arg}.aux; "
-                    f"then bibtex {main_stem_arg} > compile-bib.log 2>&1; fi"
-                ),
-                f"{compiler} {latex_flags} {main_name_arg} > compile-pass2.log 2>&1",
-                f"{compiler} {latex_flags} {main_name_arg} > compile-pass3.log 2>&1",
-                "cat compile-pass1.log 2>/dev/null",
-                "cat compile-bib.log 2>/dev/null",
-                "cat compile-pass2.log 2>/dev/null",
-                "cat compile-pass3.log 2>/dev/null",
-            ]
-        )
+
+        script_lines = [
+            "set +e",
+            "cd /workspace/project",
+            f"cd {main_dir_arg}",
+            "compile_status=0",
+        ]
+
+        if compiler in {"xelatex", "pdflatex"}:
+            script_lines.extend(
+                [
+                    (
+                        f"{compiler} {latex_flags} {main_name_arg} > compile-pass1.log 2>&1 "
+                        "|| compile_status=$?"
+                    ),
+                    (
+                        f"if [ -f {main_stem_arg}.aux ] && grep -q '\\\\abx@aux@' {main_stem_arg}.aux; "
+                        f"then biber {main_stem_arg} > compile-bib.log 2>&1 || compile_status=$?; "
+                        f"elif [ -f {main_stem_arg}.aux ] && grep -Eq '\\\\citation|\\\\bibdata' {main_stem_arg}.aux; "
+                        f"then bibtex {main_stem_arg} > compile-bib.log 2>&1 || compile_status=$?; fi"
+                    ),
+                    (
+                        f"{compiler} {latex_flags} {main_name_arg} > compile-pass2.log 2>&1 "
+                        "|| compile_status=$?"
+                    ),
+                    (
+                        f"{compiler} {latex_flags} {main_name_arg} > compile-pass3.log 2>&1 "
+                        "|| compile_status=$?"
+                    ),
+                    "cat compile-pass1.log 2>/dev/null",
+                    "cat compile-bib.log 2>/dev/null",
+                    "cat compile-pass2.log 2>/dev/null",
+                    "cat compile-pass3.log 2>/dev/null",
+                    "exit ${compile_status:-0}",
+                ]
+            )
+        else:
+            compiler_arg = shlex.quote(compiler)
+            script_lines.extend(
+                [
+                    f"echo Unsupported\\ compiler:\\ {compiler_arg} >&2",
+                    "exit 127",
+                ]
+            )
+
+        script = "\n".join(script_lines)
         return ["/bin/bash", "-lc", script]

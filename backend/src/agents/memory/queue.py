@@ -5,10 +5,10 @@ import inspect
 import threading
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeAlias
+from typing import Any
 
-MessageBatch: TypeAlias = list[Any]
-MemoryQueueCallback: TypeAlias = Callable[[str, MessageBatch], object | Awaitable[Any]]
+type MessageBatch = list[Any]
+type MemoryQueueCallback = Callable[[str, MessageBatch], object | Awaitable[Any]]
 
 
 async def _await_delivery(result: Awaitable[Any]) -> None:

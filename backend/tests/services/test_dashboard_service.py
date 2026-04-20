@@ -1,6 +1,5 @@
 """Tests for dashboard service workspace-specific module aggregation."""
 
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -84,6 +83,13 @@ async def test_get_dashboard_sci_uses_workspace_specific_modules():
             "summary": {"count": 0},
         }
     )
+    service._get_figure_generation_status = AsyncMock(
+        return_value={
+            "id": "figure_generation",
+            "status": "not_started",
+            "summary": {"count": 0},
+        }
+    )
     service._get_peer_review_status = AsyncMock(
         return_value={
             "id": "peer_review",
@@ -105,8 +111,6 @@ async def test_get_dashboard_sci_uses_workspace_specific_modules():
     service._get_literature_management_status = AsyncMock(side_effect=AssertionError("unexpected call"))
     service._get_opening_research_status = AsyncMock(side_effect=AssertionError("unexpected call"))
     service._get_thesis_writing_status = AsyncMock(side_effect=AssertionError("unexpected call"))
-    service._get_figure_generation_status = AsyncMock(side_effect=AssertionError("unexpected call"))
-    service._get_compile_export_status = AsyncMock(side_effect=AssertionError("unexpected call"))
 
     result = await service.get_dashboard("ws-1", workspace_type="sci")
 
@@ -116,6 +120,7 @@ async def test_get_dashboard_sci_uses_workspace_specific_modules():
         "writing",
         "literature_review",
         "framework_outline",
+        "figure_generation",
         "peer_review",
         "journal_recommend",
     ]
@@ -147,6 +152,13 @@ async def test_get_dashboard_proposal_uses_workspace_specific_modules():
             "summary": {"count": 0},
         }
     )
+    service._get_figure_generation_status = AsyncMock(
+        return_value={
+            "id": "figure_generation",
+            "status": "not_started",
+            "summary": {"count": 0},
+        }
+    )
     service._get_recent_artifacts = AsyncMock(return_value=[])
 
     result = await service.get_dashboard("ws-2", workspace_type="proposal")
@@ -155,6 +167,7 @@ async def test_get_dashboard_proposal_uses_workspace_specific_modules():
         "proposal_outline",
         "background_research",
         "experiment_design",
+        "figure_generation",
     ]
 
 
@@ -177,6 +190,13 @@ async def test_get_dashboard_software_copyright_uses_workspace_specific_modules(
             "summary": {"has_description": False},
         }
     )
+    service._get_figure_generation_status = AsyncMock(
+        return_value={
+            "id": "figure_generation",
+            "status": "not_started",
+            "summary": {"count": 0},
+        }
+    )
     service._get_recent_artifacts = AsyncMock(return_value=[])
 
     result = await service.get_dashboard("ws-3", workspace_type="software_copyright")
@@ -184,6 +204,7 @@ async def test_get_dashboard_software_copyright_uses_workspace_specific_modules(
     assert [module["id"] for module in result["modules"]] == [
         "copyright_materials",
         "technical_description",
+        "figure_generation",
     ]
 
 
@@ -206,6 +227,13 @@ async def test_get_dashboard_patent_uses_workspace_specific_modules():
             "summary": {"reports_count": 0},
         }
     )
+    service._get_figure_generation_status = AsyncMock(
+        return_value={
+            "id": "figure_generation",
+            "status": "not_started",
+            "summary": {"count": 0},
+        }
+    )
     service._get_recent_artifacts = AsyncMock(return_value=[])
 
     result = await service.get_dashboard("ws-4", workspace_type="patent")
@@ -213,6 +241,7 @@ async def test_get_dashboard_patent_uses_workspace_specific_modules():
     assert [module["id"] for module in result["modules"]] == [
         "patent_outline",
         "prior_art_search",
+        "figure_generation",
     ]
 
 
@@ -247,52 +276,6 @@ async def test_opening_research_status_filters_by_opening_handler():
         or (isinstance(value, list) and "literature-reviewer" in value)
         for value in params.values()
     )
-
-
-@pytest.mark.asyncio
-async def test_compile_export_status_failed_compile_not_marked_completed():
-    db = AsyncMock()
-    service = DashboardService(db)
-    service._count_running_workspace_feature_tasks = AsyncMock(return_value=0)
-    db.execute = AsyncMock(
-        return_value=_ScalarOneOrNoneResult(
-            SimpleNamespace(
-                content={"compile_status": "failed"},
-                created_at=datetime(2026, 3, 13, tzinfo=UTC),
-            )
-        )
-    )
-
-    result = await service._get_compile_export_status("ws-1")
-
-    assert result["id"] == "compile_export"
-    assert result["status"] == "failed"
-    assert result["summary"]["compile_status"] == "failed"
-    assert result["summary"]["last_compile_success"] is False
-    assert result["summary"]["last_compile"]
-
-
-@pytest.mark.asyncio
-async def test_compile_export_status_success_compile_marked_completed():
-    db = AsyncMock()
-    service = DashboardService(db)
-    service._count_running_workspace_feature_tasks = AsyncMock(return_value=0)
-    db.execute = AsyncMock(
-        return_value=_ScalarOneOrNoneResult(
-            SimpleNamespace(
-                content={"compile_status": "success"},
-                created_at=datetime(2026, 3, 13, tzinfo=UTC),
-            )
-        )
-    )
-
-    result = await service._get_compile_export_status("ws-1")
-
-    assert result["id"] == "compile_export"
-    assert result["status"] == "completed"
-    assert result["summary"]["compile_status"] == "success"
-    assert result["summary"]["last_compile_success"] is True
-
 
 @pytest.mark.asyncio
 async def test_deep_research_status_uses_workspace_feature_task_history():

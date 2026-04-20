@@ -1,10 +1,11 @@
 """Semantic Scholar search tool for academic paper discovery."""
 
-
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from src.config import settings
+from src.academic.literature.external.semantic_scholar import SemanticScholarClient
+
+_MAX_QUERY_CHARS = 240
 
 
 class SemanticScholarInput(BaseModel):
@@ -33,59 +34,48 @@ async def semantic_scholar_search_tool(
     Returns:
         Formatted search results with paper details
     """
+    normalized_query = " ".join(str(query or "").split()).strip()
+    if not normalized_query:
+        return "Error searching Semantic Scholar: query is empty"
+
+    # Long free-form prompts degrade the API badly; keep the search query focused.
+    if len(normalized_query) > _MAX_QUERY_CHARS:
+        normalized_query = normalized_query[:_MAX_QUERY_CHARS].rstrip()
+
+    if year_range:
+        normalized_query = f"{normalized_query} {year_range}"
+
     try:
-        # Import Semantic Scholar client
-        from semanticscholar import SemanticScholar
-
-        client = SemanticScholar(api_key=settings.semantic_scholar_api_key)
-
-        # Build search parameters
-        search_params = {
-            "query": query,
-            "limit": limit,
-        }
-
-        if year_range:
-            search_params["year"] = year_range
-
-        # Perform search
-        results = client.search_paper(**search_params)
+        client = SemanticScholarClient()
+        results = await client.search(normalized_query, limit=max(1, min(limit, 10)))
 
         if not results:
-            return f"No papers found for query: '{query}'"
+            return f"No papers found for query: '{normalized_query}'"
 
-        # Format results
-        formatted = [f"Found {len(results)} papers for '{query}':\n"]
+        formatted = [f"Found {len(results)} papers for '{normalized_query}':\n"]
 
         for i, paper in enumerate(results, 1):
-            # Extract authors
-            authors = []
-            if paper.authors:
-                authors = [a.get("name", "Unknown") for a in paper.authors[:3]]
-                if len(paper.authors) > 3:
-                    authors.append("et al.")
+            authors = paper.authors[:3]
             authors_str = ", ".join(authors) if authors else "Unknown Authors"
+            if len(paper.authors) > 3:
+                authors_str += ", et al."
 
-            # Format paper info
             formatted.append(f"\n[{i}] {paper.title}")
             formatted.append(f"    Authors: {authors_str}")
             if paper.year:
                 formatted.append(f"    Year: {paper.year}")
             if paper.venue:
                 formatted.append(f"    Venue: {paper.venue}")
-            if paper.citationCount is not None:
-                formatted.append(f"    Citations: {paper.citationCount}")
+            if paper.citations_count is not None:
+                formatted.append(f"    Citations: {paper.citations_count}")
             if paper.abstract:
                 abstract = paper.abstract[:200] + "..." if len(paper.abstract) > 200 else paper.abstract
                 formatted.append(f"    Abstract: {abstract}")
             if paper.url:
                 formatted.append(f"    URL: {paper.url}")
-            if paper.externalIds and "DOI" in paper.externalIds:
-                formatted.append(f"    DOI: {paper.externalIds['DOI']}")
+            if paper.doi:
+                formatted.append(f"    DOI: {paper.doi}")
 
         return "\n".join(formatted)
-
-    except ImportError:
-        return "Error: semanticscholar package not installed. Run: uv add semanticscholar"
-    except Exception as e:
-        return f"Error searching Semantic Scholar: {str(e)}"
+    except Exception as exc:
+        return f"Error searching Semantic Scholar: {exc}"

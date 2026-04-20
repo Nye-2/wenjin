@@ -1,6 +1,6 @@
 # Troubleshooting
 
-更新时间：2026-04-10
+更新时间：2026-04-15
 
 以下命令默认你已经设置：
 
@@ -24,6 +24,16 @@ cd "$REPO_ROOT"
 ./start.sh --logs worker
 ./start.sh --logs backend
 ```
+
+Compose 场景补充：
+
+- worker 健康检查已改为探测 `http://127.0.0.1:9153/metrics`（容器内），不再依赖 Celery inspect ping。
+- 若 `gateway` 因 `depends_on: worker:service_healthy` 未启动，先检查：
+  ```bash
+  docker compose ps worker gateway
+  docker compose logs -f worker
+  docker compose exec worker curl -fsS http://127.0.0.1:9153/metrics >/dev/null
+  ```
 
 修复：
 
@@ -65,7 +75,8 @@ docker compose logs -f worker
 
 ```bash
 curl -i http://localhost:8001/readyz
-curl -i http://localhost:2026/health
+curl -i http://localhost:2026/livez
+curl -i http://localhost:2026/readyz
 curl -i http://localhost:2026/api/auth/me
 ```
 
@@ -89,6 +100,32 @@ curl -i http://localhost:2026/api/auth/me
 ./start.sh --logs worker
 docker compose logs -f nginx
 ```
+
+补充：
+
+- 当前 Nginx 已显式转发 `GET /metrics` 到 gateway；默认可直接使用 `http://localhost:2026/metrics`。
+- 如反代配置尚未更新，仍可用 `http://localhost:8001/metrics` 直连网关。
+
+新增（2026-04-15）：
+
+- `runs/stream` 创建后会先下发 `run_queued` 事件，前端应立即看到流式已建立。
+- runs 运行链路已收敛为 worker-only：`CELERY_ENABLED=true` 与 `REDIS_ENABLED=true` 任一缺失都会直接返回 503，不再回退 gateway 进程内执行。
+- Gateway 启用了事件循环阻塞 watchdog：
+  - `GATEWAY_EVENT_LOOP_WATCHDOG_ENABLED`
+  - `GATEWAY_EVENT_LOOP_WATCHDOG_INTERVAL_SECONDS`
+  - `GATEWAY_EVENT_LOOP_WATCHDOG_LAG_THRESHOLD_SECONDS`
+  - `GATEWAY_EVENT_LOOP_WATCHDOG_MAX_BREACHES`
+- 当主事件循环连续严重阻塞时，Gateway 会主动退出进程，依赖 `restart: unless-stopped` 自动拉起，实现自愈。
+- 可直接用压测脚本复现实例并量化流式链路：
+  ```bash
+  python scripts/run_pressure.py \
+    --base-url http://localhost:2026 \
+    --token "$WENJIN_ACCESS_TOKEN" \
+    --mode stream \
+    --runs 8 \
+    --concurrency 4
+  ```
+  然后对齐同一时间窗的 Grafana `Run Dispatch/s By Result` 与 `Run Wait Duration P95 By Outcome`。
 
 ## 5. SMTP 已配置但收不到验证码
 
@@ -114,6 +151,121 @@ docker compose logs -f nginx
 
 相关代码：
 
-- `frontend/lib/workspace-feature-execution.ts`
-- `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
+- `frontend/stores/execution.ts`
+- `frontend/hooks/useWorkspaceEventStream.ts`
+- `frontend/app/(workbench)/workspaces/[id]/components/ThreadPanel.tsx`
 - `backend/src/task/handlers/workspace_feature_handler.py`
+
+## 7. `migrate` 报错：`value too long for type character varying(32)`
+
+典型日志片段：
+
+```text
+UPDATE alembic_version SET version_num='022_rename_chat_credit_types_to_thread' ...
+value too long for type character varying(32)
+```
+
+原因：
+
+- 历史库里的 `alembic_version.version_num` 仍是 `varchar(32)`，但新 revision id 超过 32。
+
+现状：
+
+- 已在 `backend/alembic/env.py` 接入自动守护，迁移前会确保该列至少为 `varchar(191)`。
+
+手动修复（旧镜像/旧代码场景）：
+
+```sql
+ALTER TABLE alembic_version
+  ALTER COLUMN version_num TYPE VARCHAR(191);
+```
+
+然后重试：
+
+```bash
+docker compose up --build migrate
+```
+
+## 8. `nginx` 长期 `unhealthy`，日志出现 `gateway could not be resolved`
+
+典型日志片段：
+
+```text
+gateway could not be resolved (2: Server failure)
+GET /readyz ... 502 Bad Gateway
+```
+
+原因：
+
+- `nginx.conf` 若使用变量式 `proxy_pass`（如 `set $gateway_upstream ...; proxy_pass $gateway_upstream/...`），会依赖运行时 DNS 解析；
+- 在 Docker DNS 抖动时会周期性解析失败，导致健康检查长期 502。
+
+现状：
+
+- 已改为静态 upstream（`gateway_upstream`/`frontend_upstream`）转发，避免变量式动态解析。
+
+排查与修复：
+
+```bash
+docker compose ps
+docker compose logs -f nginx
+docker exec wenjin-nginx nginx -t
+docker compose up -d nginx
+```
+
+## 9. Gateway 反复卡住但容器还在运行
+
+现象：
+
+- `/livez` 正常，但 `/api/*` 偶发超时或无流式输出
+- 前端出现 502 / 长时间 pending
+
+优先检查：
+
+```bash
+docker compose logs -f gateway
+curl -i http://localhost:2026/api/models?purpose=chat
+curl -i http://localhost:2026/readyz
+```
+
+说明：
+
+- Compose 与镜像 healthcheck 已改为探测 `GET /api/models?purpose=chat`（轻量 API 路径），避免仅依赖 `/readyz`。
+- `/readyz` 仍用于依赖级健康判断（DB/Redis/Celery/MCP/Execution），并带单依赖超时保护。
+- `task_backend` 就绪检查采用双探针：`inspect ping` 优先，失败时自动回退到 `worker:9153/metrics`；当 `inspect` 不可用但 metrics 可达时，`/readyz` 仍判定健康并在报告里给出 `warning`。
+- run 元数据已持久化到 Redis，网关重启后 `run_id` 可被重新查询；但重启前处于 `pending/running` 的 run 会被标记为 `interrupted`，需要前端重新发起执行。
+- runs 主执行默认在 Celery worker（`src.task.tasks.execute_run`）执行；如出现“run 一直 pending”，优先检查 `wenjin-worker` 日志与 `long_running` 队列消费状态。
+
+## 10. Worker 反复重启，日志出现 `cannot unpack non-iterable ExceptionInfo object`
+
+典型日志片段：
+
+```text
+Unrecoverable error: TypeError('cannot unpack non-iterable ExceptionInfo object')
+...
+billiard.exceptions.WorkerLostError: CancelledError()
+```
+
+原因：
+
+- run 执行协程内若 `asyncio.CancelledError` 直接冒泡到 Celery，会触发 worker 主循环异常并重启；
+- 重启期间会看到 run 流中断、前端无持续流式输出、偶发 502/超时。
+
+现状（2026-04-15 起）：
+
+- run worker 已把 `CancelledError` 收敛为 run `interrupted` 终态，不再向 Celery 主循环继续抛出；
+- `pool=solo` 场景会自动将并发参数收敛到 `1` 并打印提示日志，减少调度误判。
+- Gateway 对流式断开增加了取消宽限（`RUNTIME_DISCONNECT_CANCEL_GRACE_SECONDS`，默认 1.5 秒），降低“请求尾部断连导致误 cancel”的概率。
+
+排查：
+
+```bash
+docker compose logs -f worker
+docker compose logs --since=30m worker | rg "WorkerLostError|ExceptionInfo|CancelledError|Unrecoverable error"
+```
+
+若仍出现旧签名，执行：
+
+```bash
+docker compose up -d --build gateway worker
+```

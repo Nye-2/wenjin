@@ -1,6 +1,6 @@
 # Deployment Runbook
 
-更新时间：2026-04-10
+更新时间：2026-04-15
 
 本手册覆盖两条标准链路：
 
@@ -121,7 +121,8 @@ docker compose up -d --build
 ### 3.3 健康检查
 
 ```bash
-curl -f http://localhost:2026/health
+curl -f http://localhost:2026/livez
+curl -f http://localhost:2026/readyz
 docker compose ps
 docker compose exec gateway curl -f http://localhost:8001/readyz
 docker compose exec frontend wget -qO- http://localhost:3000 >/dev/null
@@ -161,3 +162,70 @@ docker compose logs -f worker
 docker compose logs -f migrate
 docker compose logs -f nginx
 ```
+
+## 6. Metrics and Dashboard
+
+关键指标入口：
+
+- Gateway: `http://localhost:2026/metrics`（Nginx 入口）
+- Gateway (direct): `http://localhost:8001/metrics`
+- Worker: `http://localhost:9153/metrics`（容器内）
+- Grafana: `http://localhost:3001`
+
+核心 run 链路指标（已纳入 `Wenjin Overview` 面板）：
+
+- `run_dispatch_total{result}`：run 分发结果（`success/conflict/queue_error/...`）
+- `run_wait_seconds{outcome}`：wait/join 耗时分布
+- `run_wait_polls{outcome}`：wait 轮询次数分布
+
+快速校验：
+
+```bash
+curl -s http://localhost:2026/metrics | rg "run_dispatch_total|run_wait_seconds_bucket|run_wait_polls_bucket"
+```
+
+## 7. Run 链路压测
+
+仓库内置压测脚本：`scripts/run_pressure.py`（标准库实现，无第三方依赖）。
+
+先决条件：
+
+1. `gateway/worker/redis/postgres` 均健康。
+2. 提供鉴权（`--token` 或 `--email + --password`）。
+
+示例（wait 路径）：
+
+```bash
+python scripts/run_pressure.py \
+  --base-url http://localhost:2026 \
+  --email your_user@example.com \
+  --password 'your-password' \
+  --runs 40 \
+  --concurrency 8 \
+  --mode wait \
+  --output /tmp/wenjin-run-pressure-wait.json
+```
+
+示例（stream 路径）：
+
+```bash
+python scripts/run_pressure.py \
+  --base-url http://localhost:2026 \
+  --token "$WENJIN_ACCESS_TOKEN" \
+  --runs 20 \
+  --concurrency 4 \
+  --mode stream \
+  --output /tmp/wenjin-run-pressure-stream.json
+```
+
+输出包含：
+
+- `success_rate`、`throughput_rps`
+- 成功样本延迟分位（`p50/p90/p95/p99`）
+- stream 模式 `ttfb_seconds` 分位
+- 失败样本与错误分布（便于与 Grafana 时间窗对齐定位）
+
+说明：
+
+- Nginx 已为 `runs/wait` 配置长连接超时（`proxy_read_timeout=86400s`），长时模型调用不会在 60 秒被反代提前截断。
+- Worker 默认建议 `CELERY_WORKER_POOL=solo`；当配置并发大于 `1` 时，启动阶段会自动收敛到 `1` 并打印提示日志，避免出现“看似并发、实际单线程”的误判。

@@ -1,8 +1,8 @@
 # Workspace Feature Catalog
 
-更新时间: 2026-04-10
+更新时间: 2026-04-15
 数据源: `backend/src/workspace_features/registry.py`
-skill 数据源: `backend/src/agents/lead_agent/chat_skill_catalog.py`
+skill 数据源: `backend/src/agents/lead_agent/thread_skill_catalog.py`
 
 ## 1. Canonical Workspace Types
 
@@ -12,12 +12,13 @@ skill 数据源: `backend/src/agents/lead_agent/chat_skill_catalog.py`
 - `software_copyright`
 - `patent`
 
-总计: 5 个 workspace 类型，20 个 feature。
-附加说明: 当前共有 21 个 chat skills。
+总计: 5 个 workspace 类型，23 个 feature。
+附加说明: 当前共有 24 个 chat skills。
+补充: `compile_export` 已移除，编译/导出统一走 WenjinPrism（`/latex`）。
 
 ## 2. Feature Matrix
 
-### 2.1 Thesis (6)
+### 2.1 Thesis (5)
 
 | feature_id | 名称 | handler_key | task_type | panel | stages |
 |---|---|---|---|---|---|
@@ -26,9 +27,8 @@ skill 数据源: `backend/src/agents/lead_agent/chat_skill_catalog.py`
 | `opening_research` | 开题调研 | `thesis.opening_research` | `workspace_feature` | `opening_research_panel` | `research/outline/refine` |
 | `thesis_writing` | 论文写作 | `thesis.thesis_writing` | `workspace_feature` | `thesis_editor` | `outline/write/revise` |
 | `figure_generation` | 图表生成 | `thesis.figure_generation` | `workspace_feature` | `figure_panel` | `analyze/design/generate` |
-| `compile_export` | 编译导出 | `thesis.compile_export` | `workspace_feature` | `compile_panel` | `compile/preview/export` |
 
-### 2.2 SCI (7)
+### 2.2 SCI (8)
 
 | feature_id | 名称 | handler_key | task_type | panel | stages |
 |---|---|---|---|---|---|
@@ -37,30 +37,34 @@ skill 数据源: `backend/src/agents/lead_agent/chat_skill_catalog.py`
 | `writing` | 论文写作 | `sci.writing` | `workspace_feature` | `editor_panel` | `plan/write/revise` |
 | `literature_review` | 文献综述 | `sci.literature_review` | `workspace_feature` | `analysis_panel` | `collect/synthesize/draft` |
 | `framework_outline` | 框架与摘要 | `sci.framework_outline` | `workspace_feature` | `editor_panel` | `position/outline/abstract` |
+| `figure_generation` | 图表生成 | `sci.figure_generation` | `workspace_feature` | `figure_panel` | `analyze/design/generate` |
 | `peer_review` | 同行评审 | `sci.peer_review` | `workspace_feature` | `analysis_panel` | `inspect/score/advise` |
 | `journal_recommend` | 期刊推荐 | `sci.journal_recommend` | `workspace_feature` | `analysis_panel` | `profile/match/rank` |
 
-### 2.3 Proposal (3)
+### 2.3 Proposal (4)
 
 | feature_id | 名称 | handler_key | task_type | panel | stages |
 |---|---|---|---|---|---|
 | `proposal_outline` | 申报书大纲 | `proposal.proposal_outline` | `workspace_feature` | `outline_editor` | `analyze/generate` |
 | `background_research` | 背景调研 | `proposal.background_research` | `workspace_feature` | `literature_panel` | `search/summarize` |
 | `experiment_design` | 实验设计 | `proposal.experiment_design` | `workspace_feature` | `outline_editor` | `hypothesis/variables/evaluation` |
+| `figure_generation` | 图表生成 | `proposal.figure_generation` | `workspace_feature` | `figure_panel` | `analyze/design/generate` |
 
-### 2.4 Software Copyright (2)
+### 2.4 Software Copyright (3)
 
 | feature_id | 名称 | handler_key | task_type | panel | stages |
 |---|---|---|---|---|---|
 | `copyright_materials` | 材料准备 | `software_copyright.copyright_materials` | `workspace_feature` | `outline_editor` | `collect/organize/review` |
 | `technical_description` | 技术说明 | `software_copyright.technical_description` | `workspace_feature` | `editor_panel` | `analyze/draft/revise` |
+| `figure_generation` | 图表生成 | `software_copyright.figure_generation` | `workspace_feature` | `figure_panel` | `analyze/design/generate` |
 
-### 2.5 Patent (2)
+### 2.5 Patent (3)
 
 | feature_id | 名称 | handler_key | task_type | panel | stages |
 |---|---|---|---|---|---|
 | `patent_outline` | 专利框架 | `patent.patent_outline` | `workspace_feature` | `outline_editor` | `analyze/structure/refine` |
 | `prior_art_search` | 现有技术检索 | `patent.prior_art_search` | `workspace_feature` | `literature_panel` | `search/compare` |
+| `figure_generation` | 图表生成 | `patent.figure_generation` | `workspace_feature` | `figure_panel` | `analyze/design/generate` |
 
 ## 3. Change Rules
 
@@ -80,7 +84,6 @@ skills 是 chat 层的 feature 入口语义。一个 skill 绑定一个 canonica
 - `framework-designer` -> `thesis_writing` (`action=generate_outline`)
 - `fullpaper-writer` -> `thesis_writing` (`action=write_all`)
 - `figure-designer` -> `figure_generation`
-- `doc-compiler` -> `compile_export`
 
 ### 4.2 SCI
 
@@ -89,6 +92,7 @@ skills 是 chat 层的 feature 入口语义。一个 skill 绑定一个 canonica
 - `section-writer` -> `writing`
 - `literature-reviewer` -> `literature_review`
 - `framework-designer` -> `framework_outline`
+- `figure-designer` -> `figure_generation`
 - `peer-reviewer` -> `peer_review`
 - `journal-recommender` -> `journal_recommend`
 
@@ -97,13 +101,16 @@ skills 是 chat 层的 feature 入口语义。一个 skill 绑定一个 canonica
 - `proposal-writer` -> `proposal_outline`
 - `background-scout` -> `background_research`
 - `experiment-designer` -> `experiment_design`
+- `figure-designer` -> `figure_generation`
 
 ### 4.4 Software Copyright
 
 - `copyright-writer` -> `copyright_materials`
 - `tech-doc-writer` -> `technical_description`
+- `figure-designer` -> `figure_generation`
 
 ### 4.5 Patent
 
 - `patent-drafter` -> `patent_outline`
 - `prior-art-scout` -> `prior_art_search`
+- `figure-designer` -> `figure_generation`

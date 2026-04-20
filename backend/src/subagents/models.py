@@ -1,10 +1,11 @@
 """Data models for subagent system."""
 
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
+
+from src.runtime.serialization import encode_sse_data
 
 
 class SubagentStatus(StrEnum):
@@ -56,8 +57,7 @@ class SubagentEvent:
 
     def to_sse(self) -> str:
         """Convert event to SSE format string."""
-        payload = json.dumps(self.to_dict())
-        return f"event: {self.event_type}\ndata: {payload}\n\n"
+        return f"event: {self.event_type}\n{encode_sse_data(self.to_dict())}"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary for serialization."""

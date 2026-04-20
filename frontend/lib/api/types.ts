@@ -49,10 +49,14 @@ export interface LatexTemplate {
   template_path?: string | null;
 }
 
+export type LatexCompileEngine =
+  | "xelatex"
+  | "pdflatex";
+
 export interface LatexCompileResult {
   ok: boolean;
   status: number;
-  engine: "xelatex" | "pdflatex";
+  engine: LatexCompileEngine;
   main_file: string;
   pdf_path?: string | null;
   pdf_endpoint?: string | null;
@@ -101,27 +105,109 @@ export interface LatexFeedbackItem {
   anchor?: LatexFeedbackAnchor | null;
   source?: "tex" | "pdf";
   pdf_anchor?: LatexPdfAnchor | null;
-  tex_anchor?: LatexFeedbackAnchor | null;
   last_status?: "idle" | "pending" | "done" | "error" | null;
   last_error?: string | null;
 }
 
-export interface LatexFeedbackRewriteResponse {
-  ok: boolean;
+export interface LatexDiffStats {
+  chars_added: number;
+  chars_deleted: number;
+  tokens_changed: number;
+  citation_changed: number;
+  label_changed: number;
+  math_changed: number;
+}
+
+export interface LatexDiffOp {
+  op: "equal" | "insert" | "delete" | "replace";
+  token_kind: "text" | "latex_cmd" | "citation" | "label" | "math" | "env";
+  old_text: string;
+  new_text: string;
+  old_start: number;
+  old_end: number;
+  new_start: number;
+  new_end: number;
+}
+
+export interface LatexDiffHunk {
+  old_start: number;
+  old_end: number;
+  new_start: number;
+  new_end: number;
+  ops: LatexDiffOp[];
+  stats: LatexDiffStats;
+  risk_flags: string[];
+}
+
+export interface LatexRewriteDiffPayload {
+  hunks: LatexDiffHunk[];
+  stats: LatexDiffStats;
+  risk_flags: string[];
+}
+
+export interface LatexFeedbackRewriteCandidate {
+  candidate_id: string;
+  candidate_signature: string;
+  profile: "balanced" | "conservative" | "aggressive";
+  risk_level: "low" | "medium" | "high";
   model_id: string;
   scope: "selection" | "section";
-  file_path: string;
   section_title: string;
   section_level: string;
-  resolved_selection_start: number;
-  resolved_selection_end: number;
   target_start: number;
   target_end: number;
   rewritten_text: string;
   changes_summary: string;
   proposed_content: string;
   updated_anchor: LatexFeedbackAnchor;
+  base_file_hash: string;
+  base_range_hash: string;
+  diff: LatexRewriteDiffPayload;
+}
+
+export interface LatexFeedbackRewritePreviewResponse {
+  ok: boolean;
+  file_path: string;
+  resolved_selection_start: number;
+  resolved_selection_end: number;
+  candidates: LatexFeedbackRewriteCandidate[];
+}
+
+export interface LatexFeedbackRewriteApplyResponse {
+  ok: boolean;
   applied: boolean;
+  file_path: string;
+  candidate_id: string;
+  target_start: number;
+  target_end: number;
+  rewritten_text: string;
+  applied_content: string;
+  updated_anchor: LatexFeedbackAnchor;
+  file_hash: string;
+  undo: LatexFeedbackRewriteUndoPayload;
+}
+
+export interface LatexFeedbackRewriteUndoPayload {
+  candidate_id: string;
+  revert_start: number;
+  revert_end: number;
+  rewritten_text: string;
+  previous_text: string;
+  applied_file_hash: string;
+  revert_signature: string;
+}
+
+export interface LatexFeedbackRewriteRevertResponse {
+  ok: boolean;
+  reverted: boolean;
+  file_path: string;
+  candidate_id: string;
+  revert_start: number;
+  revert_end: number;
+  restored_text: string;
+  reverted_content: string;
+  updated_anchor: LatexFeedbackAnchor;
+  file_hash: string;
 }
 
 export interface LatexFeedbackMapResponse {
@@ -208,20 +294,20 @@ export interface Artifact {
   updated_at: string;
 }
 
-export interface ChatMessage {
+export interface ThreadMessage {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp?: string;
-  blocks?: ChatMessageBlock[];
+  blocks?: ThreadMessageBlock[];
   metadata?: Record<string, unknown>;
 }
 
-export type ChatUploadKind = "literature" | "workspace_context" | "transient";
+export type ThreadUploadKind = "literature" | "workspace_context" | "transient";
 
-export interface ChatAttachment {
+export interface ThreadAttachment {
   name: string;
   path: string;
-  kind: ChatUploadKind;
+  kind: ThreadUploadKind;
   url?: string | null;
   content_type?: string | null;
   size_bytes?: number | null;
@@ -230,7 +316,7 @@ export interface ChatAttachment {
   metadata?: Record<string, unknown>;
 }
 
-export interface ChatMessageBlock {
+export interface ThreadMessageBlock {
   type: string;
   title?: string | null;
   data?: Record<string, unknown>;
@@ -243,7 +329,7 @@ export interface Thread {
   model: string;
   skill?: string | null;
   skill_name?: string | null;
-  messages: ChatMessage[];
+  messages: ThreadMessage[];
   created_at: string;
   updated_at: string;
 }
@@ -262,7 +348,7 @@ export interface ThreadSummary {
   updated_at: string;
 }
 
-export interface ThreadAgentStatus {
+export interface ThreadRuntimeStatus {
   thread_id: string;
   status: "idle" | "running" | "completed" | "failed";
   current_skill?: string | null;
@@ -270,9 +356,15 @@ export interface ThreadAgentStatus {
   subagent_count?: number;
 }
 
+export interface TokenUsageCounter {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
 export interface WorkspaceActivityItem {
   id: string;
-  kind: "feature_task" | "chat_thread" | "subagent_task" | "artifact";
+  kind: "feature_task" | "thread" | "subagent_task" | "artifact";
   workspace_id?: string | null;
   occurred_at: string;
   title: string;
@@ -309,6 +401,7 @@ export interface WorkspaceTaskEvent {
   workspace_id: string;
   task: {
     task_id: string;
+    execution_session_id?: string | null;
     task_type?: string | null;
     status: string;
     progress: number;
@@ -327,7 +420,7 @@ export interface WorkspaceTaskEvent {
 export interface WorkspaceThreadStatusEvent {
   type: "thread.status";
   workspace_id: string;
-  thread: ThreadAgentStatus;
+  thread: ThreadRuntimeStatus;
   timestamp?: string;
 }
 
@@ -347,16 +440,84 @@ export interface WorkspaceThreadDeletedEvent {
   timestamp?: string;
 }
 
+export interface ExecutionSession {
+  id: string;
+  user_id: string;
+  workspace_id: string;
+  thread_id?: string | null;
+  workspace_type: string;
+  feature_id: string;
+  entry_skill_id?: string | null;
+  launch_source: string;
+  launch_message?: string | null;
+  status: string;
+  params: Record<string, unknown>;
+  task_ids: string[];
+  primary_task_id?: string | null;
+  runtime_snapshot?: Record<string, unknown> | null;
+  progress?: number | null;
+  task_message?: string | null;
+  current_step?: string | null;
+  result_payload?: Record<string, unknown> | null;
+  token_usage?: TokenUsageCounter | null;
+  subagents?: Array<{
+    task_id: string;
+    thread_id: string;
+    execution_session_id: string;
+    status: string;
+    subagent_type?: string | null;
+    workflow_phase?: string | null;
+    workflow_phase_index?: string | number | null;
+    workflow_task_index?: string | number | null;
+    workflow_strategy?: string | null;
+    output_preview?: string | null;
+    error?: string | null;
+    token_usage?: TokenUsageCounter | null;
+    model_name?: string | null;
+    updated_at?: string | null;
+  }>;
+  result_summary?: string | null;
+  artifact_ids: string[];
+  next_actions: Array<Record<string, unknown>>;
+  advisory_code?: string | null;
+  last_error?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface WorkspaceExecutionCreatedEvent {
+  type: "execution.created";
+  workspace_id: string;
+  execution: ExecutionSession;
+  timestamp?: string;
+}
+
+export interface WorkspaceExecutionUpdatedEvent {
+  type: "execution.updated" | "execution.completed" | "execution.failed";
+  workspace_id: string;
+  execution: ExecutionSession;
+  timestamp?: string;
+}
+
 export interface WorkspaceSubagentUpdatedEvent {
   type: "subagent.updated";
   workspace_id: string;
   subagent: {
     task_id: string;
     thread_id: string;
+    execution_session_id: string;
     status: string;
     subagent_type?: string | null;
+    workflow_phase?: string | null;
+    workflow_phase_index?: string | number | null;
+    workflow_task_index?: string | number | null;
+    workflow_strategy?: string | null;
     output_preview?: string | null;
     error?: string | null;
+    token_usage?: TokenUsageCounter | null;
+    model_name?: string | null;
   };
   activity?: WorkspaceActivityItem;
   timestamp?: string;
@@ -369,11 +530,13 @@ export type WorkspaceEvent =
   | WorkspaceThreadStatusEvent
   | WorkspaceThreadUpdatedEvent
   | WorkspaceThreadDeletedEvent
+  | WorkspaceExecutionCreatedEvent
+  | WorkspaceExecutionUpdatedEvent
   | WorkspaceSubagentUpdatedEvent;
 
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
 
-export interface ChatRequest {
+export interface RunRequest {
   message: string;
   workspace_id?: string;
   thread_id?: string;
@@ -381,8 +544,65 @@ export interface ChatRequest {
   skill?: string | null;
   thinking_enabled?: boolean;
   reasoning_effort?: ReasoningEffort;
-  attachments?: ChatAttachment[];
+  attachments?: ThreadAttachment[];
   metadata?: Record<string, unknown>;
+  on_disconnect?: RunDisconnectMode;
+  multitask_strategy?: RunMultitaskStrategy;
+}
+
+export type RunDisconnectMode = "cancel" | "continue";
+export type RunMultitaskStrategy = "reject" | "interrupt" | "rollback";
+export type RunCancelAction = "interrupt" | "rollback";
+
+export interface RunResponse {
+  run_id: string;
+  thread_id: string;
+  assistant_id?: string | null;
+  status: "pending" | "running" | "success" | "error" | "interrupted" | string;
+  metadata?: Record<string, unknown>;
+  kwargs?: Record<string, unknown>;
+  multitask_strategy?: string;
+  error?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RunWaitResponse {
+  run_id: string;
+  thread_id: string;
+  status: "pending" | "running" | "success" | "error" | "interrupted" | string;
+  error?: string | null;
+  values?: Record<string, unknown>;
+}
+
+export interface PlatformThreadSummary {
+  thread_id: string;
+  status: "idle" | "busy" | "interrupted" | "error" | string;
+  created_at: string;
+  updated_at: string;
+  metadata: Record<string, unknown>;
+  values: Record<string, unknown>;
+  interrupts: Record<string, unknown>;
+}
+
+export interface PlatformThreadState {
+  values: Record<string, unknown>;
+  next: string[];
+  metadata: Record<string, unknown>;
+  checkpoint: Record<string, unknown>;
+  checkpoint_id?: string | null;
+  parent_checkpoint_id?: string | null;
+  created_at?: string | null;
+  tasks: Array<Record<string, unknown>>;
+}
+
+export interface PlatformThreadHistoryEntry {
+  checkpoint_id: string;
+  parent_checkpoint_id?: string | null;
+  metadata: Record<string, unknown>;
+  values: Record<string, unknown>;
+  created_at?: string | null;
+  next: string[];
 }
 
 export interface Model {
@@ -405,7 +625,7 @@ export interface FeatureStage {
   label: string;
 }
 
-export interface WorkspaceChatSkill {
+export interface WorkspaceThreadSkill {
   id: string;
   name: string;
   description: string;
@@ -432,8 +652,15 @@ export interface WorkspaceFeature {
   defaultSkillId?: string | null;
 }
 
+export interface WorkspacePrismEnsureResponse {
+  latex_project_id: string;
+  url: string;
+  sync_status: string;
+}
+
 export interface ExecuteWorkspaceFeatureResponse {
   task_id: string | null;
+  execution_session_id?: string | null;
   status: string;
   feature_id: string;
   message: string;
@@ -443,6 +670,7 @@ export interface ExecuteWorkspaceFeatureResponse {
 
 export interface TaskStatus {
   task_id: string;
+  execution_session_id?: string | null;
   task_type: string;
   status: string;
   progress: number;
@@ -540,6 +768,11 @@ export interface WorkspaceActivityResponse {
   count: number;
 }
 
+export interface WorkspaceExecutionSessionsResponse {
+  items: ExecutionSession[];
+  count: number;
+}
+
 export interface CreditTransactionItem {
   id: string;
   user_id?: string;
@@ -556,14 +789,33 @@ export interface CreditTransactionItem {
 
 export type CreditCostValue = number | Record<string, number | boolean>;
 
-export interface ChatCreditStatus {
+export interface ThreadCreditStatus {
   enabled: boolean;
   free_tokens: number;
   tokens_per_credit: number;
   consumed_tokens: number;
   remaining_free_tokens: number;
-  can_start_chat: boolean;
+  can_start_thread: boolean;
   overdraft_credits: number;
+}
+
+export interface DashboardTokenUsageSection {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  records: number;
+  records_with_usage: number;
+}
+
+export interface UserDashboardTokenUsage {
+  thread: {
+    total_tokens: number;
+    free_tokens: number;
+    billable_tokens: number;
+    remaining_free_tokens: number;
+  };
+  feature_tasks: DashboardTokenUsageSection;
+  subagents: DashboardTokenUsageSection;
 }
 
 export interface UserDashboardData {
@@ -581,7 +833,7 @@ export interface UserDashboardData {
     total_earned: number;
     total_spent: number;
     costs: Record<string, CreditCostValue>;
-    chat?: ChatCreditStatus;
+    thread?: ThreadCreditStatus;
   };
   workspaces: {
     total: number;
@@ -597,6 +849,7 @@ export interface UserDashboardData {
     cancelled: number;
     completion_rate: number;
   };
+  token_usage: UserDashboardTokenUsage;
   recent_tasks: Array<{
     id: string;
     task_type: string;
@@ -672,6 +925,15 @@ export interface AdminDashboardData {
       overdraft_users: number;
       overdraft_credits_total: number;
       total_transactions: number;
+    };
+    token_usage: {
+      thread: {
+        total_tokens: number;
+        transactions: number;
+        users: number;
+      };
+      feature_tasks: DashboardTokenUsageSection;
+      subagents: DashboardTokenUsageSection;
     };
   };
   updated_at: string;

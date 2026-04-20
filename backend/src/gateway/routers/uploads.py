@@ -1,4 +1,4 @@
-"""Thread-scoped upload router for chat attachments."""
+"""Thread-scoped upload router for thread attachments."""
 
 from __future__ import annotations
 
@@ -17,15 +17,15 @@ from src.database import KnowledgeCategory, User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_artifact_service,
-    get_chat_thread_service,
     get_db,
     get_paper_service,
     get_task_service,
+    get_thread_service,
     get_upload_preprocessor,
     get_workspace_service,
 )
-from src.gateway.routers.chat_contracts import ChatAttachment, ChatUploadKind
-from src.services import ChatThreadService
+from src.gateway.routers.thread_contracts import ThreadAttachment, ThreadUploadKind
+from src.services import ThreadService
 from src.services.knowledge_service import KnowledgeService
 from src.services.upload_preprocessor import UploadPreprocessor
 from src.services.workspace_uploads import (
@@ -43,6 +43,9 @@ router = APIRouter(prefix="/threads/{thread_id}/uploads", tags=["uploads"])
 
 _PERSISTED_UPLOAD_ROOT = DEFAULT_WORKSPACE_UPLOAD_ROOT
 _MEMORY_PREVIEW_MAX_CHARS = 280
+_MAX_UPLOAD_FILES = 20
+_MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
+_UPLOAD_READ_CHUNK_SIZE = 64 * 1024
 logger = logging.getLogger(__name__)
 
 
@@ -50,7 +53,7 @@ class ThreadUploadResponse(BaseModel):
     """Response for thread-scoped uploads."""
 
     success: bool
-    files: list[ChatAttachment]
+    files: list[ThreadAttachment]
     message: str
 
 
@@ -68,14 +71,14 @@ def _build_attachment(
     *,
     thread_id: str,
     filename: str,
-    kind: ChatUploadKind,
+    kind: ThreadUploadKind,
     content_type: str | None,
     size_bytes: int,
     paper_id: str | None = None,
     artifact_id: str | None = None,
     metadata: dict[str, object] | None = None,
-) -> ChatAttachment:
-    return ChatAttachment(
+) -> ThreadAttachment:
+    return ThreadAttachment(
         name=filename,
         path=f"/mnt/user-data/uploads/{filename}",
         kind=kind,
@@ -91,6 +94,33 @@ def _build_attachment(
 def _ordered_refresh_targets(targets: set[str]) -> list[str]:
     preferred_order = ("dashboard", "papers", "artifacts")
     return [target for target in preferred_order if target in targets]
+
+
+async def _read_upload_content_with_limit(
+    upload: UploadFile,
+    *,
+    max_size_bytes: int | None = None,
+    chunk_size: int | None = None,
+) -> bytes:
+    resolved_max_size = _MAX_UPLOAD_SIZE_BYTES if max_size_bytes is None else int(max_size_bytes)
+    resolved_chunk_size = _UPLOAD_READ_CHUNK_SIZE if chunk_size is None else int(chunk_size)
+    chunks: list[bytes] = []
+    total_size = 0
+    while True:
+        chunk = await upload.read(resolved_chunk_size)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > resolved_max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=(
+                    f"Uploaded file is too large (max {resolved_max_size // (1024 * 1024)}MB): "
+                    f"{str(upload.filename or 'uploaded-file')}"
+                ),
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _attach_workspace_preprocess_urls(
@@ -141,9 +171,9 @@ async def _require_owned_thread(
     *,
     thread_id: str,
     user_id: str,
-    chat_thread_service: ChatThreadService,
+    thread_service: ThreadService,
 ) -> Any:
-    thread = await chat_thread_service.get_thread(thread_id, user_id)
+    thread = await thread_service.get_thread(thread_id, user_id)
     if thread is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
     return thread
@@ -165,10 +195,10 @@ async def _require_owned_workspace(
 async def upload_thread_files(
     thread_id: str,
     files: list[UploadFile] = File(...),
-    kind: ChatUploadKind = Form(...),
+    kind: ThreadUploadKind = Form(...),
     workspace_id: str | None = Form(default=None),
     current_user: User = Depends(get_current_user),
-    chat_thread_service: ChatThreadService = Depends(get_chat_thread_service),
+    thread_service: ThreadService = Depends(get_thread_service),
     workspace_service: Any = Depends(get_workspace_service),
     paper_service: Any = Depends(get_paper_service),
     artifact_service: Any = Depends(get_artifact_service),
@@ -179,11 +209,16 @@ async def upload_thread_files(
     """Upload one or more files into a thread-scoped sandbox uploads directory."""
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided")
+    if len(files) > _MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"Too many files in one request (max {_MAX_UPLOAD_FILES})",
+        )
 
     thread = await _require_owned_thread(
         thread_id=thread_id,
         user_id=str(current_user.id),
-        chat_thread_service=chat_thread_service,
+        thread_service=thread_service,
     )
 
     resolved_workspace_id = workspace_id or thread.workspace_id
@@ -211,7 +246,7 @@ async def upload_thread_files(
 
     uploads_dir = _thread_upload_dir(thread_id)
     knowledge_service = KnowledgeService(db)
-    stored_files: list[ChatAttachment] = []
+    stored_files: list[ThreadAttachment] = []
     refresh_targets: set[str] = set()
 
     for upload in files:
@@ -222,7 +257,7 @@ async def upload_thread_files(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(exc),
             ) from exc
-        content = await upload.read()
+        content = await _read_upload_content_with_limit(upload)
         if not content:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -265,6 +300,7 @@ async def upload_thread_files(
                     / "_preprocessed"
                     / persistent_path.stem
                 ),
+                output_virtual_root=f"papers/_preprocessed/{persistent_path.stem}",
             )
             metadata["preprocess"] = preprocess_result.to_metadata()
             _attach_workspace_preprocess_urls(
@@ -292,7 +328,7 @@ async def upload_thread_files(
                 title=paper_title,
                 authors=paper_authors,
                 file_path=str(persistent_path),
-                source="chat_upload",
+                source="thread_upload",
             )
             paper_id = str(paper.id)
             extraction = await PapersHandler(
@@ -357,7 +393,7 @@ async def upload_thread_files(
                 type=ArtifactType.NOTE.value,
                 title=f"上传上下文 - {persistent_path.name}",
                 content={
-                    "source": "chat_upload",
+                    "source": "thread_upload",
                     "kind": "workspace_context",
                     "file_name": persistent_path.name,
                     "content_type": upload.content_type,
@@ -390,7 +426,7 @@ async def upload_thread_files(
                     KnowledgeCategory.CONTEXT,
                     knowledge_text,
                     confidence=0.85,
-                    source="chat_upload.workspace_context",
+                    source="thread_upload.workspace_context",
                     workspace_context=resolved_workspace_id,
                 )
                 await db.commit()

@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   ShieldX,
   Download,
+  Gauge,
 } from "lucide-react";
 
 import { Header } from "@/components/layout/header";
@@ -67,7 +68,7 @@ type CreditTypeFilter =
   | "admin_grant"
   | "admin_deduct"
   | "workflow_consume"
-  | "chat_token_consume"
+  | "thread_token_consume"
   | "registration_bonus"
   | "refund";
 type LogActionFilter =
@@ -594,6 +595,7 @@ export default function AdminDashboardPage() {
   const overdraftUsers = dashboard?.summary.credits.overdraft_users ?? 0;
   const overdraftCreditsTotal = dashboard?.summary.credits.overdraft_credits_total ?? 0;
   const manualDeductions = dashboard?.summary.credits.manual_deductions ?? 0;
+  const tokenUsage = dashboard?.summary.token_usage;
   const hasOverdraftUsers = overdraftUsers > 0;
   let mcpDraftPreviewError: string | null = null;
   try {
@@ -636,7 +638,7 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
           <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-[var(--text-secondary)]">总用户数</span>
@@ -724,7 +726,55 @@ export default function AdminDashboardPage() {
               全量任务 {dashboard?.summary.tasks.total ?? 0}
             </div>
           </div>
+
+          <div className="route-card rounded-[1.5rem] p-5">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-[var(--text-secondary)]">Token 用量</span>
+              <Gauge className="w-5 h-5 text-[var(--accent-primary)]" />
+            </div>
+            <div className="mt-3 text-3xl font-bold text-[var(--text-primary)]">
+              {(tokenUsage?.thread.total_tokens ?? 0).toLocaleString()}
+            </div>
+            <div className="mt-1 text-xs text-[var(--text-muted)]">
+              thread tokens（累计）
+            </div>
+          </div>
         </div>
+
+        {tokenUsage ? (
+          <section className="route-card rounded-2xl border p-5">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Token 用量观测</h2>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
+                <div className="text-xs text-[var(--text-muted)]">主线对话</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+                  {tokenUsage.thread.total_tokens.toLocaleString()}
+                </div>
+                <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  结算 {tokenUsage.thread.transactions} 笔 / 用户 {tokenUsage.thread.users}
+                </div>
+              </div>
+              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
+                <div className="text-xs text-[var(--text-muted)]">功能执行（task）</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+                  {tokenUsage.feature_tasks.total_tokens.toLocaleString()}
+                </div>
+                <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  记录 {tokenUsage.feature_tasks.records_with_usage}/{tokenUsage.feature_tasks.records}
+                </div>
+              </div>
+              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
+                <div className="text-xs text-[var(--text-muted)]">子代理</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+                  {tokenUsage.subagents.total_tokens.toLocaleString()}
+                </div>
+                <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  记录 {tokenUsage.subagents.records_with_usage}/{tokenUsage.subagents.records}
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         {hasOverdraftUsers ? (
           <section className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-700">
@@ -1462,7 +1512,7 @@ export default function AdminDashboardPage() {
                     <SelectItem value="admin_grant">管理员发放</SelectItem>
                     <SelectItem value="admin_deduct">管理员扣减</SelectItem>
                     <SelectItem value="workflow_consume">功能扣费</SelectItem>
-                    <SelectItem value="chat_token_consume">主线对话扣费</SelectItem>
+                    <SelectItem value="thread_token_consume">主线对话扣费</SelectItem>
                     <SelectItem value="registration_bonus">注册奖励</SelectItem>
                     <SelectItem value="refund">退款</SelectItem>
                   </SelectContent>

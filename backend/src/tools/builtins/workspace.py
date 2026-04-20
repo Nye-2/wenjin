@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Annotated, Any
 
 from langchain_core.messages import ToolMessage
@@ -13,14 +15,16 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from src.agents.lead_agent.chat_skill_catalog import get_skill_by_id
-from src.agents.lead_agent.feature_bridge_cards import (
+from src.agents.lead_agent.thread_feature_cards import (
     build_confirmation_required_response,
 )
-from src.agents.thread_state import ThreadState
-from src.agents.lead_agent.feature_bridge import (
+from src.agents.lead_agent.thread_feature_catalog import (
     build_workspace_artifact_overview,
     build_workspace_feature_overview,
+)
+from src.agents.lead_agent.thread_skill_catalog import get_skill_by_id
+from src.agents.thread_state import ThreadState
+from src.application.services.thread_feature_service import (
     execute_workspace_feature_request,
 )
 
@@ -78,14 +82,86 @@ def _normalize_optional_str(value: Any) -> str | None:
     return normalized or None
 
 
-def _runtime_context(config: RunnableConfig | None) -> tuple[str | None, str | None, str | None]:
-    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
-    if not isinstance(configurable, dict):
-        return None, None, None
+@dataclass(frozen=True, slots=True)
+class _RuntimeContext:
+    workspace_id: str | None
+    thread_id: str | None
+    user_id: str | None
+    execution_session_id: str | None
+    orchestration_intent: str | None
+    orchestration_feature_id: str | None
+    orchestration_params: dict[str, Any]
+    tool_call_id: str | None
+
+
+def _runtime_configurable(config: RunnableConfig | None) -> Mapping[str, Any]:
+    configurable = config.get("configurable", {}) if isinstance(config, Mapping) else {}
+    return configurable if isinstance(configurable, Mapping) else {}
+
+
+def _runtime_value_with_state_fallback(
+    *,
+    key: str,
+    configurable: Mapping[str, Any],
+    state: ThreadState | None = None,
+) -> str | None:
+    runtime_value = _normalize_optional_str(configurable.get(key))
+    if runtime_value:
+        return runtime_value
+    if isinstance(state, dict):
+        return _normalize_optional_str(state.get(key))
+    return None
+
+
+def _runtime_context(
+    config: RunnableConfig | None,
+    state: ThreadState | None = None,
+) -> _RuntimeContext:
+    configurable = _runtime_configurable(config)
+    orchestration_params_raw = configurable.get("orchestration_params")
+    orchestration_params = (
+        dict(orchestration_params_raw)
+        if isinstance(orchestration_params_raw, Mapping)
+        else {}
+    )
+    orchestration_intent = _normalize_optional_str(configurable.get("orchestration_intent"))
+    if orchestration_intent:
+        orchestration_intent = orchestration_intent.lower()
+    if orchestration_intent not in {"launch", "resume"}:
+        orchestration_intent = None
+
+    return _RuntimeContext(
+        workspace_id=_runtime_value_with_state_fallback(
+            key="workspace_id",
+            configurable=configurable,
+            state=state,
+        ),
+        thread_id=_runtime_value_with_state_fallback(
+            key="thread_id",
+            configurable=configurable,
+            state=state,
+        ),
+        user_id=_runtime_value_with_state_fallback(
+            key="user_id",
+            configurable=configurable,
+            state=state,
+        ),
+        execution_session_id=_normalize_optional_str(configurable.get("execution_session_id")),
+        orchestration_intent=orchestration_intent,
+        orchestration_feature_id=_normalize_optional_str(configurable.get("orchestration_feature_id")),
+        orchestration_params=orchestration_params,
+        tool_call_id=_normalize_optional_str(configurable.get("tool_call_id")),
+    )
+
+
+def _resolve_tool_call_id(
+    injected_tool_call_id: str | None,
+    runtime: _RuntimeContext,
+) -> str:
     return (
-        _normalize_optional_str(configurable.get("workspace_id")),
-        _normalize_optional_str(configurable.get("thread_id")),
-        _normalize_optional_str(configurable.get("user_id")),
+        _normalize_optional_str(injected_tool_call_id)
+        or runtime.tool_call_id
+        or "run_workspace_feature"
     )
 
 
@@ -275,10 +351,13 @@ async def list_workspace_features_tool(
     config: RunnableConfig | None = None,
 ) -> str:
     """List available workspace features for the current workspace."""
-    workspace_id, _, user_id = _runtime_context(config)
-    if workspace_id is None or user_id is None:
+    runtime = _runtime_context(config)
+    if runtime.workspace_id is None or runtime.user_id is None:
         return json.dumps({"error": "runtime_context_missing"}, ensure_ascii=False)
-    overview = await build_workspace_feature_overview(workspace_id, user_id=user_id)
+    overview = await build_workspace_feature_overview(
+        runtime.workspace_id,
+        user_id=runtime.user_id,
+    )
     if overview is None:
         return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
     return json.dumps(overview, ensure_ascii=False)
@@ -290,18 +369,18 @@ async def list_workspace_artifacts_tool(
     config: RunnableConfig | None = None,
 ) -> str:
     """List recent artifacts produced inside the current workspace."""
-    workspace_id, _, user_id = _runtime_context(config)
-    if workspace_id is None or user_id is None:
+    runtime = _runtime_context(config)
+    if runtime.workspace_id is None or runtime.user_id is None:
         return json.dumps({"error": "runtime_context_missing"}, ensure_ascii=False)
     artifacts = await build_workspace_artifact_overview(
-        workspace_id,
-        user_id=user_id,
+        runtime.workspace_id,
+        user_id=runtime.user_id,
         limit=limit,
     )
     if artifacts is None:
         return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
     return json.dumps(
-        {"workspace_id": workspace_id, "count": len(artifacts), "artifacts": artifacts},
+        {"workspace_id": runtime.workspace_id, "count": len(artifacts), "artifacts": artifacts},
         ensure_ascii=False,
     )
 
@@ -316,59 +395,73 @@ async def run_workspace_feature_tool(
     config: RunnableConfig | None = None,
 ) -> Command[Any]:
     """Run a canonical workspace feature and return structured execution metadata."""
-    workspace_id, thread_id, user_id = _runtime_context(config)
-    if workspace_id is None or thread_id is None or user_id is None:
+    runtime = _runtime_context(config, state=state)
+    effective_tool_call_id = _resolve_tool_call_id(tool_call_id, runtime)
+
+    if runtime.workspace_id is None or runtime.thread_id is None or runtime.user_id is None:
         return _tool_error_command(
-            tool_call_id=tool_call_id,
+            tool_call_id=effective_tool_call_id,
             message="当前运行时缺少 workspace/thread/user 上下文，无法执行该功能。",
             status="runtime_context_missing",
             feature_id=feature_id,
         )
 
+    requested_feature_id = _normalize_optional_str(feature_id) or runtime.orchestration_feature_id
+    requested_params = {**runtime.orchestration_params, **dict(params or {})}
+
     resolved_feature_id, resolved_skill_id, resolved_params, contract_error = (
         _resolve_feature_execution_contract(
-            feature_id=feature_id,
+            feature_id=requested_feature_id,
             skill_id=skill_id,
-            params=params,
+            params=requested_params,
             state=state,
         )
     )
     if contract_error:
         return _tool_error_command(
-            tool_call_id=tool_call_id,
+            tool_call_id=effective_tool_call_id,
             message=contract_error,
             status="skill_contract_error",
-            feature_id=resolved_feature_id or feature_id,
+            feature_id=resolved_feature_id or requested_feature_id,
         )
 
-    if state is not None and _state_has_pending_confirmation(
-        state=state,
-        feature_id=str(resolved_feature_id),
-    ):
-        latest_user_message = _latest_user_message_text(state)
-        if not _message_is_affirmative_confirmation(latest_user_message):
-            return _awaiting_confirmation_command(
-                tool_call_id=tool_call_id,
+    runtime_intent_forced = runtime.orchestration_intent in {"launch", "resume"}
+    if not runtime_intent_forced:
+        if state is not None and _state_has_pending_confirmation(
+            state=state,
+            feature_id=str(resolved_feature_id),
+        ):
+            latest_user_message = _latest_user_message_text(state)
+            if not _message_is_affirmative_confirmation(latest_user_message):
+                return _awaiting_confirmation_command(
+                    tool_call_id=effective_tool_call_id,
+                    feature_id=str(resolved_feature_id),
+                )
+
+        if state is None or not _is_feature_execution_confirmed(
+            state=state,
+            feature_id=str(resolved_feature_id),
+        ):
+            return _confirmation_command(
+                tool_call_id=effective_tool_call_id,
                 feature_id=str(resolved_feature_id),
+                params=resolved_params,
             )
 
-    if state is None or not _is_feature_execution_confirmed(
-        state=state,
-        feature_id=str(resolved_feature_id),
-    ):
-        return _confirmation_command(
-            tool_call_id=tool_call_id,
-            feature_id=str(resolved_feature_id),
-            params=resolved_params,
-        )
+    request_kwargs: dict[str, Any] = {
+        "workspace_id": runtime.workspace_id,
+        "thread_id": runtime.thread_id,
+        "user_id": runtime.user_id,
+        "feature_id": str(resolved_feature_id),
+        "params": resolved_params,
+        "skill_id": resolved_skill_id,
+    }
+    if runtime.execution_session_id is not None:
+        request_kwargs["execution_session_id"] = runtime.execution_session_id
+        request_kwargs["launch_message"] = _latest_user_message_text(state or {})
 
     reply = await execute_workspace_feature_request(
-        workspace_id=workspace_id,
-        thread_id=thread_id,
-        user_id=user_id,
-        feature_id=str(resolved_feature_id),
-        params=resolved_params,
-        skill_id=resolved_skill_id,
+        **request_kwargs,
     )
     if reply is None:
         payload = json.dumps(
@@ -383,7 +476,7 @@ async def run_workspace_feature_tool(
                 "messages": [
                     ToolMessage(
                         content=payload,
-                        tool_call_id=tool_call_id,
+                        tool_call_id=effective_tool_call_id,
                     )
                 ]
             }
@@ -393,7 +486,7 @@ async def run_workspace_feature_tool(
         "messages": [
             ToolMessage(
                 content=reply.content,
-                tool_call_id=tool_call_id,
+                tool_call_id=effective_tool_call_id,
             )
         ]
     }

@@ -9,6 +9,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
+from src.services.thread_billing import (
+    extract_persisted_metadata_usage,
+    extract_usage_from_agent_result,
+)
 from src.services.workspace_activity_contracts import (
     build_subagent_activity_item,
     serialize_activity_item,
@@ -130,11 +134,11 @@ class GlobalSubagentManager:
         return [available_tools[name] for name in task.tools if name in available_tools]
 
     def _resolve_task_llm(self, task: SubagentTask) -> Any:
-        """Resolve the chat model for a specific task."""
+        """Resolve the thread model for a specific task."""
         model_name = self._get_task_model_name(task)
         if model_name is None:
             if self._llm is None:
-                raise RuntimeError("Subagent manager has no configured chat model")
+                raise RuntimeError("Subagent manager has no configured thread model")
             return self._llm
 
         from src.models.factory import create_chat_model
@@ -293,7 +297,7 @@ class GlobalSubagentManager:
         self,
         task: SubagentTask,
     ) -> str | None:
-        """Validate that a task references a real, owned chat thread.
+        """Validate that a task references a real, owned thread.
 
         When the caller provides a user-scoped thread id, the manager must
         refuse to seed in-memory thread context from an unknown or foreign
@@ -327,14 +331,14 @@ class GlobalSubagentManager:
         thread_id: str,
     ) -> dict[str, str | None] | None:
         """Load canonical thread ownership/workspace facts from the database."""
-        from src.database import ChatThread, get_db_session
+        from src.database import Thread, get_db_session
         from src.services.workspace_skill_labels import (
             get_workspace_type,
             resolve_workspace_skill_name,
         )
 
         async with get_db_session() as db:
-            thread = await db.get(ChatThread, thread_id)
+            thread = await db.get(Thread, thread_id)
             workspace_type = (
                 await get_workspace_type(
                     db,
@@ -395,10 +399,13 @@ class GlobalSubagentManager:
             workspace_id = task.metadata.get("workspace_id")
             user_id = task.metadata.get("user_id")
             model_name = task.metadata.get("model_name")
+            execution_session_id = task.metadata.get("execution_session_id")
             if workspace_id is not None:
                 configurable["workspace_id"] = str(workspace_id)
             if user_id is not None:
                 configurable["user_id"] = str(user_id)
+            if execution_session_id is not None:
+                configurable["execution_session_id"] = str(execution_session_id)
             if model_name is not None:
                 configurable["model_name"] = str(model_name)
             configurable["subagent_enabled"] = False
@@ -417,13 +424,25 @@ class GlobalSubagentManager:
 
             messages = result.get("messages", [])
             output = messages[-1].content if messages else ""
+            usage = extract_usage_from_agent_result(result)
+            result_metadata: dict[str, Any] = {}
+            model_name = self._get_task_model_name(task)
+            if model_name:
+                result_metadata["model_name"] = model_name
+            if usage is not None:
+                result_metadata["token_usage"] = usage.as_dict()
 
             # Publish task completed event
+            event_data: dict[str, Any] = {"output": output}
+            if usage is not None:
+                event_data["token_usage"] = usage.as_dict()
+            if model_name:
+                event_data["model_name"] = model_name
             await self._event_stream.publish(SubagentEvent(
                 event_type="task_completed",
                 task_id=task.task_id,
                 thread_id=task.thread_id,
-                data={"output": output},
+                data=event_data,
                 timestamp=datetime.now(),
             ))
 
@@ -434,6 +453,7 @@ class GlobalSubagentManager:
                 error=None,
                 turns_used=len(messages) // 2,
                 duration_seconds=(datetime.now() - start_time).total_seconds(),
+                metadata=result_metadata,
             )
 
         except TimeoutError:
@@ -759,7 +779,7 @@ class GlobalSubagentManager:
     ) -> None:
         """Mirror subagent activity into the thread-scoped status cache."""
         try:
-            from src.services.chat_thread_events import set_thread_status
+            from src.services.thread_events import set_thread_status
 
             binding = await self._load_thread_binding(thread_id)
             resolved_workspace_id = (
@@ -804,21 +824,45 @@ class GlobalSubagentManager:
         activity: dict[str, object] | None = None,
     ) -> None:
         """Mirror subagent lifecycle into the workspace event stream."""
+        execution_session_id = str(
+            task.metadata.get("execution_session_id") or ""
+        ).strip()
+        if not execution_session_id:
+            logger.debug(
+                "Skipping subagent.updated for task %s because execution_session_id is missing",
+                task.task_id,
+            )
+            return
         try:
             from src.workspace_events import publish_workspace_event
 
+            subagent_payload: dict[str, Any] = {
+                "task_id": task.task_id,
+                "thread_id": task.thread_id,
+                "execution_session_id": execution_session_id,
+                "status": status,
+                "subagent_type": task.metadata.get("subagent_type"),
+                "workflow_phase": task.metadata.get("workflow_phase"),
+                "workflow_phase_index": task.metadata.get("workflow_phase_index"),
+                "workflow_task_index": task.metadata.get("workflow_task_index"),
+                "workflow_strategy": task.metadata.get("workflow_strategy"),
+                "output_preview": self._truncate_preview(result.output if result else None),
+                "error": result.error if result else None,
+            }
+            result_metadata = result.metadata if result and isinstance(result.metadata, dict) else {}
+            usage = extract_persisted_metadata_usage(result_metadata)
+            if usage is not None:
+                subagent_payload["token_usage"] = usage.as_dict()
+            model_name = result_metadata.get("model_name")
+            if not model_name:
+                model_name = task.metadata.get("model_name")
+            if isinstance(model_name, str) and model_name.strip():
+                subagent_payload["model_name"] = model_name.strip()
             await publish_workspace_event(
                 workspace_id,
                 "subagent.updated",
                 {
-                    "subagent": {
-                        "task_id": task.task_id,
-                        "thread_id": task.thread_id,
-                        "status": status,
-                        "subagent_type": task.metadata.get("subagent_type"),
-                        "output_preview": self._truncate_preview(result.output if result else None),
-                        "error": result.error if result else None,
-                    },
+                    "subagent": subagent_payload,
                 }
                 | ({"activity": activity} if activity is not None else {}),
             )
@@ -855,6 +899,16 @@ class GlobalSubagentManager:
             )
             return None
 
+        task_metadata = (
+            record.task_metadata if isinstance(record.task_metadata, dict) else {}
+        )
+        usage = extract_persisted_metadata_usage(task_metadata)
+        model_name_raw = task_metadata.get("model_name")
+        model_name = (
+            str(model_name_raw).strip()
+            if model_name_raw is not None
+            else ""
+        )
         return serialize_activity_item(
             build_subagent_activity_item(
                 workspace_id=record.workspace_id,
@@ -865,6 +919,8 @@ class GlobalSubagentManager:
                 prompt=record.prompt,
                 output_preview=record.output_preview,
                 error=record.error,
+                token_usage=usage.as_dict() if usage is not None else None,
+                model_name=model_name or None,
                 occurred_at=record.completed_at or record.updated_at or record.created_at,
                 created_at=record.created_at,
                 completed_at=record.completed_at,
@@ -904,6 +960,7 @@ class GlobalSubagentManager:
                 "created_at": record.created_at,
                 "status": record.status,
                 "subagent_type": record.subagent_type,
+                "execution_session_id": record.execution_session_id,
                 "error": record.error,
                 "output_preview": record.output_preview,
             }

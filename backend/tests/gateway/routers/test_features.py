@@ -6,8 +6,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.application.results import FeatureTaskSubmission
 from src.database import WorkspaceType
 from src.gateway.deps import get_credit_service, get_literature_service
+from src.gateway.deps.core import get_db
 from src.gateway.routers import features
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.features import ExecuteResponse
@@ -77,6 +79,14 @@ def create_client(
     async def override_get_credit_service():
         return credit_service or create_mock_credit_service()
 
+    async def override_get_db():
+        db = AsyncMock()
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+        db.execute = AsyncMock()
+        yield db
+
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[features.get_workspace_service] = (
         override_get_workspace_service
@@ -84,6 +94,7 @@ def create_client(
     app.dependency_overrides[get_task_service] = override_get_task_service
     app.dependency_overrides[get_literature_service] = override_get_literature_service
     app.dependency_overrides[get_credit_service] = override_get_credit_service
+    app.dependency_overrides[get_db] = override_get_db
     app.include_router(features.router)
     return TestClient(app)
 
@@ -110,7 +121,6 @@ class TestWorkspaceFeaturesRouter:
             "opening_research",
             "thesis_writing",
             "figure_generation",
-            "compile_export",
         ]
         assert data["features"][0]["defaultSkillId"] == "deep-research"
         assert data["features"][3]["defaultSkillId"] == "framework-designer"
@@ -147,14 +157,14 @@ class TestWorkspaceFeaturesRouter:
         )
 
         assert response.status_code == 200
-        assert response.json() == {
-            "task_id": "task-123",
-            "status": "pending",
-            "feature_id": "copyright_materials",
-            "message": "Queued 材料准备",
-            "warning": None,
-            "detail": None,
-        }
+        payload = response.json()
+        assert payload["task_id"] == "task-123"
+        assert payload["execution_session_id"]
+        assert payload["status"] == "pending"
+        assert payload["feature_id"] == "copyright_materials"
+        assert payload["message"] == "Queued 材料准备"
+        assert payload["warning"] is None
+        assert payload["detail"] is None
 
         submit_kwargs = task_service.submit_task.await_args.kwargs
         assert submit_kwargs["user_id"] == "user-1"
@@ -172,6 +182,7 @@ class TestWorkspaceFeaturesRouter:
             "agent_label": "Writer",
             "handler_key": "software_copyright.copyright_materials",
             "thread_id": "thread-9",
+            "execution_session_id": payload["execution_session_id"],
             "skill_id": "copyright-writer",
             "skill_name": "著作权材料",
             "params": {"project_name": "Alpha"},
@@ -182,15 +193,17 @@ class TestWorkspaceFeaturesRouter:
         """Workspace lock should still be available even when Idempotency-Key is absent."""
         request = features.ExecuteRequest(params={"k": "v"}, thread_id="thread-1")
 
-        mock_handler = AsyncMock()
-        mock_handler.execute = AsyncMock(return_value={
-            "task_id": "task-123",
-            "status": "pending",
-            "feature_id": "deep_research",
-            "message": "Queued Deep Research",
-            "warning": None,
-            "detail": None,
-        })
+        mock_launch_service = AsyncMock()
+        mock_launch_service.launch = AsyncMock(
+            return_value=MagicMock(
+                execution_session_id="exec-1",
+                outcome=FeatureTaskSubmission(
+                    task_id="task-123",
+                    feature_id="deep_research",
+                    message="Queued Deep Research",
+                ),
+            )
+        )
 
         from src.academic.cache.redis_client import redis_client as global_redis_client
         original_client = global_redis_client._client
@@ -202,13 +215,13 @@ class TestWorkspaceFeaturesRouter:
                     workspace_id="ws-1",
                     feature_id="deep_research",
                     request=request,
-                    handler=mock_handler,
+                    launch_service=mock_launch_service,
                     idempotency_key=None,
                 )
         finally:
             global_redis_client._client = original_client
 
-        kwargs = mock_handler.execute.await_args.kwargs
+        kwargs = mock_launch_service.launch.await_args.kwargs
         assert kwargs["redis_client"] is global_redis_client
         assert isinstance(response, ExecuteResponse)
 
@@ -479,6 +492,13 @@ class TestLiteratureInsufficientWarning:
         app.dependency_overrides[get_task_service] = lambda: task_service
         app.dependency_overrides[get_literature_service] = lambda: literature_service
         app.dependency_overrides[get_credit_service] = lambda: credit_service
+        app.dependency_overrides[get_db] = create_client(
+            "user-1",
+            workspace_service,
+            task_service,
+            literature_service=literature_service,
+            credit_service=credit_service,
+        ).app.dependency_overrides[get_db]
         app.include_router(features.router)
         client = TestClient(app)
 
@@ -512,6 +532,13 @@ class TestLiteratureInsufficientWarning:
         app.dependency_overrides[get_task_service] = lambda: task_service
         app.dependency_overrides[get_literature_service] = lambda: literature_service
         app.dependency_overrides[get_credit_service] = lambda: credit_service
+        app.dependency_overrides[get_db] = create_client(
+            "user-1",
+            workspace_service,
+            task_service,
+            literature_service=literature_service,
+            credit_service=credit_service,
+        ).app.dependency_overrides[get_db]
         app.include_router(features.router)
         client = TestClient(app)
 
@@ -544,6 +571,13 @@ class TestLiteratureInsufficientWarning:
         app.dependency_overrides[get_task_service] = lambda: task_service
         app.dependency_overrides[get_literature_service] = lambda: literature_service
         app.dependency_overrides[get_credit_service] = lambda: credit_service
+        app.dependency_overrides[get_db] = create_client(
+            "user-1",
+            workspace_service,
+            task_service,
+            literature_service=literature_service,
+            credit_service=credit_service,
+        ).app.dependency_overrides[get_db]
         app.include_router(features.router)
         client = TestClient(app)
 

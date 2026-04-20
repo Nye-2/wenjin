@@ -1,15 +1,15 @@
 """Integration tests for citation-to-LaTeX workflow."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.mark.asyncio
 async def test_citation_to_latex_workflow():
     """Test complete workflow: citation_ids -> BibTeX -> LaTeX compilation."""
-    from src.agents.middlewares.execution import ExecutionMiddleware
-    from src.execution.types import ExecutionType
     from src.academic.citation.bibtex.exporter import generate_citation_key
+    from src.agents.middlewares.execution import ExecutionMiddleware
 
     # Setup mock papers in database
     mock_paper = MagicMock()
@@ -78,9 +78,9 @@ According to \cite{Smith2024}, this is important.
 @pytest.mark.asyncio
 async def test_end_to_end_citation_workflow():
     """Test complete end-to-end citation workflow with mocked components."""
-    from src.agents.middlewares.execution import ExecutionMiddleware
-    from src.execution.types import ExecutionType, ExecutionResult, ExecutionStatus
     from src.academic.citation.bibtex.exporter import generate_citation_key
+    from src.agents.middlewares.execution import ExecutionMiddleware
+    from src.execution.types import ExecutionResult, ExecutionStatus, ExecutionType
 
     # Mock paper
     mock_paper = MagicMock()
@@ -149,7 +149,7 @@ async def test_end_to_end_citation_workflow():
 
 def test_citation_key_consistency():
     """Test that citation keys are consistent between exporter and generation."""
-    from src.academic.citation.bibtex.exporter import generate_citation_key, BibTeXExporter
+    from src.academic.citation.bibtex.exporter import BibTeXExporter, generate_citation_key
 
     paper = {
         "title": "Test Paper",

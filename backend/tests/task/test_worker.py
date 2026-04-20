@@ -30,8 +30,14 @@ async def test_bootstrap_worker_runtime_degrades_on_mcp_validation_errors(monkey
         async def reset_client(self, *, close_current=True):
             init_calls.append(f"reset_redis:{close_current}")
 
+        async def reset_stream_client(self, *, close_current=True):
+            init_calls.append(f"reset_redis_stream:{close_current}")
+
         async def connect(self):
             init_calls.append("redis")
+
+        async def connect_stream(self):
+            init_calls.append("redis_stream")
 
     monkeypatch.setattr(
         worker_module,
@@ -57,8 +63,10 @@ async def test_bootstrap_worker_runtime_degrades_on_mcp_validation_errors(monkey
         "sentry",
         "reset_db:False",
         "reset_redis:False",
+        "reset_redis_stream:False",
         "db",
         "redis",
+        "redis_stream",
     ]
 
 
@@ -81,7 +89,13 @@ async def test_bootstrap_worker_runtime_raises_in_strict_mcp_mode(monkeypatch):
         async def reset_client(self, *, close_current=True):
             return None
 
+        async def reset_stream_client(self, *, close_current=True):
+            return None
+
         async def connect(self):
+            return None
+
+        async def connect_stream(self):
             return None
 
     monkeypatch.setattr(
@@ -117,3 +131,28 @@ def test_run_worker_coroutine_reuses_process_runner():
         assert first_loop is second_loop
     finally:
         worker_module.close_worker_runner()
+
+
+def test_start_worker_coerces_solo_pool_concurrency(monkeypatch):
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "src.observability.prometheus.prepare_worker_prometheus",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "src.observability.prometheus.start_worker_prometheus_server",
+        lambda: None,
+    )
+    monkeypatch.setattr(worker_module.celery_settings, "worker_pool", "solo")
+    monkeypatch.setattr(
+        worker_module.celery_app,
+        "worker_main",
+        lambda argv: calls.append(list(argv)),
+    )
+
+    worker_module.start_worker(concurrency=4, loglevel="warning")
+
+    assert len(calls) == 1
+    assert "--concurrency=1" in calls[0]
+    assert "--pool=solo" in calls[0]

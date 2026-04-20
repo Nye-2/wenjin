@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agents.lead_agent.chat_skill_catalog import (
+from src.agents.lead_agent.thread_skill_catalog import (
     get_skill_by_id,
     list_feature_skill_ids,
     resolve_skill_for_feature,
@@ -30,7 +30,7 @@ def resolve_workspace_skill_name(
     workspace_type: Any,
     skill_id: str | None,
 ) -> str | None:
-    """Resolve a chat skill label from canonical workspace metadata."""
+    """Resolve a thread skill label from canonical workspace metadata."""
     normalized_skill_id = (skill_id or "").strip()
     if not normalized_skill_id:
         return None
@@ -45,7 +45,7 @@ def resolve_workspace_feature_skill_id(
     *,
     preferred_skill_id: str | None = None,
 ) -> str | None:
-    """Resolve the canonical chat skill ID for a feature execution."""
+    """Resolve the canonical thread skill ID for a feature execution."""
     skill = resolve_skill_for_feature(
         normalize_workspace_type(workspace_type),
         str(feature_id or "").strip(),
@@ -62,7 +62,7 @@ def resolve_workspace_feature_skill_name(
     *,
     preferred_skill_id: str | None = None,
 ) -> str | None:
-    """Resolve the canonical chat skill label for a feature execution."""
+    """Resolve the canonical thread skill label for a feature execution."""
     skill = resolve_skill_for_feature(
         normalize_workspace_type(workspace_type),
         str(feature_id or "").strip(),
