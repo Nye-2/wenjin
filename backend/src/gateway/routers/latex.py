@@ -174,14 +174,6 @@ class LatexFileOrderRequest(BaseModel):
     order: list[str]
 
 
-class LatexResolveConflictRequest(BaseModel):
-    """Conflict resolution payload."""
-
-    logical_key: str = Field(min_length=1)
-    strategy: Literal["keep_current", "accept_feature"] = "keep_current"
-    feature_content: str | None = None
-
-
 class LatexCompileRequest(BaseModel):
     """Compile request."""
 
@@ -355,6 +347,79 @@ class LatexDiffPayload(BaseModel):
     hunks: list[LatexDiffHunkPayload]
     stats: LatexDiffStatsPayload
     risk_flags: list[str] = Field(default_factory=list)
+
+
+class LatexFileChangeActionRequest(BaseModel):
+    """Address one pending Prism file change."""
+
+    logical_key: str = Field(min_length=1)
+
+
+class LatexFileChangeApplyRequest(BaseModel):
+    """Apply a previewed Prism file change."""
+
+    logical_key: str = Field(min_length=1)
+    change_signature: str = Field(min_length=64, max_length=64)
+
+
+class LatexFileChangeRevertRequest(BaseModel):
+    """Revert a previously applied Prism file change."""
+
+    logical_key: str = Field(min_length=1)
+    revert_signature: str = Field(min_length=64, max_length=64)
+
+
+class LatexFileChangePreviewResponse(BaseModel):
+    """Structured preview for a pending Prism file change."""
+
+    ok: bool = True
+    logical_key: str
+    path: str
+    reason: str
+    current_hash: str = Field(min_length=64, max_length=64)
+    pending_hash: str = Field(min_length=64, max_length=64)
+    change_signature: str = Field(min_length=64, max_length=64)
+    diff: LatexDiffPayload
+
+
+class LatexFileChangeUndoPayload(BaseModel):
+    """Signed undo payload stored after applying a Prism file change."""
+
+    logical_key: str
+    path: str
+    previous_hash: str = Field(min_length=64, max_length=64)
+    applied_hash: str = Field(min_length=64, max_length=64)
+    revert_signature: str = Field(min_length=64, max_length=64)
+
+
+class LatexFileChangeApplyResponse(BaseModel):
+    """Apply response for a Prism file change."""
+
+    ok: bool = True
+    applied: bool = True
+    logical_key: str
+    path: str
+    file_hash: str = Field(min_length=64, max_length=64)
+    undo: LatexFileChangeUndoPayload
+
+
+class LatexFileChangeDiscardResponse(BaseModel):
+    """Discard response for a pending Prism file change."""
+
+    ok: bool = True
+    discarded: bool = True
+    logical_key: str
+    path: str
+
+
+class LatexFileChangeRevertResponse(BaseModel):
+    """Revert response for an applied Prism file change."""
+
+    ok: bool = True
+    reverted: bool = True
+    logical_key: str
+    path: str
+    file_hash: str = Field(min_length=64, max_length=64)
 
 
 class LatexFeedbackRewriteCandidatePayload(BaseModel):
@@ -724,6 +789,133 @@ def _compute_revert_signature(
         payload.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
+
+
+def _compute_file_change_signature(
+    *,
+    logical_key: str,
+    path: str,
+    current_hash: str,
+    pending_hash: str,
+) -> str:
+    payload = "\x1f".join(
+        [
+            str(logical_key),
+            str(path),
+            str(current_hash),
+            str(pending_hash),
+        ]
+    )
+    return hmac.new(
+        _rewrite_signature_secret(),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _compute_file_change_revert_signature(
+    *,
+    logical_key: str,
+    path: str,
+    previous_hash: str,
+    applied_hash: str,
+) -> str:
+    payload = "\x1f".join(
+        [
+            str(logical_key),
+            str(path),
+            str(previous_hash),
+            str(applied_hash),
+        ]
+    )
+    return hmac.new(
+        _rewrite_signature_secret(),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _read_project_metadata(project: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    llm_config = deepcopy(project.llm_config) if isinstance(project.llm_config, dict) else {}
+    metadata = deepcopy(llm_config.get("metadata")) if isinstance(llm_config.get("metadata"), dict) else {}
+    if not isinstance(metadata.get("managed_files"), dict):
+        metadata["managed_files"] = {}
+    if not isinstance(metadata.get("file_changes"), list):
+        metadata["file_changes"] = []
+    if not isinstance(metadata.get("applied_file_changes"), dict):
+        metadata["applied_file_changes"] = {}
+    return llm_config, metadata
+
+
+def _find_file_change(metadata: dict[str, Any], logical_key: str) -> dict[str, Any]:
+    changes = metadata.get("file_changes")
+    if not isinstance(changes, list):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File change not found")
+    for item in changes:
+        if isinstance(item, dict) and str(item.get("logical_key") or "") == logical_key:
+            return dict(item)
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File change not found")
+
+
+def _remove_file_change(metadata: dict[str, Any], logical_key: str) -> None:
+    changes = metadata.get("file_changes")
+    if not isinstance(changes, list):
+        metadata["file_changes"] = []
+        return
+    metadata["file_changes"] = [
+        item
+        for item in changes
+        if not (isinstance(item, dict) and str(item.get("logical_key") or "") == logical_key)
+    ]
+
+
+def _pending_content_from_change(change: dict[str, Any]) -> str:
+    pending_content = change.get("pending_content")
+    if not isinstance(pending_content, str):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "missing_pending_content",
+                "message": "Pending file change is missing generated content.",
+            },
+        )
+    return pending_content
+
+
+def _preview_file_change_payload(
+    *,
+    logical_key: str,
+    path: str,
+    reason: str,
+    current_content: str,
+    pending_content: str,
+) -> LatexFileChangePreviewResponse:
+    current_hash = compute_content_hash(current_content)
+    pending_hash = compute_content_hash(pending_content)
+    diff_payload = build_latex_rewrite_diff(
+        original_text=current_content,
+        rewritten_text=pending_content,
+        target_start=0,
+        target_end=len(current_content),
+        scope="section",
+        resolved_selection_start=0,
+        resolved_selection_end=len(current_content),
+    )
+    return LatexFileChangePreviewResponse(
+        ok=True,
+        logical_key=logical_key,
+        path=path,
+        reason=reason,
+        current_hash=current_hash,
+        pending_hash=pending_hash,
+        change_signature=_compute_file_change_signature(
+            logical_key=logical_key,
+            path=path,
+            current_hash=current_hash,
+            pending_hash=pending_hash,
+        ),
+        diff=LatexDiffPayload.model_validate(diff_payload),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -1693,71 +1885,262 @@ async def save_project_file_order(
     return {"ok": True}
 
 
-@router.post("/projects/{project_id}/resolve-conflict")
-async def resolve_project_conflict(
+@router.post(
+    "/projects/{project_id}/file-changes/preview",
+    response_model=LatexFileChangePreviewResponse,
+)
+async def preview_project_file_change(
     project_id: str,
-    request: LatexResolveConflictRequest,
+    request: LatexFileChangeActionRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, object]:
+) -> LatexFileChangePreviewResponse:
     service = LatexProjectService(db)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
 
-    llm_config = deepcopy(project.llm_config) if isinstance(project.llm_config, dict) else {}
-    metadata = deepcopy(llm_config.get("metadata")) if isinstance(llm_config.get("metadata"), dict) else {}
-    conflicts = deepcopy(metadata.get("sync_conflicts")) if isinstance(metadata.get("sync_conflicts"), list) else []
-    managed_files = deepcopy(metadata.get("managed_files")) if isinstance(metadata.get("managed_files"), dict) else {}
-
-    conflict = next(
-        (
-            item for item in conflicts
-            if isinstance(item, dict) and str(item.get("logical_key") or "") == request.logical_key
-        ),
-        None,
-    )
-    if conflict is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conflict not found")
-
-    path = str(conflict.get("path") or "").strip()
+    _llm_config, metadata = _read_project_metadata(project)
+    change = _find_file_change(metadata, request.logical_key)
+    path = str(change.get("path") or "").strip()
     if not path:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Conflict path missing")
-
-    import hashlib
-
-    if request.strategy == "accept_feature":
-        feature_content = request.feature_content
-        if feature_content is None and isinstance(conflict, dict):
-            pending = conflict.get("pending_content")
-            if isinstance(pending, str):
-                feature_content = pending
-        if feature_content is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing feature content")
-        await service.write_text_file(project, path, feature_content)
-
-        managed_files[request.logical_key] = {
-            "path": path,
-            "content_hash": hashlib.sha256(feature_content.encode("utf-8")).hexdigest(),
-            "protected": False,
-        }
-    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File change path missing")
+    pending_content = _pending_content_from_change(change)
+    try:
         current_content = service.read_text_file(project, path)
-        managed_files[request.logical_key] = {
-            "path": path,
-            "content_hash": hashlib.sha256(current_content.encode("utf-8")).hexdigest(),
-            "protected": True,
-        }
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    metadata["managed_files"] = managed_files
-    metadata["sync_conflicts"] = [
-        item
-        for item in conflicts
-        if not (isinstance(item, dict) and str(item.get("logical_key") or "") == request.logical_key)
-    ]
+    return _preview_file_change_payload(
+        logical_key=request.logical_key,
+        path=path,
+        reason=str(change.get("reason") or "feature_proposal"),
+        current_content=current_content,
+        pending_content=pending_content,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/file-changes/apply",
+    response_model=LatexFileChangeApplyResponse,
+)
+async def apply_project_file_change(
+    project_id: str,
+    request: LatexFileChangeApplyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LatexFileChangeApplyResponse:
+    service = LatexProjectService(db)
+    project = await service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    llm_config, metadata = _read_project_metadata(project)
+    change = _find_file_change(metadata, request.logical_key)
+    path = str(change.get("path") or "").strip()
+    if not path:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File change path missing")
+    pending_content = _pending_content_from_change(change)
+
+    try:
+        current_content = service.read_text_file(project, path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    current_hash = compute_content_hash(current_content)
+    pending_hash = compute_content_hash(pending_content)
+    expected_signature = _compute_file_change_signature(
+        logical_key=request.logical_key,
+        path=path,
+        current_hash=current_hash,
+        pending_hash=pending_hash,
+    )
+    if not hmac.compare_digest(expected_signature, request.change_signature):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "invalid_file_change_signature",
+                "message": "File change preview is stale. Re-generate preview before applying.",
+                "current_hash": current_hash,
+            },
+        )
+
+    try:
+        await service.write_text_file(project, path, pending_content)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    applied_hash = compute_content_hash(pending_content)
+    metadata["managed_files"][request.logical_key] = {
+        "path": path,
+        "content_hash": applied_hash,
+        "protected": False,
+    }
+    _remove_file_change(metadata, request.logical_key)
+
+    previous_hash = compute_content_hash(current_content)
+    revert_signature = _compute_file_change_revert_signature(
+        logical_key=request.logical_key,
+        path=path,
+        previous_hash=previous_hash,
+        applied_hash=applied_hash,
+    )
+    metadata["applied_file_changes"][request.logical_key] = {
+        "logical_key": request.logical_key,
+        "path": path,
+        "previous_content": current_content,
+        "previous_hash": previous_hash,
+        "applied_hash": applied_hash,
+        "revert_signature": revert_signature,
+    }
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
-    return {"ok": True, "path": path, "strategy": request.strategy}
+
+    undo = LatexFileChangeUndoPayload(
+        logical_key=request.logical_key,
+        path=path,
+        previous_hash=previous_hash,
+        applied_hash=applied_hash,
+        revert_signature=revert_signature,
+    )
+    return LatexFileChangeApplyResponse(
+        ok=True,
+        applied=True,
+        logical_key=request.logical_key,
+        path=path,
+        file_hash=applied_hash,
+        undo=undo,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/file-changes/discard",
+    response_model=LatexFileChangeDiscardResponse,
+)
+async def discard_project_file_change(
+    project_id: str,
+    request: LatexFileChangeActionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LatexFileChangeDiscardResponse:
+    service = LatexProjectService(db)
+    project = await service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    llm_config, metadata = _read_project_metadata(project)
+    change = _find_file_change(metadata, request.logical_key)
+    path = str(change.get("path") or "").strip()
+    if not path:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File change path missing")
+
+    try:
+        current_content = service.read_text_file(project, path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    metadata["managed_files"][request.logical_key] = {
+        "path": path,
+        "content_hash": compute_content_hash(current_content),
+        "protected": True,
+    }
+    _remove_file_change(metadata, request.logical_key)
+    llm_config["metadata"] = metadata
+    await service.update_llm_config(project, llm_config)
+    return LatexFileChangeDiscardResponse(
+        ok=True,
+        discarded=True,
+        logical_key=request.logical_key,
+        path=path,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/file-changes/revert",
+    response_model=LatexFileChangeRevertResponse,
+)
+async def revert_project_file_change(
+    project_id: str,
+    request: LatexFileChangeRevertRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LatexFileChangeRevertResponse:
+    service = LatexProjectService(db)
+    project = await service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    llm_config, metadata = _read_project_metadata(project)
+    applied = metadata["applied_file_changes"].get(request.logical_key)
+    if not isinstance(applied, dict):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Applied file change not found")
+
+    path = str(applied.get("path") or "").strip()
+    previous_content = applied.get("previous_content")
+    previous_hash = str(applied.get("previous_hash") or "")
+    applied_hash = str(applied.get("applied_hash") or "")
+    if not path or not isinstance(previous_content, str) or not previous_hash or not applied_hash:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Applied file change is incomplete")
+
+    expected_signature = _compute_file_change_revert_signature(
+        logical_key=request.logical_key,
+        path=path,
+        previous_hash=previous_hash,
+        applied_hash=applied_hash,
+    )
+    if not hmac.compare_digest(expected_signature, request.revert_signature):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "invalid_file_change_revert_signature",
+                "message": "Invalid file change revert signature.",
+            },
+        )
+
+    try:
+        current_content = service.read_text_file(project, path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    current_hash = compute_content_hash(current_content)
+    if current_hash != applied_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "file_change_revert_hash_mismatch",
+                "message": "File changed after applying this change; cannot auto-revert.",
+                "current_hash": current_hash,
+            },
+        )
+
+    try:
+        await service.write_text_file(project, path, previous_content)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    metadata["managed_files"][request.logical_key] = {
+        "path": path,
+        "content_hash": previous_hash,
+        "protected": True,
+    }
+    metadata["applied_file_changes"].pop(request.logical_key, None)
+    llm_config["metadata"] = metadata
+    await service.update_llm_config(project, llm_config)
+    return LatexFileChangeRevertResponse(
+        ok=True,
+        reverted=True,
+        logical_key=request.logical_key,
+        path=path,
+        file_hash=previous_hash,
+    )
 
 
 @router.post("/projects/{project_id}/folder")

@@ -1,33 +1,41 @@
-# LangGraph Workspace Architecture
+# Compute Workspace Architecture
 
-Last Updated: 2026-04-10
+Last Updated: 2026-04-28
 Status: Current
 
 ## Overview
 
-Wenjin executes workspace features through a single canonical pipeline:
+Wenjin executes workspace features through the Compute-centered pipeline:
 
-1. FastAPI router receives a feature execution request.
-2. Application handler validates ownership, quotas, and feature metadata.
-3. Task service creates an internal async task.
-4. Worker dispatches the task to the workspace feature handler.
-5. `workspace_lead_agent` resolves and runs the registered feature graph.
-6. Results are normalized into artifacts, task state, and workspace refresh events.
+1. Chat receives user intent and stays the control plane.
+2. `ChatTurnRouter` classifies the turn and forwards feature commands to `FeatureCommandHandler`.
+3. `FeatureCommandHandler` calls `FeatureIngressService`, which owns feature lifecycle creation.
+4. Feature ingress creates `ExecutionSession` and `ComputeSession` records as the source of truth.
+5. `TaskService` dispatches execution into the registered feature runtime.
+6. The feature runtime uses `FeatureLeaderRuntime` / AgentHarness / LangGraph modules to run the work.
+7. Runtime progress and artifacts are projected into Compute; manuscript file changes are proposed to WenjinPrism through the file-change review gate.
 
-LangGraph 在当前架构中以进程内 graph runtime 形式存在，不要求独立外部 LangGraph 服务参与主链路。
+LangGraph 在当前架构中以进程内 graph runtime 形式存在，不要求独立外部 LangGraph 服务参与主链路。它是 Compute 工作平面内部的执行实现，不是 chat 自由调用的 feature 工具入口。
 
 ## Canonical Entry
 
-- User-facing execution entry:
+- Chat control-plane entry:
+  - `POST /api/threads/{thread_id}/turns`
+
+- Feature execution entry:
   - `POST /api/workspaces/{workspace_id}/features/{feature_id}/execute`
 
-- Supporting read APIs:
+- Compute read/write APIs:
+  - `GET /api/compute/sessions/{session_id}`
+  - `GET /api/compute/sessions/{session_id}/events`
+
+- Supporting task APIs:
   - `GET /api/workspaces/{workspace_id}/features`
   - `GET /api/tasks/{task_id}`
   - `GET /api/tasks/{task_id}/stream`
 
 There is no separate public `/api/workspace-features/execute` compatibility entry.
-当 chat 需要触发 feature 时，也统一通过 `run_workspace_feature` 接回这条链。
+Chat 触发 feature 时不走 lead-agent 自由工具调用，而是通过 `ChatTurnRouter` 和 `FeatureCommandHandler` 进入 FeatureIngress。
 
 ## Execution Layers
 
@@ -46,7 +54,21 @@ There is no separate public `/api/workspace-features/execute` compatibility entr
   - workspace ownership checks
   - feature lookup from registry
   - credit / policy checks
-  - task submission
+  - feature lifecycle creation through FeatureIngress
+  - task submission through the canonical task service
+
+### Compute Runtime
+
+- Location:
+  - `backend/src/compute/`
+  - `backend/src/database/models/compute_session.py`
+- Responsibility:
+  - session projection
+  - activity and artifact presentation
+  - subagent progress projection
+  - Prism file-change review state
+
+Compute is the work plane. Chat may summarize or launch work, but it does not own runtime state.
 
 ### Task Runtime
 
@@ -61,13 +83,17 @@ There is no separate public `/api/workspace-features/execute` compatibility entr
 
 - Registry:
   - `backend/src/workspace_features/registry.py`
+- Runtime profiles:
+  - `backend/src/workspace_features/runtime_profiles.py`
 - Graph resolver/executor:
-  - `backend/src/agents/workspace_lead_agent.py`
+  - `backend/src/agents/feature_leader/`
+- Agent harness:
+  - `backend/src/agents/harness/`
 - Graph implementations:
   - `backend/src/agents/graphs/`
 
 Feature metadata is defined once in the registry and executed through registered graph functions.
-chat skills 不是独立 graph runtime；它们只是 lead-agent 在 chat 层使用的 feature 入口语义。
+chat skills 不是独立 graph runtime；它们只是 ChatTurnRouter 识别 feature intent 的控制面语义。
 
 ## Workspace Graph Modules
 
@@ -87,18 +113,29 @@ These modules should stay thin: orchestration and result shaping belong here, wh
 
 The service layer owns:
 
-- model invocation and fallback behavior
+- model invocation and runtime decisions
 - domain-specific normalization
 - generation-mode decisions
 - stable result payload assembly
 
-## Result Contract
+## Result And Manuscript Contract
 
 Feature runs are normalized before persistence. The important result surfaces are:
 
+- `ExecutionSession` lifecycle state
+- `ComputeSession` projection state
 - task status and progress
 - artifact creation / update
 - workspace refresh targets
 - structured runtime blocks for frontend presentation
+- Prism file changes awaiting preview / apply / discard / revert
 
-The registry, task runtime, and artifact contracts must remain aligned. New features should plug into this pipeline instead of inventing parallel execution paths.
+Writing and LaTeX features follow this ownership split:
+
+- generation happens in Feature runtime
+- process visibility happens in Compute
+- acceptance happens through the review gate
+- committed manuscript state lives in WenjinPrism
+- final summaries return to Chat
+
+The registry, task runtime, Compute projection, and Prism file-change contracts must remain aligned. New features should plug into this pipeline instead of inventing parallel execution paths.

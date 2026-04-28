@@ -11,7 +11,7 @@ import { useWorkspaceStore, type Artifact } from "@/stores/workspace";
 import { useExecutionStore } from "@/stores/execution";
 import { useFeaturesStore } from "@/stores/features";
 import { ArtifactLibrary } from "@/components/workspace/ArtifactLibrary";
-import { FeaturePanelHost } from "@/components/workspace/FeaturePanelHost";
+import { ComputeStage } from "@/components/compute";
 import { ArtifactDetailDialog } from "@/components/workspace/ArtifactDetailDialog";
 import { TaskRuntimePanel } from "@/components/workspace/TaskRuntimePanel";
 import { KnowledgePanel } from "./KnowledgePanel";
@@ -280,7 +280,10 @@ export function WorkspaceInspector({ workspaceId }: WorkspaceInspectorProps) {
 
           <div className="min-h-0 flex-1 overflow-hidden">
             {activeTab === "work" ? (
-              <FeaturePanelHost workspaceId={workspaceId} />
+              <ComputeStage
+                workspaceId={workspaceId}
+                activeExecution={activeExecution ?? latestCompletedExecution}
+              />
             ) : null}
             {activeTab === "outputs" ? (
               <ArtifactLibrary onSelectArtifact={setSelectedArtifact} embedded />

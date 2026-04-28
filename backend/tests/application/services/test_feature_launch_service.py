@@ -22,6 +22,14 @@ def _feature(feature_id: str):
     return SimpleNamespace(id=feature_id)
 
 
+def _compute_sessions():
+    service = AsyncMock()
+    service.ensure_for_execution_session = AsyncMock(
+        return_value=SimpleNamespace(id="compute-1")
+    )
+    return service
+
+
 @pytest.mark.asyncio
 async def test_launch_creates_execution_session_and_passes_id_to_handler():
     handler = AsyncMock()
@@ -38,11 +46,13 @@ async def test_launch_creates_execution_session_and_passes_id_to_handler():
         return_value=SimpleNamespace(id="exec-1")
     )
     execution_sessions.update_session_record = AsyncMock()
+    compute_sessions = _compute_sessions()
 
     service = FeatureIngressService(
         actor_id="user-1",
         feature_execution_handler=handler,
         execution_session_service=execution_sessions,
+        compute_session_service=compute_sessions,
     )
 
     with patch(
@@ -61,6 +71,11 @@ async def test_launch_creates_execution_session_and_passes_id_to_handler():
     assert result.execution_session_id == "exec-1"
     handler.execute.assert_awaited_once()
     assert handler.execute.await_args.kwargs["execution_session_id"] == "exec-1"
+    compute_sessions.ensure_for_execution_session.assert_awaited_once_with(
+        execution_session_id="exec-1",
+        workspace_id="ws-1",
+        user_id="user-1",
+    )
     execution_sessions.update_session_record.assert_awaited_once()
     assert execution_sessions.update_session_record.await_args.kwargs["status"] == "pending"
     assert execution_sessions.update_session_record.await_args.kwargs["primary_task_id"] == "task-1"
@@ -83,11 +98,13 @@ async def test_launch_marks_execution_session_advisory():
         return_value=SimpleNamespace(id="exec-2")
     )
     execution_sessions.update_session_record = AsyncMock()
+    compute_sessions = _compute_sessions()
 
     service = FeatureIngressService(
         actor_id="user-1",
         feature_execution_handler=handler,
         execution_session_service=execution_sessions,
+        compute_session_service=compute_sessions,
     )
 
     with patch(
@@ -127,11 +144,13 @@ async def test_launch_reuses_existing_execution_session_when_task_is_reused():
     )
     execution_sessions.delete_session = AsyncMock()
     execution_sessions.update_session_record = AsyncMock()
+    compute_sessions = _compute_sessions()
 
     service = FeatureIngressService(
         actor_id="user-1",
         feature_execution_handler=handler,
         execution_session_service=execution_sessions,
+        compute_session_service=compute_sessions,
     )
 
     with patch(
@@ -148,6 +167,8 @@ async def test_launch_reuses_existing_execution_session_when_task_is_reused():
     assert result.execution_session_id == "exec-existing"
     execution_sessions.delete_session.assert_awaited_once_with("exec-new")
     execution_sessions.update_session_record.assert_not_awaited()
+    assert compute_sessions.ensure_for_execution_session.await_count == 2
+    assert compute_sessions.ensure_for_execution_session.await_args.kwargs["execution_session_id"] == "exec-existing"
 
 
 @pytest.mark.asyncio
@@ -155,10 +176,12 @@ async def test_launch_rejects_unknown_feature_for_workspace_type():
     handler = AsyncMock()
     handler.workspace_service.get = AsyncMock(return_value=_workspace("sci"))
     execution_sessions = AsyncMock()
+    compute_sessions = _compute_sessions()
     service = FeatureIngressService(
         actor_id="user-1",
         feature_execution_handler=handler,
         execution_session_service=execution_sessions,
+        compute_session_service=compute_sessions,
     )
 
     with patch(
@@ -173,6 +196,7 @@ async def test_launch_rejects_unknown_feature_for_workspace_type():
             )
 
     execution_sessions.create_session.assert_not_awaited()
+    compute_sessions.ensure_for_execution_session.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -185,11 +209,13 @@ async def test_chat_launch_missing_context_enters_awaiting_user_input():
         return_value=SimpleNamespace(id="exec-clarify")
     )
     execution_sessions.update_session_record = AsyncMock()
+    compute_sessions = _compute_sessions()
 
     service = FeatureIngressService(
         actor_id="user-1",
         feature_execution_handler=handler,
         execution_session_service=execution_sessions,
+        compute_session_service=compute_sessions,
     )
 
     with patch(
@@ -237,11 +263,13 @@ async def test_resume_uses_existing_execution_session_and_merges_params():
         )
     )
     execution_sessions.update_session_record = AsyncMock()
+    compute_sessions = _compute_sessions()
 
     service = FeatureIngressService(
         actor_id="user-1",
         feature_execution_handler=handler,
         execution_session_service=execution_sessions,
+        compute_session_service=compute_sessions,
     )
 
     with patch(
@@ -260,6 +288,11 @@ async def test_resume_uses_existing_execution_session_and_merges_params():
 
     assert result.execution_session_id == "exec-existing"
     assert isinstance(result.outcome, FeatureTaskSubmission)
+    compute_sessions.ensure_for_execution_session.assert_awaited_once_with(
+        execution_session_id="exec-existing",
+        workspace_id="ws-1",
+        user_id="user-1",
+    )
     handler.execute.assert_awaited_once()
     call_args = handler.execute.await_args
     assert call_args.kwargs["execution_session_id"] == "exec-existing"
@@ -293,11 +326,13 @@ async def test_resume_hydrates_missing_required_params_from_launch_message():
         )
     )
     execution_sessions.update_session_record = AsyncMock()
+    compute_sessions = _compute_sessions()
 
     service = FeatureIngressService(
         actor_id="user-1",
         feature_execution_handler=handler,
         execution_session_service=execution_sessions,
+        compute_session_service=compute_sessions,
     )
 
     with patch(
@@ -349,11 +384,13 @@ async def test_resume_submission_clears_advisory_and_next_actions():
         )
     )
     execution_sessions.update_session_record = AsyncMock()
+    compute_sessions = _compute_sessions()
 
     service = FeatureIngressService(
         actor_id="user-1",
         feature_execution_handler=handler,
         execution_session_service=execution_sessions,
+        compute_session_service=compute_sessions,
     )
 
     with patch(

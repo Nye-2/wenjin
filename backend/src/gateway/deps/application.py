@@ -6,6 +6,7 @@ from src.application.handlers.feature_execution_handler import FeatureExecutionH
 from src.application.handlers.papers_handler import PapersHandler
 from src.application.handlers.thread_turn_handler import ThreadTurnHandler
 from src.application.services import FeatureIngressService
+from src.compute.session_service import ComputeSessionService
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps.academic import (
     get_artifact_service,
@@ -76,6 +77,7 @@ async def get_feature_launch_service(
         actor_id=str(current_user.id),
         feature_execution_handler=handler,
         execution_session_service=ExecutionSessionService(db),
+        compute_session_service=ComputeSessionService(db),
     )
 
 

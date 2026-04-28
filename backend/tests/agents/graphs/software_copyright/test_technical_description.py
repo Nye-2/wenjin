@@ -29,7 +29,7 @@ async def test_technical_description_graph_merges_sync_metadata(
             latex_project_id="latex-soft-1",
             main_file="main.tex",
             section_map={"system_overview": "sections/01_system_overview.tex"},
-            sync_conflicts=[],
+            file_changes=[],
         )
 
     monkeypatch.setattr(

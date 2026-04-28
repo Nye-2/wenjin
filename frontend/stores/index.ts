@@ -17,6 +17,11 @@ export {
   type Message,
 } from './thread';
 
+// Compute Store
+export {
+  useComputeStore,
+} from './compute';
+
 // Locale Store (for i18n)
 export {
   useLocaleStore,

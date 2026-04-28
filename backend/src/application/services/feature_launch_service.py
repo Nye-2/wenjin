@@ -19,6 +19,7 @@ from src.application.results import (
     FeatureLaunchResult,
     FeatureTaskSubmission,
 )
+from src.compute.session_service import ComputeSessionService
 from src.services.execution_session_service import ExecutionSessionService
 from src.workspace_features import get_workspace_feature
 
@@ -164,10 +165,12 @@ class FeatureIngressService:
         actor_id: str,
         feature_execution_handler: FeatureExecutionHandler,
         execution_session_service: ExecutionSessionService,
+        compute_session_service: ComputeSessionService,
     ) -> None:
         self.actor_id = actor_id
         self.feature_execution_handler = feature_execution_handler
         self.execution_session_service = execution_session_service
+        self.compute_session_service = compute_session_service
 
     async def _load_workspace_and_feature(
         self,
@@ -227,6 +230,8 @@ class FeatureIngressService:
         session: Any,
         outcome: FeatureTaskSubmission,
         allow_repoint_to_existing_session: bool,
+        workspace_id: str,
+        user_id: str,
     ) -> str:
         if outcome.reused_existing_task:
             existing_task = await self.feature_execution_handler.task_service.get_task_status(
@@ -244,6 +249,11 @@ class FeatureIngressService:
                 and existing_execution_session_id != str(session.id)
             ):
                 await self.execution_session_service.delete_session(str(session.id))
+                await self.compute_session_service.ensure_for_execution_session(
+                    execution_session_id=existing_execution_session_id,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                )
                 return existing_execution_session_id
 
         await self.execution_session_service.update_session_record(
@@ -267,12 +277,16 @@ class FeatureIngressService:
         thread_id: str | None,
         skill_id: str | None,
         allow_repoint_to_existing_session: bool,
+        workspace_id: str,
+        user_id: str,
     ) -> FeatureLaunchResult:
         if isinstance(outcome, FeatureTaskSubmission):
             execution_session_id = await self._finalize_submission(
                 session=session,
                 outcome=outcome,
                 allow_repoint_to_existing_session=allow_repoint_to_existing_session,
+                workspace_id=workspace_id,
+                user_id=user_id,
             )
             return FeatureLaunchResult(
                 execution_session_id=execution_session_id,
@@ -332,6 +346,11 @@ class FeatureIngressService:
 
             if thread_id and session.thread_id and str(session.thread_id) != str(thread_id):
                 raise AccessDeniedError("Execution session does not belong to this thread")
+            await self.compute_session_service.ensure_for_execution_session(
+                execution_session_id=str(session.id),
+                workspace_id=workspace_id,
+                user_id=self.actor_id,
+            )
 
             if not resolved_feature_id:
                 resolved_feature_id = str(session.feature_id)
@@ -408,6 +427,8 @@ class FeatureIngressService:
                 thread_id=thread_id if thread_id else session.thread_id,
                 skill_id=skill_id if skill_id else session.entry_skill_id,
                 allow_repoint_to_existing_session=False,
+                workspace_id=workspace_id,
+                user_id=self.actor_id,
             )
 
         if not resolved_feature_id:
@@ -428,6 +449,11 @@ class FeatureIngressService:
             launch_source=launch_source,
             launch_message=launch_message,
             params=resolved_params,
+        )
+        await self.compute_session_service.ensure_for_execution_session(
+            execution_session_id=str(session.id),
+            workspace_id=workspace_id,
+            user_id=self.actor_id,
         )
 
         missing_fields = _resolve_missing_context_fields(
@@ -478,4 +504,6 @@ class FeatureIngressService:
             thread_id=thread_id,
             skill_id=skill_id,
             allow_repoint_to_existing_session=True,
+            workspace_id=workspace_id,
+            user_id=self.actor_id,
         )

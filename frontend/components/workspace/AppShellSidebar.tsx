@@ -141,7 +141,7 @@ export function AppShellSidebar({
   onToggleCollapse,
 }: AppShellSidebarProps) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const { t } = useI18n();
 
   const workspace = useWorkspaceStore((state) => state.workspace);

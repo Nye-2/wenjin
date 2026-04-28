@@ -1,7 +1,7 @@
 # API Surface Map
 
-Generated: 2026-04-14
-Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gateway/routers/` + `backend/src/api/subagents.py`
+Generated: 2026-04-28
+Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gateway/routers/`
 
 ## Global Endpoints
 
@@ -19,8 +19,8 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 | Thread Management | `/api/threads*`, `/api/workspaces/{workspace_id}/thread` | Bearer | 会话管理、会话级 skill 选择 |
 | Threads (Platform) | `/api/threads/search`, `/api/threads/{thread_id}/state`, `/api/threads/{thread_id}/history` | Bearer | Platform 风格线程检索、状态快照、历史快照 |
 | Runs | `/api/threads/{thread_id}/runs*`, `/api/runs*` | Bearer | Run 生命周期、流式对话（SSE）、断线续流 |
-| Subagents | `/api/subagents*` | Bearer | 子代理任务创建、状态、取消、SSE 事件 |
 | Workspaces | `/api/workspaces*` | Bearer | workspace CRUD、workspace 论文关联、workspace dashboard |
+| Compute | `/api/workspaces/{workspace_id}/compute/sessions`, `/api/compute/sessions*` | Bearer | Compute session shell 与 projection 读取面 |
 | Features | `/api/workspaces/{workspace_id}/features*` | Bearer | 动态 feature 列表 + feature 执行 |
 | Literature | `/api/workspaces/{workspace_id}/literature*` | Bearer | 文献 CRUD、批量导入、数量统计 |
 | Papers | `/api/papers*` | Bearer | 论文 CRUD、提取、检索、章节 |
@@ -38,16 +38,35 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 | Thesis API | `/api/thesis/*` | Removed |
 | Academic router (legacy `/academic/papers`) | `/api/*` | Removed |
 | Health alias | `/health` | Removed |
+| Public Subagents | `/api/subagents*` | Removed |
 
 ## Notes for API Consumers
 
 - 新能力只应接入 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`。
+- 显式 chat feature launch/resume 只通过 `metadata.orchestration.intent=launch|resume` 进入 `FeatureIngressService`。
+- Compute 当前状态只从 `/api/compute/sessions/{compute_session_id}/projection` 或 workspace events 水合，不从 thread message 推断。
 - artifact 的读写应统一接入 `/api/workspaces/{workspace_id}/artifacts*`。
 - thread skill 属于会话级状态，服务端持久化在 `threads.skill`。
 - `POST /api/tasks` 已删除；新任务必须走 feature execute 或 papers extract 等 domain 入口。
 - 对长时任务，前端应使用 `/api/tasks/{task_id}` 或 `/api/tasks/{task_id}/stream` 获取进度。
 - `/api/chat` 与 `/api/chat/stream` 已删除，chat 统一走 runs API（`/api/threads/{thread_id}/runs/stream`、`/api/runs/stream`、`/api/runs/wait`）。
 - `/api/threads/{thread_id}/runs/stream`、`/api/runs/stream`、`/api/runs/{run_id}/stream` 与 `/api/tasks/{task_id}/stream` 均为 SSE，需要反向代理禁用缓冲。
+
+## Compute API (Current)
+
+Compute 是长任务工作台读取面，不提供业务写入口。
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/workspaces/{workspace_id}/compute/sessions` | 列出 workspace 下的 compute sessions |
+| GET | `/api/compute/sessions/{compute_session_id}` | 读取单个 compute session shell |
+| GET | `/api/compute/sessions/{compute_session_id}/projection` | 读取 execution/task/subagent/runtime/files/logs/Prism 聚合投影 |
+
+关键约束：
+
+- ComputeSession 与 ExecutionSession 一一绑定。
+- Compute projection 不持有业务状态，只聚合现有事实源。
+- feature launch/resume 仍必须经过 `FeatureIngressService`。
 
 ## LaTeX Rewrite API (Current)
 
@@ -64,3 +83,20 @@ WenjinPrism 划词改写当前采用 `preview -> apply -> revert` 三段式：
 - `apply` 必须携带 `candidate_signature`、`base_file_hash`、`base_range_hash`。
 - `apply` 若失败并返回 `rewrite_compile_failed`，后端已自动回滚文件内容。
 - `revert` 必须使用 `apply` 返回的 `undo` payload，防止越权或错位回滚。
+
+## LaTeX File Change API (Current)
+
+WenjinPrism 与写作类 feature 的文件落稿采用 `preview -> apply -> discard/revert`：
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/latex/projects/{project_id}/file-changes/preview` | 生成待确认写入 diff 与 `change_signature` |
+| POST | `/api/latex/projects/{project_id}/file-changes/apply` | 使用 preview 签名写入 Prism 文件，并记录 undo payload |
+| POST | `/api/latex/projects/{project_id}/file-changes/discard` | 丢弃待确认写入 |
+| POST | `/api/latex/projects/{project_id}/file-changes/revert` | 使用 apply 后的 `revert_signature` 和当前文件 hash 撤回写入 |
+
+关键约束：
+
+- feature 生成内容不得直接覆盖已有 Prism 文件。
+- `apply` 必须携带 preview 产生的签名。
+- `revert` 必须使用 `applied_file_changes` 中记录的签名，并校验当前文件 hash。

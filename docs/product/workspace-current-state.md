@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-04-14
+更新时间：2026-04-28
 状态：Current
 适用项目：`wenjin`
 
@@ -23,20 +23,21 @@
 
 1. skill 是 thread 对话层的 feature 入口语义，不是独立执行框架。
 2. 用户在 chat 中选中的 skill 会绑定当前 turn 的默认 feature / params 倾向。
-3. 真正执行时统一走 `run_workspace_feature` -> canonical feature execute pipeline。
-4. 入口可多样（chat/tool/panel/automation），但 feature 事务执行统一经过 `FeatureIngressService`。
+3. 真正执行时统一走 `ChatTurnRouter` / feature API -> `FeatureIngressService` -> Compute-centered feature pipeline。
+4. 入口可多样（chat/feature API/activity retry/automation），但 feature 事务执行统一经过 `FeatureIngressService`。
 
 ## 4. Thread 面板信息架构
 
-1. 顶部状态条展示阶段、skill、结果摘要和下一步建议。
-2. 长任务主展示位于右侧 panel / inspector，而不是在 thread 消息区顶部堆叠巨型卡片。
-3. 输入区保留轻量状态反馈（如 `AgentStatusBar`），不承载最终结果正文。
+1. Chat Dock 展示发起、缺参追问、控制指令、完成摘要和下一步建议。
+2. 长任务主展示位于 Compute Stage / Workspace Inspector，而不是在 thread 消息区顶部堆叠巨型卡片。
+3. 输入区保留轻量状态反馈，不承载最终结果正文。
+4. Compute Stage 展示 runtime、sandbox 文件、日志、Review Gate、WenjinPrism 写入状态和已应用变更。
 
 ## 5. Feature 编排契约
 
 1. 首轮编排消息通过 `metadata.orchestration.feature_id + params` 传递 seed。
-2. feature 卡片、artifact follow-up、activity retry 都回落到 `/chat`。
-3. 所有长任务执行统一走 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`。
+2. feature 卡片、artifact follow-up、activity retry 都回落到 `/chat`，以 `metadata.orchestration.intent=launch|resume` 表达显式命令。
+3. API 发起的长任务执行统一走 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`；chat 发起的显式任务走 `ChatTurnRouter` 后直接进入同一个 ingress。
 4. 缺参时 execution session 状态进入 `awaiting_user_input`，chat 下一轮携带 `metadata.orchestration.execution_session_id` 在同 session 续跑。
 5. feature 完成后，UI 通过 `followUpPrompt` 和 activity detail 提供下一轮建议。
 
@@ -44,8 +45,9 @@
 
 1. 任务结果通过 task status、workspace event、activity、artifact 同步到前端。
 2. 前端根据 `refresh_targets` 刷新 `artifacts` / `papers` / `workspace`。
-3. thread 和 agent status 会通过 chat / subagent 事件流持续更新。
-4. 右侧 panel 承载过程态；thread 承载发起、追问与最终总结。
+3. thread status 通过 chat/run/workspace 事件持续更新。
+4. Compute projection 承载过程态；thread 承载发起、追问与最终总结。
+5. 当前 feature 状态不从 thread message 反推，必须读取 execution/task/compute projection。
 
 ## 7. 文档优先级
 
@@ -61,6 +63,12 @@
    - `apply` 在后端执行签名/哈希校验、结构门禁和编译门禁，通过后写文件。
    - `revert` 使用 `apply` 返回的撤销 payload 做一次性回滚。
 4. 结构性风险由后端强约束兜底；前端 risk/diff 主要用于语义判断与人工审阅，不承担安全职责。
-5. 当前 UX 约定：
+5. 写作类 feature 对已有 Prism 文件不直接覆盖，生成内容进入 `file_changes`：
+   - `file-changes/preview` 生成 diff 和签名。
+   - `file-changes/apply` 必须携带 preview 签名。
+   - `file-changes/discard` 丢弃待确认写入。
+   - `file-changes/revert` 使用 `applied_file_changes` 中的签名和文件 hash 撤回。
+6. ComputeStage 和 WenjinPrism 编辑器都可以处理待确认写入和已应用写入。
+7. 当前 UX 约定：
    - 支持候选切换、inline/side-by-side、hunk 折叠、空白改动过滤、重生成、复制候选。
    - 支持快捷键：`Ctrl/Cmd + Enter` 应用候选，`Esc` 取消预览。

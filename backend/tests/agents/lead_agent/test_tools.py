@@ -17,7 +17,7 @@ class FakeTool:
 
 def test_get_available_tools_includes_cached_mcp_tools():
     with patch("src.mcp.get_cached_mcp_tools", return_value=[FakeTool("mcp_search")]):
-        tools = get_available_tools(include_mcp=True, subagent_enabled=False)
+        tools = get_available_tools(include_mcp=True)
 
     tool_names = [tool.name for tool in tools]
     assert "mcp_search" in tool_names
@@ -25,14 +25,14 @@ def test_get_available_tools_includes_cached_mcp_tools():
 
 def test_get_available_tools_can_skip_mcp_tools():
     with patch("src.mcp.get_cached_mcp_tools", return_value=[FakeTool("mcp_search")]):
-        tools = get_available_tools(include_mcp=False, subagent_enabled=False)
+        tools = get_available_tools(include_mcp=False)
 
     tool_names = [tool.name for tool in tools]
     assert "mcp_search" not in tool_names
 
 
 def test_get_available_tools_uses_canonical_runtime_tool_names():
-    tools = get_available_tools(include_mcp=False, subagent_enabled=True)
+    tools = get_available_tools(include_mcp=False)
 
     tool_names = {tool.name for tool in tools}
     assert "bash" in tool_names
@@ -48,15 +48,14 @@ def test_get_available_tools_uses_canonical_runtime_tool_names():
     assert "list_workspace_literature_toc" in tool_names
     assert "search_workspace_literature" in tool_names
     assert "read_workspace_literature_section" in tool_names
-    assert "run_workspace_feature" in tool_names
-    assert "task" in tool_names
+    assert "run_workspace_feature" not in tool_names
+    assert "task" not in tool_names
 
 
 def test_get_available_tools_can_include_execution_tools():
     tools = get_available_tools(
         include_mcp=False,
         include_execution=True,
-        subagent_enabled=False,
     )
 
     tool_names = {tool.name for tool in tools}
@@ -75,7 +74,7 @@ def test_get_available_tools_logs_semantic_scholar_import_error():
         "builtins.__import__",
         side_effect=_import,
     ):
-        tools = get_available_tools(include_mcp=False, subagent_enabled=False)
+        tools = get_available_tools(include_mcp=False)
 
     tool_names = {tool.name for tool in tools}
     assert "semantic_scholar_search" not in tool_names
@@ -97,7 +96,7 @@ def test_get_available_tools_logs_external_search_load_error():
         "builtins.__import__",
         side_effect=_import,
     ):
-        tools = get_available_tools(include_mcp=False, subagent_enabled=False)
+        tools = get_available_tools(include_mcp=False)
 
     tool_names = {tool.name for tool in tools}
     assert "search_external" not in tool_names

@@ -40,8 +40,8 @@ def _linked_latex_project_id(result: dict[str, Any]) -> str | None:
     return None
 
 
-def _sync_conflicts(result: dict[str, Any]) -> list[dict[str, Any]]:
-    value = result.get("sync_conflicts")
+def _file_changes(result: dict[str, Any]) -> list[dict[str, Any]]:
+    value = result.get("file_changes")
     if isinstance(value, list):
         return [item for item in value if isinstance(item, dict)]
     return []
@@ -168,7 +168,7 @@ _RESULT_BLOCK_PHASE_HINTS: dict[str, dict[str, str]] = {
 
 _FINALIZE_BLOCK_IDS = {
     "linked-latex-project",
-    "sync-conflicts",
+    "file-changes",
     "leader-workflow",
     "leader-workflow-phases",
     "quality-gate",
@@ -1255,21 +1255,21 @@ def enrich_runtime_with_result(
             },
         )
 
-    sync_conflicts = _sync_conflicts(result)
-    if sync_conflicts:
+    file_changes = _file_changes(result)
+    if file_changes:
         upsert_runtime_block(
             runtime,
             {
-                "id": "sync-conflicts",
+                "id": "file-changes",
                 "kind": "list",
-                "title": "同步冲突",
-                "description": "这些文件在 /latex 中已被手动修改，本次同步已跳过覆盖。",
+                "title": "Prism 待确认写入",
+                "description": "生成内容已进入 WenjinPrism 待确认队列，确认后才会落稿。",
                 "items": [
                     {
                         "title": str(item.get("path") or item.get("logical_key") or "未命名文件"),
-                        "description": str(item.get("reason") or "user_modified"),
+                        "description": str(item.get("reason") or "feature_proposal"),
                     }
-                    for item in sync_conflicts[:8]
+                    for item in file_changes[:8]
                 ],
             },
         )

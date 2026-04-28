@@ -66,10 +66,21 @@ export interface LatexCompileResult {
   page_count?: number | null;
 }
 
-export interface LatexSyncConflict {
+export interface LatexFileChange {
   logical_key: string;
   path: string;
   reason: string;
+  pending_content?: string | null;
+  current_hash?: string | null;
+  pending_hash?: string | null;
+}
+
+export interface LatexAppliedFileChange {
+  logical_key: string;
+  path: string;
+  previous_hash: string;
+  applied_hash: string;
+  revert_signature: string;
 }
 
 export interface LatexFeedbackAnchor {
@@ -143,6 +154,49 @@ export interface LatexRewriteDiffPayload {
   hunks: LatexDiffHunk[];
   stats: LatexDiffStats;
   risk_flags: string[];
+}
+
+export interface LatexFileChangePreviewResponse {
+  ok: boolean;
+  logical_key: string;
+  path: string;
+  reason: string;
+  current_hash: string;
+  pending_hash: string;
+  change_signature: string;
+  diff: LatexRewriteDiffPayload;
+}
+
+export interface LatexFileChangeUndoPayload {
+  logical_key: string;
+  path: string;
+  previous_hash: string;
+  applied_hash: string;
+  revert_signature: string;
+}
+
+export interface LatexFileChangeApplyResponse {
+  ok: boolean;
+  applied: boolean;
+  logical_key: string;
+  path: string;
+  file_hash: string;
+  undo: LatexFileChangeUndoPayload;
+}
+
+export interface LatexFileChangeDiscardResponse {
+  ok: boolean;
+  discarded: boolean;
+  logical_key: string;
+  path: string;
+}
+
+export interface LatexFileChangeRevertResponse {
+  ok: boolean;
+  reverted: boolean;
+  logical_key: string;
+  path: string;
+  file_hash: string;
 }
 
 export interface LatexFeedbackRewriteCandidate {
@@ -487,6 +541,121 @@ export interface ExecutionSession {
   completed_at?: string | null;
 }
 
+export interface ComputeSession {
+  id: string;
+  execution_session_id: string;
+  workspace_id: string;
+  user_id: string;
+  sandbox_session_id?: string | null;
+  active_view: string;
+  ui_state: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ComputeSessionListResponse {
+  items: ComputeSession[];
+  count: number;
+}
+
+export interface ComputeFileProjection {
+  id: string;
+  kind: string;
+  label: string;
+  source: string;
+  path?: string | null;
+  url?: string | null;
+  artifact_id?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface ComputeLogProjection {
+  id: string;
+  source: string;
+  level: "info" | "success" | "warning" | "error" | string;
+  title: string;
+  message: string;
+  timestamp?: string | null;
+  truncated?: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface ComputeReviewGateItem {
+  id: string;
+  kind: string;
+  label: string;
+  required: boolean;
+  payload: Record<string, unknown>;
+}
+
+export interface ComputeReviewGateProjection {
+  status: "clear" | "awaiting_user" | "advisory" | "failed" | string;
+  required: boolean;
+  next_actions: Array<Record<string, unknown>>;
+  items: ComputeReviewGateItem[];
+  advisory_code?: string | null;
+}
+
+export interface ComputeSandboxProjection {
+  session_id?: string | null;
+  status: "bound" | "derived" | "unbound" | string;
+  files: ComputeFileProjection[];
+  logs: ComputeLogProjection[];
+  file_count: number;
+  log_count: number;
+}
+
+export interface ComputePrismCompileProjection {
+  status?: string | null;
+  pdf_path?: string | null;
+  pdf_url?: string | null;
+  pdf_endpoint?: string | null;
+  page_count?: number | null;
+  error?: string | null;
+}
+
+export interface ComputePrismItemProjection {
+  id: string;
+  source: string;
+  status: "ready" | "pending_changes" | "compile_failed" | string;
+  latex_project_id: string;
+  url: string;
+  main_file: string;
+  section_file?: string | null;
+  target_files: string[];
+  section_map: Record<string, string>;
+  file_changes: Array<Record<string, unknown>>;
+  applied_file_changes: Array<Record<string, unknown>>;
+  compile: ComputePrismCompileProjection;
+}
+
+export interface ComputePrismProjection {
+  status: "ready" | "pending_changes" | "compile_failed" | "unbound" | string;
+  project_id?: string | null;
+  url?: string | null;
+  main_file?: string | null;
+  target_files: string[];
+  file_changes: Array<Record<string, unknown>>;
+  applied_file_changes: Array<Record<string, unknown>>;
+  compile: ComputePrismCompileProjection;
+  items: ComputePrismItemProjection[];
+}
+
+export interface ComputeProjection {
+  compute_session: ComputeSession;
+  execution: ExecutionSession;
+  primary_task?: Record<string, unknown> | null;
+  tasks: Array<Record<string, unknown>>;
+  runtime_blocks: Array<Record<string, unknown>>;
+  subagents: Array<Record<string, unknown>>;
+  artifacts: Record<string, unknown>;
+  sandbox: ComputeSandboxProjection;
+  prism: ComputePrismProjection;
+  files: ComputeFileProjection[];
+  logs: ComputeLogProjection[];
+  review_gate: ComputeReviewGateProjection;
+}
+
 export interface WorkspaceExecutionCreatedEvent {
   type: "execution.created";
   workspace_id: string;
@@ -523,6 +692,13 @@ export interface WorkspaceSubagentUpdatedEvent {
   timestamp?: string;
 }
 
+export interface WorkspaceComputeSessionEvent {
+  type: "compute.created" | "compute.updated";
+  workspace_id: string;
+  compute_session: ComputeSession;
+  timestamp?: string;
+}
+
 export type WorkspaceEvent =
   | WorkspaceRefreshEvent
   | WorkspaceReadyEvent
@@ -532,7 +708,8 @@ export type WorkspaceEvent =
   | WorkspaceThreadDeletedEvent
   | WorkspaceExecutionCreatedEvent
   | WorkspaceExecutionUpdatedEvent
-  | WorkspaceSubagentUpdatedEvent;
+  | WorkspaceSubagentUpdatedEvent
+  | WorkspaceComputeSessionEvent;
 
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
 

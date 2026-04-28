@@ -183,7 +183,7 @@ class TestCopyrightMaterialsGraph:
                 main_file="main.tex",
                 section_file="sections/70_materials_checklist.tex",
                 section_map={"materials_checklist": "sections/70_materials_checklist.tex"},
-                sync_conflicts=[],
+                file_changes=[],
             )
 
         monkeypatch.setattr(

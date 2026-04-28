@@ -188,12 +188,9 @@ async def readiness_check() -> Any:
     return report
 
 # Include routers (imported after app creation to avoid circular imports)
-from src.api.subagents import router as subagents_router  # noqa: E402
-
-from .routers import artifacts, auth, dashboard, features, latex, literature, mcp, memory, models, papers, runs, skills, tasks, templates, thread_runs, threads, uploads, workspaces  # noqa: E402
+from .routers import artifacts, auth, compute, dashboard, features, latex, literature, mcp, memory, models, papers, runs, skills, tasks, templates, thread_runs, threads, uploads, workspaces  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
-app.include_router(subagents_router, prefix="/api", tags=["subagents"])
 app.include_router(threads.router, prefix="/api", tags=["threads"])
 app.include_router(thread_runs.router, prefix="/api", tags=["runs"])
 app.include_router(runs.router, prefix="/api", tags=["runs"])
@@ -201,6 +198,7 @@ app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(workspaces.router, prefix="/api", tags=["workspaces"])
+app.include_router(compute.router, prefix="/api", tags=["compute"])
 app.include_router(latex.router, prefix="/api", tags=["latex"])
 app.include_router(features.router, prefix="/api", tags=["features"])
 app.include_router(skills.router, prefix="/api", tags=["skills"])

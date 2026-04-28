@@ -28,7 +28,6 @@ from src.agents.middlewares import (
     MemoryMiddleware,
     SandboxAuditMiddleware,
     SandboxMiddleware,
-    SubagentLimitMiddleware,
     SummarizationMiddleware,
     ThreadDataMiddleware,
     TitleMiddleware,
@@ -68,11 +67,6 @@ def _coerce_json_object(value: object) -> JsonObject:
     return dict(value) if isinstance(value, dict) else {}
 
 
-def _default_subagent_enabled() -> bool:
-    """Resolve the default subagent toggle from app config."""
-    return bool(get_app_config().subagents.enabled)
-
-
 def _default_model_name() -> str:
     """Resolve the default model id used by the lead agent."""
     return get_default_model_id()
@@ -84,7 +78,6 @@ def _normalize_runtime_config(config: RunnableConfig | None) -> RunnableConfig:
     configurable = _coerce_json_object(normalized.get("configurable", {}))
 
     configurable["model_name"] = configurable.get("model_name") or _default_model_name()
-    configurable.setdefault("subagent_enabled", _default_subagent_enabled())
     if configurable.get("supports_vision") is None:
         configurable.pop("supports_vision", None)
     configurable.setdefault("supports_vision", model_supports_vision(configurable["model_name"]))
@@ -130,9 +123,9 @@ def _render_workspace_available_skills(workspace_type: str | None) -> str:
         return ""
     lines = [
         "\n\n## Available Skills",
-        "Use these skills as deterministic workflow entry points for academic tasks.",
-        "If a skill is already selected for the turn, prefer calling `run_workspace_feature` with `skill_id` and let the tool derive the canonical feature/default params.",
-        "When using a skill, ask only for the minimum missing inputs required for execution, then move quickly into action.",
+        "Use these skills as feature proposals and conversation guidance for academic tasks.",
+        "Do not execute a feature directly from chat. If a skill should be started, describe the proposed feature and the minimum missing inputs so the control plane can launch it explicitly.",
+        "When using a skill, ask only for the minimum missing inputs required before launch.",
     ]
     for skill in skills:
         defaults = dict(skill.defaults)
@@ -399,9 +392,8 @@ def apply_prompt_template(
 - Be thorough but concise — prefer structured output (headings, lists, tables)
 - Prefer concrete deliverables over generic coaching: outlines, options, action plans, draft text, evaluation criteria, or next-step recommendations
 - Ask for clarification when requirements are ambiguous
-- When executing workspace features, prefer `run_workspace_feature` for deterministic workflows
-- Before calling `run_workspace_feature` for a new workspace action, first give a one-sentence execution preface in natural language; if the latest user turn already clearly asks to start / generate / run / continue that action, treat it as confirmation and execute directly
-- When a selected skill is present, treat it as the user's preferred workflow entry; collect only the missing feature parameters, not a full rediscovery interview
+- When the user asks for a workspace feature, propose the feature, identify the minimum missing inputs, and let the chat control plane launch it explicitly
+- When a selected skill is present, treat it as the user's preferred feature proposal; collect only the missing feature parameters, not a full rediscovery interview
 - Do not hallucinate references — only cite papers you can verify
 - If the user asks a concrete academic question, answer it directly first instead of introducing yourself
 - Do not give generic self-introductions, capability lists, or “what can I help with” replies unless the user explicitly asks for them
@@ -503,7 +495,7 @@ def apply_prompt_template(
                 base_prompt += "\nLikely next skills: " + ", ".join(skill_def.follow_up_skills) + "."
             base_prompt += (
                 "\nExecution policy: first identify the minimum missing inputs, "
-                "then either answer directly or call `run_workspace_feature` with the selected skill."
+                "then either answer directly or return a concise feature proposal for explicit launch."
             )
         else:
             base_prompt += "\nUse it as the default approach unless the request clearly requires a different toolchain."
@@ -511,9 +503,6 @@ def apply_prompt_template(
     thread_id = configurable.get("thread_id")
     workspace_id = configurable.get("workspace_id")
     user_id = configurable.get("user_id")
-    orchestration_intent = str(configurable.get("orchestration_intent") or "").strip().lower()
-    orchestration_feature_id = str(configurable.get("orchestration_feature_id") or "").strip()
-    orchestration_params = configurable.get("orchestration_params")
     if workspace_id or thread_id or user_id:
         base_prompt += "\n\n## Runtime Context"
         if workspace_id:
@@ -524,24 +513,7 @@ def apply_prompt_template(
             base_prompt += f"\n- User ID: {user_id}"
         base_prompt += (
             "\nWorkspace tools automatically receive these ids from runtime context."
-            "\nPrefer `run_workspace_feature` for deterministic feature execution."
-        )
-
-    if orchestration_intent in {"launch", "resume"}:
-        base_prompt += "\n\n## Orchestration Directive"
-        base_prompt += (
-            f"\nThis turn is an explicit `{orchestration_intent}` request from the frontend."
-            "\nIn this turn, prioritize calling `run_workspace_feature` instead of generic discussion."
-            "\nDo not ask for an additional confirmation before tool execution."
-        )
-        if orchestration_feature_id:
-            base_prompt += f"\nBound orchestration feature: `{orchestration_feature_id}`."
-        if isinstance(orchestration_params, dict) and orchestration_params:
-            params_str = ", ".join(f"{key}={value}" for key, value in orchestration_params.items())
-            base_prompt += f"\nRuntime default params: {params_str}."
-        base_prompt += (
-            "\nOnly ask follow-up questions when execution is blocked by missing required inputs "
-            "that cannot be safely inferred."
+            "\nFeature launch/resume is handled outside the lead-agent tool loop."
         )
 
     base_prompt += _render_workspace_available_skills(workspace_type)
@@ -554,7 +526,6 @@ def get_available_tools(
     include_mcp: bool = True,
     include_execution: bool = False,
     model_name: str | None = None,
-    subagent_enabled: bool = True,
 ) -> list[BaseTool]:
     """Get available tools based on configuration.
 
@@ -563,7 +534,6 @@ def get_available_tools(
         include_mcp: Include MCP tools
         include_execution: Include execution tools that require tool middleware
         model_name: Model name for model-specific tools
-        subagent_enabled: Include subagent delegation tool
 
     Returns:
         List of tools
@@ -583,7 +553,6 @@ def get_available_tools(
         present_files_tool,
         read_file_tool,
         read_workspace_literature_section_tool,
-        run_workspace_feature_tool,
         search_workspace_literature_tool,
         str_replace_tool,
         view_image_tool,
@@ -610,7 +579,6 @@ def get_available_tools(
         list_workspace_literature_toc_tool,
         search_workspace_literature_tool,
         read_workspace_literature_section_tool,
-        run_workspace_feature_tool,
     ])
 
     # Output tools
@@ -667,14 +635,6 @@ def get_available_tools(
             logger.warning("MCP integration unavailable; skipping MCP tools")
         except Exception as exc:
             logger.error("Failed to load cached MCP tools: %s", exc)
-
-    # Subagent delegation tool
-    if subagent_enabled:
-        try:
-            from src.subagents.task_tool import task_tool
-            tools.append(task_tool)
-        except ImportError:
-            pass
 
     return tools
 
@@ -774,16 +734,14 @@ def build_pipeline(
     14. DisciplineContextMiddleware - Academic
     15. TodoListMiddleware         - Interaction (conditional)
     16. ViewImageMiddleware        - Interaction
-    17. SubagentLimitMiddleware    - Control (conditional)
-    18. LoopDetectionMiddleware    - Control (loop break)
-    19. TitleMiddleware            - Post-processing
-    20. CitationContextMiddleware  - Post-processing (conditional)
-    21. ClarificationMiddleware    - Control (MUST BE LAST)
+    17. LoopDetectionMiddleware    - Control (loop break)
+    18. TitleMiddleware            - Post-processing
+    19. CitationContextMiddleware  - Post-processing (conditional)
+    20. ClarificationMiddleware    - Control (MUST BE LAST)
     """
     config = _normalize_runtime_config(config)
     configurable = _coerce_json_object(config.get("configurable", {}))
     is_plan_mode = configurable.get("is_plan_mode", False)
-    subagent_enabled = configurable.get("subagent_enabled", _default_subagent_enabled())
 
     # Get middleware config with error handling
     try:
@@ -898,14 +856,6 @@ def build_pipeline(
     # ViewImage (13) - always present, handles vision internally
     pipeline.append(ViewImageMiddleware())
 
-    # SubagentLimit (14) - subagents enabled
-    if subagent_enabled:
-        max_concurrent = configurable.get(
-            "max_concurrent_subagents",
-            getattr(getattr(app_config, "subagents", None), "max_concurrent", 3),
-        )
-        pipeline.append(SubagentLimitMiddleware(max_concurrent=max_concurrent))
-
     pipeline.append(LoopDetectionMiddleware())
 
     # --- Post-processing layer ---
@@ -1011,7 +961,6 @@ def make_lead_agent(
     model_name = configurable["model_name"]
     thinking_enabled = configurable.get("thinking_enabled", False)
     reasoning_effort = configurable.get("reasoning_effort")
-    subagent_enabled = configurable.get("subagent_enabled", True)
 
     from src.models.factory import create_chat_model
     base_model = create_chat_model(
@@ -1040,7 +989,6 @@ def make_lead_agent(
     def _load_tools() -> list[BaseTool]:
         return get_available_tools(
             include_execution=include_execution_tools,
-            subagent_enabled=subagent_enabled,
             model_name=model_name,
         )
 

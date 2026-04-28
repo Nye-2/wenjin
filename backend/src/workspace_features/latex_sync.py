@@ -27,14 +27,14 @@ class LatexSyncResult:
     main_file: str | None = None
     section_file: str | None = None
     section_map: dict[str, str] = field(default_factory=dict)
-    sync_conflicts: list[dict[str, Any]] = field(default_factory=list)
+    file_changes: list[dict[str, Any]] = field(default_factory=list)
 
     def as_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "latex_project_id": self.latex_project_id,
             "main_file": self.main_file,
             "section_map": dict(self.section_map),
-            "sync_conflicts": [dict(conflict) for conflict in self.sync_conflicts],
+            "file_changes": [dict(change) for change in self.file_changes],
         }
         if self.section_file is not None:
             payload["section_file"] = self.section_file
@@ -54,7 +54,7 @@ class LatexCompileResult:
     page_count: int | None = None
     compile_error: str | None = None
     compile_logs: str | None = None
-    sync_conflicts: list[dict[str, Any]] = field(default_factory=list)
+    file_changes: list[dict[str, Any]] = field(default_factory=list)
 
     def as_payload(self) -> dict[str, Any]:
         return {
@@ -67,7 +67,7 @@ class LatexCompileResult:
             "page_count": self.page_count,
             "compile_error": self.compile_error,
             "compile_logs": self.compile_logs,
-            "sync_conflicts": [dict(conflict) for conflict in self.sync_conflicts],
+            "file_changes": [dict(change) for change in self.file_changes],
         }
 
 
@@ -77,11 +77,11 @@ def _truncate(value: str, max_len: int = 3000) -> str:
     return f"{value[: max_len - 3]}..."
 
 
-def _normalize_sync_conflicts(metadata: dict[str, Any] | None) -> list[dict[str, Any]]:
-    raw_conflicts = metadata.get("sync_conflicts", []) if isinstance(metadata, dict) else []
-    if not isinstance(raw_conflicts, list):
+def _normalize_file_changes(metadata: dict[str, Any] | None) -> list[dict[str, Any]]:
+    raw_changes = metadata.get("file_changes", []) if isinstance(metadata, dict) else []
+    if not isinstance(raw_changes, list):
         return []
-    return [dict(conflict) for conflict in raw_conflicts if isinstance(conflict, dict)]
+    return [dict(change) for change in raw_changes if isinstance(change, dict)]
 
 
 def _normalize_title_candidate(value: Any) -> str:
@@ -125,7 +125,7 @@ def _build_sync_result(
         main_file=str(getattr(linked_project, "main_file", "") or "") or None,
         section_file=section_file,
         section_map=dict(section_map or {}),
-        sync_conflicts=_normalize_sync_conflicts(metadata),
+        file_changes=_normalize_file_changes(metadata),
     )
 
 
@@ -578,7 +578,6 @@ async def compile_thesis_payload(
     try:
         async with get_db_session() as db:
             bridge_service = WorkspaceLatexProjectService(db)
-            compile_service = LatexCompileService(db)
             linked_project = await bridge_service.sync_project(
                 workspace_id=workspace_id,
                 project_name=paper_title,
@@ -598,6 +597,16 @@ async def compile_thesis_payload(
                 if isinstance(linked_project.llm_config, dict)
                 else {}
             )
+            file_changes = _normalize_file_changes(linked_metadata)
+            if file_changes:
+                return LatexCompileResult(
+                    latex_project_id=str(getattr(linked_project, "id", "") or "") or None,
+                    main_file=main_file,
+                    compile_status="blocked_by_review",
+                    compile_logs="Apply or discard pending Prism writes before compiling.",
+                    file_changes=file_changes,
+                )
+            compile_service = LatexCompileService(db)
             compile_response = await compile_service.compile_project(
                 linked_project,
                 main_file=main_file,
@@ -643,5 +652,5 @@ async def compile_thesis_payload(
             else None
         ),
         compile_logs=_truncate(compile_logs or "", max_len=3000),
-        sync_conflicts=_normalize_sync_conflicts(linked_metadata),
+        file_changes=file_changes,
     )

@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import threading
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
@@ -19,7 +18,6 @@ from src.services.workspace_activity_contracts import (
 )
 
 from .config import SubagentConfig
-from .events import SubagentEventStream
 from .graph import (
     GraphTemplateRegistry,
     create_academic_agent_graph,
@@ -111,7 +109,6 @@ class GlobalSubagentManager:
             global_max=config.global_max_concurrent,
             per_thread_max=config.per_thread_max_concurrent,
         )
-        self._event_stream = SubagentEventStream(max_queue_size=config.event_queue_size)
         self._graph_registry = GraphTemplateRegistry()
         self._threads: dict[str, ThreadContext] = {}
         self._llm = config.llm
@@ -377,16 +374,6 @@ class GlobalSubagentManager:
         start_time = datetime.now()
 
         try:
-            # Publish task started event
-            from .models import SubagentEvent
-            await self._event_stream.publish(SubagentEvent(
-                event_type="task_started",
-                task_id=task.task_id,
-                thread_id=task.thread_id,
-                data={"prompt": task.prompt},
-                timestamp=datetime.now(),
-            ))
-
             # Get or create graph
             graph_cache_key = self._build_graph_cache_key(task)
             graph = self._graph_registry.get(graph_cache_key)
@@ -408,7 +395,6 @@ class GlobalSubagentManager:
                 configurable["execution_session_id"] = str(execution_session_id)
             if model_name is not None:
                 configurable["model_name"] = str(model_name)
-            configurable["subagent_enabled"] = False
             run_config: dict[str, object] = {
                 "configurable": configurable,
                 "recursion_limit": task.max_turns,
@@ -432,20 +418,6 @@ class GlobalSubagentManager:
             if usage is not None:
                 result_metadata["token_usage"] = usage.as_dict()
 
-            # Publish task completed event
-            event_data: dict[str, Any] = {"output": output}
-            if usage is not None:
-                event_data["token_usage"] = usage.as_dict()
-            if model_name:
-                event_data["model_name"] = model_name
-            await self._event_stream.publish(SubagentEvent(
-                event_type="task_completed",
-                task_id=task.task_id,
-                thread_id=task.thread_id,
-                data=event_data,
-                timestamp=datetime.now(),
-            ))
-
             return SubagentResult(
                 task_id=task.task_id,
                 status=SubagentStatus.COMPLETED,
@@ -457,14 +429,6 @@ class GlobalSubagentManager:
             )
 
         except TimeoutError:
-            from .models import SubagentEvent
-            await self._event_stream.publish(SubagentEvent(
-                event_type="task_failed",
-                task_id=task.task_id,
-                thread_id=task.thread_id,
-                data={"error": "Timeout"},
-                timestamp=datetime.now(),
-            ))
             return SubagentResult(
                 task_id=task.task_id,
                 status=SubagentStatus.TIMED_OUT,
@@ -474,14 +438,6 @@ class GlobalSubagentManager:
             )
 
         except asyncio.CancelledError:
-            from .models import SubagentEvent
-            await self._event_stream.publish(SubagentEvent(
-                event_type="task_cancelled",
-                task_id=task.task_id,
-                thread_id=task.thread_id,
-                data={},
-                timestamp=datetime.now(),
-            ))
             return SubagentResult(
                 task_id=task.task_id,
                 status=SubagentStatus.CANCELLED,
@@ -491,14 +447,6 @@ class GlobalSubagentManager:
             )
 
         except Exception as e:
-            from .models import SubagentEvent
-            await self._event_stream.publish(SubagentEvent(
-                event_type="task_failed",
-                task_id=task.task_id,
-                thread_id=task.thread_id,
-                data={"error": str(e)},
-                timestamp=datetime.now(),
-            ))
             return SubagentResult(
                 task_id=task.task_id,
                 status=SubagentStatus.FAILED,
@@ -705,32 +653,6 @@ class GlobalSubagentManager:
                 }
             )
         return items
-
-    async def subscribe_events(
-        self,
-        thread_id: str | None = None,
-        user_id: str | None = None,
-    ) -> AsyncIterator[str]:
-        """Subscribe to event stream.
-
-        Args:
-            thread_id: Optional thread ID to filter events.
-
-        Yields:
-            SSE-formatted event strings.
-        """
-        if thread_id is not None:
-            if not await self.check_thread_access(thread_id, user_id=user_id):
-                raise SubagentAccessError("Thread not found")
-
-        async for event_str in self._event_stream.subscribe(thread_id):
-            if thread_id is None and user_id is not None:
-                event_thread_id = self._extract_thread_id_from_sse(event_str)
-                if event_thread_id is None:
-                    continue
-                if not await self.check_thread_access(event_thread_id, user_id=user_id):
-                    continue
-            yield event_str
 
     async def check_thread_access(self, thread_id: str, user_id: str | None) -> bool:
         """Check whether a user can access a given thread."""
@@ -1057,20 +979,6 @@ class GlobalSubagentManager:
         """Extract model id from task metadata."""
         model_name = task.metadata.get("model_name")
         return str(model_name) if model_name is not None else None
-
-    @staticmethod
-    def _extract_thread_id_from_sse(event_str: str) -> str | None:
-        """Extract thread_id from an SSE event payload."""
-        for line in event_str.splitlines():
-            if not line.startswith("data: "):
-                continue
-            try:
-                payload = json.loads(line[6:])
-            except json.JSONDecodeError:
-                return None
-            thread_id = payload.get("thread_id")
-            return str(thread_id) if thread_id is not None else None
-        return None
 
     @staticmethod
     def _map_result_status(status: SubagentStatus) -> str:

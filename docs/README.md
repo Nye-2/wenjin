@@ -1,6 +1,6 @@
 # Wenjin Docs
 
-更新时间：2026-04-20
+更新时间：2026-04-28
 
 本目录只保留当前实现的事实源文档，覆盖架构、产品契约、基础设施与文档治理入口。
 
@@ -13,8 +13,8 @@
 
 ## 文档分层（Current）
 
-- `architecture/`：后端执行平面、线程/运行链路、API 面
-- `product/`：产品行为、前后端契约、发布门禁
+- `architecture/`：Chat/Compute/Feature 执行平面、线程/运行链路、API 面
+- `product/`：workspace/thread/Compute/WenjinPrism 行为、前后端契约、发布门禁
 - `infrastructure/`：部署、环境变量、排障与压测
 
 ## 推荐阅读顺序

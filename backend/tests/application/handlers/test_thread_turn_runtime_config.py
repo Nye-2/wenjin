@@ -12,7 +12,7 @@ from src.application.handlers.thread_turn_handler import (
 from src.application.results import ThreadTurnRequest
 
 
-def test_build_thread_runtime_config_propagates_orchestration_launch_fields() -> None:
+def test_build_thread_runtime_config_does_not_propagate_feature_orchestration() -> None:
     request = ThreadTurnRequest(
         message="启动论文大纲",
         metadata={
@@ -40,9 +40,9 @@ def test_build_thread_runtime_config_propagates_orchestration_launch_fields() ->
     assert configurable["workspace_id"] == "ws-1"
     assert configurable["user_id"] == "user-1"
     assert configurable["execution_session_id"] == "exec-1"
-    assert configurable["orchestration_intent"] == "launch"
-    assert configurable["orchestration_feature_id"] == "framework_outline"
-    assert configurable["orchestration_params"] == {"topic": "LLM planning"}
+    assert "orchestration_intent" not in configurable
+    assert "orchestration_feature_id" not in configurable
+    assert "orchestration_params" not in configurable
 
 
 def test_build_thread_initial_state_includes_thread_and_user_ids() -> None:

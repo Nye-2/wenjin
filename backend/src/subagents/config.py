@@ -32,16 +32,6 @@ class SubagentConfig(BaseModel):
         ge=1,
         description="Maximum allowed timeout in seconds"
     )
-    sse_heartbeat_interval: int = Field(
-        default=30,
-        ge=1,
-        description="Heartbeat interval in seconds for SSE connections"
-    )
-    event_queue_size: int = Field(
-        default=100,
-        ge=1,
-        description="Maximum size of event queue"
-    )
     default_max_turns: int = Field(
         default=10,
         ge=1,
@@ -89,8 +79,6 @@ class SubagentConfig(BaseModel):
             "PER_THREAD_MAX_CONCURRENT": ("per_thread_max_concurrent", int),
             "DEFAULT_TIMEOUT": ("default_timeout", int),
             "MAX_TIMEOUT": ("max_timeout", int),
-            "SSE_HEARTBEAT_INTERVAL": ("sse_heartbeat_interval", int),
-            "EVENT_QUEUE_SIZE": ("event_queue_size", int),
             "DEFAULT_MAX_TURNS": ("default_max_turns", int),
             "MAX_TURNS_LIMIT": ("max_turns_limit", int),
         }

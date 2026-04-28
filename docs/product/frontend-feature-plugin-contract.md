@@ -1,6 +1,6 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-04-14
+更新时间: 2026-04-28
 
 本文档定义 workspace 功能插件化渲染的前后端契约，避免前端硬编码 feature 逻辑。
 
@@ -61,7 +61,10 @@
 - `frontend/lib/workspace-feature-routes.ts`
 - `frontend/lib/workspace-thread-entry.ts`
 - `frontend/stores/features.ts`
+- `frontend/stores/compute.ts`
 - `frontend/stores/execution.ts`
+- `frontend/stores/latex.ts`
+- `frontend/components/compute/ComputeStage.tsx`
 - `frontend/lib/execution-presenters.ts`
 - `frontend/hooks/useWorkspaceEventStream.ts`
 - `frontend/app/(workbench)/workspaces/[id]/components/ThreadPanel.tsx`
@@ -77,18 +80,19 @@
 - 前端职责:
   - 解析 query seed
   - 生成首条可编辑 prompt
-  - 在第一次 chat turn 中把 `metadata.orchestration.feature_id + params` 一并发给后端
+  - 在第一次 chat turn 中把 `metadata.orchestration.intent=launch + feature_id + params` 一并发给后端
 - 后端职责:
   - 优先消费显式 `metadata.orchestration`
-  - 由 lead-agent / `run_workspace_feature` 接回 canonical feature execution
+  - 由 `ChatTurnRouter` 判定 launch/resume，并由 `FeatureCommandHandler` 接回 canonical feature execution
   - 在 `metadata.orchestration.execution_session_id` 存在时，走 ingress resume 继续同一 execution session
 
 ## 4. 交互约束
 
 1. Feature 按后端下发动态渲染，不做 workspace 类型硬编码按钮列表。
-2. 功能执行后统一汇聚到 `ExecutionSession`，前端不再单独维护 task/panel 两套运行态。
-3. workspace SSE 以 `execution.* / task.updated / subagent.updated` 驱动 execution store 增量更新。
-4. feature 卡片、artifact follow-up、activity retry 必须统一落到 `/chat`，不得重新引入中间 feature slug 页面。
+2. 功能执行后统一汇聚到 `ExecutionSession`，并由 `ComputeSession` 提供工作台 shell。
+3. 前端不再单独维护 task/panel 两套运行态；长任务详情统一进入 `ComputeStage`。
+4. workspace SSE 以 `execution.* / task.updated / subagent.updated / compute.updated` 驱动 execution/compute store 增量更新。
+5. feature 卡片、artifact follow-up、activity retry 必须统一落到 `/chat`，不得重新引入中间 feature slug 页面。
 
 ## 5. Refresh Targets Contract
 
@@ -100,6 +104,9 @@
 
 实现位置: `frontend/hooks/useWorkspaceEventStream.ts` 与 `frontend/app/(workbench)/workspaces/[id]/components/ThreadPanel.tsx`
 
-## 6. Runtime Notes
+## 6. Compute Runtime Notes
 
-- 执行态 UI 只消费 `ExecutionSession`；task/subagent 事件只作为 execution store 的增量补丁，不再直接驱动独立 task/panel store。
+- 执行态 UI 以 Compute projection 为主展示面；`ExecutionSession`、task、subagent、runtime blocks、sandbox files、logs、artifacts 和 Prism metadata 是 projection 的事实来源。
+- Thread message 只承载发起、追问、完成摘要和 pointer metadata，不用于恢复当前执行状态。
+- ComputeStage 必须能从 `/api/workspaces/{workspace_id}/compute/sessions` 和 `/api/compute/sessions/{compute_session_id}/projection` 恢复任务状态。
+- WenjinPrism file changes 必须走 `preview -> apply -> discard/revert`；前端不得直接把 feature 生成内容写入 Prism 文件。

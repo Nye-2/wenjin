@@ -1,19 +1,20 @@
 # 问津 Wenjin
 
-更新时间：2026-04-20
+更新时间：2026-04-28
 
-问津是一个面向学术研究与写作交付的 AI 工作台，核心场景覆盖论文、学位论文、申报书、专利与软著材料。项目当前已经收口到一条明确主链路：
+问津是一个面向学术研究与写作交付的 AI 工作台，核心场景覆盖论文、学位论文、申报书、专利与软著材料。项目当前收口到 Compute-centered 主链路：
 
-`chat -> run_workspace_feature -> FeatureExecutionHandler -> task/worker -> workspace feature graph/service -> artifact/activity/task writeback`
+`ChatTurnRouter -> FeatureIngressService -> ExecutionSession + ComputeSession -> task/worker -> feature runtime -> artifact/activity/WenjinPrism writeback -> Compute projection`
 
 ## 当前产品形态
 
 - 五类 workspace：`thesis`、`sci`、`proposal`、`software_copyright`、`patent`
 - 单 workspace 主对话：chat 是统一入口，skills 作为 feature 的会话级入口语义
-- 确定性 feature 执行：`run_workspace_feature` 是 chat 到 feature 的唯一执行入口
+- Compute 工作面：长任务过程、runtime blocks、sandbox 文件、日志、Review Gate 和 WenjinPrism 写入状态统一展示
+- 确定性 feature 执行：显式 launch/resume 由 `ChatTurnRouter` / feature API 进入 `FeatureIngressService`
 - 任务与结果闭环：`task`、`artifact`、`activity`、runtime blocks、SSE 事件统一回写
-- LaTeX 主稿台：项目文件树、编译、PDF 预览、点评改写、SyncTeX 联动
-- Subagents：作为 workflow/worker 能力存在，由 feature 或 lead-agent 在需要时调用
+- LaTeX 主稿台：项目文件树、编译、PDF 预览、点评改写、SyncTeX 联动、file-change preview/apply/revert
+- Subagents：作为 Compute 内部 worker 能力存在，由 feature runtime / AgentHarness 调用
 
 ## 架构概览
 
@@ -28,7 +29,7 @@
 职责：
 
 - workspace 工作台 UI
-- chat / feature / activity / knowledge 面板
+- chat / compute / feature / activity / knowledge 面板
 - 任务轮询与 SSE 消费
 - LaTeX 主稿台与文档交互
 
@@ -54,6 +55,7 @@
 
 - chat lead-agent 运行
 - workspace feature graph 调度
+- Compute projection 聚合
 - 长任务执行、进度、状态与事件发布
 - subagent 运行与持久化
 
@@ -67,20 +69,23 @@
 ## 关键模块
 
 - `backend/src/gateway/`：FastAPI 网关、SSE、middleware、routers
-- `backend/src/application/`：应用层 handler，例如 chat turn 与 feature execution
-- `backend/src/agents/lead_agent/`：主 chat agent、tool 编排、skill prompt、feature bridge 卡片
+- `backend/src/application/`：应用层 handler，例如 chat turn、ChatTurnRouter、feature command、feature execution
+- `backend/src/compute/`：ComputeSession 与 projection
+- `backend/src/agents/lead_agent/`：主 chat agent、workspace read tools、skill prompt
 - `backend/src/agents/graphs/`：按 workspace type 组织的 feature graphs
-- `backend/src/workspace_features/`：feature registry、service 层、LaTeX sync
+- `backend/src/agents/harness/`：AgentHarness contract/provider
+- `backend/src/workspace_features/`：feature registry、runtime profiles、service 层、LaTeX sync
 - `backend/src/task/`：任务提交、worker、progress、runtime blocks、artifact writeback
-- `backend/src/subagents/`：subagent manager、task tool、context snapshot、academic subagent registry
+- `backend/src/subagents/`：subagent manager、context snapshot、academic subagent registry
 - `frontend/app/(workbench)/workspaces/[id]/`：workbench 主界面与各面板
-- `frontend/stores/`：chat/workspace 等前端状态管理
+- `frontend/components/compute/`：Compute Stage
+- `frontend/stores/`：chat/compute/latex/workspace 等前端状态管理
 
 ## Prompt Strategy
 
 当前 prompt 体系分三层：
 
-1. lead-agent prompt：处理 chat 主对话、skill 选择、feature 触发策略
+1. lead-agent prompt：处理 pure chat、workspace read、建议与收口
 2. feature/service prompts：面向结构化生成，统一走 JSON-only helper 约束
 3. subagent prompts：面向特定 worker 角色，依赖 context snapshot 获取裁剪后的上下文
 

@@ -1,6 +1,6 @@
 # Architecture Docs
 
-更新时间：2026-04-20
+更新时间：2026-04-28
 
 ## 文档索引（Current）
 
@@ -12,12 +12,14 @@
 
 ## 当前架构原则
 
-- chat 与 feature 共用同一执行平面，不再并行维护旧 skill runtime
+- Chat 是 control plane，Compute 是 work plane，Feature 是 transaction plane
 - feature 事务执行统一经过 `FeatureIngressService`（launch/resume）
+- 显式 feature launch/resume 经 `ChatTurnRouter` 和 `FeatureCommandHandler` 直接进入 ingress
+- Compute projection 从 execution/task/subagent/runtime/artifact/Prism metadata 聚合，不成为第二事实源
 - feature metadata 以 registry 为单一事实源
-- feature 域使用专职 leader runtime 编排 graph/subagents
-- subagents 作为 worker 能力存在，不是独立产品主链
-- thread 不再保留 direct feature bridge 兼容分支，只走 lead-agent + tool 主链
+- runtime policy 以 `runtime_profiles.py` 为事实源
+- subagents 作为 Compute 内部 worker 能力存在，不是独立 public API 或产品主链
+- thread message 只承载发起、追问、完成摘要和 pointer，不承载 feature 当前状态
 
 ## 使用说明
 

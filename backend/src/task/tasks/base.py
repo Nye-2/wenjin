@@ -62,7 +62,7 @@ async def _append_task_thread_message(
         return
 
     try:
-        from src.agents.lead_agent.thread_feature_cards import (
+        from src.application.presenters.thread_feature_cards import (
             build_feature_task_completion_card,
             build_feature_task_failure_card,
         )

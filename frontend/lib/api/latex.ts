@@ -2,6 +2,10 @@ import { authorizedFetch, apiClient, readErrorMessage } from "@/lib/api/client";
 import type {
   LatexCompileEngine,
   LatexCompileResult,
+  LatexFileChangeApplyResponse,
+  LatexFileChangeDiscardResponse,
+  LatexFileChangePreviewResponse,
+  LatexFileChangeRevertResponse,
   LatexFeedbackItem,
   LatexFeedbackRewriteApplyResponse,
   LatexFeedbackRewritePreviewResponse,
@@ -306,16 +310,55 @@ export async function listLatexTemplates(): Promise<{ templates: LatexTemplate[]
   return response.data;
 }
 
-export async function resolveLatexConflict(
+export async function previewLatexFileChange(
   projectId: string,
   payload: {
     logical_key: string;
-    strategy: "keep_current" | "accept_feature";
-    feature_content?: string | null;
   },
-): Promise<{ ok: boolean; path: string; strategy: string }> {
+): Promise<LatexFileChangePreviewResponse> {
   const response = await apiClient.post(
-    `/latex/projects/${projectId}/resolve-conflict`,
+    `/latex/projects/${projectId}/file-changes/preview`,
+    payload,
+  );
+  return response.data;
+}
+
+export async function applyLatexFileChange(
+  projectId: string,
+  payload: {
+    logical_key: string;
+    change_signature: string;
+  },
+): Promise<LatexFileChangeApplyResponse> {
+  const response = await apiClient.post(
+    `/latex/projects/${projectId}/file-changes/apply`,
+    payload,
+  );
+  return response.data;
+}
+
+export async function discardLatexFileChange(
+  projectId: string,
+  payload: {
+    logical_key: string;
+  },
+): Promise<LatexFileChangeDiscardResponse> {
+  const response = await apiClient.post(
+    `/latex/projects/${projectId}/file-changes/discard`,
+    payload,
+  );
+  return response.data;
+}
+
+export async function revertLatexFileChange(
+  projectId: string,
+  payload: {
+    logical_key: string;
+    revert_signature: string;
+  },
+): Promise<LatexFileChangeRevertResponse> {
+  const response = await apiClient.post(
+    `/latex/projects/${projectId}/file-changes/revert`,
     payload,
   );
   return response.data;

@@ -5,8 +5,6 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from src.runtime.serialization import encode_sse_data
-
 
 class SubagentStatus(StrEnum):
     """Status of a subagent task."""
@@ -43,30 +41,6 @@ class SubagentTask:
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "tools": self.tools,
             "metadata": self.metadata,
-        }
-
-
-@dataclass
-class SubagentEvent:
-    """Represents an event from subagent execution for SSE streaming."""
-    event_type: str
-    task_id: str
-    thread_id: str
-    data: dict[str, Any]
-    timestamp: datetime
-
-    def to_sse(self) -> str:
-        """Convert event to SSE format string."""
-        return f"event: {self.event_type}\n{encode_sse_data(self.to_dict())}"
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert event to dictionary for serialization."""
-        return {
-            "event_type": self.event_type,
-            "task_id": self.task_id,
-            "thread_id": self.thread_id,
-            "data": self.data,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
         }
 
 

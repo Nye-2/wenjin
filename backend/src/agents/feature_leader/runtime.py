@@ -10,10 +10,13 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
-from uuid import uuid4
 
-from src.config.config_loader import get_app_config
-from src.subagents.parallel import ParallelExecutor, PhaseResult
+from src.agents.harness import (
+    AgentHarness,
+    AgentSessionRequest,
+    NativeWenjinAgentHarness,
+)
+from src.agents.harness.contracts import PhaseResult
 from src.task.runtime_blocks import (
     append_runtime_activity,
     get_runtime_state,
@@ -30,14 +33,6 @@ logger = logging.getLogger(__name__)
 
 def _normalize_text(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
-
-
-def _normalize_positive_int(value: Any, *, default: int) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return default
-    return parsed if parsed > 0 else default
 
 
 def _preview_payload(value: Any, *, max_chars: int = 220) -> str:
@@ -65,10 +60,8 @@ class FeatureLeaderRuntime:
         params = payload.get("params")
         params = params if isinstance(params, dict) else {}
         execution_session_id = _normalize_text(
-            payload.get("execution_session_id") or payload.get("task_id")
+            payload.get("execution_session_id")
         )
-        if not execution_session_id:
-            execution_session_id = f"adhoc-{uuid4().hex[:12]}"
         context: dict[str, Any] = {
             "workspace_id": _normalize_text(payload.get("workspace_id")),
             "thread_id": _normalize_text(payload.get("thread_id")),
@@ -81,21 +74,9 @@ class FeatureLeaderRuntime:
         }
         return {key: value for key, value in context.items() if value}
 
-    def _build_executor(self, payload: dict[str, Any]) -> ParallelExecutor:
-        max_concurrent = 3
-        try:
-            max_concurrent = _normalize_positive_int(
-                getattr(get_app_config().subagents, "max_concurrent", 3),
-                default=3,
-            )
-        except Exception:
-            logger.debug("Failed to read max_concurrent from app config", exc_info=True)
-
-        return ParallelExecutor(
-            max_concurrent=max_concurrent,
-            phase_timeout=None,
-            fail_fast=True,
-        )
+    def _build_agent_harness(self, payload: dict[str, Any]) -> AgentHarness:
+        _ = payload
+        return NativeWenjinAgentHarness()
 
     @staticmethod
     def _serialize_phase_result(result: PhaseResult) -> dict[str, Any]:
@@ -224,8 +205,13 @@ class FeatureLeaderRuntime:
             return None
 
         context = self._build_workflow_context(payload)
+        if not context.get("execution_session_id"):
+            raise RuntimeError(
+                "feature_leader_workflow_missing_execution_session_id: "
+                f"{workspace_type}.{feature_id}"
+            )
 
-        executor = self._build_executor(payload)
+        agent_harness = self._build_agent_harness(payload)
         partial_phases: list[dict[str, Any]] = []
         await self._publish_workflow_runtime(
             strategy=plan.strategy,
@@ -263,11 +249,15 @@ class FeatureLeaderRuntime:
                 **context,
                 "workflow_strategy": plan.strategy,
             }
-            phase_results = await executor.execute_plan(
-                plan.phased_plan,
-                context=execution_context,
-                phase_callback=_phase_callback,
+            session_result = await agent_harness.run_session(
+                AgentSessionRequest(
+                    strategy=plan.strategy,
+                    phased_plan=plan.phased_plan,
+                    context=execution_context,
+                    phase_callback=_phase_callback,
+                )
             )
+            phase_results = session_result.phase_results
         except Exception as exc:
             logger.warning(
                 "Feature leader workflow execution failed for %s.%s",
@@ -290,6 +280,7 @@ class FeatureLeaderRuntime:
                 f"feature_leader_workflow_failed: {workspace_type}.{feature_id}: "
                 f"{_normalize_text(exc) or exc.__class__.__name__}"
             ) from exc
+        provider = session_result.provider
 
         serialized_phases = [
             self._serialize_phase_result(result)
@@ -326,6 +317,7 @@ class FeatureLeaderRuntime:
         return {
             "enabled": True,
             "status": "completed",
+            "provider": provider,
             "strategy": plan.strategy,
             "phase_count": plan.phase_count,
             "task_count": plan.task_count,
@@ -342,6 +334,7 @@ class FeatureLeaderRuntime:
         base_params = dict(params) if isinstance(params, dict) else {}
         base_params["__leader_workflow"] = {
             "status": workflow.get("status"),
+            "provider": workflow.get("provider"),
             "strategy": workflow.get("strategy"),
             "phase_count": workflow.get("phase_count"),
             "task_count": workflow.get("task_count"),
@@ -377,28 +370,11 @@ class FeatureLeaderRuntime:
     ) -> dict[str, Any]:
         from src.agents.workspace_lead_agent import execute_feature_graph
 
-        try:
-            workflow = await self._run_dynamic_workflow(
-                workspace_type=workspace_type,
-                feature_id=feature_id,
-                payload=payload,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Feature leader workflow degraded for %s.%s; fallback to direct feature graph execution",
-                workspace_type,
-                feature_id,
-                exc_info=True,
-            )
-            workflow = {
-                "enabled": True,
-                "status": "failed",
-                "strategy": "dynamic",
-                "phase_count": 0,
-                "task_count": 0,
-                "phases": [],
-                "error": _normalize_text(exc) or exc.__class__.__name__,
-            }
+        workflow = await self._run_dynamic_workflow(
+            workspace_type=workspace_type,
+            feature_id=feature_id,
+            payload=payload,
+        )
         effective_payload = (
             self._inject_workflow_context(payload, workflow)
             if isinstance(workflow, dict)

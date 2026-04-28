@@ -13,7 +13,6 @@ from .view_image import view_image_tool
 from .workspace import (
     list_workspace_artifacts_tool,
     list_workspace_features_tool,
-    run_workspace_feature_tool,
 )
 
 __all__ = [
@@ -29,7 +28,6 @@ __all__ = [
     "present_files_tool",
     "list_workspace_features_tool",
     "list_workspace_artifacts_tool",
-    "run_workspace_feature_tool",
     "list_workspace_literature_toc_tool",
     "search_workspace_literature_tool",
     "read_workspace_literature_section_tool",

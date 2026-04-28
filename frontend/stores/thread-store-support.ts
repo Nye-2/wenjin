@@ -2,12 +2,10 @@ import {
   type ThreadAttachment,
   type ThreadMessage,
   type ThreadMessageBlock,
-  type ExecutionSession,
   type Thread,
   type ThreadSummary,
   type WorkspaceTaskEvent,
 } from "@/lib/api";
-import { useExecutionStore } from "@/stores/execution";
 
 export interface Message {
   id: string;
@@ -165,12 +163,6 @@ export function removeTrailingPendingAssistantMessage(
   return messages.slice(0, -1);
 }
 
-export function findLastAssistantMessage(
-  messages: Message[]
-): Message | undefined {
-  return [...messages].reverse().find((message) => message.role === "assistant");
-}
-
 export function toStoreMessages(detail: Thread): Message[] {
   return detail.messages
     .filter(
@@ -258,137 +250,6 @@ export function syncAttachmentExtractionsWithTask(
   });
 
   return changed ? nextMessages : messages;
-}
-
-function readStructuredExecutionDescriptor(
-  message: Message
-): {
-  featureId: string;
-  taskId: string | null;
-  executionSessionId: string | null;
-  params: Record<string, unknown>;
-  status: string | null;
-} | null {
-  const orchestration = message.metadata?.orchestration;
-  if (!orchestration || typeof orchestration !== "object") {
-    return null;
-  }
-
-  const orchestrationData = orchestration as Record<string, unknown>;
-  const taskId =
-    typeof orchestrationData.task_id === "string"
-      ? orchestrationData.task_id
-      : null;
-  const executionSessionId =
-    typeof orchestrationData.execution_session_id === "string"
-      ? orchestrationData.execution_session_id
-      : null;
-  const featureId =
-    typeof orchestrationData.feature_id === "string"
-      ? orchestrationData.feature_id
-      : null;
-  const params =
-    orchestrationData.params && typeof orchestrationData.params === "object"
-      ? (orchestrationData.params as Record<string, unknown>)
-      : {};
-  const status =
-    typeof orchestrationData.status === "string"
-      ? orchestrationData.status
-      : null;
-
-  if (!featureId || (!taskId && !executionSessionId)) {
-    return null;
-  }
-
-  return {
-    featureId,
-    taskId,
-    executionSessionId,
-    params,
-    status,
-  };
-}
-
-function buildPlaceholderExecutionSession(options: {
-  descriptor: NonNullable<ReturnType<typeof readStructuredExecutionDescriptor>>;
-  message: Message;
-  workspaceId?: string | null;
-}): ExecutionSession {
-  const { descriptor, message, workspaceId } = options;
-  const createdAt = message.created_at || new Date().toISOString();
-  return {
-    id: descriptor.executionSessionId || descriptor.taskId || `exec-${descriptor.featureId}`,
-    user_id: "",
-    workspace_id: workspaceId || "",
-    thread_id: null,
-    workspace_type: "",
-    feature_id: descriptor.featureId,
-    entry_skill_id: null,
-    launch_source: "thread",
-    launch_message: message.content || null,
-    status:
-      descriptor.status === "completed"
-        ? "completed"
-        : descriptor.status === "failed"
-          ? "failed"
-          : descriptor.status === "awaiting_user_input"
-            ? "awaiting_user_input"
-          : descriptor.status === "warning"
-            ? "advisory"
-            : "pending",
-    params: descriptor.params,
-    task_ids: descriptor.taskId ? [descriptor.taskId] : [],
-    primary_task_id: descriptor.taskId,
-    runtime_snapshot: null,
-    progress: null,
-    task_message: message.content || null,
-    current_step: null,
-    result_payload: null,
-    subagents: [],
-    result_summary: message.content || null,
-    artifact_ids: [],
-    next_actions: [],
-    advisory_code: null,
-    last_error: null,
-    created_at: createdAt,
-    updated_at: createdAt,
-    started_at: null,
-    completed_at: null,
-  };
-}
-
-export function maybeHydrateStructuredExecution(
-  message: Message,
-  workspaceId?: string | null
-) {
-  const descriptor = readStructuredExecutionDescriptor(message);
-  if (!descriptor) {
-    return;
-  }
-  const normalizedWorkspaceId = String(workspaceId ?? "").trim();
-  if (!normalizedWorkspaceId) {
-    return;
-  }
-
-  const executionStore = useExecutionStore.getState();
-  const executionId = descriptor.executionSessionId || descriptor.taskId;
-  if (!executionId) {
-    return;
-  }
-
-  const executions = executionStore.byWorkspace[normalizedWorkspaceId] ?? [];
-  if (executions.some((item) => item.id === executionId)) {
-    return;
-  }
-
-  executionStore.upsertExecution(
-    normalizedWorkspaceId,
-    buildPlaceholderExecutionSession({
-      descriptor,
-      message,
-      workspaceId: normalizedWorkspaceId,
-    })
-  );
 }
 
 function buildThreadPreview(messages: Thread["messages"]) {

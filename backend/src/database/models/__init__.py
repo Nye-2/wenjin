@@ -3,6 +3,7 @@
 from .admin_log import AdminActionType, AdminLog
 from .artifact import Artifact, ArtifactType
 from .citation import Citation, CitationType
+from .compute_session import ComputeSessionRecord
 from .credit import CreditTransaction, CreditTransactionType
 from .execution_session import ExecutionSessionRecord
 from .generation import GenerationRecord
@@ -37,6 +38,7 @@ __all__ = [
     # Credit
     "CreditTransaction",
     "CreditTransactionType",
+    "ComputeSessionRecord",
     # Admin Audit
     "AdminLog",
     "AdminActionType",

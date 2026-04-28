@@ -6,6 +6,7 @@ import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
 import { useFeaturesStore } from "@/stores/features";
 import { useThreadStore } from "@/stores/thread";
 import { useExecutionStore } from "@/stores/execution";
+import { useComputeStore } from "@/stores/compute";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { CommandPalette } from "@/components/workspace/CommandPalette";
 import { AppShellSidebar } from "@/components/workspace/AppShellSidebar";
@@ -16,8 +17,8 @@ interface WorkbenchLayoutProps {
 }
 
 export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
-  const params = useParams();
-  const workspaceId = params.id as string;
+  const params = useParams<{ id: string }>();
+  const workspaceId = params?.id ?? "";
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useWorkspaceEventStream(workspaceId || null);
   const loadWorkspace = useWorkspaceStore((state) => state.loadWorkspace);
@@ -33,6 +34,8 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const abortStream = useThreadStore((state) => state.abortStream);
   const hydrateExecutions = useExecutionStore((state) => state.hydrateWorkspace);
   const clearExecutions = useExecutionStore((state) => state.clearWorkspace);
+  const hydrateCompute = useComputeStore((state) => state.hydrateWorkspace);
+  const clearCompute = useComputeStore((state) => state.clearWorkspace);
 
   useEffect(() => {
     if (!workspaceId) {
@@ -46,6 +49,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     void fetchArtifacts(workspaceId);
     void fetchActivity(workspaceId);
     void hydrateExecutions(workspaceId);
+    void hydrateCompute(workspaceId);
     return () => {
       abortStream();
       setActiveWorkspace(null);
@@ -53,6 +57,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
       clearFeatures();
       clearSkills();
       clearExecutions(workspaceId);
+      clearCompute(workspaceId);
       clearMessages();
     };
   }, [
@@ -64,10 +69,12 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     fetchArtifacts,
     fetchActivity,
     hydrateExecutions,
+    hydrateCompute,
     clearWorkspace,
     clearFeatures,
     clearSkills,
     clearExecutions,
+    clearCompute,
     clearMessages,
     abortStream,
   ]);

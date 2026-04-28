@@ -1,7 +1,7 @@
 """Workspace feature registry exports.
 
-Note: Handler-related exports have been removed per LangGraph migration.
-All features now route through workspace_lead_agent.execute_feature_graph.
+Handler-related exports have been removed per Compute migration.
+All features now route through FeatureLeaderRuntime.
 """
 
 from .contracts import (
@@ -18,6 +18,12 @@ from .registry import (
     iter_workspace_features,
     list_workspace_features,
 )
+from .runtime_profiles import (
+    FeatureRuntimeMode,
+    FeatureRuntimeProfile,
+    get_feature_runtime_profile,
+    iter_feature_runtime_profiles,
+)
 
 __all__ = [
     "CANONICAL_WORKSPACE_TYPES",
@@ -26,8 +32,12 @@ __all__ = [
     "FeatureStageDefinition",
     "WorkspaceFeatureDefinition",
     "WorkspaceFeatureExecutionResult",
+    "FeatureRuntimeMode",
+    "FeatureRuntimeProfile",
     "get_workspace_feature",
     "get_workspace_feature_by_handler",
+    "get_feature_runtime_profile",
+    "iter_feature_runtime_profiles",
     "iter_workspace_features",
     "list_workspace_features",
 ]

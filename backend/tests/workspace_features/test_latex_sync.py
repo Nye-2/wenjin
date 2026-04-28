@@ -61,7 +61,7 @@ async def test_sync_proposal_outline_payload_returns_bridge_metadata(
                     main_file="main.tex",
                     llm_config={
                         "metadata": {
-                            "sync_conflicts": [
+                            "file_changes": [
                                 {"logical_key": "basis", "path": "sections/01_basis.tex", "reason": "user_modified"}
                             ]
                         }
@@ -98,7 +98,7 @@ async def test_sync_proposal_outline_payload_returns_bridge_metadata(
         latex_project_id="latex-proj-1",
         main_file="main.tex",
         section_map={"basis": "sections/01_basis.tex"},
-        sync_conflicts=[{"logical_key": "basis", "path": "sections/01_basis.tex", "reason": "user_modified"}],
+        file_changes=[{"logical_key": "basis", "path": "sections/01_basis.tex", "reason": "user_modified"}],
     )
 
 
@@ -156,7 +156,7 @@ async def test_sync_background_research_payload_prefers_keywords_for_project_tit
         latex_project_id="latex-proj-bg-1",
         main_file="main.tex",
         section_map={"background": "sections/10_background.tex"},
-        sync_conflicts=[],
+        file_changes=[],
     )
 
 
@@ -208,7 +208,7 @@ async def test_sync_experiment_design_payload_preserves_section_file(
         "main_file": "main.tex",
         "section_file": "sections/70_experiment_design.tex",
         "section_map": {"experiment_design": "sections/70_experiment_design.tex"},
-        "sync_conflicts": [],
+        "file_changes": [],
     }
 
 
@@ -270,7 +270,7 @@ async def test_sync_patent_outline_payload_prefers_innovation_description_for_pr
         latex_project_id="latex-patent-1",
         main_file="main.tex",
         section_map={"technical_field": "sections/10_technical_field.tex"},
-        sync_conflicts=[],
+        file_changes=[],
     )
 
 
@@ -338,7 +338,7 @@ async def test_sync_sci_framework_outline_payload_returns_bridge_metadata(
                     main_file="main.tex",
                     llm_config={
                         "metadata": {
-                            "sync_conflicts": [
+                            "file_changes": [
                                 {
                                     "logical_key": "introduction",
                                     "path": "sections/introduction.tex",
@@ -379,7 +379,7 @@ async def test_sync_sci_framework_outline_payload_returns_bridge_metadata(
         latex_project_id="latex-sci-1",
         main_file="main.tex",
         section_map={"introduction": "sections/introduction.tex"},
-        sync_conflicts=[
+        file_changes=[
             {
                 "logical_key": "introduction",
                 "path": "sections/introduction.tex",
@@ -446,7 +446,7 @@ async def test_sync_sci_writing_payload_preserves_section_file(
         "main_file": "main.tex",
         "section_file": "sections/introduction.tex",
         "section_map": {"introduction": "sections/introduction.tex"},
-        "sync_conflicts": [],
+        "file_changes": [],
     }
 
 
@@ -507,7 +507,7 @@ async def test_sync_sci_writing_payload_falls_back_to_workspace_name_when_title_
         "main_file": "main.tex",
         "section_file": "sections/introduction.tex",
         "section_map": {"introduction": "sections/introduction.tex"},
-        "sync_conflicts": [],
+        "file_changes": [],
     }
 
 
@@ -533,7 +533,7 @@ async def test_sync_software_technical_description_payload_returns_bridge_metada
                 SimpleNamespace(
                     id="latex-soft-1",
                     main_file="main.tex",
-                    llm_config={"metadata": {"sync_conflicts": []}},
+                    llm_config={"metadata": {"file_changes": []}},
                 ),
                 {"system_overview": "sections/01_system_overview.tex"},
             )
@@ -560,7 +560,7 @@ async def test_sync_software_technical_description_payload_returns_bridge_metada
         latex_project_id="latex-soft-1",
         main_file="main.tex",
         section_map={"system_overview": "sections/01_system_overview.tex"},
-        sync_conflicts=[],
+        file_changes=[],
     )
 
 
@@ -588,7 +588,7 @@ async def test_sync_software_materials_payload_preserves_section_file(
                 SimpleNamespace(
                     id="latex-soft-2",
                     main_file="main.tex",
-                    llm_config={"metadata": {"sync_conflicts": []}},
+                    llm_config={"metadata": {"file_changes": []}},
                 ),
                 "sections/70_materials_checklist.tex",
                 {"materials_checklist": "sections/70_materials_checklist.tex"},
@@ -618,7 +618,7 @@ async def test_sync_software_materials_payload_preserves_section_file(
         "main_file": "main.tex",
         "section_file": "sections/70_materials_checklist.tex",
         "section_map": {"materials_checklist": "sections/70_materials_checklist.tex"},
-        "sync_conflicts": [],
+        "file_changes": [],
     }
 
 
@@ -663,7 +663,7 @@ async def test_sync_thesis_writing_payload_skips_when_no_renderable_sections(
 
 
 @pytest.mark.asyncio
-async def test_compile_thesis_payload_returns_compile_metadata(
+async def test_compile_thesis_payload_blocks_compile_when_prism_writes_are_pending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_db = object()
@@ -680,7 +680,7 @@ async def test_compile_thesis_payload_returns_compile_metadata(
                 main_file="main.tex",
                 llm_config={
                     "metadata": {
-                        "sync_conflicts": [
+                        "file_changes": [
                             {"logical_key": "project:main", "path": "main.tex", "reason": "user_modified"}
                         ]
                     }
@@ -689,20 +689,11 @@ async def test_compile_thesis_payload_returns_compile_metadata(
 
     class FakeCompileService:
         def __init__(self, db: object) -> None:
-            captured["compile_db"] = db
+            raise AssertionError("compile service should not run with pending Prism writes")
 
         async def compile_project(self, project: object, *, main_file: str, engine: str) -> dict[str, object]:
-            captured["compile_project"] = project
-            captured["compile_main_file"] = main_file
-            captured["compile_engine"] = engine
-            return {
-                "ok": True,
-                "pdf_path": "/tmp/main.pdf",
-                "pdf_endpoint": "/api/latex/projects/latex-thesis-1/compile/history-1/pdf",
-                "log": "ok",
-                "error": None,
-                "page_count": 12,
-            }
+            _ = (project, main_file, engine)
+            raise AssertionError("compile project should not run with pending Prism writes")
 
     monkeypatch.setattr(
         "src.workspace_features.latex_sync.get_db_session",
@@ -733,20 +724,12 @@ async def test_compile_thesis_payload_returns_compile_metadata(
     )
 
     assert captured["bridge_db"] is fake_db
-    assert captured["compile_db"] is fake_db
-    assert captured["compile_main_file"] == "main.tex"
-    assert captured["compile_engine"] == "xelatex"
     assert result == LatexCompileResult(
         latex_project_id="latex-thesis-1",
         main_file="main.tex",
-        compile_status="success",
-        pdf_path="/tmp/main.pdf",
-        pdf_url="/api/latex/projects/latex-thesis-1/compile/history-1/pdf",
-        pdf_endpoint="/api/latex/projects/latex-thesis-1/compile/history-1/pdf",
-        page_count=12,
-        compile_error=None,
-        compile_logs="ok",
-        sync_conflicts=[{"logical_key": "project:main", "path": "main.tex", "reason": "user_modified"}],
+        compile_status="blocked_by_review",
+        compile_logs="Apply or discard pending Prism writes before compiling.",
+        file_changes=[{"logical_key": "project:main", "path": "main.tex", "reason": "user_modified"}],
     )
 
 

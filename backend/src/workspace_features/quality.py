@@ -17,7 +17,7 @@ _META_KEYS = {
     "model_id",
     "generation_error",
     "leader_workflow",
-    "sync_conflicts",
+    "file_changes",
     "latex_project_id",
     "main_file",
 }

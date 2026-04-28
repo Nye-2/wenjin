@@ -1,6 +1,6 @@
 # Documentation Map
 
-更新时间：2026-04-20  
+更新时间：2026-04-28
 状态：Current
 
 本文档是问津项目的文档总导航，用于统一入口、减少重复事实源，并明确每类变更应更新哪些文档。
@@ -22,8 +22,8 @@
 | `README.md` | 架构文档入口与原则 |
 | `adr-platform-boundaries.md` | 分层边界与非协商规则 |
 | `api-surface-map.md` | 网关 API 分组与兼容面变更 |
-| `workspace-execution-pipeline.md` | thread / feature / task / subagent 执行主链 |
-| `feature-domain-architecture.md` | feature 域目标边界、契约与守卫 |
+| `workspace-execution-pipeline.md` | chat / feature / compute / task / subagent / Prism 执行主链 |
+| `feature-domain-architecture.md` | Chat / Compute / Feature 域边界、契约与守卫 |
 | `tech-stack-and-main-chain.md` | 技术栈、拓扑、状态模型、主链索引 |
 
 ### 2.2 产品文档（`docs/product/`）
@@ -31,7 +31,7 @@
 | 文档 | 作用 |
 |---|---|
 | `README.md` | 产品文档入口 |
-| `workspace-current-state.md` | workspace / thread 当前行为事实源 |
+| `workspace-current-state.md` | workspace / thread / Compute / WenjinPrism 当前行为事实源 |
 | `workspace-feature-catalog.md` | workspace type、feature、skill 目录 |
 | `frontend-feature-plugin-contract.md` | 前后端 feature 合约与刷新约束 |
 | `release-gate-checklist.md` | 发布门禁检查项 |
@@ -59,6 +59,5 @@
 2. 变更执行链路：更新 `docs/architecture/workspace-execution-pipeline.md`。
 3. 变更 feature/skill 目录：更新 `docs/product/workspace-feature-catalog.md`。
 4. 变更部署或环境变量：更新 `docs/infrastructure/deployment-runbook.md` 与 `docs/infrastructure/environment-variables.md`。
-5. 变更线程/前端交互契约：更新 `docs/product/workspace-current-state.md` 与 `docs/product/frontend-feature-plugin-contract.md`。
+5. 变更线程/前端/Compute 交互契约：更新 `docs/product/workspace-current-state.md` 与 `docs/product/frontend-feature-plugin-contract.md`。
 6. 完成后同步检查入口：`README.md`、`docs/README.md`、`backend/README.md`、`frontend/README.md`。
-

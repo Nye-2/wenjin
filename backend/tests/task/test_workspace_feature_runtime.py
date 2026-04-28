@@ -12,17 +12,15 @@ from src.task.handlers.workspace_feature_handler import execute_workspace_featur
 
 @pytest.fixture(autouse=True)
 def _stub_feature_workflow_executor(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _fake_execute_plan(
+    async def _fake_run_session(
         self: Any,  # noqa: ANN401
-        plan: Any,  # noqa: ANN401
-        context: dict[str, Any] | None = None,
-        phase_callback: Any = None,  # noqa: ANN401
-    ) -> list[Any]:  # noqa: ANN401
-        _ = context
+        request: Any,  # noqa: ANN401
+    ) -> Any:  # noqa: ANN401
+        from src.agents.harness import AgentSessionResult
         from src.subagents.parallel import PhaseResult
 
         phase_results: list[PhaseResult] = []
-        for phase in plan.phases:
+        for phase in request.phased_plan.phases:
             task_results: list[dict[str, Any]] = []
             for task in phase.tasks:
                 task_results.append(
@@ -37,14 +35,18 @@ def _stub_feature_workflow_executor(monkeypatch: pytest.MonkeyPatch) -> None:
                 phase_name=str(phase.name),
                 task_results=task_results,
             )
-            if callable(phase_callback):
-                await phase_callback(phase_result)
+            if callable(request.phase_callback):
+                await request.phase_callback(phase_result)
             phase_results.append(phase_result)
-        return phase_results
+        return AgentSessionResult(
+            provider="test_harness",
+            strategy=str(request.strategy),
+            phase_results=phase_results,
+        )
 
     monkeypatch.setattr(
-        "src.agents.feature_leader.runtime.ParallelExecutor.execute_plan",
-        _fake_execute_plan,
+        "src.agents.harness.native.NativeWenjinAgentHarness.run_session",
+        _fake_run_session,
     )
 
 

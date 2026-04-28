@@ -37,7 +37,7 @@ async def test_framework_outline_graph_merges_sync_metadata(
             latex_project_id="latex-sci-1",
             main_file="main.tex",
             section_map={"introduction": "sections/introduction.tex"},
-            sync_conflicts=[
+            file_changes=[
                 {"logical_key": "introduction", "path": "sections/introduction.tex", "reason": "user_modified"}
             ],
         )
@@ -66,6 +66,6 @@ async def test_framework_outline_graph_merges_sync_metadata(
     assert result["latex_project_id"] == "latex-sci-1"
     assert result["main_file"] == "main.tex"
     assert result["section_map"] == {"introduction": "sections/introduction.tex"}
-    assert result["sync_conflicts"] == [
+    assert result["file_changes"] == [
         {"logical_key": "introduction", "path": "sections/introduction.tex", "reason": "user_modified"}
     ]

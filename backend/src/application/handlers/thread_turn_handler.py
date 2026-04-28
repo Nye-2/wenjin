@@ -29,7 +29,6 @@ from src.application.results import (
     ThreadTurnRequest,
 )
 from src.config import get_model_config
-from src.config.config_loader import get_app_config
 from src.config.llm_config import LLMSettings
 from src.database import Thread, get_db_session
 from src.models import model_supports_vision, route_chat_model
@@ -69,21 +68,8 @@ def _model_supports_streaming(model_name: str) -> bool:
     return True
 
 
-def _subagent_runtime_defaults() -> tuple[bool, int]:
-    """Load thread-side subagent defaults from app config."""
-    try:
-        subagents = get_app_config().subagents
-        return bool(subagents.enabled), int(subagents.max_concurrent)
-    except Exception:
-        return True, 3
-
-
 def _resolve_workspace_id(request: ThreadTurnRequest, thread: Thread) -> str | None:
     return thread.workspace_id or request.workspace_id
-
-
-def _normalize_inline_text(value: Any) -> str:
-    return " ".join(str(value or "").strip().split())
 
 
 def _truncate_text(text: str, max_chars: int) -> str:
@@ -91,14 +77,6 @@ def _truncate_text(text: str, max_chars: int) -> str:
         return text
     truncated = text[: max(0, max_chars - 1)].rstrip()
     return f"{truncated}…"
-
-
-def _read_request_orchestration(request: ThreadTurnRequest) -> Mapping[str, Any] | None:
-    metadata = request.metadata if isinstance(request.metadata, Mapping) else None
-    orchestration = metadata.get("orchestration") if isinstance(metadata, Mapping) else None
-    if not isinstance(orchestration, Mapping):
-        return None
-    return orchestration
 
 
 def _stringify_persisted_message_content(message: Mapping[str, Any]) -> str:
@@ -194,45 +172,18 @@ def build_thread_runtime_config(
     effective_model: str,
     execution_session_id: str | None = None,
 ) -> RunnableConfig:
-    configured_subagent_enabled, max_concurrent_subagents = _subagent_runtime_defaults()
-    subagent_enabled = configured_subagent_enabled and execution_session_id is not None
-    orchestration = _read_request_orchestration(request)
-    orchestration_intent = (
-        _normalize_inline_text(orchestration.get("intent")).lower()
-        if isinstance(orchestration, Mapping)
-        else ""
-    )
-    orchestration_feature_id = (
-        _normalize_inline_text(orchestration.get("feature_id"))
-        if isinstance(orchestration, Mapping)
-        else ""
-    )
-    orchestration_params = (
-        dict(orchestration.get("params"))
-        if isinstance(orchestration, Mapping) and isinstance(orchestration.get("params"), Mapping)
-        else {}
-    )
-
     configurable: dict[str, Any] = {
         "thread_id": thread.id,
         "workspace_id": workspace_id,
         "user_id": actor_id,
         "model_name": effective_model,
         "supports_vision": model_supports_vision(effective_model),
-        "subagent_enabled": subagent_enabled,
-        "max_concurrent_subagents": max_concurrent_subagents,
         "selected_skill": effective_skill,
         "thinking_enabled": request.thinking_enabled,
         "reasoning_effort": request.reasoning_effort,
     }
     if execution_session_id is not None:
         configurable["execution_session_id"] = execution_session_id
-    if orchestration_intent in {"launch", "resume"}:
-        configurable["orchestration_intent"] = orchestration_intent
-        if orchestration_feature_id:
-            configurable["orchestration_feature_id"] = orchestration_feature_id
-        if orchestration_params:
-            configurable["orchestration_params"] = orchestration_params
     return {"configurable": configurable}
 
 
@@ -552,26 +503,11 @@ def _build_recursion_guard_reply(
     request: ThreadTurnRequest,
 ) -> GeneratedThreadReply:
     """Build a deterministic fallback reply when the graph tool-loop guard is hit."""
-    feature_id: str | None = None
-    metadata = request.metadata if isinstance(request.metadata, dict) else {}
-    orchestration = metadata.get("orchestration")
-    if isinstance(orchestration, Mapping):
-        raw_feature_id = orchestration.get("feature_id")
-        if isinstance(raw_feature_id, str) and raw_feature_id.strip():
-            feature_id = raw_feature_id.strip()
-
     base_content = (
         "我检测到本轮出现了重复工具调用，已主动停止以避免卡住。"
-        " 请明确下一步：如果要执行该功能，请直接回复“开始吧”；"
-        " 如果暂不执行，请告诉我你希望先分析的内容。"
+        " 请简化你的问题，或明确希望我先分析哪一部分。"
     )
     reply_metadata: dict[str, Any] = {"guard": "graph_recursion_fallback"}
-    if feature_id:
-        reply_metadata["orchestration"] = {
-            "mode": "feature_execution",
-            "feature_id": feature_id,
-            "status": "awaiting_user_confirmation",
-        }
     return GeneratedThreadReply(content=base_content, metadata=reply_metadata)
 
 
@@ -802,13 +738,11 @@ class ThreadTurnHandler:
         *,
         actor_id: str,
     ) -> CompletedThreadTurn:
-        request = prepared.request
         thread = prepared.thread
 
         try:
-            reply = await self._generate_thread_response(
-                request,
-                thread,
+            reply = await self._generate_prepared_reply(
+                prepared,
                 actor_id=actor_id,
             )
         except asyncio.CancelledError:
@@ -861,6 +795,22 @@ class ThreadTurnHandler:
         async def _iterator() -> AsyncIterator[ThreadStreamDelta]:
             reply_stream = None
             try:
+                feature_reply = await self._try_feature_command_reply(
+                    prepared,
+                    actor_id=actor_id,
+                )
+                if feature_reply is not None:
+                    if feature_reply.content:
+                        yield ThreadStreamDelta(kind="content", text=feature_reply.content)
+                    completed = await self._finalize_generated_reply(
+                        prepared,
+                        actor_id=actor_id,
+                        reply=feature_reply,
+                    )
+                    if not completed_future.done():
+                        completed_future.set_result(completed)
+                    return
+
                 reply_stream = self._stream_thread_response(
                     prepared.request,
                     prepared.thread,
@@ -1114,6 +1064,44 @@ class ThreadTurnHandler:
             skill_name=resolve_thread_skill_name(thread),
         )
 
+    async def _try_feature_command_reply(
+        self,
+        prepared: PreparedThreadTurn,
+        *,
+        actor_id: str,
+    ) -> GeneratedThreadReply | None:
+        """Handle explicit feature launch/resume without entering lead-agent."""
+        from src.application.handlers.chat_turn_router import ChatTurnRouter
+        from src.application.handlers.feature_command_handler import FeatureCommandHandler
+
+        route = ChatTurnRouter.route(prepared.request, prepared.thread)
+        if not route.is_feature_command:
+            return None
+        return await FeatureCommandHandler().handle(
+            request=prepared.request,
+            thread=prepared.thread,
+            actor_id=actor_id,
+            route=route,
+        )
+
+    async def _generate_prepared_reply(
+        self,
+        prepared: PreparedThreadTurn,
+        *,
+        actor_id: str,
+    ) -> GeneratedThreadReply:
+        feature_reply = await self._try_feature_command_reply(
+            prepared,
+            actor_id=actor_id,
+        )
+        if feature_reply is not None:
+            return feature_reply
+        return await self._generate_thread_response(
+            prepared.request,
+            prepared.thread,
+            actor_id=actor_id,
+        )
+
     async def _generate_thread_response(
         self,
         request: ThreadTurnRequest,
@@ -1161,59 +1149,6 @@ async def ensure_thread_turn_budget(actor_id: str) -> None:
             f"Thread 免费额度已用尽。当前策略为前 {policy.free_tokens} tokens 免费，"
             "后续按 token 扣积分，请先补充积分。"
         )
-
-
-async def _resolve_execution_session_id_for_thread(
-    request: ThreadTurnRequest,
-    thread: Thread,
-    *,
-    actor_id: str,
-) -> str | None:
-    """Resolve and validate execution session id from request orchestration metadata."""
-    orchestration = _read_request_orchestration(request)
-    if not isinstance(orchestration, Mapping):
-        return None
-
-    intent = _normalize_inline_text(orchestration.get("intent")).lower()
-    if intent != "resume":
-        return None
-
-    raw_execution_session_id = orchestration.get("execution_session_id")
-    if not isinstance(raw_execution_session_id, str):
-        return None
-    execution_session_id = raw_execution_session_id.strip()
-    if not execution_session_id:
-        return None
-
-    from src.services.execution_session_service import ExecutionSessionService
-
-    async with get_db_session() as db:
-        session = await ExecutionSessionService(db).get_by_id(execution_session_id)
-
-    if session is None:
-        logger.warning(
-            "Ignoring unknown execution_session_id %s on thread %s",
-            execution_session_id,
-            thread.id,
-        )
-        return None
-
-    expected_workspace_id = str(thread.workspace_id) if thread.workspace_id is not None else None
-    session_thread_id = str(session.thread_id or "").strip()
-    if (
-        str(session.user_id) != str(actor_id)
-        or expected_workspace_id is None
-        or str(session.workspace_id) != expected_workspace_id
-        or (session_thread_id and session_thread_id != str(thread.id))
-    ):
-        logger.warning(
-            "Ignoring mismatched execution_session_id %s on thread %s",
-            execution_session_id,
-            thread.id,
-        )
-        return None
-
-    return str(session.id)
 
 
 def _build_thread_agent_runtime(
@@ -1283,12 +1218,6 @@ async def generate_thread_response(
     """Generate a thread response through the unified lead-agent pipeline."""
     from src.agents.lead_agent.agent import make_lead_agent
 
-    execution_session_id = await _resolve_execution_session_id_for_thread(
-        request,
-        thread,
-        actor_id=actor_id,
-    )
-
     # Budget checks are only for pure thread turns. Feature launches/resumes
     # use feature-domain credit policy inside the feature execution pipeline.
     await ensure_thread_turn_budget(actor_id)
@@ -1297,7 +1226,6 @@ async def generate_thread_response(
         request,
         thread,
         actor_id=actor_id,
-        execution_session_id=execution_session_id,
         workspace_service=workspace_service,
         index_service=index_service,
         artifact_service=artifact_service,
@@ -1351,12 +1279,6 @@ def stream_thread_response(
     async def _iterator() -> AsyncIterator[ThreadStreamDelta]:
         accumulated_reasoning = ""
         try:
-            execution_session_id = await _resolve_execution_session_id_for_thread(
-                request,
-                thread,
-                actor_id=actor_id,
-            )
-
             # Budget checks are only for pure thread turns. Feature launches/resumes
             # use feature-domain credit policy inside the feature execution pipeline.
             await ensure_thread_turn_budget(actor_id)
@@ -1365,7 +1287,6 @@ def stream_thread_response(
                 request,
                 thread,
                 actor_id=actor_id,
-                execution_session_id=execution_session_id,
                 workspace_service=workspace_service,
                 index_service=index_service,
                 artifact_service=artifact_service,

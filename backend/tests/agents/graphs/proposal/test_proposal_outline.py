@@ -117,7 +117,7 @@ class TestProposalOutlineGraph:
                 latex_project_id="latex-proj-1",
                 main_file="main.tex",
                 section_map={"basis": "sections/01_basis.tex"},
-                sync_conflicts=[{"logical_key": "basis", "path": "sections/01_basis.tex", "reason": "user_modified"}],
+                file_changes=[{"logical_key": "basis", "path": "sections/01_basis.tex", "reason": "user_modified"}],
             )
 
         monkeypatch.setattr(
@@ -153,7 +153,7 @@ class TestProposalOutlineGraph:
         assert result["latex_project_id"] == "latex-proj-1"
         assert result["main_file"] == "main.tex"
         assert result["section_map"] == {"basis": "sections/01_basis.tex"}
-        assert result["sync_conflicts"] == [{"logical_key": "basis", "path": "sections/01_basis.tex", "reason": "user_modified"}]
+        assert result["file_changes"] == [{"logical_key": "basis", "path": "sections/01_basis.tex", "reason": "user_modified"}]
 
     @pytest.mark.asyncio
     async def test_fallback_to_workspace_name(self, monkeypatch: pytest.MonkeyPatch):

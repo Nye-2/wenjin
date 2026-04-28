@@ -1,8 +1,8 @@
 # Product Docs
 
-更新时间：2026-04-20
+更新时间：2026-04-28
 
-本目录记录 workspace、thread（路由为 `/chat`）、feature 和前后端集成的当前事实源。
+本目录记录 workspace、thread（路由为 `/chat`）、feature、Compute、WenjinPrism 和前后端集成的当前事实源。
 
 ## 文档索引
 

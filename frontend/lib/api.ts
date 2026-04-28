@@ -16,3 +16,4 @@ export * from "@/lib/api/streams";
 export * from "@/lib/api/models";
 export * from "@/lib/api/admin";
 export * from "@/lib/api/latex";
+export * from "@/lib/api/compute";

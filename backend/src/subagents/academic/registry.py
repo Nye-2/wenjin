@@ -143,7 +143,7 @@ THESIS_WRITER_CONFIG = SubagentConfig(
     name="ThesisWriter",
     description="Undergraduate thesis writing expert for producing complete thesis sections",
     system_prompt=THESIS_WRITER_PROMPT,
-    tools=["read_file", "write_file", "str_replace", "task"],
+    tools=["read_file", "write_file", "str_replace"],
     max_turns=15,
 )
 

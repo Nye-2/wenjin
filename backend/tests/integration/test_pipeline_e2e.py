@@ -20,14 +20,14 @@ def _mock_app_config(summarization_enabled: bool = False):
 class TestPipelineE2E:
     def test_pipeline_builds_without_error(self):
         """Pipeline should build with default config."""
-        config = {"configurable": {"model_name": "gpt-4o", "subagent_enabled": True}}
+        config = {"configurable": {"model_name": "gpt-4o"}}
         with patch("src.config.config_loader.get_app_config", return_value=_mock_app_config()):
             pipeline = build_pipeline(config)
         assert len(pipeline) >= 5
 
     def test_pipeline_order_correct(self):
         """Pipeline should have correct middleware order."""
-        config = {"configurable": {"model_name": "gpt-4o", "subagent_enabled": True}}
+        config = {"configurable": {"model_name": "gpt-4o"}}
         with patch("src.config.config_loader.get_app_config", return_value=_mock_app_config()):
             pipeline = build_pipeline(config)
         type_names = [type(m).__name__ for m in pipeline]

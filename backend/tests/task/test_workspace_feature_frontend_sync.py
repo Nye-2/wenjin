@@ -12,20 +12,20 @@ FRONTEND_DIR = REPO_ROOT / "frontend"
 ROUTES_FILE = FRONTEND_DIR / "lib" / "workspace-feature-routes.ts"
 ACTIONS_FILE = FRONTEND_DIR / "lib" / "workspace-feature-actions.ts"
 THREAD_EXPORT_FILE = FRONTEND_DIR / "lib" / "thread-export.ts"
-FEATURE_PANEL_HOST_FILE = FRONTEND_DIR / "components" / "workspace" / "FeaturePanelHost.tsx"
 WORKSPACE_API_FILE = FRONTEND_DIR / "lib" / "api" / "workspace.ts"
 CHAT_ROUTE_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "chat" / "page.tsx"
-)
-FEATURE_REDIRECT_FILE = (
-    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "features" / "[featureId]" / "page.tsx"
 )
 CHAT_ENTRY_FILE = FRONTEND_DIR / "lib" / "workspace-thread-entry.ts"
 CHAT_PANEL_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "ThreadPanel.tsx"
 )
+WORKSPACE_INSPECTOR_FILE = (
+    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "WorkspaceInspector.tsx"
+)
 CHAT_STORE_FILE = FRONTEND_DIR / "stores" / "thread.ts"
 CHAT_STORE_SUPPORT_FILE = FRONTEND_DIR / "stores" / "thread-store-support.ts"
+COMPUTE_STAGE_FILE = FRONTEND_DIR / "components" / "compute" / "ComputeStage.tsx"
 AGENT_STATUS_BAR_FILE = FRONTEND_DIR / "components" / "workspace" / "AgentStatusBar.tsx"
 KNOWLEDGE_PANEL_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "KnowledgePanel.tsx"
@@ -113,7 +113,6 @@ def test_workspace_feature_routes_use_canonical_chat_entry() -> None:
 
 def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_thread() -> None:
     chat_route_body = _read_text(CHAT_ROUTE_FILE)
-    feature_redirect_body = _read_text(FEATURE_REDIRECT_FILE)
     chat_entry_body = _read_text(CHAT_ENTRY_FILE)
     chat_panel_body = _read_text(CHAT_PANEL_FILE)
     layout_body = _read_text(WORKBENCH_LAYOUT_FILE)
@@ -126,8 +125,6 @@ def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_threa
     assert 'intent: "resume"' in chat_panel_body
     assert 'feature_id: entrySeed.featureId' in chat_panel_body
     assert "params: entrySeed.params" in chat_panel_body
-    assert "feature.defaultSkillId" in feature_redirect_body
-    assert "useFeaturesStore" in feature_redirect_body
     assert "void loadThreads(workspaceId);" not in layout_body
     assert "ensureWorkspaceThread(workspaceId" in chat_route_body
 
@@ -193,23 +190,44 @@ def test_chat_and_knowledge_panels_follow_canonical_chat_entry_and_retry_paths()
     chat_body = _read_text(CHAT_PANEL_FILE)
     chat_store_support_body = _read_text(CHAT_STORE_SUPPORT_FILE)
     knowledge_body = _read_text(KNOWLEDGE_PANEL_FILE)
-    feature_panel_host_body = _read_text(FEATURE_PANEL_HOST_FILE)
 
     assert "buildWorkspaceThreadEntryPrompt({" in chat_body
     assert "sendMessage(prompt, {" in chat_body
     assert "createWorkspaceFeatureTask({" not in chat_body
 
-    assert "maybeHydrateStructuredExecution" in chat_store_support_body
-    assert "useExecutionStore" in chat_store_support_body
+    assert "maybeHydrateStructuredExecution" not in chat_store_support_body
+    assert "useExecutionStore" not in chat_store_support_body
     assert "useTaskStore" not in chat_store_support_body
 
     assert "const retryFeatureTask = async" in knowledge_body
     assert "router.push(actionState.route);" in knowledge_body
     assert "createWorkspaceFeatureTask({" not in knowledge_body
 
-    assert "ensureWorkspacePrismProject" in feature_panel_host_body
-    assert "window.location.href = `/latex/${projectId}`;" in feature_panel_host_body
-    assert "createWorkspaceFeatureTask({" not in feature_panel_host_body
+
+def test_compute_stage_replaces_legacy_feature_panel_host() -> None:
+    inspector_body = _read_text(WORKSPACE_INSPECTOR_FILE)
+    compute_body = _read_text(COMPUTE_STAGE_FILE)
+    workspace_exports = _read_text(FRONTEND_DIR / "components" / "workspace" / "index.ts")
+
+    assert "ComputeStage" in inspector_body
+    assert "FeaturePanelHost" not in inspector_body
+    assert "useComputeStore" in compute_body
+    assert "projection?.sandbox" in compute_body
+    assert "projection?.prism" in compute_body
+    assert "projection?.files" in compute_body
+    assert "projection?.logs" in compute_body
+    assert "previewLatexFileChange" in compute_body
+    assert "applyLatexFileChange" in compute_body
+    assert "discardLatexFileChange" in compute_body
+    assert "revertLatexFileChange" in compute_body
+    assert "LatexFileChangeDiffPreview" in compute_body
+    assert "reviewGate" in compute_body
+    assert "Sandbox 文件" in compute_body
+    assert "WenjinPrism" in compute_body
+    assert "执行日志" in compute_body
+    assert "Review Gate" in compute_body
+    assert "WorkspaceResultPanel" not in workspace_exports
+    assert "FeatureWorkbenchShell" not in workspace_exports
 
 
 def test_chat_store_scopes_pending_skill_and_thread_reuse_to_current_workspace() -> None:
@@ -227,6 +245,14 @@ def test_legacy_feature_entry_shells_removed() -> None:
     assert not WORKSPACE_THREAD_SKILLS_FILE.exists()
     assert not MODULE_CARD_FILE.exists()
     assert not (FRONTEND_DIR / "lib" / "workspace-feature-execution.ts").exists()
+    assert not (
+        FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "features" / "[featureId]" / "page.tsx"
+    ).exists()
+    assert not (FRONTEND_DIR / "components" / "workspace" / "FeaturePanelHost.tsx").exists()
+    assert not (FRONTEND_DIR / "components" / "workspace" / "FeatureWorkbenchShell.tsx").exists()
+    assert not (FRONTEND_DIR / "components" / "workspace" / "ExecutionWorkflowGraph.tsx").exists()
+    assert not (FRONTEND_DIR / "components" / "workspace" / "WorkspaceResultPanel.tsx").exists()
+    assert not (FRONTEND_DIR / "lib" / "workspace-result.ts").exists()
 
 
 def test_agent_status_bar_uses_backend_cancel_api_and_failed_task_branch() -> None:

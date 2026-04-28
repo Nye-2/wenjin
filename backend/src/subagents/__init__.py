@@ -20,9 +20,8 @@ from .graph import (
     register_academic_templates,
 )
 from .manager import GlobalSubagentManager, ThreadContext
-from .models import SubagentEvent, SubagentResult, SubagentStatus, SubagentTask
+from .models import SubagentResult, SubagentStatus, SubagentTask
 from .parallel import ExecutionPhase, ParallelExecutor, PhasedPlan, PhaseResult
-from .task_tool import task_tool
 
 __all__ = [
     "SubagentRegistry",
@@ -30,9 +29,7 @@ __all__ = [
     "SubagentConfig",
     "SubagentStatus",
     "SubagentTask",
-    "SubagentEvent",
     "SubagentResult",
-    "task_tool",
     "ParallelExecutor",
     "ExecutionPhase",
     "PhasedPlan",

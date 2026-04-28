@@ -72,37 +72,54 @@ class WorkspaceLatexProjectService:
     ) -> dict[str, Any]:
         metadata = cls._project_bridge_metadata(project)
         metadata.setdefault("managed_files", {})
-        metadata.setdefault("sync_conflicts", [])
+        metadata.setdefault("file_changes", [])
         metadata.update(updates)
         if not isinstance(metadata.get("managed_files"), dict):
             metadata["managed_files"] = {}
-        if not isinstance(metadata.get("sync_conflicts"), list):
-            metadata["sync_conflicts"] = []
+        if not isinstance(metadata.get("file_changes"), list):
+            metadata["file_changes"] = []
         return metadata
 
     @staticmethod
-    def _clear_conflicts(metadata: dict[str, Any]) -> None:
-        metadata["sync_conflicts"] = []
+    def _clear_file_changes(metadata: dict[str, Any]) -> None:
+        metadata["file_changes"] = []
+
+    @staticmethod
+    def _remove_file_change(metadata: dict[str, Any], logical_key: str) -> None:
+        file_changes = metadata.setdefault("file_changes", [])
+        if not isinstance(file_changes, list):
+            metadata["file_changes"] = []
+            return
+        file_changes[:] = [
+            item
+            for item in file_changes
+            if not (
+                isinstance(item, dict)
+                and str(item.get("logical_key") or "") == logical_key
+            )
+        ]
 
     @staticmethod
     def _content_hash(content: str) -> str:
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _record_conflict(
+    def _record_file_change(
         metadata: dict[str, Any],
         *,
         logical_key: str,
         relative_path: str,
+        reason: str,
         pending_content: str,
+        current_content: str | None,
     ) -> None:
-        conflicts = metadata.setdefault("sync_conflicts", [])
-        if not isinstance(conflicts, list):
-            conflicts = []
-            metadata["sync_conflicts"] = conflicts
-        conflicts[:] = [
+        file_changes = metadata.setdefault("file_changes", [])
+        if not isinstance(file_changes, list):
+            file_changes = []
+            metadata["file_changes"] = file_changes
+        file_changes[:] = [
             item
-            for item in conflicts
+            for item in file_changes
             if not (
                 isinstance(item, dict)
                 and str(item.get("logical_key") or "") == logical_key
@@ -111,10 +128,21 @@ class WorkspaceLatexProjectService:
         entry = {
             "logical_key": logical_key,
             "path": relative_path,
-            "reason": "user_modified",
+            "reason": reason,
             "pending_content": pending_content,
+            "pending_hash": WorkspaceLatexProjectService._content_hash(pending_content),
         }
-        conflicts.append(entry)
+        if current_content is not None:
+            entry["current_hash"] = WorkspaceLatexProjectService._content_hash(current_content)
+        file_changes.append(entry)
+
+    @staticmethod
+    def _proposal_reason(record: Any, *, current_matches_record: bool) -> str:
+        if isinstance(record, dict) and bool(record.get("protected")):
+            return "user_protected"
+        if current_matches_record:
+            return "feature_proposal"
+        return "user_modified"
 
     @staticmethod
     def _default_template_for_workspace(workspace_type: str | None) -> str | None:
@@ -151,6 +179,7 @@ class WorkspaceLatexProjectService:
         content: str,
         logical_key: str,
         metadata: dict[str, Any],
+        allow_existing_write: bool = False,
     ) -> None:
         managed_files = metadata.setdefault("managed_files", {})
         if not isinstance(managed_files, dict):
@@ -164,6 +193,7 @@ class WorkspaceLatexProjectService:
             current_content = None
 
         if current_content == content:
+            self._remove_file_change(metadata, logical_key)
             managed_files[logical_key] = {
                 "path": relative_path,
                 "content_hash": self._content_hash(content),
@@ -175,33 +205,36 @@ class WorkspaceLatexProjectService:
             }
             return
 
-        safe_to_write = current_content is None
+        if current_content is None or allow_existing_write:
+            await self.project_service.write_text_file(project, relative_path, content)
+            self._remove_file_change(metadata, logical_key)
+            managed_files[logical_key] = {
+                "path": relative_path,
+                "content_hash": self._content_hash(content),
+                "protected": False,
+            }
+            return
+
+        current_matches_record = False
         if isinstance(record, dict) and current_content is not None:
             recorded_hash = str(record.get("content_hash") or "")
             recorded_path = str(record.get("path") or "")
-            protected = bool(record.get("protected"))
-            if (
+            current_matches_record = (
                 recorded_path == relative_path
                 and recorded_hash == self._content_hash(current_content)
-                and not protected
-            ):
-                safe_to_write = True
-
-        if not safe_to_write:
-            self._record_conflict(
-                metadata,
-                logical_key=logical_key,
-                relative_path=relative_path,
-                pending_content=content,
             )
-            return
 
-        await self.project_service.write_text_file(project, relative_path, content)
-        managed_files[logical_key] = {
-            "path": relative_path,
-            "content_hash": self._content_hash(content),
-            "protected": False,
-        }
+        self._record_file_change(
+            metadata,
+            logical_key=logical_key,
+            relative_path=relative_path,
+            reason=self._proposal_reason(
+                record,
+                current_matches_record=current_matches_record,
+            ),
+            pending_content=content,
+            current_content=current_content,
+        )
 
     async def sync_project(
         self,
@@ -225,6 +258,7 @@ class WorkspaceLatexProjectService:
             owner_user_id=owner_user_id,
             template=template,
         )
+        created_linked_project = linked_project is None
         if linked_project is None:
             linked_project = await self.project_service.create(
                 user_id=owner_user_id,
@@ -246,6 +280,7 @@ class WorkspaceLatexProjectService:
                 content=content,
                 logical_key=f"project:asset:{relative_path}",
                 metadata=project_metadata,
+                allow_existing_write=created_linked_project,
             )
         await self._safe_bridge_write(
             linked_project,
@@ -253,6 +288,7 @@ class WorkspaceLatexProjectService:
             content=main_tex,
             logical_key="project:main",
             metadata=project_metadata,
+            allow_existing_write=created_linked_project,
         )
         await self._safe_bridge_write(
             linked_project,
@@ -260,6 +296,7 @@ class WorkspaceLatexProjectService:
             content=bib_tex,
             logical_key="project:references",
             metadata=project_metadata,
+            allow_existing_write=created_linked_project,
         )
         if bib_tex.strip():
             await self._safe_bridge_write(
@@ -268,6 +305,7 @@ class WorkspaceLatexProjectService:
                 content=bib_tex,
                 logical_key="project:refs_alias",
                 metadata=project_metadata,
+                allow_existing_write=created_linked_project,
             )
         update_payload: dict[str, Any] = {
             "name": project_name,
@@ -399,6 +437,7 @@ class WorkspaceLatexProjectService:
             owner_user_id=str(workspace["user_id"]),
             template="sci_default",
         )
+        created_linked_project = linked_project is None
         if linked_project is None:
             linked_project = await self.project_service.create(
                 user_id=str(workspace["user_id"]),
@@ -413,7 +452,7 @@ class WorkspaceLatexProjectService:
                 "keywords": keywords,
             },
         )
-        self._clear_conflicts(project_metadata)
+        self._clear_file_changes(project_metadata)
         section_map = dict(project_metadata.get("section_map") or {})
         for key, _title, filename in _SCI_SECTION_SPECS:
             section_map.setdefault(key, filename)
@@ -440,6 +479,7 @@ class WorkspaceLatexProjectService:
                 content=content,
                 logical_key=f"section:{key}",
                 metadata=project_metadata,
+                allow_existing_write=created_linked_project,
             )
 
         main_tex = self._build_sci_main_tex(
@@ -453,6 +493,7 @@ class WorkspaceLatexProjectService:
             content=main_tex,
             logical_key="project:main",
             metadata=project_metadata,
+            allow_existing_write=created_linked_project,
         )
         linked_project = await self.project_service.update(
             linked_project,
@@ -492,7 +533,7 @@ class WorkspaceLatexProjectService:
                 "section_map": section_map,
             },
         )
-        self._clear_conflicts(project_metadata)
+        self._clear_file_changes(project_metadata)
         section_file = section_map.get(section_type) or f"sections/{section_type}.tex"
         section_map[section_type] = section_file
         project_metadata["section_map"] = section_map
@@ -633,6 +674,7 @@ class WorkspaceLatexProjectService:
             owner_user_id=str(workspace["user_id"]),
             template="proposal_default",
         )
+        created_linked_project = linked_project is None
         if linked_project is None:
             linked_project = await self.project_service.create(
                 user_id=str(workspace["user_id"]),
@@ -644,7 +686,7 @@ class WorkspaceLatexProjectService:
             linked_project,
             {"project_title": project_title},
         )
-        self._clear_conflicts(project_metadata)
+        self._clear_file_changes(project_metadata)
         section_map = dict(project_metadata.get("section_map") or {})
         if not section_map:
             for key, _title, filename in _PROPOSAL_DEFAULT_SECTION_SPECS:
@@ -669,6 +711,7 @@ class WorkspaceLatexProjectService:
                 content=rendered,
                 logical_key=f"section:{section_id}",
                 metadata=project_metadata,
+                allow_existing_write=created_linked_project,
             )
 
         main_tex = self._build_proposal_main_tex(
@@ -682,6 +725,7 @@ class WorkspaceLatexProjectService:
             content=main_tex,
             logical_key="project:main",
             metadata=project_metadata,
+            allow_existing_write=created_linked_project,
         )
         linked_project = await self.project_service.update(
             linked_project,
@@ -716,7 +760,7 @@ class WorkspaceLatexProjectService:
                 "section_map": section_map,
             },
         )
-        self._clear_conflicts(project_metadata)
+        self._clear_file_changes(project_metadata)
         for index, section in enumerate(sections):
             if not isinstance(section, dict):
                 continue
@@ -780,7 +824,7 @@ class WorkspaceLatexProjectService:
                 "section_map": section_map,
             },
         )
-        self._clear_conflicts(project_metadata)
+        self._clear_file_changes(project_metadata)
         section_id = "experiment_design"
         section_file = section_map.get(section_id) or "sections/70_experiment_design.tex"
         section_map[section_id] = section_file
@@ -912,6 +956,7 @@ class WorkspaceLatexProjectService:
             owner_user_id=str(workspace["user_id"]),
             template="patent_default",
         )
+        created_linked_project = linked_project is None
         if linked_project is None:
             linked_project = await self.project_service.create(
                 user_id=str(workspace["user_id"]),
@@ -923,7 +968,7 @@ class WorkspaceLatexProjectService:
             linked_project,
             {"project_title": project_title},
         )
-        self._clear_conflicts(project_metadata)
+        self._clear_file_changes(project_metadata)
         section_map = dict(project_metadata.get("section_map") or {})
         for key, _title, filename in _PATENT_DEFAULT_SECTION_SPECS:
             section_map.setdefault(key, filename)
@@ -939,6 +984,7 @@ class WorkspaceLatexProjectService:
                 content=f"% {title}\n{content}\n",
                 logical_key=f"section:{key}",
                 metadata=project_metadata,
+                allow_existing_write=created_linked_project,
             )
 
         claims_text = self._render_patent_claims(claims_draft)
@@ -948,6 +994,7 @@ class WorkspaceLatexProjectService:
             content=f"% Claims\n{claims_text}\n",
             logical_key="section:claims",
             metadata=project_metadata,
+            allow_existing_write=created_linked_project,
         )
 
         main_tex = self._build_patent_main_tex(
@@ -960,6 +1007,7 @@ class WorkspaceLatexProjectService:
             content=main_tex,
             logical_key="project:main",
             metadata=project_metadata,
+            allow_existing_write=created_linked_project,
         )
         linked_project = await self.project_service.update(
             linked_project,
@@ -1064,6 +1112,7 @@ class WorkspaceLatexProjectService:
             owner_user_id=str(workspace["user_id"]),
             template="software_copyright_default",
         )
+        created_linked_project = linked_project is None
         if linked_project is None:
             linked_project = await self.project_service.create(
                 user_id=str(workspace["user_id"]),
@@ -1075,7 +1124,7 @@ class WorkspaceLatexProjectService:
             linked_project,
             {"project_title": project_title},
         )
-        self._clear_conflicts(project_metadata)
+        self._clear_file_changes(project_metadata)
         section_map = dict(project_metadata.get("section_map") or {})
         for key, _title, filename in _SOFTWARE_COPYRIGHT_SECTION_SPECS:
             section_map.setdefault(key, filename)
@@ -1095,6 +1144,7 @@ class WorkspaceLatexProjectService:
                 content=f"% {title}\n{content}\n",
                 logical_key=f"section:{key}",
                 metadata=project_metadata,
+                allow_existing_write=created_linked_project,
             )
 
         main_tex = self._build_software_copyright_main_tex(
@@ -1107,6 +1157,7 @@ class WorkspaceLatexProjectService:
             content=main_tex,
             logical_key="project:main",
             metadata=project_metadata,
+            allow_existing_write=created_linked_project,
         )
         linked_project = await self.project_service.update(
             linked_project,
@@ -1142,7 +1193,7 @@ class WorkspaceLatexProjectService:
                 "section_map": section_map,
             },
         )
-        self._clear_conflicts(project_metadata)
+        self._clear_file_changes(project_metadata)
         section_file = section_map.get("materials_checklist") or "sections/70_materials_checklist.tex"
         section_map["materials_checklist"] = section_file
         project_metadata["section_map"] = section_map

@@ -128,7 +128,7 @@ async def test_generate_outline_action_syncs_prism_context(monkeypatch: pytest.M
         return LatexSyncResult(
             latex_project_id="latex-proj-1",
             main_file="main.tex",
-            sync_conflicts=[],
+            file_changes=[],
         )
 
     monkeypatch.setattr(

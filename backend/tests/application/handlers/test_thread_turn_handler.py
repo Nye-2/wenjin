@@ -14,7 +14,13 @@ from src.application.handlers.thread_turn_handler import (
     ThreadTurnHandler,
     build_thread_initial_state,
 )
-from src.application.results import PreparedThreadTurn, ThreadTurnAttachment
+from src.application.results import (
+    CompletedThreadTurn,
+    GeneratedThreadReply,
+    PreparedThreadTurn,
+    ThreadTurnAttachment,
+    ThreadTurnRequest,
+)
 from src.config.llm_config import LLMSettings
 
 
@@ -559,74 +565,58 @@ class TestThreadTurnHandlerCancellation:
             assert "step 1" in reply.blocks[0]["data"]["text"]
 
     @pytest.mark.asyncio
-    async def test_generate_thread_response_orchestration_uses_agent_path_and_runtime_config(self):
-        """Explicit orchestration metadata should flow into runtime, then execute via agent path."""
-        captured_runtime: dict[str, object] = {}
-
-        async def _fake_ainvoke(state, *, config):
-            captured_runtime.update(config.get("configurable", {}))
-            return {
-                "messages": [SimpleNamespace(content="agent answer")],
-                "response_blocks": [],
-                "response_metadata": {},
-            }
-
-        fake_agent = MagicMock()
-        fake_agent.ainvoke = _fake_ainvoke
-
-        with (
-            patch("src.agents.lead_agent.agent.build_pipeline", return_value=[]),
-            patch("src.agents.lead_agent.agent.make_lead_agent", return_value=fake_agent),
-            patch(
-                "src.application.handlers.thread_turn_handler.ensure_thread_turn_budget",
-                new_callable=AsyncMock,
-                return_value=None,
-            ) as ensure_budget,
-            patch(
-                "src.application.handlers.thread_turn_handler.route_chat_model",
-                return_value="test-model",
-            ),
-            patch(
-                "src.application.handlers.thread_turn_handler._resolve_execution_session_id_for_thread",
-                new=AsyncMock(return_value="exec-1"),
-            ),
-            patch(
-                "src.application.handlers.thread_turn_handler.extract_usage_from_agent_result",
-                return_value=None,
-            ),
-        ):
-            from src.application.handlers.thread_turn_handler import generate_thread_response
-
-            mock_request = MagicMock()
-            mock_request.model = "test-model"
-            mock_request.message = "开始"
-            mock_request.attachments = ()
-            mock_request.metadata = {
+    async def test_feature_launch_turn_bypasses_lead_agent(self):
+        handler = ThreadTurnHandler(thread_service=MagicMock())
+        request = ThreadTurnRequest(
+            message="开始",
+            workspace_id="ws-1",
+            metadata={
                 "orchestration": {
                     "intent": "launch",
                     "feature_id": "framework_outline",
                     "params": {"topic": "LLM planning"},
                 }
-            }
+            },
+        )
+        thread = SimpleNamespace(
+            id="thread-1",
+            workspace_id="ws-1",
+            skill=None,
+        )
 
-            mock_thread = MagicMock()
-            mock_thread.id = "thread-1"
-            mock_thread.skill = None
-            mock_thread.model = None
-            mock_thread.workspace_id = "ws-1"
-            mock_thread.messages = []
-
-            reply = await generate_thread_response(
-                mock_request,
-                mock_thread,
+        with (
+            patch("src.agents.lead_agent.agent.make_lead_agent") as make_lead_agent,
+            patch(
+                "src.application.handlers.feature_command_handler.execute_workspace_feature_request",
+                new=AsyncMock(
+                    return_value=GeneratedThreadReply(
+                        content="feature launched",
+                        metadata={
+                            "orchestration": {
+                                "feature_id": "framework_outline",
+                                "status": "pending",
+                            }
+                        },
+                    )
+                ),
+            ) as execute_feature,
+            patch(
+                "src.application.handlers.thread_turn_handler.ensure_thread_turn_budget",
+                new_callable=AsyncMock,
+            ) as ensure_budget,
+        ):
+            reply = await handler._generate_prepared_reply(
+                PreparedThreadTurn(request=request, thread=thread),
                 actor_id="user-1",
             )
 
-            assert reply.content == "agent answer"
-            assert captured_runtime["orchestration_intent"] == "launch"
-            assert captured_runtime["orchestration_feature_id"] == "framework_outline"
-            assert captured_runtime["orchestration_params"] == {"topic": "LLM planning"}
-            ensure_budget.assert_awaited_once()
+        assert reply.content == "feature launched"
+        make_lead_agent.assert_not_called()
+        ensure_budget.assert_not_awaited()
+        execute_feature.assert_awaited_once()
+        assert execute_feature.await_args.kwargs["feature_id"] == "framework_outline"
+        assert execute_feature.await_args.kwargs["params"] == {"topic": "LLM planning"}
+        assert execute_feature.await_args.kwargs["execution_session_id"] is None
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_skips_pre_bridge_for_freeform_chat(self):
@@ -701,81 +691,53 @@ class TestThreadTurnHandlerCancellation:
             ensure_budget.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_stream_thread_response_orchestration_uses_agent_path(self):
-        stream_result = {
-            "messages": [SimpleNamespace(content="stream reply")],
-            "response_blocks": [],
-            "response_metadata": {},
-        }
-
-        class _FakeAgentStreamRun:
-            async def _iterate(self):
-                yield ("messages", (SimpleNamespace(content="stream reply"), {"langgraph_node": "agent"}))
-                yield ("values", stream_result)
-
-            def __aiter__(self):
-                return self._iterate()
-
-            async def result(self):
-                return stream_result
-
-        class _FakeStreamingAgent:
-            def astream_with_result(self, *args, **kwargs):
-                return _FakeAgentStreamRun()
+    async def test_stream_turn_feature_resume_bypasses_lead_agent(self):
+        handler = ThreadTurnHandler(thread_service=MagicMock())
+        request = ThreadTurnRequest(
+            message="继续补充",
+            workspace_id="ws-1",
+            metadata={
+                "orchestration": {
+                    "intent": "resume",
+                    "execution_session_id": "exec-1",
+                    "params": {"topic": "LLM planning"},
+                }
+            },
+        )
+        thread = SimpleNamespace(
+            id="thread-1",
+            workspace_id="ws-1",
+            skill=None,
+        )
+        prepared = PreparedThreadTurn(request=request, thread=thread)
+        completed = CompletedThreadTurn(
+            thread=thread,
+            assistant_message={"role": "assistant", "content": "feature resumed"},
+            reply=GeneratedThreadReply(content="feature resumed"),
+        )
+        handler._finalize_generated_reply = AsyncMock(return_value=completed)
 
         with (
-            patch("src.agents.lead_agent.agent.make_lead_agent", return_value=_FakeStreamingAgent()),
-            patch("src.agents.lead_agent.agent.build_pipeline", return_value=[]),
+            patch("src.agents.lead_agent.agent.make_lead_agent") as make_lead_agent,
+            patch(
+                "src.application.handlers.feature_command_handler.execute_workspace_feature_request",
+                new=AsyncMock(return_value=GeneratedThreadReply(content="feature resumed")),
+            ) as execute_feature,
             patch(
                 "src.application.handlers.thread_turn_handler.ensure_thread_turn_budget",
                 new_callable=AsyncMock,
-                return_value=None,
             ) as ensure_budget,
-            patch(
-                "src.application.handlers.thread_turn_handler.route_chat_model",
-                return_value="test-model",
-            ),
-            patch(
-                "src.application.handlers.thread_turn_handler.extract_usage_from_agent_result",
-                return_value=None,
-            ),
-            patch(
-                "src.application.handlers.thread_turn_handler.get_model_config",
-                return_value=SimpleNamespace(model="test-model", supports_streaming=True),
-            ),
         ):
-            from src.application.handlers.thread_turn_handler import stream_thread_response
-
-            mock_request = MagicMock()
-            mock_request.model = "test-model"
-            mock_request.message = "继续"
-            mock_request.attachments = ()
-            mock_request.metadata = {
-                "orchestration": {
-                    "intent": "resume",
-                    "feature_id": "deep_research",
-                    "params": {},
-                }
-            }
-
-            mock_thread = MagicMock()
-            mock_thread.id = "thread-1"
-            mock_thread.skill = None
-            mock_thread.model = None
-            mock_thread.workspace_id = "ws-1"
-            mock_thread.messages = []
-
-            stream = stream_thread_response(
-                mock_request,
-                mock_thread,
-                actor_id="user-1",
-            )
+            stream = handler.stream_turn(prepared, actor_id="user-1")
             chunks = [chunk async for chunk in stream]
-            reply = await stream.wait_reply()
+            result = await stream.wait_completed()
 
-            assert chunks == [ThreadStreamDelta(kind="content", text="stream reply")]
-            assert reply.content == "stream reply"
-            ensure_budget.assert_awaited_once()
+        assert chunks == [ThreadStreamDelta(kind="content", text="feature resumed")]
+        assert result is completed
+        make_lead_agent.assert_not_called()
+        ensure_budget.assert_not_awaited()
+        execute_feature.assert_awaited_once()
+        assert execute_feature.await_args.kwargs["execution_session_id"] == "exec-1"
 
     @pytest.mark.asyncio
     async def test_stream_thread_response_timeout_surfaces_application_error(self):

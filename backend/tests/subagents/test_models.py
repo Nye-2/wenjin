@@ -3,7 +3,7 @@
 import json
 from datetime import UTC, datetime
 
-from src.subagents.models import SubagentEvent, SubagentResult, SubagentStatus, SubagentTask
+from src.subagents.models import SubagentResult, SubagentStatus, SubagentTask
 
 
 class TestSubagentStatus:
@@ -100,102 +100,6 @@ class TestSubagentTask:
             created_at=now,
         )
         result = task.to_dict()
-        # Should not raise
-        json.dumps(result)
-
-
-class TestSubagentEvent:
-    """Tests for SubagentEvent dataclass."""
-
-    def test_event_creation(self):
-        """Test creating an event."""
-        now = datetime.now(UTC)
-        event = SubagentEvent(
-            event_type="progress",
-            task_id="task-123",
-            thread_id="thread-456",
-            data={"message": "Working..."},
-            timestamp=now,
-        )
-        assert event.event_type == "progress"
-        assert event.task_id == "task-123"
-        assert event.thread_id == "thread-456"
-        assert event.data == {"message": "Working..."}
-        assert event.timestamp == now
-
-    def test_event_to_sse(self):
-        """Test SSE format conversion."""
-        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-        event = SubagentEvent(
-            event_type="completed",
-            task_id="task-123",
-            thread_id="thread-456",
-            data={"output": "Done!"},
-            timestamp=now,
-        )
-        sse = event.to_sse()
-        assert "event: completed" in sse
-        assert '"task_id": "task-123"' in sse
-        assert '"output": "Done!"' in sse
-        assert sse.endswith("\n\n")
-
-    def test_event_to_sse_format(self):
-        """Test that to_sse returns correct SSE format."""
-        now = datetime.now(UTC)
-        event = SubagentEvent(
-            event_type="started",
-            task_id="task-123",
-            thread_id="thread-456",
-            data={},
-            timestamp=now,
-        )
-        sse = event.to_sse()
-        lines = sse.strip().split("\n")
-        assert lines[0].startswith("event: ")
-        assert lines[1].startswith("data: ")
-
-    def test_event_to_sse_handles_datetime_in_data(self):
-        """SSE serialization should handle datetime payloads via shared runtime serializer."""
-        now = datetime(2026, 4, 13, 10, 30, 0, tzinfo=UTC)
-        event = SubagentEvent(
-            event_type="progress",
-            task_id="task-123",
-            thread_id="thread-456",
-            data={"started_at": now},
-            timestamp=now,
-        )
-        sse = event.to_sse()
-        assert "2026-04-13" in sse
-        assert sse.endswith("\n\n")
-
-    def test_event_to_dict(self):
-        """Test event serialization to dictionary."""
-        now = datetime.now(UTC)
-        event = SubagentEvent(
-            event_type="progress",
-            task_id="task-123",
-            thread_id="thread-456",
-            data={"percent": 50},
-            timestamp=now,
-        )
-        result = event.to_dict()
-        assert result["event_type"] == "progress"
-        assert result["task_id"] == "task-123"
-        assert result["thread_id"] == "thread-456"
-        assert result["data"] == {"percent": 50}
-        assert "timestamp" in result
-
-    def test_event_to_dict_json_serializable(self):
-        """Test that to_dict output is JSON serializable."""
-        now = datetime.now(UTC)
-        event = SubagentEvent(
-            event_type="progress",
-            task_id="task-123",
-            thread_id="thread-456",
-            data={"percent": 50},
-            timestamp=now,
-        )
-        result = event.to_dict()
         # Should not raise
         json.dumps(result)
 

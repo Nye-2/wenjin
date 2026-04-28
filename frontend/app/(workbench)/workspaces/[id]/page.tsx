@@ -273,10 +273,10 @@ function StagedFeatureCards({
 /* -------------------------------------------------------------------------- */
 
 export default function WorkbenchPage() {
-  const params = useParams();
+  const params = useParams<{ id: string }>();
   const router = useRouter();
   useI18n();
-  const workspaceId = params.id as string;
+  const workspaceId = params?.id ?? "";
 
   const workspace = useWorkspaceStore((state) => state.workspace);
   const isWorkspaceLoading = useWorkspaceStore((state) => state.isWorkspaceLoading);

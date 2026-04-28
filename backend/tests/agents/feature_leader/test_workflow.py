@@ -12,13 +12,8 @@ from src.agents.feature_leader.workflow import (
     FeatureWorkflowPlan,
     build_dynamic_feature_workflow_plan,
 )
+from src.agents.harness import AgentSessionResult
 from src.subagents.parallel import ExecutionPhase, PhasedPlan, PhaseResult
-
-
-def _enabled_app_config(max_concurrent: int = 3) -> SimpleNamespace:
-    return SimpleNamespace(
-        subagents=SimpleNamespace(enabled=True, max_concurrent=max_concurrent)
-    )
 
 
 def test_build_dynamic_plan_for_deep_research() -> None:
@@ -113,33 +108,32 @@ async def test_runtime_executes_dynamic_workflow_and_injects_context(monkeypatch
             ],
         ),
     )
-    fake_executor = SimpleNamespace(
-        execute_plan=AsyncMock(
-            return_value=[
-                PhaseResult(
-                    phase_name="discovery",
-                    task_results=[
-                        {
-                            "subagent_type": "scout",
-                            "success": True,
-                            "result": {"papers": [{"title": "Paper A"}]},
-                            "error": None,
-                        }
-                    ],
-                )
-            ]
-        )
-    )
-
-    monkeypatch.setattr(
-        "src.agents.feature_leader.runtime.get_app_config",
-        lambda: _enabled_app_config(4),
-    )
     monkeypatch.setattr(
         "src.agents.feature_leader.runtime.build_dynamic_feature_workflow_plan",
         lambda **kwargs: plan,
     )
-    monkeypatch.setattr(runtime, "_build_executor", lambda _payload: fake_executor)
+    fake_harness = SimpleNamespace(
+        run_session=AsyncMock(
+            return_value=AgentSessionResult(
+                provider="test_harness",
+                strategy=plan.strategy,
+                phase_results=[
+                    PhaseResult(
+                        phase_name="discovery",
+                        task_results=[
+                            {
+                                "subagent_type": "scout",
+                                "success": True,
+                                "result": {"papers": [{"title": "Paper A"}]},
+                                "error": None,
+                            }
+                        ],
+                    )
+                ],
+            )
+        )
+    )
+    monkeypatch.setattr(runtime, "_build_agent_harness", lambda _payload: fake_harness)
 
     with patch(
         "src.agents.workspace_lead_agent.execute_feature_graph",
@@ -154,15 +148,19 @@ async def test_runtime_executes_dynamic_workflow_and_injects_context(monkeypatch
 
     assert result["message"] == "ok"
     assert result["leader_workflow"]["status"] == "completed"
+    assert result["leader_workflow"]["provider"] == "test_harness"
     called_payload = execute_feature_graph.await_args.args[2]
     assert called_payload["params"]["__leader_workflow"]["status"] == "completed"
+    assert called_payload["params"]["__leader_workflow"]["provider"] == "test_harness"
     assert called_payload["params"]["__leader_workflow"]["strategy"] == "deep_research:research_discovery"
     assert "__leader_workflow_highlights" in called_payload["params"]
-    assert callable(fake_executor.execute_plan.await_args.kwargs["phase_callback"])
+    request = fake_harness.run_session.await_args.args[0]
+    assert request.context["execution_session_id"] == "exec-1"
+    assert callable(request.phase_callback)
 
 
 @pytest.mark.asyncio
-async def test_runtime_falls_back_when_workflow_execution_fails(
+async def test_runtime_fails_fast_when_workflow_execution_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime = FeatureLeaderRuntime()
@@ -184,40 +182,33 @@ async def test_runtime_falls_back_when_workflow_execution_fails(
             ],
         ),
     )
-    fake_executor = SimpleNamespace(
-        execute_plan=AsyncMock(side_effect=RuntimeError("subagent crashed"))
+    fake_harness = SimpleNamespace(
+        run_session=AsyncMock(side_effect=RuntimeError("subagent crashed"))
     )
 
-    monkeypatch.setattr(
-        "src.agents.feature_leader.runtime.get_app_config",
-        lambda: _enabled_app_config(4),
-    )
     monkeypatch.setattr(
         "src.agents.feature_leader.runtime.build_dynamic_feature_workflow_plan",
         lambda **kwargs: plan,
     )
-    monkeypatch.setattr(runtime, "_build_executor", lambda _payload: fake_executor)
+    monkeypatch.setattr(runtime, "_build_agent_harness", lambda _payload: fake_harness)
 
     with patch(
         "src.agents.workspace_lead_agent.execute_feature_graph",
         new=AsyncMock(return_value={"message": "ok"}),
     ) as execute_feature_graph:
-        result = await runtime.execute_feature(
-            workspace_type="thesis",
-            feature_id="deep_research",
-            payload=payload,
-            user_id="user-1",
-        )
+        with pytest.raises(RuntimeError, match="feature_leader_workflow_failed"):
+            await runtime.execute_feature(
+                workspace_type="thesis",
+                feature_id="deep_research",
+                payload=payload,
+                user_id="user-1",
+            )
 
-    assert result["message"] == "ok"
-    assert result["leader_workflow"]["status"] == "failed"
-    assert "feature_leader_workflow_failed" in str(result["leader_workflow"].get("error") or "")
-    called_payload = execute_feature_graph.await_args.args[2]
-    assert called_payload["params"]["__leader_workflow"]["status"] == "failed"
+    execute_feature_graph.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_runtime_generates_execution_session_for_complex_feature(
+async def test_runtime_rejects_agentic_workflow_without_execution_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime = FeatureLeaderRuntime()
@@ -237,49 +228,27 @@ async def test_runtime_generates_execution_session_for_complex_feature(
             ],
         ),
     )
-    fake_executor = SimpleNamespace(
-        execute_plan=AsyncMock(
-            return_value=[
-                PhaseResult(
-                    phase_name="discovery",
-                    task_results=[
-                        {
-                            "subagent_type": "scout",
-                            "success": True,
-                            "result": {"papers": [{"title": "Paper A"}]},
-                            "error": None,
-                        }
-                    ],
-                )
-            ]
-        )
-    )
-    monkeypatch.setattr(
-        "src.agents.feature_leader.runtime.get_app_config",
-        lambda: _enabled_app_config(4),
-    )
     monkeypatch.setattr(
         "src.agents.feature_leader.runtime.build_dynamic_feature_workflow_plan",
         lambda **kwargs: plan,
     )
-    monkeypatch.setattr(runtime, "_build_executor", lambda _payload: fake_executor)
 
     with patch(
         "src.agents.workspace_lead_agent.execute_feature_graph",
         new=AsyncMock(return_value={"message": "ok"}),
     ) as execute_feature_graph:
-        result = await runtime.execute_feature(
-            workspace_type="thesis",
-            feature_id="deep_research",
-            payload=payload,
-            user_id="user-1",
-        )
+        with pytest.raises(
+            RuntimeError,
+            match="feature_leader_workflow_missing_execution_session_id",
+        ):
+            await runtime.execute_feature(
+                workspace_type="thesis",
+                feature_id="deep_research",
+                payload=payload,
+                user_id="user-1",
+            )
 
-    assert result["message"] == "ok"
-    assert result["leader_workflow"]["status"] == "completed"
-    called_context = fake_executor.execute_plan.await_args.kwargs["context"]
-    assert str(called_context.get("execution_session_id", "")).startswith("adhoc-")
-    execute_feature_graph.assert_awaited_once()
+    execute_feature_graph.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -313,9 +282,8 @@ async def test_runtime_emits_runtime_updates_during_workflow(monkeypatch: pytest
         def __init__(self) -> None:
             self.phase_callback_seen = False
 
-        async def execute_plan(self, _plan, *, context=None, phase_callback=None):
-            _ = context
-            self.phase_callback_seen = callable(phase_callback)
+        async def run_session(self, request):
+            self.phase_callback_seen = callable(request.phase_callback)
             phase_result = PhaseResult(
                 phase_name="discovery",
                 task_results=[
@@ -327,21 +295,21 @@ async def test_runtime_emits_runtime_updates_during_workflow(monkeypatch: pytest
                     }
                 ],
             )
-            if callable(phase_callback):
-                await phase_callback(phase_result)
-            return [phase_result]
+            if callable(request.phase_callback):
+                await request.phase_callback(phase_result)
+            return AgentSessionResult(
+                provider="test_harness",
+                strategy=request.strategy,
+                phase_results=[phase_result],
+            )
 
     fake_executor = _Executor()
 
     monkeypatch.setattr(
-        "src.agents.feature_leader.runtime.get_app_config",
-        lambda: _enabled_app_config(4),
-    )
-    monkeypatch.setattr(
         "src.agents.feature_leader.runtime.build_dynamic_feature_workflow_plan",
         lambda **kwargs: plan,
     )
-    monkeypatch.setattr(runtime, "_build_executor", lambda _payload: fake_executor)
+    monkeypatch.setattr(runtime, "_build_agent_harness", lambda _payload: fake_executor)
     monkeypatch.setattr(
         "src.agents.feature_leader.runtime.get_runtime_state",
         lambda: runtime_state,

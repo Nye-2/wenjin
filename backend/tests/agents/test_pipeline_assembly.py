@@ -24,10 +24,9 @@ def _mock_app_config(
     return mock_config
 
 
-def _pipeline_config(*, subagent_enabled: bool, workspace_id: str | None = None) -> dict:
+def _pipeline_config(*, workspace_id: str | None = None) -> dict:
     configurable = {
         "model_name": "gpt-4o",
-        "subagent_enabled": subagent_enabled,
     }
     if workspace_id is not None:
         configurable["workspace_id"] = workspace_id
@@ -39,7 +38,7 @@ class TestPipelineAssembly:
         """Full pipeline should have 16 layers when all features enabled."""
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = _pipeline_config(subagent_enabled=True, workspace_id="ws-123")
+        config = _pipeline_config(workspace_id="ws-123")
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -62,7 +61,7 @@ class TestPipelineAssembly:
         """Infrastructure middlewares should come before academic middlewares."""
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = _pipeline_config(subagent_enabled=False)
+        config = _pipeline_config()
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -81,10 +80,10 @@ class TestPipelineAssembly:
         # Clarification must be last
         assert type_names[-1] == "ClarificationMiddleware"
 
-    def test_subagent_limit_included_when_enabled(self):
+    def test_lead_agent_pipeline_has_no_subagent_control_middleware(self):
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = _pipeline_config(subagent_enabled=True)
+        config = _pipeline_config()
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -96,30 +95,13 @@ class TestPipelineAssembly:
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
-        assert "SubagentLimitMiddleware" in type_names
-
-    def test_subagent_limit_excluded_when_disabled(self):
-        from src.agents.lead_agent.agent import build_pipeline
-
-        config = _pipeline_config(subagent_enabled=False)
-
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
-            return_value=None,
-        ), patch(
-            "src.thesis.execution.get_execution_service",
-            side_effect=RuntimeError("execution disabled"),
-        ):
-            pipeline = build_pipeline(config=config)
-
-        type_names = [type(m).__name__ for m in pipeline]
-        assert "SubagentLimitMiddleware" not in type_names
+        assert not any("Subagent" in type_name for type_name in type_names)
 
     def test_summarization_included_when_enabled(self):
         """SummarizationMiddleware should be included when enabled."""
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = _pipeline_config(subagent_enabled=False)
+        config = _pipeline_config()
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=True)), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -137,7 +119,7 @@ class TestPipelineAssembly:
         """SummarizationMiddleware should be excluded when disabled."""
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = _pipeline_config(subagent_enabled=False)
+        config = _pipeline_config()
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=False)), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -154,7 +136,7 @@ class TestPipelineAssembly:
     def test_sandbox_middleware_is_auto_included_when_provider_available(self):
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = _pipeline_config(subagent_enabled=False)
+        config = _pipeline_config()
         mock_provider = object()
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
@@ -172,7 +154,7 @@ class TestPipelineAssembly:
     def test_execution_middleware_is_included_when_execution_service_available(self):
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = _pipeline_config(subagent_enabled=False)
+        config = _pipeline_config()
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -189,7 +171,7 @@ class TestPipelineAssembly:
     def test_tool_error_handling_middleware_is_included(self):
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = _pipeline_config(subagent_enabled=False)
+        config = _pipeline_config()
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",
@@ -206,7 +188,7 @@ class TestPipelineAssembly:
     def test_memory_capture_is_enabled_without_explicit_queue(self):
         from src.agents.lead_agent.agent import build_pipeline
 
-        config = _pipeline_config(subagent_enabled=False)
+        config = _pipeline_config()
 
         with patch(
             "src.agents.lead_agent.agent.get_app_config",
@@ -231,7 +213,7 @@ class TestPipelineAssembly:
         """validate_pipeline should accept a correctly ordered pipeline."""
         from src.agents.lead_agent.agent import build_pipeline, validate_pipeline
 
-        config = _pipeline_config(subagent_enabled=False)
+        config = _pipeline_config()
 
         with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
             "src.agents.lead_agent.agent.get_sandbox_provider",

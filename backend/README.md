@@ -1,12 +1,12 @@
 # 问津 Wenjin Backend
 
-更新时间：2026-04-20
+更新时间：2026-04-28
 
-后端当前采用分层执行架构：
+后端当前采用 Compute-centered 分层执行架构：
 
-`gateway -> application handlers -> task runtime -> workspace feature graphs/services -> persistence/writeback`
+`gateway -> ChatTurnRouter / FeatureIngressService -> ExecutionSession + ComputeSession -> task runtime -> workspace feature graphs/services -> persistence/writeback`
 
-thread（路由仍为 `/chat`）主链与 feature 主链已经收口到同一套运行时，不再依赖旧 skill 子系统，也不要求独立外部 LangGraph 服务参与生产主流程。
+thread（路由仍为 `/chat`）是用户入口；显式 feature launch/resume 不进入 lead-agent tool loop，而是通过 `FeatureCommandHandler` 直接进入 `FeatureIngressService`。Compute projection 是长任务工作台读取面，不成为第二套业务事实源。
 
 ## 技术栈
 
@@ -22,10 +22,11 @@ thread（路由仍为 `/chat`）主链与 feature 主链已经收口到同一套
 ## 当前核心能力
 
 - 认证、用户、workspace、paper、artifact、dashboard、LaTeX API
-- chat 主链路：线程、流式 SSE、skill 选择、feature orchestration
+- chat 主链路：线程、流式 SSE、skill 选择、显式 feature command routing
 - workspace feature 执行：五类 workspace、23 个 canonical features
-- subagent runtime：spawn、状态、事件、持久化回退
-- LaTeX 主稿台：文件读写、编译、反馈改写、PDF/SyncTeX
+- Compute：compute sessions、projection、runtime/files/logs/review gate/Prism 聚合
+- subagent runtime：execution-bound spawn、状态、事件、持久化回写
+- LaTeX 主稿台：文件读写、编译、反馈改写、file-change preview/apply/revert、PDF/SyncTeX
 - observability：Prometheus 指标、Sentry/日志钩子、相关健康检查
 - 模型路由：统一从 `backend/.env` 的 `LLM_*_MODELS` 加载并按类别路由，不在业务代码硬编码模型 ID
 
@@ -35,13 +36,15 @@ thread（路由仍为 `/chat`）主链与 feature 主链已经收口到同一套
 backend/
 ├── src/
 │   ├── gateway/                 # FastAPI app, routers, middleware, serializers
-│   ├── application/            # Application handlers (chat turn, feature execution, etc.)
+│   ├── application/            # Application handlers (chat turn/router, feature command/execution, etc.)
+│   ├── compute/                # Compute sessions and projection service
 │   ├── agents/
-│   │   ├── lead_agent/         # Chat lead-agent, prompt template, bridge cards/catalog
+│   │   ├── lead_agent/         # Chat lead-agent, prompt template, workspace read catalog
 │   │   ├── graphs/             # Workspace feature graphs by workspace type
+│   │   ├── harness/            # AgentHarness contract/provider
 │   │   ├── middlewares/        # Lead-agent runtime context middlewares
 │   │   └── workspace_lead_agent.py
-│   ├── workspace_features/     # Feature registry, service layer, latex sync
+│   ├── workspace_features/     # Feature registry, runtime profiles, service layer, latex sync
 │   ├── task/                   # Task service, worker, progress, runtime blocks
 │   ├── subagents/              # Subagent manager, graph factory, prompts, context snapshot
 │   ├── services/               # Shared domain services
@@ -92,16 +95,26 @@ graph 负责 orchestration 与结果整形，service 负责模型调用、payloa
 ### 5. Chat / Skills / Features
 
 - chat 入口（runs + threads）：`src/gateway/routers/threads.py`、`src/gateway/routers/thread_runs.py`、`src/gateway/routers/runs.py`
+- chat turn routing：`src/application/handlers/chat_turn_router.py`
+- chat feature command adapter：`src/application/handlers/feature_command_handler.py`
 - lead-agent：`src/agents/lead_agent/agent.py`
 - skills 目录：`src/agents/lead_agent/thread_skill_catalog.py`
-- tool bridge：`src/tools/builtins/workspace.py`
+- workspace read tools：`src/tools/builtins/workspace.py`
 
-当前 skill 是 chat 层的 feature 入口语义，不再是独立执行框架。真正执行始终走 `run_workspace_feature`。
+当前 skill 是 chat 层的 feature 入口语义，不再是独立执行框架。真正执行始终走 `FeatureIngressService`；pure chat 不创建 execution session、compute session 或 task record。
 
-### 6. Subagents
+### 6. Compute
+
+- 位置：`src/compute/`
+- API：`src/gateway/routers/compute.py`
+- 角色：execution session 的用户可见工作台 shell 与 projection
+- 来源：execution、task、subagent、runtime blocks、sandbox files、logs、artifacts、WenjinPrism metadata
+- 约束：Compute 不做业务状态决策，不替代 ExecutionSession
+
+### 7. Subagents
 
 - 位置：`src/subagents/`
-- 角色：workflow worker，而不是单独的主执行平面
+- 角色：Compute 内部 worker，而不是单独的 public API 或主执行平面
 - 上下文：通过 context snapshot 注入，而不是复用整套主 agent middleware
 
 ## 本地开发

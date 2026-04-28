@@ -8,12 +8,13 @@ from typing import Any
 
 from src.academic.cache.redis_client import redis_client
 from src.academic.services.workspace_service import WorkspaceService
-from src.agents.lead_agent.thread_feature_cards import (
+from src.application.handlers.feature_execution_handler import FeatureExecutionHandler
+from src.application.presenters.thread_feature_cards import (
     build_execution_success_response,
     build_execution_warning_response,
 )
-from src.application.handlers.feature_execution_handler import FeatureExecutionHandler
 from src.application.results import GeneratedThreadReply
+from src.compute.session_service import ComputeSessionService
 from src.config import redis_settings
 from src.database import Workspace, get_db_session
 from src.services.credit_service import CreditService
@@ -51,6 +52,7 @@ async def _execute_thread_feature_request(
             credit_service=CreditService(db),
         ),
         execution_session_service=ExecutionSessionService(db),
+        compute_session_service=ComputeSessionService(db),
     )
 
     runtime_redis = (

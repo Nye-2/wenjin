@@ -241,6 +241,8 @@ class TestApplyPromptTemplate:
 
         assert "The user selected `framework-designer`" in prompt
         assert "Bound feature: `framework_outline`." in prompt
+        assert "run_workspace_feature" not in prompt
+        assert "feature proposal" in prompt
 
 
 class TestMakeLeadAgent:

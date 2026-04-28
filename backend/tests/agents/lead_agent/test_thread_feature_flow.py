@@ -5,12 +5,11 @@ from types import SimpleNamespace
 import pytest
 
 from src.agents.lead_agent import thread_feature_catalog
-from src.agents.lead_agent.thread_feature_cards import (
-    build_confirmation_required_response,
+from src.application.presenters.thread_feature_cards import (
     build_feature_task_completion_card,
     build_feature_task_failure_card,
 )
-from src.agents.lead_agent.thread_feature_presenters import feature_title
+from src.application.presenters.thread_feature_presenters import feature_title
 from src.task.workspace_feature_params import coerce_workspace_feature_params
 from src.workspace_features import iter_workspace_features
 
@@ -94,18 +93,6 @@ def test_build_feature_task_failure_card_exposes_retry_actions() -> None:
         "continue_thread",
         "rerun_from_artifact",
     ]
-
-
-def test_build_confirmation_required_response_marks_confirmation_status() -> None:
-    reply = build_confirmation_required_response(
-        feature_id="framework_outline",
-        params={"topic": "LLM planning"},
-    )
-
-    assert reply.metadata["orchestration"]["status"] == "confirmation_required"
-    assert reply.metadata["orchestration"]["feature_id"] == "framework_outline"
-    assert reply.metadata["orchestration"]["params"]["topic"] == "LLM planning"
-    assert "开始吧" in reply.content
 
 
 def test_feature_titles_cover_workspace_registry() -> None:

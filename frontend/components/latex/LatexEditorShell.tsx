@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, FileImage, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Eye, FileImage, Loader2, RotateCcw, Trash2 } from "lucide-react";
 
+import { LatexFileChangeDiffPreview } from "@/components/latex/LatexFileChangeDiffPreview";
 import { LatexFileTree } from "@/components/latex/LatexFileTree";
 import { LatexPdfPreview } from "@/components/latex/LatexPdfPreview";
 import { LatexToolbar } from "@/components/latex/LatexToolbar";
@@ -16,11 +17,14 @@ import type {
   LatexPdfAnchor,
   LatexFeedbackRewriteCandidate,
   LatexFeedbackRewriteUndoPayload,
+  LatexFileChange,
+  LatexFileChangePreviewResponse,
 } from "@/lib/api";
 import {
   applyLatexFeedbackRewrite,
   getLatexProjectFeedback,
   mapLatexFeedbackSelection,
+  previewLatexFileChange,
   previewLatexFeedbackRewrite,
   revertLatexFeedbackRewrite,
   saveLatexProjectFeedback,
@@ -539,7 +543,8 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
     activeFileContent,
     activeFileSavedContent,
     activeBlobUrl,
-    syncConflicts,
+    fileChanges,
+    appliedFileChanges,
     compileResult,
     compileLog,
     compiledPdfUrl,
@@ -560,7 +565,9 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
     uploadFiles,
     uploadDirectory,
     uploadArchive,
-    resolveConflict,
+    applyFileChange,
+    discardFileChange,
+    revertFileChange,
     deleteProject,
     compileProject,
   } = useLatexStore();
@@ -587,6 +594,9 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
   const [collapsedDiffHunks, setCollapsedDiffHunks] = useState<Record<string, boolean>>({});
   const [isApplyingRewrite, setIsApplyingRewrite] = useState(false);
   const [lastRewriteUndo, setLastRewriteUndo] = useState<LastRewriteUndoState | null>(null);
+  const [fileChangePreviews, setFileChangePreviews] = useState<Record<string, LatexFileChangePreviewResponse>>({});
+  const [busyFileChangeKey, setBusyFileChangeKey] = useState<string | null>(null);
+  const [fileChangeError, setFileChangeError] = useState("");
   const [pdfDraftSelection, setPdfDraftSelection] = useState<PdfDraftSelection | null>(null);
   const [transientPdfAnchor, setTransientPdfAnchor] = useState<LatexPdfAnchor | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -603,6 +613,12 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
   useEffect(() => {
     void loadProject(projectId);
   }, [loadProject, projectId]);
+
+  useEffect(() => {
+    setFileChangePreviews({});
+    setBusyFileChangeKey(null);
+    setFileChangeError("");
+  }, [projectId]);
 
   const dirty = activeFileContent !== activeFileSavedContent;
   const effectiveSelectedPath = selectedPath || activeFilePath;
@@ -1374,6 +1390,75 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
     await rewriteFromFeedback(item);
   }, [createFeedbackFromSelection, rewriteFromFeedback]);
 
+  const previewProjectFileChange = useCallback(async (change: LatexFileChange) => {
+    if (!project) {
+      return;
+    }
+    setBusyFileChangeKey(change.logical_key);
+    setFileChangeError("");
+    try {
+      const preview = await previewLatexFileChange(project.id, {
+        logical_key: change.logical_key,
+      });
+      setFileChangePreviews((prev) => ({
+        ...prev,
+        [change.logical_key]: preview,
+      }));
+    } catch (err) {
+      setFileChangeError(`生成写入 diff 失败: ${readClientErrorMessage(err)}`);
+    } finally {
+      setBusyFileChangeKey(null);
+    }
+  }, [project]);
+
+  const applyPendingFileChange = useCallback(async (change: LatexFileChange) => {
+    setBusyFileChangeKey(change.logical_key);
+    setFileChangeError("");
+    try {
+      await applyFileChange(change.logical_key);
+      setFileChangePreviews((prev) => {
+        const next = { ...prev };
+        delete next[change.logical_key];
+        return next;
+      });
+    } finally {
+      setBusyFileChangeKey(null);
+    }
+  }, [applyFileChange]);
+
+  const discardPendingFileChange = useCallback(async (change: LatexFileChange) => {
+    setBusyFileChangeKey(change.logical_key);
+    setFileChangeError("");
+    try {
+      await discardFileChange(change.logical_key);
+      setFileChangePreviews((prev) => {
+        const next = { ...prev };
+        delete next[change.logical_key];
+        return next;
+      });
+    } finally {
+      setBusyFileChangeKey(null);
+    }
+  }, [discardFileChange]);
+
+  const revertAppliedFileChange = useCallback(async (change: {
+    logical_key: string;
+    revert_signature: string;
+  }) => {
+    setBusyFileChangeKey(change.logical_key);
+    setFileChangeError("");
+    try {
+      await revertFileChange(change.logical_key, change.revert_signature);
+      setFileChangePreviews((prev) => {
+        const next = { ...prev };
+        delete next[change.logical_key];
+        return next;
+      });
+    } finally {
+      setBusyFileChangeKey(null);
+    }
+  }, [revertFileChange]);
+
   return (
     <main className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
       <Header />
@@ -1450,46 +1535,124 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
               currentFolderLabel={currentFolder || "项目根目录"}
             />
 
-            {syncConflicts.length > 0 ? (
+            {fileChanges.length > 0 ? (
               <div className="rounded-[1.5rem] border border-amber-500/25 bg-amber-500/10 p-4">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-amber-700" />
                   <p className="text-sm font-medium text-amber-900">
-                    检测到同步冲突
+                    Prism 待确认写入
                   </p>
                 </div>
                 <p className="mt-2 text-xs leading-6 text-amber-900/80">
-                  这些文件在 workspace 同步时因你已经手动修改而被保护性跳过。
+                  来自 Compute 的生成内容需要确认后才会写入当前 LaTeX 项目。
+                </p>
+                {fileChangeError ? (
+                  <div className="mt-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
+                    {fileChangeError}
+                  </div>
+                ) : null}
+                <div className="mt-3 space-y-2">
+                  {fileChanges.map((change) => {
+                    const preview = fileChangePreviews[change.logical_key] ?? null;
+                    const isBusy = isSaving || busyFileChangeKey === change.logical_key;
+                    return (
+                      <div
+                        key={`${change.logical_key}:${change.path}`}
+                        className="rounded-xl border border-amber-500/20 bg-white/70 px-3 py-3"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-medium text-[var(--text-primary)]">
+                              {change.path}
+                            </p>
+                            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                              {change.reason}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void previewProjectFileChange(change)}
+                              disabled={isBusy}
+                            >
+                              <Eye className="mr-1.5 h-3.5 w-3.5" />
+                              {busyFileChangeKey === change.logical_key
+                                ? "处理中..."
+                                : preview
+                                  ? "刷新 diff"
+                                  : "预览 diff"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void discardPendingFileChange(change)}
+                              disabled={isBusy}
+                            >
+                              忽略本次
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => void applyPendingFileChange(change)}
+                              disabled={isBusy}
+                            >
+                              应用到 Prism
+                            </Button>
+                          </div>
+                        </div>
+                        {preview ? (
+                          <LatexFileChangeDiffPreview
+                            preview={preview}
+                            maxOps={8}
+                            className="mt-3"
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {appliedFileChanges.length > 0 ? (
+              <div className="rounded-[1.5rem] border border-emerald-500/20 bg-emerald-500/8 p-4">
+                <div className="flex items-center gap-2">
+                  <RotateCcw className="h-4 w-4 text-emerald-700" />
+                  <p className="text-sm font-medium text-emerald-900">
+                    Prism 已写入变更
+                  </p>
+                </div>
+                <p className="mt-2 text-xs leading-6 text-emerald-900/80">
+                  已应用的 Compute 写入仍保留哈希校验撤回点，文件被后续手动修改后不会盲目覆盖。
                 </p>
                 <div className="mt-3 space-y-2">
-                  {syncConflicts.map((conflict) => (
-                    <div
-                      key={`${conflict.logical_key}:${conflict.path}`}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-white/70 px-3 py-3"
-                    >
-                      <div>
-                        <p className="text-xs font-medium text-[var(--text-primary)]">
-                          {conflict.path}
-                        </p>
-                        <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                          {conflict.reason}
-                        </p>
+                  {appliedFileChanges.map((change) => {
+                    const isBusy = isSaving || busyFileChangeKey === change.logical_key;
+                    return (
+                      <div
+                        key={`${change.logical_key}:${change.path}:${change.applied_hash}`}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/20 bg-white/70 px-3 py-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-medium text-[var(--text-primary)]">
+                            {change.path}
+                          </p>
+                          <p className="mt-1 truncate text-[11px] text-[var(--text-muted)]">
+                            {change.applied_hash}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void revertAppliedFileChange(change)}
+                          disabled={isBusy}
+                        >
+                          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                          {busyFileChangeKey === change.logical_key ? "撤回中..." : "撤回写入"}
+                        </Button>
                       </div>
-                      <Button
-                        variant="outline"
-                        onClick={() => void resolveConflict(conflict.logical_key, "keep_current")}
-                        disabled={isSaving}
-                      >
-                        保留当前版本
-                      </Button>
-                      <Button
-                        onClick={() => void resolveConflict(conflict.logical_key, "accept_feature")}
-                        disabled={isSaving}
-                      >
-                        接受工作区版本
-                      </Button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : null}

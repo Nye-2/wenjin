@@ -10,7 +10,6 @@ from .builtins import (
     present_files_tool,
     read_file_tool,
     read_workspace_literature_section_tool,
-    run_workspace_feature_tool,
     search_workspace_literature_tool,
     str_replace_tool,
     write_file_tool,
@@ -29,5 +28,4 @@ __all__ = [
     "list_workspace_literature_toc_tool",
     "search_workspace_literature_tool",
     "read_workspace_literature_section_tool",
-    "run_workspace_feature_tool",
 ]

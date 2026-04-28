@@ -129,6 +129,14 @@ class _FakeExecutionSessionService:
         self._sessions.pop(str(session_id), None)
 
 
+class _FakeComputeSessionService:
+    async def ensure_for_execution_session(self, **kwargs) -> SimpleNamespace:
+        return SimpleNamespace(
+            id="compute-smoke-1",
+            **kwargs,
+        )
+
+
 def _make_client(
     ws_type: WorkspaceType,
     task_id: str = "task-smoke-1",
@@ -155,6 +163,7 @@ def _make_client(
         actor_id="smoke-user",
         feature_execution_handler=handler,
         execution_session_service=_FakeExecutionSessionService(),
+        compute_session_service=_FakeComputeSessionService(),
     )
 
     app = FastAPI()

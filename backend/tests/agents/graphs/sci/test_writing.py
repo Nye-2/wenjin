@@ -33,7 +33,7 @@ async def test_writing_graph_merges_sync_metadata(
             main_file="main.tex",
             section_file="sections/introduction.tex",
             section_map={"introduction": "sections/introduction.tex"},
-            sync_conflicts=[],
+            file_changes=[],
         )
 
     monkeypatch.setattr(

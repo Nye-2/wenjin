@@ -1,6 +1,6 @@
 """Unified workspace feature execution handler.
 
-All workspace types now route through workspace_lead_agent.execute_feature_graph.
+All workspace types now route through FeatureLeaderRuntime.
 """
 
 from __future__ import annotations
@@ -373,10 +373,7 @@ async def execute_workspace_feature(
     payload: dict[str, Any],
     progress: ProgressTracker,
 ) -> dict[str, Any]:
-    """Execute a workspace feature using LangGraph sub-graphs.
-
-    All workspace types now route through workspace_lead_agent.execute_feature_graph.
-    """
+    """Execute a workspace feature through the feature leader runtime."""
     workspace_type = str(payload.get("workspace_type") or "")
     feature_id = str(payload.get("feature_id") or "")
 

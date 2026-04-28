@@ -422,9 +422,6 @@ class TestChatRuntimeConfig:
         with patch(
             "src.application.handlers.thread_turn_handler.model_supports_vision",
             return_value=True,
-        ), patch(
-            "src.application.handlers.thread_turn_handler.get_app_config",
-            return_value=MagicMock(subagents=MagicMock(enabled=True, max_concurrent=4)),
         ):
             config = build_thread_runtime_config(
                 request=request,
@@ -436,8 +433,8 @@ class TestChatRuntimeConfig:
             )
 
         assert config["configurable"]["supports_vision"] is True
-        assert config["configurable"]["subagent_enabled"] is False
-        assert config["configurable"]["max_concurrent_subagents"] == 4
+        assert "subagent_enabled" not in config["configurable"]
+        assert "max_concurrent_subagents" not in config["configurable"]
 
     def test_runtime_config_enables_subagent_with_execution_session(self):
         request = ThreadTurnRequest(
@@ -456,9 +453,6 @@ class TestChatRuntimeConfig:
         with patch(
             "src.application.handlers.thread_turn_handler.model_supports_vision",
             return_value=True,
-        ), patch(
-            "src.application.handlers.thread_turn_handler.get_app_config",
-            return_value=MagicMock(subagents=MagicMock(enabled=True, max_concurrent=4)),
         ):
             config = build_thread_runtime_config(
                 request=request,
@@ -470,7 +464,7 @@ class TestChatRuntimeConfig:
                 execution_session_id="exec-1",
             )
 
-        assert config["configurable"]["subagent_enabled"] is True
+        assert "subagent_enabled" not in config["configurable"]
         assert config["configurable"]["execution_session_id"] == "exec-1"
 
     def test_initial_state_includes_uploaded_files_and_viewed_images(self, tmp_path):

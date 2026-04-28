@@ -10,6 +10,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.subagents.parallel import ExecutionPhase, PhasedPlan
+from src.workspace_features.runtime_profiles import (
+    FeatureRuntimeMode,
+    get_feature_runtime_profile,
+)
 
 _TEXT_FOCUS_KEYS = (
     "__thread_context_focus",
@@ -21,16 +25,6 @@ _TEXT_FOCUS_KEYS = (
     "task",
     "question",
 )
-
-_COMPLEX_FEATURES = {
-    "deep_research",
-    "literature_search",
-    "background_research",
-    "prior_art_search",
-    "thesis_writing",
-    "writing",
-    "figure_generation",
-}
 
 _MAX_FOCUS_CHARS = 240
 
@@ -199,7 +193,8 @@ def build_dynamic_feature_workflow_plan(
     payload: dict[str, Any],
 ) -> FeatureWorkflowPlan | None:
     """Build a dynamic subagent workflow plan for complex feature tasks."""
-    if feature_id not in _COMPLEX_FEATURES:
+    profile = get_feature_runtime_profile(workspace_type, feature_id)
+    if profile is None or profile.runtime_mode != FeatureRuntimeMode.COMPUTE_AGENTIC:
         return None
 
     focus = _resolve_focus(payload, feature_id)

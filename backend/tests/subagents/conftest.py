@@ -6,7 +6,6 @@ import pytest
 from langchain_core.tools import tool
 
 from src.subagents.config import SubagentConfig
-from src.subagents.events import SubagentEventStream
 from src.subagents.graph import GraphTemplateRegistry
 
 
@@ -29,12 +28,6 @@ def mock_llm():
 def mock_tools():
     """Create mock tools."""
     return [make_test_tool("tool1"), make_test_tool("tool2")]
-
-
-@pytest.fixture
-def event_stream():
-    """Create an event stream."""
-    return SubagentEventStream()
 
 
 @pytest.fixture

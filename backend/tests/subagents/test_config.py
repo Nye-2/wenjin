@@ -19,8 +19,6 @@ class TestSubagentConfig:
         assert config.per_thread_max_concurrent == 3
         assert config.default_timeout == 900
         assert config.max_timeout == 3600
-        assert config.sse_heartbeat_interval == 30
-        assert config.event_queue_size == 100
         assert config.default_max_turns == 10
         assert config.max_turns_limit == 50
         assert config.llm is None
@@ -136,27 +134,6 @@ class TestSubagentConfig:
         config.global_max_concurrent = 20
         assert config.global_max_concurrent == 20
 
-    def test_event_queue_size_validation(self):
-        """Test event_queue_size validation."""
-        config = SubagentConfig(event_queue_size=200)
-        assert config.event_queue_size == 200
-
-        # Should fail with invalid value
-        with pytest.raises(ValidationError):
-            SubagentConfig(event_queue_size=0)
-
-        with pytest.raises(ValidationError):
-            SubagentConfig(event_queue_size=-10)
-
-    def test_sse_heartbeat_interval_validation(self):
-        """Test sse_heartbeat_interval validation."""
-        config = SubagentConfig(sse_heartbeat_interval=60)
-        assert config.sse_heartbeat_interval == 60
-
-        # Should fail with invalid value
-        with pytest.raises(ValidationError):
-            SubagentConfig(sse_heartbeat_interval=0)
-
     def test_complex_config(self):
         """Test creating a complex config with all fields."""
         mock_llm = MagicMock()
@@ -165,8 +142,6 @@ class TestSubagentConfig:
             per_thread_max_concurrent=10,
             default_timeout=1800,
             max_timeout=7200,
-            sse_heartbeat_interval=45,
-            event_queue_size=500,
             default_max_turns=25,
             max_turns_limit=100,
             llm=mock_llm,
@@ -176,8 +151,6 @@ class TestSubagentConfig:
         assert config.per_thread_max_concurrent == 10
         assert config.default_timeout == 1800
         assert config.max_timeout == 7200
-        assert config.sse_heartbeat_interval == 45
-        assert config.event_queue_size == 500
         assert config.default_max_turns == 25
         assert config.max_turns_limit == 100
         assert config.llm is mock_llm

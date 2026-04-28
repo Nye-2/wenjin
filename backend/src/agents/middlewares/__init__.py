@@ -13,7 +13,6 @@ from .loop_detection import LoopDetectionMiddleware
 from .memory import MemoryMiddleware
 from .sandbox import SandboxMiddleware
 from .sandbox_audit import SandboxAuditMiddleware
-from .subagent_limit import SubagentLimitMiddleware
 from .summarization import SummarizationMiddleware
 from .thread_data import ThreadDataMiddleware
 from .title import TitleMiddleware
@@ -37,7 +36,6 @@ __all__ = [
     "Middleware",
     "SandboxAuditMiddleware",
     "SandboxMiddleware",
-    "SubagentLimitMiddleware",
     "SummarizationMiddleware",
     "ThreadDataMiddleware",
     "TitleMiddleware",

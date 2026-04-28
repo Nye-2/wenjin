@@ -409,7 +409,7 @@ async def load_thesis_workspace_literature(workspace_id: str) -> list[dict[str, 
 
 
 async def load_thesis_chapter_summaries(workspace_id: str) -> list[dict[str, str]]:
-    """Load chapter summaries for thesis compile-export preprocessing."""
+    """Load chapter summaries for thesis manuscript assembly."""
     try:
         artifacts = await _load_workspace_artifacts(workspace_id)
         artifact_dicts = [

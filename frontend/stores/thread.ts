@@ -22,8 +22,6 @@ import {
   createPendingUserMessage,
   createPlaceholderAssistantMessage,
   createStoreAssistantMessage,
-  findLastAssistantMessage,
-  maybeHydrateStructuredExecution,
   removeTrailingEmptyAssistantMessage,
   removeTrailingPendingAssistantMessage,
   syncAttachmentExtractionsWithTask,
@@ -271,9 +269,6 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         set((state) => ({
           messages: upsertTrailingAssistantMessage(state.messages, hydratedMessage),
         }));
-        const scopedWorkspaceId =
-          options?.workspaceId || get().currentThreadSummary?.workspace_id || null;
-        maybeHydrateStructuredExecution(hydratedMessage, scopedWorkspaceId);
       },
       (error) => {
         set((state) => {
@@ -360,10 +355,6 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         isThreadLoading: false,
         error: null,
       });
-      const lastAssistantMessage = findLastAssistantMessage(messages);
-      if (lastAssistantMessage) {
-        maybeHydrateStructuredExecution(lastAssistantMessage, workspaceId);
-      }
       return detail.id;
     } catch (error) {
       set({

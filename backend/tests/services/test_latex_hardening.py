@@ -12,6 +12,9 @@ from fastapi import HTTPException
 
 from src.gateway.routers.latex import (
     LatexCompileRequest,
+    LatexFileChangeActionRequest,
+    LatexFileChangeApplyRequest,
+    LatexFileChangeRevertRequest,
     LatexUpdateProjectRequest,
     _candidate_risk_level,
     _collect_archive_upload_payload,
@@ -21,6 +24,10 @@ from src.gateway.routers.latex import (
     _normalize_upload_relative_path,
     _profiled_comment,
     _read_upload_bytes_with_limit,
+    apply_project_file_change,
+    discard_project_file_change,
+    preview_project_file_change,
+    revert_project_file_change,
 )
 from src.services.latex.compile_service import (
     LatexCompileService,
@@ -54,6 +61,91 @@ class _FakeExecuteResult:
 
     def mappings(self) -> _FakeMappings:
         return _FakeMappings(self._row)
+
+
+class _FakeLatexProjectFiles:
+    def __init__(self, files: dict[str, str]) -> None:
+        self.files = dict(files)
+        self.writes: list[tuple[str, str]] = []
+
+    def read_text_file(self, project: object, path: str) -> str:
+        _ = project
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        return self.files[path]
+
+    async def write_text_file(self, project: object, path: str, content: str) -> None:
+        _ = project
+        self.files[path] = content
+        self.writes.append((path, content))
+
+
+class _FakeLatexRouterService:
+    project = SimpleNamespace(
+        id="project-1",
+        user_id="user-1",
+        main_file="main.tex",
+        llm_config={
+            "metadata": {
+                "managed_files": {},
+                "file_changes": [
+                    {
+                        "logical_key": "project:main",
+                        "path": "main.tex",
+                        "reason": "feature_proposal",
+                        "pending_content": "\\section{Generated}\n",
+                    }
+                ],
+                "applied_file_changes": {},
+            }
+        },
+    )
+    files = {"main.tex": "\\section{Current}\n"}
+
+    def __init__(self, db: object) -> None:
+        _ = db
+
+    async def get_owned(self, project_id: str, user_id: str) -> object | None:
+        if project_id == "project-1" and user_id == "user-1":
+            return self.project
+        return None
+
+    def read_text_file(self, project: object, path: str) -> str:
+        _ = project
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        return self.files[path]
+
+    async def write_text_file(self, project: object, path: str, content: str) -> None:
+        _ = project
+        self.files[path] = content
+
+    async def update_llm_config(self, project: object, llm_config: dict[str, object]) -> object:
+        project.llm_config = llm_config
+        return project
+
+
+def _reset_fake_router_service() -> None:
+    _FakeLatexRouterService.project = SimpleNamespace(
+        id="project-1",
+        user_id="user-1",
+        main_file="main.tex",
+        llm_config={
+            "metadata": {
+                "managed_files": {},
+                "file_changes": [
+                    {
+                        "logical_key": "project:main",
+                        "path": "main.tex",
+                        "reason": "feature_proposal",
+                        "pending_content": "\\section{Generated}\n",
+                    }
+                ],
+                "applied_file_changes": {},
+            }
+        },
+    )
+    _FakeLatexRouterService.files = {"main.tex": "\\section{Current}\n"}
 
 
 def test_get_default_latex_engine_uses_env_value(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -376,6 +468,218 @@ async def test_find_existing_project_scopes_by_workspace_and_owner() -> None:
     assert params["owner_user_id"] == "user-1"
     assert params["template"] == "sci_default"
     assert "user_id = :owner_user_id" in str(statement)
+
+
+@pytest.mark.asyncio
+async def test_bridge_write_records_managed_change_as_feature_proposal() -> None:
+    service = WorkspaceLatexProjectService(AsyncMock())
+    fake_files = _FakeLatexProjectFiles({"main.tex": "old"})
+    service.project_service = fake_files  # type: ignore[assignment]
+    metadata = {
+        "managed_files": {
+            "project:main": {
+                "path": "main.tex",
+                "content_hash": WorkspaceLatexProjectService._content_hash("old"),
+                "protected": False,
+            }
+        },
+        "file_changes": [],
+    }
+
+    await service._safe_bridge_write(
+        SimpleNamespace(id="project-1"),
+        relative_path="main.tex",
+        content="new",
+        logical_key="project:main",
+        metadata=metadata,
+    )
+
+    assert fake_files.writes == []
+    assert fake_files.files["main.tex"] == "old"
+    assert metadata["file_changes"] == [
+        {
+            "logical_key": "project:main",
+            "path": "main.tex",
+            "reason": "feature_proposal",
+            "pending_content": "new",
+            "pending_hash": WorkspaceLatexProjectService._content_hash("new"),
+            "current_hash": WorkspaceLatexProjectService._content_hash("old"),
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_bridge_write_seeds_missing_file_and_clears_stale_conflict() -> None:
+    service = WorkspaceLatexProjectService(AsyncMock())
+    fake_files = _FakeLatexProjectFiles({})
+    service.project_service = fake_files  # type: ignore[assignment]
+    metadata = {
+        "managed_files": {},
+        "file_changes": [
+            {
+                "logical_key": "section:introduction",
+                "path": "sections/introduction.tex",
+                "reason": "feature_proposal",
+                "pending_content": "stale",
+            }
+        ],
+    }
+
+    await service._safe_bridge_write(
+        SimpleNamespace(id="project-1"),
+        relative_path="sections/introduction.tex",
+        content="fresh",
+        logical_key="section:introduction",
+        metadata=metadata,
+    )
+
+    assert fake_files.writes == [("sections/introduction.tex", "fresh")]
+    assert metadata["file_changes"] == []
+    assert metadata["managed_files"]["section:introduction"] == {
+        "path": "sections/introduction.tex",
+        "content_hash": WorkspaceLatexProjectService._content_hash("fresh"),
+        "protected": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_file_change_preview_and_apply_use_signature_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _reset_fake_router_service()
+    monkeypatch.setattr(
+        "src.gateway.routers.latex.LatexProjectService",
+        _FakeLatexRouterService,
+    )
+    user = SimpleNamespace(id="user-1")
+
+    preview = await preview_project_file_change(
+        "project-1",
+        LatexFileChangeActionRequest(logical_key="project:main"),
+        current_user=user,
+        db=object(),
+    )
+
+    assert preview.path == "main.tex"
+    assert preview.reason == "feature_proposal"
+    assert preview.diff.stats.tokens_changed > 0
+
+    applied = await apply_project_file_change(
+        "project-1",
+        LatexFileChangeApplyRequest(
+            logical_key="project:main",
+            change_signature=preview.change_signature,
+        ),
+        current_user=user,
+        db=object(),
+    )
+
+    assert applied.path == "main.tex"
+    assert _FakeLatexRouterService.files["main.tex"] == "\\section{Generated}\n"
+    metadata = _FakeLatexRouterService.project.llm_config["metadata"]
+    assert metadata["file_changes"] == []
+    assert metadata["managed_files"]["project:main"]["protected"] is False
+    assert metadata["applied_file_changes"]["project:main"]["previous_content"] == "\\section{Current}\n"
+
+
+@pytest.mark.asyncio
+async def test_file_change_apply_rejects_stale_preview_signature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _reset_fake_router_service()
+    monkeypatch.setattr(
+        "src.gateway.routers.latex.LatexProjectService",
+        _FakeLatexRouterService,
+    )
+    user = SimpleNamespace(id="user-1")
+
+    preview = await preview_project_file_change(
+        "project-1",
+        LatexFileChangeActionRequest(logical_key="project:main"),
+        current_user=user,
+        db=object(),
+    )
+    _FakeLatexRouterService.files["main.tex"] = "\\section{User edit}\n"
+
+    with pytest.raises(HTTPException) as exc_info:
+        await apply_project_file_change(
+            "project-1",
+            LatexFileChangeApplyRequest(
+                logical_key="project:main",
+                change_signature=preview.change_signature,
+            ),
+            current_user=user,
+            db=object(),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert _FakeLatexRouterService.files["main.tex"] == "\\section{User edit}\n"
+
+
+@pytest.mark.asyncio
+async def test_file_change_discard_protects_current_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _reset_fake_router_service()
+    monkeypatch.setattr(
+        "src.gateway.routers.latex.LatexProjectService",
+        _FakeLatexRouterService,
+    )
+
+    response = await discard_project_file_change(
+        "project-1",
+        LatexFileChangeActionRequest(logical_key="project:main"),
+        current_user=SimpleNamespace(id="user-1"),
+        db=object(),
+    )
+
+    metadata = _FakeLatexRouterService.project.llm_config["metadata"]
+    assert response.discarded is True
+    assert metadata["file_changes"] == []
+    assert metadata["managed_files"]["project:main"]["protected"] is True
+
+
+@pytest.mark.asyncio
+async def test_file_change_revert_restores_previous_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _reset_fake_router_service()
+    monkeypatch.setattr(
+        "src.gateway.routers.latex.LatexProjectService",
+        _FakeLatexRouterService,
+    )
+    user = SimpleNamespace(id="user-1")
+    preview = await preview_project_file_change(
+        "project-1",
+        LatexFileChangeActionRequest(logical_key="project:main"),
+        current_user=user,
+        db=object(),
+    )
+    applied = await apply_project_file_change(
+        "project-1",
+        LatexFileChangeApplyRequest(
+            logical_key="project:main",
+            change_signature=preview.change_signature,
+        ),
+        current_user=user,
+        db=object(),
+    )
+
+    response = await revert_project_file_change(
+        "project-1",
+        LatexFileChangeRevertRequest(
+            logical_key="project:main",
+            revert_signature=applied.undo.revert_signature,
+        ),
+        current_user=user,
+        db=object(),
+    )
+
+    metadata = _FakeLatexRouterService.project.llm_config["metadata"]
+    assert response.reverted is True
+    assert _FakeLatexRouterService.files["main.tex"] == "\\section{Current}\n"
+    assert metadata["managed_files"]["project:main"]["protected"] is True
+    assert "project:main" not in metadata["applied_file_changes"]
 
 
 def test_upload_path_normalization_avoids_duplicate_base_prefix() -> None:

@@ -17,6 +17,7 @@ from .models import (
     Citation,
     CitationType,
     # Credit
+    ComputeSessionRecord,
     CreditTransaction,
     CreditTransactionType,
     # Generation
@@ -91,6 +92,7 @@ __all__ = [
     # Models - Credit
     "CreditTransaction",
     "CreditTransactionType",
+    "ComputeSessionRecord",
     # Models - Admin audit
     "AdminLog",
     "AdminActionType",

@@ -28,7 +28,6 @@ def build_default_manager_config() -> SubagentConfig:
 
         config.default_tools = get_available_tools(
             include_execution=True,
-            subagent_enabled=False,
         )
     except Exception as exc:
         logger.warning("Failed to initialize default subagent tools: %s", exc)

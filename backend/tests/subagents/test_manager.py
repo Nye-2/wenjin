@@ -13,7 +13,6 @@ from src.subagents.manager import (
     ThreadContext,
 )
 from src.subagents.models import (
-    SubagentEvent,
     SubagentResult,
     SubagentStatus,
     SubagentTask,
@@ -283,7 +282,6 @@ class TestGlobalSubagentManager:
                 "user_id": "user-1",
                 "execution_session_id": "exec-1",
                 "model_name": "gpt-4o",
-                "subagent_enabled": False,
             }
         }
 
@@ -733,86 +731,6 @@ class TestGlobalSubagentManager:
 
         with pytest.raises(SubagentAccessError, match="Thread not found"):
             await manager.spawn(task)
-
-    @pytest.mark.asyncio
-    async def test_global_event_subscription_filters_by_owner(self, manager):
-        """Global event subscriptions should only receive events for owned threads."""
-        manager._get_or_create_context("thread-1", owner_user_id="user-1")
-        manager._get_or_create_context("thread-2", owner_user_id="user-2")
-
-        received: list[str] = []
-
-        async def collect():
-            async for sse in manager.subscribe_events(user_id="user-1"):
-                received.append(sse)
-                if len(received) >= 1:
-                    break
-
-        task = asyncio.create_task(collect())
-        await asyncio.sleep(0.05)
-
-        await manager._event_stream.publish(SubagentEvent(
-            event_type="started",
-            task_id="task-2",
-            thread_id="thread-2",
-            data={"msg": "foreign"},
-            timestamp=datetime.now(),
-        ))
-        await manager._event_stream.publish(SubagentEvent(
-            event_type="started",
-            task_id="task-1",
-            thread_id="thread-1",
-            data={"msg": "owned"},
-            timestamp=datetime.now(),
-        ))
-        await manager._event_stream.close()
-
-        await task
-        assert len(received) == 1
-        assert "owned" in received[0]
-
-    @pytest.mark.asyncio
-    async def test_global_event_subscription_falls_back_to_persisted_thread_binding(self, manager):
-        """Global subscriptions should still receive owned events after live context is gone."""
-        manager._threads.clear()
-        manager._load_thread_binding = AsyncMock(
-            side_effect=lambda thread_id: (
-                {"owner_user_id": "user-1", "workspace_id": "ws-1", "skill_id": None, "skill_name": None}
-                if thread_id == "thread-1"
-                else {"owner_user_id": "user-2", "workspace_id": "ws-2", "skill_id": None, "skill_name": None}
-            )
-        )
-
-        received: list[str] = []
-
-        async def collect():
-            async for sse in manager.subscribe_events(user_id="user-1"):
-                received.append(sse)
-                if len(received) >= 1:
-                    break
-
-        task = asyncio.create_task(collect())
-        await asyncio.sleep(0.05)
-
-        await manager._event_stream.publish(SubagentEvent(
-            event_type="started",
-            task_id="task-2",
-            thread_id="thread-2",
-            data={"msg": "foreign"},
-            timestamp=datetime.now(),
-        ))
-        await manager._event_stream.publish(SubagentEvent(
-            event_type="started",
-            task_id="task-1",
-            thread_id="thread-1",
-            data={"msg": "owned"},
-            timestamp=datetime.now(),
-        ))
-        await manager._event_stream.close()
-
-        await task
-        assert len(received) == 1
-        assert "owned" in received[0]
 
     @pytest.mark.asyncio
     async def test_get_status_falls_back_to_persisted_record(self, manager):

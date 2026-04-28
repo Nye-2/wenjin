@@ -563,7 +563,7 @@ def _build_technical_description_artifacts(
                     "latex_project_id": latex_project_id,
                     "main_file": str(result.get("main_file") or "main.tex"),
                     "section_map": result.get("section_map") if isinstance(result.get("section_map"), dict) else {},
-                    "sync_conflicts": result.get("sync_conflicts") if isinstance(result.get("sync_conflicts"), list) else [],
+                    "file_changes": result.get("file_changes") if isinstance(result.get("file_changes"), list) else [],
                     "source_artifact_type": ArtifactType.TECHNICAL_DESCRIPTION.value,
                 },
             }

@@ -88,20 +88,6 @@ function resolveContinuationMetadata(
     };
   }
 
-  if (["confirmation_required", "awaiting_user_confirmation"].includes(status)) {
-    return {
-      orchestration: {
-        intent: "launch",
-        feature_id: featureId,
-        status: "confirmation_required",
-        params:
-          payload.params && typeof payload.params === "object"
-            ? (payload.params as Record<string, unknown>)
-            : {},
-      },
-    };
-  }
-
   return null;
 }
 

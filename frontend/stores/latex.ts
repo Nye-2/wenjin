@@ -1,19 +1,22 @@
 import { create } from "zustand";
 
 import type {
+  LatexAppliedFileChange,
   LatexCompileEngine,
   LatexCompileResult,
+  LatexFileChange,
   LatexFileItem,
   LatexProject,
-  LatexSyncConflict,
   LatexTemplate,
 } from "@/lib/api";
 import {
+  applyLatexFileChange,
   compileLatexProject,
   createLatexFolder,
   createLatexProject,
   deleteLatexProject,
   deleteLatexPath,
+  discardLatexFileChange,
   fetchLatexProjectBlob,
   fetchLatexCompiledPdfBlob,
   getLatexProject,
@@ -22,7 +25,8 @@ import {
   listLatexTemplates,
   readLatexFile,
   renameLatexPath,
-  resolveLatexConflict,
+  previewLatexFileChange,
+  revertLatexFileChange,
   saveLatexFileOrder,
   uploadLatexArchive,
   uploadLatexFiles,
@@ -39,7 +43,8 @@ interface LatexState {
   activeFileContent: string;
   activeFileSavedContent: string;
   activeBlobUrl: string | null;
-  syncConflicts: LatexSyncConflict[];
+  fileChanges: LatexFileChange[];
+  appliedFileChanges: LatexAppliedFileChange[];
   compileResult: LatexCompileResult | null;
   compileLog: string;
   compiledPdfUrl: string | null;
@@ -64,11 +69,11 @@ interface LatexState {
   uploadFiles: (files: File[], folder?: string) => Promise<void>;
   uploadDirectory: (files: File[], folder?: string) => Promise<void>;
   uploadArchive: (archive: File, folder?: string) => Promise<void>;
-  resolveConflict: (
+  applyFileChange: (
     logicalKey: string,
-    strategy: "keep_current" | "accept_feature",
-    featureContent?: string | null,
   ) => Promise<void>;
+  discardFileChange: (logicalKey: string) => Promise<void>;
+  revertFileChange: (logicalKey: string, revertSignature: string) => Promise<void>;
   deleteProject: () => Promise<void>;
   compileProject: (engine?: LatexCompileEngine) => Promise<void>;
   clearCompiledPdf: () => void;
@@ -106,7 +111,7 @@ function pickDefaultFile(
   return files[0].path;
 }
 
-function readProjectSyncConflicts(project: LatexProject | null): LatexSyncConflict[] {
+function readProjectFileChanges(project: LatexProject | null): LatexFileChange[] {
   if (
     project?.llm_config &&
     typeof project.llm_config === "object" &&
@@ -116,12 +121,36 @@ function readProjectSyncConflicts(project: LatexProject | null): LatexSyncConfli
     if (
       metadata &&
       typeof metadata === "object" &&
-      Array.isArray((metadata as Record<string, unknown>).sync_conflicts)
+      Array.isArray((metadata as Record<string, unknown>).file_changes)
     ) {
-      return (metadata as Record<string, unknown>).sync_conflicts as LatexSyncConflict[];
+      return (metadata as Record<string, unknown>).file_changes as LatexFileChange[];
     }
   }
   return [];
+}
+
+function readProjectAppliedFileChanges(project: LatexProject | null): LatexAppliedFileChange[] {
+  if (
+    !project?.llm_config ||
+    typeof project.llm_config !== "object" ||
+    !("metadata" in project.llm_config)
+  ) {
+    return [];
+  }
+  const metadata = (project.llm_config as Record<string, unknown>).metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return [];
+  }
+  const raw = (metadata as Record<string, unknown>).applied_file_changes;
+  const values = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object"
+      ? Object.values(raw)
+      : [];
+  return values.filter(
+    (item): item is LatexAppliedFileChange =>
+      Boolean(item) && typeof item === "object" && !Array.isArray(item),
+  );
 }
 
 export const useLatexStore = create<LatexState>((set, get) => ({
@@ -134,7 +163,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
   activeFileContent: "",
   activeFileSavedContent: "",
   activeBlobUrl: null,
-  syncConflicts: [],
+  fileChanges: [],
+  appliedFileChanges: [],
   compileResult: null,
   compileLog: "",
   compiledPdfUrl: null,
@@ -181,7 +211,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       activeFileContent: "",
       activeFileSavedContent: "",
       activeBlobUrl: null,
-      syncConflicts: [],
+      fileChanges: [],
+      appliedFileChanges: [],
       compileResult: null,
       compileLog: "",
     });
@@ -196,7 +227,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project,
         tree: treeResponse.items,
-        syncConflicts: readProjectSyncConflicts(project),
+        fileChanges: readProjectFileChanges(project),
+        appliedFileChanges: readProjectAppliedFileChanges(project),
         activeFilePath: defaultFile,
         isProjectLoading: false,
       });
@@ -302,7 +334,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        syncConflicts: readProjectSyncConflicts(nextProject),
+        fileChanges: readProjectFileChanges(nextProject),
+        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
       await get().openFile(path);
@@ -344,7 +377,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        syncConflicts: readProjectSyncConflicts(nextProject),
+        fileChanges: readProjectFileChanges(nextProject),
+        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
       if (activeFilePath === fromPath || activeFilePath?.startsWith(`${fromPath}/`)) {
@@ -375,6 +409,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
+        fileChanges: readProjectFileChanges(nextProject),
+        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
       if (activeFilePath === path || activeFilePath?.startsWith(`${path}/`)) {
@@ -409,7 +445,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        syncConflicts: readProjectSyncConflicts(nextProject),
+        fileChanges: readProjectFileChanges(nextProject),
+        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
       });
     } catch (error) {
       set({ error: (error as Error).message });
@@ -433,7 +470,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        syncConflicts: readProjectSyncConflicts(nextProject),
+        fileChanges: readProjectFileChanges(nextProject),
+        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
     } catch (error) {
@@ -458,7 +496,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        syncConflicts: readProjectSyncConflicts(nextProject),
+        fileChanges: readProjectFileChanges(nextProject),
+        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
     } catch (error) {
@@ -481,7 +520,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        syncConflicts: readProjectSyncConflicts(nextProject),
+        fileChanges: readProjectFileChanges(nextProject),
+        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
     } catch (error) {
@@ -489,17 +529,56 @@ export const useLatexStore = create<LatexState>((set, get) => ({
     }
   },
 
-  resolveConflict: async (logicalKey, strategy, featureContent) => {
+  applyFileChange: async (logicalKey) => {
+    const { project, activeFilePath, activeFileKind } = get();
+    if (!project) {
+      return;
+    }
+    set({ isSaving: true, error: null });
+    try {
+      const preview = await previewLatexFileChange(project.id, {
+        logical_key: logicalKey,
+      });
+      const applied = await applyLatexFileChange(project.id, {
+        logical_key: logicalKey,
+        change_signature: preview.change_signature,
+      });
+      const shouldRefreshActiveFile =
+        activeFileKind === "text" && activeFilePath === applied.path;
+      const [nextProject, treeResponse, activeFileResponse] = await Promise.all([
+        getLatexProject(project.id),
+        getLatexProjectTree(project.id),
+        shouldRefreshActiveFile
+          ? readLatexFile(project.id, applied.path)
+          : Promise.resolve(null),
+      ]);
+      set({
+        project: nextProject,
+        tree: treeResponse.items,
+        fileChanges: readProjectFileChanges(nextProject),
+        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
+        ...(activeFileResponse
+          ? {
+              activeFileContent: activeFileResponse.content,
+              activeFileSavedContent: activeFileResponse.content,
+            }
+          : {}),
+        isSaving: false,
+      });
+    } catch (error) {
+      set({ error: (error as Error).message, isSaving: false });
+    }
+  },
+
+  discardFileChange: async (logicalKey) => {
     const { project } = get();
     if (!project) {
       return;
     }
     set({ isSaving: true, error: null });
     try {
-      await resolveLatexConflict(project.id, {
+      await discardLatexFileChange(project.id, {
         logical_key: logicalKey,
-        strategy,
-        feature_content: featureContent,
       });
       const [nextProject, treeResponse] = await Promise.all([
         getLatexProject(project.id),
@@ -508,8 +587,47 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        syncConflicts: readProjectSyncConflicts(nextProject),
+        fileChanges: readProjectFileChanges(nextProject),
+        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
+      });
+    } catch (error) {
+      set({ error: (error as Error).message, isSaving: false });
+    }
+  },
+
+  revertFileChange: async (logicalKey, revertSignature) => {
+    const { project, activeFilePath, activeFileKind } = get();
+    if (!project) {
+      return;
+    }
+    set({ isSaving: true, error: null });
+    try {
+      const reverted = await revertLatexFileChange(project.id, {
+        logical_key: logicalKey,
+        revert_signature: revertSignature,
+      });
+      const shouldRefreshActiveFile =
+        activeFileKind === "text" && activeFilePath === reverted.path;
+      const [nextProject, treeResponse, activeFileResponse] = await Promise.all([
+        getLatexProject(project.id),
+        getLatexProjectTree(project.id),
+        shouldRefreshActiveFile
+          ? readLatexFile(project.id, reverted.path)
+          : Promise.resolve(null),
+      ]);
+      set({
+        project: nextProject,
+        tree: treeResponse.items,
+        fileChanges: readProjectFileChanges(nextProject),
+        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
+        isSaving: false,
+        ...(activeFileResponse
+          ? {
+              activeFileContent: activeFileResponse.content,
+              activeFileSavedContent: activeFileResponse.content,
+            }
+          : {}),
       });
     } catch (error) {
       set({ error: (error as Error).message, isSaving: false });
@@ -534,7 +652,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
         activeFileKind: null,
         activeFileContent: "",
         activeFileSavedContent: "",
-        syncConflicts: [],
+        fileChanges: [],
+        appliedFileChanges: [],
         compileResult: null,
         compileLog: "",
         isSaving: false,

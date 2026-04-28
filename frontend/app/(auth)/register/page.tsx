@@ -27,7 +27,7 @@ export default function RegisterPage() {
   const [codeError, setCodeError] = useState('');
   const [countdown, setCountdown] = useState(0);
   const [isSendingCode, setIsSendingCode] = useState(false);
-  const redirectTo = resolvePostAuthRedirect(searchParams.get('redirect'));
+  const redirectTo = resolvePostAuthRedirect(searchParams?.get('redirect'));
 
   // Redirect if already authenticated
   useEffect(() => {

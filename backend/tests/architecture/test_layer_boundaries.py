@@ -105,6 +105,7 @@ class TestRouterRegistration:
         expected_routers = [
             "artifacts",
             "auth",
+            "compute",
             "dashboard",
             "features",
             "latex",
