@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { Cpu, CheckCircle2, AlertCircle, Loader2, GitBranch } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { statusLabel, formatShortId, sandboxStatusLabel, reviewStatusLabel, prismStatusLabel, reviewTone, prismTone } from "./utils";
@@ -11,6 +12,30 @@ interface ComputeHeaderProps {
   projection?: ComputeProjection | null;
   isLoadingProjection?: boolean;
 }
+
+const summaryContainerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.04,
+      delayChildren: 0.15,
+    },
+  },
+};
+
+const summaryItemVariants = {
+  hidden: { opacity: 0, y: 8, scale: 0.96 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      duration: 0.3,
+      ease: [0.16, 1, 0.3, 1] as const,
+    },
+  },
+};
 
 function SummaryItem({
   label,
@@ -28,7 +53,8 @@ function SummaryItem({
     danger: "border-compute-red/20 bg-compute-red/8 text-compute-red",
   };
   return (
-    <div
+    <motion.div
+      variants={summaryItemVariants}
       className={cn(
         "rounded-xl border px-3 py-2",
         toneClass[tone ?? "default"]
@@ -38,7 +64,7 @@ function SummaryItem({
       <p className="mt-1 truncate text-sm font-medium text-compute-text-primary">
         {value}
       </p>
-    </div>
+    </motion.div>
   );
 }
 
@@ -76,7 +102,10 @@ export function ComputeHeader({
               : "等待 Compute session 绑定"}
           </p>
         </div>
-        <span
+        <motion.span
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
             status === "completed"
@@ -96,10 +125,15 @@ export function ComputeHeader({
             <GitBranch className="h-3.5 w-3.5" />
           )}
           {statusLabel(status)}
-        </span>
+        </motion.span>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+      <motion.div
+        className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7"
+        variants={summaryContainerVariants}
+        initial="hidden"
+        animate="visible"
+      >
         <SummaryItem
           label="Task"
           value={formatShortId(effectiveExecution?.primary_task_id)}
@@ -134,7 +168,7 @@ export function ComputeHeader({
           }
           tone={reviewTone(reviewGate)}
         />
-      </div>
+      </motion.div>
     </div>
   );
 }

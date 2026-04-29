@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { Cpu } from "lucide-react";
 
 import { TaskRuntimePanel } from "@/components/workspace/TaskRuntimePanel";
@@ -33,6 +34,29 @@ import {
 } from "./utils";
 
 const EMPTY_COMPUTE_SESSIONS: ComputeSession[] = [];
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.06,
+      delayChildren: 0.1,
+    },
+  },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 12 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.35,
+      ease: [0.16, 1, 0.3, 1] as const,
+    },
+  },
+};
 
 interface ComputeStageProps {
   workspaceId: string;
@@ -243,44 +267,64 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
         isLoadingProjection={isLoadingProjection}
       />
 
-      <div className="min-h-0 flex-1 overflow-auto p-4">
-        <TaskRuntimePanel
-          runtime={runtimeState}
-          isRunning={isRunningStatus(effectiveExecution?.status)}
-          status={
-            isLoadingProjection
-              ? "正在加载 Compute projection"
-              : statusLabel(effectiveExecution?.status)
-          }
-          error={effectiveExecution?.last_error ?? null}
-          title="Compute Runtime"
-          emptyTitle="Compute Runtime"
-          emptyDescription="当前执行还没有发布运行时块。"
-          className="rounded-2xl"
-        />
+      <motion.div
+        className="min-h-0 flex-1 overflow-auto p-4"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        key={computeSession?.id ?? "empty"}
+      >
+        <motion.div variants={itemVariants}>
+          <TaskRuntimePanel
+            runtime={runtimeState}
+            isRunning={isRunningStatus(effectiveExecution?.status)}
+            status={
+              isLoadingProjection
+                ? "正在加载 Compute projection"
+                : statusLabel(effectiveExecution?.status)
+            }
+            error={effectiveExecution?.last_error ?? null}
+            title="Compute Runtime"
+            emptyTitle="Compute Runtime"
+            emptyDescription="当前执行还没有发布运行时块。"
+            className="rounded-2xl"
+          />
+        </motion.div>
 
         <div className="mt-4 grid gap-4 xl:grid-cols-2">
-          <SubagentPanel subagents={subagents} />
-          <TaskArtifactPanel tasks={tasks} artifactIds={artifactIds} />
+          <motion.div variants={itemVariants}>
+            <SubagentPanel subagents={subagents} />
+          </motion.div>
+          <motion.div variants={itemVariants}>
+            <TaskArtifactPanel tasks={tasks} artifactIds={artifactIds} />
+          </motion.div>
         </div>
 
         <div className="mt-4 grid gap-4 xl:grid-cols-4">
-          <PrismPanel
-            prism={prism}
-            resolvingKey={resolvingPrismFileChangeKey}
-            previewingKey={previewingPrismFileChangeKey}
-            revertingKey={revertingPrismFileChangeKey}
-            previewByKey={prismFileChangePreviewByKey}
-            onPreview={handlePreviewPrismFileChange}
-            onApply={(change) => void handlePrismFileChange(change, "apply")}
-            onDiscard={(change) => void handlePrismFileChange(change, "discard")}
-            onRevert={handleRevertPrismFileChange}
-          />
-          <SandboxFilePanel files={files} sandbox={sandbox} />
-          <LogPanel logs={logs} />
-          <ReviewGatePanel reviewGate={reviewGate} runtimeProfile={runtimeProfile} />
+          <motion.div variants={itemVariants}>
+            <PrismPanel
+              prism={prism}
+              resolvingKey={resolvingPrismFileChangeKey}
+              previewingKey={previewingPrismFileChangeKey}
+              revertingKey={revertingPrismFileChangeKey}
+              previewByKey={prismFileChangePreviewByKey}
+              onPreview={handlePreviewPrismFileChange}
+              onApply={(change) => void handlePrismFileChange(change, "apply")}
+              onDiscard={(change) => void handlePrismFileChange(change, "discard")}
+              onRevert={handleRevertPrismFileChange}
+            />
+          </motion.div>
+          <motion.div variants={itemVariants}>
+            <SandboxFilePanel files={files} sandbox={sandbox} />
+          </motion.div>
+          <motion.div variants={itemVariants}>
+            <LogPanel logs={logs} />
+          </motion.div>
+          <motion.div variants={itemVariants}>
+            <ReviewGatePanel reviewGate={reviewGate} runtimeProfile={runtimeProfile} />
+          </motion.div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

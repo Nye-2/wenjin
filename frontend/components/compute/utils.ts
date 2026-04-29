@@ -119,17 +119,17 @@ export function fileMeta(file: ComputeFileProjection): string {
 export function logToneClass(level?: string | null): string {
   switch (level) {
     case "error":
-      return "border-red-500/20 bg-red-500/5";
+      return "border-compute-red/20 bg-compute-red/5";
     case "warn":
     case "warning":
-      return "border-amber-500/20 bg-amber-500/5";
+      return "border-compute-gold/20 bg-compute-gold/5";
     case "info":
     case "success":
-      return "border-[var(--border-default)] bg-[var(--bg-elevated)]";
+      return "border-compute-border bg-compute-elevated";
     case "debug":
-      return "border-[var(--border-subtle)] bg-[var(--bg-surface)]";
+      return "border-compute-border/50 bg-compute-surface";
     default:
-      return "border-[var(--border-default)] bg-[var(--bg-elevated)]";
+      return "border-compute-border bg-compute-elevated";
   }
 }
 

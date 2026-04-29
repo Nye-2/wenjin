@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Menu, X } from "lucide-react";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -69,6 +70,7 @@ export function WorkspaceShell({
   className,
 }: WorkspaceShellProps) {
   const [mode, setMode] = useState<WorkspaceMode>("chat"); // eslint-disable-line @typescript-eslint/no-unused-vars
+  const [mobileRailOpen, setMobileRailOpen] = useState(false);
 
   const defaultLayout =
     loadSavedLayout(workspaceId) ?? getDefaultLayout(mode);
@@ -76,13 +78,50 @@ export function WorkspaceShell({
   const isComputeVisible = mode === "executing" || mode === "completed";
 
   return (
-    <div className={cn("flex h-full w-full", className)}>
+    <div className={cn("relative flex h-full w-full", className)}>
+      {/* Mobile Knowledge Rail Drawer */}
+      <AnimatePresence>
+        {mobileRailOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-40 bg-black/40 lg:hidden"
+              onClick={() => setMobileRailOpen(false)}
+            />
+            <motion.div
+              initial={{ x: -240 }}
+              animate={{ x: 0 }}
+              exit={{ x: -240 }}
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] as const }}
+              className="absolute left-0 top-0 z-50 h-full w-60 lg:hidden"
+            >
+              <KnowledgeRail workspaceId={workspaceId} className="h-full" />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Mobile Toggle Button */}
+      <button
+        onClick={() => setMobileRailOpen((prev) => !prev)}
+        className={cn(
+          "absolute left-3 top-3 z-30 flex h-8 w-8 items-center justify-center rounded-lg border lg:hidden",
+          mobileRailOpen
+            ? "border-compute-border bg-compute-elevated text-compute-text-primary"
+            : "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]"
+        )}
+      >
+        {mobileRailOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+      </button>
+
       <ResizablePanelGroup
         orientation="horizontal"
         defaultLayout={defaultLayout}
         onLayoutChanged={(layout) => saveLayout(workspaceId, layout)}
       >
-        {/* Knowledge Rail */}
+        {/* Knowledge Rail - hidden on mobile, shown on lg+ */}
         <ResizablePanel
           id={PANEL_IDS.knowledge}
           defaultSize={defaultLayout[PANEL_IDS.knowledge]}
@@ -90,11 +129,12 @@ export function WorkspaceShell({
           maxSize={25}
           collapsible
           collapsedSize={4}
+          className="hidden lg:block"
         >
           <KnowledgeRail workspaceId={workspaceId} className="h-full" />
         </ResizablePanel>
 
-        <ResizableHandle withHandle />
+        <ResizableHandle withHandle className="hidden lg:flex" />
 
         {/* Compute Stage */}
         <ResizablePanel
@@ -114,7 +154,7 @@ export function WorkspaceShell({
                 exit={{ opacity: 0, x: -20 }}
                 transition={{
                   duration: 0.4,
-                  ease: [0.16, 1, 0.3, 1],
+                  ease: [0.16, 1, 0.3, 1] as const,
                 }}
                 className="h-full"
               >
@@ -148,7 +188,7 @@ export function WorkspaceShell({
             animate={{ opacity: 1 }}
             transition={{
               duration: 0.3,
-              ease: [0.16, 1, 0.3, 1],
+              ease: [0.16, 1, 0.3, 1] as const,
             }}
             className="h-full"
           >
@@ -163,9 +203,9 @@ export function WorkspaceShell({
 function ComputeEmptyState() {
   return (
     <div className="flex flex-col items-center gap-3 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--bg-surface)]">
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-compute-elevated">
         <svg
-          className="h-8 w-8 text-[var(--text-muted)]"
+          className="h-8 w-8 text-compute-text-muted"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -176,10 +216,10 @@ function ComputeEmptyState() {
         </svg>
       </div>
       <div>
-        <p className="text-sm font-medium text-[var(--text-secondary)]">
+        <p className="text-sm font-medium text-compute-text-secondary">
           计算工作台
         </p>
-        <p className="mt-1 text-xs text-[var(--text-muted)]">
+        <p className="mt-1 text-xs text-compute-text-muted">
           启动一个功能后，任务执行过程将在此展示
         </p>
       </div>

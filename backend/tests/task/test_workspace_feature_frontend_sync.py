@@ -26,6 +26,10 @@ WORKSPACE_INSPECTOR_FILE = (
 CHAT_STORE_FILE = FRONTEND_DIR / "stores" / "thread.ts"
 CHAT_STORE_SUPPORT_FILE = FRONTEND_DIR / "stores" / "thread-store-support.ts"
 COMPUTE_STAGE_FILE = FRONTEND_DIR / "components" / "compute" / "ComputeStage.tsx"
+COMPUTE_PRISM_PANEL_FILE = FRONTEND_DIR / "components" / "compute" / "PrismPanel.tsx"
+COMPUTE_SANDBOX_FILE_PANEL_FILE = FRONTEND_DIR / "components" / "compute" / "SandboxFilePanel.tsx"
+COMPUTE_LOG_PANEL_FILE = FRONTEND_DIR / "components" / "compute" / "LogPanel.tsx"
+COMPUTE_REVIEW_GATE_PANEL_FILE = FRONTEND_DIR / "components" / "compute" / "ReviewGatePanel.tsx"
 AGENT_STATUS_BAR_FILE = FRONTEND_DIR / "components" / "workspace" / "AgentStatusBar.tsx"
 KNOWLEDGE_PANEL_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "KnowledgePanel.tsx"
@@ -209,6 +213,10 @@ def test_chat_and_knowledge_panels_follow_canonical_chat_entry_and_retry_paths()
 def test_compute_stage_replaces_legacy_feature_panel_host() -> None:
     inspector_body = _read_text(WORKSPACE_INSPECTOR_FILE)
     compute_body = _read_text(COMPUTE_STAGE_FILE)
+    prism_body = _read_text(COMPUTE_PRISM_PANEL_FILE)
+    sandbox_body = _read_text(COMPUTE_SANDBOX_FILE_PANEL_FILE)
+    log_body = _read_text(COMPUTE_LOG_PANEL_FILE)
+    review_gate_body = _read_text(COMPUTE_REVIEW_GATE_PANEL_FILE)
     workspace_exports = _read_text(FRONTEND_DIR / "components" / "workspace" / "index.ts")
 
     assert "ComputeStage" in inspector_body
@@ -222,12 +230,13 @@ def test_compute_stage_replaces_legacy_feature_panel_host() -> None:
     assert "applyLatexFileChange" in compute_body
     assert "discardLatexFileChange" in compute_body
     assert "revertLatexFileChange" in compute_body
-    assert "LatexFileChangeDiffPreview" in compute_body
+    assert "PrismPanel" in compute_body
+    assert "LatexFileChangeDiffPreview" in prism_body
     assert "reviewGate" in compute_body
-    assert "Sandbox 文件" in compute_body
-    assert "WenjinPrism" in compute_body
-    assert "执行日志" in compute_body
-    assert "Review Gate" in compute_body
+    assert "Sandbox 文件" in sandbox_body
+    assert "WenjinPrism" in prism_body
+    assert "执行日志" in log_body
+    assert "Review Gate" in review_gate_body
     assert "WorkspaceResultPanel" not in workspace_exports
     assert "FeatureWorkbenchShell" not in workspace_exports
 
