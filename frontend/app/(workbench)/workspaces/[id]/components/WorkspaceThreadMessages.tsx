@@ -835,6 +835,66 @@ function renderStructuredBlocks(
           );
         }
 
+        if (block.type === "feature_proposal") {
+          const featureId = typeof data.feature_id === "string" ? data.feature_id : null;
+          const skillId = typeof data.skill_id === "string" ? data.skill_id : null;
+          const reason = typeof data.reason === "string" ? data.reason : null;
+          const confidence =
+            typeof data.confidence === "number" && Number.isFinite(data.confidence)
+              ? Math.round(data.confidence * 100)
+              : null;
+          const routeParams = sanitizeRouteParamMap({
+            ...(data.params && typeof data.params === "object" ? data.params : {}),
+            ...(skillId ? { skill: skillId } : {}),
+          });
+          return (
+            <div
+              key={`${block.type}-${index}`}
+              className="rounded-xl border border-[rgba(46,111,109,0.22)] bg-[linear-gradient(135deg,rgba(46,111,109,0.10),rgba(244,216,170,0.12))] px-3 py-3"
+            >
+              <div className="flex items-start gap-2">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/70 text-[var(--brand-teal)]">
+                  <Sparkles className="h-3.5 w-3.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-[var(--text-primary)]">
+                    {block.title || "建议启动 Compute 模块"}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
+                    {typeof data.feature_name === "string"
+                      ? `将进入「${data.feature_name}」执行链路。`
+                      : "将进入对应 Compute 执行链路。"}
+                    {reason ? ` 识别依据：${reason}。` : null}
+                  </p>
+                  {confidence !== null ? (
+                    <span className="mt-2 inline-flex rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-medium text-[var(--brand-teal)]">
+                      意图置信度 {confidence}%
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              {featureId
+                ? renderCardActions({
+                    onAction: options?.onCardAction,
+                    actions: [
+                      {
+                        label: "启动模块",
+                        action: "trigger_feature",
+                        featureId,
+                        routeParams,
+                      },
+                      {
+                        label: "继续补充要求",
+                        action: "continue_thread",
+                        featureId,
+                      },
+                    ],
+                  })
+                : null}
+            </div>
+          );
+        }
+
         if (block.type === "result") {
           const featureId = typeof data.feature_id === "string" ? data.feature_id : null;
           const rerunAvailability =
@@ -1130,11 +1190,11 @@ function WorkspaceThreadMessageBubble({
             ? sanitizeRouteParamMap(targetContext.rerunParams)
             : targetContext.routeParams ?? {};
       return getWorkspaceFeatureThreadRoute(workspaceId, targetFeatureId, {
-        ...contextParams,
-        ...(options?.routeParams ?? {}),
         ...(targetFeature?.defaultSkillId
           ? { skill: targetFeature.defaultSkillId }
           : {}),
+        ...contextParams,
+        ...(options?.routeParams ?? {}),
       });
     };
 

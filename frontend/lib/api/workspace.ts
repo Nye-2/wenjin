@@ -2,9 +2,9 @@ import { apiClient } from "@/lib/api/client";
 import type {
   Artifact,
   DashboardData,
-  ExecuteWorkspaceFeatureResponse,
   Literature,
   LiteratureListResponse,
+  MemoryResponse,
   Paper,
   UploadPaperResponse,
   TaskStatus,
@@ -155,23 +155,12 @@ export async function getWorkspaceSkills(
   return response.data;
 }
 
-export async function executeWorkspaceFeature(
-  workspaceId: string,
-  featureId: string,
-  params: Record<string, unknown> = {},
-  threadId?: string,
-  executionSessionId?: string | null,
-  skillId?: string | null
-): Promise<ExecuteWorkspaceFeatureResponse> {
-  const response = await apiClient.post(
-    `/workspaces/${workspaceId}/features/${featureId}/execute`,
-    {
-      params,
-      thread_id: threadId,
-      execution_session_id: executionSessionId,
-      skill_id: skillId,
-    }
-  );
+export async function getWorkspaceMemory(
+  workspaceId: string
+): Promise<MemoryResponse> {
+  const response = await apiClient.get("/memory", {
+    params: { workspace_id: workspaceId },
+  });
   return response.data;
 }
 

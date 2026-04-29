@@ -851,16 +851,6 @@ export interface WorkspacePrismEnsureResponse {
   sync_status: string;
 }
 
-export interface ExecuteWorkspaceFeatureResponse {
-  task_id: string | null;
-  execution_session_id?: string | null;
-  status: string;
-  feature_id: string;
-  message: string;
-  warning?: string;
-  detail?: Record<string, unknown> | null;
-}
-
 export interface TaskStatus {
   task_id: string;
   execution_session_id?: string | null;
@@ -1224,4 +1214,17 @@ export interface LiteratureListResponse {
   items: Literature[];
   total: number;
   core_count: number;
+}
+
+export interface MemoryEntry {
+  category: string;
+  content: string;
+  confidence: number;
+  workspace_context?: string | null;
+}
+
+export interface MemoryResponse {
+  workspace_id?: string | null;
+  formatted_context: string;
+  items: MemoryEntry[];
 }

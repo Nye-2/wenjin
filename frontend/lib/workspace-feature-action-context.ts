@@ -57,8 +57,8 @@ export function resolveWorkspaceFeatureActionContext(options: {
       workspaceId,
       featureId,
       {
-        ...(actionState.routeParams ?? {}),
         ...(feature?.defaultSkillId ? { skill: feature.defaultSkillId } : {}),
+        ...(actionState.routeParams ?? {}),
       }
     ),
     routeParams: actionState.routeParams,

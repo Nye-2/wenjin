@@ -1,14 +1,20 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
+import { usePanelRef } from "react-resizable-panels";
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { KnowledgeRail } from "@/components/knowledge/KnowledgeRail";
+import {
+  KnowledgeRail,
+  KnowledgeRailBar,
+  KnowledgeRailContent,
+} from "@/components/knowledge/KnowledgeRail";
+import type { RailTab } from "@/components/knowledge/KnowledgeRail";
 import { cn } from "@/lib/utils";
 
 export type WorkspaceMode = "chat" | "executing" | "completed";
@@ -21,27 +27,28 @@ interface WorkspaceShellProps {
 }
 
 const PANEL_IDS = {
-  knowledge: "knowledge",
-  compute: "compute",
   chat: "chat",
+  compute: "compute",
 };
 
 function getDefaultLayout(mode: WorkspaceMode): Record<string, number> {
   switch (mode) {
     case "chat":
-      return { [PANEL_IDS.knowledge]: 15, [PANEL_IDS.compute]: 0, [PANEL_IDS.chat]: 85 };
+      return { [PANEL_IDS.chat]: 100, [PANEL_IDS.compute]: 0 };
     case "executing":
-      return { [PANEL_IDS.knowledge]: 12, [PANEL_IDS.compute]: 58, [PANEL_IDS.chat]: 30 };
+      return { [PANEL_IDS.chat]: 40, [PANEL_IDS.compute]: 60 };
     case "completed":
-      return { [PANEL_IDS.knowledge]: 12, [PANEL_IDS.compute]: 48, [PANEL_IDS.chat]: 40 };
+      return { [PANEL_IDS.chat]: 40, [PANEL_IDS.compute]: 60 };
     default:
-      return { [PANEL_IDS.knowledge]: 15, [PANEL_IDS.compute]: 0, [PANEL_IDS.chat]: 85 };
+      return { [PANEL_IDS.chat]: 100, [PANEL_IDS.compute]: 0 };
   }
 }
 
 const STORAGE_KEY = "wenjin:workspace-shell-layout";
 
-function loadSavedLayout(workspaceId: string): Record<string, number> | null {
+function loadSavedLayout(
+  workspaceId: string
+): Record<string, number> | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
@@ -70,12 +77,25 @@ export function WorkspaceShell({
   className,
 }: WorkspaceShellProps) {
   const [mode, setMode] = useState<WorkspaceMode>("chat"); // eslint-disable-line @typescript-eslint/no-unused-vars
+  const [krActiveTab, setKrActiveTab] = useState<RailTab>("papers");
+  const [krOverlayOpen, setKrOverlayOpen] = useState(false);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
+  const computePanelRef = usePanelRef();
 
   const defaultLayout =
     loadSavedLayout(workspaceId) ?? getDefaultLayout(mode);
 
   const isComputeVisible = mode === "executing" || mode === "completed";
+
+  // Control Compute Panel expand/collapse based on mode
+  useEffect(() => {
+    if (isComputeVisible) {
+      computePanelRef.current?.expand();
+    } else {
+      computePanelRef.current?.collapse();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isComputeVisible]);
 
   return (
     <div className={cn("relative flex h-full w-full", className)}>
@@ -94,10 +114,16 @@ export function WorkspaceShell({
               initial={{ x: -240 }}
               animate={{ x: 0 }}
               exit={{ x: -240 }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] as const }}
+              transition={{
+                duration: 0.3,
+                ease: [0.16, 1, 0.3, 1] as const,
+              }}
               className="absolute left-0 top-0 z-50 h-full w-60 lg:hidden"
             >
-              <KnowledgeRail workspaceId={workspaceId} className="h-full" />
+              <KnowledgeRail
+                workspaceId={workspaceId}
+                className="h-full"
+              />
             </motion.div>
           </>
         )}
@@ -113,89 +139,130 @@ export function WorkspaceShell({
             : "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]"
         )}
       >
-        {mobileRailOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+        {mobileRailOpen ? (
+          <X className="h-4 w-4" />
+        ) : (
+          <Menu className="h-4 w-4" />
+        )}
       </button>
 
-      <ResizablePanelGroup
-        orientation="horizontal"
-        defaultLayout={defaultLayout}
-        onLayoutChanged={(layout) => saveLayout(workspaceId, layout)}
-      >
-        {/* Knowledge Rail - hidden on mobile, shown on lg+ */}
-        <ResizablePanel
-          id={PANEL_IDS.knowledge}
-          defaultSize={defaultLayout[PANEL_IDS.knowledge]}
-          minSize={8}
-          maxSize={25}
-          collapsible
-          collapsedSize={4}
-          className="hidden lg:block"
-        >
-          <KnowledgeRail workspaceId={workspaceId} className="h-full" />
-        </ResizablePanel>
+      {/* Desktop: Fixed KR Icon Bar */}
+      <div className="hidden lg:flex w-12 shrink-0 border-r border-[var(--border-default)] bg-[var(--bg-elevated)]">
+        <KnowledgeRailBar
+          activeTab={krActiveTab}
+          onTabChange={(tab) => {
+            setKrActiveTab(tab);
+            setKrOverlayOpen(true);
+          }}
+        />
+      </div>
 
-        <ResizableHandle withHandle className="hidden lg:flex" />
-
-        {/* Compute Stage */}
-        <ResizablePanel
-          id={PANEL_IDS.compute}
-          defaultSize={defaultLayout[PANEL_IDS.compute]}
-          minSize={0}
-          maxSize={80}
-          collapsible
-          collapsedSize={0}
-        >
-          <AnimatePresence mode="wait">
-            {isComputeVisible ? (
+      {/* Main Area: resizable Chat + Compute */}
+      <div className="relative flex flex-1">
+        {/* Desktop: KR Content Overlay */}
+        <AnimatePresence>
+          {krOverlayOpen && (
+            <>
               <motion.div
-                key="compute"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{
-                  duration: 0.4,
-                  ease: [0.16, 1, 0.3, 1] as const,
-                }}
-                className="h-full"
-              >
-                {computePanel}
-              </motion.div>
-            ) : (
-              <motion.div
-                key="compute-empty"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="flex h-full items-center justify-center bg-[var(--bg-base)]"
+                className="absolute inset-0 z-40 bg-black/20 hidden lg:block"
+                onClick={() => setKrOverlayOpen(false)}
+              />
+              <motion.div
+                initial={{ x: -240 }}
+                animate={{ x: 0 }}
+                exit={{ x: -240 }}
+                transition={{
+                  duration: 0.3,
+                  ease: [0.16, 1, 0.3, 1] as const,
+                }}
+                className="absolute left-0 top-0 z-50 h-full w-60 hidden lg:flex"
               >
-                <ComputeEmptyState />
+                <KnowledgeRailContent
+                  activeTab={krActiveTab}
+                  onTabChange={setKrActiveTab}
+                  onClose={() => setKrOverlayOpen(false)}
+                  workspaceId={workspaceId}
+                  className="border-r border-[var(--border-default)]"
+                />
               </motion.div>
-            )}
-          </AnimatePresence>
-        </ResizablePanel>
+            </>
+          )}
+        </AnimatePresence>
 
-        <ResizableHandle withHandle />
-
-        {/* Chat Dock */}
-        <ResizablePanel
-          id={PANEL_IDS.chat}
-          defaultSize={defaultLayout[PANEL_IDS.chat]}
-          minSize={20}
-          maxSize={60}
+        <ResizablePanelGroup
+          orientation="horizontal"
+          className="flex-1"
+          defaultLayout={defaultLayout}
+          onLayoutChanged={(layout) => saveLayout(workspaceId, layout)}
         >
-          <motion.div
-            initial={false}
-            animate={{ opacity: 1 }}
-            transition={{
-              duration: 0.3,
-              ease: [0.16, 1, 0.3, 1] as const,
-            }}
-            className="h-full"
+          {/* Chat Dock */}
+          <ResizablePanel
+            id={PANEL_IDS.chat}
+            defaultSize={defaultLayout[PANEL_IDS.chat]}
+            minSize={25}
+            maxSize={isComputeVisible ? 60 : 100}
           >
-            {chatPanel}
-          </motion.div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+            <motion.div
+              initial={false}
+              animate={{ opacity: 1 }}
+              transition={{
+                duration: 0.3,
+                ease: [0.16, 1, 0.3, 1] as const,
+              }}
+              className="h-full"
+            >
+              {chatPanel}
+            </motion.div>
+          </ResizablePanel>
+
+          <ResizableHandle
+            withHandle
+            className={isComputeVisible ? "flex" : "hidden"}
+          />
+
+          {/* Compute Stage */}
+          <ResizablePanel
+            panelRef={computePanelRef}
+            id={PANEL_IDS.compute}
+            defaultSize={defaultLayout[PANEL_IDS.compute]}
+            minSize={0}
+            maxSize={75}
+            collapsible
+            collapsedSize={0}
+          >
+            <AnimatePresence mode="wait">
+              {isComputeVisible ? (
+                <motion.div
+                  key="compute"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{
+                    duration: 0.4,
+                    ease: [0.16, 1, 0.3, 1] as const,
+                  }}
+                  className="h-full"
+                >
+                  {computePanel}
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="compute-empty"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex h-full items-center justify-center bg-[var(--bg-base)]"
+                >
+                  <ComputeEmptyState />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
     </div>
   );
 }

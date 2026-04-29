@@ -29,6 +29,7 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { ExecutionSession, WorkspaceFeature } from "@/lib/api";
 import { useI18n } from "@/components/i18n-provider";
 import { workspaceStages, getFeatureStageId } from "@/lib/workspace-feature-stages";
+import { getWorkspaceFeatureThreadRoute } from "@/lib/workspace-feature-routes";
 import { WorkspaceInspector } from "./components/WorkspaceInspector";
 
 const workspaceTypeLabels: Record<string, string> = {
@@ -197,9 +198,12 @@ function RunningTasksSection({
 
 function StagedFeatureCards({
   features,
+  workspaceId,
 }: {
   features: WorkspaceFeature[];
+  workspaceId: string;
 }) {
+  const router = useRouter();
   const grouped = useMemo(() => {
     const groups = new Map<string, WorkspaceFeature[]>();
     for (const feature of features) {
@@ -232,13 +236,22 @@ function StagedFeatureCards({
               {stageFeatures.map((feature) => {
                 const delay = globalIndex * 0.04;
                 globalIndex++;
+                const route = getWorkspaceFeatureThreadRoute(workspaceId, feature.id, {
+                  ...(feature.defaultSkillId ? { skill: feature.defaultSkillId } : {}),
+                });
                 return (
-                  <motion.div
+                  <motion.button
                     key={feature.id}
+                    type="button"
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay, duration: 0.35, ease: "easeOut" }}
-                    className="route-card-hover flex items-start gap-3 rounded-2xl p-4 text-left"
+                    onClick={() => {
+                      if (route) {
+                        router.push(route);
+                      }
+                    }}
+                    className="route-card-hover flex w-full items-start gap-3 rounded-2xl p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-teal)]/35"
                   >
                     <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[rgba(31,66,99,0.06)]">
                       <StaticFeatureIcon
@@ -254,10 +267,10 @@ function StagedFeatureCards({
                         {feature.description}
                       </p>
                       <p className="mt-2 text-[11px] leading-5 text-[var(--text-secondary)]">
-                        在对话中表达这一步目标后，问津会判断是否启用该模块。
+                        点击后进入对话确认，并通过统一启动链路进入 Compute。
                       </p>
                     </div>
-                  </motion.div>
+                  </motion.button>
                 );
               })}
             </div>
@@ -366,6 +379,13 @@ export default function WorkbenchPage() {
   }
 
   const recommendedIconName = recommendedFeature?.icon ?? null;
+  const recommendedRoute = recommendedFeature
+    ? getWorkspaceFeatureThreadRoute(workspaceId, recommendedFeature.id, {
+        ...(recommendedFeature.defaultSkillId
+          ? { skill: recommendedFeature.defaultSkillId }
+          : {}),
+      })
+    : null;
 
   return (
     <div className="flex h-screen flex-col bg-[var(--bg-base)]">
@@ -435,7 +455,15 @@ export default function WorkbenchPage() {
 
                   {/* Embedded recommendation */}
                   {recommendedFeature && recommendedIconName ? (
-                    <div className="mt-6 rounded-xl border border-[var(--border-default)] bg-white/60 p-4 backdrop-blur-sm">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (recommendedRoute) {
+                          router.push(recommendedRoute);
+                        }
+                      }}
+                      className="mt-6 w-full rounded-xl border border-[var(--border-default)] bg-white/60 p-4 text-left backdrop-blur-sm transition-colors hover:bg-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-teal)]/35"
+                    >
                       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
                         推荐下一步
                       </p>
@@ -458,14 +486,14 @@ export default function WorkbenchPage() {
                           在对话中提出这一步，问津会先确认是否开始。
                         </p>
                       </div>
-                    </div>
+                    </button>
                   ) : null}
                 </div>
               </motion.section>
 
               <RunningTasksSection tasks={runningTasks} workspaceId={workspaceId} />
 
-              <StagedFeatureCards features={features} />
+              <StagedFeatureCards features={features} workspaceId={workspaceId} />
             </div>
 
             <div className="min-h-0">
