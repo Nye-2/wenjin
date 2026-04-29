@@ -1,8 +1,9 @@
-"""WorkspaceLeadAgent -- Unified LangGraph orchestrator for all workspace types.
+"""Feature graph registry and executor for workspace feature runtime.
 
-This module is the central registry and executor for LangGraph sub-graphs
-across all workspace types (thesis, sci, proposal, patent,
-software_copyright).
+This module is the feature-domain registry and executor for LangGraph
+sub-graphs across all workspace types (thesis, sci, proposal, patent,
+software_copyright). It is intentionally owned by FeatureLeaderRuntime, not by
+the chat lead-agent.
 
 Key features:
 - Lazy loading of graph modules per workspace type

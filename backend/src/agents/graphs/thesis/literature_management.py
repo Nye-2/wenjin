@@ -8,8 +8,8 @@ from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
+from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
-from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_model, validate_requested_model
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
@@ -30,13 +30,13 @@ def _resolve_management_model(requested_model: str | None) -> str:
     """Resolve a model for literature management analysis without silent rerouting."""
     requested = validate_requested_model(
         requested_model,
-        allowed_categories=("tool", "gen"),
+        allowed_categories=("llm"),
         require_tools=False,
     )
     return route_model(
         requested_model=requested,
-        preferred_categories=("tool", "gen"),
-        allowed_categories=("tool", "gen"),
+        preferred_categories=("llm",),
+        allowed_categories=("llm",),
         require_tools=False,
     )
 

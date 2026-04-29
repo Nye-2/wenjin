@@ -4,24 +4,19 @@ from __future__ import annotations
 
 import pytest
 
-from src.agents.graphs.thesis.thesis_writing import (
-    _handle_review_section,
-    _parse_json_response,
-    _validate_review_result,
-    thesis_writing_graph,
-)
+from src.agents.graphs.thesis import thesis_writing
 from src.workspace_features.latex_sync import LatexSyncResult
 
 
 class TestParseJsonResponse:
     def test_valid_json(self):
-        assert _parse_json_response('{"key":"value"}') == {"key": "value"}
+        assert thesis_writing._parse_json_response('{"key":"value"}') == {"key": "value"}
 
     def test_fenced_json(self):
-        assert _parse_json_response("```json\n{\"a\":1}\n```") == {"a": 1}
+        assert thesis_writing._parse_json_response("```json\n{\"a\":1}\n```") == {"a": 1}
 
     def test_invalid_json(self):
-        assert _parse_json_response("not json") is None
+        assert thesis_writing._parse_json_response("not json") is None
 
 
 class TestValidateReviewResult:
@@ -32,10 +27,10 @@ class TestValidateReviewResult:
             "strengths": ["清晰"],
             "revision_needed": False,
         }
-        assert _validate_review_result(review) is True
+        assert thesis_writing._validate_review_result(review) is True
 
     def test_invalid(self):
-        assert _validate_review_result({"overall_score": "bad"}) is False
+        assert thesis_writing._validate_review_result({"overall_score": "bad"}) is False
 
 
 @pytest.mark.asyncio
@@ -51,16 +46,10 @@ async def test_generate_outline_action(monkeypatch: pytest.MonkeyPatch):
             "model_id": "mock-model",
         }
 
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing.build_outline_payload",
-        _fake_build_outline_payload,
-    )
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing._resolve_writing_model",
-        lambda _requested_model: "mock-model",
-    )
+    monkeypatch.setattr(thesis_writing, "build_outline_payload", _fake_build_outline_payload)
+    monkeypatch.setattr(thesis_writing, "_resolve_writing_model", lambda _requested_model: "mock-model")
 
-    result = await thesis_writing_graph(
+    result = await thesis_writing.thesis_writing_graph(
         initial_state={},
         payload={"params": {"action": "generate_outline", "paper_title": "测试论文"}},
     )
@@ -86,16 +75,10 @@ async def test_write_chapter_action(monkeypatch: pytest.MonkeyPatch):
             "model_id": "mock-model",
         }
 
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing.build_chapter_payload",
-        _fake_build_chapter_payload,
-    )
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing._resolve_writing_model",
-        lambda _requested_model: "mock-model",
-    )
+    monkeypatch.setattr(thesis_writing, "build_chapter_payload", _fake_build_chapter_payload)
+    monkeypatch.setattr(thesis_writing, "_resolve_writing_model", lambda _requested_model: "mock-model")
 
-    result = await thesis_writing_graph(
+    result = await thesis_writing.thesis_writing_graph(
         initial_state={},
         payload={
             "params": {
@@ -131,20 +114,11 @@ async def test_generate_outline_action_syncs_prism_context(monkeypatch: pytest.M
             file_changes=[],
         )
 
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing.build_outline_payload",
-        _fake_build_outline_payload,
-    )
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing.sync_thesis_writing_payload",
-        _fake_sync_thesis_writing_payload,
-    )
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing._resolve_writing_model",
-        lambda _requested_model: "mock-model",
-    )
+    monkeypatch.setattr(thesis_writing, "build_outline_payload", _fake_build_outline_payload)
+    monkeypatch.setattr(thesis_writing, "sync_thesis_writing_payload", _fake_sync_thesis_writing_payload)
+    monkeypatch.setattr(thesis_writing, "_resolve_writing_model", lambda _requested_model: "mock-model")
 
-    result = await thesis_writing_graph(
+    result = await thesis_writing.thesis_writing_graph(
         initial_state={},
         payload={
             "workspace_id": "ws-1",
@@ -179,20 +153,11 @@ async def test_review_section_action_does_not_sync_prism(monkeypatch: pytest.Mon
         sync_calls.append(kwargs)
         return LatexSyncResult(latex_project_id="latex-proj-should-not-be-used")
 
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing._review_section",
-        _fake_review_section,
-    )
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing.sync_thesis_writing_payload",
-        _fake_sync,
-    )
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing._resolve_writing_model",
-        lambda _requested_model: "mock-model",
-    )
+    monkeypatch.setattr(thesis_writing, "_review_section", _fake_review_section)
+    monkeypatch.setattr(thesis_writing, "sync_thesis_writing_payload", _fake_sync)
+    monkeypatch.setattr(thesis_writing, "_resolve_writing_model", lambda _requested_model: "mock-model")
 
-    result = await thesis_writing_graph(
+    result = await thesis_writing.thesis_writing_graph(
         initial_state={},
         payload={
             "workspace_id": "ws-1",
@@ -215,13 +180,10 @@ async def test_review_section_raises_when_llm_invalid(monkeypatch: pytest.Monkey
         _ = args, kwargs
         return None
 
-    monkeypatch.setattr(
-        "src.agents.graphs.thesis.thesis_writing._review_section",
-        _fake_review_section,
-    )
+    monkeypatch.setattr(thesis_writing, "_review_section", _fake_review_section)
 
     with pytest.raises(RuntimeError, match="review_section_llm_failed"):
-        await _handle_review_section(
+        await thesis_writing._handle_review_section(
             params={"section_title": "绪论", "section_content": "内容"},
             memory_context=None,
             model_id="mock-model",

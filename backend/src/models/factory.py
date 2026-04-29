@@ -10,10 +10,12 @@ supporting:
 """
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_openai import ChatOpenAI
+from langchain_core.outputs import ChatGenerationChunk, ChatResult
 
 from src.config.llm_config import LLMSettings, get_model_full_config, resolve_model_id
 
@@ -44,13 +46,6 @@ def _is_anthropic_provider(base_url: str, model: str) -> bool:
         return True
 
     return False
-
-
-def _is_minimax_provider(base_url: str, model: str) -> bool:
-    """Determine if the model uses MiniMax's OpenAI-compatible endpoint."""
-    base_url_lower = (base_url or "").lower()
-    model_lower = (model or "").lower()
-    return "minimaxi" in base_url_lower or model_lower.startswith("minimax-")
 
 
 def _supports_reasoning_effort(config: dict[str, Any]) -> bool:
@@ -144,6 +139,61 @@ def create_chat_model(
         )
 
 
+class ReasoningChatOpenAI(ChatOpenAI):
+    """ChatOpenAI that extracts reasoning_content from API responses.
+
+    Some OpenAI-compatible APIs (e.g. DeepSeek V4 Pro via qnaigc.com)
+    return reasoning content in a separate ``reasoning_content`` field
+    on the message / delta.  LangChain's built-in ChatOpenAI silently
+    drops that field.  This subclass forwards it into
+    ``additional_kwargs["reasoning"]`` so that downstream extractors
+    (e.g. ``_extract_reasoning_text`` in the thread handler) can find it.
+    """
+
+    def _create_chat_result(
+        self,
+        response: Any,
+        generation_info: Optional[dict] = None,
+    ) -> ChatResult:
+        result = super()._create_chat_result(response, generation_info)
+        # Pull reasoning_content from the raw response and attach it to
+        # each generation's message.additional_kwargs.
+        response_dict = (
+            response if isinstance(response, dict) else response.model_dump()
+        )
+        for idx, choice in enumerate(response_dict.get("choices", [])):
+            reasoning = choice.get("message", {}).get("reasoning_content")
+            if reasoning and idx < len(result.generations):
+                msg = result.generations[idx].message
+                if isinstance(msg, AIMessage):
+                    msg.additional_kwargs["reasoning"] = reasoning
+        return result
+
+    def _convert_chunk_to_generation_chunk(
+        self,
+        chunk: dict,
+        default_chunk_class: type,
+        base_generation_info: Optional[dict] = None,
+    ) -> Optional[ChatGenerationChunk]:
+        generation_chunk = super()._convert_chunk_to_generation_chunk(
+            chunk, default_chunk_class, base_generation_info
+        )
+        if generation_chunk is None:
+            return None
+
+        # Streamed reasoning_content appears in delta.reasoning_content.
+        choices = chunk.get("choices", []) or chunk.get("chunk", {}).get("choices", [])
+        if choices:
+            delta = choices[0].get("delta", {}) or {}
+            reasoning = delta.get("reasoning_content")
+            if reasoning:
+                msg = generation_chunk.message
+                if isinstance(msg, AIMessageChunk):
+                    msg.additional_kwargs.setdefault("reasoning", "")
+                    msg.additional_kwargs["reasoning"] += reasoning
+        return generation_chunk
+
+
 def _create_openai_compatible_model(
     model_string: str,
     api_key: str,
@@ -164,7 +214,7 @@ def _create_openai_compatible_model(
         max_tokens: Maximum output tokens
 
     Returns:
-        Configured ChatOpenAI instance
+        Configured ReasoningChatOpenAI instance
     """
     logger.debug(
         "Creating OpenAI-compatible model: %s (base_url: %s)",
@@ -183,10 +233,7 @@ def _create_openai_compatible_model(
     }
     if reasoning_effort:
         kwargs["reasoning_effort"] = reasoning_effort
-    if _is_minimax_provider(base_url, model_string):
-        kwargs["extra_body"] = {"reasoning_split": True}
-
-    return ChatOpenAI(
+    return ReasoningChatOpenAI(
         **kwargs,
     )
 

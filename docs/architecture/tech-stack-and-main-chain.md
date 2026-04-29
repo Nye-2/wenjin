@@ -287,7 +287,7 @@ State Stores:
 4. Worker 执行
 - `_execute_task_async` -> `_dispatch_task`
 - `workspace_feature` 任务走 `execute_workspace_feature`
-- 调用 `FeatureLeaderRuntime.execute_feature` -> `workspace_lead_agent.execute_feature_graph`
+- 调用 `FeatureLeaderRuntime.execute_feature` -> `feature_leader.graph_registry.execute_feature_graph`
 - 持久化 artifacts / runtime snapshot
 
 5. 收敛回写

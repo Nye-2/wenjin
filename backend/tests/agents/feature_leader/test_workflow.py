@@ -71,7 +71,7 @@ async def test_runtime_executes_feature_without_workflow_for_non_complex_feature
     }
 
     with patch(
-        "src.agents.workspace_lead_agent.execute_feature_graph",
+        "src.agents.feature_leader.graph_registry.execute_feature_graph",
         new=AsyncMock(return_value={"message": "ok"}),
     ) as execute_feature_graph:
         result = await runtime.execute_feature(
@@ -136,7 +136,7 @@ async def test_runtime_executes_dynamic_workflow_and_injects_context(monkeypatch
     monkeypatch.setattr(runtime, "_build_agent_harness", lambda _payload: fake_harness)
 
     with patch(
-        "src.agents.workspace_lead_agent.execute_feature_graph",
+        "src.agents.feature_leader.graph_registry.execute_feature_graph",
         new=AsyncMock(return_value={"message": "ok"}),
     ) as execute_feature_graph:
         result = await runtime.execute_feature(
@@ -193,7 +193,7 @@ async def test_runtime_fails_fast_when_workflow_execution_fails(
     monkeypatch.setattr(runtime, "_build_agent_harness", lambda _payload: fake_harness)
 
     with patch(
-        "src.agents.workspace_lead_agent.execute_feature_graph",
+        "src.agents.feature_leader.graph_registry.execute_feature_graph",
         new=AsyncMock(return_value={"message": "ok"}),
     ) as execute_feature_graph:
         with pytest.raises(RuntimeError, match="feature_leader_workflow_failed"):
@@ -234,7 +234,7 @@ async def test_runtime_rejects_agentic_workflow_without_execution_session(
     )
 
     with patch(
-        "src.agents.workspace_lead_agent.execute_feature_graph",
+        "src.agents.feature_leader.graph_registry.execute_feature_graph",
         new=AsyncMock(return_value={"message": "ok"}),
     ) as execute_feature_graph:
         with pytest.raises(
@@ -319,7 +319,7 @@ async def test_runtime_emits_runtime_updates_during_workflow(monkeypatch: pytest
         "src.agents.feature_leader.runtime._emit_bound_runtime",
         new=AsyncMock(),
     ) as emit_bound_runtime, patch(
-        "src.agents.workspace_lead_agent.execute_feature_graph",
+        "src.agents.feature_leader.graph_registry.execute_feature_graph",
         new=AsyncMock(return_value={"message": "ok"}),
     ):
         result = await runtime.execute_feature(

@@ -1,12 +1,12 @@
 # 一次性迁移计划
 
-更新时间：2026-04-28  
-状态：In Progress  
+更新时间：2026-04-29
+状态：Completed
 适用范围：`/home/cjz/wenjin`
 
 ## 0. 当前进度快照
 
-更新时间：2026-04-28 18:13 CST
+更新时间：2026-04-29 11:20 CST
 
 已完成：
 
@@ -25,10 +25,11 @@
 13. Phase 7 Prism file-change API 切片：旧 `resolve-conflict` 路径已替换为 `file-changes/preview|apply|discard|revert`；apply 必须使用 preview 产生的签名，revert 使用 apply 后写入 metadata 的 undo payload 做 hash 校验。
 14. Phase 7 Prism 前端闭环切片：Compute projection 透出 `applied_file_changes`；ComputeStage 和 WenjinPrism 均可预览 file-change diff、应用/丢弃待确认写入，并对已应用写入执行带签名和 hash 校验的撤回。
 15. Phase 8 文档收口切片：`docs/architecture`、`docs/product`、根 README、backend/frontend README 已改为 ChatTurnRouter / FeatureIngressService / ComputeSession / WenjinPrism 当前事实源；新增文档守卫测试防止旧 chat-feature tool loop 文案回流。
+16. 最终收口切片：前端 feature resume metadata 改由 active `ExecutionSession` 生成，不再从 assistant message metadata 反推；feature graph registry 从旧的 workspace lead-agent 命名迁入 `agents/feature_leader/graph_registry.py`，并新增架构守卫。
 
 待继续：
 
-1. Phase 8 已完成。后续迁移进入整体回归和剩余死代码巡检。
+1. 无迁移阻塞项；后续只保留常规产品迭代与回归。
 
 ## 1. 迁移前提
 
@@ -429,9 +430,9 @@ preview -> apply -> revert
 
 - 用户能在 Compute 中看到任务生成了哪些文件。第一段完成。
 - 用户能在 Compute 中看到运行日志、runtime activity、task error。第一段完成。
-- 文件写回有 review gate。已有 Prism 文件变化已进入待确认写入队列；后续补结构化 diff preview 和 apply 后 revert。
+- 文件写回有 review gate。已有 Prism 文件变化已进入待确认写入队列，并已完成结构化 diff preview 与 apply 后 revert。
 - artifact 与 sandbox 临时文件边界清晰。第一段通过 `kind=artifact/sandbox_file/linked_file/output_file` 区分；第二段补预览和 promote contract。
-- 写作/LaTeX feature 与 Prism 的边界清晰。`prism` projection 和已有文件强制写入门禁已完成；后续补独立 file change pack。
+- 写作/LaTeX feature 与 Prism 的边界清晰。`prism` projection、已有文件强制写入门禁和独立 file change pack 已完成。
 - Prism 冲突可以在 Compute 工作面直接处理，且 projection 不再受旧 task result 的过期冲突影响。
 
 ## 13. Phase 8：测试和文档收口

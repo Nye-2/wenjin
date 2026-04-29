@@ -74,8 +74,8 @@ async def compact_user_memory(
             from src.models.router import route_model
 
             model_id = route_model(
-                preferred_categories=("utility", "gen", "tool"),
-                allowed_categories=("utility", "gen", "tool"),
+                preferred_categories=("llm",),
+                allowed_categories=("llm",),
                 require_tools=False,
             )
             model = create_chat_model(model_id, temperature=0.1)

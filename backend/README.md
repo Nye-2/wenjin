@@ -1,6 +1,6 @@
 # 问津 Wenjin Backend
 
-更新时间：2026-04-28
+更新时间：2026-04-29
 
 后端当前采用 Compute-centered 分层执行架构：
 
@@ -40,10 +40,10 @@ backend/
 │   ├── compute/                # Compute sessions and projection service
 │   ├── agents/
 │   │   ├── lead_agent/         # Chat lead-agent, prompt template, workspace read catalog
+│   │   ├── feature_leader/     # Feature runtime facade and graph registry
 │   │   ├── graphs/             # Workspace feature graphs by workspace type
 │   │   ├── harness/            # AgentHarness contract/provider
-│   │   ├── middlewares/        # Lead-agent runtime context middlewares
-│   │   └── workspace_lead_agent.py
+│   │   └── middlewares/        # Lead-agent runtime context middlewares
 │   ├── workspace_features/     # Feature registry, runtime profiles, service layer, latex sync
 │   ├── task/                   # Task service, worker, progress, runtime blocks
 │   ├── subagents/              # Subagent manager, graph factory, prompts, context snapshot

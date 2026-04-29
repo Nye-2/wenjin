@@ -1,11 +1,11 @@
-"""Tests for ThesisLeadAgent routing via WorkspaceLeadAgent."""
+"""Tests for thesis feature routing through the feature graph registry."""
 
 import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.agents.workspace_lead_agent import (
+from src.agents.feature_leader.graph_registry import (
     _FEATURE_GRAPH_REGISTRY,
     _LOADED_WORKSPACES,
     THESIS_FEATURE_IDS,
@@ -89,7 +89,7 @@ class TestFeatureRouting:
         _FEATURE_GRAPH_REGISTRY["thesis._test_feature"] = _mock_graph_fn
         try:
             with patch(
-                "src.agents.workspace_lead_agent._ensure_graphs_loaded",
+                "src.agents.feature_leader.graph_registry._ensure_graphs_loaded",
                 return_value=None,
             ), patch(
                 "src.services.user_memory_service.build_memory_context",

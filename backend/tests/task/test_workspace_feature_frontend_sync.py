@@ -125,6 +125,8 @@ def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_threa
     assert 'intent: "resume"' in chat_panel_body
     assert 'feature_id: entrySeed.featureId' in chat_panel_body
     assert "params: entrySeed.params" in chat_panel_body
+    assert "buildFeatureResumeMetadata(activeExecution)" in chat_panel_body
+    assert "latestAssistant.metadata" not in chat_panel_body
     assert "void loadThreads(workspaceId);" not in layout_body
     assert "ensureWorkspaceThread(workspaceId" in chat_route_body
 

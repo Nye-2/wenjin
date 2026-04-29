@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import _normalize_list, _read_payload_params
-from src.agents.workspace_lead_agent import register_feature_graph
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,

@@ -368,7 +368,7 @@ class FeatureLeaderRuntime:
         payload: dict[str, Any],
         user_id: str | None = None,
     ) -> dict[str, Any]:
-        from src.agents.workspace_lead_agent import execute_feature_graph
+        from src.agents.feature_leader.graph_registry import execute_feature_graph
 
         workflow = await self._run_dynamic_workflow(
             workspace_type=workspace_type,

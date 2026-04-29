@@ -38,57 +38,41 @@ interface PendingThreadAttachment {
   kind: ThreadUploadKind;
 }
 
-function resolveContinuationMetadata(
-  messages: Array<{
-    role: "user" | "assistant";
-    metadata: Record<string, unknown> | null;
-  }>
+function hasUserInputAction(execution: ExecutionSession): boolean {
+  return execution.next_actions.some((action) => {
+    const kind = typeof action.kind === "string" ? action.kind.trim() : "";
+    const actionName =
+      typeof action.action === "string" ? action.action.trim() : "";
+    return kind === "user_input_required" || actionName === "user_input_required";
+  });
+}
+
+function buildFeatureResumeMetadata(
+  execution: ExecutionSession | null
 ): Record<string, unknown> | null {
-  const latestAssistant = [...messages]
-    .reverse()
-    .find((message) => message.role === "assistant");
-  if (!latestAssistant || !latestAssistant.metadata) {
+  if (!execution) {
+    return null;
+  }
+  const status = execution.status.trim();
+  if (status !== "awaiting_user_input" && !hasUserInputAction(execution)) {
     return null;
   }
 
-  const orchestration = latestAssistant.metadata.orchestration;
-  if (!orchestration || typeof orchestration !== "object") {
-    return null;
-  }
-  const payload = orchestration as Record<string, unknown>;
-  const executionSessionId =
-    typeof payload.execution_session_id === "string"
-      ? payload.execution_session_id.trim()
-      : "";
-  const featureId =
-    typeof payload.feature_id === "string"
-      ? payload.feature_id.trim()
-      : "";
-  const status =
-    typeof payload.status === "string" ? payload.status.trim() : "";
-  if (!featureId) {
+  const featureId = execution.feature_id.trim();
+  const executionSessionId = execution.id.trim();
+  if (!featureId || !executionSessionId) {
     return null;
   }
 
-  if (
-    ["awaiting_user_input", "missing_params"].includes(status) &&
-    executionSessionId
-  ) {
-    return {
-      orchestration: {
-        intent: "resume",
-        feature_id: featureId,
-        execution_session_id: executionSessionId,
-        status: "awaiting_user_input",
-        params:
-          payload.params && typeof payload.params === "object"
-            ? (payload.params as Record<string, unknown>)
-            : {},
-      },
-    };
-  }
-
-  return null;
+  return {
+    orchestration: {
+      intent: "resume",
+      feature_id: featureId,
+      execution_session_id: executionSessionId,
+      status: "awaiting_user_input",
+      params: execution.params,
+    },
+  };
 }
 
 const EMPTY_EXECUTION_SESSIONS: ExecutionSession[] = [];
@@ -465,7 +449,7 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
 
       setInputValue("");
       setPendingAttachments([]);
-      const continuationMetadata = resolveContinuationMetadata(messages);
+      const continuationMetadata = buildFeatureResumeMetadata(activeExecution);
       sendMessage(content, {
         workspaceId,
         model: selectedModel || undefined,

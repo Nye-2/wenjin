@@ -200,8 +200,8 @@ async def parse_template_content(file_content: str) -> dict[str, Any]:
         from src.models.router import route_model
 
         model_id = route_model(
-            preferred_categories=("utility", "gen"),
-            allowed_categories=("utility", "gen", "tool"),
+            preferred_categories=("llm",),
+            allowed_categories=("llm",),
             require_tools=False,
         )
         model = create_chat_model(model_id, temperature=0.1)

@@ -520,7 +520,7 @@ class TestThreadTurnHandlerCancellation:
             ),
             patch(
                 "src.application.handlers.thread_turn_handler.route_chat_model",
-                return_value="minimax-m2.7",
+                return_value="deepseek-v4-pro",
             ),
             patch(
                 "src.application.handlers.thread_turn_handler.build_thread_runtime_config",
@@ -542,7 +542,7 @@ class TestThreadTurnHandlerCancellation:
             from src.application.handlers.thread_turn_handler import generate_thread_response
 
             mock_request = MagicMock()
-            mock_request.model = "minimax-m2.7"
+            mock_request.model = "deepseek-v4-pro"
             mock_request.message = "hello"
             mock_request.attachments = ()
             mock_request.metadata = None

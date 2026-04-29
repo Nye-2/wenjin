@@ -8,13 +8,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import (
     _normalize_list,
     _read_optional_int,
     _read_optional_str,
     _read_payload_params,
 )
-from src.agents.workspace_lead_agent import register_feature_graph
 from src.workspace_features.latex_sync import sync_sci_writing_payload
 from src.workspace_features.services import build_sci_writing_payload
 

@@ -19,8 +19,8 @@ def route_subagent_model(
         return route_model(
             requested_model=requested_model,
             thread_model=thread_model,
-            preferred_categories=("tool", "gen"),
-            allowed_categories=("tool", "gen"),
+            preferred_categories=("llm",),
+            allowed_categories=("llm",),
             require_tools=True,
         )
     except Exception:

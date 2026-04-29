@@ -8,8 +8,8 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
-from src.agents.workspace_lead_agent import register_feature_graph
 from src.execution.capabilities import execution_type_readiness
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.execution.types import ExecutionType
@@ -35,7 +35,7 @@ def _resolve_writing_model(requested_model: str | None) -> str:
     """Resolve a writing model without silently rerouting invalid selections."""
     requested = validate_requested_model(
         requested_model,
-        allowed_categories=("gen", "tool"),
+        allowed_categories=("llm"),
         require_tools=False,
     )
     return route_writing_model(requested_model=requested)

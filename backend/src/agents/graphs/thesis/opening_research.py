@@ -7,8 +7,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
-from src.agents.workspace_lead_agent import register_feature_graph
 from src.models.router import route_writing_model, validate_requested_model
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
@@ -36,7 +36,7 @@ def _resolve_writing_model(requested_model: str | None) -> str:
     """Resolve a writing model without silently rerouting invalid selections."""
     requested = validate_requested_model(
         requested_model,
-        allowed_categories=("gen", "tool"),
+        allowed_categories=("llm"),
         require_tools=False,
     )
     return route_writing_model(requested_model=requested)

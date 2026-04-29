@@ -190,6 +190,7 @@ Compute Stage（过程面）     Chat 总结消息（收口面）
 | `backend/src/application/services/feature_submission_service.py` | application 层策略编排 |
 | `backend/src/task/handlers/workspace_feature_handler.py` | 调用专职 feature leader runtime |
 | `backend/src/agents/feature_leader/runtime.py` | feature runtime 编排 |
+| `backend/src/agents/feature_leader/graph_registry.py` | feature graph 注册与执行 |
 | `backend/src/agents/harness/` | AgentHarness contract/provider |
 | `backend/src/application/handlers/chat_turn_router.py` | chat turn mode 分类 |
 | `backend/src/application/handlers/feature_command_handler.py` | chat 显式 launch/resume adapter |

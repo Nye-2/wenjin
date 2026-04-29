@@ -95,7 +95,7 @@ class RedisStreamBridge(StreamBridge):
                     count=100,
                     block=block_ms,
                 )
-            except (RedisTimeoutError, TimeoutError, asyncio.TimeoutError):
+            except (RedisTimeoutError, TimeoutError):
                 # Treat network read timeout like an idle interval so SSE clients
                 # keep receiving heartbeats instead of a hard stream failure.
                 yield HEARTBEAT_SENTINEL

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import (
     _normalize_list,
     _read_optional_str,
     _read_payload_params,
 )
-from src.agents.workspace_lead_agent import register_feature_graph
 from src.workspace_features.services import build_sci_literature_review_payload
 
 

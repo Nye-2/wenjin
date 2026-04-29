@@ -17,14 +17,14 @@ def _create_client() -> TestClient:
     return TestClient(app)
 
 
-def _sample_tool_models() -> str:
+def _sample_llm_models() -> str:
     return json.dumps(
         [
             {
                 "id": "qwen3.5-plus",
                 "name": "Qwen3.5 Plus",
                 "model": "qwen3.5-plus",
-                "api_key": "sk-tool",
+                "api_key": "sk-llm",
                 "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 "supports_tools": True,
             },
@@ -32,39 +32,18 @@ def _sample_tool_models() -> str:
                 "id": "glm-5",
                 "name": "GLM-5",
                 "model": "z-ai/glm-5",
-                "api_key": "sk-tool-2",
+                "api_key": "sk-llm-2",
                 "base_url": "https://api.qnaigc.com/v1",
                 "supports_tools": True,
                 "supports_reasoning_effort": True,
             },
-        ]
-    )
-
-
-def _sample_gen_models() -> str:
-    return json.dumps(
-        [
             {
                 "id": "gen-model",
                 "name": "Gen Model",
                 "model": "provider/gen-model",
                 "api_key": "sk-gen",
                 "base_url": "https://example.com/v1",
-            }
-        ]
-    )
-
-
-def _sample_utility_models() -> str:
-    return json.dumps(
-        [
-            {
-                "id": "qwen-flash",
-                "name": "Qwen Flash",
-                "model": "qwen-flash",
-                "api_key": "sk-util",
-                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            }
+            },
         ]
     )
 
@@ -80,9 +59,7 @@ class TestModelsRouter:
         with patch.dict(
             os.environ,
             {
-                "LLM_TOOL_MODELS": _sample_tool_models(),
-                "LLM_GEN_MODELS": _sample_gen_models(),
-                "LLM_UTILITY_MODELS": _sample_utility_models(),
+                "LLM_MODELS": _sample_llm_models(),
                 "LLM_DEFAULT_MODEL": "qwen3.5-plus",
             },
             clear=False,
@@ -101,15 +78,15 @@ class TestModelsRouter:
         assert default_entry["is_default"] is True
         assert default_entry["supports_tools"] is True
         assert default_entry["supports_reasoning_effort"] is False
-        assert default_entry["category"] == "tool"
+        assert default_entry["category"] == "llm"
         model_names = [model["name"] for model in payload["models"]]
-        assert "qwen-flash" not in model_names
+        assert "gen-model" in model_names
 
     def test_get_model_by_id(self):
         with patch.dict(
             os.environ,
             {
-                "LLM_TOOL_MODELS": _sample_tool_models(),
+                "LLM_MODELS": _sample_llm_models(),
                 "LLM_DEFAULT_MODEL": "qwen3.5-plus",
             },
             clear=False,
@@ -139,8 +116,7 @@ class TestModelsRouter:
         with patch.dict(
             os.environ,
             {
-                "LLM_TOOL_MODELS": _sample_tool_models(),
-                "LLM_GEN_MODELS": _sample_gen_models(),
+                "LLM_MODELS": _sample_llm_models(),
                 "LLM_IMAGE_MODELS": image_models,
                 "LLM_DEFAULT_MODEL": "qwen3.5-plus",
             },

@@ -10,6 +10,7 @@ from collections.abc import Generator
 from unittest.mock import patch
 
 import pytest
+from langchain_core.messages import AIMessageChunk
 
 from src.config.llm_config import LLMSettings
 
@@ -62,7 +63,7 @@ class TestCreateChatModel:
 
     def test_create_openai_compatible_model(self, openai_compatible_config: str) -> None:
         """Test creating an OpenAI-compatible model (DeepSeek, GLM, Qwen, etc.)."""
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": openai_compatible_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": openai_compatible_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
             reload_models()
@@ -76,7 +77,7 @@ class TestCreateChatModel:
 
     def test_create_anthropic_model(self, anthropic_config: str) -> None:
         """Test creating an Anthropic/Claude model."""
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": anthropic_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": anthropic_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
             reload_models()
@@ -90,7 +91,7 @@ class TestCreateChatModel:
 
     def test_create_anthropic_model_with_thinking(self, anthropic_config: str) -> None:
         """Test creating an Anthropic model with thinking enabled."""
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": anthropic_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": anthropic_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
             reload_models()
@@ -112,9 +113,9 @@ class TestCreateChatModel:
         with patch.dict(
             os.environ,
             {
-                "LLM_GEN_MODELS": "[]",
-                "LLM_TOOL_MODELS": "[]",
-                "LLM_UTILITY_MODELS": "[]",
+                "LLM_MODELS": "[]",
+                "LLM_MODELS": "[]",
+                "LLM_MODELS": "[]",
                 "LLM_IMAGE_MODELS": "[]",
                 "LLM_DEFAULT_MODEL": "",
             },
@@ -132,7 +133,7 @@ class TestCreateChatModel:
         with patch.dict(
             os.environ,
             {
-                "LLM_GEN_MODELS": openai_compatible_config,
+                "LLM_MODELS": openai_compatible_config,
                 "LLM_DEFAULT_MODEL": "deepseek-v3",
             },
             clear=False,
@@ -147,7 +148,7 @@ class TestCreateChatModel:
 
     def test_temperature_override(self, openai_compatible_config: str) -> None:
         """Test that temperature parameter overrides config default."""
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": openai_compatible_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": openai_compatible_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
             reload_models()
@@ -161,7 +162,7 @@ class TestCreateChatModel:
 
     def test_openai_compatible_with_base_url(self, openai_compatible_config: str) -> None:
         """Test that OpenAI-compatible models use the base_url from config."""
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": openai_compatible_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": openai_compatible_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
             reload_models()
@@ -172,27 +173,27 @@ class TestCreateChatModel:
             assert model is not None
             # Verify base_url is set correctly (accessible via openai_api_base or similar)
 
-    def test_minimax_models_enable_reasoning_split(self) -> None:
-        minimax_config = json.dumps([
+    def test_deepseek_models_creation(self) -> None:
+        deepseek_config = json.dumps([
             {
-                "id": "minimax-m2.7",
-                "model": "MiniMax-M2.7",
-                "api_key": "sk-minimax",
-                "base_url": "https://api.minimaxi.com/v1",
+                "id": "deepseek-v4-pro",
+                "model": "deepseek/deepseek-v4-pro",
+                "api_key": "sk-deepseek-test",
+                "base_url": "https://api.qnaigc.com/v1",
                 "temperature": 0.3,
                 "max_tokens": 32768,
             }
         ])
 
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": minimax_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": deepseek_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
             reload_models()
 
-            model = create_chat_model(model_id="minimax-m2.7", temperature=0.3)
+            model = create_chat_model(model_id="deepseek-v4-pro", temperature=0.3)
 
-            assert model.model_name == "MiniMax-M2.7"
-            assert model.extra_body == {"reasoning_split": True}
+            assert model.model_name == "deepseek/deepseek-v4-pro"
+            assert not hasattr(model, "extra_body") or getattr(model, "extra_body", None) is None
 
     def test_reasoning_effort_defaults_when_model_explicitly_supports_it(self) -> None:
         config = json.dumps([
@@ -205,7 +206,7 @@ class TestCreateChatModel:
             }
         ])
 
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
 
@@ -260,7 +261,7 @@ class TestModelProviderDetection:
 
     def test_detects_anthropic_by_base_url(self, mixed_provider_config: str) -> None:
         """Test that Anthropic is detected by base_url containing 'anthropic'."""
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": mixed_provider_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": mixed_provider_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import _is_anthropic_provider
             reload_models()
@@ -271,7 +272,7 @@ class TestModelProviderDetection:
 
     def test_detects_openai_compatible_by_base_url(self, mixed_provider_config: str) -> None:
         """Test that non-Anthropic providers use ChatOpenAI."""
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": mixed_provider_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": mixed_provider_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import _is_anthropic_provider
             reload_models()
@@ -312,7 +313,7 @@ class TestDynamicConfigIntegration:
             }
         ])
 
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": sample_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": sample_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
             reload_models()
@@ -360,7 +361,7 @@ class TestTimeoutAndRetrySettings:
         self, openai_config: str
     ) -> None:
         """OpenAI-compatible models must be created with timeout and max_retries from LLMSettings."""
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": openai_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": openai_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
             reload_models()
@@ -375,7 +376,7 @@ class TestTimeoutAndRetrySettings:
         self, anthropic_config: str
     ) -> None:
         """Anthropic models must be created with timeout and max_retries from LLMSettings."""
-        with patch.dict(os.environ, {"LLM_GEN_MODELS": anthropic_config}, clear=False):
+        with patch.dict(os.environ, {"LLM_MODELS": anthropic_config}, clear=False):
             from src.config.llm_config import reload_models
             from src.models.factory import create_chat_model
             reload_models()
@@ -386,6 +387,63 @@ class TestTimeoutAndRetrySettings:
             assert model.default_request_timeout == LLMSettings.TIMEOUT
             assert model.max_retries == LLMSettings.MAX_RETRIES
 
+    def test_reasoning_content_extracted_in_non_streaming(self) -> None:
+        """ReasoningChatOpenAI should extract reasoning_content into additional_kwargs."""
+        from src.models.factory import ReasoningChatOpenAI
+
+        model = ReasoningChatOpenAI(
+            model="deepseek/deepseek-v4-pro",
+            api_key="sk-test",
+            base_url="https://api.qnaigc.com/v1",
+        )
+
+        raw_response = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "The answer is 2.",
+                        "reasoning_content": "Let's think step by step...",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            "model": "deepseek/deepseek-v4-pro",
+        }
+
+        result = model._create_chat_result(raw_response)
+        msg = result.generations[0].message
+        assert msg.additional_kwargs.get("reasoning") == "Let's think step by step..."
+
+    def test_reasoning_content_extracted_in_streaming(self) -> None:
+        """ReasoningChatOpenAI should stream reasoning_content into additional_kwargs."""
+        from src.models.factory import ReasoningChatOpenAI
+
+        model = ReasoningChatOpenAI(
+            model="deepseek/deepseek-v4-pro",
+            api_key="sk-test",
+            base_url="https://api.qnaigc.com/v1",
+        )
+
+        chunk = {
+            "choices": [
+                {
+                    "delta": {
+                        "content": "",
+                        "reasoning_content": "Thinking...",
+                    },
+                    "finish_reason": None,
+                }
+            ]
+        }
+
+        gen_chunk = model._convert_chunk_to_generation_chunk(
+            chunk, AIMessageChunk, {}
+        )
+        assert gen_chunk is not None
+        assert gen_chunk.message.additional_kwargs.get("reasoning") == "Thinking..."
+
     def test_custom_llm_settings_are_propagated(self, openai_config: str) -> None:
         """When LLMSettings values are changed, models should reflect the new values."""
         original_timeout = LLMSettings.TIMEOUT
@@ -394,7 +452,7 @@ class TestTimeoutAndRetrySettings:
             LLMSettings.TIMEOUT = 60.0
             LLMSettings.MAX_RETRIES = 5
 
-            with patch.dict(os.environ, {"LLM_GEN_MODELS": openai_config}, clear=False):
+            with patch.dict(os.environ, {"LLM_MODELS": openai_config}, clear=False):
                 from src.config.llm_config import reload_models
                 from src.models.factory import create_chat_model
                 reload_models()

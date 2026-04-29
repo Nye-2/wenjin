@@ -152,7 +152,7 @@ async def test_execute_workspace_feature_wraps_langgraph_result_for_all_features
     result_payload.setdefault("generation_mode", "llm")
 
     with patch(
-        "src.agents.workspace_lead_agent.execute_feature_graph",
+        "src.agents.feature_leader.graph_registry.execute_feature_graph",
         new=AsyncMock(return_value=result_payload),
     ) as execute_feature_graph, patch(
         "src.task.handlers.workspace_feature_handler._persist_langgraph_artifacts",

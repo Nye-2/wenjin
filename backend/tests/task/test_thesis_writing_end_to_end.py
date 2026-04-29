@@ -91,7 +91,7 @@ async def test_execute_thesis_writing_generate_outline_persists_outline_artifact
 
     with (
         patch(
-            "src.agents.workspace_lead_agent.execute_feature_graph",
+            "src.agents.feature_leader.graph_registry.execute_feature_graph",
             new=AsyncMock(return_value=langgraph_result),
         ),
         patch(
@@ -161,7 +161,7 @@ async def test_execute_thesis_writing_write_chapter_persists_chapter_artifact():
 
     with (
         patch(
-            "src.agents.workspace_lead_agent.execute_feature_graph",
+            "src.agents.feature_leader.graph_registry.execute_feature_graph",
             new=AsyncMock(return_value=langgraph_result),
         ),
         patch(
@@ -262,7 +262,7 @@ async def test_execute_thesis_writing_write_all_persists_outline_and_chapters():
 
     with (
         patch(
-            "src.agents.workspace_lead_agent.execute_feature_graph",
+            "src.agents.feature_leader.graph_registry.execute_feature_graph",
             new=AsyncMock(return_value=langgraph_result),
         ),
         patch(

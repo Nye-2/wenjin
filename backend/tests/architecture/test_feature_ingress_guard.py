@@ -96,3 +96,18 @@ def test_gateway_does_not_export_feature_submission_service_factory() -> None:
 def test_legacy_feature_execution_handler_module_is_removed() -> None:
     """Feature submission no longer belongs in application.handlers."""
     assert not (_SRC_ROOT / "application/handlers/feature_execution_handler.py").exists()
+
+
+def test_legacy_workspace_lead_agent_module_is_removed() -> None:
+    """Feature graph dispatch belongs under feature_leader, not chat lead-agent naming."""
+    assert not (_SRC_ROOT / "agents/workspace_lead_agent.py").exists()
+
+    violations: list[str] = []
+    for py_file in _SRC_ROOT.rglob("*.py"):
+        rel = py_file.relative_to(_SRC_ROOT).as_posix()
+        if "src.agents.workspace_lead_agent" in py_file.read_text():
+            violations.append(rel)
+    assert not violations, (
+        "Feature graph imports must use src.agents.feature_leader.graph_registry:\n"
+        + "\n".join(violations)
+    )

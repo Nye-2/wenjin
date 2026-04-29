@@ -50,8 +50,10 @@ def _infer_provider(model: ModelConfig) -> str:
         return "Qwen"
     if "bigmodel" in base_url or "glm" in raw_model:
         return "Zhipu"
-    if "minimaxi" in base_url or raw_model.startswith("minimax-"):
-        return "MiniMax"
+    if "deepseek" in raw_model:
+        return "DeepSeek"
+    if "qnaigc" in base_url:
+        return "QNAIGC"
     if "deepseek" in base_url or "deepseek" in raw_model:
         return "DeepSeek"
     if "openai" in base_url:
@@ -74,7 +76,7 @@ def _to_model_info(model: ModelConfig, *, category: str, mark_default: bool) -> 
         category=category,
         provider=_infer_provider(model),
         max_tokens=model.max_tokens,
-        supports_tools=(model.supports_tools or category == "tool"),
+        supports_tools=model.supports_tools,
         supports_thinking=model_supports_thinking(model.id),
         supports_reasoning_effort=model_supports_reasoning_effort(model.id),
         supports_vision=_supports_vision(model),

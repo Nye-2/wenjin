@@ -1,6 +1,6 @@
 # 问津 Wenjin
 
-更新时间：2026-04-28
+更新时间：2026-04-29
 
 问津是一个面向学术研究与写作交付的 AI 工作台，核心场景覆盖论文、学位论文、申报书、专利与软著材料。项目当前收口到 Compute-centered 主链路：
 
@@ -72,6 +72,7 @@
 - `backend/src/application/`：应用层 handler，例如 chat turn、ChatTurnRouter、feature command、feature execution
 - `backend/src/compute/`：ComputeSession 与 projection
 - `backend/src/agents/lead_agent/`：主 chat agent、workspace read tools、skill prompt
+- `backend/src/agents/feature_leader/`：feature runtime facade 与 feature graph registry
 - `backend/src/agents/graphs/`：按 workspace type 组织的 feature graphs
 - `backend/src/agents/harness/`：AgentHarness contract/provider
 - `backend/src/workspace_features/`：feature registry、runtime profiles、service 层、LaTeX sync

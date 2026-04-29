@@ -5,12 +5,9 @@ from collections.abc import Iterable
 from src.config import get_all_models, get_default_model_id, get_model_config, resolve_model_id
 from src.config.llm_config import ModelConfig
 
-_ALL_CATEGORIES: tuple[str, ...] = ("tool", "gen", "utility", "image")
-_USER_TEXT_CATEGORIES: tuple[str, ...] = ("tool", "gen")
-_WRITING_TEXT_CATEGORIES: tuple[str, ...] = ("gen", "tool")
-_USER_ALL_CATEGORIES: tuple[str, ...] = ("tool", "gen", "image")
+_ALL_CATEGORIES: tuple[str, ...] = ("llm", "image")
 _VISION_HINT_TAGS: tuple[str, ...] = ("vision", "vl")
-_THINKING_HINT_PREFIXES: tuple[str, ...] = ("claude", "minimax-")
+_THINKING_HINT_PREFIXES: tuple[str, ...] = ("claude", "deepseek-")
 _REASONING_HINT_TAGS: tuple[str, ...] = ("gpt-5", "doubao")
 
 
@@ -115,47 +112,6 @@ def _category_map(grouped: dict[str, list[ModelConfig]]) -> dict[str, str]:
     return mapping
 
 
-def _ordered_categories(
-    preferred_categories: Iterable[str],
-    allowed_categories: set[str],
-) -> list[str]:
-    ordered: list[str] = []
-    for category in preferred_categories:
-        if category in allowed_categories and category not in ordered:
-            ordered.append(category)
-    for category in _ALL_CATEGORIES:
-        if category in allowed_categories and category not in ordered:
-            ordered.append(category)
-    return ordered
-
-
-def _iter_candidates(
-    grouped: dict[str, list[ModelConfig]],
-    *,
-    preferred_categories: Iterable[str],
-    allowed_categories: set[str],
-    require_tools: bool,
-    require_vision: bool,
-) -> list[ModelConfig]:
-    ordered_categories = _ordered_categories(preferred_categories, allowed_categories)
-    candidates: list[ModelConfig] = []
-    seen: set[str] = set()
-
-    for category in ordered_categories:
-        for model in grouped.get(category, []):
-            if model.id in seen:
-                continue
-            seen.add(model.id)
-
-            if require_tools and not (model.supports_tools or category == "tool"):
-                continue
-            if require_vision and not _supports_vision(model):
-                continue
-            candidates.append(model)
-
-    return candidates
-
-
 def _resolve_allowed_model_id(
     raw_model_id: str | None,
     *,
@@ -179,7 +135,7 @@ def _resolve_allowed_model_id(
 def validate_requested_model(
     raw_model_id: str | None,
     *,
-    allowed_categories: Iterable[str] = _USER_TEXT_CATEGORIES,
+    allowed_categories: Iterable[str] = ("llm",),
     require_tools: bool = False,
     require_vision: bool = False,
 ) -> str | None:
@@ -201,15 +157,22 @@ def validate_requested_model(
         raise InvalidRequestedModelError(f"Unknown model id: {requested}")
 
     grouped = _grouped_models()
-    allowed = {category for category in allowed_categories if category in _ALL_CATEGORIES}
     category = _category_map(grouped).get(requested)
-    if category is None or category not in allowed:
-        allowed_text = ", ".join(sorted(allowed)) or "none"
+
+    normalized_allowed = set(allowed_categories)
+    is_image_task = normalized_allowed == {"image"}
+    is_llm_task = "llm" in normalized_allowed
+
+    if is_image_task and category != "image":
         raise InvalidRequestedModelError(
-            f"Model '{requested}' is not allowed for categories: {allowed_text}"
+            f"Model '{requested}' is not an image model and cannot be used for image tasks"
+        )
+    if is_llm_task and category == "image":
+        raise InvalidRequestedModelError(
+            f"Model '{requested}' is an image model and cannot be used for non-image tasks"
         )
 
-    if require_tools and not (model.supports_tools or category == "tool"):
+    if require_tools and not model.supports_tools:
         raise InvalidRequestedModelError(
             f"Model '{requested}' does not support required tool execution"
         )
@@ -223,7 +186,7 @@ def validate_requested_model(
 
 
 def get_model_category(model_id: str) -> str | None:
-    """Get model category (tool/gen/utility/image) for a model id."""
+    """Get model category (llm/image) for a model id."""
     grouped = _grouped_models()
     return _category_map(grouped).get(model_id)
 
@@ -235,46 +198,39 @@ def list_user_selectable_models(
     """List models selectable by end users for a given purpose.
 
     Purposes:
-    - ``chat``: text chat (tool + gen, tool-first)
-    - ``writing``: long-form generation (gen + tool, gen-first)
+    - ``chat``: text chat (llm)
+    - ``writing``: long-form generation (llm)
     - ``image``: image generation only
-    - ``all``: all user-facing categories (tool + gen + image)
+    - ``all``: all user-facing categories (llm + image)
     """
     grouped = _grouped_models()
-    if purpose == "writing":
-        preferred = _WRITING_TEXT_CATEGORIES
-        allowed = set(_USER_TEXT_CATEGORIES)
-    elif purpose == "image":
-        preferred = ("image",)
-        allowed = {"image"}
-    elif purpose == "all":
-        preferred = ("tool", "gen", "image")
-        allowed = set(_USER_ALL_CATEGORIES)
-    else:
-        preferred = _USER_TEXT_CATEGORIES
-        allowed = set(_USER_TEXT_CATEGORIES)
-
-    return _iter_candidates(
-        grouped,
-        preferred_categories=preferred,
-        allowed_categories=allowed,
-        require_tools=False,
-        require_vision=False,
-    )
+    if purpose == "image":
+        return list(grouped.get("image", []))
+    if purpose == "all":
+        llm_models = grouped.get("llm", [])
+        image_models = grouped.get("image", [])
+        seen: set[str] = set()
+        result: list[ModelConfig] = []
+        for model in (*llm_models, *image_models):
+            if model.id not in seen:
+                seen.add(model.id)
+                result.append(model)
+        return result
+    return list(grouped.get("llm", []))
 
 
 def route_model(
     *,
     requested_model: str | None = None,
     thread_model: str | None = None,
-    preferred_categories: Iterable[str] = _USER_TEXT_CATEGORIES,
-    allowed_categories: Iterable[str] = _USER_TEXT_CATEGORIES,
+    preferred_categories: Iterable[str] = ("llm",),
+    allowed_categories: Iterable[str] = ("llm",),
     require_tools: bool = False,
     require_vision: bool = False,
 ) -> str:
     """Route to an effective model id using category and capability constraints."""
     grouped = _grouped_models()
-    allowed = {category for category in allowed_categories if category in _ALL_CATEGORIES}
+    allowed = {c for c in allowed_categories if c in _ALL_CATEGORIES}
     if not allowed:
         raise ValueError("No allowed model categories configured for routing")
 
@@ -296,30 +252,20 @@ def route_model(
     if resolved_thread:
         return resolved_thread
 
-    candidates = _iter_candidates(
-        grouped,
-        preferred_categories=preferred_categories,
-        allowed_categories=allowed,
-        require_tools=require_tools,
-        require_vision=require_vision,
-    )
-    if candidates:
-        return candidates[0].id
+    # Pick the first model from allowed categories that satisfies constraints
+    for category in allowed:
+        for model in grouped.get(category, []):
+            if require_tools and not model.supports_tools:
+                continue
+            if require_vision and not _supports_vision(model):
+                continue
+            return model.id
 
+    # Fallback to default model if it belongs to an allowed category
     fallback = get_default_model_id()
     fallback_category = category_by_id.get(fallback)
     if fallback_category in allowed:
         return fallback
-
-    relaxed_candidates = _iter_candidates(
-        grouped,
-        preferred_categories=preferred_categories,
-        allowed_categories=allowed,
-        require_tools=False,
-        require_vision=False,
-    )
-    if relaxed_candidates:
-        return relaxed_candidates[0].id
 
     raise ValueError("No models configured for required routing categories")
 
@@ -331,12 +277,12 @@ def route_chat_model(
     require_tools: bool = True,
     require_vision: bool = False,
 ) -> str:
-    """Route text chat model (tool-first, utility excluded from selection)."""
+    """Route text chat model from LLM models."""
     return route_model(
         requested_model=requested_model,
         thread_model=thread_model,
-        preferred_categories=_USER_TEXT_CATEGORIES,
-        allowed_categories=_USER_TEXT_CATEGORIES,
+        preferred_categories=("llm",),
+        allowed_categories=("llm",),
         require_tools=require_tools,
         require_vision=require_vision,
     )
@@ -346,13 +292,11 @@ def route_writing_model(
     *,
     requested_model: str | None = None,
 ) -> str:
-    """Route writing model (gen-first, then tool, utility excluded)."""
+    """Route writing model from LLM models."""
     return route_model(
         requested_model=requested_model,
-        preferred_categories=_WRITING_TEXT_CATEGORIES,
-        allowed_categories=_USER_TEXT_CATEGORIES,
-        require_tools=False,
-        require_vision=False,
+        preferred_categories=("llm",),
+        allowed_categories=("llm",),
     )
 
 
@@ -365,6 +309,4 @@ def route_image_model(
         requested_model=requested_model,
         preferred_categories=("image",),
         allowed_categories=("image",),
-        require_tools=False,
-        require_vision=False,
     )

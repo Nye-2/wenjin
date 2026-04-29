@@ -136,7 +136,7 @@ async def test_execute_workspace_feature_emits_runtime_for_feature(
     }
 
     with patch(
-        "src.agents.workspace_lead_agent.execute_feature_graph",
+        "src.agents.feature_leader.graph_registry.execute_feature_graph",
         new=AsyncMock(return_value=graph_result),
     ), patch(
         "src.task.handlers.workspace_feature_handler._persist_langgraph_artifacts",
@@ -197,7 +197,7 @@ async def test_execute_workspace_feature_surfaces_langgraph_root_cause() -> None
     }
 
     with patch(
-        "src.agents.workspace_lead_agent.execute_feature_graph",
+        "src.agents.feature_leader.graph_registry.execute_feature_graph",
         new=AsyncMock(side_effect=ValueError("planner exploded")),
     ), patch(
         "src.task.handlers.workspace_feature_handler._schedule_memory_extraction"
@@ -252,7 +252,7 @@ async def test_execute_workspace_feature_projects_leader_workflow_blocks() -> No
     }
 
     with patch(
-        "src.agents.workspace_lead_agent.execute_feature_graph",
+        "src.agents.feature_leader.graph_registry.execute_feature_graph",
         new=AsyncMock(return_value=graph_result),
     ), patch(
         "src.task.handlers.workspace_feature_handler._persist_langgraph_artifacts",
@@ -321,7 +321,7 @@ async def test_execute_workspace_feature_raises_when_quality_gate_fails() -> Non
     }
 
     with patch(
-        "src.agents.workspace_lead_agent.execute_feature_graph",
+        "src.agents.feature_leader.graph_registry.execute_feature_graph",
         new=AsyncMock(return_value={"generation_mode": "llm"}),
     ), patch(
         "src.task.handlers.workspace_feature_handler._schedule_memory_extraction"

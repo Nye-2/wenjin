@@ -110,8 +110,8 @@ class ExtractionService:
         try:
             return route_model(
                 requested_model=requested,
-                preferred_categories=("utility", "gen", "tool"),
-                allowed_categories=("utility", "gen", "tool"),
+                preferred_categories=("llm",),
+                allowed_categories=("llm",),
                 require_tools=False,
                 require_vision=False,
             )

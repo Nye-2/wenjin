@@ -79,7 +79,7 @@ chat、feature API、activity retry 和 automation 只能作为 adapter 调用 d
    - 生成 canonical task payload。
    - 提交给 `TaskService`。
 4. Celery worker 拉取任务并交给 workspace feature runtime。
-4. `FeatureLeaderRuntime.execute_feature(...)` 根据 runtime profile 选择 deterministic workflow、LangGraph graph 或 AgentHarness。
+4. `FeatureLeaderRuntime.execute_feature(...)` 根据 runtime profile 选择 deterministic workflow、`feature_leader.graph_registry` 注册的 LangGraph graph 或 AgentHarness。
 5. feature graph/service 产出 runtime blocks、draft/review/file-change packs、artifacts 和 activity。
 6. 结果统一写回：
    - `task_records`

@@ -362,7 +362,7 @@ def _pick_model_id(model_id: str | None) -> str:
     try:
         requested = validate_requested_model(
             model_id,
-            allowed_categories=("gen", "tool"),
+            allowed_categories=("llm",),
             require_tools=False,
         )
     except InvalidRequestedModelError as exc:
