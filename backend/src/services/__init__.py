@@ -17,7 +17,7 @@ from .auth import (
     verify_refresh_token,
     verify_refresh_token_recorded,
 )
-from .credit_service import CreditService, InsufficientCreditsError
+from .credit_service import CreditService
 from .thread_service import ThreadAccessError, ThreadService
 from .user_service import UserService
 
@@ -40,6 +40,5 @@ __all__ = [
     "ThreadAccessError",
     "ThreadService",
     "CreditService",
-    "InsufficientCreditsError",
     "UserService",
 ]

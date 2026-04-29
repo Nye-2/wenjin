@@ -39,10 +39,7 @@ def test_feature_submission_service_imports_are_bounded() -> None:
             continue
         if rel not in _ALLOWED_SUBMISSION_SERVICE_IMPORTERS:
             violations.append(rel)
-    assert not violations, (
-        "FeatureSubmissionService imports must be constrained to ingress/bootstrap adapters:\n"
-        + "\n".join(violations)
-    )
+    assert not violations, "FeatureSubmissionService imports must be constrained to ingress/bootstrap adapters:\n" + "\n".join(violations)
 
 
 def test_direct_execute_calls_go_through_ingress() -> None:
@@ -55,10 +52,7 @@ def test_direct_execute_calls_go_through_ingress() -> None:
             continue
         if rel not in _ALLOWED_DIRECT_EXECUTE_CALLERS:
             violations.append(rel)
-    assert not violations, (
-        "Direct feature_submission_service.execute(...) calls must stay in ingress:\n"
-        + "\n".join(violations)
-    )
+    assert not violations, "Direct feature_submission_service.execute(...) calls must stay in ingress:\n" + "\n".join(violations)
 
 
 def test_feature_ingress_launch_accepts_command_object_only() -> None:
@@ -87,10 +81,7 @@ def test_gateway_does_not_export_feature_submission_service_factory() -> None:
         source = (_SRC_ROOT / rel).read_text()
         if "get_feature_submission_service" in source:
             violations.append(rel)
-    assert not violations, (
-        "Gateway dependency exports must not expose FeatureSubmissionService directly:\n"
-        + "\n".join(violations)
-    )
+    assert not violations, "Gateway dependency exports must not expose FeatureSubmissionService directly:\n" + "\n".join(violations)
 
 
 def test_legacy_feature_execution_handler_module_is_removed() -> None:
@@ -107,7 +98,63 @@ def test_legacy_workspace_lead_agent_module_is_removed() -> None:
         rel = py_file.relative_to(_SRC_ROOT).as_posix()
         if "src.agents.workspace_lead_agent" in py_file.read_text():
             violations.append(rel)
+    assert not violations, "Feature graph imports must use src.agents.feature_leader.graph_registry:\n" + "\n".join(violations)
+
+
+def test_chat_feature_routing_uses_thread_intent_router_ssot() -> None:
+    """ChatTurnRouter must stay a thin adapter over the canonical intent router."""
+    source = (_SRC_ROOT / "application/handlers/chat_turn_router.py").read_text()
+    assert "ThreadIntentRouter.route" in source
+    assert "metadata.orchestration.intent" not in source
+
+
+def test_workspace_skill_catalog_is_owned_by_workspace_features() -> None:
+    """Production code must not import the compatibility lead-agent skill path."""
+    assert not (_SRC_ROOT / "agents/lead_agent/thread_skill_catalog.py").exists()
+    assert not (_SRC_ROOT / "agents/lead_agent/thread_feature_catalog.py").exists()
+
+    violations: list[str] = []
+    for py_file in _SRC_ROOT.rglob("*.py"):
+        rel = py_file.relative_to(_SRC_ROOT).as_posix()
+        source = py_file.read_text()
+        if (
+            "src.agents.lead_agent.thread_skill_catalog" in source
+            or "src.agents.lead_agent.thread_feature_catalog" in source
+        ):
+            violations.append(rel)
     assert not violations, (
-        "Feature graph imports must use src.agents.feature_leader.graph_registry:\n"
+        "Workspace feature/skill catalog imports must use src.workspace_features:\n"
         + "\n".join(violations)
     )
+
+
+def test_feature_graph_modules_are_derived_from_feature_registry() -> None:
+    """Graph loading must not reintroduce a second workspace-feature map."""
+    source = (_SRC_ROOT / "agents/feature_leader/graph_registry.py").read_text()
+    assert "_WORKSPACE_GRAPH_MODULES" not in source
+    assert "_SHARED_FEATURE_GRAPH_MODULES" not in source
+    assert "list_workspace_features" in source
+    assert "feature.graph_module" in source
+    assert "_workspace_graph_modules" in source
+
+
+def test_feature_runtime_profile_is_consumed_by_feature_leader() -> None:
+    """Runtime profile must be an execution policy, not only registry metadata."""
+    runtime_source = (_SRC_ROOT / "agents/feature_leader/runtime.py").read_text()
+    workflow_source = (_SRC_ROOT / "agents/feature_leader/workflow.py").read_text()
+    assert "get_feature_runtime_profile" in runtime_source
+    assert "validate_workflow_plan_against_profile" in runtime_source
+    assert "agent_harness_provider" in runtime_source
+    assert "validate_workflow_plan_against_profile" in workflow_source
+
+
+def test_billing_policy_is_not_owned_by_feature_registry() -> None:
+    """Billing must stay in services.billing_policy, not feature definitions."""
+    assert not (_SRC_ROOT / "services/feature_credit_policy.py").exists()
+
+    registry_source = (_SRC_ROOT / "workspace_features/registry.py").read_text()
+    assert "credit_cost" not in registry_source
+
+    billing_source = (_SRC_ROOT / "services/billing_policy.py").read_text()
+    assert "feature_token_billing" in billing_source
+    assert "thread_token_billing" in billing_source

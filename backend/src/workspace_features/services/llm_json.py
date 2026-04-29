@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
+from src.services.token_usage_collector import record_token_usage
 
 JsonValue = dict[str, Any] | list[Any]
 
@@ -202,6 +203,7 @@ async def invoke_json_chat_model(
                 HumanMessage(content=prompt),
             ]
         )
+        record_token_usage(response)
     except Exception as exc:
         return None, model_id, f"llm_generation_failed: {exc}"
 

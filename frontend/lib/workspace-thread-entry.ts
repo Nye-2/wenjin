@@ -107,4 +107,4 @@ export function buildWorkspaceThreadEntryPrompt(options: {
 // Onboarding prompts have been moved to the backend system prompt.
 // The workspace-type-specific guidance is now in:
 // 1. _WORKSPACE_TYPE_PROMPTS in agent.py (system prompt per workspace type)
-// 2. guidance_prompt in thread_skill_catalog.py (per-skill LLM instructions)
+// 2. guidance_prompt in workspace_features/skills.py (per-skill LLM instructions)

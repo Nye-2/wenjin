@@ -7,10 +7,10 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from src.agents.lead_agent.thread_skill_catalog import get_skill_by_id
 from src.agents.middlewares.discipline_context import DisciplineRegistry
 from src.agents.thread_state import ThreadState
 from src.subagents.task_builder import SubagentRuntimeContext
+from src.workspace_features.skills import get_skill_by_id
 
 logger = logging.getLogger(__name__)
 

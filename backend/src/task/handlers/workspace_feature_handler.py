@@ -10,6 +10,11 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from src.services.token_usage_collector import (
+    bind_token_usage_collector,
+    get_collected_token_usage,
+    reset_token_usage_collector,
+)
 from src.task.progress import (
     ProgressTracker,
     bind_progress_tracker,
@@ -393,13 +398,21 @@ async def execute_workspace_feature(
                 f"Unsupported thesis_writing action: {action}"
             )
 
-    # Try LangGraph sub-graph execution
-    result = await _try_langgraph_execution(
-        workspace_type,
-        feature_id,
-        effective_payload,
-        progress,
-    )
+    # Try LangGraph sub-graph execution and collect all model usage for billing.
+    usage_token = bind_token_usage_collector()
+    try:
+        result = await _try_langgraph_execution(
+            workspace_type,
+            feature_id,
+            effective_payload,
+            progress,
+        )
+        usage = get_collected_token_usage()
+    finally:
+        reset_token_usage_collector(usage_token)
+
+    if usage is not None:
+        result["token_usage"] = usage.as_dict()
 
     _schedule_memory_extraction(workspace_type, effective_payload, result)
     return result

@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 
 from src.task.registry import WORKSPACE_FEATURE_TASK
 
+FIGURE_GENERATION_GRAPH_MODULE = "src.agents.graphs.thesis.figure_generation"
+
 CANONICAL_WORKSPACE_TYPES = (
     "sci",
     "thesis",
@@ -37,8 +39,7 @@ class WorkspaceFeatureDefinition:
     panel: str | None = None
     stages: tuple[FeatureStageDefinition, ...] = field(default_factory=tuple)
     color: str | None = None
-    credit_cost: int | dict[str, int] | None = None
-    runtime_profile_key: str | None = None
+    graph_module: str | None = None
     follow_up_prompt: str | None = None
 
     def to_api_dict(self) -> dict:
@@ -83,8 +84,6 @@ THESIS_FEATURES = (
             _stage("analyze", "分析信息"),
             _stage("synthesize", "综合整理"),
         ),
-        credit_cost=100,
-        runtime_profile_key="deep_research",
         follow_up_prompt="请基于这次深度调研继续收敛研究问题，并给出更具体的创新点与验证路径。",
     ),
     WorkspaceFeatureDefinition(
@@ -99,8 +98,6 @@ THESIS_FEATURES = (
         panel=None,
         stages=(),
         color="emerald",
-        credit_cost=20,
-        runtime_profile_key="literature_management",
         follow_up_prompt="请基于这次文献盘点继续指出还缺哪些关键文献，并给出下一轮补充与筛选建议。",
     ),
     WorkspaceFeatureDefinition(
@@ -119,8 +116,6 @@ THESIS_FEATURES = (
             _stage("outline", "生成大纲"),
             _stage("refine", "完善内容"),
         ),
-        credit_cost=15,
-        runtime_profile_key="opening_research",
         follow_up_prompt="请基于这次研究报告继续补齐研究意义、可行性和技术路线中的薄弱环节。",
     ),
     WorkspaceFeatureDefinition(
@@ -139,13 +134,6 @@ THESIS_FEATURES = (
             _stage("write", "撰写内容"),
             _stage("revise", "修订完善"),
         ),
-        credit_cost={
-            "generate_outline": 20,
-            "write_chapter": 60,
-            "write_all": 200,
-            "default": 200,
-        },
-        runtime_profile_key="thesis_writing_outline",
         follow_up_prompt="请基于这次写作结果继续指出结构缺口、逻辑断点和下一步最该补写的部分。",
     ),
     WorkspaceFeatureDefinition(
@@ -164,8 +152,7 @@ THESIS_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
-        credit_cost=30,
-        runtime_profile_key="figure_generation",
+        graph_module=FIGURE_GENERATION_GRAPH_MODULE,
         follow_up_prompt="请基于这次图表结果继续优化图意表达，并给出适合写入正文的说明文字。",
     ),
 )
@@ -186,8 +173,6 @@ SCI_FEATURES = (
             _stage("search", "检索文献"),
             _stage("filter", "筛选结果"),
         ),
-        credit_cost=20,
-        runtime_profile_key="literature_search",
         follow_up_prompt="请基于这次检索结果筛出最值得精读的文献，并说明各自对后续写作的价值。",
     ),
     WorkspaceFeatureDefinition(
@@ -206,8 +191,6 @@ SCI_FEATURES = (
             _stage("analyze", "深度分析"),
             _stage("summarize", "生成摘要"),
         ),
-        credit_cost=25,
-        runtime_profile_key="paper_analysis",
         follow_up_prompt="请基于这次论文分析继续拆解方法亮点、实验弱点和最值得复用的写法。",
     ),
     WorkspaceFeatureDefinition(
@@ -226,8 +209,6 @@ SCI_FEATURES = (
             _stage("write", "撰写内容"),
             _stage("revise", "修订完善"),
         ),
-        credit_cost=60,
-        runtime_profile_key="writing",
         follow_up_prompt="请基于这次章节草稿继续指出证据缺口、论证薄弱点和下一步最该补写的内容。",
     ),
     WorkspaceFeatureDefinition(
@@ -246,8 +227,6 @@ SCI_FEATURES = (
             _stage("synthesize", "综合观点"),
             _stage("draft", "生成综述"),
         ),
-        credit_cost=20,
-        runtime_profile_key="literature_review",
         follow_up_prompt="请基于这次文献综述继续细化研究空白，并给出 3 个可写成 SCI 的问题陈述。",
     ),
     WorkspaceFeatureDefinition(
@@ -266,8 +245,6 @@ SCI_FEATURES = (
             _stage("outline", "生成框架"),
             _stage("abstract", "补摘要"),
         ),
-        credit_cost=20,
-        runtime_profile_key="framework_outline",
         follow_up_prompt="请基于这次框架结果继续细化摘要、关键词和章节 focus，并指出下一步最适合先写哪一章。",
     ),
     WorkspaceFeatureDefinition(
@@ -286,8 +263,7 @@ SCI_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
-        credit_cost=30,
-        runtime_profile_key="figure_generation",
+        graph_module=FIGURE_GENERATION_GRAPH_MODULE,
         follow_up_prompt="请基于这次图表结果继续优化图意表达，并给出适合写入正文的说明文字。",
     ),
     WorkspaceFeatureDefinition(
@@ -306,8 +282,6 @@ SCI_FEATURES = (
             _stage("score", "评估质量"),
             _stage("advise", "生成建议"),
         ),
-        credit_cost=25,
-        runtime_profile_key="peer_review",
         follow_up_prompt="请基于这次同行评审把修改建议按优先级排序，并给出可直接落稿的改写方案。",
     ),
     WorkspaceFeatureDefinition(
@@ -326,8 +300,6 @@ SCI_FEATURES = (
             _stage("match", "匹配期刊"),
             _stage("rank", "输出建议"),
         ),
-        credit_cost=20,
-        runtime_profile_key="journal_recommend",
         follow_up_prompt="请基于这次期刊推荐比较前 3 个候选期刊的适配度、风险和投稿策略。",
     ),
 )
@@ -348,8 +320,6 @@ PROPOSAL_FEATURES = (
             _stage("analyze", "分析要求"),
             _stage("generate", "生成大纲"),
         ),
-        credit_cost=30,
-        runtime_profile_key="proposal_outline",
         follow_up_prompt="请基于这次申报书大纲继续细化研究目标、技术路线和里程碑安排。",
     ),
     WorkspaceFeatureDefinition(
@@ -367,8 +337,6 @@ PROPOSAL_FEATURES = (
             _stage("search", "搜索资料"),
             _stage("summarize", "整理归纳"),
         ),
-        credit_cost=20,
-        runtime_profile_key="background_research",
         follow_up_prompt="请基于这次背景调研继续收敛关键问题，并输出可直接写进申报书的现状综述。",
     ),
     WorkspaceFeatureDefinition(
@@ -387,8 +355,6 @@ PROPOSAL_FEATURES = (
             _stage("variables", "设计变量"),
             _stage("evaluation", "规划评估"),
         ),
-        credit_cost=30,
-        runtime_profile_key="experiment_design",
         follow_up_prompt="请基于这次实验设计继续细化变量定义、样本方案、实验步骤和评估指标。",
     ),
     WorkspaceFeatureDefinition(
@@ -407,8 +373,7 @@ PROPOSAL_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
-        credit_cost=30,
-        runtime_profile_key="figure_generation",
+        graph_module=FIGURE_GENERATION_GRAPH_MODULE,
         follow_up_prompt="请基于这次图表结果继续优化图意表达，并给出可直接写入申报书的图注说明。",
     ),
 )
@@ -430,8 +395,6 @@ SOFTWARE_COPYRIGHT_FEATURES = (
             _stage("organize", "整理说明"),
             _stage("review", "核对格式"),
         ),
-        credit_cost=15,
-        runtime_profile_key="copyright_materials",
         follow_up_prompt="请基于这次软著材料清单继续指出还缺哪些证明材料、代码页和截图要求。",
     ),
     WorkspaceFeatureDefinition(
@@ -450,8 +413,6 @@ SOFTWARE_COPYRIGHT_FEATURES = (
             _stage("draft", "生成说明"),
             _stage("revise", "优化内容"),
         ),
-        credit_cost=30,
-        runtime_profile_key="technical_description",
         follow_up_prompt="请基于这次技术说明书继续补齐章节细节，并指出最需要补充的技术实现信息。",
     ),
     WorkspaceFeatureDefinition(
@@ -470,8 +431,7 @@ SOFTWARE_COPYRIGHT_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
-        credit_cost=30,
-        runtime_profile_key="figure_generation",
+        graph_module=FIGURE_GENERATION_GRAPH_MODULE,
         follow_up_prompt="请基于这次图表结果继续优化结构表达，并给出软著材料可用的图示说明文字。",
     ),
 )
@@ -493,8 +453,6 @@ PATENT_FEATURES = (
             _stage("structure", "生成框架"),
             _stage("refine", "完善结构"),
         ),
-        credit_cost=40,
-        runtime_profile_key="patent_outline",
         follow_up_prompt="请基于这次专利框架继续收敛权利要求边界，并指出说明书还需要补哪些实施细节。",
     ),
     WorkspaceFeatureDefinition(
@@ -512,8 +470,6 @@ PATENT_FEATURES = (
             _stage("search", "检索材料"),
             _stage("compare", "对比分析"),
         ),
-        credit_cost=30,
-        runtime_profile_key="prior_art_search",
         follow_up_prompt="请基于这次现有技术检索继续评估新颖性风险，并给出可执行的规避改写建议。",
     ),
     WorkspaceFeatureDefinition(
@@ -532,8 +488,7 @@ PATENT_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
-        credit_cost=30,
-        runtime_profile_key="figure_generation",
+        graph_module=FIGURE_GENERATION_GRAPH_MODULE,
         follow_up_prompt="请基于这次图表结果继续优化技术方案表达，并给出专利说明书可用的图示描述。",
     ),
 )

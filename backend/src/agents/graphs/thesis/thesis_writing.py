@@ -10,6 +10,7 @@ from typing import Any
 from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
 from src.models.router import route_writing_model, validate_requested_model
+from src.services.token_usage_collector import record_token_usage
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
@@ -773,6 +774,7 @@ async def _review_section(
 
     try:
         response = await model.ainvoke(prompt)
+        record_token_usage(response)
         content = response.content if hasattr(response, "content") else str(response)
         parsed = _parse_json_response(content)
         if parsed is not None and _validate_review_result(parsed):
@@ -813,6 +815,7 @@ async def _revise_section(
 
     try:
         response = await model.ainvoke(prompt)
+        record_token_usage(response)
         content = response.content if hasattr(response, "content") else str(response)
         parsed = _parse_json_response(content)
         if parsed is not None and "revised_content" in parsed:

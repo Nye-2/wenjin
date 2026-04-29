@@ -14,7 +14,6 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from src.agents.lead_agent.dynamic_tools import DynamicToolNode
-from src.agents.lead_agent.thread_skill_catalog import list_workspace_thread_skills
 from src.agents.middlewares import (
     CitationContextMiddleware,
     ClarificationMiddleware,
@@ -43,6 +42,7 @@ from src.config import get_default_model_id
 from src.config.config_loader import get_app_config
 from src.models import model_supports_vision
 from src.sandbox.runtime import get_sandbox_provider
+from src.workspace_features.skills import list_workspace_thread_skills
 
 logger = logging.getLogger(__name__)
 
@@ -475,7 +475,7 @@ def apply_prompt_template(
         or state.get("current_skill")
     )
     if selected_skill:
-        from src.agents.lead_agent.thread_skill_catalog import get_skill_by_id
+        from src.workspace_features.skills import get_skill_by_id
         skill_def = get_skill_by_id(workspace_type, selected_skill)
         base_prompt += "\n\n## Preferred Skill"
         base_prompt += f"\nThe user selected `{selected_skill}` for this turn."

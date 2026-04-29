@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from src.application.intents import ThreadIntentDecision, ThreadIntentRouter
 from src.application.results import ThreadTurnRequest
 
 
@@ -44,10 +45,7 @@ class ChatTurnRoute:
 
     @property
     def skill_id(self) -> str | None:
-        return _optional_str(
-            self.orchestration.get("skill_id")
-            or self.orchestration.get("entry_skill_id")
-        )
+        return _optional_str(self.orchestration.get("skill_id") or self.orchestration.get("entry_skill_id"))
 
     @property
     def params(self) -> dict[str, Any]:
@@ -68,23 +66,62 @@ def _read_orchestration(request: ThreadTurnRequest) -> Mapping[str, Any]:
     return orchestration if isinstance(orchestration, Mapping) else {}
 
 
+def _thread_workspace_type(thread: Any) -> str | None:
+    workspace_type = _optional_str(getattr(thread, "workspace_type", None))
+    if workspace_type:
+        return workspace_type
+
+    # Avoid triggering a lazy SQLAlchemy relationship load. ThreadService attaches
+    # workspace_type during normal production reads; this fallback is for tests or
+    # already-hydrated objects only.
+    thread_dict = getattr(thread, "__dict__", {})
+    workspace = thread_dict.get("workspace") if isinstance(thread_dict, dict) else None
+    return _optional_str(getattr(workspace, "type", None))
+
+
+def _orchestration_from_decision(
+    *,
+    request: ThreadTurnRequest,
+    decision: ThreadIntentDecision,
+    intent: str,
+) -> Mapping[str, Any]:
+    orchestration = dict(_read_orchestration(request))
+    orchestration["intent"] = intent
+    if decision.feature_id is not None:
+        orchestration["feature_id"] = decision.feature_id
+    if decision.execution_session_id is not None:
+        orchestration["execution_session_id"] = decision.execution_session_id
+    if decision.skill_id is not None:
+        orchestration["skill_id"] = decision.skill_id
+    orchestration["params"] = dict(decision.params)
+    return orchestration
+
+
 class ChatTurnRouter:
-    """Classify a turn as pure chat or a feature command."""
+    """Thin adapter from chat ingress to the canonical thread intent router."""
 
     @staticmethod
     def route(request: ThreadTurnRequest, thread: Any) -> ChatTurnRoute:
-        _ = thread
-        orchestration = _read_orchestration(request)
-        intent = str(orchestration.get("intent") or "").strip().lower()
-        if intent == "resume":
+        decision = ThreadIntentRouter.route(
+            request=request,
+            workspace_type=_thread_workspace_type(thread),
+        )
+        if decision.mode == "resume_feature":
             return ChatTurnRoute(
                 mode=ChatTurnMode.FEATURE_RESUME,
-                orchestration=orchestration,
+                orchestration=_orchestration_from_decision(
+                    request=request,
+                    decision=decision,
+                    intent="resume",
+                ),
             )
-        if intent == "launch":
+        if decision.mode == "launch_feature":
             return ChatTurnRoute(
                 mode=ChatTurnMode.FEATURE_LAUNCH,
-                orchestration=orchestration,
+                orchestration=_orchestration_from_decision(
+                    request=request,
+                    decision=decision,
+                    intent="launch",
+                ),
             )
         return ChatTurnRoute(mode=ChatTurnMode.PURE_CHAT)
-

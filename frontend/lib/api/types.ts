@@ -591,6 +591,7 @@ export interface ComputeReviewGateItem {
 export interface ComputeReviewGateProjection {
   status: "clear" | "awaiting_user" | "advisory" | "failed" | string;
   required: boolean;
+  policy?: string | null;
   next_actions: Array<Record<string, unknown>>;
   items: ComputeReviewGateItem[];
   advisory_code?: string | null;
@@ -598,11 +599,25 @@ export interface ComputeReviewGateProjection {
 
 export interface ComputeSandboxProjection {
   session_id?: string | null;
-  status: "bound" | "derived" | "unbound" | string;
+  status: "bound" | "derived" | "required" | "unbound" | string;
+  required?: boolean;
   files: ComputeFileProjection[];
   logs: ComputeLogProjection[];
   file_count: number;
   log_count: number;
+}
+
+export interface ComputeRuntimeProfileProjection {
+  workspace_type?: string | null;
+  feature_id?: string | null;
+  runtime_mode?: "chat_only" | "deterministic" | "compute_workflow" | "compute_agentic" | string;
+  requires_compute?: boolean;
+  requires_sandbox?: boolean;
+  allowed_subagents?: string[];
+  max_subagents?: number;
+  agent_harness_provider?: string | null;
+  output_contract?: string;
+  review_gate?: string | null;
 }
 
 export interface ComputePrismCompileProjection {
@@ -649,6 +664,7 @@ export interface ComputeProjection {
   runtime_blocks: Array<Record<string, unknown>>;
   subagents: Array<Record<string, unknown>>;
   artifacts: Record<string, unknown>;
+  runtime_profile: ComputeRuntimeProfileProjection;
   sandbox: ComputeSandboxProjection;
   prism: ComputePrismProjection;
   files: ComputeFileProjection[];

@@ -73,7 +73,7 @@ backend/
 - 负责：
   - workspace owner 校验
   - feature lookup
-  - quota / policy / credit 检查
+  - quota / policy 检查
   - thread 与 chat turn orchestration
 
 ### 3. Task Runtime
@@ -98,7 +98,7 @@ graph 负责 orchestration 与结果整形，service 负责模型调用、payloa
 - chat turn routing：`src/application/handlers/chat_turn_router.py`
 - chat feature command adapter：`src/application/handlers/feature_command_handler.py`
 - lead-agent：`src/agents/lead_agent/agent.py`
-- skills 目录：`src/agents/lead_agent/thread_skill_catalog.py`
+- skills 目录：`src/workspace_features/skills.py`
 - workspace read tools：`src/tools/builtins/workspace.py`
 
 当前 skill 是 chat 层的 feature 入口语义，不再是独立执行框架。真正执行始终走 `FeatureIngressService`；pure chat 不创建 execution session、compute session 或 task record。

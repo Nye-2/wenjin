@@ -1,4 +1,4 @@
-"""Workspace-aware thread skill catalog shared by bridge and prompt."""
+"""Workspace feature skill catalog shared by chat ingress and prompts."""
 
 from __future__ import annotations
 
@@ -53,13 +53,7 @@ _THESIS_SKILLS = (
         feature_id="deep_research",
         icon="search",
         color="navy",
-        guidance_prompt=(
-            "请以对话方式引导用户明确调研主题。\n"
-            "1. 先确认研究方向或感兴趣的领域\n"
-            "2. 询问是否有特定关键词或已知的参考文献\n"
-            "3. 了解调研的深度需求（综述级/快速了解）\n"
-            "收集足够信息后，主动开始执行深度调研。"
-        ),
+        guidance_prompt=("请以对话方式引导用户明确调研主题。\n1. 先确认研究方向或感兴趣的领域\n2. 询问是否有特定关键词或已知的参考文献\n3. 了解调研的深度需求（综述级/快速了解）\n收集足够信息后，主动开始执行深度调研。"),
         follow_up_skills=("literature-reviewer", "framework-designer"),
     ),
     WorkspaceThreadSkillDefinition(
@@ -69,13 +63,7 @@ _THESIS_SKILLS = (
         feature_id="literature_management",
         icon="book-open",
         color="teal",
-        guidance_prompt=(
-            "询问用户想如何管理文献：\n"
-            "1. 是否需要对已有文献进行分类整理\n"
-            "2. 是否需要生成阅读笔记或摘要\n"
-            "3. 是否需要查找和补充缺失的参考文献\n"
-            "根据用户需求组织文献管理工作。"
-        ),
+        guidance_prompt=("询问用户想如何管理文献：\n1. 是否需要对已有文献进行分类整理\n2. 是否需要生成阅读笔记或摘要\n3. 是否需要查找和补充缺失的参考文献\n根据用户需求组织文献管理工作。"),
         follow_up_skills=("deep-research",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -86,13 +74,7 @@ _THESIS_SKILLS = (
         defaults=(("report_type", "literature_review"),),
         icon="file-text",
         color="cyan",
-        guidance_prompt=(
-            "了解用户的开题需求：\n"
-            "1. 研究方向和选题背景是什么\n"
-            "2. 是否有导师指定的方向或要求\n"
-            "3. 需要开题报告还是文献综述\n"
-            "根据信息生成相应的调研报告框架。"
-        ),
+        guidance_prompt=("了解用户的开题需求：\n1. 研究方向和选题背景是什么\n2. 是否有导师指定的方向或要求\n3. 需要开题报告还是文献综述\n根据信息生成相应的调研报告框架。"),
         follow_up_skills=("framework-designer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -103,13 +85,7 @@ _THESIS_SKILLS = (
         defaults=(("action", "generate_outline"),),
         icon="list",
         color="navy",
-        guidance_prompt=(
-            "引导用户明确大纲需求：\n"
-            "1. 确认论文题目和主要研究内容\n"
-            "2. 了解预期的章节数量和深度\n"
-            "3. 是否有特定的论文结构要求（如导师要求）\n"
-            "收集信息后生成结构化的论文大纲。"
-        ),
+        guidance_prompt=("引导用户明确大纲需求：\n1. 确认论文题目和主要研究内容\n2. 了解预期的章节数量和深度\n3. 是否有特定的论文结构要求（如导师要求）\n收集信息后生成结构化的论文大纲。"),
         follow_up_skills=("fullpaper-writer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -120,14 +96,7 @@ _THESIS_SKILLS = (
         defaults=(("action", "write_all"),),
         icon="pen",
         color="teal",
-        guidance_prompt=(
-            "确认用户的写作需求：\n"
-            "1. 要撰写全文还是单个章节\n"
-            "2. 如果是单章节，确认要写哪一章及其主题\n"
-            "3. 了解目标字数和写作风格要求\n"
-            "4. 是否有已有的大纲或草稿可以参考\n"
-            "根据需求开始撰写。"
-        ),
+        guidance_prompt=("确认用户的写作需求：\n1. 要撰写全文还是单个章节\n2. 如果是单章节，确认要写哪一章及其主题\n3. 了解目标字数和写作风格要求\n4. 是否有已有的大纲或草稿可以参考\n根据需求开始撰写。"),
         follow_up_skills=("figure-designer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -137,13 +106,7 @@ _THESIS_SKILLS = (
         feature_id="figure_generation",
         icon="image",
         color="brass",
-        guidance_prompt=(
-            "了解用户的图表需求：\n"
-            "1. 要表达什么概念、流程或数据\n"
-            "2. 图表类型（流程图/架构图/数据图表/对比图）\n"
-            "3. 关联到论文的哪个章节\n"
-            "根据描述设计和生成图表。"
-        ),
+        guidance_prompt=("了解用户的图表需求：\n1. 要表达什么概念、流程或数据\n2. 图表类型（流程图/架构图/数据图表/对比图）\n3. 关联到论文的哪个章节\n根据描述设计和生成图表。"),
         follow_up_skills=(),
     ),
 )
@@ -159,13 +122,7 @@ _SCI_SKILLS = (
         feature_id="literature_search",
         icon="search",
         color="navy",
-        guidance_prompt=(
-            "引导用户明确检索需求：\n"
-            "1. 检索的主题和关键词是什么\n"
-            "2. 检索范围（时间、期刊、语言）\n"
-            "3. 是否有特定的数据库偏好\n"
-            "确认后直接开始系统性检索。"
-        ),
+        guidance_prompt=("引导用户明确检索需求：\n1. 检索的主题和关键词是什么\n2. 检索范围（时间、期刊、语言）\n3. 是否有特定的数据库偏好\n确认后直接开始系统性检索。"),
         follow_up_skills=("paper-analyst", "literature-reviewer"),
     ),
     WorkspaceThreadSkillDefinition(
@@ -175,13 +132,7 @@ _SCI_SKILLS = (
         feature_id="paper_analysis",
         icon="microscope",
         color="cyan",
-        guidance_prompt=(
-            "了解分析需求：\n"
-            "1. 要分析的论文标题或请用户提供 PDF\n"
-            "2. 分析重点：方法论/实验设计/结论/创新点\n"
-            "3. 是否需要与其他论文进行对比分析\n"
-            "明确后开始结构化分析。"
-        ),
+        guidance_prompt=("了解分析需求：\n1. 要分析的论文标题或请用户提供 PDF\n2. 分析重点：方法论/实验设计/结论/创新点\n3. 是否需要与其他论文进行对比分析\n明确后开始结构化分析。"),
         follow_up_skills=("framework-designer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -191,14 +142,7 @@ _SCI_SKILLS = (
         feature_id="writing",
         icon="pen",
         color="teal",
-        guidance_prompt=(
-            "了解写作需求：\n"
-            "1. 要写的章节类型（Introduction/Method/Results/Discussion 等）\n"
-            "2. 章节主题和核心论点\n"
-            "3. 字数和写作风格要求\n"
-            "4. 引用格式要求\n"
-            "根据需求撰写该章节。"
-        ),
+        guidance_prompt=("了解写作需求：\n1. 要写的章节类型（Introduction/Method/Results/Discussion 等）\n2. 章节主题和核心论点\n3. 字数和写作风格要求\n4. 引用格式要求\n根据需求撰写该章节。"),
         follow_up_skills=("peer-reviewer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -208,14 +152,7 @@ _SCI_SKILLS = (
         feature_id="literature_review",
         icon="book-open",
         color="cyan",
-        guidance_prompt=(
-            "了解综述需求：\n"
-            "1. 综述的具体主题和范围\n"
-            "2. 是否有已读的核心文献\n"
-            "3. 综述的深度和篇幅要求\n"
-            "4. 综述的组织方式（按主题/按时间/按方法）\n"
-            "收集信息后开始生成文献综述。"
-        ),
+        guidance_prompt=("了解综述需求：\n1. 综述的具体主题和范围\n2. 是否有已读的核心文献\n3. 综述的深度和篇幅要求\n4. 综述的组织方式（按主题/按时间/按方法）\n收集信息后开始生成文献综述。"),
         follow_up_skills=("framework-designer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -225,13 +162,7 @@ _SCI_SKILLS = (
         feature_id="framework_outline",
         icon="list",
         color="navy",
-        guidance_prompt=(
-            "引导用户明确框架需求：\n"
-            "1. 论文主题和核心创新点\n"
-            "2. 期望的章节数量和结构\n"
-            "3. 是否需要同时生成摘要和关键词\n"
-            "根据信息生成结构化的论文框架。"
-        ),
+        guidance_prompt=("引导用户明确框架需求：\n1. 论文主题和核心创新点\n2. 期望的章节数量和结构\n3. 是否需要同时生成摘要和关键词\n根据信息生成结构化的论文框架。"),
         follow_up_skills=("section-writer", "figure-designer"),
     ),
     WorkspaceThreadSkillDefinition(
@@ -241,14 +172,7 @@ _SCI_SKILLS = (
         feature_id="figure_generation",
         icon="image",
         color="brass",
-        guidance_prompt=(
-            "了解图表需求：\n"
-            "1. 要表达的核心概念、流程或数据关系\n"
-            "2. 图表类型（流程图/架构图/实验流程/数据图）\n"
-            "3. 计划放在论文的哪个章节\n"
-            "4. 是否有风格或配色要求\n"
-            "信息明确后开始图表生成。"
-        ),
+        guidance_prompt=("了解图表需求：\n1. 要表达的核心概念、流程或数据关系\n2. 图表类型（流程图/架构图/实验流程/数据图）\n3. 计划放在论文的哪个章节\n4. 是否有风格或配色要求\n信息明确后开始图表生成。"),
         follow_up_skills=("peer-reviewer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -258,13 +182,7 @@ _SCI_SKILLS = (
         feature_id="peer_review",
         icon="shield-check",
         color="brass",
-        guidance_prompt=(
-            "确认评审需求：\n"
-            "1. 确认要评审的论文内容（当前草稿/特定章节）\n"
-            "2. 评审侧重点（创新性/方法论/实验/写作质量）\n"
-            "3. 目标期刊的评审标准（如有）\n"
-            "以审稿人视角给出结构化评审意见。"
-        ),
+        guidance_prompt=("确认评审需求：\n1. 确认要评审的论文内容（当前草稿/特定章节）\n2. 评审侧重点（创新性/方法论/实验/写作质量）\n3. 目标期刊的评审标准（如有）\n以审稿人视角给出结构化评审意见。"),
         follow_up_skills=("journal-recommender",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -274,14 +192,7 @@ _SCI_SKILLS = (
         feature_id="journal_recommend",
         icon="compass",
         color="teal",
-        guidance_prompt=(
-            "了解投稿需求：\n"
-            "1. 论文的研究主题和方法\n"
-            "2. 目标影响因子范围\n"
-            "3. 是否有期刊类型偏好（综合/专业）\n"
-            "4. 对审稿周期的要求\n"
-            "根据论文特征推荐匹配的期刊并说明理由。"
-        ),
+        guidance_prompt=("了解投稿需求：\n1. 论文的研究主题和方法\n2. 目标影响因子范围\n3. 是否有期刊类型偏好（综合/专业）\n4. 对审稿周期的要求\n根据论文特征推荐匹配的期刊并说明理由。"),
         follow_up_skills=(),
     ),
 )
@@ -297,14 +208,7 @@ _PROPOSAL_SKILLS = (
         feature_id="proposal_outline",
         icon="file-text",
         color="navy",
-        guidance_prompt=(
-            "了解计划书需求：\n"
-            "1. 研究课题方向和核心问题\n"
-            "2. 目标基金类型（国自然/省基金/校级等）\n"
-            "3. 是否有特定的格式要求\n"
-            "4. 研究周期预期\n"
-            "根据信息生成符合要求的计划书框架。"
-        ),
+        guidance_prompt=("了解计划书需求：\n1. 研究课题方向和核心问题\n2. 目标基金类型（国自然/省基金/校级等）\n3. 是否有特定的格式要求\n4. 研究周期预期\n根据信息生成符合要求的计划书框架。"),
         follow_up_skills=("experiment-designer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -314,13 +218,7 @@ _PROPOSAL_SKILLS = (
         feature_id="background_research",
         icon="search",
         color="teal",
-        guidance_prompt=(
-            "了解调研需求：\n"
-            "1. 要调研的具体背景问题\n"
-            "2. 需要覆盖的范围和深度\n"
-            "3. 关注的时间范围（近几年/全面梳理）\n"
-            "明确后开始系统性背景调研。"
-        ),
+        guidance_prompt=("了解调研需求：\n1. 要调研的具体背景问题\n2. 需要覆盖的范围和深度\n3. 关注的时间范围（近几年/全面梳理）\n明确后开始系统性背景调研。"),
         follow_up_skills=("proposal-writer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -330,14 +228,7 @@ _PROPOSAL_SKILLS = (
         feature_id="experiment_design",
         icon="flask-conical",
         color="cyan",
-        guidance_prompt=(
-            "引导实验设计：\n"
-            "1. 研究假设是什么\n"
-            "2. 实验目标和预期结果\n"
-            "3. 可用的实验条件和资源\n"
-            "4. 评估指标和成功标准\n"
-            "根据信息设计完整的实验方案。"
-        ),
+        guidance_prompt=("引导实验设计：\n1. 研究假设是什么\n2. 实验目标和预期结果\n3. 可用的实验条件和资源\n4. 评估指标和成功标准\n根据信息设计完整的实验方案。"),
         follow_up_skills=("figure-designer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -347,13 +238,7 @@ _PROPOSAL_SKILLS = (
         feature_id="figure_generation",
         icon="image",
         color="brass",
-        guidance_prompt=(
-            "了解图表需求：\n"
-            "1. 要展示的技术路线或实施流程\n"
-            "2. 图表对应的申报书章节\n"
-            "3. 重点突出内容（创新点/里程碑/模块关系）\n"
-            "确认后生成结构清晰的图表。"
-        ),
+        guidance_prompt=("了解图表需求：\n1. 要展示的技术路线或实施流程\n2. 图表对应的申报书章节\n3. 重点突出内容（创新点/里程碑/模块关系）\n确认后生成结构清晰的图表。"),
         follow_up_skills=(),
     ),
 )
@@ -369,14 +254,7 @@ _SOFTWARE_COPYRIGHT_SKILLS = (
         feature_id="copyright_materials",
         icon="file-text",
         color="navy",
-        guidance_prompt=(
-            "收集著作权申请所需信息：\n"
-            "1. 软件名称和版本号\n"
-            "2. 开发完成日期和首次发表日期\n"
-            "3. 软件的核心功能和主要模块\n"
-            "4. 申请类型（原始取得/继受取得）\n"
-            "收集完毕后生成软件说明书等申请材料。"
-        ),
+        guidance_prompt=("收集著作权申请所需信息：\n1. 软件名称和版本号\n2. 开发完成日期和首次发表日期\n3. 软件的核心功能和主要模块\n4. 申请类型（原始取得/继受取得）\n收集完毕后生成软件说明书等申请材料。"),
         follow_up_skills=("tech-doc-writer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -386,14 +264,7 @@ _SOFTWARE_COPYRIGHT_SKILLS = (
         feature_id="technical_description",
         icon="code",
         color="teal",
-        guidance_prompt=(
-            "了解文档需求：\n"
-            "1. 软件的技术架构和主要技术栈\n"
-            "2. 核心功能模块和数据流\n"
-            "3. 目标读者（技术人员/审查员/用户）\n"
-            "4. 需要的文档类型（技术说明/操作手册）\n"
-            "根据需求撰写相应的技术文档。"
-        ),
+        guidance_prompt=("了解文档需求：\n1. 软件的技术架构和主要技术栈\n2. 核心功能模块和数据流\n3. 目标读者（技术人员/审查员/用户）\n4. 需要的文档类型（技术说明/操作手册）\n根据需求撰写相应的技术文档。"),
         follow_up_skills=("figure-designer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -403,13 +274,7 @@ _SOFTWARE_COPYRIGHT_SKILLS = (
         feature_id="figure_generation",
         icon="image",
         color="brass",
-        guidance_prompt=(
-            "收集图表需求：\n"
-            "1. 软件系统的核心模块和关系\n"
-            "2. 需要展示的流程（业务流程/数据流程）\n"
-            "3. 图表在材料中的用途（技术说明/流程解释）\n"
-            "信息齐备后生成规范图表。"
-        ),
+        guidance_prompt=("收集图表需求：\n1. 软件系统的核心模块和关系\n2. 需要展示的流程（业务流程/数据流程）\n3. 图表在材料中的用途（技术说明/流程解释）\n信息齐备后生成规范图表。"),
         follow_up_skills=(),
     ),
 )
@@ -425,14 +290,7 @@ _PATENT_SKILLS = (
         feature_id="patent_outline",
         icon="lightbulb",
         color="navy",
-        guidance_prompt=(
-            "了解专利申请需求：\n"
-            "1. 技术方案的核心创新点是什么\n"
-            "2. 属于发明专利还是实用新型\n"
-            "3. 技术领域和应用场景\n"
-            "4. 与现有技术相比的主要优势\n"
-            "收集信息后撰写权利要求书和说明书。"
-        ),
+        guidance_prompt=("了解专利申请需求：\n1. 技术方案的核心创新点是什么\n2. 属于发明专利还是实用新型\n3. 技术领域和应用场景\n4. 与现有技术相比的主要优势\n收集信息后撰写权利要求书和说明书。"),
         follow_up_skills=("prior-art-scout", "figure-designer"),
     ),
     WorkspaceThreadSkillDefinition(
@@ -442,13 +300,7 @@ _PATENT_SKILLS = (
         feature_id="prior_art_search",
         icon="search",
         color="brass",
-        guidance_prompt=(
-            "了解检索需求：\n"
-            "1. 技术方案的关键特征和核心概念\n"
-            "2. 检索范围（国内专利/国际专利/学术文献）\n"
-            "3. 重点关注的技术领域\n"
-            "确认后开始系统性现有技术检索。"
-        ),
+        guidance_prompt=("了解检索需求：\n1. 技术方案的关键特征和核心概念\n2. 检索范围（国内专利/国际专利/学术文献）\n3. 重点关注的技术领域\n确认后开始系统性现有技术检索。"),
         follow_up_skills=("patent-drafter",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -458,13 +310,7 @@ _PATENT_SKILLS = (
         feature_id="figure_generation",
         icon="image",
         color="brass",
-        guidance_prompt=(
-            "了解图表需求：\n"
-            "1. 技术方案的结构组成与工作流程\n"
-            "2. 图表服务于哪些权利要求或实施例\n"
-            "3. 希望重点展示的创新机制\n"
-            "确认后生成可用于专利文档的图表。"
-        ),
+        guidance_prompt=("了解图表需求：\n1. 技术方案的结构组成与工作流程\n2. 图表服务于哪些权利要求或实施例\n3. 希望重点展示的创新机制\n确认后生成可用于专利文档的图表。"),
         follow_up_skills=("patent-drafter",),
     ),
 )
@@ -480,13 +326,7 @@ WORKSPACE_THREAD_SKILLS: dict[str, tuple[WorkspaceThreadSkillDefinition, ...]] =
     "patent": _PATENT_SKILLS,
 }
 
-SKILL_TO_FEATURE: dict[str, dict[str, tuple[str, dict[str, Any]]]] = {
-    workspace_type: {
-        skill.id: skill.to_mapping_entry()
-        for skill in skills
-    }
-    for workspace_type, skills in WORKSPACE_THREAD_SKILLS.items()
-}
+SKILL_TO_FEATURE: dict[str, dict[str, tuple[str, dict[str, Any]]]] = {workspace_type: {skill.id: skill.to_mapping_entry() for skill in skills} for workspace_type, skills in WORKSPACE_THREAD_SKILLS.items()}
 
 FEATURE_TO_DEFAULT_SKILL: dict[str, dict[str, str]] = {
     "thesis": {
@@ -563,11 +403,7 @@ def list_feature_skills(
     normalized_feature_id = str(feature_id or "").strip()
     if not workspace_type or not normalized_feature_id:
         return ()
-    return tuple(
-        skill
-        for skill in list_workspace_thread_skills(workspace_type)
-        if skill.feature_id == normalized_feature_id
-    )
+    return tuple(skill for skill in list_workspace_thread_skills(workspace_type) if skill.feature_id == normalized_feature_id)
 
 
 def list_feature_skill_ids(

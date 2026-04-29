@@ -17,16 +17,8 @@ export function formatCreditCostLabel(key: string): string {
   switch (key) {
     case "thread_token_billing":
       return "主线对话";
-    case "deep_research":
-      return "深度研究";
-    case "literature_search":
-      return "文献检索";
-    case "paper_analysis":
-      return "论文解析";
-    case "writing":
-      return "论文写作";
-    case "thesis_writing":
-      return "毕业论文";
+    case "feature_token_billing":
+      return "功能任务";
     default:
       return key;
   }
@@ -98,7 +90,12 @@ export function getThreadCreditStatus(
 
 export function summarizeCreditTransaction(item: CreditTransactionItem): string {
   const base = item.description?.trim() || "";
-  if (item.type !== "thread_token_consume" || !isRecord(item.metadata)) {
+  const isTokenBilling =
+    item.type === "thread_token_consume" ||
+    (item.type === "workflow_consume" &&
+      isRecord(item.metadata) &&
+      item.metadata.type === "feature_token_billing");
+  if (!isTokenBilling || !isRecord(item.metadata)) {
     return base || "-";
   }
 

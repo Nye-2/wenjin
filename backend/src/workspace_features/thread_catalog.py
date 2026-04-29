@@ -1,4 +1,4 @@
-"""Workspace catalog and artifact lookup helpers for thread feature tools."""
+"""Workspace catalog and artifact lookup helpers for thread-facing tools."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ from typing import Any
 
 from src.academic.services import ArtifactService
 from src.academic.services.workspace_service import WorkspaceService
-from src.agents.lead_agent.thread_skill_catalog import (
+from src.application.workspace_resolvers import resolve_workspace_type
+from src.database import get_db_session
+from src.workspace_features.skills import (
     get_default_skill_for_feature,
     list_feature_skill_ids,
 )
-from src.application.workspace_resolvers import resolve_workspace_type
-from src.database import get_db_session
 
 
 async def build_workspace_artifact_overview(

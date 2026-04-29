@@ -64,8 +64,13 @@ class TestConfigLoader:
         assert config.billing.thread.enabled is True
         assert config.billing.thread.free_tokens == 100000
         assert config.billing.thread.tokens_per_credit == 10000
+        assert config.billing.thread.max_overdraft_credits == 100
+        assert config.billing.feature.enabled is True
+        assert config.billing.feature.free_tokens == 0
+        assert config.billing.feature.tokens_per_credit == 10000
+        assert config.billing.feature.max_overdraft_credits == 100
 
-    def test_load_thread_billing_config(self, tmp_path):
+    def test_load_token_billing_config(self, tmp_path):
         cfg_path = self._write_config(tmp_path, {
             "models": [],
             "billing": {
@@ -73,6 +78,13 @@ class TestConfigLoader:
                     "enabled": False,
                     "free_tokens": 2048,
                     "tokens_per_credit": 512,
+                    "max_overdraft_credits": 10,
+                },
+                "feature": {
+                    "enabled": True,
+                    "free_tokens": 128,
+                    "tokens_per_credit": 256,
+                    "max_overdraft_credits": 20,
                 }
             },
         })
@@ -80,6 +92,11 @@ class TestConfigLoader:
         assert config.billing.thread.enabled is False
         assert config.billing.thread.free_tokens == 2048
         assert config.billing.thread.tokens_per_credit == 512
+        assert config.billing.thread.max_overdraft_credits == 10
+        assert config.billing.feature.enabled is True
+        assert config.billing.feature.free_tokens == 128
+        assert config.billing.feature.tokens_per_credit == 256
+        assert config.billing.feature.max_overdraft_credits == 20
 
 
 class TestModelConfig:

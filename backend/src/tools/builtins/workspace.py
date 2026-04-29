@@ -11,7 +11,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from src.agents.lead_agent.thread_feature_catalog import (
+from src.workspace_features.thread_catalog import (
     build_workspace_artifact_overview,
     build_workspace_feature_overview,
 )

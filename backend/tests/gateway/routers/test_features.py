@@ -14,7 +14,6 @@ from src.gateway.routers import features
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.features import ExecuteResponse
 from src.gateway.routers.tasks import get_task_service
-from src.services.credit_service import InsufficientCreditsError
 
 
 def create_mock_user(user_id: str) -> MagicMock:
@@ -665,20 +664,18 @@ class TestIdempotentExecution:
 
 
 class TestCreditsGuard:
-    """Tests for credit deduction guard on feature execution."""
+    """Feature launch no longer pre-charges fixed credits."""
 
-    def test_execute_feature_warns_when_credits_insufficient(self):
+    def test_execute_feature_does_not_precharge_fixed_credits(self):
         workspace_service = AsyncMock()
         workspace_service.get = AsyncMock(
             return_value=create_workspace(WorkspaceType.PATENT)
         )
         task_service = AsyncMock()
         task_service.submit_task = AsyncMock(return_value="task-xyz")
+        task_service.find_active_task = AsyncMock(return_value=None)
 
         credit_service = create_mock_credit_service()
-        credit_service.consume_for_feature = AsyncMock(
-            side_effect=InsufficientCreditsError(current_balance=10, required=30)
-        )
 
         client = create_client(
             "user-1",
@@ -694,8 +691,7 @@ class TestCreditsGuard:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["task_id"] is None
-        assert data["warning"] == "insufficient_credits"
-        assert data["detail"]["current"] == 10
-        assert data["detail"]["required"] == 30
-        task_service.submit_task.assert_not_called()
+        assert data["task_id"] == "task-xyz"
+        assert data["status"] == "pending"
+        credit_service.consume_for_feature.assert_not_called()
+        task_service.submit_task.assert_called_once()

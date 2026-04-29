@@ -9,12 +9,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agents.lead_agent.thread_skill_catalog import (
+from src.database import Workspace
+from src.workspace_features.skills import (
     get_skill_by_id,
     list_feature_skill_ids,
     resolve_skill_for_feature,
 )
-from src.database import Workspace
 
 
 def normalize_workspace_type(workspace_type: Any) -> str | None:

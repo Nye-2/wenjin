@@ -17,16 +17,21 @@ async def test_launch_command_calls_feature_ingress_adapter() -> None:
     request = ThreadTurnRequest(
         message="开始",
         workspace_id="ws-request",
+        skill="framework-designer",
         metadata={
             "orchestration": {
                 "intent": "launch",
-                "feature_id": "framework_outline",
-                "skill_id": "framework-designer",
-                "params": {"topic": "LLM planning"},
+                "feature_id": "thesis_writing",
+                "params": {},
             }
         },
     )
-    thread = SimpleNamespace(id="thread-1", workspace_id="ws-thread", skill=None)
+    thread = SimpleNamespace(
+        id="thread-1",
+        workspace_id="ws-thread",
+        workspace_type="thesis",
+        skill=None,
+    )
     route = ChatTurnRouter.route(request, thread)
 
     with patch(
@@ -45,8 +50,8 @@ async def test_launch_command_calls_feature_ingress_adapter() -> None:
         workspace_id="ws-thread",
         thread_id="thread-1",
         user_id="user-1",
-        feature_id="framework_outline",
-        params={"topic": "LLM planning"},
+        feature_id="thesis_writing",
+        params={"action": "generate_outline"},
         skill_id="framework-designer",
         launch_message="开始",
         execution_session_id=None,
@@ -109,4 +114,3 @@ async def test_launch_without_workspace_returns_warning() -> None:
 
     assert reply.metadata["orchestration"]["warning"] == "workspace_context_missing"
     assert reply.blocks[0]["type"] == "warning"
-

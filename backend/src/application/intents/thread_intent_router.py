@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from src.agents.lead_agent.thread_skill_catalog import get_skill_by_id
 from src.application.results import ThreadTurnRequest
 from src.services.workspace_skill_labels import normalize_workspace_type
 from src.workspace_features import get_workspace_feature
+from src.workspace_features.skills import get_skill_by_id
 
 _SUPPORTED_ORCHESTRATION_INTENTS = {"launch", "resume"}
 
@@ -20,6 +21,7 @@ class ThreadIntentDecision:
     mode: Literal["free_thread", "launch_feature", "resume_feature"]
     reason: str
     feature_id: str | None = None
+    execution_session_id: str | None = None
     skill_id: str | None = None
     params: dict[str, Any] = field(default_factory=dict)
 
@@ -33,15 +35,26 @@ class ThreadIntentRouter:
         return normalized if normalized in _SUPPORTED_ORCHESTRATION_INTENTS else None
 
     @classmethod
-    def _read_seed(cls, request: ThreadTurnRequest) -> tuple[str | None, dict[str, Any], str | None]:
-        metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    def _read_seed(
+        cls,
+        request: ThreadTurnRequest,
+    ) -> tuple[str | None, str | None, str | None, dict[str, Any], str | None]:
+        metadata = request.metadata if isinstance(request.metadata, Mapping) else {}
         orchestration = metadata.get("orchestration")
-        if not isinstance(orchestration, dict):
-            return None, {}, None
+        if not isinstance(orchestration, Mapping):
+            return None, None, None, {}, None
         feature_id = str(orchestration.get("feature_id") or "").strip() or None
+        execution_session_id = str(orchestration.get("execution_session_id") or "").strip() or None
+        skill_id = str(orchestration.get("skill_id") or orchestration.get("entry_skill_id") or "").strip() or None
         params = orchestration.get("params")
         intent = cls._normalize_intent(orchestration.get("intent"))
-        return feature_id, dict(params) if isinstance(params, dict) else {}, intent
+        return (
+            feature_id,
+            execution_session_id,
+            skill_id,
+            dict(params) if isinstance(params, Mapping) else {},
+            intent,
+        )
 
     @classmethod
     def _apply_explicit_skill_contract(
@@ -75,19 +88,28 @@ class ThreadIntentRouter:
         cls,
         *,
         request: ThreadTurnRequest,
-        workspace: Any | None,
+        workspace: Any | None = None,
+        workspace_type: str | None = None,
     ) -> ThreadIntentDecision:
-        workspace_type = normalize_workspace_type(getattr(workspace, "type", None))
-        seed_feature_id, seed_params, intent = cls._read_seed(request)
+        resolved_workspace_type = normalize_workspace_type(workspace_type or getattr(workspace, "type", None))
+        (
+            seed_feature_id,
+            seed_execution_session_id,
+            seed_skill_id,
+            seed_params,
+            intent,
+        ) = cls._read_seed(request)
         params = dict(seed_params)
         feature_id = seed_feature_id
-        skill_id = None
+        skill_id = seed_skill_id
 
         if intent == "resume":
             return ThreadIntentDecision(
                 mode="resume_feature",
                 reason="explicit_resume_intent",
                 feature_id=feature_id,
+                execution_session_id=seed_execution_session_id,
+                skill_id=skill_id,
                 params=params,
             )
 
@@ -97,7 +119,7 @@ class ThreadIntentRouter:
                 reason="no_orchestration_intent",
             )
 
-        explicit_skill = str(request.skill or "").strip() or None
+        explicit_skill = str(request.skill or skill_id or "").strip() or None
         if explicit_skill:
             (
                 feature_id,
@@ -105,7 +127,7 @@ class ThreadIntentRouter:
                 params,
                 skill_contract_error,
             ) = cls._apply_explicit_skill_contract(
-                workspace_type=workspace_type,
+                workspace_type=resolved_workspace_type,
                 explicit_skill=explicit_skill,
                 feature_id=feature_id,
                 params=params,
@@ -115,6 +137,11 @@ class ThreadIntentRouter:
                     mode="free_thread",
                     reason="skill_feature_mismatch",
                 )
+            if skill_contract_error == "unknown_skill":
+                return ThreadIntentDecision(
+                    mode="free_thread",
+                    reason="unknown_skill",
+                )
 
         if feature_id is None:
             return ThreadIntentDecision(
@@ -122,7 +149,7 @@ class ThreadIntentRouter:
                 reason="launch_intent_missing_feature_id",
             )
 
-        if not workspace_type or get_workspace_feature(workspace_type, feature_id) is None:
+        if resolved_workspace_type and get_workspace_feature(resolved_workspace_type, feature_id) is None:
             return ThreadIntentDecision(
                 mode="free_thread",
                 reason="feature_not_available_for_workspace_type",

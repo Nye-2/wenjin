@@ -4,14 +4,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.agents.lead_agent import thread_feature_catalog
 from src.application.presenters.thread_feature_cards import (
     build_feature_task_completion_card,
     build_feature_task_failure_card,
 )
 from src.application.presenters.thread_feature_presenters import feature_title
 from src.task.workspace_feature_params import coerce_workspace_feature_params
-from src.workspace_features import iter_workspace_features
+from src.workspace_features import iter_workspace_features, thread_catalog
 
 
 def test_build_feature_task_completion_card_preserves_params_and_actions() -> None:
@@ -123,10 +122,10 @@ async def test_build_workspace_feature_overview_includes_skill_mapping(
         async def get(self, workspace_id: str):
             return self._workspace
 
-    monkeypatch.setattr(thread_feature_catalog, "get_db_session", lambda: _FakeSessionContext())
-    monkeypatch.setattr(thread_feature_catalog, "WorkspaceService", _FakeWorkspaceService)
+    monkeypatch.setattr(thread_catalog, "get_db_session", lambda: _FakeSessionContext())
+    monkeypatch.setattr(thread_catalog, "WorkspaceService", _FakeWorkspaceService)
 
-    overview = await thread_feature_catalog.build_workspace_feature_overview(
+    overview = await thread_catalog.build_workspace_feature_overview(
         "ws-1",
         user_id="user-1",
     )

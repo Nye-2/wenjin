@@ -198,8 +198,11 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
     assert projection["subagents"][0]["task_id"] == "subagent-1"
     assert projection["artifacts"]["ids"] == ["artifact-1"]
     assert projection["artifacts"]["count"] == 1
+    assert projection["runtime_profile"]["runtime_mode"] == "compute_workflow"
+    assert projection["runtime_profile"]["output_contract"] == "feature_result"
     assert projection["sandbox"]["session_id"] == "sandbox-1"
     assert projection["sandbox"]["status"] == "bound"
+    assert projection["sandbox"]["required"] is False
     assert projection["sandbox"]["file_count"] == len(projection["files"])
     assert projection["sandbox"]["log_count"] == len(projection["logs"])
     assert projection["prism"]["status"] == "pending_changes"
@@ -243,6 +246,7 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
     assert any(item["title"] == "compile_logs" and item["level"] == "warning" for item in projection["logs"])
     assert projection["review_gate"]["status"] == "awaiting_user"
     assert projection["review_gate"]["required"] is True
+    assert projection["review_gate"]["policy"] is None
     assert projection["review_gate"]["next_actions"] == [{"kind": "review", "title": "检查输出"}]
     assert projection["review_gate"]["items"][0]["label"] == "检查输出"
     assert projection["review_gate"]["advisory_code"] == "needs_review"
@@ -312,6 +316,70 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
     assert projection["review_gate"]["required"] is False
     assert projection["review_gate"]["items"][0]["kind"] == "action"
     assert projection["review_gate"]["items"][0]["required"] is False
+
+
+@pytest.mark.asyncio
+async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_sandbox_feature() -> None:
+    now = datetime.now(UTC)
+    compute_session = SimpleNamespace(
+        id="compute-figure",
+        execution_session_id="exec-figure",
+        workspace_id="ws-1",
+        user_id="user-1",
+        sandbox_session_id=None,
+        active_view="overview",
+        ui_state={},
+        created_at=now,
+        updated_at=now,
+    )
+    execution = SimpleNamespace(
+        id="exec-figure",
+        user_id="user-1",
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        workspace_type="proposal",
+        feature_id="figure_generation",
+        entry_skill_id="figure-designer",
+        launch_source="thread",
+        launch_message="生成技术路线图",
+        status="running",
+        params={},
+        task_ids=[],
+        primary_task_id=None,
+        runtime_snapshot=None,
+        result_summary=None,
+        artifact_ids=[],
+        next_actions=[],
+        advisory_code=None,
+        last_error=None,
+        created_at=now,
+        updated_at=now,
+        started_at=now,
+        completed_at=None,
+    )
+    db = _FakeDb(
+        [
+            _Result(scalar=compute_session),
+            _Result(scalar=execution),
+            _Result(scalars=[]),
+            _Result(scalars=[]),
+        ]
+    )
+
+    projection = await ComputeProjectionService(db).get_projection(
+        compute_session_id="compute-figure",
+        user_id="user-1",
+    )
+
+    assert projection is not None
+    assert projection["runtime_profile"]["runtime_mode"] == "compute_agentic"
+    assert projection["runtime_profile"]["requires_sandbox"] is True
+    assert projection["runtime_profile"]["output_contract"] == "draft_pack"
+    assert projection["runtime_profile"]["review_gate"] == "artifact_preview"
+    assert projection["sandbox"]["status"] == "required"
+    assert projection["sandbox"]["required"] is True
+    assert projection["review_gate"]["status"] == "clear"
+    assert projection["review_gate"]["policy"] == "artifact_preview"
 
 
 @pytest.mark.asyncio

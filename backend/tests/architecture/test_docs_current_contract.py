@@ -29,12 +29,17 @@ FORBIDDEN_CURRENT_DOC_PHRASES = (
     "Feature Panel",
     "panel 主消费",
     "右侧 Feature 面板",
+    "src/agents/lead_agent/thread_skill_catalog.py",
+    "feature_credit_policy",
+    "feature 启动前先扣积分",
 )
 
 REQUIRED_CURRENT_DOC_PHRASES = (
     "ChatTurnRouter",
+    "ThreadIntentRouter",
     "FeatureCommandHandler",
     "FeatureIngressService",
+    "SSOT",
     "Compute",
     "WenjinPrism",
 )
@@ -56,23 +61,11 @@ def test_current_docs_do_not_reintroduce_legacy_feature_tool_loop() -> None:
         for phrase in FORBIDDEN_CURRENT_DOC_PHRASES:
             if phrase in body:
                 violations.append(f"{path.relative_to(REPO_ROOT)}: {phrase}")
-    assert not violations, (
-        "Current architecture/product docs contain legacy feature-loop wording:\n"
-        + "\n".join(violations)
-    )
+    assert not violations, "Current architecture/product docs contain legacy feature-loop wording:\n" + "\n".join(violations)
 
 
 def test_current_docs_name_compute_centered_fact_sources() -> None:
     """Docs must keep the current chat/feature/compute/Prism sources explicit."""
-    combined = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in _current_docs()
-    )
-    missing = [
-        phrase for phrase in REQUIRED_CURRENT_DOC_PHRASES
-        if phrase not in combined
-    ]
-    assert not missing, (
-        "Current docs should name the Compute-centered fact sources; missing: "
-        + ", ".join(missing)
-    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in _current_docs())
+    missing = [phrase for phrase in REQUIRED_CURRENT_DOC_PHRASES if phrase not in combined]
+    assert not missing, "Current docs should name the Compute-centered fact sources; missing: " + ", ".join(missing)

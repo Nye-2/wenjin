@@ -581,6 +581,7 @@ class TestThreadTurnHandlerCancellation:
         thread = SimpleNamespace(
             id="thread-1",
             workspace_id="ws-1",
+            workspace_type="sci",
             skill=None,
         )
 
@@ -617,6 +618,54 @@ class TestThreadTurnHandlerCancellation:
         assert execute_feature.await_args.kwargs["feature_id"] == "framework_outline"
         assert execute_feature.await_args.kwargs["params"] == {"topic": "LLM planning"}
         assert execute_feature.await_args.kwargs["execution_session_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_feature_launch_turn_applies_skill_defaults_before_ingress(self):
+        handler = ThreadTurnHandler(thread_service=MagicMock())
+        request = ThreadTurnRequest(
+            message="开始",
+            workspace_id="ws-1",
+            skill="framework-designer",
+            metadata={
+                "orchestration": {
+                    "intent": "launch",
+                    "feature_id": "thesis_writing",
+                    "params": {},
+                }
+            },
+        )
+        thread = SimpleNamespace(
+            id="thread-1",
+            workspace_id="ws-1",
+            workspace_type="thesis",
+            skill=None,
+        )
+
+        with (
+            patch("src.agents.lead_agent.agent.make_lead_agent") as make_lead_agent,
+            patch(
+                "src.application.handlers.feature_command_handler.execute_workspace_feature_request",
+                new=AsyncMock(return_value=GeneratedThreadReply(content="feature launched")),
+            ) as execute_feature,
+            patch(
+                "src.application.handlers.thread_turn_handler.ensure_thread_turn_budget",
+                new_callable=AsyncMock,
+            ) as ensure_budget,
+        ):
+            reply = await handler._generate_prepared_reply(
+                PreparedThreadTurn(request=request, thread=thread),
+                actor_id="user-1",
+            )
+
+        assert reply.content == "feature launched"
+        make_lead_agent.assert_not_called()
+        ensure_budget.assert_not_awaited()
+        execute_feature.assert_awaited_once()
+        assert execute_feature.await_args.kwargs["feature_id"] == "thesis_writing"
+        assert execute_feature.await_args.kwargs["params"] == {
+            "action": "generate_outline",
+        }
+        assert execute_feature.await_args.kwargs["skill_id"] == "framework-designer"
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_skips_pre_bridge_for_freeform_chat(self):
@@ -707,6 +756,7 @@ class TestThreadTurnHandlerCancellation:
         thread = SimpleNamespace(
             id="thread-1",
             workspace_id="ws-1",
+            workspace_type="sci",
             skill=None,
         )
         prepared = PreparedThreadTurn(request=request, thread=thread)

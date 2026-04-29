@@ -38,6 +38,7 @@ class ComputeProjectionResponse(BaseModel):
     runtime_blocks: list[dict[str, Any]] = Field(default_factory=list)
     subagents: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: dict[str, Any] = Field(default_factory=dict)
+    runtime_profile: dict[str, Any] = Field(default_factory=dict)
     sandbox: dict[str, Any] = Field(default_factory=dict)
     prism: dict[str, Any] = Field(default_factory=dict)
     files: list[dict[str, Any]] = Field(default_factory=list)

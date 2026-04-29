@@ -1,34 +1,27 @@
 """Credit service for balance management and credit ledger operations."""
 
-import math
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config.config_loader import get_app_config
 from src.database import CreditTransaction, CreditTransactionType, User
-from src.services.feature_credit_policy import (
-    FEATURE_COSTS as WORKFLOW_CREDIT_COSTS,
+from src.services.billing_policy import (
+    TokenBillingPolicy,
+    calculate_token_billing_charge,
+    get_feature_token_billing_policy,
+    get_thread_token_billing_policy,
 )
-from src.services.feature_credit_policy import (
-    FEATURE_DISPLAY_NAMES,
-    THESIS_ACTION_LABELS,
-    get_feature_cost,
+from src.services.billing_policy import (
+    get_workflow_costs as get_billing_workflow_costs,
 )
-from src.services.thread_billing import TokenUsage
+from src.services.thread_billing import (
+    TokenUsage,
+    normalize_token_usage,
+)
 
 REGISTRATION_BONUS = 100
-
-
-@dataclass(slots=True)
-class ThreadBillingPolicy:
-    """Configurable thread token billing policy."""
-
-    enabled: bool
-    free_tokens: int
-    tokens_per_credit: int
 
 
 @dataclass(slots=True)
@@ -63,13 +56,34 @@ class ThreadCreditConsumption:
         }
 
 
-class InsufficientCreditsError(Exception):
-    """Raised when user has insufficient credits for an operation."""
+@dataclass(slots=True)
+class FeatureCreditConsumption:
+    """Result of settling a completed feature task against token usage."""
 
-    def __init__(self, current_balance: int, required: int):
-        self.current_balance = current_balance
-        self.required = required
-        super().__init__(f"Insufficient credits: balance={current_balance}, required={required}")
+    token_usage: dict[str, int]
+    free_tokens_applied: int
+    billable_tokens: int
+    credits_charged: int
+    historical_tokens_before: int
+    historical_tokens_after: int
+    transaction_id: str | None
+    balance_after: int | None
+    charged: bool
+
+    def as_metadata(self) -> dict[str, Any]:
+        """Return persisted billing metadata for task results."""
+        return {
+            "type": "feature_token_billing",
+            "token_usage": dict(self.token_usage),
+            "free_tokens_applied": self.free_tokens_applied,
+            "billable_tokens": self.billable_tokens,
+            "credits_charged": self.credits_charged,
+            "historical_tokens_before": self.historical_tokens_before,
+            "historical_tokens_after": self.historical_tokens_after,
+            "transaction_id": self.transaction_id,
+            "balance_after": self.balance_after,
+            "charged": self.charged,
+        }
 
 
 class CreditService:
@@ -79,32 +93,19 @@ class CreditService:
         self.db = db
 
     @staticmethod
-    def get_feature_cost(feature_id: str, action: str | None = None) -> int:
-        """Resolve credit cost for a feature and optional action."""
-        return get_feature_cost(feature_id, action)
+    def get_thread_billing_policy() -> TokenBillingPolicy:
+        """Return the configured thread token billing policy."""
+        return get_thread_token_billing_policy()
 
     @staticmethod
-    def get_thread_billing_policy() -> ThreadBillingPolicy:
-        """Return the configured thread token billing policy."""
-        thread_config = get_app_config().billing.thread
-        return ThreadBillingPolicy(
-            enabled=bool(thread_config.enabled),
-            free_tokens=max(int(thread_config.free_tokens), 0),
-            tokens_per_credit=max(int(thread_config.tokens_per_credit), 1),
-        )
+    def get_feature_billing_policy() -> TokenBillingPolicy:
+        """Return the configured workspace feature token billing policy."""
+        return get_feature_token_billing_policy()
 
     @classmethod
     def get_workflow_costs(cls) -> dict[str, Any]:
         """Expose workflow and thread billing configuration."""
-        policy = cls.get_thread_billing_policy()
-        return {
-            **WORKFLOW_CREDIT_COSTS,
-            "thread_token_billing": {
-                "enabled": policy.enabled,
-                "free_tokens": policy.free_tokens,
-                "tokens_per_credit": policy.tokens_per_credit,
-            },
-        }
+        return get_billing_workflow_costs()
 
     async def get_balance(self, user_id: str) -> int:
         """Get user current credit balance."""
@@ -181,45 +182,6 @@ class CreditService:
         transactions = result.scalars().all()
         return [self._to_dict(tx) for tx in transactions], int(total)
 
-    async def consume_for_feature(
-        self,
-        *,
-        user_id: str,
-        feature_id: str,
-        action: str | None = None,
-        workspace_id: str | None = None,
-        task_id: str | None = None,
-        description: str | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> CreditTransaction | None:
-        """Consume credits for feature execution."""
-        cost = self.get_feature_cost(feature_id, action)
-        if cost <= 0:
-            return None
-
-        user = await self._get_user_for_update(user_id)
-        if user.credits < cost:
-            raise InsufficientCreditsError(int(user.credits), cost)
-
-        user.credits -= cost
-        user.total_credits_spent += cost
-
-        tx = CreditTransaction(
-            user_id=user_id,
-            transaction_type=CreditTransactionType.WORKFLOW_CONSUME,
-            amount=-cost,
-            balance_after=user.credits,
-            description=description or self._build_consume_description(feature_id, action),
-            feature_id=feature_id,
-            workspace_id=workspace_id,
-            task_id=task_id,
-            tx_metadata=metadata or {},
-        )
-        self.db.add(tx)
-        await self.db.commit()
-        await self.db.refresh(tx)
-        return tx
-
     async def get_consumed_thread_tokens(self, user_id: str) -> int:
         """Return successfully settled historical thread tokens for a user."""
         result = await self.db.execute(
@@ -253,6 +215,41 @@ class CreditService:
                 total += max(int(token_usage.get("total_tokens", 0) or 0), 0)
         return total
 
+    async def get_consumed_feature_tokens(self, user_id: str) -> int:
+        """Return successfully settled historical feature-task tokens for a user."""
+        result = await self.db.execute(
+            select(CreditTransaction).where(
+                CreditTransaction.user_id == user_id,
+                CreditTransaction.transaction_type.in_(
+                    [
+                        CreditTransactionType.WORKFLOW_CONSUME,
+                        CreditTransactionType.REFUND,
+                    ]
+                ),
+            )
+        )
+        transactions = list(result.scalars().all())
+        refunded_ids = {
+            str(tx.tx_metadata.get("original_transaction_id"))
+            for tx in transactions
+            if tx.transaction_type == CreditTransactionType.REFUND
+            and tx.tx_metadata.get("original_transaction_id")
+        }
+
+        total = 0
+        for tx in transactions:
+            if tx.transaction_type != CreditTransactionType.WORKFLOW_CONSUME:
+                continue
+            if str(tx.id) in refunded_ids:
+                continue
+            metadata = tx.tx_metadata or {}
+            if not isinstance(metadata, dict) or metadata.get("type") != "feature_token_billing":
+                continue
+            token_usage = metadata.get("token_usage")
+            if isinstance(token_usage, dict):
+                total += max(int(token_usage.get("total_tokens", 0) or 0), 0)
+        return total
+
     async def can_start_thread_turn(self, user_id: str) -> bool:
         """Return whether the user can start a billable thread turn.
 
@@ -273,6 +270,24 @@ class CreditService:
         user = await self._get_user_for_update(user_id)
         return int(user.credits) > 0
 
+    @staticmethod
+    def _normalize_usage_dict(token_usage: TokenUsage | dict[str, int]) -> dict[str, int]:
+        if isinstance(token_usage, TokenUsage):
+            return token_usage.as_dict()
+        usage = normalize_token_usage(token_usage)
+        if usage is not None:
+            return usage.as_dict()
+        input_tokens = max(int(token_usage.get("input_tokens", 0) or 0), 0)
+        output_tokens = max(int(token_usage.get("output_tokens", 0) or 0), 0)
+        total_tokens = max(int(token_usage.get("total_tokens", 0) or 0), 0)
+        if total_tokens <= 0:
+            total_tokens = input_tokens + output_tokens
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+        }
+
     async def consume_for_thread_usage(
         self,
         *,
@@ -286,22 +301,15 @@ class CreditService:
     ) -> ThreadCreditConsumption:
         """Consume credits for a completed thread turn based on token usage."""
         policy = self.get_thread_billing_policy()
-        if isinstance(token_usage, TokenUsage):
-            normalized_usage = token_usage.as_dict()
-        else:
-            normalized_usage = {
-                "input_tokens": max(int(token_usage.get("input_tokens", 0) or 0), 0),
-                "output_tokens": max(int(token_usage.get("output_tokens", 0) or 0), 0),
-                "total_tokens": max(int(token_usage.get("total_tokens", 0) or 0), 0),
-            }
-        if normalized_usage["total_tokens"] <= 0:
-            normalized_usage["total_tokens"] = (
-                normalized_usage["input_tokens"] + normalized_usage["output_tokens"]
-            )
-
+        normalized_usage = self._normalize_usage_dict(token_usage)
         total_tokens = normalized_usage["total_tokens"]
         historical_tokens_before = await self.get_consumed_thread_tokens(user_id)
-        historical_tokens_after = historical_tokens_before + total_tokens
+        charge = calculate_token_billing_charge(
+            policy=policy,
+            total_tokens=total_tokens,
+            historical_tokens_before=historical_tokens_before,
+        )
+        historical_tokens_after = charge.historical_tokens_after
 
         if not policy.enabled or total_tokens <= 0:
             return ThreadCreditConsumption(
@@ -317,21 +325,11 @@ class CreditService:
                 charged=False,
             )
 
-        overage_before = max(historical_tokens_before - policy.free_tokens, 0)
-        overage_after = max(historical_tokens_after - policy.free_tokens, 0)
-        billable_tokens = max(overage_after - overage_before, 0)
-        free_tokens_applied = max(total_tokens - billable_tokens, 0)
-        credits_to_charge = (
-            math.ceil(billable_tokens / policy.tokens_per_credit)
-            if billable_tokens > 0
-            else 0
-        )
-
-        MAX_OVERDRAFT = 100  # safety net: never let balance go below -100
         user = await self._get_user_for_update(user_id)
         balance_before = int(user.credits)
+        credits_to_charge = charge.credits_to_charge
         if credits_to_charge > 0:
-            max_charge = balance_before + MAX_OVERDRAFT
+            max_charge = balance_before + policy.max_overdraft_credits
             credits_to_charge = min(credits_to_charge, max(0, max_charge))
             user.credits -= credits_to_charge
             user.total_credits_spent += credits_to_charge
@@ -340,14 +338,11 @@ class CreditService:
             "token_usage": normalized_usage,
             "thread_id": thread_id,
             "balance_before": balance_before,
-            "policy": {
-                "free_tokens": policy.free_tokens,
-                "tokens_per_credit": policy.tokens_per_credit,
-            },
+            "policy": policy.as_dict(),
             "historical_tokens_before": historical_tokens_before,
             "historical_tokens_after": historical_tokens_after,
-            "free_tokens_applied": free_tokens_applied,
-            "billable_tokens": billable_tokens,
+            "free_tokens_applied": charge.free_tokens_applied,
+            "billable_tokens": charge.billable_tokens,
             "model_name": model_name,
             "overdraft_credits": max(credits_to_charge - max(balance_before, 0), 0),
         }
@@ -362,7 +357,7 @@ class CreditService:
             description=description or self._build_thread_description(
                 total_tokens=total_tokens,
                 credits_charged=credits_to_charge,
-                free_tokens_applied=free_tokens_applied,
+                free_tokens_applied=charge.free_tokens_applied,
             ),
             feature_id="thread",
             workspace_id=workspace_id,
@@ -375,8 +370,98 @@ class CreditService:
         return ThreadCreditConsumption(
             token_usage=normalized_usage,
             model_name=model_name,
-            free_tokens_applied=free_tokens_applied,
-            billable_tokens=billable_tokens,
+            free_tokens_applied=charge.free_tokens_applied,
+            billable_tokens=charge.billable_tokens,
+            credits_charged=credits_to_charge,
+            historical_tokens_before=historical_tokens_before,
+            historical_tokens_after=historical_tokens_after,
+            transaction_id=str(tx.id),
+            balance_after=int(tx.balance_after),
+            charged=credits_to_charge > 0,
+        )
+
+    async def consume_for_feature_usage(
+        self,
+        *,
+        user_id: str,
+        feature_id: str,
+        token_usage: TokenUsage | dict[str, int],
+        workspace_id: str | None = None,
+        task_id: str | None = None,
+        description: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> FeatureCreditConsumption:
+        """Consume credits for a completed feature task based on token usage."""
+        policy = self.get_feature_billing_policy()
+        normalized_usage = self._normalize_usage_dict(token_usage)
+        total_tokens = normalized_usage["total_tokens"]
+        historical_tokens_before = await self.get_consumed_feature_tokens(user_id)
+        charge = calculate_token_billing_charge(
+            policy=policy,
+            total_tokens=total_tokens,
+            historical_tokens_before=historical_tokens_before,
+        )
+        historical_tokens_after = charge.historical_tokens_after
+
+        if not policy.enabled or total_tokens <= 0:
+            return FeatureCreditConsumption(
+                token_usage=normalized_usage,
+                free_tokens_applied=0,
+                billable_tokens=0,
+                credits_charged=0,
+                historical_tokens_before=historical_tokens_before,
+                historical_tokens_after=historical_tokens_after,
+                transaction_id=None,
+                balance_after=None,
+                charged=False,
+            )
+
+        user = await self._get_user_for_update(user_id)
+        balance_before = int(user.credits)
+        credits_to_charge = charge.credits_to_charge
+        if credits_to_charge > 0:
+            max_charge = balance_before + policy.max_overdraft_credits
+            credits_to_charge = min(credits_to_charge, max(0, max_charge))
+            user.credits -= credits_to_charge
+            user.total_credits_spent += credits_to_charge
+
+        tx_metadata = {
+            "type": "feature_token_billing",
+            "token_usage": normalized_usage,
+            "balance_before": balance_before,
+            "policy": policy.as_dict(),
+            "historical_tokens_before": historical_tokens_before,
+            "historical_tokens_after": historical_tokens_after,
+            "free_tokens_applied": charge.free_tokens_applied,
+            "billable_tokens": charge.billable_tokens,
+            "overdraft_credits": max(credits_to_charge - max(balance_before, 0), 0),
+        }
+        if metadata:
+            tx_metadata.update(metadata)
+
+        tx = CreditTransaction(
+            user_id=user_id,
+            transaction_type=CreditTransactionType.WORKFLOW_CONSUME,
+            amount=-credits_to_charge,
+            balance_after=user.credits,
+            description=description or self._build_feature_token_description(
+                feature_id=feature_id,
+                total_tokens=total_tokens,
+                credits_charged=credits_to_charge,
+                free_tokens_applied=charge.free_tokens_applied,
+            ),
+            feature_id=feature_id,
+            workspace_id=workspace_id,
+            task_id=task_id,
+            tx_metadata=tx_metadata,
+        )
+        self.db.add(tx)
+        await self.db.commit()
+        await self.db.refresh(tx)
+        return FeatureCreditConsumption(
+            token_usage=normalized_usage,
+            free_tokens_applied=charge.free_tokens_applied,
+            billable_tokens=charge.billable_tokens,
             credits_charged=credits_to_charge,
             historical_tokens_before=historical_tokens_before,
             historical_tokens_after=historical_tokens_after,
@@ -433,8 +518,17 @@ class CreditService:
         if existing_refund.scalar_one_or_none() is not None:
             return None
 
+        original_metadata = (
+            original_tx.tx_metadata
+            if isinstance(original_tx.tx_metadata, dict)
+            else {}
+        )
+        is_token_usage_transaction = (
+            original_tx.transaction_type == CreditTransactionType.THREAD_TOKEN_CONSUME
+            or original_metadata.get("type") == "feature_token_billing"
+        )
         refund_amount = abs(int(original_tx.amount))
-        if refund_amount <= 0 and original_tx.transaction_type != CreditTransactionType.THREAD_TOKEN_CONSUME:
+        if refund_amount <= 0 and not is_token_usage_transaction:
             return None
 
         user = await self._get_user_for_update(user_id)
@@ -455,11 +549,7 @@ class CreditService:
                 "original_transaction_id": original_transaction_id,
                 "original_task_id": original_tx.task_id,
                 "original_transaction_type": original_tx.transaction_type.value,
-                "token_usage": (
-                    original_tx.tx_metadata.get("token_usage")
-                    if isinstance(original_tx.tx_metadata, dict)
-                    else None
-                ),
+                "token_usage": original_metadata.get("token_usage"),
             },
         )
         self.db.add(refund_tx)
@@ -580,12 +670,19 @@ class CreditService:
         except ValueError as exc:
             raise ValueError(f"Unsupported transaction type: {transaction_type}") from exc
 
-    def _build_consume_description(self, feature_id: str, action: str | None) -> str:
-        base = FEATURE_DISPLAY_NAMES.get(feature_id, feature_id)
-        if feature_id == "thesis_writing" and action:
-            action_label = THESIS_ACTION_LABELS.get(action, action)
-            return f"{base} - {action_label}"
-        return f"{base} 执行消耗"
+    def _build_feature_token_description(
+        self,
+        *,
+        feature_id: str,
+        total_tokens: int,
+        credits_charged: int,
+        free_tokens_applied: int,
+    ) -> str:
+        if credits_charged <= 0:
+            if free_tokens_applied > 0:
+                return f"{feature_id} token 用量记录（{total_tokens} tokens，免费额度内）"
+            return f"{feature_id} token 用量记录（{total_tokens} tokens）"
+        return f"{feature_id} token 扣费（{total_tokens} tokens）"
 
     def _build_thread_description(
         self,

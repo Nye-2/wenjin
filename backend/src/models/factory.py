@@ -10,12 +10,12 @@ supporting:
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
-from langchain_openai import ChatOpenAI
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
+from langchain_openai import ChatOpenAI
 
 from src.config.llm_config import LLMSettings, get_model_full_config, resolve_model_id
 
@@ -153,7 +153,7 @@ class ReasoningChatOpenAI(ChatOpenAI):
     def _create_chat_result(
         self,
         response: Any,
-        generation_info: Optional[dict] = None,
+        generation_info: dict | None = None,
     ) -> ChatResult:
         result = super()._create_chat_result(response, generation_info)
         # Pull reasoning_content from the raw response and attach it to
@@ -173,8 +173,8 @@ class ReasoningChatOpenAI(ChatOpenAI):
         self,
         chunk: dict,
         default_chunk_class: type,
-        base_generation_info: Optional[dict] = None,
-    ) -> Optional[ChatGenerationChunk]:
+        base_generation_info: dict | None = None,
+    ) -> ChatGenerationChunk | None:
         generation_chunk = super()._convert_chunk_to_generation_chunk(
             chunk, default_chunk_class, base_generation_info
         )

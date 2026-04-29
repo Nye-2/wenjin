@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from src.database.models.credit import CreditTransaction, CreditTransactionType
 from src.database.models.user import User
+from src.services.billing_policy import TokenBillingPolicy
 from src.services.credit_service import CreditService
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -199,6 +200,97 @@ async def test_consume_for_thread_usage_allows_single_turn_overdraft_then_blocks
     assert result.charged is True
     assert await credit_service.get_balance("user-1") == -1
     assert await credit_service.can_start_thread_turn("user-1") is False
+
+
+@pytest.mark.asyncio
+async def test_consume_for_feature_usage_charges_by_tokens(
+    db_session: AsyncSession,
+    credit_service: CreditService,
+) -> None:
+    await _create_user(db_session, credits=10)
+
+    result = await credit_service.consume_for_feature_usage(
+        user_id="user-1",
+        feature_id="deep_research",
+        token_usage={"input_tokens": 12000, "output_tokens": 3000, "total_tokens": 15000},
+        workspace_id="ws-1",
+        task_id="task-1",
+        metadata={"workspace_type": "thesis"},
+    )
+
+    assert result.billable_tokens == 15000
+    assert result.credits_charged == 2
+    assert result.charged is True
+    assert await credit_service.get_balance("user-1") == 8
+    assert await credit_service.get_consumed_feature_tokens("user-1") == 15000
+
+
+@pytest.mark.asyncio
+async def test_refund_consumption_releases_feature_tokens(
+    db_session: AsyncSession,
+    credit_service: CreditService,
+) -> None:
+    await _create_user(db_session, credits=10)
+    result = await credit_service.consume_for_feature_usage(
+        user_id="user-1",
+        feature_id="deep_research",
+        token_usage={"total_tokens": 15000},
+        task_id="task-1",
+    )
+
+    assert result.transaction_id is not None
+    refund = await credit_service.refund_consumption(
+        user_id="user-1",
+        original_transaction_id=result.transaction_id,
+        reason="feature persist failed",
+    )
+
+    assert refund is not None
+    assert refund.amount == 2
+    assert await credit_service.get_balance("user-1") == 10
+    assert await credit_service.get_consumed_feature_tokens("user-1") == 0
+
+
+@pytest.mark.asyncio
+async def test_refund_consumption_releases_free_feature_tokens(
+    db_session: AsyncSession,
+    credit_service: CreditService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _create_user(db_session, credits=10)
+    monkeypatch.setattr(
+        CreditService,
+        "get_feature_billing_policy",
+        staticmethod(
+            lambda: TokenBillingPolicy(
+                enabled=True,
+                free_tokens=100000,
+                tokens_per_credit=10000,
+                max_overdraft_credits=100,
+            )
+        ),
+    )
+
+    result = await credit_service.consume_for_feature_usage(
+        user_id="user-1",
+        feature_id="deep_research",
+        token_usage={"total_tokens": 5000},
+        task_id="task-1",
+    )
+
+    assert result.transaction_id is not None
+    assert result.credits_charged == 0
+    assert await credit_service.get_consumed_feature_tokens("user-1") == 5000
+
+    refund = await credit_service.refund_consumption(
+        user_id="user-1",
+        original_transaction_id=result.transaction_id,
+        reason="feature persist failed",
+    )
+
+    assert refund is not None
+    assert refund.amount == 0
+    assert await credit_service.get_consumed_feature_tokens("user-1") == 0
 
 
 @pytest.mark.asyncio

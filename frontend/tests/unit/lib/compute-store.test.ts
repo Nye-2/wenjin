@@ -58,11 +58,23 @@ function projection(
     runtime_blocks: overrides.runtime_blocks ?? [],
     subagents: overrides.subagents ?? [],
     artifacts: overrides.artifacts ?? {},
+    runtime_profile:
+      overrides.runtime_profile ??
+      {
+        runtime_mode: "compute_workflow",
+        requires_compute: true,
+        requires_sandbox: false,
+        allowed_subagents: [],
+        max_subagents: 0,
+        output_contract: "feature_result",
+        review_gate: null,
+      },
     sandbox:
       overrides.sandbox ??
       {
         session_id: computeSession.sandbox_session_id,
         status: computeSession.sandbox_session_id ? "bound" : "unbound",
+        required: false,
         files: [],
         logs: [],
         file_count: 0,
@@ -88,6 +100,7 @@ function projection(
       {
         status: "clear",
         required: false,
+        policy: null,
         next_actions: [],
         items: [],
         advisory_code: null,

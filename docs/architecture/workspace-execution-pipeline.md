@@ -47,10 +47,10 @@ chat、feature API、activity retry 和 automation 只能作为 adapter 调用 d
 
 1. Runs router 接收消息，解析 thread/workspace/user 运行时上下文。
 2. `ThreadTurnHandler.prepare_turn()` 写入 user message 并设置 thread running。
-3. `ChatTurnRouter` 根据 `metadata.orchestration.intent` 分类：
-   - `launch` -> `feature_launch`
-   - `resume` -> `feature_resume`
-   - 无显式 feature command -> `pure_chat`
+3. `ChatTurnRouter` 作为薄 adapter 调用 `ThreadIntentRouter`：
+   - `ThreadIntentRouter` 是 chat feature 意图 SSOT。
+   - 它负责合并 skill defaults、校验 skill/feature 一致性、校验 workspace feature availability。
+   - `launch` -> `feature_launch`，`resume` -> `feature_resume`，无显式 feature command -> `pure_chat`。
 4. `feature_launch` / `feature_resume` 交给 `FeatureCommandHandler`。
 5. `FeatureCommandHandler` 调用 `execute_workspace_feature_request(...)`，该 adapter 构造 `FeatureIngressService` 并进入 launch/resume。
 6. pure chat 才进入 lead-agent，lead-agent 只保留普通问答、建议、workspace read tools，不持有 feature 执行权。
@@ -75,13 +75,14 @@ chat、feature API、activity retry 和 automation 只能作为 adapter 调用 d
    - 缺参时将 session 置为 `awaiting_user_input` 并返回结构化追问。
 3. `FeatureSubmissionService.execute(...)`：
    - 校验 workspace owner。
-   - 执行 credit / policy / lock / idempotency 检查。
+   - 执行 policy / lock / idempotency 检查。
    - 生成 canonical task payload。
    - 提交给 `TaskService`。
 4. Celery worker 拉取任务并交给 workspace feature runtime。
 4. `FeatureLeaderRuntime.execute_feature(...)` 根据 runtime profile 选择 deterministic workflow、`feature_leader.graph_registry` 注册的 LangGraph graph 或 AgentHarness。
-5. feature graph/service 产出 runtime blocks、draft/review/file-change packs、artifacts 和 activity。
-6. 结果统一写回：
+5. feature graph/service 产出 runtime blocks、draft/review/file-change packs、artifacts、activity 和 token usage。
+6. worker 根据 `services/billing_policy.py` 的 feature token policy 在成功后结算积分。
+7. 结果统一写回：
    - `task_records`
    - `execution_sessions`
    - `compute_sessions` projection 依赖的源数据

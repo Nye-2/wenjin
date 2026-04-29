@@ -106,6 +106,8 @@ function sandboxStatusLabel(status?: string | null): string {
       return "已绑定";
     case "derived":
       return "已发现";
+    case "required":
+      return "需绑定";
     case "unbound":
       return "未绑定";
     default:
@@ -440,6 +442,7 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
   const subagents = projection?.subagents ?? [];
   const tasks = projection?.tasks ?? [];
   const sandbox = projection?.sandbox ?? null;
+  const runtimeProfile = projection?.runtime_profile ?? null;
   const prism = projection?.prism ?? null;
   const files = projection?.files ?? sandbox?.files ?? [];
   const logs = projection?.logs ?? sandbox?.logs ?? [];
@@ -627,7 +630,13 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
           <SummaryItem
             label="Sandbox"
             value={sandboxStatusLabel(sandbox?.status)}
-            tone={sandbox?.status === "bound" ? "success" : "default"}
+            tone={
+              sandbox?.status === "bound"
+                ? "success"
+                : sandbox?.required
+                  ? "warning"
+                  : "default"
+            }
           />
           <SummaryItem
             label="Prism"
@@ -976,6 +985,11 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
                 {readString(sandbox?.session_id)}
               </p>
             ) : null}
+            {sandbox?.required && !readString(sandbox?.session_id) ? (
+              <p className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-800">
+                当前 feature runtime profile 要求 sandbox；等待执行环境绑定或产出文件。
+              </p>
+            ) : null}
             <div className="mt-3 space-y-2">
               {files.length > 0 ? (
                 files.slice(0, 8).map((file) => {
@@ -1093,6 +1107,11 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
             {readString(reviewGate?.advisory_code) ? (
               <p className="mt-2 truncate text-[11px] text-[var(--text-muted)]">
                 {readString(reviewGate?.advisory_code)}
+              </p>
+            ) : null}
+            {readString(reviewGate?.policy ?? runtimeProfile?.review_gate) ? (
+              <p className="mt-2 truncate text-[11px] text-[var(--text-muted)]">
+                Policy: {readString(reviewGate?.policy ?? runtimeProfile?.review_gate)}
               </p>
             ) : null}
             <div className="mt-3 space-y-2">

@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from celery import Task, shared_task
 
-from src.task.registry import PAPER_EXTRACTION_TASK
+from src.task.registry import PAPER_EXTRACTION_TASK, WORKSPACE_FEATURE_TASK
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +105,52 @@ async def _append_task_thread_message(
             thread_id,
             exc_info=True,
         )
+
+
+async def _settle_workspace_feature_billing(
+    *,
+    db: Any,
+    store: Any,
+    task_id: str,
+    task_type: str,
+    payload: dict[str, Any],
+    result: dict[str, Any],
+) -> None:
+    """Settle token-based feature billing after successful task execution."""
+    if task_type != WORKSPACE_FEATURE_TASK:
+        return
+
+    from src.services.credit_service import CreditService
+    from src.services.thread_billing import normalize_token_usage
+
+    usage = normalize_token_usage(result.get("token_usage"))
+    if usage is None:
+        return
+
+    task_record = await store.get_task_record(task_id)
+    if task_record is None:
+        return
+
+    feature_id = str(payload.get("feature_id") or task_record.feature_id or "").strip()
+    if not feature_id:
+        return
+
+    feature_name = str(payload.get("feature_name") or feature_id).strip()
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    billing = await CreditService(db).consume_for_feature_usage(
+        user_id=task_record.user_id,
+        feature_id=feature_id,
+        token_usage=usage,
+        workspace_id=str(payload.get("workspace_id") or task_record.workspace_id or "") or None,
+        task_id=task_id,
+        description=f"{feature_name} token 扣费",
+        metadata={
+            "workspace_type": payload.get("workspace_type"),
+            "handler_key": payload.get("handler_key"),
+            "params": params,
+        },
+    )
+    result["billing"] = billing.as_metadata()
 
 
 async def _sync_paper_extraction_attachment_state(
@@ -249,6 +295,14 @@ async def _execute_task_async(
 
             # Dispatch to task-specific handler
             result = await _dispatch_task(task_type, payload, progress)
+            await _settle_workspace_feature_billing(
+                db=db,
+                store=store,
+                task_id=task_id,
+                task_type=task_type,
+                payload=payload,
+                result=result,
+            )
 
             if thread_id:
                 from src.services.thread_events import set_thread_status

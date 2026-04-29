@@ -19,6 +19,11 @@ from typing import Any
 
 from langchain_core.messages import SystemMessage
 
+from src.workspace_features.registry import (
+    WorkspaceFeatureDefinition,
+    list_workspace_features,
+)
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -28,12 +33,8 @@ __all__ = [
     "register_feature_graph",
 ]
 
-THESIS_FEATURE_IDS = (
-    "deep_research",
-    "literature_management",
-    "opening_research",
-    "thesis_writing",
-    "figure_generation",
+THESIS_FEATURE_IDS = tuple(
+    feature.id for feature in list_workspace_features("thesis")
 )
 
 # Type alias for feature graph functions
@@ -43,41 +44,6 @@ FeatureGraphFn = Callable[[dict[str, Any], dict[str, Any]], Awaitable[dict[str, 
 # Key format: "{workspace_type}.{feature_id}" (e.g., "thesis.literature_management")
 _FEATURE_GRAPH_REGISTRY: dict[str, FeatureGraphFn] = {}
 _LOADED_WORKSPACES: set[str] = set()
-_WORKSPACE_GRAPH_MODULES: dict[str, tuple[str, ...]] = {
-    "thesis": (
-        "src.agents.graphs.thesis.deep_research",
-        "src.agents.graphs.thesis.literature_management",
-        "src.agents.graphs.thesis.opening_research",
-        "src.agents.graphs.thesis.thesis_writing",
-        "src.agents.graphs.thesis.figure_generation",
-    ),
-    "sci": (
-        "src.agents.graphs.sci.literature_search",
-        "src.agents.graphs.sci.paper_analysis",
-        "src.agents.graphs.sci.writing",
-        "src.agents.graphs.sci.literature_review",
-        "src.agents.graphs.sci.framework_outline",
-        "src.agents.graphs.sci.peer_review",
-        "src.agents.graphs.sci.journal_recommend",
-        "src.agents.graphs.thesis.figure_generation",
-    ),
-    "proposal": (
-        "src.agents.graphs.proposal.proposal_outline",
-        "src.agents.graphs.proposal.background_research",
-        "src.agents.graphs.proposal.experiment_design",
-        "src.agents.graphs.thesis.figure_generation",
-    ),
-    "patent": (
-        "src.agents.graphs.patent.patent_outline",
-        "src.agents.graphs.patent.prior_art_search",
-        "src.agents.graphs.thesis.figure_generation",
-    ),
-    "software_copyright": (
-        "src.agents.graphs.software_copyright.copyright_materials",
-        "src.agents.graphs.software_copyright.technical_description",
-        "src.agents.graphs.thesis.figure_generation",
-    ),
-}
 _FEATURE_MEMORY_CONTEXT_KEYS = (
     "__thread_context_focus",
     "__leader_workflow_highlights",
@@ -103,12 +69,28 @@ def register_feature_graph(feature_id: str, workspace_type: str):
     Returns:
         Decorator function that registers the graph and returns it unchanged.
     """
+
     def decorator(fn: Callable) -> Callable:
         key = f"{workspace_type}.{feature_id}"
         _FEATURE_GRAPH_REGISTRY[key] = fn
         logger.debug("Registered feature graph: %s", key)
         return fn
+
     return decorator
+
+
+def _graph_module_name(feature: WorkspaceFeatureDefinition) -> str:
+    if feature.graph_module:
+        return feature.graph_module
+    return f"src.agents.graphs.{feature.workspace_type}.{feature.id}"
+
+
+def _workspace_graph_modules(workspace_type: str) -> tuple[str, ...]:
+    modules = [
+        _graph_module_name(feature)
+        for feature in list_workspace_features(workspace_type)
+    ]
+    return tuple(dict.fromkeys(modules))
 
 
 def _ensure_graphs_loaded(workspace_type: str) -> None:
@@ -123,7 +105,7 @@ def _ensure_graphs_loaded(workspace_type: str) -> None:
     if workspace_type in _LOADED_WORKSPACES:
         return
 
-    module_names = _WORKSPACE_GRAPH_MODULES.get(workspace_type)
+    module_names = _workspace_graph_modules(workspace_type)
     if not module_names:
         logger.warning("Unknown workspace type: %s", workspace_type)
         return
@@ -257,6 +239,7 @@ def _build_system_prompt(
     if memory_text:
         parts.append(f"\n{memory_text}")
     return "\n".join(parts)
+
 
 async def execute_thesis_feature_graph(
     feature_id: str,

@@ -16,7 +16,10 @@ from src.agents.harness import (
     AgentSessionRequest,
     NativeWenjinAgentHarness,
 )
+from src.agents.harness.claude_agent_adapter import ClaudeAgentSdkAdapter
+from src.agents.harness.codex_adapter import CodexAgentAdapter
 from src.agents.harness.contracts import PhaseResult
+from src.agents.harness.deerflow_adapter import DeerFlowHarnessAdapter
 from src.task.runtime_blocks import (
     append_runtime_activity,
     get_runtime_state,
@@ -25,8 +28,15 @@ from src.task.runtime_blocks import (
 from src.task.runtime_blocks import (
     emit_bound_runtime as _emit_bound_runtime,
 )
+from src.workspace_features.runtime_profiles import (
+    FeatureRuntimeProfile,
+    get_feature_runtime_profile,
+)
 
-from .workflow import build_dynamic_feature_workflow_plan
+from .workflow import (
+    build_dynamic_feature_workflow_plan,
+    validate_workflow_plan_against_profile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +84,44 @@ class FeatureLeaderRuntime:
         }
         return {key: value for key, value in context.items() if value}
 
-    def _build_agent_harness(self, payload: dict[str, Any]) -> AgentHarness:
+    @staticmethod
+    def _serialize_runtime_profile(profile: FeatureRuntimeProfile) -> dict[str, Any]:
+        return {
+            "workspace_type": profile.workspace_type,
+            "feature_id": profile.feature_id,
+            "runtime_mode": str(profile.runtime_mode),
+            "requires_compute": profile.requires_compute,
+            "requires_sandbox": profile.requires_sandbox,
+            "allowed_subagents": list(profile.allowed_subagents),
+            "max_subagents": profile.max_subagents,
+            "agent_harness_provider": profile.agent_harness_provider,
+            "output_contract": profile.output_contract,
+            "review_gate": profile.review_gate,
+        }
+
+    def _build_agent_harness(
+        self,
+        payload: dict[str, Any],
+        profile: FeatureRuntimeProfile,
+    ) -> AgentHarness:
         _ = payload
-        return NativeWenjinAgentHarness()
+        provider = _normalize_text(
+            profile.agent_harness_provider or "native_wenjin"
+        ).lower()
+        if provider in {"native", "native_wenjin"}:
+            return NativeWenjinAgentHarness(
+                max_concurrent=profile.max_subagents or None,
+            )
+        if provider == "deerflow":
+            return DeerFlowHarnessAdapter()
+        if provider in {"claude", "claude_agent_sdk"}:
+            return ClaudeAgentSdkAdapter()
+        if provider == "codex":
+            return CodexAgentAdapter()
+        raise ValueError(
+            "unsupported_agent_harness_provider: "
+            f"{profile.workspace_type}.{profile.feature_id} provider={provider}"
+        )
 
     @staticmethod
     def _serialize_phase_result(result: PhaseResult) -> dict[str, Any]:
@@ -96,6 +141,11 @@ class FeatureLeaderRuntime:
                     "success": bool(task.get("success")),
                     "error": _normalize_text(task.get("error")) or None,
                     "result_preview": _preview_payload(task.get("result")) or None,
+                    "token_usage": (
+                        task.get("token_usage")
+                        if isinstance(task.get("token_usage"), dict)
+                        else None
+                    ),
                 }
             )
         return {
@@ -196,6 +246,7 @@ class FeatureLeaderRuntime:
         feature_id: str,
         payload: dict[str, Any],
     ) -> dict[str, Any] | None:
+        profile = get_feature_runtime_profile(workspace_type, feature_id)
         plan = build_dynamic_feature_workflow_plan(
             workspace_type=workspace_type,
             feature_id=feature_id,
@@ -203,6 +254,11 @@ class FeatureLeaderRuntime:
         )
         if plan is None:
             return None
+        if profile is None:
+            raise RuntimeError(
+                f"feature_runtime_profile_missing: {workspace_type}.{feature_id}"
+            )
+        validate_workflow_plan_against_profile(plan, profile)
 
         context = self._build_workflow_context(payload)
         if not context.get("execution_session_id"):
@@ -211,7 +267,8 @@ class FeatureLeaderRuntime:
                 f"{workspace_type}.{feature_id}"
             )
 
-        agent_harness = self._build_agent_harness(payload)
+        profile_metadata = self._serialize_runtime_profile(profile)
+        agent_harness = self._build_agent_harness(payload, profile)
         partial_phases: list[dict[str, Any]] = []
         await self._publish_workflow_runtime(
             strategy=plan.strategy,
@@ -248,6 +305,7 @@ class FeatureLeaderRuntime:
             execution_context = {
                 **context,
                 "workflow_strategy": plan.strategy,
+                "runtime_profile": profile_metadata,
             }
             session_result = await agent_harness.run_session(
                 AgentSessionRequest(
@@ -319,6 +377,7 @@ class FeatureLeaderRuntime:
             "status": "completed",
             "provider": provider,
             "strategy": plan.strategy,
+            "runtime_profile": profile_metadata,
             "phase_count": plan.phase_count,
             "task_count": plan.task_count,
             "phases": serialized_phases,

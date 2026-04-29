@@ -12,6 +12,7 @@ from typing import Any
 from src.subagents.parallel import ExecutionPhase, PhasedPlan
 from src.workspace_features.runtime_profiles import (
     FeatureRuntimeMode,
+    FeatureRuntimeProfile,
     get_feature_runtime_profile,
 )
 
@@ -68,6 +69,39 @@ class FeatureWorkflowPlan:
     @property
     def task_count(self) -> int:
         return sum(len(phase.tasks) for phase in self.phased_plan.phases)
+
+
+def _iter_subagent_types(plan: FeatureWorkflowPlan) -> tuple[str, ...]:
+    subagent_types: list[str] = []
+    for phase in plan.phased_plan.phases:
+        for task in phase.tasks:
+            subagent_type = _normalize_text(task.get("subagent_type"))
+            subagent_types.append(subagent_type or "__missing__")
+    return tuple(subagent_types)
+
+
+def validate_workflow_plan_against_profile(
+    plan: FeatureWorkflowPlan,
+    profile: FeatureRuntimeProfile,
+) -> FeatureWorkflowPlan:
+    """Validate an agentic workflow plan against the feature runtime profile."""
+    if profile.max_subagents > 0 and plan.task_count > profile.max_subagents:
+        raise RuntimeError(
+            "feature_runtime_profile_max_subagents_exceeded: "
+            f"{profile.workspace_type}.{profile.feature_id} "
+            f"declared max={profile.max_subagents}, planned={plan.task_count}"
+        )
+
+    if profile.allowed_subagents:
+        allowed = set(profile.allowed_subagents)
+        disallowed = sorted(set(_iter_subagent_types(plan)) - allowed)
+        if disallowed:
+            raise RuntimeError(
+                "feature_runtime_profile_disallowed_subagents: "
+                f"{profile.workspace_type}.{profile.feature_id} "
+                f"disallowed={','.join(disallowed)}"
+            )
+    return plan
 
 
 def _build_research_plan(*, feature_id: str, focus: str) -> FeatureWorkflowPlan:
@@ -202,18 +236,22 @@ def build_dynamic_feature_workflow_plan(
     params = params if isinstance(params, dict) else {}
     action = _normalize_text(params.get("action")).lower()
 
-    if feature_id in {"deep_research", "literature_search", "background_research", "prior_art_search"}:
-        return _build_research_plan(feature_id=feature_id, focus=focus)
+    plan: FeatureWorkflowPlan | None = None
 
-    if feature_id in {"thesis_writing", "writing"}:
+    if feature_id in {"deep_research", "literature_search", "background_research", "prior_art_search"}:
+        plan = _build_research_plan(feature_id=feature_id, focus=focus)
+
+    elif feature_id in {"thesis_writing", "writing"}:
         if feature_id == "thesis_writing" and action == "review_section":
             # review_section is lightweight and should not trigger heavy subagent fanout.
             return None
-        return _build_writing_plan(feature_id=feature_id, focus=focus, action=action)
+        plan = _build_writing_plan(feature_id=feature_id, focus=focus, action=action)
 
-    if feature_id == "figure_generation":
-        return _build_figure_plan(feature_id=feature_id, focus=focus)
+    elif feature_id == "figure_generation":
+        plan = _build_figure_plan(feature_id=feature_id, focus=focus)
 
-    # Preserve explicit workspace_type for future strategy expansion.
-    _ = workspace_type
-    return None
+    if plan is None:
+        # Preserve explicit workspace_type for future strategy expansion.
+        _ = workspace_type
+        return None
+    return validate_workflow_plan_against_profile(plan, profile)

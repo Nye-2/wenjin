@@ -2,7 +2,7 @@
 
 更新时间: 2026-04-15
 数据源: `backend/src/workspace_features/registry.py`
-skill 数据源: `backend/src/agents/lead_agent/thread_skill_catalog.py`
+skill 数据源: `backend/src/workspace_features/skills.py`
 
 ## 1. Canonical Workspace Types
 

@@ -325,7 +325,7 @@ backend/src/agents/lead_agent/agent.py
 backend/src/tools/builtins/workspace.py
 backend/src/application/services/thread_feature_service.py
 backend/src/agents/lead_agent/thread_feature_cards.py
-backend/src/agents/lead_agent/thread_skill_catalog.py
+backend/src/workspace_features/skills.py
 ```
 
 完成标准：
@@ -569,5 +569,5 @@ docs/documentation-map.md
 8. feature 状态从 compute projection 查询。
 9. subagent 必须绑定 execution session。
 10. artifact 写回只走 artifact contract。
-11. pure chat billing 和 feature billing 分离。
+11. pure chat billing 和 feature billing 分离，二者都从 `services/billing_policy.py` 按 token usage 结算。
 12. 旧 chat-feature tool loop 已删除。

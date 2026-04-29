@@ -114,8 +114,6 @@ class TestCreateChatModel:
             os.environ,
             {
                 "LLM_MODELS": "[]",
-                "LLM_MODELS": "[]",
-                "LLM_MODELS": "[]",
                 "LLM_IMAGE_MODELS": "[]",
                 "LLM_DEFAULT_MODEL": "",
             },

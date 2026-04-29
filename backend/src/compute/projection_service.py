@@ -15,6 +15,7 @@ from src.database.models.subagent_task import SubagentTaskRecord
 from src.database.models.task import TaskRecord
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.services.execution_session_events import serialize_execution_session
+from src.workspace_features.runtime_profiles import get_feature_runtime_profile
 
 _FILE_PATH_KEYS = {
     "sandbox_path",
@@ -781,9 +782,31 @@ def _build_review_gate(execution: ExecutionSessionRecord) -> dict[str, Any]:
     return {
         "status": status,
         "required": status == "awaiting_user",
+        "policy": _build_runtime_profile_projection(execution).get("review_gate"),
         "next_actions": next_actions,
         "items": items,
         "advisory_code": execution.advisory_code,
+    }
+
+
+def _build_runtime_profile_projection(execution: ExecutionSessionRecord) -> dict[str, Any]:
+    profile = get_feature_runtime_profile(
+        str(execution.workspace_type or ""),
+        str(execution.feature_id or ""),
+    )
+    if profile is None:
+        return {}
+    return {
+        "workspace_type": profile.workspace_type,
+        "feature_id": profile.feature_id,
+        "runtime_mode": str(profile.runtime_mode),
+        "requires_compute": profile.requires_compute,
+        "requires_sandbox": profile.requires_sandbox,
+        "allowed_subagents": list(profile.allowed_subagents),
+        "max_subagents": profile.max_subagents,
+        "agent_harness_provider": profile.agent_harness_provider,
+        "output_contract": profile.output_contract,
+        "review_gate": profile.review_gate,
     }
 
 
@@ -792,17 +815,22 @@ def _build_sandbox_projection(
     compute_session: ComputeSessionRecord,
     files: list[dict[str, Any]],
     logs: list[dict[str, Any]],
+    runtime_profile: dict[str, Any],
 ) -> dict[str, Any]:
     has_sandbox_files = any(item.get("kind") == "sandbox_file" for item in files)
+    requires_sandbox = bool(runtime_profile.get("requires_sandbox"))
     if compute_session.sandbox_session_id:
         status = "bound"
     elif has_sandbox_files:
         status = "derived"
+    elif requires_sandbox:
+        status = "required"
     else:
         status = "unbound"
     return {
         "session_id": compute_session.sandbox_session_id,
         "status": status,
+        "required": requires_sandbox,
         "files": files,
         "logs": logs,
         "file_count": len(files),
@@ -897,10 +925,12 @@ class ComputeProjectionService:
             tasks=tasks,
             runtime_blocks=runtime_blocks,
         )
+        runtime_profile = _build_runtime_profile_projection(execution)
         review_gate = _build_review_gate(execution)
         return {
             "compute_session": serialize_compute_session(compute_session),
             "execution": serialize_execution_session(execution),
+            "runtime_profile": runtime_profile,
             "primary_task": _task_payload(primary_task) if primary_task is not None else None,
             "tasks": [_task_payload(task) for task in tasks],
             "runtime_blocks": runtime_blocks,
@@ -913,6 +943,7 @@ class ComputeProjectionService:
                 compute_session=compute_session,
                 files=files,
                 logs=logs,
+                runtime_profile=runtime_profile,
             ),
             "prism": prism,
             "files": files,

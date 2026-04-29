@@ -146,12 +146,23 @@ class ThreadBillingConfig(BaseModel):
     enabled: bool = True
     free_tokens: int = 100000
     tokens_per_credit: int = 10000
+    max_overdraft_credits: int = 100
+
+
+class FeatureBillingConfig(BaseModel):
+    """Workspace feature token billing configuration."""
+
+    enabled: bool = True
+    free_tokens: int = 0
+    tokens_per_credit: int = 10000
+    max_overdraft_credits: int = 100
 
 
 class BillingConfig(BaseModel):
     """Billing configuration."""
 
     thread: ThreadBillingConfig = Field(default_factory=ThreadBillingConfig)
+    feature: FeatureBillingConfig = Field(default_factory=FeatureBillingConfig)
 
 
 class AppConfig(BaseModel):

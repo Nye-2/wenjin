@@ -7,7 +7,6 @@ Responsibilities:
 - Workspace ownership verification
 - Literature threshold checks (thesis_writing)
 - Idempotent task deduplication
-- Credit billing with failure compensation
 - Task submission and payload construction
 """
 
@@ -26,7 +25,7 @@ from src.application.results import (
     FeatureTaskSubmission,
 )
 from src.application.workspace_resolvers import resolve_workspace_type
-from src.services.credit_service import CreditService, InsufficientCreditsError
+from src.services.credit_service import CreditService
 from src.services.literature_service import LiteratureService
 from src.services.workspace_skill_labels import (
     resolve_workspace_feature_skill_id,
@@ -226,37 +225,8 @@ class FeatureSubmissionService:
                 reused_existing_task=True,
             )
 
-        # 5. Credit billing
-        credit_transaction = None
-        try:
-            credit_transaction = await self.credit_service.consume_for_feature(
-                user_id=self.actor_id,
-                feature_id=feature_id,
-                action=str(action) if action is not None else None,
-                workspace_id=workspace_id,
-                description=f"{feature.name} 执行消耗",
-                metadata={
-                    "workspace_type": workspace_type,
-                    "handler_key": feature.handler_key,
-                    "params": params,
-                },
-            )
-        except InsufficientCreditsError as exc:
-            return FeatureExecutionAdvisory(
-                feature_id=feature_id,
-                message=(
-                    f"积分不足：当前 {exc.current_balance}，"
-                    f"执行 {feature.name} 需要 {exc.required}"
-                ),
-                code="insufficient_credits",
-                context={
-                    "current": exc.current_balance,
-                    "required": exc.required,
-                    "feature_id": feature_id,
-                },
-            )
-
-        # 6-9. Submit task (with distributed lock if Redis available)
+        # 5. Submit task (with distributed lock if Redis available).
+        # Feature billing is settled after execution from measured token usage.
         return await self._submit_with_lock(
             workspace_id=workspace_id,
             workspace_type=workspace_type,
@@ -266,7 +236,6 @@ class FeatureSubmissionService:
             params=params,
             thread_id=thread_id,
             skill_id=skill_id,
-            credit_transaction=credit_transaction,
             idempotency_key=idempotency_key,
             redis_client=redis_client,
             execution_session_id=execution_session_id,
@@ -283,7 +252,6 @@ class FeatureSubmissionService:
         params: dict[str, Any],
         thread_id: str | None,
         skill_id: str | None,
-        credit_transaction: Any | None,
         idempotency_key: str | None,
         redis_client: Any | None,
         execution_session_id: str | None,
@@ -307,13 +275,6 @@ class FeatureSubmissionService:
                 params=params,
             )
             if existing_task_id:
-                # Refund credit if we already billed
-                if credit_transaction is not None:
-                    await self.credit_service.refund_failed_task(
-                        user_id=self.actor_id,
-                        original_transaction_id=str(credit_transaction.id),
-                        reason="分布式锁内发现重复任务退款",
-                    )
                 return FeatureTaskSubmission(
                     task_id=existing_task_id,
                     feature_id=feature_id,
@@ -332,9 +293,6 @@ class FeatureSubmissionService:
                 skill_id=skill_id,
                 execution_session_id=execution_session_id,
             )
-            if credit_transaction is not None:
-                task_payload["credit_transaction_id"] = str(credit_transaction.id)
-                task_payload["credit_cost"] = abs(int(credit_transaction.amount))
 
             # Submit task
             try:
@@ -349,12 +307,6 @@ class FeatureSubmissionService:
                     self.actor_id,
                     exc,
                 )
-                if credit_transaction is not None:
-                    await self.credit_service.refund_failed_task(
-                        user_id=self.actor_id,
-                        original_transaction_id=str(credit_transaction.id),
-                        reason="并发任务上限退款",
-                    )
                 return FeatureExecutionAdvisory(
                     feature_id=feature_id,
                     message=f"并发任务数已达上限（{exc.limit}），请等待现有任务完成",
@@ -370,18 +322,7 @@ class FeatureSubmissionService:
                     feature_id,
                     workspace_id,
                 )
-                if credit_transaction is not None:
-                    await self.credit_service.refund_failed_task(
-                        user_id=self.actor_id,
-                        original_transaction_id=str(credit_transaction.id),
-                        reason="任务排队失败退款",
-                    )
                 raise InternalServiceError("Failed to queue feature task") from exc
-
-            # Link credit transaction to task
-            if credit_transaction is not None:
-                credit_transaction.task_id = task_id
-                await self.credit_service.db.commit()
 
             # Store idempotency key → task_id mapping
             if idempotency_key and redis_client:
@@ -415,13 +356,6 @@ class FeatureSubmissionService:
                         "another submission in progress",
                         workspace_id,
                     )
-                    # Refund credit since we cannot proceed
-                    if credit_transaction is not None:
-                        await self.credit_service.refund_failed_task(
-                            user_id=self.actor_id,
-                            original_transaction_id=str(credit_transaction.id),
-                            reason="工作区锁竞争退款",
-                        )
                     return FeatureExecutionAdvisory(
                         feature_id=feature_id,
                         message="该工作区正在处理另一个提交，请稍后重试",

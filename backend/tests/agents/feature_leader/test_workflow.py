@@ -11,9 +11,15 @@ from src.agents.feature_leader.runtime import FeatureLeaderRuntime
 from src.agents.feature_leader.workflow import (
     FeatureWorkflowPlan,
     build_dynamic_feature_workflow_plan,
+    validate_workflow_plan_against_profile,
 )
 from src.agents.harness import AgentSessionResult
 from src.subagents.parallel import ExecutionPhase, PhasedPlan, PhaseResult
+from src.workspace_features import (
+    FeatureRuntimeMode,
+    FeatureRuntimeProfile,
+    get_feature_runtime_profile,
+)
 
 
 def test_build_dynamic_plan_for_deep_research() -> None:
@@ -61,6 +67,77 @@ def test_build_dynamic_plan_for_figure_generation() -> None:
     )
 
 
+def test_workflow_plan_validation_rejects_disallowed_subagent() -> None:
+    profile = get_feature_runtime_profile("thesis", "deep_research")
+    assert profile is not None
+    plan = FeatureWorkflowPlan(
+        strategy="deep_research:invalid",
+        phased_plan=PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="discovery",
+                    tasks=[{"subagent_type": "rogue", "prompt": "search"}],
+                ),
+            ],
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="disallowed_subagents"):
+        validate_workflow_plan_against_profile(plan, profile)
+
+
+def test_workflow_plan_validation_rejects_subagent_count_over_profile_limit() -> None:
+    profile = get_feature_runtime_profile("proposal", "figure_generation")
+    assert profile is not None
+    plan = FeatureWorkflowPlan(
+        strategy="figure_generation:too_many",
+        phased_plan=PhasedPlan(
+            phases=[
+                ExecutionPhase(
+                    name="figure_design",
+                    tasks=[
+                        {"subagent_type": "figure_planner", "prompt": "plan"},
+                        {"subagent_type": "analyst", "prompt": "analyze"},
+                        {"subagent_type": "analyst", "prompt": "analyze again"},
+                    ],
+                ),
+            ],
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="max_subagents_exceeded"):
+        validate_workflow_plan_against_profile(plan, profile)
+
+
+def test_runtime_harness_provider_comes_from_profile() -> None:
+    runtime = FeatureLeaderRuntime()
+    profile = FeatureRuntimeProfile(
+        workspace_type="thesis",
+        feature_id="deep_research",
+        runtime_mode=FeatureRuntimeMode.COMPUTE_AGENTIC,
+        allowed_subagents=("scout",),
+        max_subagents=1,
+        agent_harness_provider="native_wenjin",
+    )
+
+    harness = runtime._build_agent_harness({}, profile)
+
+    assert harness.provider == "native_wenjin"
+
+
+def test_runtime_rejects_unknown_harness_provider() -> None:
+    runtime = FeatureLeaderRuntime()
+    profile = FeatureRuntimeProfile(
+        workspace_type="thesis",
+        feature_id="deep_research",
+        runtime_mode=FeatureRuntimeMode.COMPUTE_AGENTIC,
+        agent_harness_provider="unknown",
+    )
+
+    with pytest.raises(ValueError, match="unsupported_agent_harness_provider"):
+        runtime._build_agent_harness({}, profile)
+
+
 @pytest.mark.asyncio
 async def test_runtime_executes_feature_without_workflow_for_non_complex_feature() -> None:
     runtime = FeatureLeaderRuntime()
@@ -88,7 +165,9 @@ async def test_runtime_executes_feature_without_workflow_for_non_complex_feature
 
 
 @pytest.mark.asyncio
-async def test_runtime_executes_dynamic_workflow_and_injects_context(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_runtime_executes_dynamic_workflow_and_injects_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     runtime = FeatureLeaderRuntime()
     payload = {
         "workspace_id": "ws-1",
@@ -133,7 +212,11 @@ async def test_runtime_executes_dynamic_workflow_and_injects_context(monkeypatch
             )
         )
     )
-    monkeypatch.setattr(runtime, "_build_agent_harness", lambda _payload: fake_harness)
+    monkeypatch.setattr(
+        runtime,
+        "_build_agent_harness",
+        lambda _payload, _profile: fake_harness,
+    )
 
     with patch(
         "src.agents.feature_leader.graph_registry.execute_feature_graph",
@@ -149,6 +232,7 @@ async def test_runtime_executes_dynamic_workflow_and_injects_context(monkeypatch
     assert result["message"] == "ok"
     assert result["leader_workflow"]["status"] == "completed"
     assert result["leader_workflow"]["provider"] == "test_harness"
+    assert result["leader_workflow"]["runtime_profile"]["output_contract"] == "evidence_pack"
     called_payload = execute_feature_graph.await_args.args[2]
     assert called_payload["params"]["__leader_workflow"]["status"] == "completed"
     assert called_payload["params"]["__leader_workflow"]["provider"] == "test_harness"
@@ -190,7 +274,11 @@ async def test_runtime_fails_fast_when_workflow_execution_fails(
         "src.agents.feature_leader.runtime.build_dynamic_feature_workflow_plan",
         lambda **kwargs: plan,
     )
-    monkeypatch.setattr(runtime, "_build_agent_harness", lambda _payload: fake_harness)
+    monkeypatch.setattr(
+        runtime,
+        "_build_agent_harness",
+        lambda _payload, _profile: fake_harness,
+    )
 
     with patch(
         "src.agents.feature_leader.graph_registry.execute_feature_graph",
@@ -252,7 +340,9 @@ async def test_runtime_rejects_agentic_workflow_without_execution_session(
 
 
 @pytest.mark.asyncio
-async def test_runtime_emits_runtime_updates_during_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_runtime_emits_runtime_updates_during_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     runtime = FeatureLeaderRuntime()
     payload = {
         "workspace_id": "ws-1",
@@ -309,18 +399,25 @@ async def test_runtime_emits_runtime_updates_during_workflow(monkeypatch: pytest
         "src.agents.feature_leader.runtime.build_dynamic_feature_workflow_plan",
         lambda **kwargs: plan,
     )
-    monkeypatch.setattr(runtime, "_build_agent_harness", lambda _payload: fake_executor)
+    monkeypatch.setattr(
+        runtime,
+        "_build_agent_harness",
+        lambda _payload, _profile: fake_executor,
+    )
     monkeypatch.setattr(
         "src.agents.feature_leader.runtime.get_runtime_state",
         lambda: runtime_state,
     )
 
-    with patch(
-        "src.agents.feature_leader.runtime._emit_bound_runtime",
-        new=AsyncMock(),
-    ) as emit_bound_runtime, patch(
-        "src.agents.feature_leader.graph_registry.execute_feature_graph",
-        new=AsyncMock(return_value={"message": "ok"}),
+    with (
+        patch(
+            "src.agents.feature_leader.runtime._emit_bound_runtime",
+            new=AsyncMock(),
+        ) as emit_bound_runtime,
+        patch(
+            "src.agents.feature_leader.graph_registry.execute_feature_graph",
+            new=AsyncMock(return_value={"message": "ok"}),
+        ),
     ):
         result = await runtime.execute_feature(
             workspace_type="thesis",

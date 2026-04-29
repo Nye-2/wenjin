@@ -20,7 +20,10 @@ def test_router_detects_feature_launch() -> None:
         },
     )
 
-    route = ChatTurnRouter.route(request, SimpleNamespace(id="thread-1"))
+    route = ChatTurnRouter.route(
+        request,
+        SimpleNamespace(id="thread-1", workspace_type="sci"),
+    )
 
     assert route.mode == ChatTurnMode.FEATURE_LAUNCH
     assert route.is_feature_command is True
@@ -59,3 +62,47 @@ def test_router_keeps_unstructured_turn_as_pure_chat() -> None:
     assert route.mode == ChatTurnMode.PURE_CHAT
     assert route.is_feature_command is False
 
+
+def test_router_applies_skill_defaults_from_intent_ssot() -> None:
+    request = ThreadTurnRequest(
+        message="开始",
+        skill="framework-designer",
+        metadata={
+            "orchestration": {
+                "intent": "launch",
+                "feature_id": "thesis_writing",
+                "params": {},
+            }
+        },
+    )
+
+    route = ChatTurnRouter.route(
+        request,
+        SimpleNamespace(id="thread-1", workspace_type="thesis"),
+    )
+
+    assert route.mode == ChatTurnMode.FEATURE_LAUNCH
+    assert route.skill_id == "framework-designer"
+    assert route.params == {"action": "generate_outline"}
+
+
+def test_router_rejects_skill_feature_mismatch() -> None:
+    request = ThreadTurnRequest(
+        message="开始",
+        skill="deep-research",
+        metadata={
+            "orchestration": {
+                "intent": "launch",
+                "feature_id": "thesis_writing",
+                "params": {},
+            }
+        },
+    )
+
+    route = ChatTurnRouter.route(
+        request,
+        SimpleNamespace(id="thread-1", workspace_type="thesis"),
+    )
+
+    assert route.mode == ChatTurnMode.PURE_CHAT
+    assert route.is_feature_command is False

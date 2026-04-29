@@ -34,6 +34,18 @@ Chat Control Plane
 6. 将 DeerFlow、Claude Agent SDK、Codex SDK 等能力收束为 `AgentHarness` provider，只能在 Compute 内部运行。
 7. 本轮迁移一次性完成，不保留旧链路 fallback、兼容入口或双运行时。
 
+## 2.1 SSOT 边界
+
+每类业务事实只能有一个 owner，其它模块只能消费、投影或适配：
+
+1. Feature 产品定义与 graph module 归属：`workspace_features/registry.py`。
+2. Skill 入口语义与默认参数：`workspace_features/skills.py`。
+3. Chat feature 意图解析：`application/intents/thread_intent_router.py`。
+4. Runtime 执行策略：`workspace_features/runtime_profiles.py`。
+5. Billing token policy：`services/billing_policy.py`。
+6. Feature 生命周期：`ExecutionSession`。
+7. Compute 展示状态：`ComputeProjectionService` 聚合投影，不拥有业务决策。
+
 ## 3. 非目标
 
 1. 不把问津改造成 DeerFlow fork。
@@ -542,8 +554,12 @@ pure_chat:
   thread token billing
 
 feature_launch / feature_resume:
-  feature credit billing
+  仅提交/恢复 execution session 与 task，不做 fixed-price 预扣
   不执行 thread turn token billing，除非额外调用 LLM 生成长篇 chat summary
+
+feature_task_success:
+  feature token billing
+  依据 worker 收集的 token_usage 和 services/billing_policy.py 结算积分
 
 feature_completion_summary:
   固定模板卡片不计 chat token

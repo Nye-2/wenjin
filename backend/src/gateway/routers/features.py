@@ -1,8 +1,9 @@
 """Features router for workspace feature discovery and execution.
 
-This router is a thin HTTP adapter. Business orchestration (credit billing,
-literature threshold checks, task submission, failure compensation) lives in
-``application.services.feature_submission_service``.
+This router is a thin HTTP adapter. Launch orchestration (literature threshold
+checks, task submission, idempotency) lives in
+``application.services.feature_submission_service``. Feature billing is settled
+after task completion from measured token usage.
 """
 
 import logging
@@ -12,7 +13,6 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.agents.lead_agent.thread_skill_catalog import get_default_skill_for_feature
 from src.application.commands import FeatureLaunchCommand
 from src.application.errors import ApplicationError
 from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
@@ -24,6 +24,7 @@ from src.gateway.deps import get_feature_launch_service, get_workspace_service
 from src.gateway.error_mapping import to_http_exception
 from src.task.registry import WORKSPACE_FEATURE_TASK
 from src.workspace_features import list_workspace_features
+from src.workspace_features.skills import get_default_skill_for_feature
 
 logger = logging.getLogger(__name__)
 

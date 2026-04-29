@@ -14,6 +14,7 @@ from src.execution.capabilities import execution_type_readiness
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.execution.types import ExecutionType
 from src.models.router import route_writing_model, validate_requested_model
+from src.services.token_usage_collector import record_token_usage
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     append_runtime_activity,
@@ -150,6 +151,7 @@ async def _plan_figure(
 
     try:
         response = await model.ainvoke(prompt)
+        record_token_usage(response)
         content = response.content if hasattr(response, "content") else str(response)
         plan = _parse_json_response(content)
         if plan is None:
@@ -244,6 +246,7 @@ async def _generate_figure_code(
 
     try:
         response = await model.ainvoke(prompt)
+        record_token_usage(response)
         content = response.content if hasattr(response, "content") else str(response)
         # Strip potential markdown fences
         text = content.strip()

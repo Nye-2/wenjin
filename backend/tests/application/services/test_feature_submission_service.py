@@ -5,7 +5,7 @@ Verifies orchestration logic independently of HTTP routing:
 - Feature lookup
 - Literature threshold guard
 - Idempotent task deduplication
-- Credit billing and failure compensation
+- Token billing is settled after task completion
 - Task submission and payload construction
 """
 
@@ -26,7 +26,6 @@ from src.application.services.feature_submission_service import (
     build_task_payload,
 )
 from src.application.workspace_resolvers import resolve_workspace_type
-from src.services.credit_service import InsufficientCreditsError
 from src.task.service import ConcurrencyLimitError
 
 # ============ Test Helpers ============
@@ -399,37 +398,6 @@ class TestFeatureSubmissionService:
 
     @pytest.mark.asyncio
     @patch("src.application.services.feature_submission_service.get_workspace_feature")
-    async def test_insufficient_credits_returns_warning(self, mock_get_feature):
-        feature = _make_feature()
-        mock_get_feature.return_value = feature
-
-        ws = _make_workspace()
-        ws_service = AsyncMock()
-        ws_service.get.return_value = ws
-
-        task_service = AsyncMock()
-        task_service.find_active_task.return_value = None
-
-        credit_service = AsyncMock()
-        credit_service.consume_for_feature.side_effect = InsufficientCreditsError(
-            current_balance=10, required=30
-        )
-
-        handler = _make_handler(
-            workspace_service=ws_service,
-            task_service=task_service,
-            credit_service=credit_service,
-        )
-
-        result = await handler.execute("ws-1", "test_feature")
-        assert isinstance(result, FeatureExecutionAdvisory)
-        assert result.code == "insufficient_credits"
-        assert result.context["current"] == 10
-        assert result.context["required"] == 30
-        task_service.submit_task.assert_not_called()
-
-    @pytest.mark.asyncio
-    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_successful_execution_submits_task(self, mock_get_feature):
         feature = _make_feature("deep_research", "深度调研")
         mock_get_feature.return_value = feature
@@ -462,10 +430,11 @@ class TestFeatureSubmissionService:
         submit_payload = task_service.submit_task.await_args.kwargs["payload"]
         assert submit_payload["skill_id"] == "deep-research"
         assert submit_payload["skill_name"] == "深度调研"
+        credit_service.consume_for_feature.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("src.application.services.feature_submission_service.get_workspace_feature")
-    async def test_credit_transaction_linked_to_task(self, mock_get_feature):
+    async def test_feature_submission_does_not_precharge_credits(self, mock_get_feature):
         feature = _make_feature()
         mock_get_feature.return_value = feature
 
@@ -477,12 +446,8 @@ class TestFeatureSubmissionService:
         task_service.find_active_task.return_value = None
         task_service.submit_task.return_value = "task-999"
 
-        tx = MagicMock()
-        tx.id = "tx-1"
-        tx.amount = -20
-
         credit_service = AsyncMock()
-        credit_service.consume_for_feature.return_value = tx
+        credit_service.consume_for_feature = AsyncMock()
         credit_service.db = AsyncMock()
 
         handler = _make_handler(
@@ -494,18 +459,15 @@ class TestFeatureSubmissionService:
         result = await handler.execute("ws-1", "test_feature")
         assert isinstance(result, FeatureTaskSubmission)
         assert result.task_id == "task-999"
-        # Credit transaction should be linked
-        assert tx.task_id == "task-999"
-        credit_service.db.commit.assert_called_once()
+        credit_service.consume_for_feature.assert_not_called()
 
-        # Task payload should include credit info
         submit_kwargs = task_service.submit_task.call_args.kwargs
-        assert submit_kwargs["payload"]["credit_transaction_id"] == "tx-1"
-        assert submit_kwargs["payload"]["credit_cost"] == 20
+        assert "credit_transaction_id" not in submit_kwargs["payload"]
+        assert "credit_cost" not in submit_kwargs["payload"]
 
     @pytest.mark.asyncio
     @patch("src.application.services.feature_submission_service.get_workspace_feature")
-    async def test_refunds_on_queue_failure(self, mock_get_feature):
+    async def test_queue_failure_does_not_refund_without_precharge(self, mock_get_feature):
         feature = _make_feature()
         mock_get_feature.return_value = feature
 
@@ -517,12 +479,8 @@ class TestFeatureSubmissionService:
         task_service.find_active_task.return_value = None
         task_service.submit_task.side_effect = RuntimeError("Queue down")
 
-        tx = MagicMock()
-        tx.id = "tx-1"
-        tx.amount = -30
-
         credit_service = AsyncMock()
-        credit_service.consume_for_feature.return_value = tx
+        credit_service.consume_for_feature = AsyncMock()
         credit_service.db = AsyncMock()
 
         handler = _make_handler(
@@ -534,44 +492,13 @@ class TestFeatureSubmissionService:
         with pytest.raises(InternalServiceError) as exc_info:
             await handler.execute("ws-1", "test_feature")
         assert "Failed to queue feature task" in exc_info.value.message
-        credit_service.refund_failed_task.assert_called_once_with(
-            user_id="user-1",
-            original_transaction_id="tx-1",
-            reason="任务排队失败退款",
-        )
-
-    @pytest.mark.asyncio
-    @patch("src.application.services.feature_submission_service.get_workspace_feature")
-    async def test_no_refund_when_no_credit_transaction(self, mock_get_feature):
-        """When credit billing returns None (free feature), no refund on failure."""
-        feature = _make_feature()
-        mock_get_feature.return_value = feature
-
-        ws = _make_workspace()
-        ws_service = AsyncMock()
-        ws_service.get.return_value = ws
-
-        task_service = AsyncMock()
-        task_service.find_active_task.return_value = None
-        task_service.submit_task.side_effect = RuntimeError("Queue down")
-
-        credit_service = AsyncMock()
-        credit_service.consume_for_feature.return_value = None
-
-        handler = _make_handler(
-            workspace_service=ws_service,
-            task_service=task_service,
-            credit_service=credit_service,
-        )
-
-        with pytest.raises(InternalServiceError):
-            await handler.execute("ws-1", "test_feature")
+        credit_service.consume_for_feature.assert_not_called()
         credit_service.refund_failed_task.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("src.application.services.feature_submission_service.get_workspace_feature")
-    async def test_concurrency_limit_returns_warning_and_refunds(self, mock_get_feature):
-        """ConcurrencyLimitError should return a warning and refund credits."""
+    async def test_concurrency_limit_returns_warning_without_refund(self, mock_get_feature):
+        """ConcurrencyLimitError should return a warning without billing side effects."""
         feature = _make_feature()
         mock_get_feature.return_value = feature
 
@@ -585,12 +512,8 @@ class TestFeatureSubmissionService:
             current=3, limit=3
         )
 
-        tx = MagicMock()
-        tx.id = "tx-1"
-        tx.amount = -20
-
         credit_service = AsyncMock()
-        credit_service.consume_for_feature.return_value = tx
+        credit_service.consume_for_feature = AsyncMock()
         credit_service.db = AsyncMock()
 
         handler = _make_handler(
@@ -604,7 +527,8 @@ class TestFeatureSubmissionService:
         assert result.code == "concurrency_limit"
         assert result.context["current"] == 3
         assert result.context["limit"] == 3
-        credit_service.refund_failed_task.assert_called_once()
+        credit_service.consume_for_feature.assert_not_called()
+        credit_service.refund_failed_task.assert_not_called()
 
 
 class TestIdempotencyKey:

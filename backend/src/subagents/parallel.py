@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from src.services.token_usage_collector import record_token_usage
 from src.subagents.academic.registry import get_subagent_config
 from src.subagents.context_snapshot import build_subagent_context_snapshot
 from src.subagents.manager import SubagentAccessError
@@ -342,12 +343,20 @@ class ParallelExecutor:
                     "error": "Subagent task could not be loaded",
                 }
 
-            return {
+            token_usage = None
+            if isinstance(result.metadata, dict):
+                token_usage = result.metadata.get("token_usage")
+                record_token_usage(token_usage)
+
+            payload = {
                 "subagent_type": subagent_type,
                 "success": result.status == SubagentStatus.COMPLETED,
                 "result": self._normalize_result_payload(result.output),
                 "error": result.error,
             }
+            if isinstance(token_usage, dict):
+                payload["token_usage"] = token_usage
+            return payload
 
     @classmethod
     def _normalize_result_payload(cls, payload: Any) -> Any:

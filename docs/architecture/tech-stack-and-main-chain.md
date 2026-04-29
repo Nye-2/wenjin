@@ -275,7 +275,6 @@ State Stores:
 - feature registry 校验
 - 特殊策略（如 thesis_writing 文献阈值）
 - 任务幂等去重（active task reuse）
-- 积分扣费
 - Redis workspace lock（防并发重复提交）
 - `TaskService.submit_task(...)`
 
@@ -288,6 +287,7 @@ State Stores:
 - `_execute_task_async` -> `_dispatch_task`
 - `workspace_feature` 任务走 `execute_workspace_feature`
 - 调用 `FeatureLeaderRuntime.execute_feature` -> `feature_leader.graph_registry.execute_feature_graph`
+- 收集 LLM/subagent token usage，并在成功后按 `services/billing_policy.py` 的 feature token policy 结算积分
 - 持久化 artifacts / runtime snapshot
 
 5. 收敛回写
@@ -425,9 +425,10 @@ sequenceDiagram
 
 ### 9.3 计费与补偿
 
-- feature 启动前先扣积分
-- 任务排队失败/锁竞争失败/并发超限/执行失败都会触发退款路径
-- thread 按 token usage 计费，回复失败时退款
+- billing policy SSOT：`backend/src/services/billing_policy.py`
+- feature 不在启动前按次数预扣；任务成功后按实际 `token_usage` 结算 `feature_token_billing`
+- thread 按 token usage 结算 `thread_token_billing`，回复持久化失败时退款
+- legacy fixed feature cost 不再由 feature registry 持有
 
 ---
 
@@ -466,14 +467,14 @@ sequenceDiagram
 
 1. 在 `workspace_features/registry.py` 注册 canonical 定义
 2. 在 `workspace_features/runtime_profiles.py` 声明 runtime profile
-3. 在 `agents/graphs/*` 增加对应 graph，并在 feature graph registry 映射
+3. 在 `agents/graphs/*` 增加对应 graph；非约定模块路径写入 feature definition 的 `graph_module`
 4. 在 `workspace_features/services/*` 增加 payload/生成逻辑
-5. 若需要技能入口，在 `thread_skill_catalog.py` 增加 skill
+5. 若需要技能入口，在 `workspace_features/skills.py` 增加 skill
 6. 前端自动通过 `/features` 与 `/skills` 获取元数据，必要时补 Compute projection 展示
 
 ### 11.2 新增 Skill
 
-1. 仅在 `thread_skill_catalog.py` 注册
+1. 仅在 `workspace_features/skills.py` 注册
 2. 绑定 `feature_id` 与默认参数
 3. 保持“skill 是入口，feature 是执行”原则，不新增平行执行链
 
@@ -507,7 +508,7 @@ sequenceDiagram
 - Workspace feature task handler：`backend/src/task/handlers/workspace_feature_handler.py`
 - Feature registry：`backend/src/workspace_features/registry.py`
 - Feature runtime profiles：`backend/src/workspace_features/runtime_profiles.py`
-- Skill catalog：`backend/src/agents/lead_agent/thread_skill_catalog.py`
+- Skill catalog：`backend/src/workspace_features/skills.py`
 - Workspace read tools：`backend/src/tools/builtins/workspace.py`
 - 执行会话：`backend/src/services/execution_session_service.py`
 - WenjinPrism API：`backend/src/gateway/routers/latex.py`
