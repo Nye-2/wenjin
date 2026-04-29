@@ -23,8 +23,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.application.handlers.feature_execution_handler import FeatureExecutionHandler
 from src.application.services import FeatureIngressService
+from src.application.services.feature_submission_service import FeatureSubmissionService
 from src.database import WorkspaceType
 from src.gateway.deps import get_credit_service, get_feature_launch_service, get_literature_service
 from src.gateway.routers import features
@@ -152,7 +152,7 @@ def _make_client(
 
     credit_service = _mock_credit_service()
     literature = literature_service or AsyncMock()
-    handler = FeatureExecutionHandler(
+    handler = FeatureSubmissionService(
         actor_id="smoke-user",
         workspace_service=workspace_service,
         task_service=task_service,
@@ -161,9 +161,10 @@ def _make_client(
     )
     launch_service = FeatureIngressService(
         actor_id="smoke-user",
-        feature_execution_handler=handler,
+        feature_submission_service=handler,
         execution_session_service=_FakeExecutionSessionService(),
         compute_session_service=_FakeComputeSessionService(),
+        workspace_service=workspace_service,
     )
 
     app = FastAPI()

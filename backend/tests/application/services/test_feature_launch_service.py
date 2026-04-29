@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from src.application.commands import FeatureLaunchCommand
 from src.application.errors import NotFoundError
 from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
 from src.application.services.feature_launch_service import FeatureIngressService
@@ -50,9 +51,10 @@ async def test_launch_creates_execution_session_and_passes_id_to_handler():
 
     service = FeatureIngressService(
         actor_id="user-1",
-        feature_execution_handler=handler,
+        feature_submission_service=handler,
         execution_session_service=execution_sessions,
         compute_session_service=compute_sessions,
+        workspace_service=handler.workspace_service,
     )
 
     with patch(
@@ -60,12 +62,14 @@ async def test_launch_creates_execution_session_and_passes_id_to_handler():
         return_value=_feature("framework_outline"),
     ):
         result = await service.launch(
-            workspace_id="ws-1",
-            feature_id="framework_outline",
-            params={"topic": "agents"},
-            thread_id="thread-1",
-            launch_source="thread",
-            launch_message="开始写框架",
+            FeatureLaunchCommand(
+                workspace_id="ws-1",
+                feature_id="framework_outline",
+                params={"topic": "agents"},
+                thread_id="thread-1",
+                launch_source="thread",
+                launch_message="开始写框架",
+            )
         )
 
     assert result.execution_session_id == "exec-1"
@@ -102,9 +106,10 @@ async def test_launch_marks_execution_session_advisory():
 
     service = FeatureIngressService(
         actor_id="user-1",
-        feature_execution_handler=handler,
+        feature_submission_service=handler,
         execution_session_service=execution_sessions,
         compute_session_service=compute_sessions,
+        workspace_service=handler.workspace_service,
     )
 
     with patch(
@@ -112,10 +117,12 @@ async def test_launch_marks_execution_session_advisory():
         return_value=_feature("thesis_writing"),
     ):
         result = await service.launch(
-            workspace_id="ws-1",
-            feature_id="thesis_writing",
-            params={"action": "write_all"},
-            launch_source="thread",
+            FeatureLaunchCommand(
+                workspace_id="ws-1",
+                feature_id="thesis_writing",
+                params={"action": "write_all"},
+                launch_source="thread",
+            )
         )
 
     assert result.execution_session_id == "exec-2"
@@ -148,9 +155,10 @@ async def test_launch_reuses_existing_execution_session_when_task_is_reused():
 
     service = FeatureIngressService(
         actor_id="user-1",
-        feature_execution_handler=handler,
+        feature_submission_service=handler,
         execution_session_service=execution_sessions,
         compute_session_service=compute_sessions,
+        workspace_service=handler.workspace_service,
     )
 
     with patch(
@@ -158,10 +166,12 @@ async def test_launch_reuses_existing_execution_session_when_task_is_reused():
         return_value=_feature("framework_outline"),
     ):
         result = await service.launch(
-            workspace_id="ws-1",
-            feature_id="framework_outline",
-            params={},
-            launch_source="thread",
+            FeatureLaunchCommand(
+                workspace_id="ws-1",
+                feature_id="framework_outline",
+                params={},
+                launch_source="thread",
+            )
         )
 
     assert result.execution_session_id == "exec-existing"
@@ -179,9 +189,10 @@ async def test_launch_rejects_unknown_feature_for_workspace_type():
     compute_sessions = _compute_sessions()
     service = FeatureIngressService(
         actor_id="user-1",
-        feature_execution_handler=handler,
+        feature_submission_service=handler,
         execution_session_service=execution_sessions,
         compute_session_service=compute_sessions,
+        workspace_service=handler.workspace_service,
     )
 
     with patch(
@@ -190,9 +201,11 @@ async def test_launch_rejects_unknown_feature_for_workspace_type():
     ):
         with pytest.raises(NotFoundError):
             await service.launch(
-                workspace_id="ws-1",
-                feature_id="thesis_writing",
-                launch_source="thread",
+                FeatureLaunchCommand(
+                    workspace_id="ws-1",
+                    feature_id="thesis_writing",
+                    launch_source="thread",
+                )
             )
 
     execution_sessions.create_session.assert_not_awaited()
@@ -213,9 +226,10 @@ async def test_chat_launch_missing_context_enters_awaiting_user_input():
 
     service = FeatureIngressService(
         actor_id="user-1",
-        feature_execution_handler=handler,
+        feature_submission_service=handler,
         execution_session_service=execution_sessions,
         compute_session_service=compute_sessions,
+        workspace_service=handler.workspace_service,
     )
 
     with patch(
@@ -223,12 +237,14 @@ async def test_chat_launch_missing_context_enters_awaiting_user_input():
         return_value=_feature("deep_research"),
     ):
         result = await service.launch(
-            workspace_id="ws-1",
-            feature_id="deep_research",
-            params={},
-            thread_id="thread-1",
-            launch_source="thread",
-            launch_message="开始深度调研",
+            FeatureLaunchCommand(
+                workspace_id="ws-1",
+                feature_id="deep_research",
+                params={},
+                thread_id="thread-1",
+                launch_source="thread",
+                launch_message="开始深度调研",
+            )
         )
 
     assert result.execution_session_id == "exec-clarify"
@@ -267,9 +283,10 @@ async def test_resume_uses_existing_execution_session_and_merges_params():
 
     service = FeatureIngressService(
         actor_id="user-1",
-        feature_execution_handler=handler,
+        feature_submission_service=handler,
         execution_session_service=execution_sessions,
         compute_session_service=compute_sessions,
+        workspace_service=handler.workspace_service,
     )
 
     with patch(
@@ -277,13 +294,15 @@ async def test_resume_uses_existing_execution_session_and_merges_params():
         return_value=_feature("deep_research"),
     ):
         result = await service.launch(
-            workspace_id="ws-1",
-            execution_session_id="exec-existing",
-            feature_id=None,
-            params={"query": "补充检索词"},
-            thread_id="thread-1",
-            launch_source="thread",
-            launch_message="继续调研这个方向",
+            FeatureLaunchCommand(
+                workspace_id="ws-1",
+                execution_session_id="exec-existing",
+                feature_id=None,
+                params={"query": "补充检索词"},
+                thread_id="thread-1",
+                launch_source="thread",
+                launch_message="继续调研这个方向",
+            )
         )
 
     assert result.execution_session_id == "exec-existing"
@@ -330,9 +349,10 @@ async def test_resume_hydrates_missing_required_params_from_launch_message():
 
     service = FeatureIngressService(
         actor_id="user-1",
-        feature_execution_handler=handler,
+        feature_submission_service=handler,
         execution_session_service=execution_sessions,
         compute_session_service=compute_sessions,
+        workspace_service=handler.workspace_service,
     )
 
     with patch(
@@ -340,13 +360,15 @@ async def test_resume_hydrates_missing_required_params_from_launch_message():
         return_value=_feature("deep_research"),
     ):
         result = await service.launch(
-            workspace_id="ws-1",
-            execution_session_id="exec-existing",
-            feature_id=None,
-            params={},
-            thread_id="thread-1",
-            launch_source="thread",
-            launch_message="研究主题是多模态医学影像分割",
+            FeatureLaunchCommand(
+                workspace_id="ws-1",
+                execution_session_id="exec-existing",
+                feature_id=None,
+                params={},
+                thread_id="thread-1",
+                launch_source="thread",
+                launch_message="研究主题是多模态医学影像分割",
+            )
         )
 
     assert result.execution_session_id == "exec-existing"
@@ -388,9 +410,10 @@ async def test_resume_submission_clears_advisory_and_next_actions():
 
     service = FeatureIngressService(
         actor_id="user-1",
-        feature_execution_handler=handler,
+        feature_submission_service=handler,
         execution_session_service=execution_sessions,
         compute_session_service=compute_sessions,
+        workspace_service=handler.workspace_service,
     )
 
     with patch(
@@ -398,13 +421,15 @@ async def test_resume_submission_clears_advisory_and_next_actions():
         return_value=_feature("deep_research"),
     ):
         await service.launch(
-            workspace_id="ws-1",
-            execution_session_id="exec-existing",
-            feature_id=None,
-            params={"query": "补充检索词"},
-            thread_id="thread-1",
-            launch_source="thread",
-            launch_message="继续调研这个方向",
+            FeatureLaunchCommand(
+                workspace_id="ws-1",
+                execution_session_id="exec-existing",
+                feature_id=None,
+                params={"query": "补充检索词"},
+                thread_id="thread-1",
+                launch_source="thread",
+                launch_message="继续调研这个方向",
+            )
         )
 
     finalize_call = execution_sessions.update_session_record.await_args_list[-1]

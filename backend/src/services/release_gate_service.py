@@ -84,12 +84,12 @@ class ReleaseGateService:
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
-                check_id="feature_execution_handler_regression",
+                check_id="feature_submission_service_regression",
                 command=(
                     "uv",
                     "run",
                     "pytest",
-                    "tests/application/handlers/test_feature_execution_handler.py",
+                    "tests/application/services/test_feature_submission_service.py",
                     "-q",
                 ),
                 cwd=self.backend_root,
@@ -156,7 +156,7 @@ class ReleaseGateService:
                     "uv",
                     "run",
                     "pytest",
-                    "tests/application/handlers/test_workspace_lock.py",
+                    "tests/application/services/test_feature_submission_workspace_lock.py",
                     "-q",
                 ),
                 cwd=self.backend_root,

@@ -10,7 +10,7 @@ from src.agents.lead_agent.thread_skill_catalog import (
     get_default_skill_for_feature,
     list_feature_skill_ids,
 )
-from src.application.handlers.feature_execution_handler import resolve_workspace_type
+from src.application.workspace_resolvers import resolve_workspace_type
 from src.database import get_db_session
 
 

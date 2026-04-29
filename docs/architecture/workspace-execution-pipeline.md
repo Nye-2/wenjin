@@ -26,7 +26,7 @@ chat 统一通过 runs API 入口。显式 feature launch/resume 在 `ThreadTurn
 
 - `POST /api/workspaces/{workspace_id}/features/{feature_id}/execute`
 
-这是 workspace feature 的 canonical API 入口。它不直接执行 graph，而是调用 `FeatureIngressService.launch(...)` 创建或恢复 feature 事务。
+这是 workspace feature 的 canonical API 入口。它不直接执行 graph，而是构造 `FeatureLaunchCommand` 并调用 `FeatureIngressService.launch(command)` 创建或恢复 feature 事务。
 
 ### 1.3 Compute Read Surface
 
@@ -38,10 +38,10 @@ Compute 只提供用户可见工作台投影，不成为业务事实源。projec
 
 ### 1.4 Domain Ingress
 
-- `FeatureIngressService.launch(...)`
-- `FeatureIngressService.launch(..., execution_session_id=...)`（resume）
+- `FeatureLaunchCommand`（launch/resume 输入）
+- `FeatureIngressService.launch(command)`
 
-chat、feature API、activity retry 和 automation 只能作为 adapter 调用 domain ingress，不允许绕过 ingress 直调 `FeatureExecutionHandler`、task handler 或 graph。
+chat、feature API、activity retry 和 automation 只能作为 adapter 调用 domain ingress，不允许绕过 ingress 直调 `FeatureSubmissionService`、task handler 或 graph。
 
 ## 2. Chat -> Feature 协作链
 
@@ -64,18 +64,21 @@ chat、feature API、activity retry 和 automation 只能作为 adapter 调用 d
 
 ## 3. Feature Execution Chain
 
-1. `FeatureIngressService.launch(...)`：
+1. 入口 adapter 构造 `FeatureLaunchCommand`：
+   - 统一承载 `workspace_id/feature_id/params/thread_id/skill_id/execution_session_id/launch_source`。
+   - launch 与 resume 使用同一命令对象，`execution_session_id` 非空时表示 resume。
+2. `FeatureIngressService.launch(command)`：
    - 校验 workspace/thread/user 绑定。
    - 根据 `workspace_type + feature_id` 查 registry。
    - 创建或恢复 `ExecutionSession`。
    - 创建或复用唯一 `ComputeSession`。
    - 缺参时将 session 置为 `awaiting_user_input` 并返回结构化追问。
-2. `FeatureExecutionHandler.execute(...)`：
+3. `FeatureSubmissionService.execute(...)`：
    - 校验 workspace owner。
    - 执行 credit / policy / lock / idempotency 检查。
    - 生成 canonical task payload。
    - 提交给 `TaskService`。
-3. Celery worker 拉取任务并交给 workspace feature runtime。
+4. Celery worker 拉取任务并交给 workspace feature runtime。
 4. `FeatureLeaderRuntime.execute_feature(...)` 根据 runtime profile 选择 deterministic workflow、LangGraph graph 或 AgentHarness。
 5. feature graph/service 产出 runtime blocks、draft/review/file-change packs、artifacts 和 activity。
 6. 结果统一写回：
@@ -240,9 +243,10 @@ workspace feature 结果的关键字段：
 - `backend/src/application/handlers/thread_turn_handler.py`
 - `backend/src/application/handlers/chat_turn_router.py`
 - `backend/src/application/handlers/feature_command_handler.py`
+- `backend/src/application/commands.py`
 - `backend/src/application/services/thread_feature_service.py`
 - `backend/src/application/services/feature_launch_service.py`
-- `backend/src/application/handlers/feature_execution_handler.py`
+- `backend/src/application/services/feature_submission_service.py`
 - `backend/src/compute/session_service.py`
 - `backend/src/compute/projection_service.py`
 - `backend/src/gateway/routers/compute.py`

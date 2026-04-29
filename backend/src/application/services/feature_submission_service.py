@@ -1,7 +1,7 @@
-"""Feature execution handler — application-layer orchestration.
+"""Feature submission service — application-layer orchestration.
 
 Extracts business orchestration from the features router into a dedicated
-handler, keeping the router as a thin HTTP adapter.
+service, keeping the router as a thin HTTP adapter.
 
 Responsibilities:
 - Workspace ownership verification
@@ -25,6 +25,7 @@ from src.application.results import (
     FeatureExecutionOutcome,
     FeatureTaskSubmission,
 )
+from src.application.workspace_resolvers import resolve_workspace_type
 from src.services.credit_service import CreditService, InsufficientCreditsError
 from src.services.literature_service import LiteratureService
 from src.services.workspace_skill_labels import (
@@ -41,18 +42,6 @@ LITERATURE_THRESHOLD = 15
 
 # Idempotency key TTL in seconds (24 hours)
 IDEMPOTENCY_KEY_TTL = 86400
-
-
-def resolve_workspace_type(workspace: Any) -> str:
-    """Normalize workspace.type across enum and string shapes."""
-    workspace_type = getattr(workspace, "type", None)
-    if workspace_type is None:
-        raise ValueError("Workspace type is not configured")
-    resolved = workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type)
-    resolved = resolved.strip()
-    if not resolved:
-        raise ValueError("Workspace type is not configured")
-    return resolved
 
 
 def _merge_workspace_description_with_thread_context(
@@ -118,8 +107,8 @@ def build_task_payload(
     }
 
 
-class FeatureExecutionHandler:
-    """Orchestrates feature execution: ownership, billing, submission."""
+class FeatureSubmissionService:
+    """Orchestrates feature submission: ownership, billing, task enqueue."""
 
     def __init__(
         self,
@@ -148,14 +137,14 @@ class FeatureExecutionHandler:
         redis_client: Any | None = None,
         execution_session_id: str | None = None,
     ) -> FeatureExecutionOutcome:
-        """Execute a workspace feature.
+        """Submit a workspace feature task.
 
         Args:
             idempotency_key: Optional client-supplied key for request dedup.
             redis_client: Redis client for idempotency lookups.
 
-        Returns a dict matching ExecuteResponse shape:
-            task_id, status, feature_id, message, warning, detail
+        Returns:
+            A task submission or advisory result for the ingress layer.
         """
         params = dict(params or {})
 

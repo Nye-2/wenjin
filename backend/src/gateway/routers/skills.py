@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.agents.lead_agent.thread_skill_catalog import list_workspace_thread_skills
-from src.application.handlers.feature_execution_handler import resolve_workspace_type
+from src.application.workspace_resolvers import resolve_workspace_type
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_workspace_service

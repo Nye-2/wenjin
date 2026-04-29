@@ -41,7 +41,7 @@ User/UI (Chat / Feature API / Activity Retry / Automation)
                  ├─ ComputeSession（work plane shell）
                  │
                  ▼
-        FeatureExecutionHandler + TaskService
+        FeatureSubmissionService + TaskService
                  │
                  ▼
         workspace_feature_handler (async task)
@@ -65,8 +65,9 @@ Compute Stage（过程面）     Chat 总结消息（收口面）
 | 组件 | 应负责 | 不应负责 |
 | --- | --- | --- |
 | Chat Control Plane | 普通问答、显式 feature 命令接入、追问交互、最终收口摘要 | 直接执行 feature graph、直接驱动 subagent 编排、持有 feature 当前状态 |
-| FeatureIngressService | launch/resume 统一入口、事务初始化、上下文标准化、幂等与会话绑定 | 业务图执行细节 |
-| FeatureExecutionHandler | 权限/额度/策略检查、task payload 构造、任务提交 | UI 交互编排 |
+| FeatureLaunchCommand | 统一承载 launch/resume 输入（workspace、feature、params、thread、skill、session、source） | 执行业务策略、读取数据库 |
+| FeatureIngressService | 接收 `FeatureLaunchCommand`，完成 launch/resume 统一入口、事务初始化、上下文标准化、幂等与会话绑定 | 业务图执行细节 |
+| FeatureSubmissionService | 权限/额度/策略检查、task payload 构造、任务提交 | UI 交互编排 |
 | Feature Leader Runtime | 读取 feature 执行上下文、编排 LangGraph/subagents、发布过程事件 | 处理 chat 会话文本策略 |
 | ComputeSession / Projection | 工作台 shell、runtime/files/logs/review gate/Prism 投影 | 业务状态决策、直接执行 feature |
 | Skills Catalog | `skill -> feature + defaults + follow-up` 语义映射 | feature 运行态管理 |
@@ -165,7 +166,7 @@ Compute Stage（过程面）     Chat 总结消息（收口面）
 2. 同时发布可读追问项（问题、缺失字段、建议默认值）。
 3. chat 面板展示追问，用户回复后携带同一 `execution_session_id`。
 4. `ChatTurnRouter` 识别 `intent=resume`。
-5. `FeatureCommandHandler` 调用 `FeatureIngressService.launch(..., execution_session_id=...)`。
+5. `FeatureCommandHandler` 构造携带 `execution_session_id` 的 `FeatureLaunchCommand` 并调用 `FeatureIngressService.launch(command)`。
 6. ingress 在同一 session 上追加参数并继续执行，不新建事务。
 
 约束：
@@ -184,8 +185,9 @@ Compute Stage（过程面）     Chat 总结消息（收口面）
 
 | 现有位置 | 目标角色 |
 | --- | --- |
+| `backend/src/application/commands.py` | application command DTO（`FeatureLaunchCommand`） |
 | `backend/src/application/services/feature_launch_service.py` | canonical ingress（`FeatureIngressService`） |
-| `backend/src/application/handlers/feature_execution_handler.py` | application 层策略编排 |
+| `backend/src/application/services/feature_submission_service.py` | application 层策略编排 |
 | `backend/src/task/handlers/workspace_feature_handler.py` | 调用专职 feature leader runtime |
 | `backend/src/agents/feature_leader/runtime.py` | feature runtime 编排 |
 | `backend/src/agents/harness/` | AgentHarness contract/provider |
@@ -200,7 +202,7 @@ Compute Stage（过程面）     Chat 总结消息（收口面）
 
 ## 9. 架构守卫（必须满足）
 
-1. 不允许任何入口绕过 ingress 直调 `FeatureExecutionHandler`、task handler 或 graph。
+1. 不允许任何入口绕过 ingress 直调 `FeatureSubmissionService`、task handler 或 graph。
 2. 不允许 chat 主链路直接承担 feature 图执行逻辑。
 3. 不允许 subagent 在缺失 `execution_session_id` 时执行。
 4. execution session 必须成为 feature 运行态与恢复态唯一聚合对象。

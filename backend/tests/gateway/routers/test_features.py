@@ -221,8 +221,8 @@ class TestWorkspaceFeaturesRouter:
         finally:
             global_redis_client._client = original_client
 
-        kwargs = mock_launch_service.launch.await_args.kwargs
-        assert kwargs["redis_client"] is global_redis_client
+        command = mock_launch_service.launch.await_args.args[0]
+        assert command.redis_client is global_redis_client
         assert isinstance(response, ExecuteResponse)
 
     def test_execute_feature_returns_404_for_unknown_feature(self):

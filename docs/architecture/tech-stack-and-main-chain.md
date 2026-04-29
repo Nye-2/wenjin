@@ -40,7 +40,7 @@ State Stores:
 ### 2.2 后端目录职责
 
 - `backend/src/gateway/*`: FastAPI 入口、路由、中间件、健康检查
-- `backend/src/application/*`: 应用编排层（`ThreadTurnHandler`、`ChatTurnRouter`、`FeatureCommandHandler`、`FeatureExecutionHandler`、`FeatureIngressService`）
+- `backend/src/application/*`: 应用编排层（`ThreadTurnHandler`、`ChatTurnRouter`、`FeatureCommandHandler`、`FeatureSubmissionService`、`FeatureIngressService`）
 - `backend/src/compute/*`: ComputeSession、projection、用户可见工作台聚合
 - `backend/src/task/*`: 任务系统（submit/store/progress/worker/sse）
 - `backend/src/agents/*`: lead-agent、feature leader、LangGraph 图、AgentHarness contract
@@ -238,7 +238,7 @@ State Stores:
 - `intent=launch` 进入 `FeatureCommandHandler`
 - `intent=resume` 进入 `FeatureCommandHandler`
 - `FeatureCommandHandler` 调用 `application/services/thread_feature_service.execute_workspace_feature_request(...)`
-- 该 adapter 只负责把 chat 命令转为 `FeatureIngressService.launch(...)`
+- 该 adapter 只负责把 chat 命令转为 `FeatureLaunchCommand` 并调用 `FeatureIngressService.launch(command)`
 - pure chat 不创建 execution session、compute session 或 task record
 
 ### 7.4 Skills 链路（入口语义，不是执行内核）
@@ -246,7 +246,7 @@ State Stores:
 1. 前端通过 `/api/workspaces/{id}/skills` 拉取 skill catalog
 2. 线程可选择当前 skill（pending/committed 双态）
 3. URL entry seed / thread orchestration 会携带 `skill_id` 或 `entry_skill_id`
-4. `FeatureIngressService.launch(...)` 合并 feature/skill 上下文并创建或恢复 execution session
+4. `FeatureIngressService.launch(command)` 合并 feature/skill 上下文并创建或恢复 execution session
 
 结论：`skill = 对话入口语义`，`feature = 可执行单元`。
 
@@ -260,13 +260,17 @@ State Stores:
 
 统一路径：
 
-1. `FeatureIngressService.launch(...)`
+1. 入口 adapter 构造 `FeatureLaunchCommand`
+- 统一承载 `workspace_id/feature_id/params/thread_id/skill_id/execution_session_id/launch_source`
+- launch 与 resume 使用同一 command 输入
+
+2. `FeatureIngressService.launch(command)`
 - 新建或复用 `execution_session`
 - 新建或复用唯一 `compute_session`
 - 处理 resume（`execution_session_id`）
 - 缺参时返回 `awaiting_user_input` advisory，并写 session `next_actions`
 
-2. `FeatureExecutionHandler.execute(...)`
+3. `FeatureSubmissionService.execute(...)`
 - workspace owner 校验
 - feature registry 校验
 - 特殊策略（如 thesis_writing 文献阈值）
@@ -338,7 +342,7 @@ sequenceDiagram
     participant TR as ChatTurnRouter
     participant FI as FeatureIngressService
     participant CS as ComputeSessionService
-    participant FH as FeatureExecutionHandler
+    participant FS as FeatureSubmissionService
     participant TS as TaskService
     participant W as Worker
     participant FG as Feature Graph
@@ -353,8 +357,8 @@ sequenceDiagram
     alt 显式 feature launch/resume
         TR->>FI: FeatureCommandHandler launch/resume(...)
         FI->>CS: ensure_for_execution_session(...)
-        FI->>FH: execute(...)
-        FH->>TS: submit_task(...)
+        FI->>FS: execute(...)
+        FS->>TS: submit_task(...)
         TS-->>BUS: task.updated(pending)
         TS-->>W: Celery 执行
         W->>FG: execute_feature_graph
@@ -492,7 +496,7 @@ sequenceDiagram
 - Chat feature 命令：`backend/src/application/handlers/feature_command_handler.py`
 - Feature 路由：`backend/src/gateway/routers/features.py`
 - Feature 入口服务：`backend/src/application/services/feature_launch_service.py`
-- Feature 业务编排：`backend/src/application/handlers/feature_execution_handler.py`
+- Feature 业务编排：`backend/src/application/services/feature_submission_service.py`
 - Compute API：`backend/src/gateway/routers/compute.py`
 - Compute session：`backend/src/compute/session_service.py`
 - Compute projection：`backend/src/compute/projection_service.py`

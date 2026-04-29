@@ -2,7 +2,7 @@
 
 This router is a thin HTTP adapter. Business orchestration (credit billing,
 literature threshold checks, task submission, failure compensation) lives in
-``application.handlers.feature_execution_handler``.
+``application.services.feature_submission_service``.
 """
 
 import logging
@@ -13,10 +13,11 @@ from pydantic import BaseModel, Field
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.agents.lead_agent.thread_skill_catalog import get_default_skill_for_feature
+from src.application.commands import FeatureLaunchCommand
 from src.application.errors import ApplicationError
-from src.application.handlers.feature_execution_handler import resolve_workspace_type
 from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
 from src.application.services import FeatureIngressService
+from src.application.workspace_resolvers import resolve_workspace_type
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_feature_launch_service, get_workspace_service
@@ -152,15 +153,17 @@ async def execute_feature(
 
     try:
         launch = await launch_service.launch(
-            workspace_id=workspace_id,
-            feature_id=feature_id,
-            params=request.params,
-            thread_id=request.thread_id,
-            skill_id=request.skill_id,
-            launch_source="panel",
-            idempotency_key=idempotency_key,
-            redis_client=runtime_redis,
-            execution_session_id=request.execution_session_id,
+            FeatureLaunchCommand(
+                workspace_id=workspace_id,
+                feature_id=feature_id,
+                params=request.params,
+                thread_id=request.thread_id,
+                skill_id=request.skill_id,
+                launch_source="panel",
+                idempotency_key=idempotency_key,
+                redis_client=runtime_redis,
+                execution_session_id=request.execution_session_id,
+            )
         )
     except ApplicationError as exc:
         raise to_http_exception(exc) from exc

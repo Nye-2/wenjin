@@ -1,4 +1,4 @@
-"""Tests for the feature execution handler.
+"""Tests for the feature submission service.
 
 Verifies orchestration logic independently of HTTP routing:
 - Workspace ownership enforcement
@@ -19,13 +19,13 @@ from src.application.errors import (
     InternalServiceError,
     NotFoundError,
 )
-from src.application.handlers.feature_execution_handler import (
-    LITERATURE_THRESHOLD,
-    FeatureExecutionHandler,
-    build_task_payload,
-    resolve_workspace_type,
-)
 from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
+from src.application.services.feature_submission_service import (
+    LITERATURE_THRESHOLD,
+    FeatureSubmissionService,
+    build_task_payload,
+)
+from src.application.workspace_resolvers import resolve_workspace_type
 from src.services.credit_service import InsufficientCreditsError
 from src.task.service import ConcurrencyLimitError
 
@@ -59,7 +59,7 @@ def _make_handler(actor_id: str = "user-1", **overrides):
     credit_service = overrides.get("credit_service", AsyncMock())
     if not hasattr(credit_service, "db"):
         credit_service.db = AsyncMock()
-    return FeatureExecutionHandler(
+    return FeatureSubmissionService(
         actor_id=actor_id,
         workspace_service=overrides.get("workspace_service", AsyncMock()),
         task_service=overrides.get("task_service", AsyncMock()),
@@ -184,11 +184,11 @@ class TestBuildTaskPayload:
         assert payload["skill_name"] == "深度调研"
 
 
-# ============ Unit Tests: FeatureExecutionHandler ============
+# ============ Unit Tests: FeatureSubmissionService ============
 
 
-class TestFeatureExecutionHandler:
-    """Tests for the handler orchestration logic."""
+class TestFeatureSubmissionService:
+    """Tests for the submission orchestration logic."""
 
     @pytest.mark.asyncio
     async def test_raises_404_for_missing_workspace(self):
@@ -224,7 +224,7 @@ class TestFeatureExecutionHandler:
         assert "Workspace type is not configured" in exc_info.value.message
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_raises_404_for_unknown_feature(self, mock_get_feature):
         mock_get_feature.return_value = None
         ws = _make_workspace()
@@ -237,7 +237,7 @@ class TestFeatureExecutionHandler:
         assert "unknown_feature" in exc_info.value.message
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_literature_insufficient_returns_warning(self, mock_get_feature):
         feature = _make_feature("thesis_writing", "论文写作")
         mock_get_feature.return_value = feature
@@ -263,7 +263,7 @@ class TestFeatureExecutionHandler:
         assert result.context["recommended"] == LITERATURE_THRESHOLD
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_literature_insufficient_uppercase_action_is_normalized(
         self, mock_get_feature
     ):
@@ -290,7 +290,7 @@ class TestFeatureExecutionHandler:
         lit_service.count_literature.assert_awaited_once_with("ws-1")
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_literature_check_skipped_for_non_writing_actions(
         self, mock_get_feature
     ):
@@ -331,7 +331,7 @@ class TestFeatureExecutionHandler:
         assert submit_payload["skill_name"] == "大纲设计"
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_thesis_writing_missing_action_defaults_to_write_all(
         self, mock_get_feature
     ):
@@ -370,7 +370,7 @@ class TestFeatureExecutionHandler:
         assert "action" not in submit_payload
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_idempotent_returns_existing_task(self, mock_get_feature):
         feature = _make_feature()
         mock_get_feature.return_value = feature
@@ -398,7 +398,7 @@ class TestFeatureExecutionHandler:
         task_service.submit_task.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_insufficient_credits_returns_warning(self, mock_get_feature):
         feature = _make_feature()
         mock_get_feature.return_value = feature
@@ -429,7 +429,7 @@ class TestFeatureExecutionHandler:
         task_service.submit_task.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_successful_execution_submits_task(self, mock_get_feature):
         feature = _make_feature("deep_research", "深度调研")
         mock_get_feature.return_value = feature
@@ -464,7 +464,7 @@ class TestFeatureExecutionHandler:
         assert submit_payload["skill_name"] == "深度调研"
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_credit_transaction_linked_to_task(self, mock_get_feature):
         feature = _make_feature()
         mock_get_feature.return_value = feature
@@ -504,7 +504,7 @@ class TestFeatureExecutionHandler:
         assert submit_kwargs["payload"]["credit_cost"] == 20
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_refunds_on_queue_failure(self, mock_get_feature):
         feature = _make_feature()
         mock_get_feature.return_value = feature
@@ -541,7 +541,7 @@ class TestFeatureExecutionHandler:
         )
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_no_refund_when_no_credit_transaction(self, mock_get_feature):
         """When credit billing returns None (free feature), no refund on failure."""
         feature = _make_feature()
@@ -569,7 +569,7 @@ class TestFeatureExecutionHandler:
         credit_service.refund_failed_task.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_concurrency_limit_returns_warning_and_refunds(self, mock_get_feature):
         """ConcurrencyLimitError should return a warning and refund credits."""
         feature = _make_feature()
@@ -611,7 +611,7 @@ class TestIdempotencyKey:
     """Tests for Idempotency-Key based deduplication."""
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_idempotency_key_returns_cached_task(self, mock_get_feature):
         """When idempotency_key maps to an existing task, return it."""
         feature = _make_feature()
@@ -651,7 +651,7 @@ class TestIdempotencyKey:
         task_service.submit_task.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_idempotency_key_stored_after_new_task(self, mock_get_feature):
         """When idempotency_key is new, execute normally and store the mapping."""
         feature = _make_feature()
@@ -700,7 +700,7 @@ class TestIdempotencyKey:
         assert value == "new-task-999"
 
     @pytest.mark.asyncio
-    @patch("src.application.handlers.feature_execution_handler.get_workspace_feature")
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
     async def test_no_idempotency_key_skips_check(self, mock_get_feature):
         """When no idempotency_key is provided, skip the Redis check entirely."""
         feature = _make_feature()

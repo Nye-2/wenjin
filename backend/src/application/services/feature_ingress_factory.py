@@ -1,0 +1,41 @@
+"""Factory helpers for the canonical feature ingress service."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from src.academic.services.workspace_service import WorkspaceService
+from src.application.services.feature_submission_service import FeatureSubmissionService
+from src.compute.session_service import ComputeSessionService
+from src.services.credit_service import CreditService
+from src.services.execution_session_service import ExecutionSessionService
+from src.services.literature_service import LiteratureService
+from src.task.service import TaskService
+
+from .feature_launch_service import FeatureIngressService
+
+
+def build_feature_ingress_service(
+    *,
+    actor_id: str,
+    db: Any,
+    workspace_service: WorkspaceService,
+    task_service: TaskService,
+    literature_service: LiteratureService,
+    credit_service: CreditService,
+) -> FeatureIngressService:
+    """Build the single application-level feature launch/resume entrypoint."""
+    feature_submission_service = FeatureSubmissionService(
+        actor_id=str(actor_id),
+        workspace_service=workspace_service,
+        task_service=task_service,
+        literature_service=literature_service,
+        credit_service=credit_service,
+    )
+    return FeatureIngressService(
+        actor_id=str(actor_id),
+        feature_submission_service=feature_submission_service,
+        execution_session_service=ExecutionSessionService(db),
+        compute_session_service=ComputeSessionService(db),
+        workspace_service=workspace_service,
+    )

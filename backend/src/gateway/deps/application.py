@@ -2,11 +2,9 @@
 
 from fastapi import Depends
 
-from src.application.handlers.feature_execution_handler import FeatureExecutionHandler
 from src.application.handlers.papers_handler import PapersHandler
 from src.application.handlers.thread_turn_handler import ThreadTurnHandler
-from src.application.services import FeatureIngressService
-from src.compute.session_service import ComputeSessionService
+from src.application.services import FeatureIngressService, build_feature_ingress_service
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps.academic import (
     get_artifact_service,
@@ -20,24 +18,6 @@ from src.gateway.deps.dashboard import get_credit_service
 from src.gateway.deps.tasks import get_task_service
 from src.gateway.deps.threads import get_thread_service
 from src.gateway.deps.uploads import get_upload_preprocessor
-from src.services.execution_session_service import ExecutionSessionService
-
-
-async def get_feature_execution_handler(
-    current_user=Depends(get_current_user),
-    workspace_service=Depends(get_workspace_service),
-    task_service=Depends(get_task_service),
-    literature_service=Depends(get_literature_service),
-    credit_service=Depends(get_credit_service),
-) -> FeatureExecutionHandler:
-    """Construct a request-scoped feature execution handler."""
-    return FeatureExecutionHandler(
-        actor_id=str(current_user.id),
-        workspace_service=workspace_service,
-        task_service=task_service,
-        literature_service=literature_service,
-        credit_service=credit_service,
-    )
 
 
 async def get_thread_turn_handler(
@@ -66,18 +46,13 @@ async def get_feature_launch_service(
     credit_service=Depends(get_credit_service),
 ) -> FeatureIngressService:
     """Construct a request-scoped feature launch service."""
-    handler = FeatureExecutionHandler(
+    return build_feature_ingress_service(
         actor_id=str(current_user.id),
+        db=db,
         workspace_service=workspace_service,
         task_service=task_service,
         literature_service=literature_service,
         credit_service=credit_service,
-    )
-    return FeatureIngressService(
-        actor_id=str(current_user.id),
-        feature_execution_handler=handler,
-        execution_session_service=ExecutionSessionService(db),
-        compute_session_service=ComputeSessionService(db),
     )
 
 

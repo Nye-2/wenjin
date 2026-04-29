@@ -5,11 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from src.application.commands import FeatureLaunchCommand
 from src.application.errors import AccessDeniedError, NotFoundError
-from src.application.handlers.feature_execution_handler import (
-    FeatureExecutionHandler,
-    resolve_workspace_type,
-)
 from src.application.intents.launch_text import (
     is_generic_feature_launch_text,
     normalize_inline_text,
@@ -19,6 +16,8 @@ from src.application.results import (
     FeatureLaunchResult,
     FeatureTaskSubmission,
 )
+from src.application.services.feature_submission_service import FeatureSubmissionService
+from src.application.workspace_resolvers import resolve_workspace_type
 from src.compute.session_service import ComputeSessionService
 from src.services.execution_session_service import ExecutionSessionService
 from src.workspace_features import get_workspace_feature
@@ -163,14 +162,16 @@ class FeatureIngressService:
         self,
         *,
         actor_id: str,
-        feature_execution_handler: FeatureExecutionHandler,
+        feature_submission_service: FeatureSubmissionService,
         execution_session_service: ExecutionSessionService,
         compute_session_service: ComputeSessionService,
+        workspace_service: Any,
     ) -> None:
         self.actor_id = actor_id
-        self.feature_execution_handler = feature_execution_handler
+        self.feature_submission_service = feature_submission_service
         self.execution_session_service = execution_session_service
         self.compute_session_service = compute_session_service
+        self.workspace_service = workspace_service
 
     async def _load_workspace_and_feature(
         self,
@@ -178,7 +179,7 @@ class FeatureIngressService:
         workspace_id: str,
         feature_id: str,
     ) -> tuple[Any, str, Any]:
-        workspace = await self.feature_execution_handler.workspace_service.get(workspace_id)
+        workspace = await self.workspace_service.get(workspace_id)
         if workspace is None:
             raise NotFoundError("Workspace not found")
         if str(workspace.user_id) != self.actor_id:
@@ -234,7 +235,7 @@ class FeatureIngressService:
         user_id: str,
     ) -> str:
         if outcome.reused_existing_task:
-            existing_task = await self.feature_execution_handler.task_service.get_task_status(
+            existing_task = await self.feature_submission_service.task_service.get_task_status(
                 outcome.task_id,
                 self.actor_id,
             )
@@ -320,23 +321,14 @@ class FeatureIngressService:
 
     async def launch(
         self,
-        *,
-        workspace_id: str,
-        feature_id: str | None = None,
-        params: dict[str, Any] | None = None,
-        thread_id: str | None = None,
-        skill_id: str | None = None,
-        launch_source: str = "thread",
-        launch_message: str | None = None,
-        idempotency_key: str | None = None,
-        redis_client: Any | None = None,
-        execution_session_id: str | None = None,
+        command: FeatureLaunchCommand,
     ) -> FeatureLaunchResult:
-        resolved_feature_id = _normalize_str(feature_id)
-        resolved_params = dict(params or {})
+        workspace_id = command.workspace_id
+        resolved_feature_id = command.normalized_feature_id()
+        resolved_params = command.params_dict()
 
-        if execution_session_id:
-            session = await self.execution_session_service.get_by_id(execution_session_id)
+        if command.execution_session_id:
+            session = await self.execution_session_service.get_by_id(command.execution_session_id)
             if session is None:
                 raise NotFoundError("Execution session not found")
             if str(session.user_id) != self.actor_id:
@@ -344,7 +336,7 @@ class FeatureIngressService:
             if str(session.workspace_id) != workspace_id:
                 raise AccessDeniedError("Access denied")
 
-            if thread_id and session.thread_id and str(session.thread_id) != str(thread_id):
+            if command.thread_id and session.thread_id and str(session.thread_id) != str(command.thread_id):
                 raise AccessDeniedError("Execution session does not belong to this thread")
             await self.compute_session_service.ensure_for_execution_session(
                 execution_session_id=str(session.id),
@@ -367,19 +359,19 @@ class FeatureIngressService:
             merged_params = _hydrate_missing_context_params_from_resume_message(
                 feature_id=feature.id,
                 params={**dict(session.params or {}), **resolved_params},
-                launch_source=launch_source,
-                launch_message=launch_message,
+                launch_source=command.launch_source,
+                launch_message=command.launch_message,
             )
             missing_fields = _resolve_missing_context_fields(
                 feature_id=feature.id,
                 params=merged_params,
-                launch_source=launch_source,
+                launch_source=command.launch_source,
             )
 
             await self.execution_session_service.update_session_record(
                 session,
-                thread_id=thread_id if thread_id else session.thread_id,
-                entry_skill_id=skill_id if skill_id else session.entry_skill_id,
+                thread_id=command.thread_id if command.thread_id else session.thread_id,
+                entry_skill_id=command.skill_id if command.skill_id else session.entry_skill_id,
                 params=merged_params,
                 status="launching",
             )
@@ -393,8 +385,8 @@ class FeatureIngressService:
                     session=session,
                     params=merged_params,
                     advisory=advisory,
-                    thread_id=thread_id if thread_id else session.thread_id,
-                    skill_id=skill_id if skill_id else session.entry_skill_id,
+                    thread_id=command.thread_id if command.thread_id else session.thread_id,
+                    skill_id=command.skill_id if command.skill_id else session.entry_skill_id,
                 )
                 return FeatureLaunchResult(
                     execution_session_id=str(session.id),
@@ -402,14 +394,14 @@ class FeatureIngressService:
                 )
 
             try:
-                outcome = await self.feature_execution_handler.execute(
+                outcome = await self.feature_submission_service.execute(
                     workspace_id,
                     feature.id,
                     merged_params,
-                    thread_id or session.thread_id,
-                    skill_id or session.entry_skill_id,
-                    idempotency_key=idempotency_key,
-                    redis_client=redis_client,
+                    command.thread_id or session.thread_id,
+                    command.skill_id or session.entry_skill_id,
+                    idempotency_key=command.idempotency_key,
+                    redis_client=command.redis_client,
                     execution_session_id=str(session.id),
                 )
             except Exception as exc:
@@ -424,8 +416,8 @@ class FeatureIngressService:
                 session=session,
                 outcome=outcome,
                 params=merged_params,
-                thread_id=thread_id if thread_id else session.thread_id,
-                skill_id=skill_id if skill_id else session.entry_skill_id,
+                thread_id=command.thread_id if command.thread_id else session.thread_id,
+                skill_id=command.skill_id if command.skill_id else session.entry_skill_id,
                 allow_repoint_to_existing_session=False,
                 workspace_id=workspace_id,
                 user_id=self.actor_id,
@@ -444,10 +436,10 @@ class FeatureIngressService:
             workspace_id=workspace_id,
             workspace_type=workspace_type,
             feature_id=feature.id,
-            thread_id=thread_id,
-            entry_skill_id=skill_id,
-            launch_source=launch_source,
-            launch_message=launch_message,
+            thread_id=command.thread_id,
+            entry_skill_id=command.skill_id,
+            launch_source=command.launch_source,
+            launch_message=command.launch_message,
             params=resolved_params,
         )
         await self.compute_session_service.ensure_for_execution_session(
@@ -459,7 +451,7 @@ class FeatureIngressService:
         missing_fields = _resolve_missing_context_fields(
             feature_id=feature.id,
             params=resolved_params,
-            launch_source=launch_source,
+            launch_source=command.launch_source,
         )
         if missing_fields:
             advisory = _build_missing_context_advisory(
@@ -470,8 +462,8 @@ class FeatureIngressService:
                 session=session,
                 params=resolved_params,
                 advisory=advisory,
-                thread_id=thread_id,
-                skill_id=skill_id,
+                thread_id=command.thread_id,
+                skill_id=command.skill_id,
             )
             return FeatureLaunchResult(
                 execution_session_id=str(session.id),
@@ -479,14 +471,14 @@ class FeatureIngressService:
             )
 
         try:
-            outcome = await self.feature_execution_handler.execute(
+            outcome = await self.feature_submission_service.execute(
                 workspace_id,
                 feature.id,
                 resolved_params,
-                thread_id,
-                skill_id,
-                idempotency_key=idempotency_key,
-                redis_client=redis_client,
+                command.thread_id,
+                command.skill_id,
+                idempotency_key=command.idempotency_key,
+                redis_client=command.redis_client,
                 execution_session_id=str(session.id),
             )
         except Exception as exc:
@@ -501,8 +493,8 @@ class FeatureIngressService:
             session=session,
             outcome=outcome,
             params=resolved_params,
-            thread_id=thread_id,
-            skill_id=skill_id,
+            thread_id=command.thread_id,
+            skill_id=command.skill_id,
             allow_repoint_to_existing_session=True,
             workspace_id=workspace_id,
             user_id=self.actor_id,

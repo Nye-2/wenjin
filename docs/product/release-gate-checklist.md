@@ -11,7 +11,7 @@
 3. 关键回归通过:
   - `tests/workspace_features/test_workspace_e2e_matrix.py`
   - `tests/gateway/routers/test_features.py`
-  - `tests/application/handlers/test_feature_execution_handler.py`
+  - `tests/application/services/test_feature_submission_service.py`
 4. 前端静态检查通过:
   - `npx tsc --noEmit`
 

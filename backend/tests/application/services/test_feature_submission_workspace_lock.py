@@ -1,16 +1,16 @@
-"""Tests for workspace lock integration in FeatureExecutionHandler."""
+"""Tests for FeatureSubmissionService workspace lock integration."""
 
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.application.handlers.feature_execution_handler import FeatureExecutionHandler
 from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
+from src.application.services.feature_submission_service import FeatureSubmissionService
 
 
 def _make_handler(*, task_service=None, credit_service=None):
-    """Create a FeatureExecutionHandler with mocked dependencies."""
+    """Create a FeatureSubmissionService with mocked dependencies."""
     user = MagicMock()
     user.id = "user-1"
 
@@ -36,7 +36,7 @@ def _make_handler(*, task_service=None, credit_service=None):
 
     literature_service = AsyncMock()
 
-    return FeatureExecutionHandler(
+    return FeatureSubmissionService(
         actor_id=str(user.id),
         workspace_service=workspace_service,
         task_service=task_service,
@@ -76,7 +76,7 @@ class TestWorkspaceLockIntegration:
         handler = _make_handler()
 
         with patch(
-            "src.application.handlers.feature_execution_handler.get_workspace_feature",
+            "src.application.services.feature_submission_service.get_workspace_feature",
             return_value=_make_feature(),
         ):
             result = await handler.execute(
@@ -96,7 +96,7 @@ class TestWorkspaceLockIntegration:
         handler = _make_handler()
 
         with patch(
-            "src.application.handlers.feature_execution_handler.get_workspace_feature",
+            "src.application.services.feature_submission_service.get_workspace_feature",
             return_value=_make_feature(),
         ):
             result = await handler.execute(
@@ -124,7 +124,7 @@ class TestWorkspaceLockIntegration:
         handler = _make_handler()
 
         with patch(
-            "src.application.handlers.feature_execution_handler.get_workspace_feature",
+            "src.application.services.feature_submission_service.get_workspace_feature",
             return_value=_make_feature(),
         ):
             result = await handler.execute(
@@ -152,7 +152,7 @@ class TestWorkspaceLockIntegration:
         handler = _make_handler()
 
         with patch(
-            "src.application.handlers.feature_execution_handler.get_workspace_feature",
+            "src.application.services.feature_submission_service.get_workspace_feature",
             return_value=_make_feature(),
         ):
             result = await handler.execute(

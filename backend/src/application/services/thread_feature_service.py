@@ -8,22 +8,20 @@ from typing import Any
 
 from src.academic.cache.redis_client import redis_client
 from src.academic.services.workspace_service import WorkspaceService
-from src.application.handlers.feature_execution_handler import FeatureExecutionHandler
+from src.application.commands import FeatureLaunchCommand
 from src.application.presenters.thread_feature_cards import (
     build_execution_success_response,
     build_execution_warning_response,
 )
 from src.application.results import GeneratedThreadReply
-from src.compute.session_service import ComputeSessionService
 from src.config import redis_settings
 from src.database import Workspace, get_db_session
 from src.services.credit_service import CreditService
-from src.services.execution_session_service import ExecutionSessionService
 from src.services.literature_service import LiteratureService
 from src.task.service import TaskService
 from src.task.store import TaskStore
 
-from .feature_launch_service import FeatureIngressService
+from .feature_ingress_factory import build_feature_ingress_service
 
 logger = logging.getLogger(__name__)
 
@@ -42,17 +40,13 @@ async def _execute_thread_feature_request(
     execution_session_id: str | None = None,
 ) -> GeneratedThreadReply:
     resolved_params = dict(params or {})
-    launch_service = FeatureIngressService(
+    launch_service = build_feature_ingress_service(
         actor_id=str(user_id),
-        feature_execution_handler=FeatureExecutionHandler(
-            actor_id=str(user_id),
-            workspace_service=workspace_service,
-            task_service=TaskService(TaskStore(redis_client, db)),
-            literature_service=LiteratureService(db),
-            credit_service=CreditService(db),
-        ),
-        execution_session_service=ExecutionSessionService(db),
-        compute_session_service=ComputeSessionService(db),
+        db=db,
+        workspace_service=workspace_service,
+        task_service=TaskService(TaskStore(redis_client, db)),
+        literature_service=LiteratureService(db),
+        credit_service=CreditService(db),
     )
 
     runtime_redis = (
@@ -61,15 +55,17 @@ async def _execute_thread_feature_request(
         else None
     )
     launch = await launch_service.launch(
-        workspace_id=str(workspace.id),
-        feature_id=feature_id,
-        params=resolved_params,
-        thread_id=thread_id,
-        skill_id=skill_id,
-        launch_source="thread",
-        launch_message=launch_message,
-        redis_client=runtime_redis,
-        execution_session_id=execution_session_id,
+        FeatureLaunchCommand(
+            workspace_id=str(workspace.id),
+            feature_id=feature_id,
+            params=resolved_params,
+            thread_id=thread_id,
+            skill_id=skill_id,
+            launch_source="thread",
+            launch_message=launch_message,
+            redis_client=runtime_redis,
+            execution_session_id=execution_session_id,
+        )
     )
     execution = launch.outcome
     resolved_feature_id = (
