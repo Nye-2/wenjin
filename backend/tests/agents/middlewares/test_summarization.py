@@ -69,6 +69,26 @@ class TestSummarizationMiddleware:
         assert count > 0
         assert count < 10  # "Hello world" is ~2-3 tokens
 
+    @pytest.mark.asyncio
+    async def test_summarize_uses_full_old_history_not_only_last_20(self):
+        mw = SummarizationMiddleware()
+        messages = [HumanMessage(content=f"message-{index}") for index in range(25)]
+
+        with patch("src.models.router.route_model", return_value="utility-primary"), patch(
+            "src.models.factory.create_chat_model",
+            return_value=object(),
+        ), patch.object(
+            mw,
+            "_invoke_summary_model",
+            new=AsyncMock(return_value="summary"),
+        ) as invoke_summary:
+            result = await mw._summarize(messages)
+
+        assert result == "summary"
+        prompt = invoke_summary.await_args_list[0].args[1]
+        assert "message-0" in prompt
+        assert "message-24" in prompt
+
 
 def test_count_tokens_cjk_content():
     """CJK characters must not be severely under-counted."""

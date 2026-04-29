@@ -357,7 +357,11 @@ async def _maybe_compact_memory(
     try:
         async with get_db_session() as db:
             service = KnowledgeService(db)
-            active_count = await service.count_active(user_id)
+            active_count = await service.count_active(
+                user_id,
+                workspace_context=workspace_context,
+                include_global=False,
+            )
         if active_count <= max_facts:
             return
         await compact_user_memory(user_id, workspace_context=workspace_context)
@@ -385,6 +389,7 @@ async def extract_and_persist_knowledge(
         from src.models.router import route_model
 
         model_id = route_model(
+            requested_model=getattr(config, "model_name", None),
             preferred_categories=("llm",),
             allowed_categories=("llm",),
             require_tools=False,

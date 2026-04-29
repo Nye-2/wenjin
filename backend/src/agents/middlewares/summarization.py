@@ -98,17 +98,17 @@ class SummarizationMiddleware(Middleware):
         """Estimate prompt token count, preferring model tokenizer when available."""
         encoder = _resolve_token_encoder(model_name)
         if encoder is not None:
-            total_tokens = 0
+            total_tokens = 2  # reply priming / formatting overhead
             for msg in messages:
                 content = msg.content if isinstance(msg.content, str) else str(msg.content)
-                total_tokens += len(encoder.encode(content))
+                total_tokens += 4 + len(encoder.encode(content))
             return total_tokens
 
         # Fallback heuristic if tokenizer is unavailable.
-        total_bytes = 0
+        total_bytes = 6
         for msg in messages:
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            total_bytes += len(content.encode("utf-8"))
+            total_bytes += 12 + len(content.encode("utf-8"))
         return total_bytes // 3
 
     async def _summarize(self, messages: list) -> str | None:
@@ -127,25 +127,77 @@ class SummarizationMiddleware(Middleware):
         except Exception:
             return None
 
-        # Format messages for summarization
-        formatted = []
+        formatted: list[str] = []
         for msg in messages:
             role = "User" if isinstance(msg, HumanMessage) else "Assistant"
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             formatted.append(f"{role}: {content}")
 
-        prompt = f"""Summarize the following conversation, preserving key information:
+        chunks = self._chunk_formatted_messages(formatted)
+        if not chunks:
+            return None
+
+        chunk_summaries: list[str] = []
+        for index, chunk in enumerate(chunks, start=1):
+            prompt = f"""Summarize conversation chunk {index}/{len(chunks)}, preserving key information:
 - Main topics discussed
 - Decisions made
 - Important context for continuing the conversation
 
 Conversation:
-{chr(10).join(formatted[-20:])}  # Last 20 messages
+{chunk}
 
 Summary:"""
+            summary = await self._invoke_summary_model(model, prompt)
+            if summary:
+                chunk_summaries.append(summary)
 
+        if not chunk_summaries:
+            return None
+        if len(chunk_summaries) == 1:
+            return chunk_summaries[0]
+
+        combine_prompt = f"""Merge these chronological conversation summaries into one compact continuation summary.
+Preserve decisions, constraints, unresolved questions, user preferences, and important facts.
+
+Chunk summaries:
+{chr(10).join(f"{idx}. {summary}" for idx, summary in enumerate(chunk_summaries, start=1))}
+
+Merged summary:"""
+        merged = await self._invoke_summary_model(model, combine_prompt)
+        return merged or "\n".join(chunk_summaries)
+
+    async def _invoke_summary_model(self, model: Any, prompt: str) -> str | None:
         try:
             response = await model.ainvoke(prompt)
-            return response.content if hasattr(response, 'content') else str(response)
+            return response.content if hasattr(response, "content") else str(response)
         except Exception:
             return None
+
+    def _chunk_formatted_messages(
+        self,
+        formatted_messages: list[str],
+        *,
+        max_chunk_tokens: int = 12000,
+    ) -> list[str]:
+        """Split all old messages into summarization chunks instead of dropping history."""
+        chunks: list[str] = []
+        current: list[str] = []
+        current_tokens = 0
+        for item in formatted_messages:
+            item_tokens = self._count_text_tokens(item)
+            if current and current_tokens + item_tokens > max_chunk_tokens:
+                chunks.append("\n".join(current))
+                current = []
+                current_tokens = 0
+            current.append(item)
+            current_tokens += item_tokens
+        if current:
+            chunks.append("\n".join(current))
+        return chunks
+
+    def _count_text_tokens(self, text: str) -> int:
+        encoder = _resolve_token_encoder(self._model_name)
+        if encoder is not None:
+            return len(encoder.encode(text))
+        return max(1, len(text.encode("utf-8")) // 3)

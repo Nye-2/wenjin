@@ -60,6 +60,27 @@
   --duration-fast: 150ms;
   --duration-normal: 300ms;
   --duration-slow: 500ms;
+
+  /* ═══════════════════════════════════════════════════════════════ */
+  /* ── Compute Stage Dark Theme (新增) ──                          */
+  /* ═══════════════════════════════════════════════════════════════ */
+  --compute-bg-base: #0B0F14;
+  --compute-bg-elevated: #111820;
+  --compute-bg-surface: #1A2330;
+  --compute-bg-overlay: rgba(11, 15, 20, 0.85);
+  --compute-border: #232D3D;
+  --compute-border-subtle: rgba(255, 255, 255, 0.06);
+  --compute-text-primary: #E8ECF2;
+  --compute-text-secondary: #8A94A6;
+  --compute-text-muted: #5A6378;
+  --compute-accent-cyan: #5C97A5;
+  --compute-accent-cyan-glow: rgba(92, 151, 165, 0.25);
+  --compute-accent-gold: #C8A050;
+  --compute-accent-green: #2D9D78;
+  --compute-accent-red: #D14B4B;
+  --compute-glass-bg: rgba(17, 24, 32, 0.85);
+  --compute-glass-border: rgba(255, 255, 255, 0.06);
+  --compute-glass-blur: blur(20px) saturate(110%);
 }
 
 * {
@@ -105,6 +126,14 @@ body {
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow-elevated);
+}
+
+/* ── Compute Glass (新增) ── */
+.compute-glass {
+  background: var(--compute-glass-bg);
+  backdrop-filter: var(--compute-glass-blur);
+  -webkit-backdrop-filter: var(--compute-glass-blur);
+  border: 1px solid var(--compute-glass-border);
 }
 
 /* ── Gradient Text ── */
@@ -174,7 +203,7 @@ body {
   animation: wave-float 6s ease-in-out infinite;
 }
 
-/* ── Scrollbar ── */
+/* ── Scrollbar (Light Theme) ── */
 ::-webkit-scrollbar {
   width: 7px;
   height: 7px;
@@ -194,15 +223,38 @@ body {
   background: var(--brand-teal);
 }
 
+/* ── Scrollbar (Compute Dark Theme) ── */
+.compute-scroll::-webkit-scrollbar-track {
+  background: var(--compute-bg-elevated);
+}
+
+.compute-scroll::-webkit-scrollbar-thumb {
+  background: var(--compute-border);
+}
+
+.compute-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--compute-accent-cyan);
+}
+
 /* ── Selection ── */
 ::selection {
   background: rgba(46, 111, 109, 0.18);
   color: var(--text-primary);
 }
 
+.compute-selection ::selection {
+  background: rgba(92, 151, 165, 0.25);
+  color: var(--compute-text-primary);
+}
+
 /* ── Focus ── */
 :focus-visible {
   outline: 2px solid var(--brand-teal);
+  outline-offset: 2px;
+}
+
+.compute-focus:focus-visible {
+  outline: 2px solid var(--compute-accent-cyan);
   outline-offset: 2px;
 }
 
@@ -242,6 +294,30 @@ textarea:focus {
   outline: none;
   border-color: var(--border-focus);
   box-shadow: 0 0 0 4px rgba(46, 111, 109, 0.12);
+}
+
+/* ── Compute Input (新增) ── */
+.compute-input {
+  background: var(--compute-bg-surface);
+  border: 1px solid var(--compute-border);
+  color: var(--compute-text-primary);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.compute-input::placeholder {
+  color: var(--compute-text-muted);
+}
+
+.compute-input:hover {
+  border-color: rgba(92, 151, 165, 0.4);
+}
+
+.compute-input:focus {
+  outline: none;
+  border-color: var(--compute-accent-cyan);
+  box-shadow: 0 0 0 3px var(--compute-accent-cyan-glow);
 }
 
 .route-grid {
@@ -334,6 +410,19 @@ textarea:-webkit-autofill:focus {
   border-radius: 2px 2px 0 0;
 }
 
+/* ── Compute Card (新增) ── */
+.compute-card {
+  background: var(--compute-bg-elevated);
+  border: 1px solid var(--compute-border);
+  border-radius: 0.75rem;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.compute-card:hover {
+  border-color: rgba(92, 151, 165, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
 /* ── Atmospheric Background Mesh ── */
 .atmosphere-mesh {
   background-image:
@@ -341,6 +430,14 @@ textarea:-webkit-autofill:focus {
     radial-gradient(ellipse 60% 50% at 85% 15%, rgba(46, 111, 109, 0.06), transparent),
     radial-gradient(ellipse 50% 40% at 50% 80%, rgba(166, 124, 57, 0.04), transparent),
     radial-gradient(ellipse 70% 50% at 70% 55%, rgba(92, 151, 165, 0.03), transparent);
+}
+
+/* ── Compute Background (新增) ── */
+.compute-bg {
+  background:
+    radial-gradient(ellipse 60% 50% at 15% 20%, rgba(92, 151, 165, 0.04), transparent),
+    radial-gradient(ellipse 50% 40% at 85% 15%, rgba(200, 160, 80, 0.03), transparent),
+    var(--compute-bg-base);
 }
 
 /* ── Subtle Noise Texture ── */
@@ -360,6 +457,11 @@ textarea:-webkit-autofill:focus {
 .ink-divider {
   height: 1px;
   background: linear-gradient(90deg, transparent, rgba(31, 66, 99, 0.12) 20%, rgba(46, 111, 109, 0.1) 50%, rgba(166, 124, 57, 0.08) 80%, transparent);
+}
+
+.compute-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(92, 151, 165, 0.15) 30%, rgba(255, 255, 255, 0.08) 70%, transparent);
 }
 
 /* ── Chat Container ── */
@@ -439,6 +541,52 @@ html {
   scroll-behavior: smooth;
 }
 
+/* ── Status Indicator Pulse (新增) ── */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.status-running {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+/* ── Shimmer Loading (新增) ── */
+@keyframes shimmer-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.shimmer-bg {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  transform: translateX(-100%);
+  animation: shimmer-slide 1.5s ease-in-out infinite;
+}
+
+/* ── Diff Colors for Review Gate (新增) ── */
+.diff-delete {
+  background: rgba(209, 75, 75, 0.12);
+  color: #E88A8A;
+}
+
+.diff-add {
+  background: rgba(45, 157, 120, 0.12);
+  color: #7DD3A8;
+}
+
+.diff-line-num {
+  color: var(--compute-text-muted);
+  user-select: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -456,5 +604,13 @@ html {
 
   .route-card-hover:hover {
     transform: none;
+  }
+
+  .status-running {
+    animation: none;
+  }
+
+  .shimmer-bg::after {
+    animation: none;
   }
 }

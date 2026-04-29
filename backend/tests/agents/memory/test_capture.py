@@ -53,7 +53,7 @@ async def test_enqueue_memory_capture_uses_configured_context_window():
     queue.enqueue = MagicMock()
 
     with patch(
-        "src.agents.memory.capture.extract_and_persist_knowledge",
+        "src.services.memory_capture_service.extract_and_persist_knowledge",
         AsyncMock(),
     ) as mock_persist, patch(
         "src.config.config_loader.get_app_config",

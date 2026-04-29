@@ -5,7 +5,7 @@ All workspace types now route through FeatureLeaderRuntime.
 
 from __future__ import annotations
 
-import asyncio
+import inspect
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -334,12 +334,12 @@ async def _try_langgraph_execution(
         ) from exc
 
 
-def _schedule_memory_extraction(
+async def _capture_feature_memory(
     workspace_type: str,
     payload: dict[str, Any],
     result: dict[str, Any],
 ) -> None:
-    """Schedule async memory extraction (fire-and-forget)."""
+    """Capture feature result into long-term memory through the canonical service."""
     user_id = payload.get("user_id") or payload.get("created_by")
     if not user_id:
         return
@@ -354,24 +354,26 @@ def _schedule_memory_extraction(
     if not conversation_text:
         return
 
-    async def _extract():
-        try:
-            from src.services.user_memory_service import extract_and_persist_knowledge
-
-            await extract_and_persist_knowledge(
-                str(user_id),
-                conversation_text,
-                workspace_context=str(workspace_id) if workspace_id else None,
-                source=f"feature:{workspace_type}.{feature_id}",
-            )
-        except Exception:
-            logger.debug("Memory extraction failed for feature %s", feature_id, exc_info=True)
-
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_extract())
-    except RuntimeError:
-        pass
+        from src.services.memory_capture_service import get_memory_capture_service
+
+        await get_memory_capture_service().persist_conversation(
+            user_id=str(user_id),
+            conversation_text=conversation_text,
+            workspace_context=str(workspace_id) if workspace_id else None,
+            source=f"feature:{workspace_type}.{feature_id}",
+        )
+    except Exception:
+        logger.debug("Memory extraction failed for feature %s", feature_id, exc_info=True)
+
+
+def _schedule_memory_extraction(
+    workspace_type: str,
+    payload: dict[str, Any],
+    result: dict[str, Any],
+) -> Any:
+    """Compatibility wrapper for the canonical awaited feature-memory capture."""
+    return _capture_feature_memory(workspace_type, payload, result)
 
 
 async def execute_workspace_feature(
@@ -414,5 +416,11 @@ async def execute_workspace_feature(
     if usage is not None:
         result["token_usage"] = usage.as_dict()
 
-    _schedule_memory_extraction(workspace_type, effective_payload, result)
+    memory_capture = _schedule_memory_extraction(
+        workspace_type,
+        effective_payload,
+        result,
+    )
+    if inspect.isawaitable(memory_capture):
+        await memory_capture
     return result

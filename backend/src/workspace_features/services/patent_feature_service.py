@@ -102,7 +102,7 @@ async def _try_generate_patent_outline_llm(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是专业的专利撰写助手。",
+        system_prompt="你是问津 Compute 的专利撰写专家，负责把技术交底转成说明书框架和权利要求草案，并标注需要代理师核验的风险。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.3,
@@ -320,7 +320,7 @@ async def _try_generate_prior_art_llm(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是专业的专利检索分析助手。",
+        system_prompt="你是问津 Compute 的现有技术检索分析专家，负责基于检索条件输出对比表、新颖性风险和规避建议。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.3,

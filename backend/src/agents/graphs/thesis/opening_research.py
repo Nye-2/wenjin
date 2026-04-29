@@ -332,7 +332,7 @@ async def _analyze_research_status(
         output_language="中文",
     )
     parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术研究分析专家。",
+        system_prompt="你是问津 Compute 的开题研究分析专家，负责基于已有文献和工作区上下文提炼研究现状。",
         prompt=prompt,
         resolved_model_id=model_id,
         temperature=0.2,
@@ -382,7 +382,7 @@ async def _plan_methodology(
         output_language="中文",
     )
     parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术方法论规划专家。",
+        system_prompt="你是问津 Compute 的学术方法论规划专家，负责把研究现状转成可执行目标和技术路线。",
         prompt=prompt,
         resolved_model_id=model_id,
         temperature=0.2,
@@ -467,7 +467,7 @@ async def _generate_report_sections(
         output_language="中文",
     )
     parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术报告撰写专家。",
+        system_prompt="你是问津 Compute 的开题报告撰写专家，负责生成结构化、证据边界清晰的报告章节。",
         prompt=prompt,
         resolved_model_id=model_id,
         temperature=0.2,

@@ -286,8 +286,14 @@ class TestThreadTurnHandlerCancellation:
             metadata=assistant_message["metadata"],
         )
 
+        capture_service = MagicMock()
+        capture_service.capture_messages = AsyncMock()
+
         with (
-            patch("src.application.handlers.thread_turn_handler.enqueue_memory_capture") as enqueue_capture,
+            patch(
+                "src.application.handlers.thread_turn_handler.get_memory_capture_service",
+                return_value=capture_service,
+            ),
             patch("src.application.handlers.thread_turn_handler.publish_thread_updated", new=AsyncMock()),
             patch("src.application.handlers.thread_turn_handler.set_thread_status", new=AsyncMock()),
             patch("src.application.handlers.thread_turn_handler.resolve_thread_skill_name", return_value=None),
@@ -299,8 +305,8 @@ class TestThreadTurnHandlerCancellation:
                 reply=reply,
             )
 
-        enqueue_capture.assert_called_once()
-        messages = enqueue_capture.call_args.kwargs["messages"]
+        capture_service.capture_messages.assert_awaited_once()
+        messages = capture_service.capture_messages.await_args.kwargs["messages"]
         assert len(messages) == 2
         assert messages[0]["role"] == "user"
         assert messages[0]["content"] == "继续推进这个任务"

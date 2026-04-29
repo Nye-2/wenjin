@@ -88,7 +88,7 @@ class TestMemoryIntegration:
         ]
 
         with patch(
-            "src.agents.memory.capture.extract_and_persist_knowledge",
+            "src.services.memory_capture_service.extract_and_persist_knowledge",
             AsyncMock(),
         ) as mock_persist:
             enqueue_memory_capture(
@@ -103,9 +103,10 @@ class TestMemoryIntegration:
             callback = queue.enqueue.call_args.kwargs["callback"]
             await callback("thread-1", messages)
 
-        mock_persist.assert_awaited_once_with(
+        mock_persist.assert_awaited_once()
+        assert mock_persist.await_args.args == (
             "user-1",
             "user: I study NLP\nassistant: I'll help with NLP research",
-            workspace_context="ws-1",
-            source="test",
         )
+        assert mock_persist.await_args.kwargs["workspace_context"] == "ws-1"
+        assert mock_persist.await_args.kwargs["source"].startswith("test#")

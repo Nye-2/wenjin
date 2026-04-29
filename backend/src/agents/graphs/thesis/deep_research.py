@@ -485,7 +485,7 @@ async def _scout_seminal_works(
         output_language="中文",
     )
     parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术文献发现专家。",
+        system_prompt="你是问津 Compute 的学术文献发现专家，负责识别高信号、可核验的奠基性文献线索。",
         prompt=prompt,
         resolved_model_id=model_id,
         temperature=0.2,
@@ -524,7 +524,7 @@ async def _scout_recent_works(
         output_language="中文",
     )
     parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术文献发现专家。",
+        system_prompt="你是问津 Compute 的学术文献发现专家，负责识别近期代表工作并标注待核验证据。",
         prompt=prompt,
         resolved_model_id=model_id,
         temperature=0.2,
@@ -563,7 +563,7 @@ async def _analyze_trends(
         output_language="中文",
     )
     parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术趋势分析专家。",
+        system_prompt="你是问津 Compute 的学术趋势分析专家，负责基于可见证据区分上升、稳定和下降方向。",
         prompt=prompt,
         resolved_model_id=model_id,
         temperature=0.2,
@@ -603,7 +603,7 @@ async def _phase2_gap_mining(
         output_language="中文",
     )
     parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是研究空白分析专家。",
+        system_prompt="你是问津 Compute 的研究空白分析专家，负责从已发现证据中提炼可研究、可验证的 gap。",
         prompt=prompt,
         resolved_model_id=model_id,
         temperature=0.2,
@@ -646,7 +646,7 @@ async def _phase3_synthesis(
         output_language="中文",
     )
     parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术创新构想专家。",
+        system_prompt="你是问津 Compute 的学术创新构想专家，负责把已识别 gap 转成少而精、可落地的研究构想。",
         prompt=prompt,
         resolved_model_id=model_id,
         temperature=0.25,
@@ -688,7 +688,7 @@ async def _phase4_cross_validate(
         output_language="中文",
     )
     parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术研究质量审核专家。",
+        system_prompt="你是问津 Compute 的调研质量审核专家，负责检查调研结果的一致性、证据边界和可执行性。",
         prompt=prompt,
         resolved_model_id=model_id,
         temperature=0.2,

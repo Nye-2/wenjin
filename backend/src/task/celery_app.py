@@ -37,6 +37,7 @@ celery_app.conf.update(
     task_routes={
         "src.task.tasks.execute_task": {"queue": "default"},
         "src.task.tasks.execute_run": {"queue": "long_running"},
+        "src.task.tasks.capture_memory": {"queue": "default"},
     },
 
     # Queue definitions

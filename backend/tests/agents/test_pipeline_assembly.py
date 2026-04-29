@@ -12,11 +12,15 @@ def _mock_app_config(
     summarization_enabled: bool = False,
     *,
     memory_enabled: bool = False,
+    summarization_model_name: str | None = None,
 ):
     """Create a mock app config for testing."""
     mock_config = MagicMock()
     mock_config.middlewares = MiddlewaresConfig(
-        summarization=SummarizationConfig(enabled=summarization_enabled)
+        summarization=SummarizationConfig(
+            enabled=summarization_enabled,
+            model_name=summarization_model_name,
+        )
     )
     mock_config.subagents = SimpleNamespace(enabled=True, max_concurrent=4)
     mock_config.sandbox = None
@@ -114,6 +118,33 @@ class TestPipelineAssembly:
 
         type_names = [type(m).__name__ for m in pipeline]
         assert "SummarizationMiddleware" in type_names
+
+    def test_summarization_model_name_is_passed_from_config(self):
+        from src.agents.lead_agent.agent import build_pipeline
+
+        config = _pipeline_config()
+
+        with patch(
+            "src.agents.lead_agent.agent.get_app_config",
+            return_value=_mock_app_config(
+                summarization_enabled=True,
+                summarization_model_name="utility-primary",
+            ),
+        ), patch(
+            "src.agents.lead_agent.agent.get_sandbox_provider",
+            return_value=None,
+        ), patch(
+            "src.thesis.execution.get_execution_service",
+            side_effect=RuntimeError("execution disabled"),
+        ):
+            pipeline = build_pipeline(config=config)
+
+        summarization = next(
+            middleware
+            for middleware in pipeline
+            if type(middleware).__name__ == "SummarizationMiddleware"
+        )
+        assert summarization._model_name == "utility-primary"
 
     def test_summarization_excluded_when_disabled(self):
         """SummarizationMiddleware should be excluded when disabled."""

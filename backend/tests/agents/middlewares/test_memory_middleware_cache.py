@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -57,7 +57,14 @@ async def test_cache_invalidated_after_capture():
     """after_model must invalidate the cache so next before_model fetches fresh context."""
     from langchain_core.messages import AIMessage, HumanMessage
 
-    mw = MemoryMiddleware(enabled=True, inject_enabled=True, capture_enabled=True, cache_ttl=300)
+    queue = MagicMock()
+    mw = MemoryMiddleware(
+        queue=queue,
+        enabled=True,
+        inject_enabled=True,
+        capture_enabled=True,
+        cache_ttl=300,
+    )
 
     state_before = {"messages": [], "workspace_id": "ws-1"}
     state_after = {
@@ -73,9 +80,7 @@ async def test_cache_invalidated_after_capture():
         "src.agents.middlewares.memory.build_memory_context",
         new_callable=AsyncMock,
         return_value="ctx",
-    ) as mock_build, patch(
-        "src.agents.middlewares.memory.enqueue_memory_capture",
-    ):
+    ) as mock_build:
         await mw.before_model(state_before, config)  # populates cache
         await mw.after_model(state_after, config)    # should invalidate
         await mw.before_model(state_before, config)  # should re-fetch

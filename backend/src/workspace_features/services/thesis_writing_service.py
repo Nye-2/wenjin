@@ -269,7 +269,7 @@ async def build_outline_payload(
     )
 
     parsed, model_id, generation_error = await _invoke_json_llm(
-        system_prompt="你是严谨的学术论文写作助手。",
+        system_prompt="你是问津 Compute 的学位论文大纲专家，负责把题目、调研产物和文献线索转成可执行章节结构。",
         prompt=prompt,
         preferred_model=preferred_model,
     )
@@ -331,7 +331,7 @@ async def build_chapter_payload(
     )
 
     parsed, model_id, generation_error = await _invoke_json_llm(
-        system_prompt="你是学术论文章节写作助手。",
+        system_prompt="你是问津 Compute 的学位论文章节写作专家，负责输出可落库章节草稿并标注证据缺口。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.35,

@@ -41,6 +41,78 @@ def _coerce_confidence(value: Any, default: float = 0.7) -> float:
     return min(1.0, max(0.0, confidence))
 
 
+def _load_memory_config() -> Any:
+    """Load memory config without coupling compaction to runtime service code."""
+    try:
+        from src.config.config_loader import MemoryConfig, get_app_config
+
+        return getattr(get_app_config(), "memory", None) or MemoryConfig()
+    except Exception:
+        logger.exception("Failed to load memory config for compaction")
+        from src.config.config_loader import MemoryConfig
+
+        return MemoryConfig()
+
+
+def _normalize_compacted_items(raw_items: Any) -> list[dict[str, Any]]:
+    """Validate and normalize LLM-produced compacted memory items."""
+    if not isinstance(raw_items, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        cat = str(item.get("category", "")).strip()
+        text = str(item.get("content", "")).strip()
+        if not text:
+            continue
+        try:
+            category = KnowledgeCategory(cat)
+        except ValueError:
+            continue
+        key = (category.value, text)
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(
+            {
+                "category": category,
+                "content": text,
+                "confidence": _coerce_confidence(item.get("confidence", 0.7)),
+            }
+        )
+    return normalized
+
+
+def _with_preserved_preferences(
+    entries: list[Any],
+    compacted_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Preserve preference memory deterministically instead of trusting the LLM."""
+    result = list(compacted_items)
+    seen = {
+        (item["category"], item["content"])
+        for item in result
+    }
+    for entry in entries:
+        if entry.category != KnowledgeCategory.PREFERENCE:
+            continue
+        key = (KnowledgeCategory.PREFERENCE, entry.content)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(
+            {
+                "category": KnowledgeCategory.PREFERENCE,
+                "content": entry.content,
+                "confidence": _coerce_confidence(entry.confidence),
+            }
+        )
+    return result
+
+
 async def compact_user_memory(
     user_id: str,
     *,
@@ -54,18 +126,34 @@ async def compact_user_memory(
     from src.database import get_db_session
     from src.services.knowledge_service import KnowledgeService
 
+    config = _load_memory_config()
+    max_facts = max(10, int(getattr(config, "max_facts", 100) or 100))
+    read_limit = max(100, max_facts * 2)
+
     async with get_db_session() as db:
         service = KnowledgeService(db)
-        entries = await service.list_active(user_id, min_confidence=0.0, limit=100)
+        entries = await service.list_active(
+            user_id,
+            workspace_context=workspace_context,
+            include_global=False,
+            min_confidence=0.0,
+            limit=read_limit,
+        )
 
         if len(entries) < 10:
             return {"compacted_count": 0, "archived_count": 0, "summary": ""}
 
         # Prepare entries for LLM
         entries_data = [
-            {"category": e.category.value if hasattr(e.category, "value") else str(e.category),
-             "content": e.content,
-             "confidence": e.confidence}
+            {
+                "category": (
+                    e.category.value
+                    if hasattr(e.category, "value")
+                    else str(e.category)
+                ),
+                "content": e.content,
+                "confidence": e.confidence,
+            }
             for e in entries
         ]
 
@@ -74,12 +162,15 @@ async def compact_user_memory(
             from src.models.router import route_model
 
             model_id = route_model(
+                requested_model=getattr(config, "model_name", None),
                 preferred_categories=("llm",),
                 allowed_categories=("llm",),
                 require_tools=False,
             )
             model = create_chat_model(model_id, temperature=0.1)
-            prompt = COMPACT_PROMPT.format(entries_json=json.dumps(entries_data, ensure_ascii=False))
+            prompt = COMPACT_PROMPT.format(
+                entries_json=json.dumps(entries_data, ensure_ascii=False)
+            )
             response = await model.ainvoke(prompt)
             content = response.content if hasattr(response, "content") else str(response)
             result = _parse_compact_result(content)
@@ -87,36 +178,44 @@ async def compact_user_memory(
             logger.exception("LLM compaction failed")
             raise
 
+        compacted_items = _with_preserved_preferences(
+            entries,
+            _normalize_compacted_items(result.get("compacted", [])),
+        )
+        summary = str(result.get("summary") or "").strip()
+        if not compacted_items and len(summary) < 20:
+            logger.warning(
+                "Skipping memory compaction for user %s scope=%s because LLM "
+                "returned no valid compacted items and no useful summary",
+                user_id,
+                workspace_context,
+            )
+            return {
+                "compacted_count": 0,
+                "archived_count": 0,
+                "summary": "",
+                "skipped_reason": "empty_compaction_result",
+            }
+
         # Deactivate all current entries
         for entry in entries:
             entry.is_active = False
         await db.flush()
 
         # Write compacted entries
-        compacted_items = result.get("compacted", [])
         count = 0
         for item in compacted_items:
-            if not isinstance(item, dict):
-                continue
-            cat = str(item.get("category", "")).strip()
-            text = str(item.get("content", "")).strip()
-            conf = _coerce_confidence(item.get("confidence", 0.7))
-            if not text:
-                continue
-            try:
-                KnowledgeCategory(cat)
-            except ValueError:
-                continue
             await service.upsert(
-                user_id, cat, text,
-                confidence=conf,
+                user_id,
+                item["category"],
+                item["content"],
+                confidence=item["confidence"],
                 source="compaction",
                 workspace_context=workspace_context,
             )
             count += 1
 
         # Add compaction summary
-        summary = result.get("summary", "")
         if summary:
             await service.upsert(
                 user_id,

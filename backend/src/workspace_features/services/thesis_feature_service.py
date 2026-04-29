@@ -1136,7 +1136,7 @@ async def _try_generate_opening_sections(
         output_language="zh",
     )
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是严谨的学术写作助手。",
+        system_prompt="你是问津 Compute 的开题/综述写作专家，负责基于工作区文献线索生成可用于开题材料的结构化章节。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.3,

@@ -53,6 +53,22 @@ class TestListActive:
         assert "workspace_context = :workspace_context_1" in rendered
         assert "workspace_context IS NULL" in rendered
 
+    async def test_can_scope_to_workspace_without_global_entries(self, service, mock_db):
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        await service.list_active(
+            "user1",
+            workspace_context="ws-1",
+            include_global=False,
+        )
+
+        stmt = mock_db.execute.call_args.args[0]
+        rendered = str(stmt)
+        assert "workspace_context = :workspace_context_1" in rendered
+        assert "workspace_context IS NULL" not in rendered
+
     async def test_scopes_to_global_only_without_workspace_context(self, service, mock_db):
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -153,6 +169,23 @@ class TestCountActive:
         mock_db.execute.return_value = mock_result
         count = await service.count_active("user1")
         assert count == 42
+
+    async def test_can_count_exact_workspace_scope(self, service, mock_db):
+        mock_result = MagicMock()
+        mock_result.scalar_one.return_value = 3
+        mock_db.execute.return_value = mock_result
+
+        count = await service.count_active(
+            "user1",
+            workspace_context="ws-1",
+            include_global=False,
+        )
+
+        assert count == 3
+        stmt = mock_db.execute.call_args.args[0]
+        rendered = str(stmt)
+        assert "workspace_context = :workspace_context_1" in rendered
+        assert "workspace_context IS NULL" not in rendered
 
 
 class TestCrudCompatibility:

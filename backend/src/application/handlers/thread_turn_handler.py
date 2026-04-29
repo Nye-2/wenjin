@@ -18,7 +18,6 @@ from langgraph.errors import GraphRecursionError
 
 from src.academic.literature.index_service import IndexService
 from src.academic.services import ArtifactService, PaperService, WorkspaceService
-from src.agents.memory.capture import enqueue_memory_capture
 from src.agents.middlewares.thread_data import get_thread_data_root
 from src.application.errors import ApplicationError, BadRequestError, NotFoundError, PaymentRequiredError
 from src.application.results import (
@@ -35,6 +34,7 @@ from src.models import model_supports_vision, route_chat_model
 from src.models.router import InvalidRequestedModelError
 from src.services import ThreadAccessError, ThreadService
 from src.services.credit_service import CreditService
+from src.services.memory_capture_service import get_memory_capture_service
 from src.services.thread_billing import (
     extract_usage_from_agent_result,
     normalize_token_usage,
@@ -1013,7 +1013,7 @@ class ThreadTurnHandler:
             assistant_message=assistant_message,
         )
         if capture_messages:
-            enqueue_memory_capture(
+            await get_memory_capture_service().capture_messages(
                 thread_id=thread.id,
                 user_id=actor_id,
                 workspace_id=thread.workspace_id,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -81,11 +80,10 @@ async def test_schedule_memory_extraction_skips_when_no_conversation_signal():
     }
 
     with patch(
-        "src.services.user_memory_service.extract_and_persist_knowledge",
+        "src.services.memory_capture_service.extract_and_persist_knowledge",
         AsyncMock(),
     ) as extract_mock:
-        _schedule_memory_extraction("thesis", payload, result)
-        await asyncio.sleep(0)
+        await _schedule_memory_extraction("thesis", payload, result)
 
     extract_mock.assert_not_awaited()
 
@@ -110,11 +108,10 @@ async def test_schedule_memory_extraction_persists_meaningful_conversation():
     }
 
     with patch(
-        "src.services.user_memory_service.extract_and_persist_knowledge",
+        "src.services.memory_capture_service.extract_and_persist_knowledge",
         AsyncMock(),
     ) as extract_mock:
-        _schedule_memory_extraction("thesis", payload, result)
-        await asyncio.sleep(0.01)
+        await _schedule_memory_extraction("thesis", payload, result)
 
     extract_mock.assert_awaited_once()
     conversation_text = extract_mock.await_args.args[1]

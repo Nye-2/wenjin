@@ -9,14 +9,11 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.memory.queue import MemoryQueue, get_default_memory_queue
-from src.services.user_memory_service import extract_and_persist_knowledge
 
 UPLOADED_FILES_BLOCK_RE = re.compile(
     r"<uploaded_files>[\s\S]*?</uploaded_files>\n*",
     re.IGNORECASE,
 )
-_DEFAULT_CAPTURE_TURNS = 3
-_MAX_CAPTURE_MESSAGES = 24
 
 
 def _extract_message_content(content: Any) -> str:
@@ -132,21 +129,6 @@ def select_incremental_capture_messages(messages: list[Any]) -> list[Any]:
     return list(messages[-4:])
 
 
-def _resolve_capture_limit_messages() -> int:
-    """Resolve memory-capture transcript window from config."""
-    turns = _DEFAULT_CAPTURE_TURNS
-    try:
-        from src.config.config_loader import get_app_config
-
-        memory_config = getattr(get_app_config(), "memory", None)
-        turns = int(getattr(memory_config, "max_context_turns", turns) or turns)
-    except Exception:
-        turns = _DEFAULT_CAPTURE_TURNS
-
-    turns = max(1, min(12, turns))
-    return min(_MAX_CAPTURE_MESSAGES, turns * 2)
-
-
 def enqueue_memory_capture(
     *,
     thread_id: str,
@@ -160,20 +142,12 @@ def enqueue_memory_capture(
     if not user_id or not thread_id:
         return
 
-    memory_queue = queue or get_default_memory_queue()
+    from src.services.memory_capture_service import MemoryCaptureService
 
-    async def _persist(_thread_id: str, queued_messages: list[Any]) -> None:
-        conversation_text = messages_to_conversation_text(
-            queued_messages,
-            limit=_resolve_capture_limit_messages(),
-        )
-        if not conversation_text:
-            return
-        await extract_and_persist_knowledge(
-            str(user_id),
-            conversation_text,
-            workspace_context=workspace_id,
-            source=source or "thread",
-        )
-
-    memory_queue.enqueue(thread_id, list(messages), callback=_persist)
+    MemoryCaptureService(queue or get_default_memory_queue()).enqueue_messages(
+        thread_id=thread_id,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        messages=list(messages),
+        source=source,
+    )

@@ -159,11 +159,15 @@ class TestApplyPromptTemplate:
 
         # Should have base prompt content
         assert "Wenjin" in prompt
-        assert "academic workspace assistant" in prompt
+        assert "chat-side academic workspace assistant" in prompt
+        assert "Chat Panel Contract" in prompt
+        assert "not the long-running Compute executor" in prompt
+        assert "produce a concise Compute feature proposal" in prompt
         assert "answer it directly first" in prompt
         assert "Do not give generic self-introductions" in prompt
         assert "do not ask the user to repeat information" in prompt
         assert "Avoid generic prompts like" in prompt
+        assert "Subagent delegation for complex multi-step tasks" not in prompt
 
     def test_prompt_with_all_contexts(self):
         """Test that prompt includes all contexts when present."""

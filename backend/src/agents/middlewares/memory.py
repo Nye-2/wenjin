@@ -24,6 +24,7 @@ from src.agents.memory.queue import MemoryQueue, get_default_memory_queue
 from src.agents.middlewares.base import Middleware
 from src.agents.middlewares.config_utils import require_thread_id
 from src.agents.thread_state import ThreadState
+from src.services.memory_capture_service import MemoryCaptureService
 from src.services.user_memory_service import (
     _parse_knowledge_json,
     build_memory_context,
@@ -93,6 +94,7 @@ class MemoryMiddleware(Middleware):
             raise ValueError(f"max_cache_size must be >= 1, got {max_cache_size}")
         self._max_cache_size = max_cache_size
         self._memory_cache: collections.OrderedDict[str, tuple[str, float]] = collections.OrderedDict()  # key → (context, cached_at)
+        self._capture_service = MemoryCaptureService(self._queue)
 
     @property
     def queue(self) -> MemoryQueue:
@@ -230,13 +232,12 @@ class MemoryMiddleware(Middleware):
         user_id = configurable.get("user_id")
         workspace_id = configurable.get("workspace_id")
 
-        enqueue_memory_capture(
+        await self._capture_service.capture_messages(
             thread_id=str(thread_id),
             user_id=str(user_id) if user_id else None,
             workspace_id=str(workspace_id) if workspace_id else None,
             messages=capture_messages,
             source="thread.middleware",
-            queue=self._queue,
         )
 
         # Invalidate cache so the next request fetches fresh context

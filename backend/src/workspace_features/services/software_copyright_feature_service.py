@@ -414,7 +414,7 @@ async def _try_generate_technical_sections(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是专业的软件技术文档撰写助手。",
+        system_prompt="你是问津 Compute 的软件著作权技术文档专家，负责把真实软件信息转成登记材料可用的技术说明章节。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.3,

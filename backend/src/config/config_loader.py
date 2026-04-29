@@ -97,6 +97,7 @@ class SummarizationConfig(BaseModel):
     enabled: bool = False
     trigger: str = "tokens:80000"
     keep: str = "messages:10"
+    model_name: str | None = None
 
 
 class AcademicMiddlewareConfig(BaseModel):

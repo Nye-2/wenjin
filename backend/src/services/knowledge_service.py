@@ -129,13 +129,15 @@ class KnowledgeService:
         user_id: str,
         *,
         workspace_context: str | None = None,
+        include_global: bool = True,
         min_confidence: float = 0.5,
         limit: int = 20,
     ) -> list[UserKnowledge]:
         """Return active knowledge ordered by confidence desc.
 
         Retrieval rules:
-        - with workspace_context: include current-workspace + global entries
+        - with workspace_context + include_global: include current-workspace + global entries
+        - with workspace_context + not include_global: include current-workspace entries only
         - without workspace_context: include global entries only
         Entries are ordered by workspace match first (when applicable), then confidence.
         """
@@ -144,6 +146,8 @@ class KnowledgeService:
                 UserKnowledge.workspace_context == workspace_context,
                 UserKnowledge.workspace_context.is_(None),
             )
+            if workspace_context and include_global
+            else UserKnowledge.workspace_context == workspace_context
             if workspace_context
             else UserKnowledge.workspace_context.is_(None)
         )
@@ -239,13 +243,39 @@ class KnowledgeService:
         await self._db.flush()
         return len(entries)
 
-    async def count_active(self, user_id: str) -> int:
-        """Count active knowledge entries for a user."""
+    async def count_active(
+        self,
+        user_id: str,
+        *,
+        workspace_context: str | None = None,
+        include_global: bool | None = None,
+    ) -> int:
+        """Count active knowledge entries for a user.
+
+        By default this preserves the historic behavior and counts all active
+        entries for the user. Pass ``workspace_context`` with
+        ``include_global=False`` for exact-scope maintenance jobs such as
+        memory compaction.
+        """
+        conditions = [
+            UserKnowledge.user_id == user_id,
+            UserKnowledge.is_active == True,  # noqa: E712
+        ]
+        if workspace_context is not None:
+            if include_global:
+                conditions.append(
+                    or_(
+                        UserKnowledge.workspace_context == workspace_context,
+                        UserKnowledge.workspace_context.is_(None),
+                    )
+                )
+            else:
+                conditions.append(UserKnowledge.workspace_context == workspace_context)
+        elif include_global is False:
+            conditions.append(UserKnowledge.workspace_context.is_(None))
+
         stmt = select(func.count()).select_from(UserKnowledge).where(
-            and_(
-                UserKnowledge.user_id == user_id,
-                UserKnowledge.is_active == True,  # noqa: E712
-            )
+            and_(*conditions)
         )
         result = await self._db.execute(stmt)
         return result.scalar_one()

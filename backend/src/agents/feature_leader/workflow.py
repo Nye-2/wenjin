@@ -55,6 +55,16 @@ def _resolve_focus(payload: dict[str, Any], feature_id: str) -> str:
     return feature_id
 
 
+def _compute_subtask_prompt(task: str) -> str:
+    """Append the shared Compute subtask contract to feature-leader prompts."""
+    return (
+        f"{task}\n"
+        "边界：这是 Compute feature 内部子任务；不要向用户提问，不要重新发现需求，"
+        "只基于父任务上下文、工作区产物和可用工具推进。输出必须结构化、可被后续阶段合并；"
+        "涉及文献、专利、数据或事实时区分已核验证据、合理推断和待核验项。"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class FeatureWorkflowPlan:
     """Structured workflow plan for feature-domain subagent orchestration."""
@@ -108,21 +118,21 @@ def _build_research_plan(*, feature_id: str, focus: str) -> FeatureWorkflowPlan:
     discovery_tasks = [
         {
             "subagent_type": "scout",
-            "prompt": (
+            "prompt": _compute_subtask_prompt(
                 f"围绕「{focus}」检索并筛选高相关学术资料。"
                 "输出候选论文/专利条目与可信度说明，优先近五年。"
             ),
         },
         {
             "subagent_type": "trend_spotter",
-            "prompt": (
+            "prompt": _compute_subtask_prompt(
                 f"围绕「{focus}」提炼研究趋势与热点分支。"
                 "输出趋势列表、代表工作与变化方向。"
             ),
         },
         {
             "subagent_type": "gap_miner",
-            "prompt": (
+            "prompt": _compute_subtask_prompt(
                 f"围绕「{focus}」识别尚未充分解决的问题。"
                 "输出研究空白、潜在风险与可验证假设。"
             ),
@@ -131,7 +141,7 @@ def _build_research_plan(*, feature_id: str, focus: str) -> FeatureWorkflowPlan:
     synthesis_tasks = [
         {
             "subagent_type": "synthesizer",
-            "prompt": (
+            "prompt": _compute_subtask_prompt(
                 f"综合上一阶段关于「{focus}」的发现。"
                 "输出结构化结论：关键证据、争议点、下一步研究路径。"
             ),
@@ -157,14 +167,14 @@ def _build_writing_plan(*, feature_id: str, focus: str, action: str) -> FeatureW
     evidence_tasks = [
         {
             "subagent_type": "librarian",
-            "prompt": (
+            "prompt": _compute_subtask_prompt(
                 f"围绕写作目标「{focus}」准备证据清单与引用建议。"
                 "输出支持论点所需的核心文献与证据不足项。"
             ),
         },
         {
             "subagent_type": "reviewer",
-            "prompt": (
+            "prompt": _compute_subtask_prompt(
                 f"从评审角度审查「{focus}」写作计划。"
                 "输出逻辑风险、结构缺口与优先修正建议。"
             ),
@@ -173,7 +183,7 @@ def _build_writing_plan(*, feature_id: str, focus: str, action: str) -> FeatureW
     drafting_tasks = [
         {
             "subagent_type": "thesis_writer" if feature_id == "thesis_writing" else "writer",
-            "prompt": (
+            "prompt": _compute_subtask_prompt(
                 f"基于前序证据与审查意见推进写作：{focus}。"
                 f"当前动作: {action or 'default'}。"
                 "输出可直接落稿的结构化文本草案。"
@@ -199,14 +209,14 @@ def _build_figure_plan(*, feature_id: str, focus: str) -> FeatureWorkflowPlan:
     plan_tasks = [
         {
             "subagent_type": "figure_planner",
-            "prompt": (
+            "prompt": _compute_subtask_prompt(
                 f"围绕「{focus}」规划图表方案。"
                 "输出图表类型、布局、关键元素与可视化策略。"
             ),
         },
         {
             "subagent_type": "analyst",
-            "prompt": (
+            "prompt": _compute_subtask_prompt(
                 f"从可读性与论证完整性评估图表需求：{focus}。"
                 "输出图表应承载的定量/定性信息与验证点。"
             ),

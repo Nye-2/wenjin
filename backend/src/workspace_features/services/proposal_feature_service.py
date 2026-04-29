@@ -299,7 +299,7 @@ async def _try_generate_proposal_sections(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是专业的科研项目申报书撰写助手。",
+        system_prompt="你是问津 Compute 的科研项目申报书专家，负责把课题范围转成评审可读、可执行的申报书结构。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.3,
@@ -566,7 +566,7 @@ async def _try_generate_background_sections(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是专业的科研背景调研助手。",
+        system_prompt="你是问津 Compute 的科研背景调研专家，负责产出有问题意识、可追溯待核验线索的背景分析。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.3,
@@ -820,7 +820,7 @@ async def _try_llm_experiment_design(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是科研项目实验设计顾问。",
+        system_prompt="你是问津 Compute 的科研实验设计顾问，负责把研究目标转成可检验假设、变量、步骤和评估指标。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.2,

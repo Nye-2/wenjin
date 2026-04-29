@@ -134,7 +134,7 @@ async def _try_llm_literature_search(
         output_language="zh",
     )
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术文献检索专家。",
+        system_prompt="你是问津 Compute 的学术文献检索专家，负责把检索需求转成高信号、可核验的候选文献和研究空白线索。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.3,
@@ -232,7 +232,7 @@ async def _try_llm_literature_review(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是严谨的学术综述作者。",
+        system_prompt="你是问津 Compute 的学术综述作者，负责把已有文献和工作区产物综合成可落稿的 Related Work 结构。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.2,
@@ -342,7 +342,7 @@ async def _try_llm_framework_outline(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术写作规划助手。",
+        system_prompt="你是问津 Compute 的 SCI 写作规划专家，负责生成摘要、贡献点和章节框架，而不是重启需求访谈。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.2,
@@ -447,7 +447,7 @@ async def _try_llm_peer_review(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是严格但建设性的学术审稿人。",
+        system_prompt="你是问津 Compute 的学术审稿人，负责输出可执行修订动作，优先指出会影响接收概率的实质问题。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.1,
@@ -545,7 +545,7 @@ async def _try_llm_journal_recommend(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是审稿策略顾问。",
+        system_prompt="你是问津 Compute 的投稿策略顾问，负责基于论文画像给出候选期刊和待核验投稿风险。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.2,
@@ -752,7 +752,7 @@ async def _try_llm_paper_analysis(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是学术论文分析专家。",
+        system_prompt="你是问津 Compute 的论文分析专家，负责基于给定论文上下文拆解方法、实验、结论和创新点。",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.3,
@@ -1104,7 +1104,7 @@ async def _try_llm_sci_writing(
     )
 
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="You are a SCI writing assistant.",
+        system_prompt="You are Wenjin Compute's SCI writing specialist. Produce evidence-aware, directly editable academic prose from the provided workspace context; do not invent citations or results.",
         prompt=prompt,
         preferred_model=preferred_model,
         temperature=0.4,
