@@ -18,6 +18,7 @@ import type {
 } from "@/lib/api";
 import { useComputeStore } from "@/stores/compute";
 
+import { ComputeStageSkeleton } from "@/components/ui/skeleton";
 import { ComputeHeader } from "./ComputeHeader";
 import { SubagentPanel } from "./SubagentPanel";
 import { TaskArtifactPanel } from "./TaskArtifactPanel";
@@ -267,7 +268,10 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
         isLoadingProjection={isLoadingProjection}
       />
 
-      <motion.div
+      {isLoadingProjection ? (
+        <ComputeStageSkeleton />
+      ) : (
+        <motion.div
         className="min-h-0 flex-1 overflow-auto p-4"
         variants={containerVariants}
         initial="hidden"
@@ -325,6 +329,7 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
           </motion.div>
         </div>
       </motion.div>
+      )}
     </div>
   );
 }
