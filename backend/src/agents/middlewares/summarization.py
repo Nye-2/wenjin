@@ -139,13 +139,20 @@ class SummarizationMiddleware(Middleware):
 
         chunk_summaries: list[str] = []
         for index, chunk in enumerate(chunks, start=1):
-            prompt = f"""Summarize conversation chunk {index}/{len(chunks)}, preserving key information:
-- Main topics discussed
-- Decisions made
-- Important context for continuing the conversation
+            prompt = f"""Summarize conversation chunk {index}/{len(chunks)} for Wenjin's chat-side continuation state.
+
+Preserve:
+- User goals, constraints, decisions, and unresolved questions
+- Workspace type, selected skill/feature intent, Compute launch/resume context, and active artifact references
+- Important research topics, writing requirements, citation/style preferences, and evidence gaps
+- Concrete next actions already agreed
 
 Conversation:
 {chunk}
+
+Do not preserve:
+- Repetitive greetings, filler, transient UI chatter, or low-value tool logs
+- Secrets, credentials, or exact long pasted source material unless necessary as a brief reference
 
 Summary:"""
             summary = await self._invoke_summary_model(model, prompt)
@@ -157,8 +164,9 @@ Summary:"""
         if len(chunk_summaries) == 1:
             return chunk_summaries[0]
 
-        combine_prompt = f"""Merge these chronological conversation summaries into one compact continuation summary.
-Preserve decisions, constraints, unresolved questions, user preferences, and important facts.
+        combine_prompt = f"""Merge these chronological conversation summaries into one compact continuation summary for Wenjin.
+Preserve decisions, constraints, unresolved questions, user preferences, active Compute/feature context, artifact references, and important facts.
+Keep chronology only where it affects the next response. Separate confirmed facts from pending assumptions when needed.
 
 Chunk summaries:
 {chr(10).join(f"{idx}. {summary}" for idx, summary in enumerate(chunk_summaries, start=1))}

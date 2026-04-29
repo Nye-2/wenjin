@@ -11,10 +11,10 @@ interface LogPanelProps {
 
 export function LogPanel({ logs }: LogPanelProps) {
   return (
-    <section className="rounded-2xl border border-[var(--border-default)] bg-white/78 p-4">
+    <section className="compute-card p-4">
       <div className="flex items-center gap-2">
-        <Terminal className="h-4 w-4 text-[var(--accent-primary)]" />
-        <h4 className="text-sm font-semibold text-[var(--text-primary)]">
+        <Terminal className="h-4 w-4 text-compute-cyan" />
+        <h4 className="text-sm font-semibold text-compute-text-primary">
           执行日志
         </h4>
       </div>
@@ -29,23 +29,23 @@ export function LogPanel({ logs }: LogPanelProps) {
               )}
             >
               <div className="flex items-center justify-between gap-3">
-                <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+                <p className="truncate text-sm font-medium text-compute-text-primary">
                   {log.title}
                 </p>
-                <span className="shrink-0 text-[11px]">{log.level}</span>
+                <span className="shrink-0 text-[11px] text-compute-text-muted">{log.level}</span>
               </div>
-              <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-xs leading-5">
+              <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-xs leading-5 text-compute-text-secondary">
                 {log.message}
               </p>
               {readString(log.timestamp) ? (
-                <p className="mt-1 truncate text-[11px] text-[var(--text-muted)]">
+                <p className="mt-1 truncate text-[11px] text-compute-text-muted">
                   {readString(log.timestamp)}
                 </p>
               ) : null}
             </div>
           ))
         ) : (
-          <p className="rounded-xl border border-dashed border-[var(--border-default)] px-3 py-4 text-center text-xs text-[var(--text-muted)]">
+          <p className="rounded-xl border border-dashed border-compute-border px-3 py-4 text-center text-xs text-compute-text-muted">
             当前执行还没有结构化日志。
           </p>
         )}

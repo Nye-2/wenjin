@@ -22,10 +22,10 @@ function SummaryItem({
   tone?: "default" | "success" | "warning" | "danger";
 }) {
   const toneClass = {
-    default: "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]",
-    success: "border-emerald-500/20 bg-emerald-500/8 text-emerald-700",
-    warning: "border-amber-500/20 bg-amber-500/8 text-amber-700",
-    danger: "border-red-500/20 bg-red-500/8 text-red-700",
+    default: "border-compute-border bg-compute-elevated text-compute-text-secondary",
+    success: "border-compute-green/20 bg-compute-green/8 text-compute-green",
+    warning: "border-compute-gold/20 bg-compute-gold/8 text-compute-gold",
+    danger: "border-compute-red/20 bg-compute-red/8 text-compute-red",
   };
   return (
     <div
@@ -34,8 +34,8 @@ function SummaryItem({
         toneClass[tone ?? "default"]
       )}
     >
-      <p className="text-[11px] text-[var(--text-muted)]">{label}</p>
-      <p className="mt-1 truncate text-sm font-medium text-[var(--text-primary)]">
+      <p className="text-[11px] text-compute-text-muted">{label}</p>
+      <p className="mt-1 truncate text-sm font-medium text-compute-text-primary">
         {value}
       </p>
     </div>
@@ -61,16 +61,16 @@ export function ComputeHeader({
   const status = effectiveExecution?.status;
 
   return (
-    <div className="border-b border-[var(--border-default)] px-4 py-4">
+    <div className="border-b border-compute-border px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Cpu className="h-4 w-4 text-[var(--accent-primary)]" />
-            <h3 className="truncate text-base font-semibold text-[var(--text-primary)]">
+            <Cpu className="h-4 w-4 text-compute-cyan" />
+            <h3 className="truncate text-base font-semibold text-compute-text-primary">
               {effectiveExecution?.feature_id ?? "Compute Session"}
             </h3>
           </div>
-          <p className="mt-1 text-xs text-[var(--text-secondary)]">
+          <p className="mt-1 text-xs text-compute-text-secondary">
             {computeSession
               ? `Compute ${formatShortId(computeSession.id)} · Execution ${formatShortId(computeSession.execution_session_id)}`
               : "等待 Compute session 绑定"}
@@ -80,10 +80,10 @@ export function ComputeHeader({
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
             status === "completed"
-              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700"
+              ? "border-compute-green/25 bg-compute-green/10 text-compute-green"
               : status === "failed"
-                ? "border-red-500/25 bg-red-500/10 text-red-700"
-                : "border-[var(--accent-primary)]/25 bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
+                ? "border-compute-red/25 bg-compute-red/10 text-compute-red"
+                : "border-compute-cyan/25 bg-compute-cyan/10 text-compute-cyan"
           )}
         >
           {status === "completed" ? (

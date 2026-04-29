@@ -15,25 +15,25 @@ interface SandboxFilePanelProps {
 
 export function SandboxFilePanel({ files, sandbox }: SandboxFilePanelProps) {
   return (
-    <section className="rounded-2xl border border-[var(--border-default)] bg-white/78 p-4">
+    <section className="compute-card p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <FolderOpen className="h-4 w-4 text-[var(--accent-primary)]" />
-          <h4 className="text-sm font-semibold text-[var(--text-primary)]">
+          <FolderOpen className="h-4 w-4 text-compute-cyan" />
+          <h4 className="text-sm font-semibold text-compute-text-primary">
             Sandbox 文件
           </h4>
         </div>
-        <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
+        <span className="shrink-0 text-[11px] text-compute-text-muted">
           {sandboxStatusLabel(sandbox?.status)}
         </span>
       </div>
       {readString(sandbox?.session_id) ? (
-        <p className="mt-2 truncate text-[11px] text-[var(--text-muted)]">
+        <p className="mt-2 truncate text-[11px] text-compute-text-muted">
           {readString(sandbox?.session_id)}
         </p>
       ) : null}
       {sandbox?.required && !readString(sandbox?.session_id) ? (
-        <p className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-800">
+        <p className="mt-2 rounded-lg border border-compute-gold/20 bg-compute-gold/10 px-2.5 py-2 text-[11px] text-compute-gold">
           当前 feature runtime profile 要求 sandbox；等待执行环境绑定或产出文件。
         </p>
       ) : null}
@@ -46,14 +46,14 @@ export function SandboxFilePanel({ files, sandbox }: SandboxFilePanelProps) {
             return (
               <div
                 key={file.id}
-                className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2"
+                className="rounded-xl border border-compute-border bg-compute-surface px-3 py-2"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+                    <p className="truncate text-sm font-medium text-compute-text-primary">
                       {label}
                     </p>
-                    <p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">
+                    <p className="mt-0.5 truncate text-[11px] text-compute-text-muted">
                       {fileMeta(file)}
                     </p>
                   </div>
@@ -62,7 +62,7 @@ export function SandboxFilePanel({ files, sandbox }: SandboxFilePanelProps) {
                       href={url}
                       target="_blank"
                       rel="noreferrer"
-                      className="shrink-0 rounded-md border border-[var(--border-default)] p-1.5 text-[var(--text-secondary)] hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+                      className="shrink-0 rounded-md border border-compute-border p-1.5 text-compute-text-secondary hover:border-compute-cyan hover:text-compute-cyan"
                       title="打开文件"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
@@ -70,7 +70,7 @@ export function SandboxFilePanel({ files, sandbox }: SandboxFilePanelProps) {
                   ) : null}
                 </div>
                 {path && path !== label ? (
-                  <p className="mt-1 line-clamp-2 break-all text-[11px] leading-5 text-[var(--text-secondary)]">
+                  <p className="mt-1 line-clamp-2 break-all text-[11px] leading-5 text-compute-text-secondary">
                     {path}
                   </p>
                 ) : null}
@@ -78,7 +78,7 @@ export function SandboxFilePanel({ files, sandbox }: SandboxFilePanelProps) {
             );
           })
         ) : (
-          <p className="rounded-xl border border-dashed border-[var(--border-default)] px-3 py-4 text-center text-xs text-[var(--text-muted)]">
+          <p className="rounded-xl border border-dashed border-compute-border px-3 py-4 text-center text-xs text-compute-text-muted">
             当前执行没有发布 sandbox 文件。
           </p>
         )}

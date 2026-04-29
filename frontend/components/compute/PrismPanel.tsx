@@ -30,11 +30,11 @@ export function PrismPanel({
   onRevert,
 }: PrismPanelProps) {
   return (
-    <section className="rounded-2xl border border-[var(--border-default)] bg-white/78 p-4">
+    <section className="compute-card p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <BookOpen className="h-4 w-4 text-[var(--accent-primary)]" />
-          <h4 className="text-sm font-semibold text-[var(--text-primary)]">
+          <BookOpen className="h-4 w-4 text-compute-cyan" />
+          <h4 className="text-sm font-semibold text-compute-text-primary">
             WenjinPrism
           </h4>
         </div>
@@ -42,12 +42,12 @@ export function PrismPanel({
           className={cn(
             "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium",
             prism?.status === "ready"
-              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700"
+              ? "border-compute-green/25 bg-compute-green/10 text-compute-green"
               : prism?.status === "compile_failed"
-                ? "border-red-500/25 bg-red-500/10 text-red-700"
+                ? "border-compute-red/25 bg-compute-red/10 text-compute-red"
                 : prism?.status === "pending_changes"
-                  ? "border-amber-500/25 bg-amber-500/10 text-amber-700"
-                  : "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]"
+                  ? "border-compute-gold/25 bg-compute-gold/10 text-compute-gold"
+                  : "border-compute-border bg-compute-elevated text-compute-text-secondary"
           )}
         >
           {prismStatusLabel(prism?.status)}
@@ -55,13 +55,13 @@ export function PrismPanel({
       </div>
 
       {readString(prism?.project_id) ? (
-        <div className="mt-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2">
+        <div className="mt-3 rounded-xl border border-compute-border bg-compute-surface px-3 py-2">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+              <p className="truncate text-sm font-medium text-compute-text-primary">
                 {formatShortId(readString(prism?.project_id))}
               </p>
-              <p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">
+              <p className="mt-0.5 truncate text-[11px] text-compute-text-muted">
                 {readString(prism?.main_file) ?? "main.tex"}
               </p>
             </div>
@@ -70,7 +70,7 @@ export function PrismPanel({
                 href={readString(prism?.url) ?? undefined}
                 target="_blank"
                 rel="noreferrer"
-                className="shrink-0 rounded-md border border-[var(--border-default)] p-1.5 text-[var(--text-secondary)] hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+                className="shrink-0 rounded-md border border-compute-border p-1.5 text-compute-text-secondary hover:border-compute-cyan hover:text-compute-cyan"
                 title="打开 WenjinPrism"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -79,7 +79,7 @@ export function PrismPanel({
           </div>
         </div>
       ) : (
-        <p className="mt-3 rounded-xl border border-dashed border-[var(--border-default)] px-3 py-4 text-center text-xs text-[var(--text-muted)]">
+        <p className="mt-3 rounded-xl border border-dashed border-compute-border px-3 py-4 text-center text-xs text-compute-text-muted">
           当前执行未关联 WenjinPrism 主稿工程。
         </p>
       )}
@@ -89,7 +89,7 @@ export function PrismPanel({
           {prism.target_files.slice(0, 5).map((path) => (
             <p
               key={path}
-              className="truncate rounded-lg bg-[var(--bg-elevated)] px-2.5 py-1.5 text-[11px] text-[var(--text-secondary)]"
+              className="truncate rounded-lg bg-compute-surface px-2.5 py-1.5 text-[11px] text-compute-text-secondary"
             >
               {path}
             </p>
@@ -98,7 +98,7 @@ export function PrismPanel({
       ) : null}
 
       {prism?.compile?.status ? (
-        <p className="mt-3 truncate text-[11px] text-[var(--text-muted)]">
+        <p className="mt-3 truncate text-[11px] text-compute-text-muted">
           Compile: {prism.compile.status}
           {typeof prism.compile.page_count === "number"
             ? ` · ${prism.compile.page_count} pages`
@@ -108,11 +108,11 @@ export function PrismPanel({
 
       {/* Pending file changes */}
       {prism?.file_changes?.length ? (
-        <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2">
-          <p className="text-xs font-medium text-amber-800">
+        <div className="mt-3 rounded-xl border border-compute-gold/20 bg-compute-gold/8 px-3 py-2">
+          <p className="text-xs font-medium text-compute-gold">
             Prism 待确认写入 {prism.file_changes.length}
           </p>
-          <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-amber-800/80">
+          <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-compute-gold/80">
             {prism.file_changes
               .map((item) => readString(item.path) ?? readString(item.logical_key))
               .filter(Boolean)
@@ -128,14 +128,14 @@ export function PrismPanel({
               return (
                 <div
                   key={logicalKey ?? readString(change.path) ?? "file-change"}
-                  className="rounded-lg bg-white/60 px-2.5 py-2"
+                  className="rounded-lg bg-compute-base/60 px-2.5 py-2"
                 >
-                  <p className="truncate text-[11px] font-medium text-amber-900">
+                  <p className="truncate text-[11px] font-medium text-compute-text-primary">
                     {readString(change.path) ??
                       readString(change.logical_key) ??
                       "未命名写入"}
                   </p>
-                  <p className="mt-1 truncate text-[10px] text-amber-900/65">
+                  <p className="mt-1 truncate text-[10px] text-compute-text-muted">
                     {readString(change.reason) ?? "feature_proposal"}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -143,7 +143,7 @@ export function PrismPanel({
                       type="button"
                       disabled={!logicalKey || isResolving || isPreviewing}
                       onClick={() => onPreview(change)}
-                      className="rounded-md border border-amber-500/25 bg-white/70 px-2 py-1 text-[11px] font-medium text-amber-900 hover:border-amber-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-md border border-compute-gold/25 bg-compute-elevated px-2 py-1 text-[11px] font-medium text-compute-text-primary hover:border-compute-gold/50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isPreviewing
                         ? "预览中..."
@@ -155,7 +155,7 @@ export function PrismPanel({
                       type="button"
                       disabled={!logicalKey || isResolving}
                       onClick={() => onDiscard(change)}
-                      className="rounded-md border border-amber-500/25 bg-white/70 px-2 py-1 text-[11px] font-medium text-amber-900 hover:border-amber-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-md border border-compute-gold/25 bg-compute-elevated px-2 py-1 text-[11px] font-medium text-compute-text-primary hover:border-compute-gold/50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       忽略本次
                     </button>
@@ -163,7 +163,7 @@ export function PrismPanel({
                       type="button"
                       disabled={!logicalKey || isResolving}
                       onClick={() => onApply(change)}
-                      className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-900 hover:border-amber-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-md border border-compute-gold/25 bg-compute-gold/10 px-2 py-1 text-[11px] font-medium text-compute-gold hover:border-compute-gold/50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       应用到 Prism
                     </button>
@@ -184,8 +184,8 @@ export function PrismPanel({
 
       {/* Applied file changes */}
       {prism?.applied_file_changes?.length ? (
-        <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-3 py-2">
-          <p className="text-xs font-medium text-emerald-800">
+        <div className="mt-3 rounded-xl border border-compute-green/20 bg-compute-green/8 px-3 py-2">
+          <p className="text-xs font-medium text-compute-green">
             已写入 Prism {prism.applied_file_changes.length}
           </p>
           <div className="mt-2 space-y-2">
@@ -196,16 +196,16 @@ export function PrismPanel({
               return (
                 <div
                   key={logicalKey ?? readString(change.path) ?? "applied-file-change"}
-                  className="rounded-lg bg-white/60 px-2.5 py-2"
+                  className="rounded-lg bg-compute-base/60 px-2.5 py-2"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-[11px] font-medium text-emerald-900">
+                      <p className="truncate text-[11px] font-medium text-compute-text-primary">
                         {readString(change.path) ??
                           readString(change.logical_key) ??
                           "未命名写入"}
                       </p>
-                      <p className="mt-1 truncate text-[10px] text-emerald-900/65">
+                      <p className="mt-1 truncate text-[10px] text-compute-text-muted">
                         {readString(change.applied_hash) ?? "applied"}
                       </p>
                     </div>
@@ -213,7 +213,7 @@ export function PrismPanel({
                       type="button"
                       disabled={!logicalKey || !revertSignature || isReverting}
                       onClick={() => onRevert(change)}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-emerald-500/25 bg-white/70 px-2 py-1 text-[11px] font-medium text-emerald-900 hover:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-compute-green/25 bg-compute-elevated px-2 py-1 text-[11px] font-medium text-compute-text-primary hover:border-compute-green/50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <RotateCcw className="h-3 w-3" />
                       {isReverting ? "撤回中..." : "撤回"}

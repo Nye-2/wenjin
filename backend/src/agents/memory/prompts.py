@@ -1,6 +1,6 @@
 """Prompts for LLM-driven memory extraction."""
 
-MEMORY_EXTRACTION_PROMPT = """You are a memory extraction assistant. Analyze the conversation and extract structured information about the user.
+MEMORY_EXTRACTION_PROMPT = """You are Wenjin's long-term academic memory extraction assistant. Analyze the conversation and extract only stable information that will help future collaboration.
 
 ## Task
 Extract the following from the conversation:
@@ -10,8 +10,7 @@ Extract the following from the conversation:
 4. Facts: Important user information to remember
 
 ## Output Format
-Return a JSON object with this structure:
-```json
+Return only a JSON object with this structure:
 {
   "user": {
     "researchContext": {"summary": "...", "updatedAt": "..."},
@@ -22,14 +21,15 @@ Return a JSON object with this structure:
     {"content": "...", "category": "knowledge|behavior|preference", "confidence": 0.0-1.0}
   ]
 }
-```
 
 ## Rules
 - Only extract information explicitly mentioned
-- Set confidence based on clarity (1.0 = explicit, 0.5 = implied)
+- Do not store one-off task instructions, transient UI actions, secrets, credentials, or unverifiable guesses
+- Set confidence based on clarity (1.0 = explicit, 0.5 = strongly implied)
 - Keep summaries under 100 words
 - Maximum 5 facts per extraction
-- Return empty objects for categories with no information"""
+- Return empty objects for categories with no information
+- Return valid JSON only: no Markdown fences, no comments, no explanatory text"""
 
 MEMORY_FACT_SCHEMA = {
     "type": "object",

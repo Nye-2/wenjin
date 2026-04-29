@@ -220,13 +220,13 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
 
   if (!activeExecution && !computeSession) {
     return (
-      <div className="flex h-full items-center justify-center p-6">
+      <div className="compute-bg flex h-full items-center justify-center p-6">
         <div className="max-w-sm text-center">
-          <Cpu className="mx-auto h-8 w-8 text-[var(--text-muted)]" />
-          <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">
+          <Cpu className="mx-auto h-8 w-8 text-compute-text-muted" />
+          <h3 className="mt-3 text-sm font-semibold text-compute-text-primary">
             Compute 工作面
           </h3>
-          <p className="mt-2 text-xs leading-6 text-[var(--text-secondary)]">
+          <p className="mt-2 text-xs leading-6 text-compute-text-secondary">
             启动 feature 后，这里会展开运行时、sandbox、日志和 review gate。
           </p>
         </div>
@@ -235,7 +235,7 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[rgba(251,248,242,0.72)]">
+    <div className="compute-bg flex h-full min-h-0 flex-col overflow-hidden">
       <ComputeHeader
         effectiveExecution={effectiveExecution}
         computeSession={computeSession}
