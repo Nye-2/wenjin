@@ -8,22 +8,107 @@ from typing import Any, Literal
 
 from src.application.results import ThreadTurnRequest
 from src.services.workspace_skill_labels import normalize_workspace_type
-from src.workspace_features import get_workspace_feature
-from src.workspace_features.skills import get_skill_by_id
+from src.workspace_features import get_workspace_feature, list_workspace_features
+from src.workspace_features.skills import get_skill_by_id, list_workspace_thread_skills
 
 _SUPPORTED_ORCHESTRATION_INTENTS = {"launch", "resume"}
+_FEATURE_WORK_TERMS = (
+    "开始",
+    "启动",
+    "生成",
+    "检索",
+    "搜索",
+    "分析",
+    "撰写",
+    "写",
+    "推荐",
+    "评审",
+    "设计",
+    "整理",
+    "产出",
+    "帮我",
+)
+_FEATURE_PARAM_BY_KIND = {
+    "deep_research": "query",
+    "literature_management": "query",
+    "opening_research": "topic",
+    "thesis_writing": "topic",
+    "literature_search": "query",
+    "paper_analysis": "paper_title",
+    "writing": "topic",
+    "literature_review": "topic",
+    "framework_outline": "topic",
+    "figure_generation": "description",
+    "peer_review": "manuscript_excerpt",
+    "journal_recommend": "abstract",
+    "proposal_outline": "topic",
+    "background_research": "topic",
+    "experiment_design": "objective",
+    "copyright_materials": "software_name",
+    "technical_description": "software_name",
+    "patent_outline": "innovation_description",
+    "prior_art_search": "keywords",
+}
+
+
+def _normalize_match_text(value: Any) -> str:
+    return "".join(str(value or "").strip().lower().split())
+
+
+def _looks_like_feature_work_request(normalized_text: str) -> bool:
+    return any(term in normalized_text for term in _FEATURE_WORK_TERMS)
+
+
+def _proposal_aliases(
+    *,
+    skill_id: str,
+    skill_name: str,
+    feature_id: str,
+    feature_name: str,
+) -> tuple[str, ...]:
+    aliases = {
+        _normalize_match_text(skill_id),
+        _normalize_match_text(skill_id.replace("-", "")),
+        _normalize_match_text(skill_name),
+        _normalize_match_text(feature_id),
+        _normalize_match_text(feature_id.replace("_", "")),
+        _normalize_match_text(feature_name),
+    }
+    for label in (skill_name, feature_name):
+        normalized = _normalize_match_text(label)
+        if len(normalized) >= 4:
+            aliases.add(normalized[:2])
+            aliases.add(normalized[-2:])
+    return tuple(alias for alias in aliases if len(alias) >= 2)
+
+
+def _score_feature_candidate(normalized_text: str, *, aliases: tuple[str, ...]) -> int:
+    score = 0
+    for alias in aliases:
+        if alias and alias in normalized_text:
+            score = max(score, len(alias))
+    return score
+
+
+def _params_from_proposal_message(feature_id: str, message: str) -> dict[str, Any]:
+    normalized_message = str(message or "").strip()
+    if not normalized_message:
+        return {}
+    param_key = _FEATURE_PARAM_BY_KIND.get(feature_id, "topic")
+    return {param_key: normalized_message}
 
 
 @dataclass(frozen=True, slots=True)
 class ThreadIntentDecision:
     """Normalized routing decision for a thread turn."""
 
-    mode: Literal["free_thread", "launch_feature", "resume_feature"]
+    mode: Literal["free_thread", "launch_feature", "resume_feature", "propose_feature"]
     reason: str
     feature_id: str | None = None
     execution_session_id: str | None = None
     skill_id: str | None = None
     params: dict[str, Any] = field(default_factory=dict)
+    confidence: float = 0.0
 
 
 class ThreadIntentRouter:
@@ -84,6 +169,72 @@ class ThreadIntentRouter:
         return feature_id, skill_def.id, merged_params, None
 
     @classmethod
+    def _detect_feature_proposal(
+        cls,
+        *,
+        request: ThreadTurnRequest,
+        workspace_type: str | None,
+    ) -> ThreadIntentDecision | None:
+        normalized_workspace_type = normalize_workspace_type(workspace_type)
+        if not normalized_workspace_type:
+            return None
+
+        text = _normalize_match_text(request.message)
+        if not text:
+            return None
+
+        explicit_skill = str(request.skill or "").strip() or None
+        if explicit_skill:
+            skill_def = get_skill_by_id(normalized_workspace_type, explicit_skill)
+            if skill_def is not None and _looks_like_feature_work_request(text):
+                return ThreadIntentDecision(
+                    mode="propose_feature",
+                    reason="explicit_skill_feature_proposal",
+                    feature_id=skill_def.feature_id,
+                    skill_id=skill_def.id,
+                    params=_params_from_proposal_message(skill_def.feature_id, request.message),
+                    confidence=0.92,
+                )
+
+        if not _looks_like_feature_work_request(text):
+            return None
+
+        features_by_id = {
+            feature.id: feature
+            for feature in list_workspace_features(normalized_workspace_type)
+        }
+        best: tuple[int, str, str | None] | None = None
+        for skill in list_workspace_thread_skills(normalized_workspace_type):
+            feature = features_by_id.get(skill.feature_id)
+            score = _score_feature_candidate(
+                text,
+                aliases=_proposal_aliases(
+                    skill_id=skill.id,
+                    skill_name=skill.name,
+                    feature_id=skill.feature_id,
+                    feature_name=str(getattr(feature, "name", "") or ""),
+                ),
+            )
+            if score <= 0:
+                continue
+            candidate = (score, skill.feature_id, skill.id)
+            if best is None or candidate[0] > best[0]:
+                best = candidate
+
+        if best is None:
+            return None
+
+        score, feature_id, skill_id = best
+        return ThreadIntentDecision(
+            mode="propose_feature",
+            reason="message_feature_proposal",
+            feature_id=feature_id,
+            skill_id=skill_id,
+            params=_params_from_proposal_message(feature_id, request.message),
+            confidence=min(0.9, 0.55 + score / 40),
+        )
+
+    @classmethod
     def route(
         cls,
         *,
@@ -114,6 +265,17 @@ class ThreadIntentRouter:
             )
 
         if intent != "launch":
+            if seed_feature_id or seed_execution_session_id or seed_skill_id or seed_params:
+                return ThreadIntentDecision(
+                    mode="free_thread",
+                    reason="no_orchestration_intent",
+                )
+            proposal = cls._detect_feature_proposal(
+                request=request,
+                workspace_type=resolved_workspace_type,
+            )
+            if proposal is not None:
+                return proposal
             return ThreadIntentDecision(
                 mode="free_thread",
                 reason="no_orchestration_intent",

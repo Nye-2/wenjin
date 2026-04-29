@@ -92,6 +92,40 @@ async def test_resume_command_reuses_execution_session() -> None:
 
 
 @pytest.mark.asyncio
+async def test_feature_proposal_returns_structured_start_card_without_launching() -> None:
+    request = ThreadTurnRequest(
+        message="请帮我做文献检索，主题是 LLM planning",
+        workspace_id="ws-1",
+    )
+    thread = SimpleNamespace(
+        id="thread-1",
+        workspace_id="ws-1",
+        workspace_type="sci",
+        skill=None,
+    )
+    route = ChatTurnRouter.route(request, thread)
+
+    with patch(
+        "src.application.handlers.feature_command_handler.execute_workspace_feature_request",
+        new=AsyncMock(),
+    ) as execute_feature:
+        reply = await FeatureCommandHandler().handle(
+            request=request,
+            thread=thread,
+            actor_id="user-1",
+            route=route,
+        )
+
+    assert reply.metadata["orchestration"]["mode"] == "feature_proposal"
+    assert reply.metadata["orchestration"]["feature_id"] == "literature_search"
+    assert reply.blocks[0]["type"] == "feature_proposal"
+    assert reply.blocks[1]["type"] == "next_steps"
+    assert reply.blocks[1]["data"]["items"][0]["action"] == "trigger_feature"
+    assert reply.blocks[1]["data"]["items"][0]["params"]["skill"] == "deep-research"
+    execute_feature.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_launch_without_workspace_returns_warning() -> None:
     request = ThreadTurnRequest(
         message="开始",

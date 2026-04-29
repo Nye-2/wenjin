@@ -345,6 +345,61 @@ class ThreadService:
         await self.db.refresh(thread)
         return True
 
+    async def compact_messages(
+        self,
+        thread: Thread,
+        *,
+        summary: str,
+        keep_messages: int,
+        timestamp: datetime | None = None,
+    ) -> bool:
+        """Persist a durable conversation summary plus the recent message tail."""
+        normalized_summary = str(summary or "").strip()
+        if not normalized_summary:
+            return False
+
+        await self._lock_thread_row(str(thread.id))
+        messages = list(thread.messages or [])
+        keep_count = max(int(keep_messages or 0), 1)
+        if len(messages) <= keep_count:
+            return False
+
+        resolved_timestamp = timestamp or datetime.now(UTC)
+        kept_messages = messages[-keep_count:]
+        compacted_count = len(messages) - len(kept_messages)
+        summary_message: dict[str, Any] = {
+            "role": "system",
+            "content": (
+                "<conversation_summary>\n"
+                f"{normalized_summary}\n"
+                "</conversation_summary>"
+            ),
+            "timestamp": resolved_timestamp.isoformat(),
+            "metadata": {
+                "type": "thread_compaction",
+                "compacted_message_count": compacted_count,
+                "kept_message_count": len(kept_messages),
+            },
+        }
+
+        next_messages = [summary_message] + kept_messages
+        thread.messages = next_messages
+        thread.message_count = len(next_messages)
+        previous = next_messages[-1] if next_messages else None
+        if isinstance(previous, Mapping):
+            previous_role = str(previous.get("role") or "").strip()
+            thread.last_message_role = previous_role or None
+            thread.last_message_preview = _truncate_message_preview(
+                str(previous.get("content") or "")
+            )
+        else:
+            thread.last_message_role = None
+            thread.last_message_preview = None
+        thread.updated_at = resolved_timestamp
+        await self.db.commit()
+        await self.db.refresh(thread)
+        return True
+
     async def set_title_if_empty(self, thread: Thread, first_message: str) -> None:
         """Derive the thread title from the opening user message."""
         if thread.title or len(thread.messages or []) > 2:

@@ -40,12 +40,14 @@ WORKBENCH_LAYOUT_FILE = (
 WORKSPACE_STORE_FILE = FRONTEND_DIR / "stores" / "workspace.ts"
 WORKSPACE_EVENT_STREAM_FILE = FRONTEND_DIR / "hooks" / "useWorkspaceEventStream.ts"
 WORKSPACE_PAGES_DIR = FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]"
+WORKBENCH_PAGE_FILE = WORKSPACE_PAGES_DIR / "page.tsx"
 FEATURE_RUNNER_FILE = FRONTEND_DIR / "hooks" / "useFeatureTaskRunner.ts"
 QUICK_ACTIONS_FILE = FRONTEND_DIR / "components" / "workspace" / "QuickActions.tsx"
 WORKSPACE_THREAD_SKILLS_FILE = FRONTEND_DIR / "lib" / "workspace-chat-skills.ts"
 MODULE_CARD_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "ModuleCard.tsx"
 )
+KNOWLEDGE_RAIL_FILE = FRONTEND_DIR / "components" / "knowledge" / "KnowledgeRail.tsx"
 
 
 def _registry_feature_ids() -> set[str]:
@@ -208,6 +210,34 @@ def test_chat_and_knowledge_panels_follow_canonical_chat_entry_and_retry_paths()
     assert "const retryFeatureTask = async" in knowledge_body
     assert "router.push(actionState.route);" in knowledge_body
     assert "createWorkspaceFeatureTask({" not in knowledge_body
+
+
+def test_workbench_feature_cards_use_canonical_chat_seed_route() -> None:
+    page_body = _read_text(WORKBENCH_PAGE_FILE)
+    messages_body = _read_text(CHAT_PANEL_FILE.parent / "WorkspaceThreadMessages.tsx")
+
+    assert "getWorkspaceFeatureThreadRoute" in page_body
+    assert "<StagedFeatureCards features={features} workspaceId={workspaceId} />" in page_body
+    assert "router.push(route);" in page_body
+    assert "feature_proposal" in messages_body
+    assert 'action: "trigger_feature"' in messages_body
+
+
+def test_legacy_frontend_execute_workspace_feature_wrapper_removed() -> None:
+    api_body = _read_text(WORKSPACE_API_FILE)
+    type_body = _read_text(FRONTEND_DIR / "lib" / "api" / "types.ts")
+    assert "executeWorkspaceFeature" not in api_body
+    assert "ExecuteWorkspaceFeatureResponse" not in type_body
+
+
+def test_knowledge_rail_is_connected_to_workspace_data() -> None:
+    body = _read_text(KNOWLEDGE_RAIL_FILE)
+    assert "TODO" not in body
+    assert "useWorkspaceStore" in body
+    assert "getWorkspaceMemory" in body
+    assert "papers.slice" in body
+    assert "artifacts.slice" in body
+    assert "activities.slice" in body
 
 
 def test_compute_stage_replaces_legacy_feature_panel_host() -> None:

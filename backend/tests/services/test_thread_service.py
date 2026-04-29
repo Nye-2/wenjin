@@ -351,6 +351,44 @@ class TestThreadService:
         mock_db_session.refresh.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_compact_messages_persists_summary_and_recent_tail(
+        self,
+        service,
+        mock_db_session,
+    ):
+        thread = _make_thread()
+        thread.messages = [
+            {"role": "user", "content": "old question", "timestamp": "2026-04-14T00:00:00+00:00"},
+            {"role": "assistant", "content": "old answer", "timestamp": "2026-04-14T00:01:00+00:00"},
+            {"role": "user", "content": "recent question", "timestamp": "2026-04-14T00:02:00+00:00"},
+            {"role": "assistant", "content": "recent answer", "timestamp": "2026-04-14T00:03:00+00:00"},
+        ]
+        thread.message_count = 4
+
+        compacted = await service.compact_messages(
+            thread,
+            summary="old exchange summary",
+            keep_messages=2,
+            timestamp=datetime(2026, 4, 14, tzinfo=UTC),
+        )
+
+        assert compacted is True
+        assert len(thread.messages) == 3
+        assert thread.messages[0]["role"] == "system"
+        assert thread.messages[0]["metadata"]["type"] == "thread_compaction"
+        assert thread.messages[0]["metadata"]["compacted_message_count"] == 2
+        assert "old exchange summary" in thread.messages[0]["content"]
+        assert [message["content"] for message in thread.messages[1:]] == [
+            "recent question",
+            "recent answer",
+        ]
+        assert thread.message_count == 3
+        assert thread.last_message_role == "assistant"
+        assert thread.last_message_preview == "recent answer"
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
     async def test_rollback_last_user_message_removes_tail_user_turn(
         self,
         service,

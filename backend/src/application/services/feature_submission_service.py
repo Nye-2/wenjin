@@ -18,6 +18,7 @@ from src.application.errors import (
     AccessDeniedError,
     InternalServiceError,
     NotFoundError,
+    PaymentRequiredError,
 )
 from src.application.results import (
     FeatureExecutionAdvisory,
@@ -223,6 +224,14 @@ class FeatureSubmissionService:
                 feature_id=feature_id,
                 message=f"已有进行中的 {feature.name} 任务",
                 reused_existing_task=True,
+            )
+
+        allowed = await self.credit_service.can_start_feature_task(self.actor_id)
+        if not allowed:
+            policy = self.credit_service.get_feature_billing_policy()
+            raise PaymentRequiredError(
+                f"Compute feature 免费额度已用尽。当前策略为前 {policy.free_tokens} tokens 免费，"
+                "后续按 token 扣积分，请先补充积分。"
             )
 
         # 5. Submit task (with distributed lock if Redis available).

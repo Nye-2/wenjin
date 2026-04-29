@@ -29,6 +29,7 @@ class _NextStepItem(TypedDict):
     label: str
     feature_id: str
     action: _NextStepAction
+    params: dict[str, Any]
 
 
 def _sanitize_orchestration_params(params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -84,11 +85,13 @@ def _build_next_step_item(
     label: str,
     feature_id: str,
     action: _NextStepAction,
+    params: Mapping[str, Any] | None = None,
 ) -> _NextStepItem:
     return {
         "label": label,
         "feature_id": feature_id,
         "action": action,
+        "params": _sanitize_orchestration_params(params),
     }
 
 
@@ -197,6 +200,70 @@ def build_missing_response(
                 "execution_session_id": execution_session_id,
                 "params": resolved_params,
                 "missing_fields": normalized_missing_fields,
+            }
+        },
+    )
+
+
+def build_feature_proposal_response(
+    *,
+    feature_id: str,
+    feature_name: str,
+    skill_id: str | None,
+    params: Mapping[str, Any] | None,
+    reason: str,
+    confidence: float,
+) -> GeneratedThreadReply:
+    """Build the canonical chat-side proposal for a feature launch."""
+    resolved_params = _sanitize_orchestration_params(params)
+    route_params = {
+        **resolved_params,
+        **({"skill": skill_id} if skill_id else {}),
+    }
+    title = f"建议启动「{feature_name or _feature_title(feature_id)}」"
+    content = (
+        f"{title}。我会先复用当前工作区、线程上下文和已有产物；"
+        "如果执行前仍缺关键信息，会在当前执行会话里继续追问。"
+    )
+    return GeneratedThreadReply(
+        content=content,
+        blocks=[
+            {
+                "type": "feature_proposal",
+                "title": title,
+                "data": {
+                    "feature_id": feature_id,
+                    "feature_name": feature_name,
+                    "skill_id": skill_id,
+                    "params": resolved_params,
+                    "reason": reason,
+                    "confidence": confidence,
+                    "start_policy": "explicit_user_action",
+                },
+            },
+            _build_next_steps_block(
+                [
+                    _build_next_step_item(
+                        label=f"启动{feature_name or _feature_title(feature_id)}",
+                        feature_id=feature_id,
+                        action="trigger_feature",
+                        params=route_params,
+                    ),
+                    _build_continue_thread_step(
+                        feature_id,
+                        label="先继续补充要求",
+                    ),
+                ]
+            ),
+        ],
+        metadata={
+            "orchestration": {
+                "mode": "feature_proposal",
+                "feature_id": feature_id,
+                "skill_id": skill_id,
+                "status": "proposed",
+                "params": resolved_params,
+                "confidence": confidence,
             }
         },
     )

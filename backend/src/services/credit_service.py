@@ -270,6 +270,25 @@ class CreditService:
         user = await self._get_user_for_update(user_id)
         return int(user.credits) > 0
 
+    async def can_start_feature_task(self, user_id: str) -> bool:
+        """Return whether the user can enqueue a billable feature task.
+
+        Feature tasks are settled from measured token usage after successful
+        execution, so this is an admission-control gate rather than a
+        reservation. It prevents zero/negative-balance users from starting new
+        Compute work once the configured feature free-token quota is exhausted.
+        """
+        policy = self.get_feature_billing_policy()
+        if not policy.enabled:
+            return True
+
+        consumed_tokens = await self.get_consumed_feature_tokens(user_id)
+        if consumed_tokens < policy.free_tokens:
+            return True
+
+        user = await self._get_user_for_update(user_id)
+        return int(user.credits) > 0
+
     @staticmethod
     def _normalize_usage_dict(token_usage: TokenUsage | dict[str, int]) -> dict[str, int]:
         if isinstance(token_usage, TokenUsage):

@@ -18,6 +18,7 @@ from src.application.errors import (
     AccessDeniedError,
     InternalServiceError,
     NotFoundError,
+    PaymentRequiredError,
 )
 from src.application.results import FeatureExecutionAdvisory, FeatureTaskSubmission
 from src.application.services.feature_submission_service import (
@@ -58,6 +59,8 @@ def _make_handler(actor_id: str = "user-1", **overrides):
     credit_service = overrides.get("credit_service", AsyncMock())
     if not hasattr(credit_service, "db"):
         credit_service.db = AsyncMock()
+    if not hasattr(credit_service, "can_start_feature_task"):
+        credit_service.can_start_feature_task = AsyncMock(return_value=True)
     return FeatureSubmissionService(
         actor_id=actor_id,
         workspace_service=overrides.get("workspace_service", AsyncMock()),
@@ -412,6 +415,7 @@ class TestFeatureSubmissionService:
 
         credit_service = AsyncMock()
         credit_service.consume_for_feature.return_value = None
+        credit_service.can_start_feature_task.return_value = True
 
         handler = _make_handler(
             workspace_service=ws_service,
@@ -430,7 +434,41 @@ class TestFeatureSubmissionService:
         submit_payload = task_service.submit_task.await_args.kwargs["payload"]
         assert submit_payload["skill_id"] == "deep-research"
         assert submit_payload["skill_name"] == "深度调研"
+        credit_service.can_start_feature_task.assert_awaited_once_with("user-1")
         credit_service.consume_for_feature.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("src.application.services.feature_submission_service.get_workspace_feature")
+    async def test_feature_submission_blocks_when_feature_budget_exhausted(self, mock_get_feature):
+        feature = _make_feature("deep_research", "深度调研")
+        mock_get_feature.return_value = feature
+
+        ws = _make_workspace()
+        ws_service = AsyncMock()
+        ws_service.get.return_value = ws
+
+        task_service = AsyncMock()
+        task_service.find_active_task.return_value = None
+
+        credit_service = AsyncMock()
+        credit_service.can_start_feature_task.return_value = False
+        credit_service.get_feature_billing_policy = MagicMock(
+            return_value=MagicMock(
+                free_tokens=0,
+            )
+        )
+
+        handler = _make_handler(
+            workspace_service=ws_service,
+            task_service=task_service,
+            credit_service=credit_service,
+        )
+
+        with pytest.raises(PaymentRequiredError) as exc_info:
+            await handler.execute("ws-1", "deep_research", {"query": "agent"})
+
+        assert "Compute feature 免费额度已用尽" in exc_info.value.message
+        task_service.submit_task.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("src.application.services.feature_submission_service.get_workspace_feature")

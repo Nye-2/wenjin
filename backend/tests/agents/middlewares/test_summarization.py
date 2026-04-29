@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.agents.middlewares.summarization import SummarizationMiddleware
+from src.agents.middlewares.summarization import (
+    SummarizationMiddleware,
+    resolve_summarization_settings,
+)
 
 
 class TestSummarizationMiddleware:
@@ -65,7 +68,7 @@ class TestSummarizationMiddleware:
         """Token counting should be approximate."""
         mw = SummarizationMiddleware()
         messages = [HumanMessage(content="Hello world")]
-        count = mw._count_tokens(messages)
+        count = mw.count_tokens(messages)
         assert count > 0
         assert count < 10  # "Hello world" is ~2-3 tokens
 
@@ -82,7 +85,7 @@ class TestSummarizationMiddleware:
             "_invoke_summary_model",
             new=AsyncMock(return_value="summary"),
         ) as invoke_summary:
-            result = await mw._summarize(messages)
+            result = await mw.summarize_messages(messages)
 
         assert result == "summary"
         prompt = invoke_summary.await_args_list[0].args[1]
@@ -96,7 +99,7 @@ def test_count_tokens_cjk_content():
     # "深度学习" = 4 Chinese chars, each 3 UTF-8 bytes = 12 bytes → 4 tokens via bytes//3
     # Old heuristic: 4 chars // 4 = 1 token (massive under-count!)
     messages = [HumanMessage(content="深度学习")]
-    count = mw._count_tokens(messages)
+    count = mw.count_tokens(messages)
     # Must count at least 2 tokens for 4 CJK characters (bytes//3 = 4)
     assert count >= 2, f"CJK token count too low: {count}"
 
@@ -106,13 +109,42 @@ def test_count_tokens_mixed_content():
     mw = SummarizationMiddleware()
     ascii_only = [HumanMessage(content="hello")]     # 5 bytes → 1 token
     cjk_only   = [HumanMessage(content="你好啊")]    # 9 bytes → 3 tokens
-    assert mw._count_tokens(cjk_only) > mw._count_tokens(ascii_only)
+    assert mw.count_tokens(cjk_only) > mw.count_tokens(ascii_only)
 
 
 def test_count_tokens_ascii_unchanged():
     """ASCII content token count must still be reasonable (within 2x of old heuristic)."""
     mw = SummarizationMiddleware()
     messages = [HumanMessage(content="Hello world")]
-    count = mw._count_tokens(messages)
+    count = mw.count_tokens(messages)
     # "Hello world" = 11 bytes // 3 ≈ 3 tokens. Still > 0 and < 10.
     assert 0 < count < 10
+
+
+def test_resolve_summarization_settings_normalizes_config_values():
+    class Config:
+        enabled = True
+        trigger = "tokens:1200"
+        keep = "messages:6"
+        model_name = " utility-primary "
+
+    settings = resolve_summarization_settings(Config())
+
+    assert settings.enabled is True
+    assert settings.trigger_tokens == 1200
+    assert settings.keep_messages == 6
+    assert settings.model_name == "utility-primary"
+
+
+def test_resolve_summarization_settings_falls_back_for_invalid_counts():
+    class Config:
+        enabled = True
+        trigger = "tokens:not-a-number"
+        keep = "messages:0"
+        model_name = ""
+
+    settings = resolve_summarization_settings(Config())
+
+    assert settings.trigger_tokens == 80000
+    assert settings.keep_messages == 10
+    assert settings.model_name is None

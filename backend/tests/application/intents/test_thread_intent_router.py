@@ -87,9 +87,9 @@ def test_resume_intent_routes_to_resume_feature_mode() -> None:
     assert decision.params["topic"] == "LLM planning"
 
 
-def test_unseeded_message_without_intent_stays_free_thread() -> None:
+def test_unseeded_simple_message_without_intent_stays_free_thread() -> None:
     request = ThreadTurnRequest(
-        message="开始写全篇论文",
+        message="这个方向适合怎么拆成三个问题？",
         workspace_id="ws-1",
     )
 
@@ -100,6 +100,44 @@ def test_unseeded_message_without_intent_stays_free_thread() -> None:
 
     assert decision.mode == "free_thread"
     assert decision.reason == "no_orchestration_intent"
+
+
+def test_unseeded_feature_work_request_returns_feature_proposal() -> None:
+    request = ThreadTurnRequest(
+        message="请帮我做文献检索，主题是 LLM planning",
+        workspace_id="ws-1",
+    )
+
+    decision = ThreadIntentRouter.route(
+        request=request,
+        workspace=_workspace("sci"),
+    )
+
+    assert decision.mode == "propose_feature"
+    assert decision.reason == "message_feature_proposal"
+    assert decision.feature_id == "literature_search"
+    assert decision.skill_id == "deep-research"
+    assert decision.params["query"] == "请帮我做文献检索，主题是 LLM planning"
+
+
+def test_explicit_skill_work_request_returns_bound_feature_proposal() -> None:
+    request = ThreadTurnRequest(
+        message="开始写全文草稿",
+        workspace_id="ws-1",
+        skill="fullpaper-writer",
+        skill_explicit=True,
+    )
+
+    decision = ThreadIntentRouter.route(
+        request=request,
+        workspace=_workspace("thesis"),
+    )
+
+    assert decision.mode == "propose_feature"
+    assert decision.reason == "explicit_skill_feature_proposal"
+    assert decision.feature_id == "thesis_writing"
+    assert decision.skill_id == "fullpaper-writer"
+    assert decision.params["topic"] == "开始写全文草稿"
 
 
 def test_seed_without_intent_stays_free_thread() -> None:

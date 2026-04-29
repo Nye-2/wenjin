@@ -28,6 +28,7 @@ from src.application.results import (
     ThreadTurnRequest,
 )
 from src.config import get_model_config
+from src.config.config_loader import get_app_config
 from src.config.llm_config import LLMSettings
 from src.database import Thread, get_db_session
 from src.models import model_supports_vision, route_chat_model
@@ -707,6 +708,8 @@ class ThreadTurnHandler:
         actor_id: str,
     ) -> PreparedThreadTurn:
         thread = await self._get_or_create_owned_thread(request, actor_id=actor_id)
+        if self._requires_thread_turn_budget(request, thread):
+            await ensure_thread_turn_budget(actor_id)
 
         metadata = {}
         if isinstance(request.metadata, dict) and request.metadata:
@@ -731,6 +734,52 @@ class ThreadTurnHandler:
             skill_name=resolve_thread_skill_name(thread),
         )
         return PreparedThreadTurn(request=request, thread=thread)
+
+    @staticmethod
+    def _requires_thread_turn_budget(request: ThreadTurnRequest, thread: Thread) -> bool:
+        """Return whether this prepared turn belongs to the pure chat budget."""
+        from src.application.handlers.chat_turn_router import ChatTurnMode, ChatTurnRouter
+
+        route = ChatTurnRouter.route(request, thread)
+        return route.mode == ChatTurnMode.PURE_CHAT
+
+    async def _maybe_compact_thread_history(self, thread: Thread) -> None:
+        """Durably compact long thread history before building model context."""
+        try:
+            app_config = get_app_config()
+            from src.agents.middlewares.summarization import (
+                SummarizationMiddleware,
+                resolve_summarization_settings,
+            )
+
+            summary_settings = resolve_summarization_settings(app_config.middlewares.summarization)
+            if not summary_settings.enabled:
+                return
+        except Exception:
+            logger.debug("Thread compaction skipped because summarization config is invalid", exc_info=True)
+            return
+
+        keep_messages = summary_settings.keep_messages
+        messages = _build_langchain_messages(thread)
+        if len(messages) <= keep_messages:
+            return
+
+        summarizer = SummarizationMiddleware.from_settings(summary_settings)
+        token_count = summarizer.count_tokens(
+            messages,
+            model_name=str(getattr(thread, "model", "") or "") or None,
+        )
+        if token_count < summary_settings.trigger_tokens:
+            return
+
+        summary = await summarizer.summarize_messages(messages[:-keep_messages])
+        if not summary:
+            return
+        await self.thread_service.compact_messages(
+            thread,
+            summary=summary,
+            keep_messages=keep_messages,
+        )
 
     async def complete_turn(
         self,
@@ -811,6 +860,7 @@ class ThreadTurnHandler:
                         completed_future.set_result(completed)
                     return
 
+                await self._maybe_compact_thread_history(prepared.thread)
                 reply_stream = self._stream_thread_response(
                     prepared.request,
                     prepared.thread,
@@ -1071,11 +1121,11 @@ class ThreadTurnHandler:
         actor_id: str,
     ) -> GeneratedThreadReply | None:
         """Handle explicit feature launch/resume without entering lead-agent."""
-        from src.application.handlers.chat_turn_router import ChatTurnRouter
+        from src.application.handlers.chat_turn_router import ChatTurnMode, ChatTurnRouter
         from src.application.handlers.feature_command_handler import FeatureCommandHandler
 
         route = ChatTurnRouter.route(prepared.request, prepared.thread)
-        if not route.is_feature_command:
+        if not route.is_feature_command and route.mode != ChatTurnMode.FEATURE_PROPOSAL:
             return None
         return await FeatureCommandHandler().handle(
             request=prepared.request,
@@ -1109,6 +1159,7 @@ class ThreadTurnHandler:
         *,
         actor_id: str,
     ) -> GeneratedThreadReply:
+        await self._maybe_compact_thread_history(thread)
         return await generate_thread_response(
             request,
             thread,
@@ -1117,6 +1168,7 @@ class ThreadTurnHandler:
             index_service=self.index_service,
             artifact_service=self.artifact_service,
             paper_service=self.paper_service,
+            budget_checked=True,
         )
 
     def _stream_thread_response(
@@ -1134,6 +1186,7 @@ class ThreadTurnHandler:
             index_service=self.index_service,
             artifact_service=self.artifact_service,
             paper_service=self.paper_service,
+            budget_checked=True,
         )
 
 
@@ -1214,13 +1267,15 @@ async def generate_thread_response(
     index_service: IndexService | None = None,
     artifact_service: ArtifactService | None = None,
     paper_service: PaperService | None = None,
+    budget_checked: bool = False,
 ) -> GeneratedThreadReply:
     """Generate a thread response through the unified lead-agent pipeline."""
     from src.agents.lead_agent.agent import make_lead_agent
 
-    # Budget checks are only for pure thread turns. Feature launches/resumes
-    # use feature-domain credit policy inside the feature execution pipeline.
-    await ensure_thread_turn_budget(actor_id)
+    # Handler.prepare_turn performs the production pre-persist budget gate.
+    # Keep this fallback for direct unit-level calls into generate_thread_response.
+    if not budget_checked:
+        await ensure_thread_turn_budget(actor_id)
 
     runtime = _build_thread_agent_runtime(
         request,
@@ -1270,6 +1325,7 @@ def stream_thread_response(
     index_service: IndexService | None = None,
     artifact_service: ArtifactService | None = None,
     paper_service: PaperService | None = None,
+    budget_checked: bool = False,
 ) -> _ReplyStreamRun:
     """Stream a thread response while still returning the final structured reply."""
     from src.agents.lead_agent.agent import make_lead_agent
@@ -1279,9 +1335,8 @@ def stream_thread_response(
     async def _iterator() -> AsyncIterator[ThreadStreamDelta]:
         accumulated_reasoning = ""
         try:
-            # Budget checks are only for pure thread turns. Feature launches/resumes
-            # use feature-domain credit policy inside the feature execution pipeline.
-            await ensure_thread_turn_budget(actor_id)
+            if not budget_checked:
+                await ensure_thread_turn_budget(actor_id)
 
             runtime = _build_thread_agent_runtime(
                 request,

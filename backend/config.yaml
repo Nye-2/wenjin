@@ -141,3 +141,9 @@ billing:
     enabled: true
     free_tokens: 100000
     tokens_per_credit: 10000
+    max_overdraft_credits: 100
+  feature:
+    enabled: true
+    free_tokens: 0
+    tokens_per_credit: 10000
+    max_overdraft_credits: 100

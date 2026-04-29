@@ -97,6 +97,33 @@ async def _create_chat_transaction(
     return tx
 
 
+async def _create_feature_transaction(
+    db_session: AsyncSession,
+    *,
+    user_id: str,
+    amount: int,
+    total_tokens: int,
+    balance_after: int,
+    feature_id: str = "deep_research",
+) -> CreditTransaction:
+    tx = CreditTransaction(
+        user_id=user_id,
+        transaction_type=CreditTransactionType.WORKFLOW_CONSUME,
+        amount=amount,
+        balance_after=balance_after,
+        description="seed feature tx",
+        feature_id=feature_id,
+        tx_metadata={
+            "type": "feature_token_billing",
+            "token_usage": {"total_tokens": total_tokens},
+        },
+    )
+    db_session.add(tx)
+    await db_session.commit()
+    await db_session.refresh(tx)
+    return tx
+
+
 @pytest.mark.asyncio
 async def test_consume_for_thread_usage_applies_free_quota_before_charging(
     db_session: AsyncSession,
@@ -142,6 +169,46 @@ async def test_can_start_thread_turn_blocks_when_free_quota_exhausted_and_balanc
     )
 
     assert await credit_service.can_start_thread_turn("user-1") is False
+
+
+@pytest.mark.asyncio
+async def test_can_start_feature_task_blocks_when_balance_empty(
+    db_session: AsyncSession,
+    credit_service: CreditService,
+) -> None:
+    await _create_user(db_session, credits=0)
+
+    assert await credit_service.can_start_feature_task("user-1") is False
+
+
+@pytest.mark.asyncio
+async def test_can_start_feature_task_allows_free_feature_quota(
+    db_session: AsyncSession,
+    credit_service: CreditService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _create_user(db_session, credits=0)
+    monkeypatch.setattr(
+        CreditService,
+        "get_feature_billing_policy",
+        staticmethod(
+            lambda: TokenBillingPolicy(
+                enabled=True,
+                free_tokens=100000,
+                tokens_per_credit=10000,
+                max_overdraft_credits=100,
+            )
+        ),
+    )
+    await _create_feature_transaction(
+        db_session,
+        user_id="user-1",
+        amount=0,
+        total_tokens=5000,
+        balance_after=0,
+    )
+
+    assert await credit_service.can_start_feature_task("user-1") is True
 
 
 @pytest.mark.asyncio

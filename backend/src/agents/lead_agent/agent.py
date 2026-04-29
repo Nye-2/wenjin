@@ -35,6 +35,7 @@ from src.agents.middlewares import (
     UploadsMiddleware,
     ViewImageMiddleware,
     WorkspaceContextMiddleware,
+    resolve_summarization_settings,
 )
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState, create_thread_state, merge_thread_state
@@ -753,24 +754,9 @@ def build_pipeline(
         )
 
     # --- Context management layer (6-7) ---
-    if mw_config.summarization.enabled:
-        # Safely parse trigger and keep values
-        try:
-            trigger_str = getattr(mw_config.summarization, "trigger", "tokens:80000")
-            keep_str = getattr(mw_config.summarization, "keep", "messages:10")
-            summary_model_name = getattr(mw_config.summarization, "model_name", None)
-            trigger = int(trigger_str.split(":")[1]) if ":" in trigger_str else 80000
-            keep = int(keep_str.split(":")[1]) if ":" in keep_str else 10
-        except (ValueError, IndexError, AttributeError) as e:
-            logger.warning(f"Invalid summarization config, using defaults: {e}")
-            trigger, keep, summary_model_name = 80000, 10, None
-        pipeline.append(
-            SummarizationMiddleware(
-                trigger_tokens=trigger,
-                keep_messages=keep,
-                model_name=summary_model_name,
-            )
-        )
+    summarization_settings = resolve_summarization_settings(mw_config.summarization)
+    if summarization_settings.enabled:
+        pipeline.append(SummarizationMiddleware.from_settings(summarization_settings))
 
     # Memory (6) - requires queue
     memory_config = getattr(app_config, "memory", None)

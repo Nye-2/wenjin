@@ -1,5 +1,6 @@
 """Summarization middleware for token limit management."""
 
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -8,6 +9,43 @@ from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
+
+
+@dataclass(frozen=True, slots=True)
+class SummarizationSettings:
+    """Resolved summarization settings shared by transient and durable compaction."""
+
+    enabled: bool = False
+    trigger_tokens: int = 80000
+    keep_messages: int = 10
+    model_name: str | None = None
+
+
+def _parse_config_count(value: Any, *, default: int) -> int:
+    try:
+        raw = str(value or "").strip()
+        parsed = int(raw.split(":", 1)[1] if ":" in raw else raw)
+    except (TypeError, ValueError, IndexError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def resolve_summarization_settings(config: Any) -> SummarizationSettings:
+    """Normalize app summarization config into one SSOT shape."""
+    model_name = getattr(config, "model_name", None)
+    normalized_model = str(model_name).strip() if model_name else None
+    return SummarizationSettings(
+        enabled=bool(getattr(config, "enabled", False)),
+        trigger_tokens=_parse_config_count(
+            getattr(config, "trigger", "tokens:80000"),
+            default=80000,
+        ),
+        keep_messages=_parse_config_count(
+            getattr(config, "keep", "messages:10"),
+            default=10,
+        ),
+        model_name=normalized_model or None,
+    )
 
 
 @lru_cache(maxsize=32)
@@ -50,6 +88,23 @@ class SummarizationMiddleware(Middleware):
         self._trigger_tokens = trigger_tokens
         self._keep_messages = keep_messages
         self._model_name = model_name
+
+    @classmethod
+    def from_settings(cls, settings: SummarizationSettings) -> "SummarizationMiddleware":
+        """Build middleware from normalized app settings."""
+        return cls(
+            trigger_tokens=settings.trigger_tokens,
+            keep_messages=settings.keep_messages,
+            model_name=settings.model_name,
+        )
+
+    def count_tokens(self, messages: list, *, model_name: str | None = None) -> int:
+        """Public token-counting entrypoint for compaction callers."""
+        return self._count_tokens(messages, model_name=model_name)
+
+    async def summarize_messages(self, messages: list) -> str | None:
+        """Public summarization entrypoint for compaction callers."""
+        return await self._summarize(messages)
 
     async def before_model(
         self,

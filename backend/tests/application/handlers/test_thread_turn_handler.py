@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langgraph.errors import GraphRecursionError
 
-from src.application.errors import ApplicationError, BadRequestError
+from src.application.errors import ApplicationError, BadRequestError, PaymentRequiredError
 from src.application.handlers.thread_turn_handler import (
     ThreadStreamDelta,
     ThreadTurnHandler,
@@ -335,6 +335,30 @@ class TestThreadTurnHandlerCancellation:
 
         with pytest.raises(BadRequestError, match="requested workspace"):
             await handler._get_or_create_owned_thread(request, actor_id="user-1")
+
+    @pytest.mark.asyncio
+    async def test_prepare_turn_checks_chat_budget_before_persisting_user_message(self):
+        thread = SimpleNamespace(
+            id="thread-1",
+            workspace_id="ws-1",
+            workspace_type="sci",
+            skill=None,
+            messages=[],
+        )
+        thread_service = MagicMock()
+        thread_service.get_or_create_thread = AsyncMock(return_value=thread)
+        thread_service.add_message = AsyncMock()
+        handler = ThreadTurnHandler(thread_service=thread_service)
+        request = ThreadTurnRequest(message="解释一下研究空白", workspace_id="ws-1")
+
+        with patch(
+            "src.application.handlers.thread_turn_handler.ensure_thread_turn_budget",
+            new=AsyncMock(side_effect=PaymentRequiredError("no credits")),
+        ):
+            with pytest.raises(PaymentRequiredError):
+                await handler.prepare_turn(request, actor_id="user-1")
+
+        thread_service.add_message.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_handle_run_interruption_rolls_back_user_message(self):

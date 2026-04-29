@@ -124,4 +124,16 @@ class ChatTurnRouter:
                     intent="launch",
                 ),
             )
+        if decision.mode == "propose_feature":
+            orchestration = _orchestration_from_decision(
+                request=request,
+                decision=decision,
+                intent="proposal",
+            )
+            orchestration["reason"] = decision.reason
+            orchestration["confidence"] = decision.confidence
+            return ChatTurnRoute(
+                mode=ChatTurnMode.FEATURE_PROPOSAL,
+                orchestration=orchestration,
+            )
         return ChatTurnRoute(mode=ChatTurnMode.PURE_CHAT)
