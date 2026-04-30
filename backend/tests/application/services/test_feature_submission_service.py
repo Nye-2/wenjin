@@ -65,7 +65,7 @@ def _make_handler(actor_id: str = "user-1", **overrides):
         actor_id=actor_id,
         workspace_service=overrides.get("workspace_service", AsyncMock()),
         task_service=overrides.get("task_service", AsyncMock()),
-        literature_service=overrides.get("literature_service", AsyncMock()),
+        reference_service=overrides.get("reference_service", AsyncMock()),
         credit_service=credit_service,
     )
 
@@ -249,11 +249,11 @@ class TestFeatureSubmissionService:
         ws_service.get.return_value = ws
 
         lit_service = AsyncMock()
-        lit_service.count_literature.return_value = {"total": 3, "core": 0}
+        lit_service.count_references.return_value = {"total": 3, "core": 0}
 
         handler = _make_handler(
             workspace_service=ws_service,
-            literature_service=lit_service,
+            reference_service=lit_service,
         )
 
         result = await handler.execute(
@@ -277,11 +277,11 @@ class TestFeatureSubmissionService:
         ws_service.get.return_value = ws
 
         lit_service = AsyncMock()
-        lit_service.count_literature.return_value = {"total": 2, "core": 0}
+        lit_service.count_references.return_value = {"total": 2, "core": 0}
 
         handler = _make_handler(
             workspace_service=ws_service,
-            literature_service=lit_service,
+            reference_service=lit_service,
         )
 
         result = await handler.execute(
@@ -289,7 +289,7 @@ class TestFeatureSubmissionService:
         )
         assert isinstance(result, FeatureExecutionAdvisory)
         assert result.code == "literature_insufficient"
-        lit_service.count_literature.assert_awaited_once_with("ws-1")
+        lit_service.count_references.assert_awaited_once_with("ws-1")
 
     @pytest.mark.asyncio
     @patch("src.application.services.feature_submission_service.get_workspace_feature")
@@ -305,7 +305,7 @@ class TestFeatureSubmissionService:
         ws_service.get.return_value = ws
 
         lit_service = AsyncMock()
-        lit_service.count_literature.return_value = {"total": 0, "core": 0}
+        lit_service.count_references.return_value = {"total": 0, "core": 0}
 
         task_service = AsyncMock()
         task_service.find_active_task.return_value = None
@@ -317,7 +317,7 @@ class TestFeatureSubmissionService:
         handler = _make_handler(
             workspace_service=ws_service,
             task_service=task_service,
-            literature_service=lit_service,
+            reference_service=lit_service,
             credit_service=credit_service,
         )
 
@@ -326,7 +326,7 @@ class TestFeatureSubmissionService:
         )
         assert isinstance(result, FeatureTaskSubmission)
         assert result.task_id == "task-1"
-        lit_service.count_literature.assert_not_called()
+        lit_service.count_references.assert_not_called()
 
         submit_payload = task_service.submit_task.await_args.kwargs["payload"]
         assert submit_payload["skill_id"] == "framework-designer"
@@ -345,7 +345,7 @@ class TestFeatureSubmissionService:
         ws_service.get.return_value = ws
 
         lit_service = AsyncMock()
-        lit_service.count_literature.return_value = {"total": 20, "core": 5}
+        lit_service.count_references.return_value = {"total": 20, "core": 5}
 
         task_service = AsyncMock()
         task_service.find_active_task.return_value = None
@@ -357,7 +357,7 @@ class TestFeatureSubmissionService:
         handler = _make_handler(
             workspace_service=ws_service,
             task_service=task_service,
-            literature_service=lit_service,
+            reference_service=lit_service,
             credit_service=credit_service,
         )
 

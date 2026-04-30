@@ -13,7 +13,7 @@ from ..base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from .artifact import Artifact
     from .generation import GenerationRecord
-    from .paper import Paper, PaperChunk, PaperSection, WorkspacePaper
+    from .reference import WorkspaceReference
     from .thread import Thread
     from .user import User
 
@@ -31,7 +31,7 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
     """Workspace model for academic project organization.
 
     A workspace is an isolated environment for a specific academic project.
-    Each workspace has its own set of papers, artifacts, and generation records.
+    Each workspace has its own reference library, artifacts, and generation records.
 
     Attributes:
         id: UUID primary key
@@ -71,18 +71,8 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="workspaces")
-    workspace_papers: Mapped[list["WorkspacePaper"]] = relationship(
-        "WorkspacePaper",
-        back_populates="workspace",
-        cascade="all, delete-orphan",
-    )
-    paper_chunks: Mapped[list["PaperChunk"]] = relationship(
-        "PaperChunk",
-        back_populates="workspace",
-        cascade="all, delete-orphan",
-    )
-    paper_sections: Mapped[list["PaperSection"]] = relationship(
-        "PaperSection",
+    references: Mapped[list["WorkspaceReference"]] = relationship(
+        "WorkspaceReference",
         back_populates="workspace",
         cascade="all, delete-orphan",
     )
@@ -104,8 +94,3 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Workspace(id={self.id}, name={self.name}, type={self.type})>"
-
-    @property
-    def papers(self) -> list["Paper"]:
-        """Get list of papers in this workspace."""
-        return [wp.paper for wp in self.workspace_papers if wp.paper is not None]

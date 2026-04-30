@@ -224,7 +224,7 @@ workspace feature 结果的关键字段：
 当前 `refresh_targets` 主要包括：
 
 - `artifacts`
-- `papers`
+- `references`
 - `workspace`
 
 写作类结果还可能包含：

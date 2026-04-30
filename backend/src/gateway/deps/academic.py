@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.academic.literature.index_service import IndexService
-from src.academic.services import ArtifactService, PaperService, WorkspaceService
+from src.academic.services.artifact_service import ArtifactService
+from src.academic.services.workspace_service import WorkspaceService
 from src.gateway.deps.core import get_db
-from src.services.literature_service import LiteratureService
+from src.services.references import ReferenceIndexService, WorkspaceReferenceService
 
 if TYPE_CHECKING:
     from src.services.template_service import TemplateService
@@ -23,13 +23,6 @@ async def get_workspace_service(
     return WorkspaceService(db)
 
 
-async def get_paper_service(
-    db: AsyncSession = Depends(get_db),
-) -> PaperService:
-    """Get paper service instance."""
-    return PaperService(db)
-
-
 async def get_artifact_service(
     db: AsyncSession = Depends(get_db),
 ) -> ArtifactService:
@@ -37,18 +30,18 @@ async def get_artifact_service(
     return ArtifactService(db)
 
 
-async def get_literature_service(
+async def get_reference_service(
     db: AsyncSession = Depends(get_db),
-) -> LiteratureService:
-    """Get literature service instance."""
-    return LiteratureService(db)
+) -> WorkspaceReferenceService:
+    """Get reference service instance."""
+    return WorkspaceReferenceService(db)
 
 
-async def get_index_service(
+async def get_reference_index_service(
     db: AsyncSession = Depends(get_db),
-) -> IndexService:
-    """Get literature index service instance."""
-    return IndexService(db)
+) -> ReferenceIndexService:
+    """Get reference index service instance."""
+    return ReferenceIndexService(db)
 
 
 async def get_template_service(

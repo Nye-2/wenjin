@@ -27,7 +27,7 @@ from src.application.results import (
 )
 from src.application.workspace_resolvers import resolve_workspace_type
 from src.services.credit_service import CreditService
-from src.services.literature_service import LiteratureService
+from src.services.references import WorkspaceReferenceService
 from src.services.workspace_skill_labels import (
     resolve_workspace_feature_skill_id,
     resolve_workspace_feature_skill_name,
@@ -116,13 +116,13 @@ class FeatureSubmissionService:
         actor_id: str,
         workspace_service: WorkspaceService,
         task_service: TaskService,
-        literature_service: LiteratureService,
+        reference_service: WorkspaceReferenceService,
         credit_service: CreditService,
     ) -> None:
         self.actor_id = actor_id
         self.workspace_service = workspace_service
         self.task_service = task_service
-        self.literature_service = literature_service
+        self.reference_service = reference_service
         self.credit_service = credit_service
 
     async def execute(
@@ -190,7 +190,7 @@ class FeatureSubmissionService:
             params["action"] = normalized_action
             action = normalized_action
             if action in ("write_chapter", "write_all"):
-                lit_stats = await self.literature_service.count_literature(workspace_id)
+                lit_stats = await self.reference_service.count_references(workspace_id)
                 if lit_stats["total"] < LITERATURE_THRESHOLD:
                     return FeatureExecutionAdvisory(
                         feature_id=feature_id,

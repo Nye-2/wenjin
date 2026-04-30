@@ -21,7 +21,7 @@ export function ReviewGatePanel({ reviewGate, runtimeProfile }: ReviewGatePanelP
         <div className="flex items-center gap-2">
           <ClipboardCheck className="h-4 w-4 text-compute-cyan" />
           <h4 className="text-sm font-semibold text-compute-text-primary">
-            Review Gate
+            审核关卡
           </h4>
         </div>
         <span
@@ -46,7 +46,7 @@ export function ReviewGatePanel({ reviewGate, runtimeProfile }: ReviewGatePanelP
       ) : null}
       {readString(reviewGate?.policy ?? runtimeProfile?.review_gate) ? (
         <p className="mt-2 truncate text-[11px] text-compute-text-muted">
-          Policy: {readString(reviewGate?.policy ?? runtimeProfile?.review_gate)}
+          策略: {readString(reviewGate?.policy ?? runtimeProfile?.review_gate)}
         </p>
       ) : null}
       <div className="mt-3 space-y-2">
@@ -61,7 +61,7 @@ export function ReviewGatePanel({ reviewGate, runtimeProfile }: ReviewGatePanelP
                   {item.label}
                 </p>
                 <span className="shrink-0 text-[11px] text-compute-text-muted">
-                  {item.required ? "required" : item.kind}
+                  {item.required ? "必需" : item.kind}
                 </span>
               </div>
               {readString(item.kind) && item.required ? (
@@ -73,7 +73,7 @@ export function ReviewGatePanel({ reviewGate, runtimeProfile }: ReviewGatePanelP
           ))
         ) : (
           <p className="rounded-xl border border-dashed border-compute-border px-3 py-4 text-center text-xs text-compute-text-muted">
-            当前没有等待处理的 review action。
+            当前没有等待处理的审核动作。
           </p>
         )}
       </div>

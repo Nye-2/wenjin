@@ -198,7 +198,7 @@ class TestParallelExecutor:
         override_config = MagicMock(
             max_turns=12,
             timeout=321,
-            tools=["semantic_scholar_search"],
+            tools=["search_workspace_references"],
             system_prompt="prompt",
         )
 

@@ -60,7 +60,7 @@ class TestSubagentChainIntegration:
             types={
                 "scout": SubagentTypeConfig(
                     description="Literature search and evidence collection",
-                    allowed_tools=["semantic_scholar_search", "web_search", "read_file"],
+                    allowed_tools=["search_workspace_references", "web_search", "read_file"],
                     max_turns=10,
                     timeout=300,
                 ),

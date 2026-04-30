@@ -13,9 +13,6 @@ from .models import (
     # Artifact
     Artifact,
     ArtifactType,
-    # Citation
-    Citation,
-    CitationType,
     # Credit
     ComputeSessionRecord,
     CreditTransaction,
@@ -27,11 +24,23 @@ from .models import (
     LatexCompileHistory,
     LatexProject,
     LatexTemplate,
-    # Paper
-    Paper,
-    PaperChunk,
-    PaperExtraction,
-    PaperSection,
+    ReferenceAcceptedStatus,
+    ReferenceAsset,
+    ReferenceAssetType,
+    ReferenceBibtexScope,
+    ReferenceBibtexSnapshot,
+    ReferenceEvidenceLevel,
+    ReferenceExternalId,
+    ReferenceFulltextStatus,
+    ReferenceLibraryStatus,
+    ReferenceOutlineNode,
+    ReferencePreprocessStatus,
+    ReferenceReadStatus,
+    ReferenceSourceType,
+    ReferenceTextUnit,
+    ReferenceTextUnitType,
+    ReferenceUsageEvent,
+    ReferenceUsageType,
     SubagentTaskRecord,
     # Task
     TaskRecord,
@@ -42,9 +51,7 @@ from .models import (
     UserKnowledge,
     # Workspace
     Workspace,
-    # Workspace Literature
-    WorkspaceLiterature,
-    WorkspacePaper,
+    WorkspaceReference,
     WorkspaceType,
 )
 from .session import (
@@ -80,12 +87,25 @@ __all__ = [
     "WorkspaceType",
     # Models - Thread
     "Thread",
-    # Models - Paper
-    "Paper",
-    "WorkspacePaper",
-    "PaperExtraction",
-    "PaperChunk",
-    "PaperSection",
+    # Models - Reference Library
+    "WorkspaceReference",
+    "ReferenceExternalId",
+    "ReferenceAsset",
+    "ReferenceOutlineNode",
+    "ReferenceTextUnit",
+    "ReferenceUsageEvent",
+    "ReferenceBibtexSnapshot",
+    "ReferenceSourceType",
+    "ReferenceLibraryStatus",
+    "ReferenceEvidenceLevel",
+    "ReferenceFulltextStatus",
+    "ReferenceReadStatus",
+    "ReferenceAssetType",
+    "ReferencePreprocessStatus",
+    "ReferenceTextUnitType",
+    "ReferenceUsageType",
+    "ReferenceAcceptedStatus",
+    "ReferenceBibtexScope",
     # Models - Artifact
     "Artifact",
     "ArtifactType",
@@ -96,9 +116,6 @@ __all__ = [
     # Models - Admin audit
     "AdminLog",
     "AdminActionType",
-    # Models - Citation
-    "Citation",
-    "CitationType",
     # Models - Knowledge
     "UserKnowledge",
     "KnowledgeCategory",
@@ -112,6 +129,4 @@ __all__ = [
     # Models - Task
     "TaskRecord",
     "SubagentTaskRecord",
-    # Models - Workspace Literature
-    "WorkspaceLiterature",
 ]

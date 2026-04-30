@@ -18,14 +18,14 @@ import { useWorkspaceStore } from "@/stores/workspace";
 // Types & Constants
 // =============================================================================
 
-export type RailTab = "papers" | "artifacts" | "activity" | "memory";
+export type RailTab = "references" | "artifacts" | "activity" | "memory";
 
 export const RAIL_TABS: {
   id: RailTab;
   label: string;
   icon: React.ElementType;
 }[] = [
-  { id: "papers", label: "文献", icon: BookOpen },
+  { id: "references", label: "文献", icon: BookOpen },
   { id: "artifacts", label: "产物", icon: FileText },
   { id: "activity", label: "历史", icon: History },
   { id: "memory", label: "记忆", icon: BrainCircuit },
@@ -183,18 +183,18 @@ function RailTabContent({
   tab: RailTab;
   workspaceId: string;
 }) {
-  const papers = useWorkspaceStore((state) => state.papers);
+  const references = useWorkspaceStore((state) => state.references);
   const artifacts = useWorkspaceStore((state) => state.artifacts);
   const activities = useWorkspaceStore((state) => state.activities);
-  const fetchPapers = useWorkspaceStore((state) => state.fetchPapers);
+  const fetchReferences = useWorkspaceStore((state) => state.fetchReferences);
   const [memoryItems, setMemoryItems] = useState<MemoryEntry[]>([]);
   const [memoryError, setMemoryError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (tab === "papers" && workspaceId && papers.length === 0) {
-      void fetchPapers(workspaceId);
+    if (tab === "references" && workspaceId && references.length === 0) {
+      void fetchReferences(workspaceId);
     }
-  }, [fetchPapers, papers.length, tab, workspaceId]);
+  }, [fetchReferences, references.length, tab, workspaceId]);
 
   useEffect(() => {
     if (tab !== "memory" || !workspaceId) {
@@ -221,8 +221,8 @@ function RailTabContent({
     };
   }, [tab, workspaceId]);
 
-  if (tab === "papers") {
-    if (papers.length === 0) {
+  if (tab === "references") {
+    if (references.length === 0) {
       return (
         <EmptyRailState>
           还没有文献。上传或检索后会在这里显示。
@@ -231,16 +231,16 @@ function RailTabContent({
     }
     return (
       <div className="flex flex-col gap-1.5">
-        {papers.slice(0, 10).map((paper) => (
+        {references.slice(0, 10).map((reference) => (
           <div
-            key={paper.id}
+            key={reference.id}
             className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-2"
           >
             <p className="line-clamp-2 text-xs font-medium leading-5 text-[var(--text-primary)]">
-              {paper.title || "未命名文献"}
+              {reference.title || "未命名文献"}
             </p>
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              {[paper.year, paper.venue].filter(Boolean).join(" · ") ||
+              {[reference.year, reference.venue].filter(Boolean).join(" · ") ||
                 "暂无来源信息"}
             </p>
           </div>
@@ -347,7 +347,7 @@ interface KnowledgeRailProps {
 }
 
 export function KnowledgeRail({ workspaceId, className }: KnowledgeRailProps) {
-  const [activeTab, setActiveTab] = useState<RailTab>("papers");
+  const [activeTab, setActiveTab] = useState<RailTab>("references");
   const [collapsed, setCollapsed] = useState(false);
 
   if (collapsed) {

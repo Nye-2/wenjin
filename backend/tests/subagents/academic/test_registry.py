@@ -12,6 +12,7 @@ from src.subagents.academic.prompts import (
     WRITER_PROMPT,
 )
 from src.subagents.academic.registry import (
+    REFERENCE_NAVIGATION_TOOLS,
     SubagentConfig,
     get_all_subagent_types,
     get_subagent_config,
@@ -55,7 +56,8 @@ class TestSubagentPrompts:
         assert SCOUT_PROMPT is not None
         assert len(SCOUT_PROMPT) > 0
         assert "literature" in SCOUT_PROMPT.lower()
-        assert "semantic_scholar" in SCOUT_PROMPT.lower()
+        assert "reference library" in SCOUT_PROMPT.lower()
+        assert "semantic_scholar_search" not in SCOUT_PROMPT.lower()
 
     def test_writer_prompt_exists(self):
         """Test that WRITER_PROMPT is defined and non-empty."""
@@ -103,7 +105,8 @@ class TestSubagentRegistry:
         config = get_subagent_config("scout")
         assert config is not None
         assert config.name == "Scout"
-        assert "semantic_scholar_search" in config.tools
+        assert "list_workspace_reference_outline" in config.tools
+        assert "search_workspace_references" in config.tools
         assert config.max_turns == 10
 
     def test_get_writer_config(self):
@@ -111,8 +114,8 @@ class TestSubagentRegistry:
         config = get_subagent_config("writer")
         assert config is not None
         assert config.name == "Writer"
-        assert "get_paper_section" in config.tools
-        assert "get_paper_toc" in config.tools
+        assert "list_workspace_reference_outline" in config.tools
+        assert "read_workspace_reference_section" in config.tools
         assert config.max_turns == 15
 
     def test_get_synthesizer_config(self):
@@ -120,8 +123,8 @@ class TestSubagentRegistry:
         config = get_subagent_config("synthesizer")
         assert config is not None
         assert config.name == "Synthesizer"
-        assert "get_paper_section" in config.tools
-        assert "get_paper_toc" in config.tools
+        assert "list_workspace_reference_outline" in config.tools
+        assert "read_workspace_reference_section" in config.tools
         assert config.max_turns == 10
 
     def test_get_analyst_config(self):
@@ -129,7 +132,7 @@ class TestSubagentRegistry:
         config = get_subagent_config("analyst")
         assert config is not None
         assert config.name == "Analyst"
-        assert "get_paper_section" in config.tools
+        assert "read_workspace_reference_section" in config.tools
         assert config.max_turns == 10
 
     def test_get_invalid_subagent_raises_error(self):
@@ -154,7 +157,7 @@ class TestSubagentRegistry:
                 types={
                     "scout": SimpleNamespace(
                         allowed_tools=["read_file"],
-                        disallowed_tools=["semantic_scholar_search"],
+                        disallowed_tools=["search_workspace_references"],
                         max_turns=6,
                         timeout=321,
                         model_name="resolved-tool-model",
@@ -170,7 +173,7 @@ class TestSubagentRegistry:
             config = get_subagent_config("scout", apply_runtime_overrides=True)
 
         assert config.tools == ["read_file"]
-        assert config.disallowed_tools == ["semantic_scholar_search"]
+        assert config.disallowed_tools == ["search_workspace_references"]
         assert config.max_turns == 6
         assert config.timeout == 321
         assert config.model_name == "resolved-tool-model"
@@ -178,24 +181,25 @@ class TestSubagentRegistry:
 class TestSubagentToolAssignments:
     """Tests for correct tool assignments to subagents."""
 
-    def test_scout_has_semantic_scholar_only(self):
-        """Test that Scout only has semantic_scholar_search tool."""
+    def test_scout_has_reference_navigation_tools(self):
+        """Test that Scout only uses Reference Library navigation tools."""
         config = get_subagent_config("scout")
-        assert config.tools == ["semantic_scholar_search"]
+        assert config.tools == REFERENCE_NAVIGATION_TOOLS
 
-    def test_writer_has_paper_tools(self):
-        """Test that Writer has get_paper_section and get_paper_toc."""
+    def test_writer_has_reference_tools(self):
+        """Test that Writer has Reference Library navigation tools."""
         config = get_subagent_config("writer")
-        assert "get_paper_section" in config.tools
-        assert "get_paper_toc" in config.tools
+        assert config.tools == REFERENCE_NAVIGATION_TOOLS
 
-    def test_synthesizer_has_paper_tools(self):
-        """Test that Synthesizer has get_paper_section and get_paper_toc."""
+    def test_synthesizer_has_reference_tools(self):
+        """Test that Synthesizer has Reference Library navigation tools."""
         config = get_subagent_config("synthesizer")
-        assert "get_paper_section" in config.tools
-        assert "get_paper_toc" in config.tools
+        assert config.tools == REFERENCE_NAVIGATION_TOOLS
 
-    def test_analyst_has_paper_section_only(self):
-        """Test that Analyst only has get_paper_section tool."""
+    def test_analyst_has_reference_section_tools(self):
+        """Test that Analyst uses Reference Library section tools."""
         config = get_subagent_config("analyst")
-        assert config.tools == ["get_paper_section"]
+        assert config.tools == [
+            "search_workspace_references",
+            "read_workspace_reference_section",
+        ]

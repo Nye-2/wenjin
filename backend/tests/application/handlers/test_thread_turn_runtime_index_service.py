@@ -50,7 +50,7 @@ def test_build_thread_agent_runtime_passes_index_service_to_pipeline() -> None:
             workspace_service=None,
             index_service=index_service,
             artifact_service=None,
-            paper_service=None,
+            reference_service=None,
         )
 
     assert build_pipeline.call_args.kwargs["index_service"] is index_service

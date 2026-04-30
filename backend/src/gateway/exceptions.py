@@ -76,13 +76,6 @@ class LiteratureError(WenjinException):
     pass
 
 
-class PaperNotFoundError(LiteratureError):
-    """Paper not found in database or external source."""
-
-    def __init__(self, paper_id: str):
-        super().__init__(f"Paper not found: {paper_id}", "PAPER_NOT_FOUND")
-
-
 class ExternalAPIError(LiteratureError):
     """External API request failed."""
 
@@ -133,7 +126,6 @@ def map_exception_to_status(exc: WenjinException) -> int:
         "FORBIDDEN": status.HTTP_403_FORBIDDEN,
         "RATE_LIMIT_EXCEEDED": status.HTTP_429_TOO_MANY_REQUESTS,
         "SERVICE_UNAVAILABLE": status.HTTP_503_SERVICE_UNAVAILABLE,
-        "PAPER_NOT_FOUND": status.HTTP_404_NOT_FOUND,
         "EXTERNAL_API_ERROR": status.HTTP_502_BAD_GATEWAY,
         "INVALID_BIBTEX": status.HTTP_400_BAD_REQUEST,
         "DOCKER_UNAVAILABLE": status.HTTP_503_SERVICE_UNAVAILABLE,

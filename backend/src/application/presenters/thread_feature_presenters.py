@@ -57,9 +57,9 @@ def summarize_feature_result(
     artifact_text = _artifact_summary(artifacts)
 
     if feature_id == "literature_search":
-        top_hits = data.get("top_hits")
-        hits_count = len(top_hits) if isinstance(top_hits, list) else 0
-        parts = [f"已完成文献检索，整理出 {hits_count} 条高相关候选。"] if hits_count else ["已完成文献检索。"]
+        verified_papers = data.get("verified_papers")
+        verified_count = len(verified_papers) if isinstance(verified_papers, list) else 0
+        parts = [f"已完成 Semantic Scholar 文献检索，核验到 {verified_count} 篇论文。"]
         if artifact_text:
             parts.append(artifact_text)
         return " ".join(parts)

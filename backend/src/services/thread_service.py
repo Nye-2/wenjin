@@ -49,12 +49,7 @@ class ThreadService:
 
     async def _lock_thread_row(self, thread_id: str) -> None:
         """Lock and refresh a thread row to prevent lost updates on JSON message writes."""
-        await self.db.execute(
-            select(self._model)
-            .where(self._model.id == thread_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+        await self.db.execute(select(self._model).where(self._model.id == thread_id).with_for_update().execution_options(populate_existing=True))
 
     @staticmethod
     def _hydrate_thread_skill_metadata(
@@ -82,9 +77,7 @@ class ThreadService:
         if workspace_id and workspace_types is not None:
             workspace_type = workspace_types.get(workspace_id)
         if workspace_type is None and workspace_id:
-            workspace_type = (
-                await list_workspace_types(self.db, [workspace_id])
-            ).get(workspace_id)
+            workspace_type = (await list_workspace_types(self.db, [workspace_id])).get(workspace_id)
         return self._hydrate_thread_skill_metadata(
             thread,
             workspace_type=workspace_type,
@@ -145,9 +138,7 @@ class ThreadService:
 
     async def get_by_id(self, thread_id: str) -> Thread | None:
         """Fetch a thread regardless of owner."""
-        result = await self.db.execute(
-            select(self._model).where(self._model.id == thread_id)
-        )
+        result = await self.db.execute(select(self._model).where(self._model.id == thread_id))
         return await self._attach_workspace_skill_metadata(result.scalar_one_or_none())
 
     async def get_thread(self, thread_id: str, user_id: str) -> Thread | None:
@@ -260,11 +251,7 @@ class ThreadService:
             "timestamp": resolved_timestamp.isoformat(),
         }
         if isinstance(blocks, list) and blocks:
-            message["blocks"] = [
-                block
-                for block in blocks
-                if isinstance(block, Mapping)
-            ]
+            message["blocks"] = [block for block in blocks if isinstance(block, Mapping)]
         if isinstance(metadata, Mapping) and metadata:
             message["metadata"] = dict(metadata)
         messages = list(thread.messages or [])
@@ -339,6 +326,88 @@ class ThreadService:
         if not changed:
             return False
 
+        thread.updated_at = datetime.now(UTC)
+        thread.messages = messages
+        thread.message_count = len(messages)
+        await self.db.commit()
+        await self.db.refresh(thread)
+        return True
+
+    async def update_attachment_preprocess_state(
+        self,
+        thread: Thread,
+        *,
+        task_id: str,
+        status: str,
+        preprocess: dict[str, Any] | None = None,
+        message: str | None = None,
+        progress: int | None = None,
+        current_step: str | None = None,
+        error: str | None = None,
+    ) -> bool:
+        """Update preprocess metadata for attachment(s) associated with a task."""
+        resolved_task_id = task_id.strip()
+        if not resolved_task_id:
+            return False
+
+        await self._lock_thread_row(str(thread.id))
+        messages = copy.deepcopy(list(thread.messages or []))
+        changed = False
+
+        for message_item in messages:
+            if not isinstance(message_item, dict):
+                continue
+            metadata = message_item.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            attachments = metadata.get("attachments")
+            if not isinstance(attachments, list):
+                continue
+
+            for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
+                attachment_metadata = attachment.get("metadata")
+                if not isinstance(attachment_metadata, dict):
+                    continue
+                current_preprocess = attachment_metadata.get("preprocess")
+                if not isinstance(current_preprocess, dict):
+                    continue
+                if current_preprocess.get("task_id") != resolved_task_id:
+                    continue
+
+                next_preprocess = dict(current_preprocess)
+                if isinstance(preprocess, dict):
+                    next_preprocess.update(preprocess)
+                next_preprocess["task_id"] = resolved_task_id
+                if status == "success" and isinstance(preprocess, dict):
+                    next_preprocess["status"] = str(preprocess.get("status") or next_preprocess.get("status") or "succeeded")
+                elif status:
+                    next_preprocess["status"] = status
+                if message:
+                    next_preprocess["message"] = message
+                if progress is not None:
+                    next_preprocess["progress"] = progress
+                if current_step:
+                    next_preprocess["current_step"] = current_step
+                elif current_step == "":
+                    next_preprocess.pop("current_step", None)
+                if error:
+                    next_preprocess["error"] = error
+                    next_preprocess["status"] = "failed"
+                elif next_preprocess.get("status") == "succeeded":
+                    next_preprocess.pop("error", None)
+
+                attachment_metadata["preprocess"] = next_preprocess
+                markdown_paths = next_preprocess.get("markdown_paths")
+                if isinstance(markdown_paths, list) and markdown_paths:
+                    attachment_metadata["preprocessed_markdown_paths"] = markdown_paths
+                changed = True
+
+        if not changed:
+            return False
+
+        thread.updated_at = datetime.now(UTC)
         thread.messages = messages
         thread.message_count = len(messages)
         await self.db.commit()
@@ -369,11 +438,7 @@ class ThreadService:
         compacted_count = len(messages) - len(kept_messages)
         summary_message: dict[str, Any] = {
             "role": "system",
-            "content": (
-                "<conversation_summary>\n"
-                f"{normalized_summary}\n"
-                "</conversation_summary>"
-            ),
+            "content": (f"<conversation_summary>\n{normalized_summary}\n</conversation_summary>"),
             "timestamp": resolved_timestamp.isoformat(),
             "metadata": {
                 "type": "thread_compaction",
@@ -389,9 +454,7 @@ class ThreadService:
         if isinstance(previous, Mapping):
             previous_role = str(previous.get("role") or "").strip()
             thread.last_message_role = previous_role or None
-            thread.last_message_preview = _truncate_message_preview(
-                str(previous.get("content") or "")
-            )
+            thread.last_message_preview = _truncate_message_preview(str(previous.get("content") or ""))
         else:
             thread.last_message_role = None
             thread.last_message_preview = None
@@ -439,9 +502,7 @@ class ThreadService:
         if isinstance(previous, Mapping):
             previous_role = str(previous.get("role") or "").strip()
             thread.last_message_role = previous_role or None
-            thread.last_message_preview = _truncate_message_preview(
-                str(previous.get("content") or "")
-            )
+            thread.last_message_preview = _truncate_message_preview(str(previous.get("content") or ""))
         else:
             thread.last_message_role = None
             thread.last_message_preview = None
@@ -480,9 +541,7 @@ class ThreadService:
         if workspace_id:
             query = query.where(self._model.workspace_id == workspace_id)
 
-        result = await self.db.execute(
-            query.order_by(self._model.updated_at.desc()).limit(limit)
-        )
+        result = await self.db.execute(query.order_by(self._model.updated_at.desc()).limit(limit))
         threads = list(result.scalars().all())
         workspace_types = await list_workspace_types(
             self.db,
@@ -491,11 +550,7 @@ class ThreadService:
         return [
             self._hydrate_thread_skill_metadata(
                 thread,
-                workspace_type=(
-                    workspace_types.get(str(thread.workspace_id))
-                    if thread.workspace_id is not None
-                    else None
-                ),
+                workspace_type=(workspace_types.get(str(thread.workspace_id)) if thread.workspace_id is not None else None),
             )
             for thread in threads
         ]

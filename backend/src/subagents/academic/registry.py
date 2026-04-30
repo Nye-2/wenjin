@@ -85,17 +85,27 @@ class SubagentConfig:
 # Subagent configurations
 SCOUT_CONFIG = SubagentConfig(
     name="Scout",
-    description="Literature exploration agent for discovering academic papers",
+    description="Reference Library exploration agent for selecting workspace evidence",
     system_prompt=SCOUT_PROMPT,
-    tools=["semantic_scholar_search"],
+    tools=[
+        "list_workspace_reference_outline",
+        "search_workspace_references",
+        "read_workspace_reference_section",
+    ],
     max_turns=10,
 )
+
+REFERENCE_NAVIGATION_TOOLS = [
+    "list_workspace_reference_outline",
+    "search_workspace_references",
+    "read_workspace_reference_section",
+]
 
 WRITER_CONFIG = SubagentConfig(
     name="Writer",
     description="Academic writing agent for producing high-quality content",
     system_prompt=WRITER_PROMPT,
-    tools=["get_paper_section", "get_paper_toc"],
+    tools=REFERENCE_NAVIGATION_TOOLS,
     max_turns=15,
 )
 
@@ -103,7 +113,7 @@ SYNTHESIZER_CONFIG = SubagentConfig(
     name="Synthesizer",
     description="Knowledge synthesis agent for generating insights and finding gaps",
     system_prompt=SYNTHESIZER_PROMPT,
-    tools=["get_paper_section", "get_paper_toc"],
+    tools=REFERENCE_NAVIGATION_TOOLS,
     max_turns=10,
 )
 
@@ -111,7 +121,7 @@ ANALYST_CONFIG = SubagentConfig(
     name="Analyst",
     description="Data analysis agent for methodology review and analysis",
     system_prompt=ANALYST_PROMPT,
-    tools=["get_paper_section"],
+    tools=["search_workspace_references", "read_workspace_reference_section"],
     max_turns=10,
 )
 
@@ -127,7 +137,7 @@ TREND_SPOTTER_CONFIG = SubagentConfig(
     name="Trend Spotter",
     description="Research trend analysis agent",
     system_prompt=TREND_SPOTTER_PROMPT,
-    tools=["semantic_scholar_search", "web_search"],
+    tools=["list_workspace_reference_outline", "search_workspace_references"],
     max_turns=8,
 )
 
@@ -151,7 +161,7 @@ LIBRARIAN_CONFIG = SubagentConfig(
     name="Librarian",
     description="Academic literature search and citation planning expert",
     system_prompt=LIBRARIAN_PROMPT,
-    tools=["semantic_scholar_search", "read_file"],
+    tools=[*REFERENCE_NAVIGATION_TOOLS, "read_file"],
     max_turns=10,
 )
 

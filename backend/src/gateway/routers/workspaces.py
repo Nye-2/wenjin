@@ -7,26 +7,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 
-from src.academic.services.paper_service import PaperService
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import SubagentTaskRecord, TaskRecord, User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.contracts.paper import (
-    paper_to_summary_response as paper_to_response,
-)
 from src.gateway.deps import (
     get_dashboard_service,
     get_db,
-    get_paper_service,
     get_workspace_activity_service,
     get_workspace_service,
     get_workspace_summary_service,
 )
 from src.gateway.routers.workspaces_contracts import (
-    AddPaperRequest,
     CreateWorkspaceRequest,
     ExecutionSessionResponse,
-    PapersListResponse,
     UpdateWorkspaceRequest,
     WorkspaceActivityResponse,
     WorkspaceExecutionSessionsResponse,
@@ -406,112 +399,6 @@ async def delete_workspace(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workspace not found",
-        )
-    return {"success": True}
-
-
-@router.get("/{workspace_id}/papers", response_model=PapersListResponse)
-async def list_workspace_papers(
-    workspace_id: str,
-    read_status: str | None = None,
-    current_user: User = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    paper_service: PaperService = Depends(get_paper_service),
-) -> PapersListResponse:
-    """List papers in workspace.
-
-    Args:
-        workspace_id: Workspace ID
-        read_status: Optional filter by read status
-        paper_service: Paper service instance
-
-    Returns:
-        Papers in the workspace with total count
-    """
-    await get_owned_workspace(
-        workspace_id=workspace_id,
-        current_user=current_user,
-        workspace_service=workspace_service,
-    )
-
-    papers = await paper_service.list_workspace_papers(
-        workspace_id=workspace_id,
-        read_status=read_status,
-    )
-    return PapersListResponse(
-        papers=[paper_to_response(p, workspace_id=workspace_id) for p in papers],
-        count=len(papers),
-    )
-
-
-@router.post("/{workspace_id}/papers/{paper_id}")
-async def add_paper_to_workspace(
-    workspace_id: str,
-    paper_id: str,
-    request: AddPaperRequest,
-    current_user: User = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    paper_service: PaperService = Depends(get_paper_service),
-) -> dict[str, bool | str]:
-    """Add paper to workspace.
-
-    Args:
-        workspace_id: Workspace ID
-        paper_id: Paper ID to add
-        request: Add paper request with optional notes and tags
-        paper_service: Paper service instance
-
-    Returns:
-        Success message
-    """
-    await get_owned_workspace(
-        workspace_id=workspace_id,
-        current_user=current_user,
-        workspace_service=workspace_service,
-    )
-
-    await paper_service.add_to_workspace(
-        paper_id=paper_id,
-        workspace_id=workspace_id,
-        notes=request.notes,
-        tags=request.tags,
-        is_primary=request.is_primary,
-    )
-    return {"success": True, "paper_id": paper_id}
-
-
-@router.delete("/{workspace_id}/papers/{paper_id}")
-async def remove_paper_from_workspace(
-    workspace_id: str,
-    paper_id: str,
-    current_user: User = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    paper_service: PaperService = Depends(get_paper_service),
-) -> dict[str, bool]:
-    """Remove paper from workspace.
-
-    Args:
-        workspace_id: Workspace ID
-        paper_id: Paper ID to remove
-        paper_service: Paper service instance
-
-    Returns:
-        Success message
-    """
-    await get_owned_workspace(
-        workspace_id=workspace_id,
-        current_user=current_user,
-        workspace_service=workspace_service,
-    )
-
-    success = await paper_service.remove_from_workspace(
-        paper_id=paper_id,
-        workspace_id=workspace_id,
-    )
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Paper not found in workspace",
         )
     return {"success": True}
 

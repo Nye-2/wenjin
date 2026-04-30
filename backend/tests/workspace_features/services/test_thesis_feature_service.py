@@ -28,7 +28,7 @@ async def test_build_compile_payload_uses_abstract_override_and_keywords(
             )
         ]
 
-    async def _fake_load_workspace_literature(_workspace_id: str):
+    async def _fake_load_workspace_references(_workspace_id: str):
         return []
 
     @asynccontextmanager
@@ -42,8 +42,8 @@ async def test_build_compile_payload_uses_abstract_override_and_keywords(
     )
     monkeypatch.setattr(
         thesis_feature_service,
-        "_load_workspace_literature",
-        _fake_load_workspace_literature,
+        "_load_workspace_references",
+        _fake_load_workspace_references,
     )
     monkeypatch.setattr(
         thesis_feature_service,
@@ -102,7 +102,7 @@ async def test_build_compile_payload_ignores_legacy_latex_project_artifact(
             ),
         ]
 
-    async def _fake_load_workspace_literature(_workspace_id: str):
+    async def _fake_load_workspace_references(_workspace_id: str):
         return []
 
     @asynccontextmanager
@@ -116,8 +116,8 @@ async def test_build_compile_payload_ignores_legacy_latex_project_artifact(
     )
     monkeypatch.setattr(
         thesis_feature_service,
-        "_load_workspace_literature",
-        _fake_load_workspace_literature,
+        "_load_workspace_references",
+        _fake_load_workspace_references,
     )
     monkeypatch.setattr(
         thesis_feature_service,
@@ -174,7 +174,7 @@ async def test_build_compile_payload_falls_back_to_outline_keywords(
             ),
         ]
 
-    async def _fake_load_workspace_literature(_workspace_id: str):
+    async def _fake_load_workspace_references(_workspace_id: str):
         return []
 
     @asynccontextmanager
@@ -196,8 +196,8 @@ async def test_build_compile_payload_falls_back_to_outline_keywords(
     )
     monkeypatch.setattr(
         thesis_feature_service,
-        "_load_workspace_literature",
-        _fake_load_workspace_literature,
+        "_load_workspace_references",
+        _fake_load_workspace_references,
     )
     monkeypatch.setattr(
         thesis_feature_service,
@@ -243,7 +243,7 @@ async def test_build_compile_payload_uses_uploaded_latex_template_preamble(
             )
         ]
 
-    async def _fake_load_workspace_literature(_workspace_id: str):
+    async def _fake_load_workspace_references(_workspace_id: str):
         return []
 
     @asynccontextmanager
@@ -273,8 +273,8 @@ async def test_build_compile_payload_uses_uploaded_latex_template_preamble(
     )
     monkeypatch.setattr(
         thesis_feature_service,
-        "_load_workspace_literature",
-        _fake_load_workspace_literature,
+        "_load_workspace_references",
+        _fake_load_workspace_references,
     )
     monkeypatch.setattr(
         thesis_feature_service,
@@ -320,7 +320,7 @@ async def test_build_compile_payload_uses_uploaded_latex_class_template_asset(
             )
         ]
 
-    async def _fake_load_workspace_literature(_workspace_id: str):
+    async def _fake_load_workspace_references(_workspace_id: str):
         return []
 
     @asynccontextmanager
@@ -349,8 +349,8 @@ async def test_build_compile_payload_uses_uploaded_latex_class_template_asset(
     )
     monkeypatch.setattr(
         thesis_feature_service,
-        "_load_workspace_literature",
-        _fake_load_workspace_literature,
+        "_load_workspace_references",
+        _fake_load_workspace_references,
     )
     monkeypatch.setattr(
         thesis_feature_service,
@@ -404,7 +404,7 @@ async def test_build_compile_payload_uses_uploaded_latex_style_template_asset(
             )
         ]
 
-    async def _fake_load_workspace_literature(_workspace_id: str):
+    async def _fake_load_workspace_references(_workspace_id: str):
         return []
 
     @asynccontextmanager
@@ -433,8 +433,8 @@ async def test_build_compile_payload_uses_uploaded_latex_style_template_asset(
     )
     monkeypatch.setattr(
         thesis_feature_service,
-        "_load_workspace_literature",
-        _fake_load_workspace_literature,
+        "_load_workspace_references",
+        _fake_load_workspace_references,
     )
     monkeypatch.setattr(
         thesis_feature_service,
@@ -489,7 +489,7 @@ async def test_build_compile_payload_raises_when_no_renderable_chapter_content(
             )
         ]
 
-    async def _fake_load_workspace_literature(_workspace_id: str):
+    async def _fake_load_workspace_references(_workspace_id: str):
         return []
 
     monkeypatch.setattr(
@@ -499,8 +499,8 @@ async def test_build_compile_payload_raises_when_no_renderable_chapter_content(
     )
     monkeypatch.setattr(
         thesis_feature_service,
-        "_load_workspace_literature",
-        _fake_load_workspace_literature,
+        "_load_workspace_references",
+        _fake_load_workspace_references,
     )
 
     with pytest.raises(RuntimeError, match="no renderable markdown content"):

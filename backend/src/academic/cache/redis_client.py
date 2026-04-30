@@ -181,10 +181,6 @@ class RedisClient:
     def _workspace_lock_key(workspace_id: str) -> str:
         return f"lock:workspace:{workspace_id}:write"
 
-    @staticmethod
-    def _tier2_queue_key() -> str:
-        return "tier2:extraction:queue"
-
     # RAG Cache operations
     async def get_rag_cache(
         self,
@@ -284,17 +280,6 @@ class RedisClient:
                 )
             except Exception:
                 logger.exception(f"Failed to release workspace lock for {workspace_id}")
-
-    # Tier2 extraction queue operations
-    async def enqueue_extraction(self, paper_id: str) -> None:
-        """Add paper to Tier2 extraction queue."""
-        await self.client.rpush(self._tier2_queue_key(), paper_id)
-
-    async def dequeue_extraction(self, timeout: int = 5) -> str | None:
-        """Get next paper from Tier2 extraction queue (blocking)."""
-        result = await self.client.blpop([self._tier2_queue_key()], timeout=timeout)
-        return result[1] if result else None
-
 
 # Global Redis client instance
 redis_client = RedisClient()

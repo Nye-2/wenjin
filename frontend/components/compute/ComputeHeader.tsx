@@ -93,13 +93,13 @@ export function ComputeHeader({
           <div className="flex items-center gap-2">
             <Cpu className="h-4 w-4 text-compute-cyan" />
             <h3 className="truncate text-base font-semibold text-compute-text-primary">
-              {effectiveExecution?.feature_id ?? "Compute Session"}
+              {effectiveExecution?.feature_id ?? "工作现场"}
             </h3>
           </div>
           <p className="mt-1 text-xs text-compute-text-secondary">
             {computeSession
-              ? `Compute ${formatShortId(computeSession.id)} · Execution ${formatShortId(computeSession.execution_session_id)}`
-              : "等待 Compute session 绑定"}
+              ? `现场 ${formatShortId(computeSession.id)} · 执行 ${formatShortId(computeSession.execution_session_id)}`
+              : "等待工作现场绑定"}
           </p>
         </div>
         <motion.span
@@ -135,12 +135,12 @@ export function ComputeHeader({
         animate="visible"
       >
         <SummaryItem
-          label="Task"
+          label="任务"
           value={formatShortId(effectiveExecution?.primary_task_id)}
         />
-        <SummaryItem label="Subagents" value={String(subagents.length)} />
+        <SummaryItem label="子代理" value={String(subagents.length)} />
         <SummaryItem
-          label="Sandbox"
+          label="沙箱"
           value={sandboxStatusLabel(sandbox?.status)}
           tone={
             sandbox?.status === "bound"
@@ -151,20 +151,20 @@ export function ComputeHeader({
           }
         />
         <SummaryItem
-          label="Prism"
+          label="主稿"
           value={prismStatusLabel(prism?.status)}
           tone={prismTone(prism)}
         />
-        <SummaryItem label="Files" value={String(files.length)} />
-        <SummaryItem label="Logs" value={String(logs.length)} />
+        <SummaryItem label="文件" value={String(files.length)} />
+        <SummaryItem label="日志" value={String(logs.length)} />
         <SummaryItem
-          label="Review"
+          label="审核"
           value={
             reviewGate
               ? reviewStatusLabel(reviewGate.status)
               : nextActions.length > 0
-                ? `${nextActions.length} actions`
-                : "None"
+                ? `${nextActions.length} 个动作`
+                : "无"
           }
           tone={reviewTone(reviewGate)}
         />

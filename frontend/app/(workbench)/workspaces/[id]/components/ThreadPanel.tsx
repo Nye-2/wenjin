@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { WorkspaceProjectStatusStrip } from "./WorkspaceProjectStatusStrip";
 import {
   uploadThreadFiles,
   type ThreadAttachment,
@@ -15,6 +15,7 @@ import { useDashboardStore } from "@/stores/dashboard";
 import { useExecutionStore } from "@/stores/execution";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeaturesStore } from "@/stores/features";
+import { useComputeStore } from "@/stores/compute";
 import { WorkspaceThreadMessages } from "./WorkspaceThreadMessages";
 import {
   isReasoningEffort,
@@ -113,11 +114,18 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
   );
   const workspace = useWorkspaceStore((state) => state.workspace);
   const artifacts = useWorkspaceStore((state) => state.artifacts);
-  const fetchPapers = useWorkspaceStore((state) => state.fetchPapers);
+  const fetchReferences = useWorkspaceStore((state) => state.fetchReferences);
   const fetchArtifacts = useWorkspaceStore((state) => state.fetchArtifacts);
   const getFeatureById = useFeaturesStore((state) => state.getFeatureById);
   const getSkillById = useFeaturesStore((state) => state.getSkillById);
   const skills = useFeaturesStore((state) => state.skills);
+  const computeSessions = useComputeStore(
+    (state) => state.byWorkspace[workspaceId] ?? EMPTY_EXECUTION_SESSIONS
+  );
+  const projections = useComputeStore((state) => state.projectionBySessionId);
+  const activeComputeSessionId = useComputeStore(
+    (state) => state.activeComputeSessionIdByWorkspace[workspaceId] ?? null
+  );
   const [inputValue, setInputValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<ReasoningEffort | null>(() => {
@@ -135,7 +143,6 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
   });
   const [defaultUploadKind, setDefaultUploadKind] = useState<ThreadUploadKind>("transient");
   const [pendingAttachments, setPendingAttachments] = useState<PendingThreadAttachment[]>([]);
-  const [statusExpanded, setStatusExpanded] = useState(false);
   const {
     models: availableModels,
     selectedModel,
@@ -205,6 +212,23 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
       null,
     [activeExecutionId, dismissedExecutionIds, executionSessions]
   );
+  const computeSession = useMemo(() => {
+    if (activeExecution) {
+      const matched = computeSessions.find(
+        (session) => session.execution_session_id === activeExecution.id
+      );
+      if (matched) {
+        return matched;
+      }
+    }
+    return (
+      computeSessions.find((session) => session.id === activeComputeSessionId) ??
+      computeSessions[0] ??
+      null
+    );
+  }, [activeExecution, activeComputeSessionId, computeSessions]);
+  const projection = computeSession ? projections[computeSession.id] ?? null : null;
+  const prism = projection?.prism ?? null;
   const executionRuntime = activeExecution?.runtime_snapshot;
   const executionPhaseTitle =
     executionRuntime &&
@@ -317,6 +341,16 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
       seed: entrySeed,
       feature: entrySeedFeature ?? null,
     });
+    const isResumeEntry = entryAction === "resume";
+    const executionSessionId =
+      typeof entrySeed.params?.execution_session_id === "string"
+        ? entrySeed.params.execution_session_id.trim()
+        : null;
+    const orchestrationParams = Object.fromEntries(
+      Object.entries(entrySeed.params ?? {}).filter(
+        ([key]) => key !== "entry" && key !== "execution_session_id"
+      )
+    );
     sendMessage(prompt, {
       workspaceId,
       ...(resolvedEntrySkillId !== null
@@ -327,9 +361,12 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
       model: selectedModel || undefined,
       metadata: {
         orchestration: {
-          intent: "launch",
+          intent: isResumeEntry ? "resume" : "launch",
           feature_id: entrySeed.featureId,
-          params: entrySeed.params,
+          ...(isResumeEntry && executionSessionId
+            ? { execution_session_id: executionSessionId }
+            : {}),
+          params: orchestrationParams,
         },
       },
     });
@@ -439,8 +476,8 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
         );
         uploadedAttachments = uploadResults.flatMap((result) => result.files);
         const refreshJobs: Promise<void>[] = [fetchDashboard(workspaceId)];
-        if (uploadedAttachments.some((attachment) => attachment.paper_id)) {
-          refreshJobs.push(fetchPapers(workspaceId));
+        if (uploadedAttachments.some((attachment) => attachment.reference_id)) {
+          refreshJobs.push(fetchReferences(workspaceId));
         }
         if (uploadedAttachments.some((attachment) => attachment.artifact_id)) {
           refreshJobs.push(fetchArtifacts(workspaceId));
@@ -531,68 +568,17 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
         messages={messages}
       />
 
-      <div className="border-b border-[var(--border-default)] bg-[rgba(251,248,242,0.94)] px-4 py-2">
-        <div className="flex items-center gap-3">
-          {/* Stage indicator */}
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-[var(--brand-brass)]" />
-            <span className="text-sm font-medium text-[var(--text-primary)]">
-              {currentPhaseTitle}
-            </span>
-          </div>
-
-          {activeSkillLabel ? (
-            <span className="rounded-full border border-[var(--accent-primary)]/18 bg-[var(--accent-primary)]/8 px-2 py-0.5 text-[10px] font-medium text-[var(--accent-primary)]">
-              {activeSkillLabel}
-            </span>
-          ) : null}
-
-          {/* Stats */}
-          <span className="text-xs text-[var(--text-muted)]">
-            产出 {artifacts.length}
-          </span>
-
-          {/* Right side: recommendation + toggle */}
-          <div className="ml-auto flex items-center gap-2">
-            {nextStepAction ? (
-              <span className="max-w-[320px] truncate text-xs text-[var(--text-secondary)]">
-                建议：{nextStepAction.title}
-              </span>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setStatusExpanded((prev) => !prev)}
-              className="rounded-lg p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-surface)]"
-            >
-              {statusExpanded ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Expanded detail */}
-        {statusExpanded ? (
-          <div className="mt-3 rounded-2xl border border-[var(--border-default)] bg-white/76 p-4">
-            <p className="text-sm font-medium text-[var(--text-primary)]">
-              {currentPhaseTitle}
-            </p>
-            <p className="mt-2 text-xs leading-6 text-[var(--text-secondary)]">
-              {summary?.headline || currentPhaseDescription}
-            </p>
-            <div className="mt-3 border-t border-[var(--border-default)] pt-3">
-              <p className="text-xs font-medium text-[var(--text-primary)]">下一步建议</p>
-              <p className="mt-1 text-xs leading-6 text-[var(--text-secondary)]">
-                {nextStepAction?.reason ||
-                  nextStepAction?.description ||
-                  "直接描述你要推进的步骤，问津会通过对话确认后再决定是否开始执行。"}
-              </p>
-            </div>
-          </div>
-        ) : null}
-      </div>
+      <WorkspaceProjectStatusStrip
+        currentPhaseTitle={currentPhaseTitle}
+        currentPhaseDescription={currentPhaseDescription}
+        headline={summary?.headline ?? null}
+        activeSkillLabel={activeSkillLabel}
+        artifactsCount={artifacts.length}
+        activeExecution={activeExecution}
+        nextStepAction={nextStepAction}
+        prismPendingChanges={Array.isArray(prism?.file_changes) ? prism.file_changes.length : 0}
+        prismAppliedChanges={Array.isArray(prism?.applied_file_changes) ? prism.applied_file_changes.length : 0}
+      />
 
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <WorkspaceThreadMessages

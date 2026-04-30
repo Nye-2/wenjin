@@ -9,7 +9,7 @@ interface WorkspaceCardProps {
   name: string;
   type: "sci" | "thesis" | "proposal" | "software_copyright" | "patent";
   discipline?: string;
-  paperCount: number;
+  referenceCount: number;
   artifactCount: number;
   createdAt: string;
 }
@@ -51,7 +51,7 @@ export function WorkspaceCard({
   name,
   type,
   discipline,
-  paperCount,
+  referenceCount,
   artifactCount,
   createdAt,
 }: WorkspaceCardProps) {
@@ -85,7 +85,7 @@ export function WorkspaceCard({
         <div className="flex items-center gap-4 text-sm text-[var(--text-muted)]">
           <span className="flex items-center gap-1.5">
             <FileText className="w-4 h-4" />
-            {paperCount} papers
+            {referenceCount} references
           </span>
           <span className="flex items-center gap-1.5">
             <Book className="w-4 h-4" />

@@ -36,7 +36,13 @@
 | `frontend-feature-plugin-contract.md` | 前后端 feature 合约与刷新约束 |
 | `release-gate-checklist.md` | 发布门禁检查项 |
 
-### 2.3 基础设施文档（`docs/infrastructure/`）
+### 2.3 战略种子文档（`docs/strategy/`）
+
+| 文档 | 作用 |
+|---|---|
+| `wenjin-long-term-direction-seed.md` | 长期产品方向、数据产品路径和 AI Scientist 路线种子；不是当前实现事实源 |
+
+### 2.4 基础设施文档（`docs/infrastructure/`）
 
 | 文档 | 作用 |
 |---|---|
@@ -61,3 +67,4 @@
 4. 变更部署或环境变量：更新 `docs/infrastructure/deployment-runbook.md` 与 `docs/infrastructure/environment-variables.md`。
 5. 变更线程/前端/Compute 交互契约：更新 `docs/product/workspace-current-state.md` 与 `docs/product/frontend-feature-plugin-contract.md`。
 6. 完成后同步检查入口：`README.md`、`docs/README.md`、`backend/README.md`、`frontend/README.md`。
+7. 变更长期产品战略或数据产品判断：更新 `docs/strategy/wenjin-long-term-direction-seed.md`，并保持其 Seed 状态，避免混入 Current 事实源。

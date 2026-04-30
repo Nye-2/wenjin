@@ -96,7 +96,7 @@ async def test_sci_literature_review_payload_has_required_fields(
         _ = kwargs
         return []
 
-    async def _fake_load_workspace_literature(_: str):
+    async def _fake_load_workspace_references(_: str):
         return []
 
     async def _fake_try_llm(**kwargs):
@@ -118,8 +118,8 @@ async def test_sci_literature_review_payload_has_required_fields(
         _fake_load_context_summaries,
     )
     monkeypatch.setattr(
-        "src.workspace_features.services.sci_feature_service._load_workspace_literature",
-        _fake_load_workspace_literature,
+        "src.workspace_features.services.sci_feature_service._load_workspace_references",
+        _fake_load_workspace_references,
     )
     monkeypatch.setattr(
         "src.workspace_features.services.sci_feature_service._try_llm_literature_review",

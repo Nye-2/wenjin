@@ -27,7 +27,17 @@ FEATURE_HANDLER_MATRIX: list[tuple[str, str, dict[str, object], dict[str, object
         {"action": "generate_outline", "paper_title": "Agent Thesis", "outline": {"chapters": [{"title": "绪论"}]}},
     ),
     ("thesis", "figure_generation", {"description": "系统架构图"}, {"description": "系统架构图"}),
-    ("sci", "literature_search", {"query": "LLM planning"}, {"top_hits": [{"title": "Paper A"}], "papers": []}),
+    (
+        "sci",
+        "literature_search",
+        {"query": "LLM planning"},
+        {
+            "source": "semantic_scholar",
+            "verified_papers": [{"title": "Paper A"}],
+            "model_synthesis": {"summary": "ok"},
+            "unverified_leads": [],
+        },
+    ),
     (
         "sci",
         "paper_analysis",

@@ -180,7 +180,7 @@ export function toStoreMessages(detail: Thread): Message[] {
     }));
 }
 
-export function syncAttachmentExtractionsWithTask(
+export function syncAttachmentPreprocessWithTask(
   messages: Message[],
   task: WorkspaceTaskEvent["task"]
 ): Message[] {
@@ -189,6 +189,11 @@ export function syncAttachmentExtractionsWithTask(
   }
 
   let changed = false;
+  const rawResultPreprocess = task.result?.["preprocess"];
+  const resultPreprocess =
+    rawResultPreprocess && typeof rawResultPreprocess === "object"
+      ? (rawResultPreprocess as Record<string, unknown>)
+      : null;
 
   const nextMessages = messages.map((message) => {
     const attachments = message.metadata?.attachments;
@@ -207,27 +212,43 @@ export function syncAttachmentExtractionsWithTask(
         attachmentRecord.metadata && typeof attachmentRecord.metadata === "object"
           ? { ...(attachmentRecord.metadata as Record<string, unknown>) }
           : null;
-      const extraction =
-        metadata?.extraction && typeof metadata.extraction === "object"
-          ? { ...(metadata.extraction as Record<string, unknown>) }
+      const preprocess =
+        metadata?.preprocess && typeof metadata.preprocess === "object"
+          ? { ...(metadata.preprocess as Record<string, unknown>) }
           : null;
 
-      if (!metadata || !extraction || extraction.task_id !== task.task_id) {
+      if (!metadata || !preprocess || preprocess.task_id !== task.task_id) {
         return attachment;
       }
 
-      extraction.status = task.status;
-      extraction.progress = task.progress;
-      extraction.current_step = task.current_step ?? null;
-      extraction.message =
-        task.error || task.message || (typeof extraction.message === "string" ? extraction.message : null);
-      if (task.error) {
-        extraction.error = task.error;
+      if (resultPreprocess) {
+        Object.assign(preprocess, resultPreprocess);
+      }
+      preprocess.task_id = task.task_id;
+      if (task.status === "failed") {
+        preprocess.status = "failed";
       } else if (task.status === "success") {
-        delete extraction.error;
+        preprocess.status =
+          typeof preprocess.status === "string" ? preprocess.status : "succeeded";
+      } else if (task.status === "running" || task.status === "pending") {
+        preprocess.status = "pending";
+      }
+      preprocess.progress = task.progress;
+      preprocess.current_step = task.current_step ?? null;
+      preprocess.message =
+        task.error ||
+        task.message ||
+        (typeof preprocess.message === "string" ? preprocess.message : null);
+      if (task.error) {
+        preprocess.error = task.error;
+      } else if (task.status === "success" && preprocess.status === "succeeded") {
+        delete preprocess.error;
       }
 
-      metadata.extraction = extraction;
+      metadata.preprocess = preprocess;
+      if (Array.isArray(preprocess.markdown_paths) && preprocess.markdown_paths.length > 0) {
+        metadata.preprocessed_markdown_paths = preprocess.markdown_paths;
+      }
       messageChanged = true;
       changed = true;
       return {

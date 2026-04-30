@@ -31,7 +31,7 @@ async def paper_analysis_graph(
     params = _read_payload_params(payload)
 
     # Extract parameters (per handoff document)
-    paper_id = _read_optional_str(params.get("paper_id"))
+    reference_id = _read_optional_str(params.get("reference_id"))
     paper_title = str(
         params.get("paper_title")
         or params.get("title")
@@ -46,7 +46,7 @@ async def paper_analysis_graph(
     # Call service layer
     result = await build_paper_analysis_payload(
         workspace_id=workspace_id,
-        paper_id=paper_id,
+        reference_id=reference_id,
         paper_title=paper_title,
         paper_abstract=paper_abstract,
         preferred_model=preferred_model,
@@ -54,7 +54,7 @@ async def paper_analysis_graph(
 
     # Build structured output
     return {
-        "paper_id": result.get("paper_id"),
+        "reference_id": result.get("reference_id"),
         "paper_title": result.get("paper_title"),
         "analysis_mode": result.get("analysis_mode", "llm"),
         "sections": result.get("sections", {}),

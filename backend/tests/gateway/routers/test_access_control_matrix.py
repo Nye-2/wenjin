@@ -1,4 +1,4 @@
-"""Access control matrix tests for canonical papers and artifacts routers.
+"""Access control matrix tests for canonical references and artifacts routers.
 
 Verifies that:
 - Anonymous (no token) access returns 401
@@ -23,79 +23,70 @@ from src.gateway.middleware.error_handler import register_error_handlers
 WORKSPACE_ID = "cccc0000-0000-0000-0000-000000000001"
 
 
-# ============ Papers Router Access Control Tests ============
+# ============ References Router Access Control Tests ============
 
 
-class TestPapersAuth:
-    """Test that papers endpoints require authentication."""
+class TestReferencesAuth:
+    """Test that Reference Library endpoints require authentication."""
 
     @pytest.fixture
     def unauthenticated_client(self):
         """Client with NO auth override — exercises real get_current_user."""
-        from src.gateway.routers.papers import get_paper_service, router
+        from src.gateway.routers.references import router
 
         app = FastAPI()
         register_error_handlers(app)
-
-        mock_service = AsyncMock()
-        mock_service.get = AsyncMock(return_value=None)
-        mock_service.create = AsyncMock()
-
-        async def override_service():
-            return mock_service
-
-        app.dependency_overrides[get_paper_service] = override_service
         app.include_router(router)
         return TestClient(app)
 
-    def test_create_paper_requires_auth(self, unauthenticated_client):
-        """POST /papers/ without token should return 401."""
+    def test_create_reference_requires_auth(self, unauthenticated_client):
+        """POST /workspaces/{id}/references/manual without token should return 401."""
         response = unauthenticated_client.post(
-            "/papers",
-            json={"title": "Unauthorized Paper"},
+            f"/workspaces/{WORKSPACE_ID}/references/manual",
+            json={"title": "Unauthorized Reference"},
         )
         assert response.status_code == 401
 
-    def test_list_papers_requires_auth(self, unauthenticated_client):
-        """GET /papers/ without token should return 401."""
-        response = unauthenticated_client.get("/papers")
+    def test_list_references_requires_auth(self, unauthenticated_client):
+        """GET /workspaces/{id}/references without token should return 401."""
+        response = unauthenticated_client.get(f"/workspaces/{WORKSPACE_ID}/references")
         assert response.status_code == 401
 
-    def test_get_paper_requires_auth(self, unauthenticated_client):
-        """GET /papers/{id} without token should return 401."""
-        response = unauthenticated_client.get(f"/papers/{uuid4()}")
+    def test_get_reference_requires_auth(self, unauthenticated_client):
+        """GET /workspaces/{id}/references/{id} without token should return 401."""
+        response = unauthenticated_client.get(f"/workspaces/{WORKSPACE_ID}/references/{uuid4()}")
         assert response.status_code == 401
 
-    def test_update_paper_requires_auth(self, unauthenticated_client):
-        """PUT /papers/{id} without token should return 401."""
-        response = unauthenticated_client.put(
-            f"/papers/{uuid4()}",
+    def test_update_reference_requires_auth(self, unauthenticated_client):
+        """PATCH /workspaces/{id}/references/{id} without token should return 401."""
+        response = unauthenticated_client.patch(
+            f"/workspaces/{WORKSPACE_ID}/references/{uuid4()}",
             json={"title": "Updated"},
         )
         assert response.status_code == 401
 
-    def test_delete_paper_requires_auth(self, unauthenticated_client):
-        """DELETE /papers/{id} without token should return 401."""
-        response = unauthenticated_client.delete(f"/papers/{uuid4()}")
+    def test_delete_reference_requires_auth(self, unauthenticated_client):
+        """DELETE /workspaces/{id}/references/{id} without token should return 401."""
+        response = unauthenticated_client.delete(f"/workspaces/{WORKSPACE_ID}/references/{uuid4()}")
         assert response.status_code == 401
 
-    def test_extract_paper_requires_auth(self, unauthenticated_client):
-        """POST /papers/{id}/extract without token should return 401."""
+    def test_reference_outline_requires_auth(self, unauthenticated_client):
+        """GET /workspaces/{id}/references/{id}/outline without token should return 401."""
+        response = unauthenticated_client.get(f"/workspaces/{WORKSPACE_ID}/references/{uuid4()}/outline")
+        assert response.status_code == 401
+
+    def test_reference_evidence_pack_requires_auth(self, unauthenticated_client):
+        """POST /workspaces/{id}/references/evidence-pack without token should return 401."""
         response = unauthenticated_client.post(
-            f"/papers/{uuid4()}/extract",
-            params={"workspace_id": WORKSPACE_ID},
+            f"/workspaces/{WORKSPACE_ID}/references/evidence-pack",
+            json={"query": "test"},
         )
         assert response.status_code == 401
 
-    def test_get_sections_requires_auth(self, unauthenticated_client):
-        """GET /papers/{id}/sections without token should return 401."""
-        response = unauthenticated_client.get(f"/papers/{uuid4()}/sections")
-        assert response.status_code == 401
-
-    def test_search_papers_requires_auth(self, unauthenticated_client):
-        """POST /papers/search without token should return 401."""
+    def test_search_reference_text_units_requires_auth(self, unauthenticated_client):
+        """POST /workspaces/{id}/references/search-text-units without token should return 401."""
         response = unauthenticated_client.post(
-            "/papers/search",
+            f"/workspaces/{WORKSPACE_ID}/references/search-text-units",
             json={"query": "test"},
         )
         assert response.status_code == 401

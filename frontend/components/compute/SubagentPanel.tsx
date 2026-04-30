@@ -30,10 +30,10 @@ export function SubagentPanel({ subagents }: SubagentPanelProps) {
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="truncate text-sm font-medium text-compute-text-primary">
-                  {String(subagent.subagent_type || "subagent")}
+                  {String(subagent.subagent_type || "子代理")}
                 </p>
                 <span className="shrink-0 text-[11px] text-compute-text-muted">
-                  {String(subagent.status || "unknown")}
+                  {String(subagent.status || "未知")}
                 </span>
               </div>
               {readString(subagent.output_preview) ? (

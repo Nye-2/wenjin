@@ -22,7 +22,7 @@ class RunAttachment(BaseModel):
     url: str | None = None
     content_type: str | None = None
     size_bytes: int | None = None
-    paper_id: str | None = None
+    reference_id: str | None = None
     artifact_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 

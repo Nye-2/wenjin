@@ -8,7 +8,8 @@ import pytest
 from src.task.tasks.base import (
     _append_task_thread_message,
     _resolve_thread_skill,
-    _sync_paper_extraction_attachment_state,
+    _sync_document_preprocess_attachment_state,
+    _sync_reference_preprocess_attachment_state,
 )
 
 
@@ -119,7 +120,7 @@ async def test_append_task_thread_message_writes_failure_card(
 
 
 @pytest.mark.asyncio
-async def test_append_task_thread_message_skips_paper_extraction(
+async def test_append_task_thread_message_skips_reference_preprocess(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     thread = SimpleNamespace(id="thread-3", workspace_id="ws-1")
@@ -133,19 +134,45 @@ async def test_append_task_thread_message_skips_paper_extraction(
     await _append_task_thread_message(
         db=object(),
         task_id="task-3",
-        task_type="paper_extraction",
+        task_type="reference_preprocess",
         payload={
             "thread_id": "thread-3",
-            "paper_id": "paper-1",
+            "reference_id": "reference-1",
         },
-        result={"message": "Paper extraction completed"},
+        result={"message": "Reference preprocessing completed"},
     )
 
     service.add_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_sync_paper_extraction_attachment_state_updates_attachment(
+async def test_append_task_thread_message_skips_document_preprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    thread = SimpleNamespace(id="thread-3b", workspace_id="ws-1")
+    service = _FakeThreadService(object(), thread)
+
+    monkeypatch.setattr(
+        "src.services.thread_service.ThreadService",
+        lambda db: service,
+    )
+
+    await _append_task_thread_message(
+        db=object(),
+        task_id="task-3b",
+        task_type="document_preprocess",
+        payload={
+            "thread_id": "thread-3b",
+            "filename": "paper.pdf",
+        },
+        result={"message": "Document preprocessing completed"},
+    )
+
+    service.add_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sync_reference_preprocess_attachment_state_updates_attachment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     thread = SimpleNamespace(id="thread-4", workspace_id="ws-1")
@@ -153,35 +180,102 @@ async def test_sync_paper_extraction_attachment_state_updates_attachment(
     class _SyncingThreadService(_FakeThreadService):
         def __init__(self, db, thread):
             super().__init__(db, thread)
-            self.update_attachment_extraction_state = AsyncMock(return_value=True)
+            self.update_attachment_preprocess_state = AsyncMock(return_value=True)
 
     service = _SyncingThreadService(object(), thread)
+    publish_thread_updated = AsyncMock()
 
     monkeypatch.setattr(
         "src.services.thread_service.ThreadService",
         lambda db: service,
     )
+    monkeypatch.setattr(
+        "src.services.thread_events.publish_thread_updated",
+        publish_thread_updated,
+    )
 
-    await _sync_paper_extraction_attachment_state(
+    await _sync_reference_preprocess_attachment_state(
         db=object(),
         task_id="task-4",
-        task_type="paper_extraction",
+        task_type="reference_preprocess",
         payload={
             "thread_id": "thread-4",
-            "paper_id": "paper-1",
+            "reference_id": "reference-1",
         },
         status="success",
-        message="Paper extraction completed",
+        result={"preprocess": {"status": "succeeded"}},
+        message="Reference preprocessing completed",
         progress=100,
         current_step="complete",
     )
 
-    service.update_attachment_extraction_state.assert_awaited_once_with(
+    service.update_attachment_preprocess_state.assert_awaited_once_with(
         thread,
         task_id="task-4",
         status="success",
-        message="Paper extraction completed",
+        preprocess={"status": "succeeded"},
+        message="Reference preprocessing completed",
         progress=100,
         current_step="complete",
         error=None,
     )
+    publish_thread_updated.assert_awaited_once_with(thread)
+
+
+@pytest.mark.asyncio
+async def test_sync_document_preprocess_attachment_state_updates_attachment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    thread = SimpleNamespace(id="thread-5", workspace_id="ws-1")
+
+    class _SyncingThreadService(_FakeThreadService):
+        def __init__(self, db, thread):
+            super().__init__(db, thread)
+            self.update_attachment_preprocess_state = AsyncMock(return_value=True)
+
+    service = _SyncingThreadService(object(), thread)
+    publish_thread_updated = AsyncMock()
+
+    monkeypatch.setattr(
+        "src.services.thread_service.ThreadService",
+        lambda db: service,
+    )
+    monkeypatch.setattr(
+        "src.services.thread_events.publish_thread_updated",
+        publish_thread_updated,
+    )
+
+    await _sync_document_preprocess_attachment_state(
+        db=object(),
+        task_id="task-5",
+        task_type="document_preprocess",
+        payload={
+            "thread_id": "thread-5",
+            "filename": "paper.pdf",
+        },
+        status="success",
+        result={
+            "preprocess": {
+                "status": "succeeded",
+                "markdown_paths": ["/context/_preprocessed/background/doc_0.md"],
+            }
+        },
+        message="Document preprocessing completed",
+        progress=100,
+        current_step="complete",
+    )
+
+    service.update_attachment_preprocess_state.assert_awaited_once_with(
+        thread,
+        task_id="task-5",
+        status="success",
+        preprocess={
+            "status": "succeeded",
+            "markdown_paths": ["/context/_preprocessed/background/doc_0.md"],
+        },
+        message="Document preprocessing completed",
+        progress=100,
+        current_step="complete",
+        error=None,
+    )
+    publish_thread_updated.assert_awaited_once_with(thread)

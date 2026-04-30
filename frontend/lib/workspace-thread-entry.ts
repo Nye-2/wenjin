@@ -101,6 +101,12 @@ export function buildWorkspaceThreadEntryPrompt(options: {
 
   // Feature entry: brief request with feature name only
   const featureLabel = feature?.name?.trim() || seed.featureId.replace(/_/g, " ");
+  if (
+    typeof seed.params?.entry === "string" &&
+    seed.params.entry.trim().toLowerCase() === "resume"
+  ) {
+    return `请继续「${featureLabel}」的执行。`;
+  }
   return `请帮我开始「${featureLabel}」。`;
 }
 

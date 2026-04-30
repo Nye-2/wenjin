@@ -44,7 +44,7 @@
 ## 6. 结果与刷新
 
 1. 任务结果通过 task status、workspace event、activity、artifact 同步到前端。
-2. 前端根据 `refresh_targets` 刷新 `artifacts` / `papers` / `workspace`。
+2. 前端根据 `refresh_targets` 刷新 `artifacts` / `references` / `workspace`。
 3. thread status 通过 chat/run/workspace 事件持续更新。
 4. Compute projection 承载过程态；thread 承载发起、追问与最终总结。
 5. 当前 feature 状态不从 thread message 反推，必须读取 execution/task/compute projection。

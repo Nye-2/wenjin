@@ -101,7 +101,7 @@ _RESULT_BLOCK_PHASE_HINTS: dict[str, dict[str, str]] = {
         "recommended-actions": "finalize",
     },
     "literature_search": {
-        "search-results": "retrieve",
+        "verified-papers": "retrieve",
     },
     "paper_analysis": {
         "analysis-sections": "analyze",
@@ -283,7 +283,7 @@ def build_feature_runtime(
                         or "未命名论文"
                     ),
                 },
-                {"label": "Paper ID", "value": str(params.get("paper_id") or "未提供")},
+                {"label": "Reference ID", "value": str(params.get("reference_id") or "未提供")},
             ],
         )
     if feature_id == "writing":
@@ -637,7 +637,10 @@ def enrich_runtime_with_result(
         gaps = result.get("gaps")
         recommended_actions = result.get("recommended_actions")
         cross_validation = _as_dict(result.get("cross_validation"))
-        result_metrics.insert(1, {"label": "文献数", "value": str(corpus.get("paper_count") or 0)})
+        verified_papers = corpus.get("verified_papers")
+        if not isinstance(verified_papers, list):
+            verified_papers = result.get("verified_papers") if isinstance(result.get("verified_papers"), list) else []
+        result_metrics.insert(1, {"label": "已验证文献", "value": str(corpus.get("verified_count") or len(verified_papers))})
         result_metrics.insert(
             2,
             {"label": "研究空白", "value": str(len(gaps) if isinstance(gaps, list) else 0)},
@@ -649,23 +652,22 @@ def enrich_runtime_with_result(
         validation_score = cross_validation.get("validation_score")
         if validation_score is not None:
             result_metrics.append({"label": "验证评分", "value": str(validation_score)})
-        top_papers = corpus.get("top_papers")
-        if isinstance(top_papers, list):
+        if isinstance(verified_papers, list):
             upsert_runtime_block(
                 runtime,
                 {
                     "id": "research-papers",
                     "kind": "list",
-                    "title": "重点文献",
-                    "description": "调研阶段识别出的高价值文献",
+                    "title": "Semantic Scholar 已验证文献",
+                    "description": "调研阶段检索并同步到参考库的可核验文献",
                     "items": [
                         {
                             "title": str(item.get("title") or "Untitled"),
-                            "description": str(item.get("significance") or item.get("relevance") or ""),
-                            "meta": str(item.get("authors") or ""),
+                            "description": str(item.get("abstract") or item.get("significance") or "")[:220],
+                            "meta": str(item.get("venue") or item.get("doi") or item.get("external_id") or ""),
                             "badge": str(item.get("year") or "") or None,
                         }
-                        for item in top_papers[:6]
+                        for item in verified_papers[:6]
                         if isinstance(item, dict)
                     ],
                 },
@@ -747,23 +749,25 @@ def enrich_runtime_with_result(
                 },
             )
     elif feature_id == "literature_search":
-        top_hits = result.get("top_hits")
-        result_metrics.insert(1, {"label": "Top Hits", "value": str(len(top_hits) if isinstance(top_hits, list) else 0)})
+        verified_papers = result.get("verified_papers")
+        unverified_leads = result.get("unverified_leads")
+        result_metrics.insert(1, {"label": "已验证论文", "value": str(len(verified_papers) if isinstance(verified_papers, list) else 0)})
+        result_metrics.insert(2, {"label": "未验证线索", "value": str(len(unverified_leads) if isinstance(unverified_leads, list) else 0)})
         upsert_runtime_block(
             runtime,
             {
-                "id": "search-results",
+                "id": "verified-papers",
                 "kind": "list",
-                "title": "高相关命中",
-                "description": "优先推荐的文献候选",
+                "title": "Semantic Scholar 已验证论文",
+                "description": "结果来自 Semantic Scholar 元数据，不包含模型生成论文。",
                 "items": [
                     {
                         "title": str(item.get("title") or "Untitled"),
-                        "description": str(item.get("summary") or ""),
-                        "meta": str(item.get("venue") or ""),
+                        "description": str(item.get("abstract") or ""),
+                        "meta": str(item.get("venue") or item.get("doi") or item.get("external_id") or ""),
                         "badge": str(item.get("year") or "") or None,
                     }
-                    for item in (top_hits or [])[:5]
+                    for item in (verified_papers or [])[:5]
                     if isinstance(item, dict)
                 ],
             },
@@ -1145,7 +1149,7 @@ def enrich_runtime_with_result(
                             "title": str(item.get("title") or "Untitled"),
                             "description": "",
                             "meta": str(item.get("year") or ""),
-                            "badge": str(item.get("citations") or ""),
+                            "badge": str(item.get("citation_count") or item.get("citations") or ""),
                         }
                         for item in top_cited[:6]
                         if isinstance(item, dict)

@@ -46,8 +46,8 @@ def _get_imports(source: str) -> set[str]:
 # These routers should be pure HTTP adapters after Phase 2.
 # Phase 0 establishes the guard; violations are xfail until fixed.
 ROUTER_MODULES = [
-    "src.gateway.routers.papers",
     "src.gateway.routers.artifacts",
+    "src.gateway.routers.references",
     "src.gateway.routers.workspaces",
     "src.gateway.routers.tasks",
 ]
@@ -60,7 +60,6 @@ PHASE2_ROUTER_MODULES = [
 # Imports that indicate business orchestration in a router
 BUSINESS_IMPORTS = {
     "src.services.credit_service",
-    "src.services.literature_service",
 }
 
 
@@ -109,11 +108,10 @@ class TestRouterRegistration:
             "dashboard",
             "features",
             "latex",
-            "literature",
             "mcp",
             "memory",
             "models",
-            "papers",
+            "references",
             "runs",
             "skills",
             "tasks",
@@ -138,7 +136,7 @@ class TestAuthDependency:
         "src.gateway.routers.features",
         "src.gateway.routers.workspaces",
         "src.gateway.routers.tasks",
-        "src.gateway.routers.papers",
+        "src.gateway.routers.references",
         "src.gateway.routers.artifacts",
     ]
 
@@ -175,6 +173,41 @@ def _collect_imports(path: Path) -> list[str]:
             if node.module:
                 modules.append(node.module)
     return modules
+
+
+def test_reference_library_has_no_direct_agent_external_search_tools():
+    """Agents must not regain direct paper-search tools outside Reference Library."""
+    backend_src = Path(__file__).parents[2] / "src"
+    retired_paths = [
+        backend_src / "academic" / "tools" / "semantic_scholar.py",
+        backend_src / "academic" / "literature" / "tools.py",
+        backend_src / "academic" / "citation" / "bibtex" / "exporter.py",
+    ]
+    for path in retired_paths:
+        assert not path.exists(), f"Retired non-SSOT tool surface still exists: {path}"
+
+    lead_agent_source = (backend_src / "agents" / "lead_agent" / "agent.py").read_text()
+    forbidden = (
+        "src.academic.tools.semantic_scholar",
+        "src.academic.literature.tools",
+        "tools.append(search_external",
+        "tools.append(semantic_scholar_search",
+    )
+    for marker in forbidden:
+        assert marker not in lead_agent_source
+
+
+def test_academic_subagents_do_not_request_direct_semantic_scholar_tool():
+    """Subagents must use Reference Library navigation, not direct external search."""
+    backend_src = Path(__file__).parents[2] / "src"
+    for relative in (
+        "subagents/academic/registry.py",
+        "subagents/academic/resolver.py",
+        "subagents/academic/prompts.py",
+        "subagents/academic/thesis_prompts.py",
+    ):
+        source = (backend_src / relative).read_text()
+        assert "semantic_scholar_search" not in source
 
 
 def test_application_handlers_have_no_http_imports():

@@ -20,7 +20,7 @@ export function SandboxFilePanel({ files, sandbox }: SandboxFilePanelProps) {
         <div className="flex items-center gap-2">
           <FolderOpen className="h-4 w-4 text-compute-cyan" />
           <h4 className="text-sm font-semibold text-compute-text-primary">
-            Sandbox 文件
+            沙箱文件
           </h4>
         </div>
         <span className="shrink-0 text-[11px] text-compute-text-muted">
@@ -34,7 +34,7 @@ export function SandboxFilePanel({ files, sandbox }: SandboxFilePanelProps) {
       ) : null}
       {sandbox?.required && !readString(sandbox?.session_id) ? (
         <p className="mt-2 rounded-lg border border-compute-gold/20 bg-compute-gold/10 px-2.5 py-2 text-[11px] text-compute-gold">
-          当前 feature runtime profile 要求 sandbox；等待执行环境绑定或产出文件。
+          当前任务运行配置要求沙箱；等待执行环境绑定或产出文件。
         </p>
       ) : null}
       <div className="mt-3 space-y-2">
@@ -79,7 +79,7 @@ export function SandboxFilePanel({ files, sandbox }: SandboxFilePanelProps) {
           })
         ) : (
           <p className="rounded-xl border border-dashed border-compute-border px-3 py-4 text-center text-xs text-compute-text-muted">
-            当前执行没有发布 sandbox 文件。
+            当前执行没有发布沙箱文件。
           </p>
         )}
       </div>

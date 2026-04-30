@@ -14,14 +14,11 @@ from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_artifact_service,
     get_db,
-    get_paper_service,
     get_task_service,
     get_thread_service,
-    get_upload_preprocessor,
     get_workspace_service,
 )
 from src.gateway.routers.uploads import router
-from src.services.upload_preprocessor import UploadPreprocessResult
 
 
 def _mock_user():
@@ -41,15 +38,11 @@ def app(tmp_path):
     thread_service.get_thread = AsyncMock(return_value=thread)
     workspace_service = MagicMock()
     workspace_service.get = AsyncMock(return_value=workspace)
-    paper_service = MagicMock()
-    paper_service.create_in_workspace = AsyncMock(
-        return_value=SimpleNamespace(id="paper-1")
-    )
     artifact_service = MagicMock()
     artifact_service.create = AsyncMock(return_value=SimpleNamespace(id="artifact-1"))
     task_service = MagicMock()
     task_service.find_active_task_by_payload = AsyncMock(return_value=None)
-    task_service.submit_task = AsyncMock(return_value="task-paper-extract-1")
+    task_service.submit_task = AsyncMock(return_value="task-reference-preprocess-1")
     db = AsyncMock()
 
     async def _get_current_user():
@@ -60,9 +53,6 @@ def app(tmp_path):
 
     async def _get_workspace_service():
         return workspace_service
-
-    async def _get_paper_service():
-        return paper_service
 
     async def _get_artifact_service():
         return artifact_service
@@ -76,14 +66,12 @@ def app(tmp_path):
     app.dependency_overrides[get_current_user] = _get_current_user
     app.dependency_overrides[get_thread_service] = _get_thread_service
     app.dependency_overrides[get_workspace_service] = _get_workspace_service
-    app.dependency_overrides[get_paper_service] = _get_paper_service
     app.dependency_overrides[get_artifact_service] = _get_artifact_service
     app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[get_task_service] = _get_task_service
 
     app.state.thread_service = thread_service
     app.state.workspace_service = workspace_service
-    app.state.paper_service = paper_service
     app.state.artifact_service = artifact_service
     app.state.task_service = task_service
     app.state.db = db
@@ -119,17 +107,18 @@ def test_transient_upload_returns_attachment_metadata(client):
     assert body["files"][0]["name"] == "notes.txt"
     assert body["files"][0]["kind"] == "transient"
     assert body["files"][0]["path"] == "/mnt/user-data/uploads/notes.txt"
-    assert body["files"][0]["url"].endswith(
-        "/api/threads/thread-1/artifacts/mnt/user-data/uploads/notes.txt"
-    )
-    assert client.app.state.paper_service.create_in_workspace.await_count == 0
+    assert body["files"][0]["url"].endswith("/api/threads/thread-1/artifacts/mnt/user-data/uploads/notes.txt")
     assert client.app.state.artifact_service.create.await_count == 0
+    assert client.app.state.task_service.submit_task.await_count == 0
 
 
 def test_upload_rejects_oversized_file(client):
-    with _patch_storage_roots(client.app), patch(
-        "src.gateway.routers.uploads._MAX_UPLOAD_SIZE_BYTES",
-        8,
+    with (
+        _patch_storage_roots(client.app),
+        patch(
+            "src.gateway.routers.uploads._MAX_UPLOAD_SIZE_BYTES",
+            8,
+        ),
     ):
         response = client.post(
             "/api/threads/thread-1/uploads",
@@ -138,14 +127,16 @@ def test_upload_rejects_oversized_file(client):
         )
 
     assert response.status_code == 413
-    client.app.state.paper_service.create_in_workspace.assert_not_awaited()
     client.app.state.artifact_service.create.assert_not_awaited()
 
 
 def test_upload_rejects_too_many_files(client):
-    with _patch_storage_roots(client.app), patch(
-        "src.gateway.routers.uploads._MAX_UPLOAD_FILES",
-        1,
+    with (
+        _patch_storage_roots(client.app),
+        patch(
+            "src.gateway.routers.uploads._MAX_UPLOAD_FILES",
+            1,
+        ),
     ):
         response = client.post(
             "/api/threads/thread-1/uploads",
@@ -158,22 +149,42 @@ def test_upload_rejects_too_many_files(client):
 
     assert response.status_code == 413
     assert "Too many files" in response.json()["detail"]
-    client.app.state.paper_service.create_in_workspace.assert_not_awaited()
     client.app.state.artifact_service.create.assert_not_awaited()
 
 
-def test_literature_upload_persists_pdf_to_paper_center(client):
-    with _patch_storage_roots(client.app), patch(
-        "src.gateway.routers.uploads.publish_workspace_event",
-        AsyncMock(),
-    ) as publish_workspace_event, patch(
-        "src.gateway.routers.uploads.extract_document_preview",
+def test_literature_upload_persists_pdf_to_reference_library(client):
+    import_uploaded_pdf = AsyncMock(
         return_value={
-            "title": "Transformer Paper",
-            "authors": ["Ashish Vaswani", "Noam Shazeer"],
-            "page_count": 15,
-            "text_preview": "Attention is all you need.",
-        },
+            "success": True,
+            "reference": {
+                "id": "reference-1",
+                "title": "Transformer Paper",
+                "authors": ["Ashish Vaswani", "Noam Shazeer"],
+            },
+            "asset": {
+                "id": "asset-1",
+                "file_path": "references/paper.pdf",
+                "public_url": "/api/workspaces/ws-1/files/references/paper.pdf",
+                "page_count": 15,
+            },
+            "preprocess": {
+                "status": "scheduled",
+                "task_id": "task-reference-preprocess-1",
+                "message": "Reference Library 后台解析队列",
+            },
+        }
+    )
+
+    with (
+        _patch_storage_roots(client.app),
+        patch(
+            "src.gateway.routers.uploads.publish_workspace_event",
+            AsyncMock(),
+        ) as publish_workspace_event,
+        patch(
+            "src.gateway.routers.uploads.ReferenceImportService",
+            return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
+        ),
     ):
         response = client.post(
             "/api/threads/thread-1/uploads",
@@ -183,104 +194,62 @@ def test_literature_upload_persists_pdf_to_paper_center(client):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["files"][0]["paper_id"] == "paper-1"
-    submit_kwargs = client.app.state.paper_service.create_in_workspace.await_args.kwargs
+    assert body["files"][0]["reference_id"] == "reference-1"
+    assert body["files"][0]["path"] == "reference://reference-1"
+    assert body["files"][0]["url"] == "/api/workspaces/ws-1/files/references/paper.pdf"
+    submit_kwargs = import_uploaded_pdf.await_args.kwargs
     assert submit_kwargs["workspace_id"] == "ws-1"
-    assert submit_kwargs["source"] == "thread_upload"
-    assert submit_kwargs["title"] == "Transformer Paper"
-    assert submit_kwargs["authors"] == [
-        {"name": "Ashish Vaswani"},
-        {"name": "Noam Shazeer"},
-    ]
-    assert submit_kwargs["file_path"].endswith("workspace_uploads/ws-1/papers/paper.pdf")
-    assert body["files"][0]["metadata"]["stored_url"] == "/api/workspaces/ws-1/files/papers/paper.pdf"
+    assert submit_kwargs["filename"] == "paper.pdf"
+    assert submit_kwargs["content_type"] == "application/pdf"
+    assert submit_kwargs["task_service"] is client.app.state.task_service
+    assert submit_kwargs["user_id"] == "user-1"
+    assert submit_kwargs["thread_id"] == "thread-1"
+    assert not (
+        client.app.state.temp_root / "threads" / "thread-1" / "user-data" / "uploads" / "paper.pdf"
+    ).exists()
+    assert body["files"][0]["metadata"]["reference_asset_id"] == "asset-1"
+    assert body["files"][0]["metadata"]["stored_url"] == "/api/workspaces/ws-1/files/references/paper.pdf"
     assert body["files"][0]["metadata"]["document_title"] == "Transformer Paper"
     assert body["files"][0]["metadata"]["document_authors"] == [
         "Ashish Vaswani",
         "Noam Shazeer",
     ]
     assert body["files"][0]["metadata"]["page_count"] == 15
-    assert body["files"][0]["metadata"]["text_preview"] == "Attention is all you need."
-    assert body["files"][0]["metadata"]["extraction"]["task_id"] == "task-paper-extract-1"
-    assert body["files"][0]["metadata"]["extraction"]["status"] == "scheduled"
-    client.app.state.task_service.submit_task.assert_awaited_once_with(
-        user_id="user-1",
-        task_type="paper_extraction",
-        payload={
-            "workspace_id": "ws-1",
-            "paper_id": "paper-1",
-            "tier": 1,
-            "thread_id": "thread-1",
-        },
-    )
+    assert body["files"][0]["metadata"]["preprocess"]["task_id"] == "task-reference-preprocess-1"
+    assert body["files"][0]["metadata"]["preprocess"]["status"] == "scheduled"
     publish_workspace_event.assert_awaited_once_with(
         "ws-1",
         "workspace.refresh",
-        {"refresh_targets": ["dashboard", "papers"]},
+        {"refresh_targets": ["dashboard", "references"]},
     )
 
 
-def test_literature_upload_uses_workspace_relative_preprocess_virtual_root(client):
-    fake_upload_preprocessor = MagicMock()
-    fake_upload_preprocessor.preprocess_file = AsyncMock(
-        return_value=UploadPreprocessResult(
-            status="succeeded",
-            file_type="pdf",
-            markdown_paths=("/papers/_preprocessed/paper/doc_0.md",),
-            manifest_path="/papers/_preprocessed/paper/manifest.json",
-        )
-    )
-
-    async def _get_upload_preprocessor():
-        return fake_upload_preprocessor
-
-    client.app.dependency_overrides[get_upload_preprocessor] = _get_upload_preprocessor
-    try:
-        with _patch_storage_roots(client.app), patch(
-            "src.gateway.routers.uploads.publish_workspace_event",
-            AsyncMock(),
-        ), patch(
-            "src.gateway.routers.uploads.extract_document_preview",
-            return_value={
-                "title": "Transformer Paper",
-                "authors": ["Ashish Vaswani"],
-                "page_count": 15,
-                "text_preview": "Attention is all you need.",
-            },
-        ):
-            response = client.post(
-                "/api/threads/thread-1/uploads",
-                data={"kind": "literature", "workspace_id": "ws-1"},
-                files=[("files", ("paper.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf"))],
-            )
-    finally:
-        client.app.dependency_overrides.pop(get_upload_preprocessor, None)
-
-    assert response.status_code == 200
-    body = response.json()
-    preprocess = body["files"][0]["metadata"]["preprocess"]
-    assert preprocess["markdown_paths"] == ["/papers/_preprocessed/paper/doc_0.md"]
-    assert preprocess["markdown_urls"] == [
-        "/api/workspaces/ws-1/files/papers/_preprocessed/paper/doc_0.md"
-    ]
-    assert preprocess["manifest_url"] == "/api/workspaces/ws-1/files/papers/_preprocessed/paper/manifest.json"
-    preprocess_call = fake_upload_preprocessor.preprocess_file.await_args
-    assert preprocess_call.kwargs["output_virtual_root"] == "papers/_preprocessed/paper"
-
-
-def test_literature_upload_keeps_success_when_extraction_queue_fails(client):
-    client.app.state.task_service.submit_task = AsyncMock(
-        side_effect=RuntimeError("queue offline")
-    )
-
-    with _patch_storage_roots(client.app), patch(
-        "src.gateway.routers.uploads.extract_document_preview",
+def test_literature_upload_preserves_reference_preprocess_metadata(client):
+    import_uploaded_pdf = AsyncMock(
         return_value={
-            "title": "Transformer Paper",
-            "authors": ["Ashish Vaswani"],
-            "page_count": 15,
-            "text_preview": "Attention is all you need.",
-        },
+            "success": True,
+            "reference": {"id": "reference-1", "title": "Transformer Paper", "authors": []},
+            "asset": {
+                "id": "asset-1",
+                "file_path": "references/paper.pdf",
+                "public_url": "/api/workspaces/ws-1/files/references/paper.pdf",
+            },
+            "preprocess": {
+                "status": "succeeded",
+                "markdown_paths": ["/references/_preprocessed/paper/doc_0.md"],
+                "markdown_urls": ["/api/workspaces/ws-1/files/references/_preprocessed/paper/doc_0.md"],
+                "manifest_url": "/api/workspaces/ws-1/files/references/_preprocessed/paper/manifest.json",
+            },
+        }
+    )
+
+    with (
+        _patch_storage_roots(client.app),
+        patch("src.gateway.routers.uploads.publish_workspace_event", AsyncMock()),
+        patch(
+            "src.gateway.routers.uploads.ReferenceImportService",
+            return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
+        ),
     ):
         response = client.post(
             "/api/threads/thread-1/uploads",
@@ -290,28 +259,115 @@ def test_literature_upload_keeps_success_when_extraction_queue_fails(client):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["files"][0]["metadata"]["extraction"]["status"] == "failed"
-    assert "queue offline" in body["files"][0]["metadata"]["extraction"]["message"]
+    preprocess = body["files"][0]["metadata"]["preprocess"]
+    assert preprocess["markdown_paths"] == ["/references/_preprocessed/paper/doc_0.md"]
+    assert preprocess["markdown_urls"] == ["/api/workspaces/ws-1/files/references/_preprocessed/paper/doc_0.md"]
+    assert preprocess["manifest_url"] == "/api/workspaces/ws-1/files/references/_preprocessed/paper/manifest.json"
+
+
+def test_large_literature_upload_returns_reference_preprocess_pending_state(client):
+    import_uploaded_pdf = AsyncMock(
+        return_value={
+            "success": True,
+            "reference": {"id": "reference-1", "title": "Transformer Paper", "authors": ["Ashish Vaswani"]},
+            "asset": {
+                "id": "asset-1",
+                "file_path": "references/paper.pdf",
+                "public_url": "/api/workspaces/ws-1/files/references/paper.pdf",
+                "page_count": 15,
+            },
+            "preprocess": {
+                "status": "pending",
+                "task_id": "task-reference-preprocess-1",
+                "message": "文件较大，已进入 Reference Library 后台解析队列；解析完成前不要引用全文内容。",
+            },
+        }
+    )
+
+    with (
+        _patch_storage_roots(client.app),
+        patch(
+            "src.gateway.routers.uploads.publish_workspace_event",
+            AsyncMock(),
+        ),
+        patch(
+            "src.gateway.routers.uploads.ReferenceImportService",
+            return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
+        ),
+    ):
+        response = client.post(
+            "/api/threads/thread-1/uploads",
+            data={"kind": "literature", "workspace_id": "ws-1"},
+            files=[("files", ("paper.pdf", io.BytesIO(b"%PDF-1.4 large"), "application/pdf"))],
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    preprocess = body["files"][0]["metadata"]["preprocess"]
+    assert preprocess["status"] == "pending"
+    assert preprocess["task_id"] == "task-reference-preprocess-1"
+    assert "解析完成前不要引用全文内容" in preprocess["message"]
+
+
+def test_literature_upload_reports_reference_preprocess_queue_failure(client):
+    import_uploaded_pdf = AsyncMock(
+        return_value={
+            "success": True,
+            "reference": {"id": "reference-1", "title": "Transformer Paper", "authors": ["Ashish Vaswani"]},
+            "asset": {
+                "id": "asset-1",
+                "file_path": "references/paper.pdf",
+                "public_url": "/api/workspaces/ws-1/files/references/paper.pdf",
+            },
+            "preprocess": {
+                "status": "failed",
+                "message": "queue offline",
+            },
+        }
+    )
+
+    with (
+        _patch_storage_roots(client.app),
+        patch(
+            "src.gateway.routers.uploads.ReferenceImportService",
+            return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
+        ),
+    ):
+        response = client.post(
+            "/api/threads/thread-1/uploads",
+            data={"kind": "literature", "workspace_id": "ws-1"},
+            files=[("files", ("paper.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf"))],
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["files"][0]["metadata"]["preprocess"]["status"] == "failed"
+    assert "queue offline" in body["files"][0]["metadata"]["preprocess"]["message"]
 
 
 def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     mock_knowledge_service = MagicMock()
     mock_knowledge_service.upsert = AsyncMock()
 
-    with _patch_storage_roots(client.app), patch(
-        "src.gateway.routers.uploads.publish_workspace_event",
-        AsyncMock(),
-    ) as publish_workspace_event, patch(
-        "src.gateway.routers.uploads.KnowledgeService",
-        return_value=mock_knowledge_service,
-    ), patch(
-        "src.gateway.routers.uploads.extract_document_preview",
-        return_value={
-            "title": "Opening Proposal",
-            "authors": [],
-            "page_count": None,
-            "text_preview": "# proposal",
-        },
+    with (
+        _patch_storage_roots(client.app),
+        patch(
+            "src.gateway.routers.uploads.publish_workspace_event",
+            AsyncMock(),
+        ) as publish_workspace_event,
+        patch(
+            "src.gateway.routers.uploads.KnowledgeService",
+            return_value=mock_knowledge_service,
+        ),
+        patch(
+            "src.gateway.routers.uploads.extract_document_preview",
+            return_value={
+                "title": "Opening Proposal",
+                "authors": [],
+                "page_count": None,
+                "text_preview": "# proposal",
+            },
+        ),
     ):
         response = client.post(
             "/api/threads/thread-1/uploads",
@@ -346,20 +402,25 @@ def test_workspace_context_upload_degrades_when_memory_write_fails(client):
     mock_knowledge_service = MagicMock()
     mock_knowledge_service.upsert = AsyncMock(side_effect=RuntimeError("memory offline"))
 
-    with _patch_storage_roots(client.app), patch(
-        "src.gateway.routers.uploads.publish_workspace_event",
-        AsyncMock(),
-    ) as publish_workspace_event, patch(
-        "src.gateway.routers.uploads.KnowledgeService",
-        return_value=mock_knowledge_service,
-    ), patch(
-        "src.gateway.routers.uploads.extract_document_preview",
-        return_value={
-            "title": "Opening Proposal",
-            "authors": [],
-            "page_count": None,
-            "text_preview": "# proposal",
-        },
+    with (
+        _patch_storage_roots(client.app),
+        patch(
+            "src.gateway.routers.uploads.publish_workspace_event",
+            AsyncMock(),
+        ) as publish_workspace_event,
+        patch(
+            "src.gateway.routers.uploads.KnowledgeService",
+            return_value=mock_knowledge_service,
+        ),
+        patch(
+            "src.gateway.routers.uploads.extract_document_preview",
+            return_value={
+                "title": "Opening Proposal",
+                "authors": [],
+                "page_count": None,
+                "text_preview": "# proposal",
+            },
+        ),
     ):
         response = client.post(
             "/api/threads/thread-1/uploads",

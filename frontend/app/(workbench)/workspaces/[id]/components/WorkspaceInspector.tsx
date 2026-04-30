@@ -124,7 +124,7 @@ function buildTaskRuntimeState(task: ExecutionCurrentTask | null) {
 
 export function WorkspaceInspector({ workspaceId }: WorkspaceInspectorProps) {
   const artifacts = useWorkspaceStore((state) => state.artifacts);
-  const papers = useWorkspaceStore((state) => state.papers);
+  const references = useWorkspaceStore((state) => state.references);
   const activities = useWorkspaceStore((state) => state.activities);
   const executionSessions = useExecutionStore(
     (state) => state.byWorkspace[workspaceId] ?? EMPTY_EXECUTION_SESSIONS
@@ -198,14 +198,14 @@ export function WorkspaceInspector({ workspaceId }: WorkspaceInspectorProps) {
     () => ({
       work: visibleExecutions.length,
       outputs: artifacts.length,
-      sources: papers.length,
+      sources: references.length,
       activity: activities.length,
     }),
     [
       activities.length,
       artifacts.length,
       visibleExecutions.length,
-      papers.length,
+      references.length,
     ]
   );
   const visibleTabs = useMemo(() => {

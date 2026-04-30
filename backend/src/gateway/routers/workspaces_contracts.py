@@ -6,9 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.gateway.contracts.paper import PaperSummaryResponse as PaperResponse
 from src.gateway.validators.workspace import (
-    AddPaperToWorkspaceValidator,
     CreateWorkspaceValidator,
     UpdateWorkspaceValidator,
 )
@@ -34,13 +32,6 @@ class WorkspacesListResponse(BaseModel):
     """Workspaces list response."""
 
     workspaces: list[WorkspaceResponse]
-
-
-class PapersListResponse(BaseModel):
-    """Workspace papers response."""
-
-    papers: list[PaperResponse]
-    count: int
 
 
 class WorkspaceActivityItemResponse(BaseModel):
@@ -184,4 +175,3 @@ class WorkspacePrismEnsureResponse(BaseModel):
 
 CreateWorkspaceRequest = CreateWorkspaceValidator
 UpdateWorkspaceRequest = UpdateWorkspaceValidator
-AddPaperRequest = AddPaperToWorkspaceValidator

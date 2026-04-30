@@ -1,6 +1,6 @@
 /**
  * Workspace Store for Wenjin (问津)
- * Manages workspace list, details, artifacts, and papers state
+ * Manages workspace list, details, artifacts, and reference-library state
  */
 
 import { create } from 'zustand';
@@ -8,9 +8,10 @@ import {
   Workspace as ApiWorkspace,
   WorkspaceActivityItem as ApiWorkspaceActivityItem,
   WorkspaceCreate,
+  WorkspaceReference as ApiWorkspaceReference,
   listWorkspaces,
   getWorkspace,
-  listWorkspacePapers,
+  listWorkspaceReferences,
   listArtifacts,
   createArtifact,
   createWorkspace as apiCreateWorkspace,
@@ -40,14 +41,7 @@ export interface Artifact {
   updated_at?: string;
 }
 
-export interface Paper {
-  id: string;
-  title: string;
-  authors: string[];
-  year: number | null;
-  venue: string | null;
-  file_url?: string | null;
-}
+export type Reference = ApiWorkspaceReference;
 
 export type WorkspaceActivityItem = ApiWorkspaceActivityItem;
 
@@ -57,11 +51,11 @@ interface WorkspaceState {
   workspaces: Workspace[];
   workspace: Workspace | null;
   artifacts: Artifact[];
-  papers: Paper[];
+  references: Reference[];
   activities: WorkspaceActivityItem[];
   isWorkspacesLoading: boolean;
   isWorkspaceLoading: boolean;
-  isPapersLoading: boolean;
+  isReferencesLoading: boolean;
   isArtifactsLoading: boolean;
   isActivityLoading: boolean;
   isWorkspaceMutating: boolean;
@@ -73,11 +67,11 @@ interface WorkspaceState {
   loadWorkspace: (id: string) => Promise<void>;
   createWorkspace: (data: WorkspaceCreate) => Promise<Workspace>;
   removeWorkspace: (id: string) => Promise<void>;
-  addPaper: (paper: Paper) => void;
+  addReference: (reference: Reference) => void;
   addArtifact: (artifact: Artifact) => void;
   setWorkspace: (workspace: Workspace | null) => void;
   clearWorkspace: () => void;
-  fetchPapers: (workspaceId: string) => Promise<void>;
+  fetchReferences: (workspaceId: string) => Promise<void>;
   fetchArtifacts: (workspaceId: string) => Promise<void>;
   fetchActivity: (workspaceId: string, limit?: number) => Promise<void>;
   upsertActivity: (activity: WorkspaceActivityItem) => void;
@@ -98,11 +92,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
   workspace: null,
   artifacts: [],
-  papers: [],
+  references: [],
   activities: [],
   isWorkspacesLoading: false,
   isWorkspaceLoading: false,
-  isPapersLoading: false,
+  isReferencesLoading: false,
   isArtifactsLoading: false,
   isActivityLoading: false,
   isWorkspaceMutating: false,
@@ -180,9 +174,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  addPaper: (paper: Paper) => {
+  addReference: (reference: Reference) => {
     set((state) => ({
-      papers: [...state.papers, paper],
+      references: [...state.references, reference],
     }));
   },
 
@@ -200,34 +194,29 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({
       workspace: null,
       artifacts: [],
-      papers: [],
+      references: [],
       activities: [],
       isWorkspaceLoading: false,
-      isPapersLoading: false,
+      isReferencesLoading: false,
       isArtifactsLoading: false,
       isActivityLoading: false,
     });
   },
 
-  fetchPapers: async (workspaceId: string) => {
-    set({ isPapersLoading: true, error: null });
+  fetchReferences: async (workspaceId: string) => {
+    set({ isReferencesLoading: true, error: null });
     try {
-      const response = await listWorkspacePapers(workspaceId);
+      const response = await listWorkspaceReferences(workspaceId, {
+        limit: 200,
+      });
       set({
-        papers: response.papers.map((p) => ({
-          id: p.id,
-          title: p.title,
-          authors: p.authors?.map((a) => a.name) || [],
-          year: p.year || null,
-          venue: p.venue || null,
-          file_url: p.file_url ?? null,
-        })),
-        isPapersLoading: false,
+        references: response.items,
+        isReferencesLoading: false,
       });
     } catch (error) {
       set({
         error: (error as Error).message,
-        isPapersLoading: false,
+        isReferencesLoading: false,
       });
     }
   },

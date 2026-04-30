@@ -57,7 +57,7 @@ export const sciFeatureActionResolvers: Record<string, FeatureActionResolver> = 
     });
   },
   paper_analysis: (context) => {
-    const paperId = readString(context.orchestrationParams?.paper_id);
+    const referenceId = readString(context.orchestrationParams?.reference_id);
     const paperTitle =
       readString(context.orchestrationParams?.paper_title) ??
       getArtifactPaperTitle(context.sourceArtifact) ??
@@ -67,19 +67,19 @@ export const sciFeatureActionResolvers: Record<string, FeatureActionResolver> = 
       getArtifactAbstract(context.sourceArtifact);
     return buildFeatureActionState(context, {
       routeParams: withSourceArtifact(context.sourceArtifact, {
-        paper_id: paperId,
+        reference_id: referenceId,
         paper_title: paperTitle,
         paper_abstract: paperAbstract,
       }),
-      rerunParams: paperId || paperTitle
+      rerunParams: referenceId || paperTitle
         ? {
-            paper_id: paperId ?? undefined,
+            reference_id: referenceId ?? undefined,
             paper_title: paperTitle,
             paper_abstract: paperAbstract ?? undefined,
           }
         : null,
       rerunUnavailableReason:
-        paperId || paperTitle ? null : "缺少可复用的论文标识或标题。",
+        referenceId || paperTitle ? null : "缺少可复用的参考文献标识或标题。",
     });
   },
   writing: (context) => {

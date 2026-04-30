@@ -8,7 +8,11 @@ from typing import Any, cast
 
 from celery import Task, shared_task
 
-from src.task.registry import PAPER_EXTRACTION_TASK, WORKSPACE_FEATURE_TASK
+from src.task.registry import (
+    DOCUMENT_PREPROCESS_TASK,
+    REFERENCE_PREPROCESS_TASK,
+    WORKSPACE_FEATURE_TASK,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +31,7 @@ def _resolve_thread_skill(
     skill_id = payload.get("skill_id")
     if isinstance(skill_id, str) and skill_id.strip():
         skill_name = payload.get("skill_name")
-        normalized_skill_name = (
-            skill_name.strip()
-            if isinstance(skill_name, str) and skill_name.strip()
-            else None
-        )
+        normalized_skill_name = skill_name.strip() if isinstance(skill_name, str) and skill_name.strip() else None
         return skill_id.strip(), normalized_skill_name
 
     feature_id = payload.get("feature_id")
@@ -50,7 +50,7 @@ async def _append_task_thread_message(
     error: str | None = None,
 ) -> None:
     """Best-effort task result write-back into the originating thread."""
-    if task_type == PAPER_EXTRACTION_TASK:
+    if task_type in {DOCUMENT_PREPROCESS_TASK, REFERENCE_PREPROCESS_TASK}:
         return
 
     thread_id = str(payload.get("thread_id") or "").strip()
@@ -153,27 +153,33 @@ async def _settle_workspace_feature_billing(
     result["billing"] = billing.as_metadata()
 
 
-async def _sync_paper_extraction_attachment_state(
+async def _sync_document_preprocess_attachment_state(
     *,
     db: Any,
     task_id: str,
     task_type: str,
     payload: dict[str, Any],
     status: str,
+    result: dict[str, Any] | None = None,
     message: str | None = None,
     progress: int | None = None,
     current_step: str | None = None,
     error: str | None = None,
 ) -> None:
-    """Best-effort persistence of extraction task state onto source attachments."""
-    if task_type != PAPER_EXTRACTION_TASK:
+    """Best-effort persistence of preprocessing task state onto source attachments."""
+    if task_type != DOCUMENT_PREPROCESS_TASK:
         return
 
     thread_id = str(payload.get("thread_id") or "").strip()
     if not thread_id:
         return
 
+    preprocess_payload = None
+    if isinstance(result, dict) and isinstance(result.get("preprocess"), dict):
+        preprocess_payload = result.get("preprocess")
+
     try:
+        from src.services.thread_events import publish_thread_updated
         from src.services.thread_service import ThreadService
 
         thread_service = ThreadService(db)
@@ -181,18 +187,75 @@ async def _sync_paper_extraction_attachment_state(
         if thread is None:
             return
 
-        await thread_service.update_attachment_extraction_state(
+        changed = await thread_service.update_attachment_preprocess_state(
             thread,
             task_id=task_id,
             status=status,
+            preprocess=preprocess_payload,
             message=message,
             progress=progress,
             current_step=current_step,
             error=error,
         )
+        if changed:
+            await publish_thread_updated(thread)
     except Exception:
         logger.warning(
-            "Failed to sync paper extraction attachment state for thread %s",
+            "Failed to sync document preprocess attachment state for thread %s",
+            thread_id,
+            exc_info=True,
+        )
+
+
+async def _sync_reference_preprocess_attachment_state(
+    *,
+    db: Any,
+    task_id: str,
+    task_type: str,
+    payload: dict[str, Any],
+    status: str,
+    result: dict[str, Any] | None = None,
+    message: str | None = None,
+    progress: int | None = None,
+    current_step: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Best-effort persistence of reference preprocessing state onto attachments."""
+    if task_type != REFERENCE_PREPROCESS_TASK:
+        return
+
+    thread_id = str(payload.get("thread_id") or "").strip()
+    if not thread_id:
+        return
+
+    preprocess_payload = None
+    if isinstance(result, dict) and isinstance(result.get("preprocess"), dict):
+        preprocess_payload = result.get("preprocess")
+
+    try:
+        from src.services.thread_events import publish_thread_updated
+        from src.services.thread_service import ThreadService
+
+        thread_service = ThreadService(db)
+        thread = await thread_service.get_by_id(thread_id)
+        if thread is None:
+            return
+
+        changed = await thread_service.update_attachment_preprocess_state(
+            thread,
+            task_id=task_id,
+            status=status,
+            preprocess=preprocess_payload,
+            message=message,
+            progress=progress,
+            current_step=current_step,
+            error=error,
+        )
+        if changed:
+            await publish_thread_updated(thread)
+    except Exception:
+        logger.warning(
+            "Failed to sync reference preprocess attachment state for thread %s",
             thread_id,
             exc_info=True,
         )
@@ -322,18 +385,26 @@ async def _execute_task_async(
             # mark_task_completed → DB + Redis (authoritative)
             # progress.complete  → Redis + Pub/Sub (SSE notification only)
             await store.mark_task_completed(task_id, success=True, result=result)
-            success_message = (
-                str(result.get("message"))
-                if isinstance(result, Mapping) and result.get("message")
-                else "Task completed"
-            )
+            success_message = str(result.get("message")) if isinstance(result, Mapping) and result.get("message") else "Task completed"
             await progress.complete(success_message)
-            await _sync_paper_extraction_attachment_state(
+            await _sync_document_preprocess_attachment_state(
                 db=db,
                 task_id=task_id,
                 task_type=task_type,
                 payload=payload,
                 status="success",
+                result=result,
+                message=success_message,
+                progress=100,
+                current_step="complete",
+            )
+            await _sync_reference_preprocess_attachment_state(
+                db=db,
+                task_id=task_id,
+                task_type=task_type,
+                payload=payload,
+                status="success",
+                result=result,
                 message=success_message,
                 progress=100,
                 current_step="complete",
@@ -396,7 +467,16 @@ async def _execute_task_async(
             # Terminal state: single DB write + Pub/Sub broadcast
             await store.mark_task_completed(task_id, success=False, error=str(e))
             await progress.fail(str(e))
-            await _sync_paper_extraction_attachment_state(
+            await _sync_document_preprocess_attachment_state(
+                db=db,
+                task_id=task_id,
+                task_type=task_type,
+                payload=payload,
+                status="failed",
+                message=str(e),
+                error=str(e),
+            )
+            await _sync_reference_preprocess_attachment_state(
                 db=db,
                 task_id=task_id,
                 task_type=task_type,
@@ -435,14 +515,14 @@ async def _dispatch_task(
     Raises:
         ValueError: If task_type is unknown
     """
-    from src.task.handlers.paper_extraction_handler import (
-        execute_paper_extraction,
-    )
+    from src.task.handlers.document_preprocess_handler import execute_document_preprocess
+    from src.task.handlers.reference_preprocess_handler import execute_reference_preprocess
     from src.task.handlers.workspace_feature_handler import (
         execute_workspace_feature,
     )
     from src.task.registry import (
-        PAPER_EXTRACTION_TASK,
+        DOCUMENT_PREPROCESS_TASK,
+        REFERENCE_PREPROCESS_TASK,
         WORKSPACE_FEATURE_TASK,
         is_valid_task_type,
     )
@@ -454,13 +534,16 @@ async def _dispatch_task(
         logger.info("Dispatching workspace_feature task to workspace feature handler")
         return await execute_workspace_feature(payload, progress)
 
-    if task_type == PAPER_EXTRACTION_TASK:
-        logger.info("Dispatching paper_extraction task to paper extraction handler")
-        return await execute_paper_extraction(payload, progress)
+    if task_type == DOCUMENT_PREPROCESS_TASK:
+        logger.info("Dispatching document_preprocess task to document preprocess handler")
+        return await execute_document_preprocess(payload, progress)
+
+    if task_type == REFERENCE_PREPROCESS_TASK:
+        logger.info("Dispatching reference_preprocess task to reference preprocess handler")
+        return await execute_reference_preprocess(payload, progress)
 
     logger.error(
-        "No executable mapping found for task type '%s'. "
-        "Task type is registered but has no concrete dispatcher.",
+        "No executable mapping found for task type '%s'. Task type is registered but has no concrete dispatcher.",
         task_type,
     )
     raise ValueError(f"No executable mapping for task type: {task_type}")

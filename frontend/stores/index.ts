@@ -8,7 +8,7 @@ export {
   useWorkspaceStore,
   type Workspace,
   type Artifact,
-  type Paper,
+  type Reference,
 } from './workspace';
 
 // Thread Store

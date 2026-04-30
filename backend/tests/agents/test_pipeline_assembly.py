@@ -56,7 +56,7 @@ class TestPipelineAssembly:
                 workspace_service=None,  # Will skip WS middleware
                 index_service=None,
                 artifact_service=None,
-                paper_service=None,
+                reference_service=None,
             )
         # At minimum: ThreadData + Uploads + Dangling + academic defaults + Title + Clarification
         assert len(pipeline) >= 7

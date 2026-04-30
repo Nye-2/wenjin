@@ -43,7 +43,7 @@ class ThreadTurnAttachment:
     url: str | None = None
     content_type: str | None = None
     size_bytes: int | None = None
-    paper_id: str | None = None
+    reference_id: str | None = None
     artifact_id: str | None = None
     metadata: dict[str, Any] | None = None
 
@@ -82,19 +82,6 @@ class CompletedThreadTurn:
     thread: Any
     assistant_message: dict[str, Any]
     reply: GeneratedThreadReply
-
-
-@dataclass(frozen=True, slots=True)
-class PaperExtractionTaskSubmission:
-    task_id: str
-    paper_id: str
-    workspace_id: str
-    tier: int
-    message: str
-    reused_existing_task: bool = False
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)

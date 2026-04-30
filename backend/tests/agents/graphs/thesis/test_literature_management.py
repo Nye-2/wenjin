@@ -14,8 +14,24 @@ class TestComputeStatistics:
 
     def test_with_papers(self):
         papers = [
-            {"title": "Paper A", "citations": 50, "year": "2024", "source": "Scopus", "abstract": "abc", "doi": "10.1"},
-            {"title": "Paper B", "citations": 5, "year": "2023", "source": "Scopus", "abstract": None, "doi": None},
+            {
+                "title": "Paper A",
+                "citation_count": 50,
+                "year": "2024",
+                "source_type": "semantic_scholar",
+                "library_status": "core",
+                "abstract": "abc",
+                "doi": "10.1",
+            },
+            {
+                "title": "Paper B",
+                "citation_count": 5,
+                "year": "2023",
+                "source_type": "semantic_scholar",
+                "library_status": "candidate",
+                "abstract": None,
+                "doi": None,
+            },
         ]
         result = _compute_statistics(papers, "NLP")
         assert result["summary"]["total"] == 2
@@ -25,8 +41,8 @@ class TestComputeStatistics:
 
     def test_top_cited_sorted(self):
         papers = [
-            {"title": "Low", "citations": 1, "year": "2024"},
-            {"title": "High", "citations": 100, "year": "2024"},
+            {"title": "Low", "citation_count": 1, "year": "2024"},
+            {"title": "High", "citation_count": 100, "year": "2024"},
         ]
         result = _compute_statistics(papers, "test")
         assert result["top_cited"][0]["title"] == "High"

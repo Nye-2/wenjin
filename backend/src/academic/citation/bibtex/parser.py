@@ -5,7 +5,7 @@ from typing import Any, TypedDict
 
 
 class BibTeXPaperPayload(TypedDict):
-    """Structured payload compatible with ``PaperService.create``."""
+    """Structured payload compatible with reference-library imports."""
 
     title: str
     authors: list[dict[str, Any]]

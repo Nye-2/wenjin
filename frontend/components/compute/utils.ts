@@ -99,7 +99,7 @@ export function prismStatusLabel(status?: string | null): string {
     case "pending_changes":
       return "待确认";
     case "blocked_by_review":
-      return "被 review 阻塞";
+      return "被审核阻塞";
     default:
       return status || "未关联";
   }
@@ -113,7 +113,7 @@ export function fileMeta(file: ComputeFileProjection): string {
   const parts: string[] = [];
   if (readString(file.kind)) parts.push(file.kind);
   if (readString(file.source)) parts.push(file.source);
-  return parts.join(" · ") || "sandbox file";
+  return parts.join(" · ") || "沙箱文件";
 }
 
 export function logToneClass(level?: string | null): string {

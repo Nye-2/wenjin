@@ -60,10 +60,13 @@ def _stub_feature_workflow_executor(monkeypatch: pytest.MonkeyPatch) -> None:
             {"topic": "Agent planning", "discipline": "computer_science"},
             {
                 "generation_mode": "llm",
-                "corpus": {"paper_count": 2, "top_papers": [{"title": "Paper A"}]},
+                "corpus": {
+                    "verified_count": 2,
+                    "verified_papers": [{"title": "Paper A", "external_id": "ss-1"}],
+                },
                 "discovery": {
-                    "seminal_works": [{"title": "Seminal"}],
-                    "recent_works": [{"title": "Recent"}],
+                    "source": "semantic_scholar",
+                    "verified_papers": [{"title": "Paper A", "external_id": "ss-1"}],
                     "trends": [{"topic": "Trend"}],
                 },
                 "gaps": [{"description": "Gap A"}],

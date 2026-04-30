@@ -146,7 +146,7 @@ docker compose logs -f nginx
 检查任务结果中的 `refresh_targets`：
 
 - `artifacts`：前端刷新成果列表
-- `papers`：前端刷新论文列表
+- `references`：前端刷新 Reference Library
 - `workspace`：前端刷新 workspace 基础信息
 
 相关代码：

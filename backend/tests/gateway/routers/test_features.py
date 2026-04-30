@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from src.application.results import FeatureTaskSubmission
 from src.database import WorkspaceType
-from src.gateway.deps import get_credit_service, get_literature_service
+from src.gateway.deps import get_credit_service, get_reference_service
 from src.gateway.deps.core import get_db
 from src.gateway.routers import features
 from src.gateway.routers.auth import get_current_user
@@ -50,7 +50,7 @@ def create_client(
     user_id: str,
     workspace_service,
     task_service,
-    literature_service=None,
+    reference_service=None,
     credit_service=None,
 ) -> TestClient:
     """Create a features test client with dependency overrides."""
@@ -72,8 +72,8 @@ def create_client(
     async def override_get_task_service():
         yield task_service
 
-    async def override_get_literature_service():
-        return literature_service or AsyncMock()
+    async def override_get_reference_service():
+        return reference_service or AsyncMock()
 
     async def override_get_credit_service():
         return credit_service or create_mock_credit_service()
@@ -91,7 +91,7 @@ def create_client(
         override_get_workspace_service
     )
     app.dependency_overrides[get_task_service] = override_get_task_service
-    app.dependency_overrides[get_literature_service] = override_get_literature_service
+    app.dependency_overrides[get_reference_service] = override_get_reference_service
     app.dependency_overrides[get_credit_service] = override_get_credit_service
     app.dependency_overrides[get_db] = override_get_db
     app.include_router(features.router)
@@ -480,22 +480,22 @@ class TestLiteratureInsufficientWarning:
         task_service.submit_task = AsyncMock(return_value="task-789")
         task_service.find_active_task = AsyncMock(return_value=None)
 
-        literature_service = AsyncMock()
-        literature_service.count_literature.return_value = {"total": 2, "core": 0}
+        reference_service = AsyncMock()
+        reference_service.count_references.return_value = {"total": 2, "core": 0}
         credit_service = create_mock_credit_service()
 
-        # Create client with literature_service override
+        # Create client with reference_service override
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
         app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[get_task_service] = lambda: task_service
-        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.dependency_overrides[get_reference_service] = lambda: reference_service
         app.dependency_overrides[get_credit_service] = lambda: credit_service
         app.dependency_overrides[get_db] = create_client(
             "user-1",
             workspace_service,
             task_service,
-            literature_service=literature_service,
+            reference_service=reference_service,
             credit_service=credit_service,
         ).app.dependency_overrides[get_db]
         app.include_router(features.router)
@@ -521,21 +521,21 @@ class TestLiteratureInsufficientWarning:
         task_service.submit_task = AsyncMock(return_value="task-789")
         task_service.find_active_task = AsyncMock(return_value=None)
 
-        literature_service = AsyncMock()
-        literature_service.count_literature.return_value = {"total": 20, "core": 5}
+        reference_service = AsyncMock()
+        reference_service.count_references.return_value = {"total": 20, "core": 5}
         credit_service = create_mock_credit_service()
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
         app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[get_task_service] = lambda: task_service
-        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.dependency_overrides[get_reference_service] = lambda: reference_service
         app.dependency_overrides[get_credit_service] = lambda: credit_service
         app.dependency_overrides[get_db] = create_client(
             "user-1",
             workspace_service,
             task_service,
-            literature_service=literature_service,
+            reference_service=reference_service,
             credit_service=credit_service,
         ).app.dependency_overrides[get_db]
         app.include_router(features.router)
@@ -560,21 +560,21 @@ class TestLiteratureInsufficientWarning:
         task_service.submit_task = AsyncMock(return_value="task-789")
         task_service.find_active_task = AsyncMock(return_value=None)
 
-        literature_service = AsyncMock()
-        literature_service.count_literature.return_value = {"total": 2, "core": 0}
+        reference_service = AsyncMock()
+        reference_service.count_references.return_value = {"total": 2, "core": 0}
         credit_service = create_mock_credit_service()
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: create_mock_user("user-1")
         app.dependency_overrides[features.get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[get_task_service] = lambda: task_service
-        app.dependency_overrides[get_literature_service] = lambda: literature_service
+        app.dependency_overrides[get_reference_service] = lambda: reference_service
         app.dependency_overrides[get_credit_service] = lambda: credit_service
         app.dependency_overrides[get_db] = create_client(
             "user-1",
             workspace_service,
             task_service,
-            literature_service=literature_service,
+            reference_service=reference_service,
             credit_service=credit_service,
         ).app.dependency_overrides[get_db]
         app.include_router(features.router)
@@ -588,8 +588,8 @@ class TestLiteratureInsufficientWarning:
         data = response.json()
         assert data["task_id"] == "task-789"
         assert data["warning"] is None
-        # literature_service should not be called
-        literature_service.count_literature.assert_not_called()
+        # reference_service should not be called
+        reference_service.count_references.assert_not_called()
 
 
 class TestIdempotentExecution:
@@ -606,15 +606,15 @@ class TestIdempotentExecution:
         task_service.submit_task = AsyncMock(return_value="new-task-id")
         task_service.find_active_task = AsyncMock(return_value="existing-task-123")
 
-        literature_service = AsyncMock()
-        literature_service.count_literature.return_value = {"total": 20, "core": 5}
+        reference_service = AsyncMock()
+        reference_service.count_references.return_value = {"total": 20, "core": 5}
         credit_service = create_mock_credit_service()
 
         client = create_client(
             "user-1",
             workspace_service,
             task_service,
-            literature_service=literature_service,
+            reference_service=reference_service,
             credit_service=credit_service,
         )
 
@@ -641,15 +641,15 @@ class TestIdempotentExecution:
         task_service.submit_task = AsyncMock(return_value="new-task-id")
         task_service.find_active_task = AsyncMock(return_value=None)
 
-        literature_service = AsyncMock()
-        literature_service.count_literature.return_value = {"total": 20, "core": 5}
+        reference_service = AsyncMock()
+        reference_service.count_references.return_value = {"total": 20, "core": 5}
         credit_service = create_mock_credit_service()
 
         client = create_client(
             "user-1",
             workspace_service,
             task_service,
-            literature_service=literature_service,
+            reference_service=reference_service,
             credit_service=credit_service,
         )
 

@@ -11,6 +11,12 @@ from src.agents.thread_state import ThreadState
 
 logger = logging.getLogger(__name__)
 
+_WORKSPACE_SCOPED_TOOL_NAMES = {
+    "list_workspace_reference_outline",
+    "search_workspace_references",
+    "read_workspace_reference_section",
+}
+
 
 class WorkspaceContextMiddleware(Middleware):
     """Middleware that loads and injects workspace context.
@@ -89,3 +95,23 @@ class WorkspaceContextMiddleware(Middleware):
             "workspace_config": workspace.config,
             "template_context": template_dict,
         }
+
+    async def before_tool(
+        self,
+        state: ThreadState,
+        config: RunnableConfig,
+        tool_name: str,
+        tool_args: dict,
+    ) -> tuple[str, dict]:
+        """Force workspace-scoped tools to use the runtime workspace."""
+        if tool_name not in _WORKSPACE_SCOPED_TOOL_NAMES:
+            return tool_name, tool_args
+        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        workspace_id = str(
+            state.get("workspace_id")
+            or configurable.get("workspace_id")
+            or ""
+        ).strip()
+        if not workspace_id:
+            return tool_name, tool_args
+        return tool_name, {**tool_args, "workspace_id": workspace_id}

@@ -2,7 +2,7 @@
 
 export { AgentStatusBar } from "./AgentStatusBar";
 export { ArtifactLibrary } from "./ArtifactLibrary";
-export { ImportLiteratureButton } from "./ImportLiteratureButton";
+export { ImportReferencesButton } from "./ImportReferencesButton";
 export { SaveArtifactButton } from "./SaveArtifactButton";
 export { TaskFeedbackBanner } from "./TaskFeedbackBanner";
 export { TaskRuntimePanel } from "./TaskRuntimePanel";

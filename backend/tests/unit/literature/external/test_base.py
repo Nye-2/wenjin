@@ -16,18 +16,20 @@ class TestPaperSearchResult:
             doi="10.1234/test",
             url="https://example.com/paper",
             abstract="An abstract",
+            external_id="abc123",
             source="semantic_scholar",
         )
 
         assert result.title == "Test Paper"
         assert len(result.authors) == 2
         assert result.year == 2024
+        assert result.external_id == "abc123"
 
     def test_optional_fields(self):
         """Test that optional fields can be omitted."""
         result = PaperSearchResult(
             title="Minimal Paper",
-            source="arxiv",
+            source="semantic_scholar",
         )
 
         assert result.authors == []

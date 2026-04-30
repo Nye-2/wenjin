@@ -5,12 +5,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
+from src.academic.literature.search_service import LiteratureSearchService
 from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
+from src.database import get_db_session
 from src.models.router import route_model, validate_requested_model
+from src.services.references import ReferenceImportService
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     advance_runtime_phase,
@@ -45,13 +49,21 @@ def _resolve_research_model(requested_model: str | None) -> str:
     )
 
 
-def _combine_discovery_papers(discovery: dict[str, Any]) -> list[dict[str, Any]]:
-    """Merge seminal and recent works into a deduplicated paper list."""
+def _combine_verified_discovery_papers(discovery: dict[str, Any]) -> list[dict[str, Any]]:
+    """Merge Semantic Scholar verified works into a deduplicated reference list."""
     merged: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
 
-    for key in ("seminal_works", "recent_works"):
-        works = discovery.get(key)
+    verified = discovery.get("verified_papers")
+    if isinstance(verified, list):
+        sources = [verified]
+    else:
+        sources = [
+            discovery.get("seminal_works"),
+            discovery.get("recent_works"),
+        ]
+
+    for works in sources:
         if not isinstance(works, list):
             continue
         for item in works:
@@ -59,7 +71,9 @@ def _combine_discovery_papers(discovery: dict[str, Any]) -> list[dict[str, Any]]
                 continue
             title = str(item.get("title") or "").strip()
             year = str(item.get("year") or "").strip()
-            dedupe_key = f"{title.lower()}::{year}"
+            external_id = str(item.get("external_id") or "").strip()
+            doi = str(item.get("doi") or "").strip().lower()
+            dedupe_key = doi or external_id or f"{title.lower()}::{year}"
             if not title or dedupe_key in seen_keys:
                 continue
             seen_keys.add(dedupe_key)
@@ -118,6 +132,7 @@ async def deep_research_graph(
 
     Each phase has LLM fallback. Output combined into structured result payload.
     """
+    workspace_id = str(payload.get("workspace_id") or "").strip()
     params = _read_payload_params(payload)
     topic = str(
         params.get("topic")
@@ -161,10 +176,12 @@ async def deep_research_graph(
         discipline,
         focus_areas,
         memory_context,
+        workspace_id=workspace_id or None,
         model_id=model_id,
     )
     pipeline_steps["discovery"] = bool(
-        discovery.get("seminal_works")
+        discovery.get("verified_papers")
+        or discovery.get("seminal_works")
         or discovery.get("recent_works")
         or discovery.get("trends")
     )
@@ -177,7 +194,7 @@ async def deep_research_graph(
                 "title": "发现摘要",
                 "entries": [
                     {
-                        "label": "经典文献",
+                        "label": "经典/基础文献",
                         "value": str(
                             len(discovery.get("seminal_works"))
                             if isinstance(discovery.get("seminal_works"), list)
@@ -189,6 +206,14 @@ async def deep_research_graph(
                         "value": str(
                             len(discovery.get("recent_works"))
                             if isinstance(discovery.get("recent_works"), list)
+                            else 0
+                        ),
+                    },
+                    {
+                        "label": "已验证文献",
+                        "value": str(
+                            len(discovery.get("verified_papers"))
+                            if isinstance(discovery.get("verified_papers"), list)
                             else 0
                         ),
                     },
@@ -351,11 +376,12 @@ async def deep_research_graph(
             stage_transition=True,
         )
 
-    papers = _combine_discovery_papers(discovery)
+    verified_papers = _combine_verified_discovery_papers(discovery)
 
     return {
         "schema_version": "v1",
         "source_feature": "deep_research",
+        "source": "semantic_scholar",
         "topic": topic,
         "discipline": discipline,
         "query": {
@@ -364,9 +390,11 @@ async def deep_research_graph(
             "constraints": [],
         },
         "corpus": {
-            "paper_count": len(papers),
-            "top_papers": papers[:8],
+            "verified_count": len(verified_papers),
+            "verified_papers": verified_papers[:12],
+            "retrieval": discovery.get("retrieval") if isinstance(discovery.get("retrieval"), dict) else {},
         },
+        "verified_papers": verified_papers,
         "discovery": discovery,
         "gaps": gaps,
         "ideas": ideas,
@@ -375,6 +403,9 @@ async def deep_research_graph(
             idea_count=len(ideas),
         ),
         "cross_validation": cross_validation,
+        "reference_import": discovery.get("reference_import")
+        if isinstance(discovery.get("reference_import"), dict)
+        else {"imported": 0, "created": 0, "items": []},
         "model_id": model_id,
         "pipeline_steps": pipeline_steps,
         "generation_mode": _determine_generation_mode(pipeline_steps),
@@ -391,44 +422,73 @@ async def _phase1_discovery(
     focus_areas: list[str],
     memory_context: str | None,
     *,
+    workspace_id: str | None = None,
     model_id: str = "default",
 ) -> dict[str, Any]:
-    """Run 3 discovery tasks in parallel via asyncio.gather."""
+    """Run Semantic Scholar retrieval and trend analysis in parallel."""
+    seminal_query = _build_semantic_scholar_query(
+        topic=topic,
+        discipline=discipline,
+        focus_areas=focus_areas,
+        intent="foundational seminal key works",
+    )
+    recent_query = _build_semantic_scholar_query(
+        topic=topic,
+        discipline=discipline,
+        focus_areas=focus_areas,
+        intent="recent advances current research",
+    )
     results = await asyncio.gather(
-        _scout_seminal_works(topic, discipline, focus_areas, memory_context, model_id=model_id),
-        _scout_recent_works(topic, discipline, focus_areas, memory_context, model_id=model_id),
+        _search_semantic_scholar_verified(seminal_query, discipline=discipline, limit=8),
+        _search_semantic_scholar_verified(recent_query, discipline=discipline, limit=8),
         _analyze_trends(topic, discipline, focus_areas, memory_context, model_id=model_id),
         return_exceptions=True,
     )
 
-    seminal = results[0] if not isinstance(results[0], BaseException) else []
-    recent = results[1] if not isinstance(results[1], BaseException) else []
+    seminal_result = results[0] if not isinstance(results[0], BaseException) else {}
+    recent_result = results[1] if not isinstance(results[1], BaseException) else {}
     trends = results[2] if not isinstance(results[2], BaseException) else []
 
     # Log any exceptions from parallel tasks
     for i, r in enumerate(results):
         if isinstance(r, BaseException):
-            task_names = ["scout_seminal", "scout_recent", "analyze_trends"]
+            task_names = ["semantic_seminal", "semantic_recent", "analyze_trends"]
             logger.warning("Phase 1 task %s failed: %s", task_names[i], r)
 
+    seminal_papers = (
+        seminal_result.get("verified_papers")
+        if isinstance(seminal_result, dict) and isinstance(seminal_result.get("verified_papers"), list)
+        else []
+    )
+    recent_papers = (
+        recent_result.get("verified_papers")
+        if isinstance(recent_result, dict) and isinstance(recent_result.get("verified_papers"), list)
+        else []
+    )
+    verified_papers = _dedupe_verified_papers([*seminal_papers, *recent_papers])
+    reference_import = await _import_verified_papers_to_reference_library(
+        workspace_id=workspace_id,
+        topic=topic,
+        verified_papers=verified_papers,
+    )
+
     return {
-        "seminal_works": seminal if isinstance(seminal, list) else [],
-        "recent_works": recent if isinstance(recent, list) else [],
+        "source": "semantic_scholar",
+        "seminal_works": _annotate_discovery_papers(seminal_papers, category="seminal"),
+        "recent_works": _annotate_discovery_papers(recent_papers, category="recent"),
+        "verified_papers": verified_papers,
+        "retrieval": _merge_retrieval_info(
+            seminal_result if isinstance(seminal_result, dict) else {},
+            recent_result if isinstance(recent_result, dict) else {},
+        ),
+        "reference_import": reference_import,
         "trends": trends if isinstance(trends, list) else [],
     }
 
 
 # ---------------------------------------------------------------------------
-# Phase 1 helpers: individual scout / trend LLM calls
+# Phase 1 helpers: Semantic Scholar retrieval / trend LLM calls
 # ---------------------------------------------------------------------------
-_DISCOVERY_ITEM_SCHEMA = """{
-  "title": "论文标题",
-  "authors": "主要作者（简写）",
-  "year": 2020,
-  "significance": "该文献的学术贡献和影响（1-2句话）",
-  "relevance": "与当前研究主题的关联（1句话）"
-}"""
-
 _TREND_ITEM_SCHEMA = """{
   "topic": "趋势主题名称",
   "description": "趋势描述（2-3句话）",
@@ -459,82 +519,141 @@ _CROSS_VALIDATE_SCHEMA = """{
 }"""
 
 
-async def _scout_seminal_works(
+def _build_semantic_scholar_query(
+    *,
     topic: str,
     discipline: str,
     focus_areas: list[str],
-    memory_context: str | None,
+    intent: str,
+) -> str:
+    """Build a compact Semantic Scholar query from thesis context."""
+    parts = [topic, discipline, intent, *[str(item) for item in focus_areas[:5]]]
+    normalized = " ".join(" ".join(parts).split()).strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized[:240].rstrip() or topic
+
+
+async def _search_semantic_scholar_verified(
+    query: str,
     *,
-    model_id: str = "default",
-) -> list[dict[str, Any]]:
-    """Identify seminal/foundational works for the topic."""
-    prompt = build_json_prompt(
-        instruction="请识别该主题最具奠基性或开创性的经典文献。",
-        context_sections=(
-            ("研究主题", topic),
-            ("学科方向", discipline),
-            ("重点关注方向", focus_areas),
-            ("工作记忆", memory_context),
-        ),
-        schema=f"[{_DISCOVERY_ITEM_SCHEMA}]",
-        requirements=(
-            "优先选择该领域公认的奠基性工作，不要混入普通综述或低相关文献。",
-            "significance 要概括其历史地位或方法贡献；relevance 要说明与当前主题的直接关系。",
-            "如果年份或作者无法确认，可保守标注“待核验”，不要编造。",
-        ),
-        output_language="中文",
-    )
-    parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是问津 Compute 的学术文献发现专家，负责识别高信号、可核验的奠基性文献线索。",
-        prompt=prompt,
-        resolved_model_id=model_id,
-        temperature=0.2,
-        expected_type="array",
-    )
-    if isinstance(parsed, list):
-        return [item for item in parsed if isinstance(item, dict)]
-    if generation_error:
-        logger.warning("Scout seminal works failed: %s", generation_error)
-    return []
-
-
-async def _scout_recent_works(
-    topic: str,
     discipline: str,
-    focus_areas: list[str],
-    memory_context: str | None,
+    limit: int = 8,
+) -> dict[str, Any]:
+    """Retrieve verified papers from the canonical Semantic Scholar service."""
+    return await LiteratureSearchService().search(
+        query=query,
+        discipline=discipline,
+        limit=limit,
+    )
+
+
+def _verified_paper_key(paper: dict[str, Any]) -> str:
+    doi = str(paper.get("doi") or "").strip().lower()
+    if doi:
+        return f"doi:{doi}"
+    external_id = str(paper.get("external_id") or "").strip()
+    if external_id:
+        return f"semantic_scholar:{external_id}"
+    title = str(paper.get("title") or "").strip().lower()
+    year = str(paper.get("year") or "").strip()
+    return f"title:{title}:{year}"
+
+
+def _dedupe_verified_papers(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for paper in papers:
+        if not isinstance(paper, dict):
+            continue
+        title = str(paper.get("title") or "").strip()
+        if not title:
+            continue
+        key = _verified_paper_key(paper)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(paper)
+    return deduped
+
+
+def _annotate_discovery_papers(
+    papers: list[dict[str, Any]],
     *,
-    model_id: str = "default",
+    category: str,
 ) -> list[dict[str, Any]]:
-    """Identify recent cutting-edge works for the topic."""
-    prompt = build_json_prompt(
-        instruction="请识别近 2-3 年最值得关注的近期重要文献。",
-        context_sections=(
-            ("研究主题", topic),
-            ("学科方向", discipline),
-            ("重点关注方向", focus_areas),
-            ("工作记忆", memory_context),
-        ),
-        schema=f"[{_DISCOVERY_ITEM_SCHEMA}]",
-        requirements=(
-            "优先选择近 2-3 年内有代表性、方法或应用上有明显推进的工作。",
-            "不要把经典老文献重复列入近期文献列表。",
-            "relevance 需要说明这篇文献为什么值得纳入当前调研范围。",
-        ),
-        output_language="中文",
-    )
-    parsed, _, generation_error = await invoke_json_chat_model(
-        system_prompt="你是问津 Compute 的学术文献发现专家，负责识别近期代表工作并标注待核验证据。",
-        prompt=prompt,
-        resolved_model_id=model_id,
-        temperature=0.2,
-        expected_type="array",
-    )
-    if isinstance(parsed, list):
-        return [item for item in parsed if isinstance(item, dict)]
-    if generation_error:
-        logger.warning("Scout recent works failed: %s", generation_error)
-    return []
+    """Project verified paper metadata into discovery-summary records."""
+    label = "Semantic Scholar 经典/基础检索命中" if category == "seminal" else "Semantic Scholar 近期研究检索命中"
+    annotated: list[dict[str, Any]] = []
+    for paper in papers:
+        if not isinstance(paper, dict):
+            continue
+        title = str(paper.get("title") or "").strip()
+        if not title:
+            continue
+        abstract = " ".join(str(paper.get("abstract") or "").split())
+        annotated.append(
+            {
+                **paper,
+                "significance": abstract[:320] or label,
+                "relevance": (
+                    f"{label}；source=semantic_scholar；"
+                    f"external_id={paper.get('external_id') or 'n/a'}"
+                ),
+                "evidence_source": "semantic_scholar",
+            }
+        )
+    return annotated
+
+
+def _merge_retrieval_info(*results: dict[str, Any]) -> dict[str, Any]:
+    retrievals = [
+        item.get("retrieval")
+        for item in results
+        if isinstance(item, dict) and isinstance(item.get("retrieval"), dict)
+    ]
+    return {
+        "source": "semantic_scholar",
+        "queries": [
+            {
+                "query": retrieval.get("query"),
+                "status": retrieval.get("status"),
+                "returned": retrieval.get("returned"),
+                "verified": retrieval.get("verified"),
+                "error": retrieval.get("error"),
+                "verified_at": retrieval.get("verified_at"),
+            }
+            for retrieval in retrievals
+        ],
+        "verified": sum(int(retrieval.get("verified") or 0) for retrieval in retrievals),
+        "status": "ok" if retrievals and all(retrieval.get("status") == "ok" for retrieval in retrievals) else "partial",
+        "verified_at": next((retrieval.get("verified_at") for retrieval in retrievals if retrieval.get("verified_at")), None),
+    }
+
+
+async def _import_verified_papers_to_reference_library(
+    *,
+    workspace_id: str | None,
+    topic: str,
+    verified_papers: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Persist verified deep-research papers into the workspace Reference Library."""
+    if not workspace_id or not verified_papers:
+        return {"imported": 0, "created": 0, "items": []}
+    try:
+        async with get_db_session() as db:
+            return await ReferenceImportService(db).import_semantic_scholar_papers(
+                workspace_id=workspace_id,
+                papers=verified_papers,
+                source_label=f"Deep research: {topic}",
+            )
+    except Exception as exc:
+        logger.warning(
+            "Failed to import deep research verified papers into Reference Library for workspace=%s: %s",
+            workspace_id,
+            exc,
+            exc_info=True,
+        )
+        return {"imported": 0, "created": 0, "items": [], "error": str(exc)}
 
 
 async def _analyze_trends(

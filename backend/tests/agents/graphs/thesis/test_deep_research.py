@@ -213,37 +213,61 @@ class TestDetermineGenerationMode:
 class TestPhase1Discovery:
     @pytest.mark.asyncio
     async def test_all_tasks_succeed(self):
-        """When all 3 parallel tasks succeed, results are merged."""
+        """When Semantic Scholar and trend tasks succeed, results are merged."""
         with patch(
-            "src.agents.graphs.thesis.deep_research._scout_seminal_works",
+            "src.agents.graphs.thesis.deep_research._search_semantic_scholar_verified",
             new_callable=AsyncMock,
-            return_value=[{"title": "Seminal A"}],
+            side_effect=[
+                {
+                    "verified_papers": [
+                        {"title": "Seminal A", "external_id": "ss-1", "abstract": "Sig A"}
+                    ],
+                    "retrieval": {"query": "q1", "status": "ok", "verified": 1},
+                },
+                {
+                    "verified_papers": [
+                        {"title": "Recent B", "external_id": "ss-2", "abstract": "Sig B"}
+                    ],
+                    "retrieval": {"query": "q2", "status": "ok", "verified": 1},
+                },
+            ],
         ), patch(
-            "src.agents.graphs.thesis.deep_research._scout_recent_works",
+            "src.agents.graphs.thesis.deep_research._import_verified_papers_to_reference_library",
             new_callable=AsyncMock,
-            return_value=[{"title": "Recent B"}],
+            return_value={"imported": 2, "created": 2, "items": []},
         ), patch(
             "src.agents.graphs.thesis.deep_research._analyze_trends",
             new_callable=AsyncMock,
             return_value=[{"topic": "Trend C"}],
         ):
-            result = await _phase1_discovery("NLP", "计算机科学", [], None)
+            result = await _phase1_discovery("NLP", "计算机科学", [], None, workspace_id="ws-1")
 
-        assert result["seminal_works"] == [{"title": "Seminal A"}]
-        assert result["recent_works"] == [{"title": "Recent B"}]
+        assert result["source"] == "semantic_scholar"
+        assert result["seminal_works"][0]["title"] == "Seminal A"
+        assert result["recent_works"][0]["title"] == "Recent B"
+        assert [item["external_id"] for item in result["verified_papers"]] == ["ss-1", "ss-2"]
+        assert result["reference_import"]["imported"] == 2
         assert result["trends"] == [{"topic": "Trend C"}]
 
     @pytest.mark.asyncio
     async def test_partial_failure(self):
         """When some tasks fail, successful results are still returned."""
         with patch(
-            "src.agents.graphs.thesis.deep_research._scout_seminal_works",
+            "src.agents.graphs.thesis.deep_research._search_semantic_scholar_verified",
             new_callable=AsyncMock,
-            return_value=[{"title": "Seminal A"}],
+            side_effect=[
+                {
+                    "verified_papers": [
+                        {"title": "Seminal A", "external_id": "ss-1", "abstract": "Sig A"}
+                    ],
+                    "retrieval": {"query": "q1", "status": "ok", "verified": 1},
+                },
+                RuntimeError("Semantic Scholar timeout"),
+            ],
         ), patch(
-            "src.agents.graphs.thesis.deep_research._scout_recent_works",
+            "src.agents.graphs.thesis.deep_research._import_verified_papers_to_reference_library",
             new_callable=AsyncMock,
-            side_effect=RuntimeError("LLM timeout"),
+            return_value={"imported": 1, "created": 1, "items": []},
         ), patch(
             "src.agents.graphs.thesis.deep_research._analyze_trends",
             new_callable=AsyncMock,
@@ -251,21 +275,22 @@ class TestPhase1Discovery:
         ):
             result = await _phase1_discovery("NLP", "计算机科学", [], None)
 
-        assert result["seminal_works"] == [{"title": "Seminal A"}]
-        assert result["recent_works"] == []  # Failed task returns empty
+        assert result["seminal_works"][0]["title"] == "Seminal A"
+        assert result["recent_works"] == []
+        assert result["verified_papers"][0]["external_id"] == "ss-1"
         assert result["trends"] == [{"topic": "Trend C"}]
 
     @pytest.mark.asyncio
     async def test_all_tasks_fail(self):
         """When all tasks fail, empty lists are returned."""
         with patch(
-            "src.agents.graphs.thesis.deep_research._scout_seminal_works",
+            "src.agents.graphs.thesis.deep_research._search_semantic_scholar_verified",
             new_callable=AsyncMock,
-            side_effect=RuntimeError("fail"),
+            side_effect=[RuntimeError("fail"), RuntimeError("fail")],
         ), patch(
-            "src.agents.graphs.thesis.deep_research._scout_recent_works",
+            "src.agents.graphs.thesis.deep_research._import_verified_papers_to_reference_library",
             new_callable=AsyncMock,
-            side_effect=RuntimeError("fail"),
+            return_value={"imported": 0, "created": 0, "items": []},
         ), patch(
             "src.agents.graphs.thesis.deep_research._analyze_trends",
             new_callable=AsyncMock,
@@ -275,19 +300,23 @@ class TestPhase1Discovery:
 
         assert result["seminal_works"] == []
         assert result["recent_works"] == []
+        assert result["verified_papers"] == []
         assert result["trends"] == []
 
     @pytest.mark.asyncio
     async def test_non_list_results_become_empty(self):
         """If a task returns a non-list value, it becomes an empty list."""
         with patch(
-            "src.agents.graphs.thesis.deep_research._scout_seminal_works",
+            "src.agents.graphs.thesis.deep_research._search_semantic_scholar_verified",
             new_callable=AsyncMock,
-            return_value="not a list",
+            side_effect=[
+                {"verified_papers": "not a list", "retrieval": {"status": "ok"}},
+                {"verified_papers": None, "retrieval": {"status": "ok"}},
+            ],
         ), patch(
-            "src.agents.graphs.thesis.deep_research._scout_recent_works",
+            "src.agents.graphs.thesis.deep_research._import_verified_papers_to_reference_library",
             new_callable=AsyncMock,
-            return_value=None,
+            return_value={"imported": 0, "created": 0, "items": []},
         ), patch(
             "src.agents.graphs.thesis.deep_research._analyze_trends",
             new_callable=AsyncMock,

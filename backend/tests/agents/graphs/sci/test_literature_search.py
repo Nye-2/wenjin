@@ -29,14 +29,15 @@ class TestLiteratureSearchGraph:
             return {
                 "query": "machine learning",
                 "discipline": "综合",
-                "papers": [],
-                "top_hits": [],
-                "filters": {},
-                "summary": "ok",
-                "search_strategy": "llm_synthesis",
+                "source": "semantic_scholar",
+                "retrieval": {"status": "ok"},
+                "verified_papers": [],
+                "model_synthesis": {"summary": "ok"},
+                "unverified_leads": [],
                 "generated_at": "2026-03-20T00:00:00+00:00",
                 "model_id": "mock-model",
                 "generation_error": None,
+                "generation_mode": "semantic_scholar_grounded_llm",
             }
 
         monkeypatch.setattr(
@@ -60,8 +61,10 @@ class TestLiteratureSearchGraph:
         result = await literature_search_graph(initial_state, payload)
 
         assert "query" in result
-        assert "papers" in result
-        assert "search_strategy" in result
+        assert "verified_papers" in result
+        assert "model_synthesis" in result
+        assert result["source"] == "semantic_scholar"
+        assert isinstance(result["retrieval"], dict)
         assert result["query"] == "machine learning"
 
     @pytest.mark.asyncio
@@ -71,14 +74,15 @@ class TestLiteratureSearchGraph:
             return {
                 "query": kwargs["query"],
                 "discipline": "综合",
-                "papers": [],
-                "top_hits": [],
-                "filters": {},
-                "summary": "ok",
-                "search_strategy": "llm_synthesis",
+                "source": "semantic_scholar",
+                "retrieval": {"status": "ok"},
+                "verified_papers": [],
+                "model_synthesis": {"summary": "ok"},
+                "unverified_leads": [],
                 "generated_at": "2026-03-20T00:00:00+00:00",
                 "model_id": "mock-model",
                 "generation_error": None,
+                "generation_mode": "semantic_scholar_grounded_llm",
             }
 
         monkeypatch.setattr(

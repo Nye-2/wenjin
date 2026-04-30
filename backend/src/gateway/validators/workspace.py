@@ -138,36 +138,3 @@ class WorkspaceIdValidator(BaseModel):
         """Validate workspace ID is a valid UUID."""
         return validate_uuid(v)
 
-
-class AddPaperToWorkspaceValidator(BaseModel):
-    """Validator for adding paper to workspace requests."""
-
-    model_config = ConfigDict(str_strip_whitespace=True)
-
-    notes: Annotated[str, Field(max_length=5000)] | None = None
-    tags: list[str] | None = None
-    is_primary: bool = False
-
-    @field_validator("notes")
-    @classmethod
-    def sanitize_notes(cls, v: str | None) -> str | None:
-        """Sanitize notes field."""
-        if v is None:
-            return None
-        return sanitize_html(sanitize_string(v, max_length=5000))
-
-    @field_validator("tags")
-    @classmethod
-    def validate_tags(cls, v: list[str] | None) -> list[str] | None:
-        """Validate and sanitize tags."""
-        if v is None:
-            return None
-        if len(v) > 20:
-            raise ValueError("Cannot have more than 20 tags")
-        # Sanitize each tag
-        sanitized_tags = []
-        for tag in v:
-            sanitized = sanitize_html(sanitize_string(tag, max_length=50))
-            if sanitized:
-                sanitized_tags.append(sanitized)
-        return sanitized_tags

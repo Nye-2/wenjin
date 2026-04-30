@@ -32,7 +32,7 @@ export function TaskArtifactPanel({ tasks, artifactIds }: TaskArtifactPanelProps
                 {formatShortId(readString(task.task_id))}
               </p>
               <span className="shrink-0 text-[11px] text-compute-text-muted">
-                {String(task.status || "unknown")}
+                {String(task.status || "未知")}
               </span>
             </div>
             {readString(task.message) ? (
@@ -44,13 +44,13 @@ export function TaskArtifactPanel({ tasks, artifactIds }: TaskArtifactPanelProps
         ))}
         {tasks.length === 0 ? (
           <p className="rounded-xl border border-dashed border-compute-border px-3 py-4 text-center text-xs text-compute-text-muted">
-            当前 Compute projection 暂无任务记录。
+            当前工作现场暂无任务记录。
           </p>
         ) : null}
         {artifactIds.length > 0 ? (
           <div className="rounded-xl border border-compute-border bg-compute-surface px-3 py-2">
             <p className="text-xs font-medium text-compute-text-primary">
-              Artifact IDs
+              产物 ID
             </p>
             <p className="mt-1 line-clamp-3 text-[11px] leading-5 text-compute-text-muted">
               {artifactIds.join(", ")}

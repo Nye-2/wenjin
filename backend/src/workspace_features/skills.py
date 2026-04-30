@@ -224,7 +224,7 @@ _SCI_SKILLS = (
         guidance_prompt=_guidance(
             purpose="用户需要对论文标题、PDF、摘要或工作区论文做结构化深读。",
             minimum_inputs=(
-                "论文标题、paper_id、PDF/上传材料或摘要",
+                "论文标题、reference_id、PDF/上传材料或摘要",
                 "分析重点：方法、实验、结论、创新点、写法或对比",
                 "可选：要比较的论文或目标章节用途",
             ),

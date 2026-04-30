@@ -145,6 +145,10 @@ class TaskService:
 
         # Generate task ID
         task_id = str(uuid4())
+        payload = {
+            **dict(payload or {}),
+            "task_id": task_id,
+        }
 
         limit = task_settings.max_concurrent_tasks_per_user
         record, active_count = await self._store.create_task_record_guarded(

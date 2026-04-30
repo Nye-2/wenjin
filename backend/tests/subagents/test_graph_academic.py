@@ -73,10 +73,10 @@ class TestRegisterAcademicTemplates:
     def mock_tools(self):
         """Create mock tools dict."""
         return {
-            "semantic_scholar_search": _make_test_tool("semantic_scholar_search"),
             "read_file": _make_test_tool("read_file"),
-            "get_paper_section": _make_test_tool("get_paper_section"),
-            "get_paper_toc": _make_test_tool("get_paper_toc"),
+            "list_workspace_reference_outline": _make_test_tool("list_workspace_reference_outline"),
+            "search_workspace_references": _make_test_tool("search_workspace_references"),
+            "read_workspace_reference_section": _make_test_tool("read_workspace_reference_section"),
         }
 
     def test_registers_all_unified_academic_templates(self, mock_tools):
@@ -133,7 +133,7 @@ class TestRegisterAcademicTemplates:
         mock_llm = MagicMock()
         # Only provide one tool
         limited_tools = {
-            "semantic_scholar_search": _make_test_tool("semantic_scholar_search"),
+            "search_workspace_references": _make_test_tool("search_workspace_references"),
         }
 
         with patch(

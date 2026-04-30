@@ -7,38 +7,88 @@ import pytest
 from src.workspace_features.services import sci_feature_service
 
 
+def test_sanitize_literature_synthesis_drops_unverified_reading_items() -> None:
+    result = sci_feature_service._sanitize_literature_synthesis(
+        {
+            "summary": "ok",
+            "themes": [
+                {
+                    "name": "Theme",
+                    "supporting_external_ids": ["ss-1", "fake-id"],
+                }
+            ],
+            "research_gaps": ["gap"],
+            "recommended_reading_order": [
+                {"external_id": "ss-1", "title": "Verified Paper"},
+                {"external_id": "fake-id", "title": "Hallucinated Paper"},
+            ],
+        },
+        verified_papers=[{"external_id": "ss-1", "title": "Verified Paper"}],
+    )
+
+    assert result["themes"][0]["supporting_external_ids"] == ["ss-1"]
+    assert result["recommended_reading_order"] == [
+        {"external_id": "ss-1", "title": "Verified Paper"}
+    ]
+
+
 @pytest.mark.asyncio
 async def test_build_literature_search_payload_normalizes_query_and_tracks_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_load_workspace_literature(_workspace_id: str):
+    async def _fake_load_workspace_references(_workspace_id: str):
         return [{"title": "Paper A", "year": 2024, "venue": "ACL"}]
 
-    async def _fake_try_llm_literature_search(**_kwargs):
+    class _FakeLiteratureSearchService:
+        async def search(self, **kwargs):
+            return {
+                "query": kwargs["query"],
+                "discipline": kwargs["discipline"],
+                "source": "semantic_scholar",
+                "retrieval": {
+                    "source": "semantic_scholar",
+                    "query": kwargs["query"],
+                    "status": "ok",
+                    "verified": 1,
+                },
+                "verified_papers": [
+                    {
+                        "title": "Verified Paper",
+                        "year": 2024,
+                        "venue": "ACL",
+                        "external_id": "abc123",
+                        "source": "semantic_scholar",
+                    }
+                ],
+            }
+
+    async def _fake_try_llm_literature_synthesis(**_kwargs):
         return (
             {
-                "query": "研究主题",
-                "discipline": "计算机科学",
-                "papers": [{"title": "Paper A"}],
-                "top_hits": [{"title": "Top Hit", "reason": "high relevance"}],
-                "filters": {"sources": ["Semantic Scholar"]},
                 "summary": "检索结果概述",
-                "search_strategy": "llm_synthesis",
-                "generated_at": "2026-03-25T00:00:00+00:00",
+                "themes": [{"name": "Theme", "supporting_external_ids": ["abc123"]}],
+                "research_gaps": ["gap"],
+                "recommended_reading_order": [{"external_id": "abc123", "title": "Verified Paper"}],
             },
+            [{"lead": "next keyword", "next_query": "next keyword"}],
             "sci-search-model",
             None,
         )
 
     monkeypatch.setattr(
         sci_feature_service,
-        "_load_workspace_literature",
-        _fake_load_workspace_literature,
+        "_load_workspace_references",
+        _fake_load_workspace_references,
     )
     monkeypatch.setattr(
         sci_feature_service,
-        "_try_llm_literature_search",
-        _fake_try_llm_literature_search,
+        "LiteratureSearchService",
+        _FakeLiteratureSearchService,
+    )
+    monkeypatch.setattr(
+        sci_feature_service,
+        "_try_llm_literature_synthesis",
+        _fake_try_llm_literature_synthesis,
     )
 
     payload = await sci_feature_service.build_literature_search_payload(
@@ -51,7 +101,11 @@ async def test_build_literature_search_payload_normalizes_query_and_tracks_conte
     assert payload["discipline"] == "计算机科学"
     assert payload["existing_literature_count"] == 1
     assert payload["model_id"] == "sci-search-model"
-    assert payload["top_hits"][0]["title"] == "Top Hit"
+    assert payload["source"] == "semantic_scholar"
+    assert payload["verified_papers"][0]["title"] == "Verified Paper"
+    assert payload["model_synthesis"]["summary"] == "检索结果概述"
+    assert payload["unverified_leads"][0]["lead"] == "next keyword"
+    assert payload["retrieval"]["source"] == "semantic_scholar"
 
 
 @pytest.mark.asyncio
@@ -92,7 +146,7 @@ async def test_build_paper_analysis_payload_uses_fallback_title_and_returns_mode
     )
 
     assert payload["paper_title"] == "未命名论文"
-    assert payload["paper_id"] is None
+    assert payload["reference_id"] is None
     assert payload["model_id"] == "sci-analysis-model"
     assert payload["analysis_mode"] == "llm"
     assert payload["sections"]["methodology"]["title"] == "研究方法"

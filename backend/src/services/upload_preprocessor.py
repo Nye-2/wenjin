@@ -128,6 +128,33 @@ def _to_reference_path(
     return normalized_root
 
 
+def _coerce_positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _extract_layout_page_number(
+    layout_result: dict[str, Any],
+    *,
+    fallback: int,
+) -> tuple[int, str]:
+    for key in ("page_no", "pageNo", "page_number", "pageNumber", "page"):
+        value = _coerce_positive_int(layout_result.get(key))
+        if value is not None:
+            return value, key
+    for key in ("page_index", "pageIndex"):
+        try:
+            parsed = int(layout_result.get(key))
+        except (TypeError, ValueError):
+            continue
+        if parsed >= 0:
+            return parsed + 1, key
+    return fallback, "layout_result_index"
+
+
 def _guess_extension_from_mime(mime: str) -> str:
     mime_map = {
         "image/jpeg": ".jpg",
@@ -290,6 +317,7 @@ class OCRProvider(BaseProvider):
             markdown_paths: list[str] = []
             markdown_image_paths: list[str] = []
             output_image_paths: list[str] = []
+            page_entries: list[dict[str, Any]] = []
 
             for index, layout_result in enumerate(layout_results):
                 markdown = layout_result.get("markdown")
@@ -297,12 +325,24 @@ class OCRProvider(BaseProvider):
                 markdown_text = str(markdown_map.get("text") or "")
                 markdown_path = output_dir / f"doc_{index}.md"
                 markdown_path.write_text(markdown_text, encoding="utf-8")
-                markdown_paths.append(
-                    _to_reference_path(
-                        output_path=markdown_path,
-                        output_dir=output_dir,
-                        output_virtual_root=output_virtual_root,
-                    )
+                markdown_path_ref = _to_reference_path(
+                    output_path=markdown_path,
+                    output_dir=output_dir,
+                    output_virtual_root=output_virtual_root,
+                )
+                markdown_paths.append(markdown_path_ref)
+                page_number, page_source = _extract_layout_page_number(
+                    layout_result,
+                    fallback=index + 1,
+                )
+                page_entries.append(
+                    {
+                        "doc_index": index,
+                        "markdown_path": markdown_path_ref,
+                        "page_start": page_number,
+                        "page_end": page_number,
+                        "page_source": page_source,
+                    }
                 )
 
                 # Handle markdown images (URL, data URL, or base64)
@@ -396,6 +436,12 @@ class OCRProvider(BaseProvider):
             "log_id": log_id,
             "page_count": len(layout_results),
             "result_count": len(layout_results),
+            "page_index_kind": (
+                "pdf_page"
+                if any(item.get("page_source") != "layout_result_index" for item in page_entries)
+                else "layout_result_index"
+            ),
+            "pages": page_entries,
             "provider_options": self._build_provider_options(),
         }
 

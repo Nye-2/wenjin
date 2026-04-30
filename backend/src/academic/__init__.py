@@ -3,20 +3,20 @@
 from src.database import (
     Artifact,
     GenerationRecord,
-    Paper,
-    PaperChunk,
-    PaperExtraction,
+    ReferenceAsset,
+    ReferenceOutlineNode,
+    ReferenceTextUnit,
     UserKnowledge,
     Workspace,
-    WorkspacePaper,
+    WorkspaceReference,
 )
 
 __all__ = [
     "Workspace",
-    "Paper",
-    "WorkspacePaper",
-    "PaperExtraction",
-    "PaperChunk",
+    "WorkspaceReference",
+    "ReferenceAsset",
+    "ReferenceOutlineNode",
+    "ReferenceTextUnit",
     "Artifact",
     "UserKnowledge",
     "GenerationRecord",

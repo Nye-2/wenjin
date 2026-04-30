@@ -110,11 +110,11 @@ def merge_response_metadata(
         merged[key] = value
     return merged
 
-def merge_cited_papers(
+def merge_cited_references(
     existing: list[str] | None,
     new: list[str] | None,
 ) -> list[str]:
-    """Reducer for cited papers - merges and deduplicates."""
+    """Reducer for cited references - merges and deduplicates."""
     if existing is None:
         return new or []
     if new is None:
@@ -170,7 +170,7 @@ class ThreadState(AgentState):
         - memory_context: Long-term user memory context
         - discipline_norms: Discipline-specific norms (was _discipline_norms)
         - current_skill: Currently executing skill name
-        - cited_papers: Paper ID list with dedup reducer
+        - cited_references: reference ID list with dedup reducer
         - subagent_tasks: Subagent task tracking
     """
 
@@ -200,7 +200,7 @@ class ThreadState(AgentState):
     current_skill: NotRequired[str | None]
 
     # Citation tracking with deduplication reducer
-    cited_papers: Annotated[list[str], merge_cited_papers]
+    cited_references: Annotated[list[str], merge_cited_references]
 
     # Subagent tracking
     subagent_tasks: NotRequired[dict[str, Any] | None]
@@ -217,7 +217,7 @@ def create_thread_state(
         "response_blocks": [],
         "response_metadata": {},
         "viewed_images": {},
-        "cited_papers": [],
+        "cited_references": [],
     }
     if initial is not None:
         payload.update(dict(initial))

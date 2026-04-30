@@ -26,7 +26,7 @@ class ModelConfig(BaseModel):
 class ToolConfig(BaseModel):
     """Tool configuration."""
     name: str = ""
-    use: str  # e.g., "src.academic.tools.semantic_scholar:search_tool"
+    use: str  # e.g., "src.tools.builtins.references:search_workspace_references_tool"
     group: str = ""
 
     def model_post_init(self, __context: object) -> None:

@@ -274,10 +274,24 @@ def test_thesis_deep_research_includes_ideas_and_gaps_in_artifact() -> None:
         "topic": "测试主题",
         "discipline": "计算机科学",
         "query": {"keywords": ["测试主题"], "constraints": []},
-        "corpus": {"paper_count": 2, "top_papers": [{"title": "Seminal A"}, {"title": "Recent B"}]},
+        "source": "semantic_scholar",
+        "corpus": {
+            "verified_count": 2,
+            "verified_papers": [
+                {"title": "Seminal A", "external_id": "ss-1"},
+                {"title": "Recent B", "external_id": "ss-2"},
+            ],
+        },
+        "verified_papers": [
+            {"title": "Seminal A", "external_id": "ss-1"},
+            {"title": "Recent B", "external_id": "ss-2"},
+        ],
         "discovery": {
-            "seminal_works": [{"title": "Seminal A"}],
-            "recent_works": [{"title": "Recent B"}],
+            "source": "semantic_scholar",
+            "verified_papers": [
+                {"title": "Seminal A", "external_id": "ss-1"},
+                {"title": "Recent B", "external_id": "ss-2"},
+            ],
             "trends": [{"topic": "Trend C"}],
         },
         "gaps": [{"description": "数据集泛化不足"}],

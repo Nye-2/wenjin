@@ -134,10 +134,10 @@ async def _load_db_snapshot(
     if runtime_context.workspace_id is None or runtime_context.user_id is None:
         return {}
 
-    from src.academic.literature.index_service import IndexService
     from src.academic.services.artifact_service import ArtifactService
     from src.academic.services.workspace_service import WorkspaceService
     from src.database import Thread, get_db_session
+    from src.services.references import ReferenceIndexService
     from src.services.template_service import TemplateService
 
     try:
@@ -164,7 +164,7 @@ async def _load_db_snapshot(
 
             try:
                 literature_context = await asyncio.wait_for(
-                    IndexService(db).get_workspace_toc_summary(str(workspace.id)),
+                    ReferenceIndexService(db).get_workspace_toc_summary(str(workspace.id)),
                     timeout=5.0,
                 )
             except TimeoutError:

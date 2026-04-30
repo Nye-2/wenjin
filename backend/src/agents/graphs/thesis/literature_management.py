@@ -21,10 +21,25 @@ from src.task.runtime_blocks import (
     emit_bound_runtime as _emit_bound_runtime,
 )
 from src.workspace_features.services.thesis_feature_service import (
-    load_thesis_workspace_literature as _load_literature,
+    load_thesis_workspace_references as _load_references,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _reference_citation_count(reference: dict[str, Any]) -> int:
+    try:
+        return int(reference.get("citation_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _reference_source_type(reference: dict[str, Any]) -> str:
+    return str(reference.get("source_type") or "unknown")
+
+
+def _is_core_reference(reference: dict[str, Any]) -> bool:
+    return str(reference.get("library_status") or "").strip() == "core"
 
 
 def _resolve_management_model(requested_model: str | None) -> str:
@@ -59,7 +74,7 @@ async def literature_management_graph(
     runtime = get_runtime_state()
 
     # Step 1: Load literature
-    literature = await _load_literature(workspace_id)
+    literature = await _load_references(workspace_id)
     if runtime is not None:
         upsert_runtime_block(
             runtime,
@@ -134,7 +149,7 @@ async def literature_management_graph(
                             "title": str(item.get("title") or "Untitled"),
                             "description": "",
                             "meta": str(item.get("year") or ""),
-                            "badge": str(item.get("citations") or ""),
+                            "badge": str(item.get("citation_count") or ""),
                         }
                         for item in stats["top_cited"][:6]
                         if isinstance(item, dict)
@@ -182,24 +197,29 @@ def _compute_statistics(literature: list[dict], focus_topic: str) -> dict[str, A
             "recommended_actions": ["添加更多参考文献到工作区"],
         }
 
-    core_count = sum(1 for p in literature if (p.get("citations") or 0) >= 10)
-    by_source = dict(Counter(str(p.get("source") or "unknown") for p in literature))
+    core_count = sum(1 for p in literature if _is_core_reference(p))
+    by_source = dict(Counter(_reference_source_type(p) for p in literature))
     by_year = dict(Counter(str(p.get("year") or "unknown") for p in literature))
     missing_abstract = sum(1 for p in literature if not p.get("abstract"))
     missing_doi = sum(1 for p in literature if not p.get("doi"))
 
-    sorted_by_citations = sorted(literature, key=lambda p: p.get("citations") or 0, reverse=True)
+    sorted_by_citations = sorted(literature, key=_reference_citation_count, reverse=True)
     top_cited = [
-        {"title": p.get("title", ""), "citations": p.get("citations", 0), "year": p.get("year")}
+        {
+            "title": p.get("title", ""),
+            "citation_count": _reference_citation_count(p),
+            "year": p.get("year"),
+        }
         for p in sorted_by_citations[:10]
     ]
 
+    citation_total = sum(_reference_citation_count(p) for p in literature)
     return {
         "summary": {
             "total": total,
             "core_count": core_count,
             "focus_topic": focus_topic,
-            "avg_citations": round(sum(p.get("citations", 0) for p in literature) / total, 1),
+            "avg_citations": round(citation_total / total, 1),
         },
         "top_cited": top_cited,
         "by_source": by_source,
@@ -271,7 +291,7 @@ async def _llm_analyze_literature(
     for p in literature[:50]:
         title = p.get("title", "Unknown")
         year = p.get("year", "")
-        citations = p.get("citations", 0)
+        citations = _reference_citation_count(p)
         abstract = (p.get("abstract") or "")[:200]
         summaries.append(f"- {title} ({year}, cited {citations}x): {abstract}")
     lit_text = "\n".join(summaries)

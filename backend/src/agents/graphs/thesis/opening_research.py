@@ -26,7 +26,7 @@ from src.workspace_features.services.llm_json import (
     parse_json_payload,
 )
 from src.workspace_features.services.thesis_feature_service import (
-    load_thesis_workspace_literature as _load_literature,
+    load_thesis_workspace_references as _load_references,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ async def opening_research_graph(
     runtime = get_runtime_state()
 
     # Step 0: Load literature
-    literature = await _load_literature(workspace_id)
+    literature = await _load_references(workspace_id)
     literature_highlights = _build_literature_highlights(literature)
     if runtime is not None:
         upsert_runtime_block(

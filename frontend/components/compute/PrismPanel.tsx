@@ -99,9 +99,9 @@ export function PrismPanel({
 
       {prism?.compile?.status ? (
         <p className="mt-3 truncate text-[11px] text-compute-text-muted">
-          Compile: {prism.compile.status}
+          编译：{prism.compile.status}
           {typeof prism.compile.page_count === "number"
-            ? ` · ${prism.compile.page_count} pages`
+            ? ` · ${prism.compile.page_count} 页`
             : ""}
         </p>
       ) : null}
@@ -110,7 +110,7 @@ export function PrismPanel({
       {prism?.file_changes?.length ? (
         <div className="mt-3 rounded-xl border border-compute-gold/20 bg-compute-gold/8 px-3 py-2">
           <p className="text-xs font-medium text-compute-gold">
-            Prism 待确认写入 {prism.file_changes.length}
+            主稿待确认写入 {prism.file_changes.length}
           </p>
           <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-compute-gold/80">
             {prism.file_changes
@@ -165,7 +165,7 @@ export function PrismPanel({
                       onClick={() => onApply(change)}
                       className="rounded-md border border-compute-gold/25 bg-compute-gold/10 px-2 py-1 text-[11px] font-medium text-compute-gold hover:border-compute-gold/50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      应用到 Prism
+                      应用到主稿
                     </button>
                   </div>
                   {preview ? (
@@ -186,7 +186,7 @@ export function PrismPanel({
       {prism?.applied_file_changes?.length ? (
         <div className="mt-3 rounded-xl border border-compute-green/20 bg-compute-green/8 px-3 py-2">
           <p className="text-xs font-medium text-compute-green">
-            已写入 Prism {prism.applied_file_changes.length}
+            已写入主稿 {prism.applied_file_changes.length}
           </p>
           <div className="mt-2 space-y-2">
             {prism.applied_file_changes.slice(0, 3).map((change) => {

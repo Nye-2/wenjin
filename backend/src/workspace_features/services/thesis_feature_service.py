@@ -15,13 +15,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from src.academic.services import ArtifactService
+from src.academic.services.artifact_service import ArtifactService
 from src.artifacts import ArtifactType
 from src.database import Artifact, get_db_session
 from src.execution.capabilities import execution_type_readiness
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.execution.types import ExecutionType
-from src.services.literature_service import LiteratureService
+from src.services.references import WorkspaceReferenceService
 from src.thesis.execution import get_execution_service
 from src.thesis.execution.figure_tool import generate_figure
 from src.thesis.latex_template import get_template
@@ -348,10 +348,10 @@ async def _load_workspace_artifacts(workspace_id: str) -> list[Artifact]:
         return await service.list_by_workspace(workspace_id=workspace_id, limit=300)
 
 
-async def _load_workspace_literature(workspace_id: str) -> list[dict[str, Any]]:
+async def _load_workspace_references(workspace_id: str) -> list[dict[str, Any]]:
     async with get_db_session() as db:
-        service = LiteratureService(db)
-        response = await service.list_literature(workspace_id, offset=0, limit=120)
+        service = WorkspaceReferenceService(db)
+        response = await service.list_references(workspace_id, offset=0, limit=120)
     items = response.get("items")
     return items if isinstance(items, list) else []
 
@@ -399,12 +399,12 @@ def extract_thesis_chapter_summaries(
     return [chapter for _, _, chapter in chapters]
 
 
-async def load_thesis_workspace_literature(workspace_id: str) -> list[dict[str, Any]]:
-    """Load workspace literature for thesis feature graphs."""
+async def load_thesis_workspace_references(workspace_id: str) -> list[dict[str, Any]]:
+    """Load workspace Reference Library records for thesis feature graphs."""
     try:
-        return await _load_workspace_literature(workspace_id)
+        return await _load_workspace_references(workspace_id)
     except Exception:
-        logger.exception("Failed to load thesis workspace literature")
+        logger.exception("Failed to load thesis workspace references")
         return []
 
 
@@ -431,8 +431,8 @@ async def load_thesis_literature_count(workspace_id: str) -> int:
     """Return total literature count for thesis feature graphs."""
     try:
         async with get_db_session() as db:
-            service = LiteratureService(db)
-            response = await service.list_literature(workspace_id, offset=0, limit=1)
+            service = WorkspaceReferenceService(db)
+            response = await service.count_references(workspace_id)
         return int(response.get("total", 0))
     except Exception:
         logger.exception("Failed to load thesis literature count")
@@ -849,7 +849,7 @@ async def build_compile_payload(
     _ = thread_id
     artifacts, literature = await asyncio.gather(
         _load_workspace_artifacts(workspace_id),
-        _load_workspace_literature(workspace_id),
+        _load_workspace_references(workspace_id),
     )
 
     outline = _extract_outline_content(artifacts)
@@ -1165,7 +1165,7 @@ async def build_opening_report_payload(
     if not normalized_topic:
         normalized_topic = "未命名研究主题"
 
-    literature = await _load_workspace_literature(workspace_id)
+    literature = await _load_workspace_references(workspace_id)
     literature_highlights = _build_literature_highlights(literature)
     template_sections = _build_opening_template_sections(
         report_type=normalized_report_type,
@@ -1215,11 +1215,11 @@ def _paper_brief(item: dict[str, Any]) -> dict[str, Any]:
         "title": str(item.get("title") or "未命名文献"),
         "authors": item.get("authors") if isinstance(item.get("authors"), list) else [],
         "year": _coerce_int(item.get("year")),
-        "citations": _coerce_int(item.get("citations")) or 0,
+        "citation_count": _coerce_int(item.get("citation_count")) or 0,
         "venue": item.get("venue"),
-        "is_core": bool(item.get("is_core")),
+        "library_status": str(item.get("library_status") or "candidate"),
         "doi": item.get("doi"),
-        "source": _normalize_source_name(item.get("source")),
+        "source_type": _normalize_source_name(item.get("source_type")),
     }
 
 
@@ -1230,21 +1230,21 @@ async def build_literature_management_payload(
     focus_topic: str | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic literature management report payload."""
-    literature = await _load_workspace_literature(workspace_id)
+    literature = await _load_workspace_references(workspace_id)
     papers = [_paper_brief(item) for item in literature]
 
     total = len(papers)
-    core_count = sum(1 for item in papers if item["is_core"])
+    core_count = sum(1 for item in papers if item["library_status"] == "core")
     with_abstract = sum(1 for item in literature if str(item.get("abstract") or "").strip())
     with_doi = sum(1 for item in papers if str(item.get("doi") or "").strip())
 
-    citations = [int(item["citations"]) for item in papers if int(item["citations"]) > 0]
+    citations = [int(item["citation_count"]) for item in papers if int(item["citation_count"]) > 0]
     avg_citations = round(sum(citations) / len(citations), 2) if citations else 0.0
 
     by_source: dict[str, int] = {}
     by_year: dict[str, int] = {}
     for item in papers:
-        source = str(item["source"])
+        source = str(item["source_type"])
         by_source[source] = by_source.get(source, 0) + 1
 
         year = item["year"]
@@ -1252,8 +1252,8 @@ async def build_literature_management_payload(
             key = str(year)
             by_year[key] = by_year.get(key, 0) + 1
 
-    top_cited = sorted(papers, key=lambda x: int(x["citations"]), reverse=True)[:10]
-    core_papers = [item for item in papers if item["is_core"]][:10]
+    top_cited = sorted(papers, key=lambda x: int(x["citation_count"]), reverse=True)[:10]
+    core_papers = [item for item in papers if item["library_status"] == "core"][:10]
 
     missing_title = [item for item in papers if not str(item.get("title") or "").strip()]
     missing_authors = [item for item in papers if not item["authors"]]
@@ -1287,6 +1287,7 @@ async def build_literature_management_payload(
             "core_count": core_count,
             "with_abstract": with_abstract,
             "with_doi": with_doi,
+            "avg_citations": avg_citations,
             "average_citations": avg_citations,
             "by_source": by_source,
             "by_year": by_year,

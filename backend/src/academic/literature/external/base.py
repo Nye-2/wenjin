@@ -17,9 +17,9 @@ class PaperSearchResult(BaseModel):
                 "authors": ["Ashish Vaswani", "et al."],
                 "year": 2017,
                 "doi": "10.48550/arXiv.1706.03762",
-                "url": "https://arxiv.org/abs/1706.03762",
+                "url": "https://www.semanticscholar.org/paper/example",
                 "abstract": "The dominant sequence transduction models...",
-                "source": "arxiv",
+                "source": "semantic_scholar",
                 "citations_count": 50000,
                 "venue": "NeurIPS 2017",
             }
@@ -32,7 +32,8 @@ class PaperSearchResult(BaseModel):
     doi: str | None = Field(None, description="Digital Object Identifier")
     url: str | None = Field(None, description="Paper URL")
     abstract: str = Field(default="", description="Paper abstract")
-    source: Literal["semantic_scholar", "arxiv", "crossref", "openalex"] = Field(
+    external_id: str | None = Field(None, description="Source-native paper identifier")
+    source: Literal["semantic_scholar"] = Field(
         ..., description="Source database"
     )
     citations_count: int | None = Field(None, description="Number of citations")
@@ -84,7 +85,7 @@ class ExternalDBBase(ABC):
         """Get papers that cite this paper.
 
         Args:
-            paper_id: Paper identifier in this database
+            paper_id: Provider-native paper identifier
             limit: Maximum number of citations to return
 
         Returns:

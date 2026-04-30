@@ -7,13 +7,13 @@ from langchain_core.runnables import RunnableConfig
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.academic.citation.bibtex.exporter import BibTeXExporter
 from src.agents.thread_state import ThreadState
-from src.database.models.paper import Paper
+from src.database import WorkspaceReference
 from src.execution.types import (
     ExecutionRequest,
     ExecutionType,
 )
+from src.services.references import ReferenceBibTeXService
 
 from .base import Middleware
 
@@ -36,15 +36,15 @@ class ExecutionMiddleware(Middleware):
         # "generate_image_tool": ExecutionType.AI_IMAGE,
     }
 
-    def __init__(self, execution_service: Any, *, paper_service: Any | None = None):
+    def __init__(self, execution_service: Any, *, reference_service: Any | None = None):
         """Initialize middleware.
 
         Args:
             execution_service: ExecutionService instance.
-            paper_service: Optional PaperService for citation bibliography lookup.
+            reference_service: Optional reference service for citation bibliography lookup.
         """
         self.execution_service = execution_service
-        self.paper_service = paper_service
+        self.reference_service = reference_service
 
     async def before_model(
         self,
@@ -113,8 +113,8 @@ class ExecutionMiddleware(Middleware):
 
         if citation_ids and not explicit_bib:
             db: AsyncSession | None = configurable.get("db")
-            if db is None and self.paper_service is not None:
-                db = getattr(self.paper_service, "db", None)
+            if db is None and self.reference_service is not None:
+                db = getattr(self.reference_service, "db", None)
             if db:
                 bibliography = await self._generate_bibliography(db, citation_ids)
                 if bibliography:
@@ -191,41 +191,26 @@ class ExecutionMiddleware(Middleware):
 
         Args:
             db: Database session.
-            citation_ids: List of paper IDs.
+            citation_ids: List of Reference Library IDs.
 
         Returns:
-            BibTeX formatted string or None if no papers found.
+            BibTeX formatted string or None if no references found.
         """
         if not citation_ids:
             return None
 
         try:
-            # Fetch papers
             result = await db.execute(
-                select(Paper).where(Paper.id.in_(citation_ids))
+                select(WorkspaceReference).where(WorkspaceReference.id.in_(citation_ids))
             )
-            papers = result.scalars().all()
+            references = result.scalars().all()
 
-            if not papers:
-                logger.warning(f"No papers found for citation_ids: {citation_ids}")
+            if not references:
+                logger.warning("No references found for citation_ids: %s", citation_ids)
                 return None
 
-            # Convert to dicts for exporter
-            paper_dicts = [
-                {
-                    "title": p.title,
-                    "authors": p.authors,
-                    "year": p.year,
-                    "venue": p.venue,
-                    "doi": p.doi,
-                    "abstract": p.abstract,
-                }
-                for p in papers
-            ]
-
-            # Generate BibTeX
-            exporter = BibTeXExporter()
-            return exporter.export(paper_dicts)
+            formatter = ReferenceBibTeXService(db)
+            return "\n\n".join(formatter._format_entry(reference) for reference in references)
 
         except Exception as e:
             logger.error(f"Failed to generate bibliography: {e}")

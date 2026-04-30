@@ -85,8 +85,8 @@ _FEATURE_QUALITY_PROFILES: dict[str, FeatureQualityProfile] = {
         preferred_signal_keys=("status",),
     ),
     "sci.literature_search": FeatureQualityProfile(
-        core_signal_keys=("papers", "top_hits", "summary", "query"),
-        preferred_signal_keys=("filters",),
+        core_signal_keys=("verified_papers", "model_synthesis", "query", "source"),
+        preferred_signal_keys=("unverified_leads", "retrieval"),
     ),
     "sci.paper_analysis": FeatureQualityProfile(
         core_signal_keys=("sections", "summary", "insights"),
@@ -312,4 +312,3 @@ def evaluate_feature_output_quality(
         "issues": [item.as_dict() for item in issues],
         "summary": summary,
     }
-

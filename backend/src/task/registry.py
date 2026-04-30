@@ -6,6 +6,7 @@ from enum import StrEnum
 
 class TaskStatus(StrEnum):
     """Task status values."""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -20,18 +21,21 @@ class TaskStatus(StrEnum):
 
 class TaskQueue(StrEnum):
     """Available task queues."""
+
     DEFAULT = "default"
     LONG_RUNNING = "long_running"
     PRIORITY = "priority"
 
 
-PAPER_EXTRACTION_TASK = "paper_extraction"
+DOCUMENT_PREPROCESS_TASK = "document_preprocess"
+REFERENCE_PREPROCESS_TASK = "reference_preprocess"
 WORKSPACE_FEATURE_TASK = "workspace_feature"
 
 
 @dataclass
 class TaskTypeConfig:
     """Configuration for a task type."""
+
     queue: str = TaskQueue.DEFAULT
     timeout: int = 600  # seconds
     retry: int = 2
@@ -41,11 +45,17 @@ class TaskTypeConfig:
 
 # Task type registry
 TASK_REGISTRY: dict[str, TaskTypeConfig] = {
-    PAPER_EXTRACTION_TASK: TaskTypeConfig(
-        queue=TaskQueue.DEFAULT,
-        timeout=300,
+    DOCUMENT_PREPROCESS_TASK: TaskTypeConfig(
+        queue=TaskQueue.LONG_RUNNING,
+        timeout=900,
         retry=1,
-        description="Paper extraction triggered from the papers API",
+        description="Async preprocessing for large uploaded documents",
+    ),
+    REFERENCE_PREPROCESS_TASK: TaskTypeConfig(
+        queue=TaskQueue.LONG_RUNNING,
+        timeout=1200,
+        retry=1,
+        description="Async preprocessing and page-indexing for reference-library assets",
     ),
     WORKSPACE_FEATURE_TASK: TaskTypeConfig(
         queue=TaskQueue.DEFAULT,

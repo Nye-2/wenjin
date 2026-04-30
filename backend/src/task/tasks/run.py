@@ -64,10 +64,11 @@ async def _execute_run_async(
     actor_id: str,
 ) -> dict[str, Any]:
     from src.academic.cache.redis_client import redis_client
-    from src.academic.literature.index_service import IndexService
-    from src.academic.services import ArtifactService, PaperService, WorkspaceService
+    from src.academic.services.artifact_service import ArtifactService
+    from src.academic.services.workspace_service import WorkspaceService
     from src.database import get_db_session, reset_db_engine
     from src.services import ThreadService
+    from src.services.references import ReferenceIndexService, WorkspaceReferenceService
 
     if not redis_settings.enabled:
         raise RuntimeError("execute_run requires REDIS_ENABLED=true")
@@ -101,9 +102,9 @@ async def _execute_run_async(
         handler = ThreadTurnHandler(
             thread_service=ThreadService(db),
             workspace_service=WorkspaceService(db),
-            index_service=IndexService(db),
+            index_service=ReferenceIndexService(db),
             artifact_service=ArtifactService(db),
-            paper_service=PaperService(db),
+            reference_service=WorkspaceReferenceService(db),
         )
         await run_thread_turn(
             bridge,

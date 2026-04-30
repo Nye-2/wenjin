@@ -37,7 +37,7 @@ def _serialize_turn_request(request: ThreadTurnRequest) -> dict[str, Any]:
                 "url": item.url,
                 "content_type": item.content_type,
                 "size_bytes": item.size_bytes,
-                "paper_id": item.paper_id,
+                "reference_id": item.reference_id,
                 "artifact_id": item.artifact_id,
                 "metadata": item.metadata,
             }

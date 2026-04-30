@@ -49,6 +49,16 @@ logger = logging.getLogger(__name__)
 
 JsonObject = dict[str, Any]
 
+_REFERENCE_LIBRARY_BYPASS_TOOL_NAMES = {
+    "semantic_scholar_search",
+    "semantic_scholar_search_tool",
+    "search_external",
+    "get_paper_by_doi",
+    "arxiv_search",
+    "pubmed_search",
+    "doi_resolve",
+}
+
 _PROMPT_CONTEXT_CHAR_LIMITS = {
     "literature_context": 3000,
     "memory_context": 1800,
@@ -161,6 +171,15 @@ def _extend_unique_tools(
         if tool_name:
             seen_names.add(tool_name)
         existing.append(tool)
+
+
+def _filter_reference_library_bypass_tools(tools: list[BaseTool]) -> list[BaseTool]:
+    """Remove direct paper-discovery tools that bypass workspace references."""
+    return [
+        tool
+        for tool in tools
+        if getattr(tool, "name", "") not in _REFERENCE_LIBRARY_BYPASS_TOOL_NAMES
+    ]
 
 
 _WORKSPACE_TYPE_PROMPTS: dict[str, str] = {
@@ -488,12 +507,12 @@ def get_available_tools(
         grep_tool,
         list_workspace_artifacts_tool,
         list_workspace_features_tool,
-        list_workspace_literature_toc_tool,
+        list_workspace_reference_outline_tool,
         ls_tool,
         present_files_tool,
         read_file_tool,
-        read_workspace_literature_section_tool,
-        search_workspace_literature_tool,
+        read_workspace_reference_section_tool,
+        search_workspace_references_tool,
         str_replace_tool,
         view_image_tool,
         write_file_tool,
@@ -516,9 +535,9 @@ def get_available_tools(
     tools.extend([
         list_workspace_features_tool,
         list_workspace_artifacts_tool,
-        list_workspace_literature_toc_tool,
-        search_workspace_literature_tool,
-        read_workspace_literature_section_tool,
+        list_workspace_reference_outline_tool,
+        search_workspace_references_tool,
+        read_workspace_reference_section_tool,
     ])
 
     # Output tools
@@ -534,43 +553,18 @@ def get_available_tools(
         except Exception as exc:
             logger.error("Failed to load execution tools: %s", exc)
 
-    # Academic tools
-    try:
-        from src.academic.tools.semantic_scholar import semantic_scholar_search_tool
-        tools.append(semantic_scholar_search_tool)
-    except ImportError as exc:
-        logger.warning(
-            "Semantic Scholar tool unavailable; skipping academic search registration: %s",
-            exc,
-        )
-    except Exception as exc:
-        logger.error("Failed to load Semantic Scholar tool: %s", exc)
-
-    # Literature navigation tools (TOC-driven)
-    # NOTE: These tools require AsyncSession injection (InjectedToolArg) which
-    # is not available in the react-agent context. Only include tools whose
-    # schemas can be serialized; skip DB-dependent tools to avoid
-    # PydanticInvalidForJsonSchema errors.
-    try:
-        from src.academic.literature.tools import search_external
-        tools.append(search_external)
-    except ImportError as exc:
-        logger.warning(
-            "Literature navigation tools unavailable; skipping external search registration: %s",
-            exc,
-        )
-    except Exception as exc:
-        logger.error("Failed to load external literature search tool: %s", exc)
-
-    # Citation management tools (skip DB-dependent ones)
-    # format_citation and format_bibliography also require AsyncSession injection;
-    # they cannot be used in the react-agent context until DB injection is wired.
+    # Literature retrieval must stay inside Reference Library services/features.
+    # Do not expose direct external search tools here; otherwise chat can cite
+    # papers that never entered workspace_references / BibTeX / usage tracking.
 
     if include_mcp:
         try:
             from src.mcp import get_cached_mcp_tools
 
-            _extend_unique_tools(tools, get_cached_mcp_tools())
+            _extend_unique_tools(
+                tools,
+                _filter_reference_library_bypass_tools(get_cached_mcp_tools()),
+            )
         except ImportError:
             logger.warning("MCP integration unavailable; skipping MCP tools")
         except Exception as exc:
@@ -583,7 +577,7 @@ def build_middlewares(
     workspace_service: Any | None = None,
     index_service: Any | None = None,
     artifact_service: Any | None = None,
-    paper_service: Any | None = None,
+    reference_service: Any | None = None,
 ) -> list[Middleware]:
     """Build middleware chain for the agent.
 
@@ -598,7 +592,7 @@ def build_middlewares(
         workspace_service: Workspace service instance
         index_service: IndexService instance for literature navigation
         artifact_service: Artifact service instance
-        paper_service: Paper service instance
+        reference_service: Reference service instance
 
     Returns:
         List of middleware instances
@@ -622,9 +616,9 @@ def build_middlewares(
 
     middlewares.append(DisciplineContextMiddleware())
 
-    if paper_service:
+    if reference_service:
         middlewares.append(
-            CitationContextMiddleware(paper_service)
+            CitationContextMiddleware(reference_service)
         )
 
     return middlewares
@@ -650,7 +644,7 @@ def build_pipeline(
     workspace_service: Any | None = None,
     index_service: Any | None = None,
     artifact_service: Any | None = None,
-    paper_service: Any | None = None,
+    reference_service: Any | None = None,
     sandbox_provider: Any | None = None,
     memory_queue: Any | None = None,
     memory_capture_enabled: bool = True,
@@ -728,7 +722,7 @@ def build_pipeline(
         pipeline.append(
             ExecutionMiddleware(
                 execution_service,
-                paper_service=paper_service,
+                reference_service=reference_service,
             )
         )
 
@@ -798,9 +792,9 @@ def build_pipeline(
     # --- Post-processing layer ---
     pipeline.append(TitleMiddleware())
 
-    if paper_service:
+    if reference_service:
         pipeline.append(
-            CitationContextMiddleware(paper_service)
+            CitationContextMiddleware(reference_service)
         )
 
     # --- MUST BE LAST (17) ---
@@ -876,7 +870,7 @@ def make_lead_agent(
     workspace_service: Any | None = None,
     index_service: Any | None = None,
     artifact_service: Any | None = None,
-    paper_service: Any | None = None,
+    reference_service: Any | None = None,
     sandbox_provider: Any | None = None,
     memory_queue: Any | None = None,
 ) -> "_MiddlewareWrappedAgent":
@@ -913,7 +907,7 @@ def make_lead_agent(
             workspace_service=workspace_service,
             index_service=index_service,
             artifact_service=artifact_service,
-            paper_service=paper_service,
+            reference_service=reference_service,
             sandbox_provider=sandbox_provider,
             memory_queue=memory_queue,
         )

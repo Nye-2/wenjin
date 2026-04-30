@@ -1,4 +1,4 @@
-"""Literature Search sub-graph — LLM-powered literature search.
+"""Literature Search sub-graph — Semantic Scholar grounded literature search.
 
 Pipeline: extract parameters -> call service layer -> build output
 """
@@ -20,7 +20,7 @@ async def literature_search_graph(
     initial_state: dict[str, Any],
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Execute literature search with LLM-enhanced synthesis.
+    """Execute literature search with Semantic Scholar evidence and grounded synthesis.
 
     Pipeline:
         1. Extract parameters from payload
@@ -53,16 +53,17 @@ async def literature_search_graph(
         preferred_model=preferred_model,
     )
 
-    # Build structured output
     return {
         "query": result.get("query", query),
         "discipline": result.get("discipline", discipline),
-        "papers": result.get("papers", []),
-        "top_hits": result.get("top_hits", []),
-        "filters": result.get("filters", {}),
-        "summary": result.get("summary", ""),
-        "search_strategy": result.get("search_strategy", "llm_synthesis"),
+        "source": result.get("source", "semantic_scholar"),
+        "retrieval": result.get("retrieval", {}),
+        "verified_papers": result.get("verified_papers", []),
+        "model_synthesis": result.get("model_synthesis", {}),
+        "unverified_leads": result.get("unverified_leads", []),
+        "reference_import": result.get("reference_import", {}),
         "generated_at": result.get("generated_at"),
         "model_id": result.get("model_id"),
         "generation_error": result.get("generation_error"),
+        "generation_mode": result.get("generation_mode"),
     }

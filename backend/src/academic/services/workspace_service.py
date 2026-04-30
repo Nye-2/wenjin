@@ -4,7 +4,7 @@ This service provides workspace management functionality including:
 - Workspace CRUD operations
 - Workspace configuration handling
 
-Note: Paper association management is handled by PaperService.
+Note: Workspace-scoped references are handled by the Reference Library services.
 """
 
 
@@ -28,7 +28,7 @@ class WorkspaceService:
     """Service for managing workspaces.
 
     This class provides CRUD operations for workspaces.
-    Paper association management is handled by PaperService.
+    Reference-library management is handled by dedicated reference services.
 
     Attributes:
         db: AsyncSession for database operations
@@ -187,7 +187,7 @@ class WorkspaceService:
     async def delete(self, workspace_id: str) -> bool:
         """Delete a workspace.
 
-        This will cascade delete all associated records (papers, artifacts, etc.)
+        This will cascade delete all associated records (references, artifacts, etc.)
 
         Args:
             workspace_id: Workspace UUID string

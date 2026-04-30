@@ -19,11 +19,10 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 | Thread Management | `/api/threads*`, `/api/workspaces/{workspace_id}/thread` | Bearer | 会话管理、会话级 skill 选择 |
 | Threads (Platform) | `/api/threads/search`, `/api/threads/{thread_id}/state`, `/api/threads/{thread_id}/history` | Bearer | Platform 风格线程检索、状态快照、历史快照 |
 | Runs | `/api/threads/{thread_id}/runs*`, `/api/runs*` | Bearer | Run 生命周期、流式对话（SSE）、断线续流 |
-| Workspaces | `/api/workspaces*` | Bearer | workspace CRUD、workspace 论文关联、workspace dashboard |
+| Workspaces | `/api/workspaces*` | Bearer | workspace CRUD、workspace dashboard |
 | Compute | `/api/workspaces/{workspace_id}/compute/sessions`, `/api/compute/sessions*` | Bearer | Compute session shell 与 projection 读取面 |
 | Features | `/api/workspaces/{workspace_id}/features*` | Bearer | 动态 feature 列表 + feature 执行 |
-| Literature | `/api/workspaces/{workspace_id}/literature*` | Bearer | 文献 CRUD、批量导入、数量统计 |
-| Papers | `/api/papers*` | Bearer | 论文 CRUD、提取、检索、章节 |
+| References | `/api/workspaces/{workspace_id}/references*` | Bearer | workspace-scoped Reference Library、上传、Semantic Scholar 导入、page-index、BibTeX/Prism 同步 |
 | Artifacts | `/api/workspaces/{workspace_id}/artifacts*` | Bearer | Canonical workspace-scoped 成果 CRUD、lineage |
 | Tasks | `/api/tasks*` | Bearer | 任务状态、SSE 进度、取消；不再提供任务创建入口 |
 | Dashboard | `/api/dashboard/*` | Bearer | 用户看板 + 管理员看板/积分/发布门禁 |
@@ -37,6 +36,7 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 |---|---|---|
 | Thesis API | `/api/thesis/*` | Removed |
 | Academic router (legacy `/academic/papers`) | `/api/*` | Removed |
+| Literature/Papers API | `/api/workspaces/{workspace_id}/literature*`, `/api/papers*` | Removed |
 | Health alias | `/health` | Removed |
 | Public Subagents | `/api/subagents*` | Removed |
 
@@ -47,7 +47,7 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 - Compute 当前状态只从 `/api/compute/sessions/{compute_session_id}/projection` 或 workspace events 水合，不从 thread message 推断。
 - artifact 的读写应统一接入 `/api/workspaces/{workspace_id}/artifacts*`。
 - thread skill 属于会话级状态，服务端持久化在 `threads.skill`。
-- `POST /api/tasks` 已删除；新任务必须走 feature execute 或 papers extract 等 domain 入口。
+- `POST /api/tasks` 已删除；新任务必须走 feature execute、Reference Library 上传或 workspace-context 上传等 domain 入口。
 - 对长时任务，前端应使用 `/api/tasks/{task_id}` 或 `/api/tasks/{task_id}/stream` 获取进度。
 - `/api/chat` 与 `/api/chat/stream` 已删除，chat 统一走 runs API（`/api/threads/{thread_id}/runs/stream`、`/api/runs/stream`、`/api/runs/wait`）。
 - `/api/threads/{thread_id}/runs/stream`、`/api/runs/stream`、`/api/runs/{run_id}/stream` 与 `/api/tasks/{task_id}/stream` 均为 SSE，需要反向代理禁用缓冲。

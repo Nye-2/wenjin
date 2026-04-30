@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 from src.application.services import FeatureIngressService
 from src.application.services.feature_submission_service import FeatureSubmissionService
 from src.database import WorkspaceType
-from src.gateway.deps import get_credit_service, get_feature_launch_service, get_literature_service
+from src.gateway.deps import get_credit_service, get_feature_launch_service, get_reference_service
 from src.gateway.routers import features
 from src.gateway.routers.auth import get_current_user
 from src.gateway.routers.tasks import get_task_service
@@ -140,7 +140,7 @@ class _FakeComputeSessionService:
 def _make_client(
     ws_type: WorkspaceType,
     task_id: str = "task-smoke-1",
-    literature_service=None,
+    reference_service=None,
 ) -> TestClient:
     """Build a TestClient wired for a specific workspace type."""
     workspace_service = AsyncMock()
@@ -151,12 +151,12 @@ def _make_client(
     task_service.find_active_task = AsyncMock(return_value=None)
 
     credit_service = _mock_credit_service()
-    literature = literature_service or AsyncMock()
+    references = reference_service or AsyncMock()
     handler = FeatureSubmissionService(
         actor_id="smoke-user",
         workspace_service=workspace_service,
         task_service=task_service,
-        literature_service=literature,
+        reference_service=references,
         credit_service=credit_service,
     )
     launch_service = FeatureIngressService(
@@ -178,8 +178,8 @@ def _make_client(
     async def override_task():
         yield task_service
 
-    async def override_lit():
-        return literature
+    async def override_refs():
+        return references
 
     async def override_credit():
         return credit_service
@@ -190,7 +190,7 @@ def _make_client(
     app.dependency_overrides[get_current_user] = override_user
     app.dependency_overrides[features.get_workspace_service] = override_ws
     app.dependency_overrides[get_task_service] = override_task
-    app.dependency_overrides[get_literature_service] = override_lit
+    app.dependency_overrides[get_reference_service] = override_refs
     app.dependency_overrides[get_credit_service] = override_credit
     app.dependency_overrides[get_feature_launch_service] = override_feature_launch
     app.include_router(features.router)

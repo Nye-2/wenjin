@@ -17,7 +17,7 @@ from src.application.results import GeneratedThreadReply
 from src.config import redis_settings
 from src.database import Workspace, get_db_session
 from src.services.credit_service import CreditService
-from src.services.literature_service import LiteratureService
+from src.services.references import WorkspaceReferenceService
 from src.task.service import TaskService
 from src.task.store import TaskStore
 
@@ -45,7 +45,7 @@ async def _execute_thread_feature_request(
         db=db,
         workspace_service=workspace_service,
         task_service=TaskService(TaskStore(redis_client, db)),
-        literature_service=LiteratureService(db),
+        reference_service=WorkspaceReferenceService(db),
         credit_service=CreditService(db),
     )
 

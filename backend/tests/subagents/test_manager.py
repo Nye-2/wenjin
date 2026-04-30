@@ -364,11 +364,11 @@ class TestGlobalSubagentManager:
             prompt="Search papers",
             created_at=datetime.now(),
             timeout=60,
-            tools=["semantic_scholar_search"],
+            tools=["search_workspace_references"],
             metadata={"system_prompt": "You are Scout."},
         )
         manager._tools = {
-            "semantic_scholar_search": _make_test_tool("semantic_scholar_search"),
+            "search_workspace_references": _make_test_tool("search_workspace_references"),
             "read_file": _make_test_tool("read_file"),
         }
 
@@ -385,7 +385,7 @@ class TestGlobalSubagentManager:
 
         assert result.status == SubagentStatus.COMPLETED
         mock_create.assert_called_once()
-        assert mock_create.call_args.args[1] == [manager._tools["semantic_scholar_search"]]
+        assert mock_create.call_args.args[1] == [manager._tools["search_workspace_references"]]
         assert mock_create.call_args.args[2] == "You are Scout."
 
     @pytest.mark.asyncio

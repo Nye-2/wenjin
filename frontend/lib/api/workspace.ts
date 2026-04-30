@@ -2,11 +2,13 @@ import { apiClient } from "@/lib/api/client";
 import type {
   Artifact,
   DashboardData,
-  Literature,
-  LiteratureListResponse,
   MemoryResponse,
-  Paper,
-  UploadPaperResponse,
+  ReferenceBibtexResponse,
+  ReferenceCountResponse,
+  ReferenceImportResponse,
+  ReferenceListResponse,
+  UploadReferenceResponse,
+  WorkspaceReference,
   TaskStatus,
   Workspace,
   WorkspaceActivityResponse,
@@ -53,56 +55,290 @@ export async function deleteWorkspace(id: string): Promise<void> {
   await apiClient.delete(`/workspaces/${id}`);
 }
 
-export async function listWorkspacePapers(
+export async function listWorkspaceReferences(
   workspaceId: string,
-  readStatus?: string
-): Promise<{ papers: Paper[]; count: number }> {
-  const params = readStatus ? { read_status: readStatus } : {};
-  const response = await apiClient.get(`/workspaces/${workspaceId}/papers`, {
+  params?: {
+    library_status?: string;
+    source_type?: string;
+    query?: string;
+    offset?: number;
+    limit?: number;
+  }
+): Promise<ReferenceListResponse> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/references`, {
     params,
   });
   return response.data;
 }
 
-export async function createPaper(data: {
-  workspace_id: string;
-  doi?: string;
-  title: string;
-  authors?: Array<{ name: string }>;
-  year?: number;
-  venue?: string;
-  abstract?: string;
-}): Promise<Paper> {
-  const response = await apiClient.post("/papers", data);
+export async function createManualReference(
+  workspaceId: string,
+  data: Partial<WorkspaceReference> & { title: string }
+): Promise<{ reference: WorkspaceReference; created: boolean }> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/manual`,
+    data
+  );
   return response.data;
 }
 
-export async function uploadPaperFile(
+export async function uploadReferenceFile(
   workspaceId: string,
   file: File
-): Promise<UploadPaperResponse> {
+): Promise<UploadReferenceResponse> {
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("workspace_id", workspaceId);
 
-  const response = await apiClient.post("/papers/upload", formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
-  });
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/upload`,
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }
+  );
   return response.data;
 }
 
-export async function searchPapers(
+export async function importSemanticScholarReferences(
+  workspaceId: string,
+  data: { query: string; discipline?: string | null; limit?: number }
+): Promise<ReferenceImportResponse> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/import/semantic-scholar`,
+    data
+  );
+  return response.data;
+}
+
+export async function importDeepSearchArtifactReferences(
+  workspaceId: string,
+  data: { artifact_ids: string[] }
+): Promise<ReferenceImportResponse> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/import/deep-search-artifact`,
+    data
+  );
+  return response.data;
+}
+
+export async function importBibtexReferences(
+  workspaceId: string,
+  content: string
+): Promise<ReferenceImportResponse> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/import/bibtex`,
+    { content }
+  );
+  return response.data;
+}
+
+export async function updateReference(
+  workspaceId: string,
+  referenceId: string,
+  data: Partial<WorkspaceReference>
+): Promise<WorkspaceReference> {
+  const response = await apiClient.patch(
+    `/workspaces/${workspaceId}/references/${referenceId}`,
+    data
+  );
+  return response.data;
+}
+
+export async function deleteReference(
+  workspaceId: string,
+  referenceId: string
+): Promise<void> {
+  await apiClient.delete(`/workspaces/${workspaceId}/references/${referenceId}`);
+}
+
+export async function getReferenceCount(
+  workspaceId: string
+): Promise<ReferenceCountResponse> {
+  const response = await apiClient.get(
+    `/workspaces/${workspaceId}/references/count`
+  );
+  return response.data;
+}
+
+export async function getReferenceBibtex(
+  workspaceId: string,
+  scope: string = "included_and_core"
+): Promise<ReferenceBibtexResponse> {
+  const response = await apiClient.get(
+    `/workspaces/${workspaceId}/references/bibtex`,
+    { params: { scope } }
+  );
+  return response.data;
+}
+
+export async function syncReferenceBibtexToPrism(
+  workspaceId: string,
+  scope: string = "included_and_core"
+): Promise<ReferenceBibtexResponse> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/bibtex/sync-prism`,
+    { scope }
+  );
+  return response.data;
+}
+
+export async function searchReferenceTextUnits(
+  workspaceId: string,
+  data: { query: string; reference_ids?: string[]; limit?: number }
+): Promise<{ items: Array<Record<string, unknown>>; count: number }> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/search-text-units`,
+    data
+  );
+  return response.data;
+}
+
+export async function buildReferenceEvidencePack(
+  workspaceId: string,
+  data: { query?: string | null; reference_ids?: string[]; max_units?: number }
+): Promise<Record<string, unknown>> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/evidence-pack`,
+    data
+  );
+  return response.data;
+}
+
+export async function getReferenceOutline(
+  workspaceId: string,
+  referenceId: string
+): Promise<{ items: Array<Record<string, unknown>>; count: number }> {
+  const response = await apiClient.get(
+    `/workspaces/${workspaceId}/references/${referenceId}/outline`
+  );
+  return response.data;
+}
+
+export async function readReferenceOutlineNode(
+  workspaceId: string,
+  referenceId: string,
+  nodeId: string
+): Promise<Record<string, unknown>> {
+  const response = await apiClient.get(
+    `/workspaces/${workspaceId}/references/${referenceId}/outline/${nodeId}/content`
+  );
+  return response.data;
+}
+
+export async function markReferenceIncluded(
+  workspaceId: string,
+  referenceId: string
+): Promise<WorkspaceReference> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/${referenceId}/mark-included`
+  );
+  return response.data;
+}
+
+export async function markReferenceCore(
+  workspaceId: string,
+  referenceId: string
+): Promise<WorkspaceReference> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/${referenceId}/mark-core`
+  );
+  return response.data;
+}
+
+export async function excludeReference(
+  workspaceId: string,
+  referenceId: string
+): Promise<WorkspaceReference> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/${referenceId}/exclude`
+  );
+  return response.data;
+}
+
+export async function markReferenceRead(
+  workspaceId: string,
+  referenceId: string
+): Promise<WorkspaceReference> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/${referenceId}/mark-read`
+  );
+  return response.data;
+}
+
+export async function getWorkspaceReferenceLibraryOutline(
+  workspaceId: string
+): Promise<{ items: Array<Record<string, unknown>>; count: number }> {
+  const response = await apiClient.get(
+    `/workspaces/${workspaceId}/references/outline`
+  );
+  return response.data;
+}
+
+export async function getReferenceDetail(
+  workspaceId: string,
+  referenceId: string
+): Promise<{ reference: WorkspaceReference; assets: WorkspaceReference["assets"] }> {
+  const response = await apiClient.get(
+    `/workspaces/${workspaceId}/references/${referenceId}`
+  );
+  return response.data;
+}
+
+export async function uploadReferencePdf(
+  workspaceId: string,
+  file: File
+): Promise<UploadReferenceResponse> {
+  return uploadReferenceFile(workspaceId, file);
+}
+
+export async function uploadReferenceBibtexFile(
+  workspaceId: string,
+  file: File
+): Promise<ReferenceImportResponse> {
+  const content = await file.text();
+  return importBibtexReferences(workspaceId, content);
+}
+
+export async function listReferenceCandidatesBySemanticScholar(
+  workspaceId: string,
   query: string,
-  workspaceId?: string,
   limit: number = 10
-): Promise<{ query: string; count: number; papers: Paper[] }> {
-  const response = await apiClient.post("/papers/search", {
-    query,
-    workspace_id: workspaceId,
-    limit,
-  });
+): Promise<ReferenceImportResponse> {
+  return importSemanticScholarReferences(workspaceId, { query, limit });
+}
+
+export async function syncReferencesToPrism(
+  workspaceId: string
+): Promise<ReferenceBibtexResponse> {
+  return syncReferenceBibtexToPrism(workspaceId);
+}
+
+export async function validateReferenceBibtex(
+  workspaceId: string
+): Promise<Record<string, unknown>> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/references/bibtex/validate`
+  );
+  return response.data;
+}
+
+export async function getReferencePages(
+  workspaceId: string,
+  referenceId: string,
+  pageStart: number,
+  pageEnd: number
+): Promise<{ items: Array<Record<string, unknown>>; count: number }> {
+  const response = await apiClient.get(
+    `/workspaces/${workspaceId}/references/${referenceId}/pages`,
+    {
+      params: {
+        page_start: pageStart,
+        page_end: pageEnd,
+      },
+    }
+  );
   return response.data;
 }
 
@@ -216,77 +452,6 @@ export async function getWorkspaceExecutionSessions(
   const response = await apiClient.get(`/workspaces/${workspaceId}/executions`, {
     params: { limit },
   });
-  return response.data;
-}
-
-export async function listLiterature(
-  workspaceId: string,
-  params?: { source?: string; is_core?: boolean }
-): Promise<LiteratureListResponse> {
-  const response = await apiClient.get(`/workspaces/${workspaceId}/literature`, {
-    params,
-  });
-  return response.data;
-}
-
-export async function createLiterature(
-  workspaceId: string,
-  data: {
-    title: string;
-    authors: string[];
-    year?: number;
-    doi?: string;
-    venue?: string;
-    quartile?: string;
-    abstract?: string;
-    citations?: number;
-    source?: string;
-    is_core?: boolean;
-  }
-): Promise<Literature> {
-  const response = await apiClient.post(
-    `/workspaces/${workspaceId}/literature`,
-    data
-  );
-  return response.data;
-}
-
-export async function importLiterature(
-  workspaceId: string,
-  data: { source: string; artifact_ids?: string[] }
-): Promise<{ imported: number }> {
-  const response = await apiClient.post(
-    `/workspaces/${workspaceId}/literature/import`,
-    data
-  );
-  return response.data;
-}
-
-export async function updateLiterature(
-  workspaceId: string,
-  litId: string,
-  data: { is_core?: boolean; title?: string; authors?: string[] }
-): Promise<Literature> {
-  const response = await apiClient.patch(
-    `/workspaces/${workspaceId}/literature/${litId}`,
-    data
-  );
-  return response.data;
-}
-
-export async function deleteLiterature(
-  workspaceId: string,
-  litId: string
-): Promise<void> {
-  await apiClient.delete(`/workspaces/${workspaceId}/literature/${litId}`);
-}
-
-export async function getLiteratureCount(
-  workspaceId: string
-): Promise<{ total: number; core: number }> {
-  const response = await apiClient.get(
-    `/workspaces/${workspaceId}/literature/count`
-  );
   return response.data;
 }
 

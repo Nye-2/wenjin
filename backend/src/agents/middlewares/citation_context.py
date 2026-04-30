@@ -1,7 +1,8 @@
-"""Citation context middleware for tracking and validating citations."""
+"""Citation context middleware for tracking and validating reference citations."""
 
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -17,8 +18,8 @@ class CitationContextMiddleware(Middleware):
 
     This middleware:
     1. Extracts citations from AI responses
-    2. Validates citations against workspace papers
-    3. Updates cited_papers in state
+    2. Validates citations against workspace references
+    3. Updates cited_references in state
     """
 
     # Patterns for citation extraction
@@ -29,13 +30,13 @@ class CitationContextMiddleware(Middleware):
         r"doi:(10\.[^\s]+)",  # doi:10.xxx
     ]
 
-    def __init__(self, paper_service):
-        """Initialize with paper service.
+    def __init__(self, reference_service):
+        """Initialize with reference service.
 
         Args:
-            paper_service: Service for paper operations
+            reference_service: Service for reference-library operations
         """
-        self.paper_service = paper_service
+        self.reference_service = reference_service
 
     async def before_model(
         self,
@@ -71,22 +72,60 @@ class CitationContextMiddleware(Middleware):
         return unique
 
     async def _validate_citations(self, citations: list[str], workspace_id: str) -> list[str]:
-        """Validate citations against workspace papers.
+        """Validate citations against workspace references.
 
-        Returns list of valid paper IDs.
+        Returns list of valid reference IDs.
         """
-        valid_paper_ids = []
+        valid_reference_ids = []
 
         for citation in citations:
-            # Try to find paper by DOI or author/year
-            papers = await self.paper_service.search_in_workspace(
+            # Try to find reference by DOI, citation key, title, or author/year.
+            references = await self.reference_service.search_in_workspace(
                 workspace_id=workspace_id,
                 query=citation,
             )
-            if papers:
-                valid_paper_ids.append(papers[0].id)
+            if references:
+                valid_reference_ids.append(str(references[0].id))
 
-        return list(set(valid_paper_ids))
+        return list(set(valid_reference_ids))
+
+    async def _record_reference_usage(
+        self,
+        *,
+        workspace_id: str,
+        reference_ids: list[str],
+        content: str,
+        state: ThreadState,
+        config: RunnableConfig,
+    ) -> None:
+        if not reference_ids or self.reference_service is None:
+            return
+        recorder = getattr(self.reference_service, "record_reference_usage", None)
+        if recorder is None:
+            return
+        configurable = config.get("configurable", {}) if isinstance(config, Mapping) else {}
+        if not isinstance(configurable, Mapping):
+            configurable = {}
+        try:
+            await recorder(
+                workspace_id=workspace_id,
+                reference_ids=reference_ids,
+                execution_session_id=(
+                    state.get("execution_session_id")
+                    or configurable.get("execution_session_id")
+                    or None
+                ),
+                task_id=state.get("task_id") or configurable.get("task_id") or None,
+                artifact_id=state.get("artifact_id") or configurable.get("artifact_id") or None,
+                target_section=state.get("current_skill") or configurable.get("skill_id") or None,
+                generated_text=content[:4000],
+            )
+        except Exception:
+            logger.warning(
+                "Failed to record reference usage for workspace %s",
+                workspace_id,
+                exc_info=True,
+            )
 
     async def after_model(
         self,
@@ -117,13 +156,20 @@ class CitationContextMiddleware(Middleware):
             return dict(state)
 
         # Validate citations
-        valid_paper_ids = await self._validate_citations(citations, workspace_id)
+        valid_reference_ids = await self._validate_citations(citations, workspace_id)
+        await self._record_reference_usage(
+            workspace_id=workspace_id,
+            reference_ids=valid_reference_ids,
+            content=content,
+            state=state,
+            config=config,
+        )
 
         # Update state
-        existing_cited = list(state.get("cited_papers", []))
-        new_cited = list(set(existing_cited + valid_paper_ids))
+        existing_cited = list(state.get("cited_references", []))
+        new_cited = list(dict.fromkeys(existing_cited + valid_reference_ids))
 
         return {
             **state,
-            "cited_papers": new_cited,
+            "cited_references": new_cited,
         }

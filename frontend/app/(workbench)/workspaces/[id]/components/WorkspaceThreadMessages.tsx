@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { StreamingText, ThinkingIndicator } from "@/components/glass";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
-import { type PaperExtractionSubmission } from "@/lib/api";
+import { importDeepSearchArtifactReferences } from "@/lib/api";
 import { parseThreadTokenUsage } from "@/lib/thread-token-usage";
 import {
   readWorkspaceFeatureOrchestrationParams,
@@ -28,6 +28,17 @@ import { cn } from "@/lib/utils";
 import { useFeaturesStore } from "@/stores/features";
 import type { Message } from "@/stores/thread";
 import { useWorkspaceStore } from "@/stores/workspace";
+import {
+  ContextBriefBlock,
+  TaskProposalBlock,
+  MissingInputBlock,
+  TaskProgressBlock,
+  TaskResultBlock,
+  TaskFailureBlock,
+  PrismStatusBlock,
+  NextStepsBlock,
+  type BlockActionType,
+} from "./thread-blocks";
 
 interface WorkspaceThreadMessageBubbleProps
 {
@@ -81,11 +92,7 @@ export function resolveBlockFeatureId(message: Message): string | null {
   return null;
 }
 
-type CardActionType =
-  | "trigger_feature"
-  | "continue_thread"
-  | "open_feature"
-  | "rerun_from_artifact";
+type CardActionType = BlockActionType;
 
 interface CardActionItem {
   label: string;
@@ -220,6 +227,18 @@ function sanitizeRouteParamMap(value: unknown): RouteParamMap {
   return routeParams;
 }
 
+function readRouteStringArray(value: unknown): string[] {
+  if (typeof value === "string" && value.trim()) {
+    return [value.trim()];
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim());
+}
+
 function formatFileSize(size: unknown): string | null {
   if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) {
     return null;
@@ -238,12 +257,12 @@ function truncateText(value: string, maxChars: number = 180): string {
 }
 
 function formatAttachmentStorage(attachment: AttachmentRecord): string {
-  const paperId = readStringValue(attachment.paper_id);
+  const referenceId = readStringValue(attachment.reference_id);
   const artifactId = readStringValue(attachment.artifact_id);
 
   switch (attachment.kind) {
     case "literature":
-      return paperId ? "已归档到文献中心" : "文献附件";
+      return referenceId ? "已归档到参考库" : "文献附件";
     case "workspace_context":
       return artifactId ? "已归档到工作区上下文" : "工作区上下文附件";
     default:
@@ -262,38 +281,13 @@ function formatAttachmentKind(kind: unknown): string {
   }
 }
 
-function readAttachmentExtraction(
-  attachment: AttachmentRecord
-): PaperExtractionSubmission | null {
-  const extraction = readAttachmentMetadata(attachment).extraction;
-  if (!extraction || typeof extraction !== "object") {
-    return null;
-  }
-
-  const payload = extraction as Record<string, unknown>;
-  const status = readStringValue(payload.status);
-  if (!status) {
-    return null;
-  }
-
-  return {
-    task_id: readStringValue(payload.task_id),
-    status,
-    paper_id: readStringValue(payload.paper_id),
-    workspace_id: readStringValue(payload.workspace_id),
-    tier: readNumberValue(payload.tier),
-    message: readStringValue(payload.message),
-    progress: readNumberValue(payload.progress),
-    current_step: readStringValue(payload.current_step),
-    error: readStringValue(payload.error),
-    reused_existing_task: Boolean(payload.reused_existing_task),
-  };
-}
-
 interface PreprocessInfo {
   status: string;
   provider: string | null;
   file_type: string | null;
+  message: string | null;
+  progress: number | null;
+  current_step: string | null;
   error: string | null;
 }
 
@@ -311,29 +305,11 @@ function readAttachmentPreprocess(attachment: AttachmentRecord): PreprocessInfo 
     status,
     provider: readStringValue(payload.provider),
     file_type: readStringValue(payload.file_type),
+    message: readStringValue(payload.message),
+    progress: readNumberValue(payload.progress),
+    current_step: readStringValue(payload.current_step),
     error: readStringValue(payload.error),
   };
-}
-
-function formatExtractionLabel(status: string): string {
-  switch (status) {
-    case "scheduled":
-      return "抽取已排队";
-    case "existing":
-      return "复用抽取任务";
-    case "pending":
-      return "等待抽取";
-    case "running":
-      return "正在抽取";
-    case "success":
-      return "抽取完成";
-    case "failed":
-      return "抽取失败";
-    case "cancelled":
-      return "抽取已取消";
-    default:
-      return status;
-  }
 }
 
 function formatPreprocessLabel(status: string): string {
@@ -344,12 +320,28 @@ function formatPreprocessLabel(status: string): string {
       return "解析失败";
     case "pending":
       return "解析中";
+    case "running":
+      return "正在解析";
     case "disabled":
       return "解析未启用";
     case "skipped":
       return "不解析";
     default:
       return status;
+  }
+}
+
+function formatPreprocessHint(preprocess: PreprocessInfo): string | null {
+  switch (preprocess.status) {
+    case "pending":
+    case "running":
+      return "文件正在解析，Agent 暂不能引用全文；解析完成前只能使用文件名和你在对话中提供的信息。";
+    case "succeeded":
+      return "已生成可引用摘要，后续对话可使用解析后的 Markdown 摘要和 manifest。";
+    case "failed":
+      return "解析失败，Agent 暂不能引用全文；请重新上传或直接补充关键摘要。";
+    default:
+      return preprocess.message;
   }
 }
 
@@ -412,10 +404,10 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
         const pageCount = readNumberValue(metadata.page_count);
         const textPreview = readStringValue(metadata.text_preview);
         const sizeLabel = formatFileSize(attachment.size_bytes);
-        const paperId = readStringValue(attachment.paper_id);
+        const referenceId = readStringValue(attachment.reference_id);
         const artifactId = readStringValue(attachment.artifact_id);
-        const extraction = readAttachmentExtraction(attachment);
         const preprocess = readAttachmentPreprocess(attachment);
+        const preprocessHint = preprocess ? formatPreprocessHint(preprocess) : null;
         const storageLabel = formatAttachmentStorage(attachment);
 
         const preprocessTone =
@@ -434,19 +426,6 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                 : isUser
                   ? "bg-white/10 text-white/80"
                   : "bg-[var(--bg-muted)] text-[var(--text-muted)]";
-
-        const extractionTone =
-          extraction?.status === "failed" || extraction?.status === "cancelled"
-            ? isUser
-              ? "bg-red-500/15 text-white"
-              : "bg-red-500/10 text-red-600"
-            : extraction?.status === "existing" || extraction?.status === "success"
-              ? isUser
-                ? "bg-sky-500/20 text-white"
-                : "bg-sky-500/10 text-sky-600"
-              : isUser
-                ? "bg-amber-500/20 text-white"
-                : "bg-amber-500/10 text-amber-600";
 
         return (
           <div
@@ -544,6 +523,32 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                   </div>
                 ) : null}
 
+                {preprocess && preprocessHint ? (
+                  <p
+                    className={cn(
+                      "mt-2 text-[11px]",
+                      preprocess.status === "failed"
+                        ? isUser
+                          ? "text-white/90"
+                          : "text-red-600/90"
+                        : preprocess.status === "succeeded"
+                          ? isUser
+                            ? "text-white/85"
+                            : "text-emerald-700/90"
+                          : isUser
+                            ? "text-white/85"
+                            : "text-amber-700/90"
+                    )}
+                  >
+                    {truncateText(preprocessHint, 140)}
+                    {typeof preprocess.progress === "number" &&
+                    (preprocess.status === "pending" || preprocess.status === "running")
+                      ? ` · ${Math.max(0, Math.min(100, preprocess.progress))}%`
+                      : ""}
+                    {preprocess.current_step ? ` · ${preprocess.current_step}` : ""}
+                  </p>
+                ) : null}
+
                 {preprocess?.error ? (
                   <p
                     className={cn(
@@ -552,71 +557,6 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                     )}
                   >
                     {truncateText(preprocess.error, 120)}
-                  </p>
-                ) : null}
-
-                {extraction ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                        extractionTone
-                      )}
-                    >
-                      {extraction.status === "failed" ? (
-                        <AlertCircle className="h-3 w-3" />
-                      ) : extraction.status === "cancelled" ? (
-                        <AlertCircle className="h-3 w-3" />
-                      ) : extraction.status === "existing" ||
-                        extraction.status === "success" ? (
-                        <CheckCircle2 className="h-3 w-3" />
-                      ) : (
-                        <Clock3 className="h-3 w-3" />
-                      )}
-                      {formatExtractionLabel(extraction.status)}
-                    </span>
-                    {extraction.task_id ? (
-                      <span
-                        className={cn(
-                          "rounded-full px-2 py-0.5 text-[10px]",
-                          isUser
-                            ? "bg-white/10 text-white/90"
-                            : "bg-[var(--bg-muted)] text-[var(--text-muted)]"
-                        )}
-                      >
-                        任务 {extraction.task_id.slice(0, 8)}
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {typeof extraction?.progress === "number" &&
-                extraction.status === "running" ? (
-                  <p
-                    className={cn(
-                      "mt-2 text-[11px]",
-                      isUser ? "text-white/85" : "text-[var(--text-secondary)]"
-                    )}
-                  >
-                    进度 {Math.max(0, Math.min(100, extraction.progress))}%
-                    {extraction.current_step ? ` · ${extraction.current_step}` : ""}
-                  </p>
-                ) : null}
-
-                {extraction?.message ? (
-                  <p
-                    className={cn(
-                      "mt-2 text-[11px]",
-                      extraction.status === "failed" || extraction.status === "cancelled"
-                        ? isUser
-                          ? "text-white/90"
-                          : "text-red-600/90"
-                        : isUser
-                          ? "text-white/80"
-                          : "text-[var(--text-secondary)]"
-                    )}
-                  >
-                    {truncateText(extraction.message, 120)}
                   </p>
                 ) : null}
 
@@ -631,9 +571,9 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                   </p>
                 ) : null}
 
-                {paperId || artifactId ? (
+                {referenceId || artifactId ? (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {paperId ? (
+                    {referenceId ? (
                       <span
                         className={cn(
                           "rounded-full px-2 py-0.5 text-[10px]",
@@ -642,7 +582,7 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                             : "bg-[var(--bg-muted)] text-[var(--text-muted)]"
                         )}
                       >
-                        文献 {paperId.slice(0, 8)}
+                        参考 {referenceId.slice(0, 8)}
                       </span>
                     ) : null}
                     {artifactId ? (
@@ -833,7 +773,7 @@ function renderStructuredBlocks(
     onCardAction?: (
       action: CardActionType,
       featureId: string | null,
-      routeParams?: RouteParamMap | null
+      routeParams?: Record<string, unknown> | null
     ) => void;
     resolveRerunAvailability?: (featureId: string | null) => RerunAvailability;
   }
@@ -854,54 +794,77 @@ function renderStructuredBlocks(
           return <ReasoningPanel key={`${block.type}-${index}`} text={text} isStreaming={Boolean(options?.isStreaming)} />;
         }
 
-        if (block.type === "task") {
-          const featureId = typeof data.feature_id === "string" ? data.feature_id : null;
+        if (block.type === "context_brief") {
+          return <ContextBriefBlock key={`${block.type}-${index}`} block={block} />;
+        }
+
+        if (block.type === "task_proposal" || block.type === "feature_proposal") {
           return (
-            <div
+            <TaskProposalBlock
               key={`${block.type}-${index}`}
-              className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)]/70 px-3 py-3"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-[var(--text-primary)]">
-                    {block.title || "任务已启动"}
-                  </p>
-                  <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                    {typeof data.message === "string" ? data.message : "任务已进入执行队列。"}
-                  </p>
-                </div>
-                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600">
-                  {typeof data.status === "string" ? data.status : "pending"}
-                </span>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {typeof data.task_id === "string" && (
-                  <span className="rounded-full bg-[var(--bg-muted)] px-2 py-1 text-[11px] text-[var(--text-muted)]">
-                    任务 {data.task_id.slice(0, 8)}
-                  </span>
-                )}
-                <span className="rounded-full bg-[var(--accent-primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--accent-primary)]">
-                  右侧工作面板会持续更新执行过程
-                </span>
-              </div>
-              {featureId
-                ? renderCardActions({
-                    onAction: options?.onCardAction,
-                    actions: [
-                      {
-                        label: "打开对应模块",
-                        action: "open_feature",
-                        featureId,
-                      },
-                      {
-                        label: "继续在线程里推进",
-                        action: "continue_thread",
-                        featureId,
-                      },
-                    ],
-                  })
-                : null}
-            </div>
+              block={block}
+              onAction={options?.onCardAction}
+            />
+          );
+        }
+
+        if (block.type === "missing_input") {
+          return (
+            <MissingInputBlock
+              key={`${block.type}-${index}`}
+              block={block}
+              onAction={options?.onCardAction}
+            />
+          );
+        }
+
+        if (block.type === "task_progress" || block.type === "task") {
+          return (
+            <TaskProgressBlock
+              key={`${block.type}-${index}`}
+              block={block}
+              isStreaming={options?.isStreaming}
+            />
+          );
+        }
+
+        if (block.type === "task_result" || block.type === "result") {
+          return (
+            <TaskResultBlock
+              key={`${block.type}-${index}`}
+              block={block}
+              onAction={options?.onCardAction}
+            />
+          );
+        }
+
+        if (block.type === "task_failure") {
+          return (
+            <TaskFailureBlock
+              key={`${block.type}-${index}`}
+              block={block}
+              onAction={options?.onCardAction}
+            />
+          );
+        }
+
+        if (block.type === "prism_status") {
+          return (
+            <PrismStatusBlock
+              key={`${block.type}-${index}`}
+              block={block}
+              onAction={options?.onCardAction}
+            />
+          );
+        }
+
+        if (block.type === "next_steps") {
+          return (
+            <NextStepsBlock
+              key={`${block.type}-${index}`}
+              block={block}
+              onAction={options?.onCardAction}
+            />
           );
         }
 
@@ -931,112 +894,6 @@ function renderStructuredBlocks(
                         label: "回到线程继续",
                         action: "continue_thread",
                         featureId,
-                      },
-                    ],
-                  })
-                : null}
-            </div>
-          );
-        }
-
-        if (block.type === "feature_proposal") {
-          const featureId = typeof data.feature_id === "string" ? data.feature_id : null;
-          const skillId = typeof data.skill_id === "string" ? data.skill_id : null;
-          const reason = typeof data.reason === "string" ? data.reason : null;
-          const confidence =
-            typeof data.confidence === "number" && Number.isFinite(data.confidence)
-              ? Math.round(data.confidence * 100)
-              : null;
-          const routeParams = sanitizeRouteParamMap({
-            ...(data.params && typeof data.params === "object" ? data.params : {}),
-            ...(skillId ? { skill: skillId } : {}),
-          });
-          return (
-            <div
-              key={`${block.type}-${index}`}
-              className="rounded-xl border border-[rgba(46,111,109,0.22)] bg-[linear-gradient(135deg,rgba(46,111,109,0.10),rgba(244,216,170,0.12))] px-3 py-3"
-            >
-              <div className="flex items-start gap-2">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/70 text-[var(--brand-teal)]">
-                  <Sparkles className="h-3.5 w-3.5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-[var(--text-primary)]">
-                    {block.title || "建议启动 Compute 模块"}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
-                    {typeof data.feature_name === "string"
-                      ? `将进入「${data.feature_name}」执行链路。`
-                      : "将进入对应 Compute 执行链路。"}
-                    {reason ? ` 识别依据：${reason}。` : null}
-                  </p>
-                  {confidence !== null ? (
-                    <span className="mt-2 inline-flex rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-medium text-[var(--brand-teal)]">
-                      意图置信度 {confidence}%
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-              {featureId
-                ? renderCardActions({
-                    onAction: options?.onCardAction,
-                    actions: [
-                      {
-                        label: "启动模块",
-                        action: "trigger_feature",
-                        featureId,
-                        routeParams,
-                      },
-                      {
-                        label: "继续补充要求",
-                        action: "continue_thread",
-                        featureId,
-                      },
-                    ],
-                  })
-                : null}
-            </div>
-          );
-        }
-
-        if (block.type === "result") {
-          const featureId = typeof data.feature_id === "string" ? data.feature_id : null;
-          const rerunAvailability =
-            options?.resolveRerunAvailability?.(featureId) ?? {
-              canRerun: false,
-              reason: "当前卡片没有可复用的 artifact 执行上下文。",
-            };
-          return (
-            <div
-              key={`${block.type}-${index}`}
-              className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)]/70 px-3 py-3"
-            >
-              <p className="text-sm font-medium text-[var(--text-primary)]">
-                {block.title || "结果摘要"}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
-                {typeof data.summary === "string" ? data.summary : message.content}
-              </p>
-              {featureId
-                ? renderCardActions({
-                    onAction: options?.onCardAction,
-                    actions: [
-                      {
-                        label: "查看模块详情",
-                        action: "open_feature",
-                        featureId,
-                      },
-                      {
-                        label: "继续线程追问",
-                        action: "continue_thread",
-                        featureId,
-                      },
-                      {
-                        label: "基于上下文再执行",
-                        action: "rerun_from_artifact",
-                        featureId,
-                        disabled: !rerunAvailability.canRerun,
-                        title: rerunAvailability.reason ?? undefined,
                       },
                     ],
                   })
@@ -1108,70 +965,6 @@ function renderStructuredBlocks(
           );
         }
 
-        if (block.type === "next_steps") {
-          const items = Array.isArray(data.items) ? data.items : [];
-          const actions: CardActionItem[] = items.map((item, itemIndex) => {
-            const label =
-              typeof item?.label === "string"
-                ? item.label
-                : `建议 ${itemIndex + 1}`;
-            const action = (() => {
-              const rawAction = typeof item?.action === "string" ? item.action : "";
-              if (
-                rawAction === "trigger_feature" ||
-                rawAction === "continue_thread" ||
-                rawAction === "open_feature" ||
-                rawAction === "rerun_from_artifact"
-              ) {
-                return rawAction;
-              }
-              return "continue_thread";
-            })();
-            const featureId =
-              typeof item?.feature_id === "string" && item.feature_id.trim()
-                ? item.feature_id
-                : resolveMessageFeatureId(message);
-            const isRerun = action === "rerun_from_artifact";
-            const rerunAvailability =
-              options?.resolveRerunAvailability?.(featureId) ?? {
-                canRerun: false,
-                reason: "当前卡片没有可复用的 artifact 执行上下文。",
-              };
-            const routeParams = sanitizeRouteParamMap(
-              item?.params && typeof item.params === "object"
-                ? item.params
-                : item?.route_params && typeof item.route_params === "object"
-                  ? item.route_params
-                  : null
-            );
-            return {
-              label,
-              action,
-              featureId,
-              routeParams,
-              disabled: isRerun && !rerunAvailability.canRerun,
-              title:
-                isRerun && !rerunAvailability.canRerun
-                  ? rerunAvailability.reason ?? undefined
-                  : undefined,
-            };
-          });
-          return (
-            <div
-              key={`${block.type}-${index}`}
-              className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)]/70 px-3 py-3"
-            >
-              <p className="text-sm font-medium text-[var(--text-primary)]">
-                {block.title || "建议下一步"}
-              </p>
-              {renderCardActions({
-                actions,
-                onAction: options?.onCardAction,
-              })}
-            </div>
-          );
-        }
-
         return (
           <div
             key={`${block.type}-${index}`}
@@ -1196,7 +989,12 @@ function WorkspaceThreadMessageBubble({
   const router = useRouter();
   const workspace = useWorkspaceStore((state) => state.workspace);
   const artifacts = useWorkspaceStore((state) => state.artifacts);
+  const fetchReferences = useWorkspaceStore((state) => state.fetchReferences);
   const getFeatureById = useFeaturesStore((state) => state.getFeatureById);
+  const [actionNotice, setActionNotice] = useState<{
+    tone: "success" | "error" | "info";
+    message: string;
+  } | null>(null);
   const isUser = message.role === "user";
   const reasoningText = extractReasoningBlockText(message);
   const hasReasoning = Boolean(reasoningText);
@@ -1268,15 +1066,11 @@ function WorkspaceThreadMessageBubble({
   const handleCardAction = (
     action: CardActionType,
     featureId: string | null,
-    routeParams?: RouteParamMap | null
+    routeParams?: Record<string, unknown> | null
   ) => {
     const baseThreadRoute = `/workspaces/${workspaceId}/chat`;
-    if (action === "continue_thread") {
-      router.push(baseThreadRoute);
-      return;
-    }
-
     const resolvedFeatureId = featureId || messageFeatureId;
+    const sanitizedRouteParams = sanitizeRouteParamMap(routeParams ?? null);
     const resolveFeatureRoute = (
       targetFeatureId: string,
       options?: {
@@ -1302,17 +1096,130 @@ function WorkspaceThreadMessageBubble({
       });
     };
 
-    if (action === "rerun_from_artifact") {
+    if (action === "continue_thread") {
+      router.push(baseThreadRoute);
+      return;
+    }
+
+    if (action === "resume_execution") {
+      if (resolvedFeatureId) {
+        const resumeRoute =
+          resolveFeatureRoute(resolvedFeatureId, {
+            includeContextParams: false,
+            routeParams: {
+              ...sanitizedRouteParams,
+              entry: "resume",
+            },
+          }) ??
+          resolveFeatureRoute(resolvedFeatureId, {
+            routeParams: {
+              ...sanitizedRouteParams,
+              entry: "resume",
+            },
+          });
+        if (resumeRoute) {
+          router.push(resumeRoute);
+          return;
+        }
+      }
+      router.push(baseThreadRoute);
+      return;
+    }
+
+    if (action === "import_references") {
+      const artifactIds = readRouteStringArray(sanitizedRouteParams.artifact_ids);
+      if (artifactIds.length === 0) {
+        setActionNotice({
+          tone: "error",
+          message: "当前结果没有可同步到参考库的 artifact。",
+        });
+        return;
+      }
+
+      setActionNotice({
+        tone: "info",
+        message: "正在同步 Semantic Scholar 已验证论文到参考库...",
+      });
+      void (async () => {
+        try {
+          const response = await importDeepSearchArtifactReferences(workspaceId, {
+            artifact_ids: artifactIds,
+          });
+          await fetchReferences(workspaceId);
+          setActionNotice({
+            tone: "success",
+            message: `已同步 ${response.imported} 条参考文献到参考库。`,
+          });
+        } catch (error) {
+          setActionNotice({
+            tone: "error",
+            message: error instanceof Error ? error.message : "参考文献同步失败",
+          });
+        }
+      })();
+      return;
+    }
+
+    if (action === "open_prism" || action === "preview_prism_changes") {
+      const projectId =
+        typeof sanitizedRouteParams.project_id === "string"
+          ? sanitizedRouteParams.project_id
+          : null;
+      const url =
+        typeof sanitizedRouteParams.url === "string"
+          ? sanitizedRouteParams.url
+          : null;
+      if (url) {
+        window.open(url, "_blank");
+        return;
+      }
+      if (projectId) {
+        router.push(`/latex/${projectId}`);
+        return;
+      }
+      router.push(baseThreadRoute);
+      return;
+    }
+
+    if (action === "open_artifact") {
+      const url =
+        typeof sanitizedRouteParams.url === "string"
+          ? sanitizedRouteParams.url
+          : null;
+      const artifactId =
+        typeof sanitizedRouteParams.artifact_id === "string"
+          ? sanitizedRouteParams.artifact_id
+          : null;
+      if (url) {
+        void openAuthorizedAsset(url).catch((error) => {
+          setActionNotice({
+            tone: "error",
+            message: error instanceof Error ? error.message : "打开产物失败",
+          });
+        });
+        return;
+      }
+      if (artifactId) {
+        const query = new URLSearchParams();
+        query.set("artifact", artifactId);
+        router.push(`${baseThreadRoute}?${query.toString()}`);
+        return;
+      }
+      router.push(baseThreadRoute);
+      return;
+    }
+
+    if (action === "rerun_from_artifact" || action === "rerun_feature") {
       if (resolvedFeatureId) {
         const rerunAvailability = resolveRerunAvailability(resolvedFeatureId);
         if (rerunAvailability.canRerun) {
           const rerunRoute =
             resolveFeatureRoute(resolvedFeatureId, {
               useRerunParams: true,
-              routeParams,
+              routeParams: sanitizedRouteParams,
             }) ??
             resolveFeatureRoute(resolvedFeatureId, {
-              routeParams,
+              routeParams: sanitizedRouteParams,
             });
           if (rerunRoute) {
             router.push(rerunRoute);
@@ -1321,11 +1228,11 @@ function WorkspaceThreadMessageBubble({
         }
         const fallbackRerunRoute =
           resolveFeatureRoute(resolvedFeatureId, {
-            routeParams,
+            routeParams: sanitizedRouteParams,
           }) ??
           resolveFeatureRoute(resolvedFeatureId, {
             includeContextParams: false,
-            routeParams,
+            routeParams: sanitizedRouteParams,
           });
         if (fallbackRerunRoute) {
           router.push(fallbackRerunRoute);
@@ -1343,11 +1250,11 @@ function WorkspaceThreadMessageBubble({
       }
       const passiveFeatureRoute =
         resolveFeatureRoute(resolvedFeatureId, {
-          routeParams,
+          routeParams: sanitizedRouteParams,
         }) ??
         resolveFeatureRoute(resolvedFeatureId, {
           includeContextParams: false,
-          routeParams,
+          routeParams: sanitizedRouteParams,
         });
       if (passiveFeatureRoute) {
         const [pathname, queryString = ""] = passiveFeatureRoute.split("?");
@@ -1370,11 +1277,11 @@ function WorkspaceThreadMessageBubble({
 
     const featureRoute =
       resolveFeatureRoute(resolvedFeatureId, {
-        routeParams,
+        routeParams: sanitizedRouteParams,
       }) ??
       resolveFeatureRoute(resolvedFeatureId, {
         includeContextParams: false,
-        routeParams,
+        routeParams: sanitizedRouteParams,
       });
     router.push(featureRoute ?? baseThreadRoute);
   };
@@ -1423,6 +1330,20 @@ function WorkspaceThreadMessageBubble({
               onCardAction: handleCardAction,
               resolveRerunAvailability,
             })}
+            {actionNotice ? (
+              <p
+                className={cn(
+                  "rounded-xl px-3 py-2 text-[11px]",
+                  actionNotice.tone === "success"
+                    ? "bg-emerald-500/10 text-emerald-700"
+                    : actionNotice.tone === "error"
+                      ? "bg-red-500/10 text-red-700"
+                      : "bg-sky-500/10 text-sky-700"
+                )}
+              >
+                {actionNotice.message}
+              </p>
+            ) : null}
             {message.content ? (
               isUser ? (
                 <p className="text-sm whitespace-pre-wrap">{message.content}</p>

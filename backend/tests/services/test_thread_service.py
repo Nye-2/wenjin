@@ -58,12 +58,15 @@ class TestThreadService:
     @pytest.mark.asyncio
     async def test_create_thread_persists_defaults(self, service, mock_db_session):
         """Creating a thread initializes the persisted contract."""
-        with patch(
-            "src.services.thread_service.validate_requested_model",
-            return_value="resolved-tool-model",
-        ), patch(
-            "src.services.thread_service.route_model",
-            return_value="resolved-tool-model",
+        with (
+            patch(
+                "src.services.thread_service.validate_requested_model",
+                return_value="resolved-tool-model",
+            ),
+            patch(
+                "src.services.thread_service.route_model",
+                return_value="resolved-tool-model",
+            ),
         ):
             thread = await service.create_thread(
                 user_id="user-1",
@@ -142,12 +145,15 @@ class TestThreadService:
         result.scalar_one_or_none.return_value = thread
         mock_db_session.execute.return_value = result
 
-        with patch(
-            "src.services.thread_service.validate_requested_model",
-            return_value="some-user-selected-model",
-        ), patch(
-            "src.services.thread_service.route_model",
-            return_value="resolved-model-id",
+        with (
+            patch(
+                "src.services.thread_service.validate_requested_model",
+                return_value="some-user-selected-model",
+            ),
+            patch(
+                "src.services.thread_service.route_model",
+                return_value="resolved-model-id",
+            ),
         ):
             resolved = await service.get_or_create_thread(
                 user_id="user-1",
@@ -308,6 +314,63 @@ class TestThreadService:
         assert extraction["message"] == "Paper extraction completed"
         assert extraction["progress"] == 100
         assert extraction["current_step"] == "complete"
+        assert thread.updated_at is not None
+        mock_db_session.commit.assert_awaited_once()
+        mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_update_attachment_preprocess_state_updates_matching_attachment(
+        self,
+        service,
+        mock_db_session,
+    ):
+        """Preprocess task state should be written back into matching attachments."""
+        thread = _make_thread()
+        thread.messages = [
+            {
+                "role": "user",
+                "content": "please read this large pdf",
+                "metadata": {
+                    "attachments": [
+                        {
+                            "name": "paper.pdf",
+                            "metadata": {
+                                "preprocess": {
+                                    "task_id": "task-preprocess-1",
+                                    "status": "pending",
+                                    "message": "queued",
+                                }
+                            },
+                        }
+                    ]
+                },
+            }
+        ]
+
+        updated = await service.update_attachment_preprocess_state(
+            thread,
+            task_id="task-preprocess-1",
+            status="success",
+            preprocess={
+                "status": "succeeded",
+                "provider": "layout_parsing",
+                "file_type": "pdf",
+                "markdown_paths": ["/references/_preprocessed/paper/doc_0.md"],
+            },
+            message="Document preprocessing completed",
+            progress=100,
+            current_step="complete",
+        )
+
+        assert updated is True
+        attachment_metadata = thread.messages[0]["metadata"]["attachments"][0]["metadata"]
+        preprocess = attachment_metadata["preprocess"]
+        assert preprocess["task_id"] == "task-preprocess-1"
+        assert preprocess["status"] == "succeeded"
+        assert preprocess["message"] == "Document preprocessing completed"
+        assert preprocess["progress"] == 100
+        assert preprocess["current_step"] == "complete"
+        assert attachment_metadata["preprocessed_markdown_paths"] == ["/references/_preprocessed/paper/doc_0.md"]
         mock_db_session.commit.assert_awaited_once()
         mock_db_session.refresh.assert_awaited_once_with(thread)
 
@@ -488,13 +551,16 @@ class TestThreadService:
         """Deleting a thread also cleans its persisted local thread directory."""
         thread = _make_thread()
 
-        with patch.object(
-            service,
-            "get_thread",
-            AsyncMock(return_value=thread),
-        ), patch(
-            "src.services.thread_service.delete_thread_directory",
-        ) as delete_thread_directory:
+        with (
+            patch.object(
+                service,
+                "get_thread",
+                AsyncMock(return_value=thread),
+            ),
+            patch(
+                "src.services.thread_service.delete_thread_directory",
+            ) as delete_thread_directory,
+        ):
             deleted = await service.delete_thread("thread-1", "user-1")
 
         assert deleted is True
@@ -511,13 +577,16 @@ class TestThreadService:
         """Filesystem cleanup is best-effort and must not mask a successful delete."""
         thread = _make_thread()
 
-        with patch.object(
-            service,
-            "get_thread",
-            AsyncMock(return_value=thread),
-        ), patch(
-            "src.services.thread_service.delete_thread_directory",
-            side_effect=RuntimeError("boom"),
+        with (
+            patch.object(
+                service,
+                "get_thread",
+                AsyncMock(return_value=thread),
+            ),
+            patch(
+                "src.services.thread_service.delete_thread_directory",
+                side_effect=RuntimeError("boom"),
+            ),
         ):
             deleted = await service.delete_thread("thread-1", "user-1")
 

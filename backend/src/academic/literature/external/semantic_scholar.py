@@ -57,6 +57,7 @@ class SemanticScholarClient(ExternalDBBase):
                     doi=item.get("doi"),
                     url=item.get("url"),
                     abstract=item.get("abstract", ""),
+                    external_id=item.get("paperId"),
                     source="semantic_scholar",
                     citations_count=item.get("citationCount"),
                     venue=item.get("venue"),
@@ -92,6 +93,7 @@ class SemanticScholarClient(ExternalDBBase):
             doi=item.get("doi"),
             url=item.get("url"),
             abstract=item.get("abstract", ""),
+            external_id=item.get("paperId"),
             source="semantic_scholar",
             citations_count=item.get("citationCount"),
             venue=item.get("venue"),
@@ -128,6 +130,7 @@ class SemanticScholarClient(ExternalDBBase):
                     doi=citing_paper.get("doi"),
                     url=citing_paper.get("url"),
                     abstract=citing_paper.get("abstract", ""),
+                    external_id=citing_paper.get("paperId"),
                     source="semantic_scholar",
                 )
             )

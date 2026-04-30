@@ -3,7 +3,7 @@
 Tests the AgentState-based ThreadState with:
 - shared runtime fields (sandbox, thread_data, title, artifacts, todos, uploaded_files, viewed_images)
 - Academic fields (workspace_id, discipline, etc.) as NotRequired
-- Custom reducers (merge_artifacts, merge_cited_papers, merge_viewed_images)
+- Custom reducers (merge_artifacts, merge_cited_references, merge_viewed_images)
 - Dict-like access patterns (replacing Pydantic .attribute access)
 """
 
@@ -14,7 +14,7 @@ from src.agents.thread_state import (
     ThreadState,
     ViewedImageData,
     merge_artifacts,
-    merge_cited_papers,
+    merge_cited_references,
     merge_response_blocks,
     merge_response_metadata,
     merge_viewed_images,
@@ -268,29 +268,29 @@ class TestMergeStructuredResponse:
         result = merge_artifacts(existing, new)
         assert result == ["/path/a", "/path/b", "/path/c"]
 
-class TestMergeCitedPapers:
-    """Test merge_cited_papers reducer."""
+class TestMergeCitedReferences:
+    """Test merge_cited_references reducer."""
 
     def test_deduplicates(self):
-        """Test deduplication of cited papers."""
+        """Test deduplication of cited references."""
         existing = ["doi:10.1", "doi:10.2"]
         new = ["doi:10.2", "doi:10.3"]
-        result = merge_cited_papers(existing, new)
+        result = merge_cited_references(existing, new)
         assert result == ["doi:10.1", "doi:10.2", "doi:10.3"]
 
     def test_with_none_existing(self):
         """Test merge when existing is None."""
-        result = merge_cited_papers(None, ["doi:10.1"])
+        result = merge_cited_references(None, ["doi:10.1"])
         assert result == ["doi:10.1"]
 
     def test_with_none_new(self):
         """Test merge when new is None."""
-        result = merge_cited_papers(["doi:10.1"], None)
+        result = merge_cited_references(["doi:10.1"], None)
         assert result == ["doi:10.1"]
 
     def test_both_none(self):
         """Test merge when both are None."""
-        result = merge_cited_papers(None, None)
+        result = merge_cited_references(None, None)
         assert result == []
 
 

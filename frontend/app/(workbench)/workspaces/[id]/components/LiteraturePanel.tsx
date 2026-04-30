@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   BookOpen,
   Calendar,
   CheckCircle2,
   Clock3,
+  Database,
   ExternalLink,
   FileText,
   Loader2,
@@ -15,18 +16,20 @@ import {
   Users,
 } from "lucide-react";
 import {
-  type PaperExtractionSubmission,
-  uploadPaperFile,
+  syncReferenceBibtexToPrism,
+  type ReferenceAsset,
+  type ReferencePreprocessSubmission,
+  uploadReferenceFile,
 } from "@/lib/api";
 import { openAuthorizedAsset, resolvePublicAssetUrl } from "@/lib/public-assets";
 import { cn } from "@/lib/utils";
-import { type Paper, useWorkspaceStore } from "@/stores/workspace";
+import { type Reference, useWorkspaceStore } from "@/stores/workspace";
 
-interface PaperItemProps {
-  paper: Paper;
+interface ReferenceItemProps {
+  reference: Reference;
   index: number;
   isOpening: boolean;
-  onOpen: (paper: Paper) => void | Promise<void>;
+  onOpen: (reference: Reference) => void | Promise<void>;
 }
 
 interface UploadState {
@@ -34,74 +37,183 @@ interface UploadState {
   name: string;
   status: "uploading" | "success" | "error";
   error?: string;
-  extraction?: PaperExtractionSubmission | null;
-}
-
-function formatExtractionLabel(status: string): string {
-  switch (status) {
-    case "scheduled":
-      return "抽取已排队";
-    case "existing":
-      return "复用抽取任务";
-    case "failed":
-      return "抽取排队失败";
-    default:
-      return status;
-  }
+  preprocess?: ReferencePreprocessSubmission | null;
 }
 
 function isPdfFile(file: File): boolean {
   return /\.pdf$/i.test(file.name) || file.type === "application/pdf";
 }
 
-function PaperItem({ paper, index, isOpening, onOpen }: PaperItemProps) {
-  const fileUrl = resolvePublicAssetUrl(paper.file_url ?? null);
+function formatPreprocessLabel(status: string): string {
+  switch (status) {
+    case "succeeded":
+      return "索引完成";
+    case "pending":
+      return "等待解析";
+    case "running":
+      return "正在解析";
+    case "failed":
+      return "解析失败";
+    case "skipped":
+      return "未解析";
+    default:
+      return status;
+  }
+}
+
+function formatLibraryStatus(status: string): string {
+  switch (status) {
+    case "core":
+      return "核心";
+    case "included":
+      return "已纳入";
+    case "candidate":
+      return "候选";
+    case "used_in_draft":
+      return "已引用";
+    case "excluded":
+      return "已排除";
+    default:
+      return status;
+  }
+}
+
+function formatEvidenceLevel(level: string): string {
+  switch (level) {
+    case "indexed_fulltext":
+      return "全文索引";
+    case "uploaded_fulltext":
+      return "已上传全文";
+    case "external_verified":
+      return "外部核验";
+    case "metadata_only":
+      return "元数据";
+    default:
+      return level;
+  }
+}
+
+function formatFulltextStatus(status: string): string {
+  switch (status) {
+    case "indexed":
+      return "全文可检索";
+    case "preprocessing":
+      return "解析中";
+    case "uploaded":
+      return "已上传";
+    case "failed":
+      return "解析失败";
+    case "none":
+      return "无全文";
+    default:
+      return status;
+  }
+}
+
+function formatCount(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}k citations`;
+  }
+  return `${value} citations`;
+}
+
+function primaryReferenceAsset(reference: Reference): ReferenceAsset | null {
+  const assets = Array.isArray(reference.assets) ? reference.assets : [];
+  return (
+    assets.find((asset) => asset.asset_type === "pdf" && asset.public_url) ??
+    assets.find((asset) => asset.public_url) ??
+    null
+  );
+}
+
+function primaryReferenceUrl(reference: Reference): string | null {
+  const asset = primaryReferenceAsset(reference);
+  return resolvePublicAssetUrl(asset?.public_url ?? null) ?? resolvePublicAssetUrl(reference.url ?? null);
+}
+
+function ReferenceItem({
+  reference,
+  index,
+  isOpening,
+  onOpen,
+}: ReferenceItemProps) {
+  const url = primaryReferenceUrl(reference);
+  const citationCount = formatCount(reference.citation_count);
 
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: index * 0.05, duration: 0.3 }}
+      transition={{ delay: index * 0.035, duration: 0.25 }}
       className="group rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3 transition-all hover:border-[var(--accent-primary)]/30 hover:bg-[var(--bg-surface)]"
     >
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <span className="rounded-full bg-[var(--accent-primary)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--accent-primary)]">
+          {formatLibraryStatus(reference.library_status)}
+        </span>
+        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+          {formatEvidenceLevel(reference.evidence_level)}
+        </span>
+        <span className="rounded-full bg-[var(--bg-muted)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">
+          {formatFulltextStatus(reference.fulltext_status)}
+        </span>
+      </div>
+
       <h4 className="mb-2 line-clamp-2 text-sm font-medium text-[var(--text-primary)]">
-        {paper.title}
+        {reference.title || "未命名参考文献"}
       </h4>
 
-      {paper.authors.length > 0 && (
+      {reference.authors.length > 0 && (
         <div className="mb-1 flex items-center gap-1 text-xs text-[var(--text-secondary)]">
           <Users className="h-3 w-3" />
           <span className="truncate">
-            {paper.authors.slice(0, 3).join(", ")}
-            {paper.authors.length > 3 && ` +${paper.authors.length - 3}`}
+            {reference.authors.slice(0, 3).join(", ")}
+            {reference.authors.length > 3 && ` +${reference.authors.length - 3}`}
           </span>
         </div>
       )}
 
-      <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
-        {paper.year && (
+      <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--text-muted)]">
+        {reference.year ? (
           <div className="flex items-center gap-1">
             <Calendar className="h-3 w-3" />
-            <span>{paper.year}</span>
+            <span>{reference.year}</span>
           </div>
-        )}
-        {paper.venue && (
-          <div className="flex items-center gap-1">
+        ) : null}
+        {reference.venue ? (
+          <div className="flex min-w-0 items-center gap-1">
             <BookOpen className="h-3 w-3" />
-            <span className="truncate">{paper.venue}</span>
+            <span className="truncate">{reference.venue}</span>
           </div>
-        )}
+        ) : null}
+        {citationCount ? <span>{citationCount}</span> : null}
       </div>
 
-      <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+        {reference.citation_key ? (
+          <span className="rounded-full bg-[var(--bg-muted)] px-2 py-0.5">
+            @{reference.citation_key}
+          </span>
+        ) : null}
+        {reference.doi ? (
+          <span className="max-w-full truncate rounded-full bg-[var(--bg-muted)] px-2 py-0.5">
+            DOI {reference.doi}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
         <button
           type="button"
-          onClick={() => void onOpen(paper)}
-          disabled={!fileUrl || isOpening}
-          aria-disabled={!fileUrl || isOpening}
+          onClick={() => void onOpen(reference)}
+          disabled={!url || isOpening}
+          aria-disabled={!url || isOpening}
           className={cn(
             "flex items-center gap-1 text-xs",
-            fileUrl && !isOpening
+            url && !isOpening
               ? "text-[var(--accent-primary)] hover:text-[var(--accent-secondary)]"
               : "cursor-not-allowed text-[var(--text-muted)]"
           )}
@@ -111,7 +223,7 @@ function PaperItem({ paper, index, isOpening, onOpen }: PaperItemProps) {
           ) : (
             <ExternalLink className="h-3 w-3" />
           )}
-          {isOpening ? "打开中" : fileUrl ? "查看" : "无文件"}
+          {isOpening ? "打开中" : url ? "查看来源" : "无可打开来源"}
         </button>
       </div>
     </motion.div>
@@ -119,9 +231,8 @@ function PaperItem({ paper, index, isOpening, onOpen }: PaperItemProps) {
 }
 
 function UploadStatusCard({ upload }: { upload: UploadState }) {
-  const extraction = upload.extraction;
-  const isFailed = upload.status === "error" || extraction?.status === "failed";
-  const isUploading = upload.status === "uploading";
+  const preprocess = upload.preprocess;
+  const isFailed = upload.status === "error" || preprocess?.status === "failed";
 
   return (
     <div
@@ -153,57 +264,51 @@ function UploadStatusCard({ upload }: { upload: UploadState }) {
             )}
           >
             {upload.status === "uploading"
-              ? "正在上传并登记到文献中心…"
+              ? "正在上传并登记到参考库..."
               : upload.status === "error"
                 ? upload.error || "上传失败"
-                : "文件已入库"}
+                : "文件已进入参考库"}
           </p>
 
-          {extraction ? (
+          {preprocess ? (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                  extraction.status === "failed"
+                  preprocess.status === "failed"
                     ? "bg-red-500/10 text-red-600"
-                    : extraction.status === "existing"
-                      ? "bg-sky-500/10 text-sky-600"
+                    : preprocess.status === "succeeded"
+                      ? "bg-emerald-500/10 text-emerald-600"
                       : "bg-amber-500/10 text-amber-600"
                 )}
               >
-                {extraction.status === "failed" ? (
+                {preprocess.status === "failed" ? (
                   <AlertCircle className="h-3 w-3" />
-                ) : extraction.status === "existing" ? (
+                ) : preprocess.status === "succeeded" ? (
                   <CheckCircle2 className="h-3 w-3" />
                 ) : (
                   <Clock3 className="h-3 w-3" />
                 )}
-                {formatExtractionLabel(extraction.status)}
+                {formatPreprocessLabel(preprocess.status)}
               </span>
-              {extraction.task_id ? (
+              {preprocess.task_id ? (
                 <span className="rounded-full bg-[var(--bg-muted)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">
-                  任务 {extraction.task_id.slice(0, 8)}
+                  任务 {preprocess.task_id.slice(0, 8)}
                 </span>
               ) : null}
             </div>
           ) : null}
 
-          {extraction?.message ? (
+          {preprocess?.message ? (
             <p
               className={cn(
                 "mt-2 text-[11px]",
-                extraction.status === "failed"
+                preprocess.status === "failed"
                   ? "text-red-600/90"
                   : "text-[var(--text-secondary)]"
               )}
             >
-              {extraction.message}
-            </p>
-          ) : null}
-
-          {isUploading ? (
-            <p className="mt-2 text-[10px] text-[var(--text-muted)]">
-              上传成功后会自动刷新文献列表，抽取完成后也会通过 workspace 事件流继续刷新。
+              {preprocess.message}
             </p>
           ) : null}
         </div>
@@ -221,48 +326,73 @@ export function LiteraturePanel({
   workspaceId,
   embedded = false,
 }: LiteraturePanelProps) {
-  const papers = useWorkspaceStore((state) => state.papers);
-  const fetchPapers = useWorkspaceStore((state) => state.fetchPapers);
-  const isPapersLoading = useWorkspaceStore((state) => state.isPapersLoading);
+  const references = useWorkspaceStore((state) => state.references);
+  const fetchReferences = useWorkspaceStore((state) => state.fetchReferences);
+  const isReferencesLoading = useWorkspaceStore((state) => state.isReferencesLoading);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [recentUploads, setRecentUploads] = useState<UploadState[]>([]);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [openingPaperId, setOpeningPaperId] = useState<string | null>(null);
+  const [panelError, setPanelError] = useState<string | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [isSyncingBibtex, setIsSyncingBibtex] = useState(false);
+  const [openingReferenceId, setOpeningReferenceId] = useState<string | null>(null);
 
   useEffect(() => {
     if (workspaceId) {
-      void fetchPapers(workspaceId);
+      void fetchReferences(workspaceId);
     }
-  }, [workspaceId, fetchPapers]);
+  }, [workspaceId, fetchReferences]);
 
   const isUploading = recentUploads.some(
     (upload) => upload.status === "uploading"
   );
+  const indexedCount = references.filter(
+    (reference) => reference.fulltext_status === "indexed"
+  ).length;
+  const coreCount = references.filter(
+    (reference) => reference.library_status === "core"
+  ).length;
 
   const handleOpenPicker = () => {
-    if (isUploading) {
-      return;
+    if (!isUploading) {
+      fileInputRef.current?.click();
     }
-    fileInputRef.current?.click();
   };
 
-  const handleOpenPaper = async (paper: Paper) => {
-    const fileUrl = resolvePublicAssetUrl(paper.file_url ?? null);
-    if (!fileUrl) {
-      setUploadError("当前论文没有可访问的文件。");
+  const handleOpenReference = async (reference: Reference) => {
+    const url = primaryReferenceUrl(reference);
+    if (!url) {
+      setPanelError("当前参考文献没有可访问的来源。");
       return;
     }
 
-    setUploadError(null);
-    setOpeningPaperId(paper.id);
+    setPanelError(null);
+    setOpeningReferenceId(reference.id);
     try {
-      await openAuthorizedAsset(fileUrl);
+      await openAuthorizedAsset(url);
     } catch (error) {
-      setUploadError(
-        error instanceof Error ? error.message : "打开论文失败，请稍后再试"
+      setPanelError(
+        error instanceof Error ? error.message : "打开参考文献失败，请稍后再试"
       );
     } finally {
-      setOpeningPaperId((current) => (current === paper.id ? null : current));
+      setOpeningReferenceId((current) =>
+        current === reference.id ? null : current
+      );
+    }
+  };
+
+  const handleSyncBibtex = async () => {
+    setPanelError(null);
+    setSyncNotice(null);
+    setIsSyncingBibtex(true);
+    try {
+      const result = await syncReferenceBibtexToPrism(workspaceId);
+      setSyncNotice(`已同步 ${result.reference_count} 条参考文献到 refs.bib。`);
+    } catch (error) {
+      setPanelError(
+        error instanceof Error ? error.message : "同步 refs.bib 失败"
+      );
+    } finally {
+      setIsSyncingBibtex(false);
     }
   };
 
@@ -278,12 +408,12 @@ export function LiteraturePanel({
 
     const invalidFile = files.find((file) => !isPdfFile(file));
     if (invalidFile) {
-      setUploadError(`仅支持 PDF 文件：${invalidFile.name}`);
+      setPanelError(`仅支持 PDF 文件：${invalidFile.name}`);
       return;
     }
 
-    setUploadError(null);
-    let shouldRefreshPapers = false;
+    setPanelError(null);
+    let shouldRefresh = false;
 
     for (const file of files) {
       const uploadId = `${Date.now()}-${file.name}-${Math.random().toString(36).slice(2, 8)}`;
@@ -298,15 +428,15 @@ export function LiteraturePanel({
       ].slice(0, 6));
 
       try {
-        const response = await uploadPaperFile(workspaceId, file);
-        shouldRefreshPapers = true;
+        const response = await uploadReferenceFile(workspaceId, file);
+        shouldRefresh = true;
         setRecentUploads((current) =>
           current.map((upload) =>
             upload.id === uploadId
               ? {
                   ...upload,
                   status: "success",
-                  extraction: response.extraction ?? null,
+                  preprocess: response.preprocess ?? null,
                 }
               : upload
           )
@@ -325,12 +455,12 @@ export function LiteraturePanel({
               : upload
           )
         );
-        setUploadError(message);
+        setPanelError(message);
       }
     }
 
-    if (shouldRefreshPapers) {
-      await fetchPapers(workspaceId);
+    if (shouldRefresh) {
+      await fetchReferences(workspaceId);
     }
   };
 
@@ -344,32 +474,45 @@ export function LiteraturePanel({
       )}
     >
       <div className="border-b border-[var(--border-default)] p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]">
             <FileText className="h-5 w-5 text-[var(--accent-primary)]" />
-            {embedded ? "文献与来源" : "文献中心"}
+            {embedded ? "参考库" : "文献中心"}
           </h2>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleOpenPicker}
-            disabled={isUploading}
-            className={cn(
-              "rounded-lg p-2 transition-colors",
-              "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20",
-              "disabled:cursor-not-allowed disabled:opacity-60"
-            )}
-          >
-            <Upload className="h-4 w-4" />
-          </motion.button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void handleSyncBibtex()}
+              disabled={isSyncingBibtex || references.length === 0}
+              title="同步 refs.bib 到 WenjinPrism"
+              className="rounded-lg bg-[var(--bg-muted)] p-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSyncingBibtex ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Database className="h-4 w-4" />
+              )}
+            </button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleOpenPicker}
+              disabled={isUploading}
+              className={cn(
+                "rounded-lg p-2 transition-colors",
+                "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20",
+                "disabled:cursor-not-allowed disabled:opacity-60"
+              )}
+            >
+              <Upload className="h-4 w-4" />
+            </motion.button>
+          </div>
         </div>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          {embedded
-            ? `${papers.length} 篇文献已进入当前 workspace`
-            : `${papers.length} 篇文献已进入当前 workspace`}
+          {references.length} 条参考文献，{indexedCount} 条已建立全文索引，{coreCount} 条标记为核心。
         </p>
         <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
-          上传 PDF 后会自动进入文献中心，并尽力自动触发一级抽取。
+          上传 PDF 或完成 Semantic Scholar 调研后，条目会进入当前 workspace 的隔离参考库。
         </p>
 
         <input
@@ -383,9 +526,15 @@ export function LiteraturePanel({
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
-        {uploadError ? (
+        {panelError ? (
           <div className="mb-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-600">
-            {uploadError}
+            {panelError}
+          </div>
+        ) : null}
+
+        {syncNotice ? (
+          <div className="mb-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700">
+            {syncNotice}
           </div>
         ) : null}
 
@@ -398,7 +547,7 @@ export function LiteraturePanel({
         ) : null}
 
         <AnimatePresence mode="popLayout">
-          {isPapersLoading ? (
+          {isReferencesLoading ? (
             <div className="flex items-center justify-center py-8">
               <motion.div
                 animate={{ rotate: 360 }}
@@ -406,16 +555,14 @@ export function LiteraturePanel({
                 className="h-6 w-6 rounded-full border-2 border-[var(--accent-primary)] border-t-transparent"
               />
             </div>
-          ) : papers.length === 0 ? (
+          ) : references.length === 0 ? (
             <div className="py-8 text-center">
               <FileText className="mx-auto mb-2 h-10 w-10 text-[var(--text-muted)]" />
               <p className="text-sm text-[var(--text-secondary)]">
-                {embedded ? "还没有导入文献" : "当前还没有文献"}
+                {embedded ? "还没有参考文献" : "当前参考库为空"}
               </p>
               <p className="mt-1 text-xs text-[var(--text-muted)]">
-                {embedded
-                  ? "上传 PDF 后，文献会进入当前工作路径。"
-                  : "上传 PDF 后，会逐步建立当前 workspace 的参考库。"}
+                上传 PDF，或运行文献调研后自动沉淀 Semantic Scholar 结果。
               </p>
               <motion.button
                 whileHover={{ scale: 1.02 }}
@@ -429,18 +576,18 @@ export function LiteraturePanel({
                 )}
               >
                 <Upload className="mr-2 inline h-4 w-4" />
-                {embedded ? "上传文献" : "上传 PDF"}
+                上传 PDF
               </motion.button>
             </div>
           ) : (
             <div className="space-y-2">
-              {papers.map((paper, index) => (
-                <PaperItem
-                  key={paper.id}
-                  paper={paper}
+              {references.map((reference, index) => (
+                <ReferenceItem
+                  key={reference.id}
+                  reference={reference}
                   index={index}
-                  isOpening={openingPaperId === paper.id}
-                  onOpen={handleOpenPaper}
+                  isOpening={openingReferenceId === reference.id}
+                  onOpen={handleOpenReference}
                 />
               ))}
             </div>

@@ -20,13 +20,6 @@ from .common import (
     validate_page_number,
     validate_uuid,
 )
-from .paper import (
-    AuthorValidator,
-    CreatePaperValidator,
-    PaperCreatePayloadValidator,
-    PaperSource,
-    UpdatePaperValidator,
-)
 from .workspace import (
     CreateWorkspaceValidator,
     UpdateWorkspaceValidator,
@@ -49,12 +42,6 @@ __all__ = [
     "WorkspaceStatus",
     "CreateWorkspaceValidator",
     "UpdateWorkspaceValidator",
-    # Paper validators
-    "PaperSource",
-    "PaperCreatePayloadValidator",
-    "CreatePaperValidator",
-    "UpdatePaperValidator",
-    "AuthorValidator",
     # Artifact validators
     "ArtifactType",
     "ArtifactStatus",

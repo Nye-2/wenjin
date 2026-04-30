@@ -160,6 +160,7 @@ make debug-langgraph
 - 总览：`docs/README.md`
 - 架构：`docs/architecture/README.md`
 - 产品契约：`docs/product/README.md`
+- 长期方向种子：`docs/strategy/wenjin-long-term-direction-seed.md`
 - 基础设施：`docs/infrastructure/README.md`
 - 后端专项：`backend/docs/README.md`
 - 前端专项：`frontend/README.md`

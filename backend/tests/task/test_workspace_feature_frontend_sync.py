@@ -20,6 +20,20 @@ CHAT_ENTRY_FILE = FRONTEND_DIR / "lib" / "workspace-thread-entry.ts"
 CHAT_PANEL_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "ThreadPanel.tsx"
 )
+WORKSPACE_THREAD_MESSAGES_FILE = (
+    FRONTEND_DIR
+    / "app"
+    / "(workbench)"
+    / "workspaces"
+    / "[id]"
+    / "components"
+    / "WorkspaceThreadMessages.tsx"
+)
+THREAD_BLOCKS_DIR = (
+    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "thread-blocks"
+)
+THREAD_BLOCK_SHARED_FILE = THREAD_BLOCKS_DIR / "shared.tsx"
+THREAD_BLOCK_NEXT_STEPS_FILE = THREAD_BLOCKS_DIR / "NextStepsBlock.tsx"
 WORKSPACE_INSPECTOR_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "WorkspaceInspector.tsx"
 )
@@ -127,7 +141,7 @@ def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_threa
     assert "<ThreadPanel workspaceId={workspaceId} entrySeed={effectiveEntrySeed} />" in chat_route_body
     assert "export function parseWorkspaceThreadEntrySeed(" in chat_entry_body
     assert "export function buildWorkspaceThreadEntryPrompt(" in chat_entry_body
-    assert 'intent: "launch"' in chat_panel_body
+    assert 'intent: isResumeEntry ? "resume" : "launch"' in chat_panel_body
     assert 'intent: "resume"' in chat_panel_body
     assert 'feature_id: entrySeed.featureId' in chat_panel_body
     assert "params: entrySeed.params" in chat_panel_body
@@ -215,12 +229,47 @@ def test_chat_and_knowledge_panels_follow_canonical_chat_entry_and_retry_paths()
 def test_workbench_feature_cards_use_canonical_chat_seed_route() -> None:
     page_body = _read_text(WORKBENCH_PAGE_FILE)
     messages_body = _read_text(CHAT_PANEL_FILE.parent / "WorkspaceThreadMessages.tsx")
+    proposal_body = _read_text(CHAT_PANEL_FILE.parent / "thread-blocks" / "TaskProposalBlock.tsx")
 
     assert "getWorkspaceFeatureThreadRoute" in page_body
     assert "<StagedFeatureCards features={features} workspaceId={workspaceId} />" in page_body
     assert "router.push(route);" in page_body
     assert "feature_proposal" in messages_body
-    assert 'action: "trigger_feature"' in messages_body
+    assert 'action: "trigger_feature"' in proposal_body
+
+
+def test_thread_block_action_contract_is_centralized_and_executable() -> None:
+    shared_body = _read_text(THREAD_BLOCK_SHARED_FILE)
+    next_steps_body = _read_text(THREAD_BLOCK_NEXT_STEPS_FILE)
+    messages_body = _read_text(WORKSPACE_THREAD_MESSAGES_FILE)
+    thread_panel_body = _read_text(CHAT_PANEL_FILE)
+
+    expected_actions = {
+        "trigger_feature",
+        "continue_thread",
+        "open_feature",
+        "rerun_from_artifact",
+        "open_prism",
+        "preview_prism_changes",
+        "open_artifact",
+        "rerun_feature",
+        "resume_execution",
+        "import_references",
+    }
+    for action in expected_actions:
+        assert f'"{action}"' in shared_body
+
+    assert "export const SUPPORTED_BLOCK_ACTIONS" in shared_body
+    assert "export function isBlockActionType" in shared_body
+    assert "isBlockActionType(rawAction)" in next_steps_body
+    assert messages_body.count('block.type === "next_steps"') == 1
+
+    assert 'action === "open_prism" || action === "preview_prism_changes"' in messages_body
+    assert 'action === "import_references"' in messages_body
+    assert "await importDeepSearchArtifactReferences(workspaceId" in messages_body
+    assert 'action === "resume_execution"' in messages_body
+    assert 'entry: "resume"' in messages_body
+    assert 'intent: isResumeEntry ? "resume" : "launch"' in thread_panel_body
 
 
 def test_legacy_frontend_execute_workspace_feature_wrapper_removed() -> None:
@@ -235,7 +284,7 @@ def test_knowledge_rail_is_connected_to_workspace_data() -> None:
     assert "TODO" not in body
     assert "useWorkspaceStore" in body
     assert "getWorkspaceMemory" in body
-    assert "papers.slice" in body
+    assert "references.slice" in body
     assert "artifacts.slice" in body
     assert "activities.slice" in body
 
@@ -263,10 +312,10 @@ def test_compute_stage_replaces_legacy_feature_panel_host() -> None:
     assert "PrismPanel" in compute_body
     assert "LatexFileChangeDiffPreview" in prism_body
     assert "reviewGate" in compute_body
-    assert "Sandbox 文件" in sandbox_body
+    assert "沙箱文件" in sandbox_body
     assert "WenjinPrism" in prism_body
     assert "执行日志" in log_body
-    assert "Review Gate" in review_gate_body
+    assert "审核关卡" in review_gate_body
     assert "WorkspaceResultPanel" not in workspace_exports
     assert "FeatureWorkbenchShell" not in workspace_exports
 

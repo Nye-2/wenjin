@@ -33,7 +33,7 @@ class TestTaskService:
     """Tests for TaskService."""
 
     @pytest.mark.asyncio
-    async def test_submit_task(self, task_service):
+    async def test_submit_task(self, task_service, mock_task_executor):
         """Test submitting a task."""
         with patch("src.task.service.celery_app") as mock_celery:
             mock_celery.send_task = MagicMock()
@@ -47,6 +47,8 @@ class TestTaskService:
 
             assert task_id is not None
             assert len(task_id) == 36  # UUID format
+            submitted_payload = mock_task_executor.execute.await_args.kwargs["payload"]
+            assert submitted_payload["task_id"] == task_id
 
     @pytest.mark.asyncio
     async def test_submit_invalid_task_type(self, task_service):
@@ -287,30 +289,30 @@ class TestTaskService:
         with patch("src.task.service.get_executor", return_value=mock_executor):
             matching_task_id = await task_service.submit_task(
                 user_id="user-dedupe",
-                task_type="paper_extraction",
+                task_type="reference_preprocess",
                 payload={
                     "workspace_id": "ws-1",
-                    "paper_id": "paper-1",
-                    "tier": 2,
+                    "reference_id": "reference-1",
+                    "asset_id": "asset-1",
                 },
             )
             await task_service.submit_task(
                 user_id="user-dedupe",
-                task_type="paper_extraction",
+                task_type="reference_preprocess",
                 payload={
                     "workspace_id": "ws-1",
-                    "paper_id": "paper-2",
-                    "tier": 2,
+                    "reference_id": "reference-2",
+                    "asset_id": "asset-2",
                 },
             )
 
         found_task_id = await task_service.find_active_task_by_payload(
             user_id="user-dedupe",
-            task_type="paper_extraction",
+            task_type="reference_preprocess",
             payload_filters={
                 "workspace_id": "ws-1",
-                "paper_id": "paper-1",
-                "tier": 2,
+                "reference_id": "reference-1",
+                "asset_id": "asset-1",
             },
         )
 
@@ -324,11 +326,11 @@ class TestTaskService:
         with patch("src.task.service.get_executor", return_value=mock_executor):
             matching_task_id = await task_service.submit_task(
                 user_id="user-dedupe-finished",
-                task_type="paper_extraction",
+                task_type="reference_preprocess",
                 payload={
                     "workspace_id": "ws-1",
-                    "paper_id": "paper-1",
-                    "tier": 1,
+                    "reference_id": "reference-1",
+                    "asset_id": "asset-1",
                 },
             )
 
@@ -339,11 +341,11 @@ class TestTaskService:
 
         found_task_id = await task_service.find_active_task_by_payload(
             user_id="user-dedupe-finished",
-            task_type="paper_extraction",
+            task_type="reference_preprocess",
             payload_filters={
                 "workspace_id": "ws-1",
-                "paper_id": "paper-1",
-                "tier": 1,
+                "reference_id": "reference-1",
+                "asset_id": "asset-1",
             },
         )
 

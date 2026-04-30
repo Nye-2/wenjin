@@ -99,7 +99,7 @@
 任务成功后，前端按 `task.result.refresh_targets` 刷新资源:
 
 - `artifacts` -> `fetchArtifacts(workspaceId)`
-- `papers` -> `fetchPapers(workspaceId)`
+- `references` -> `fetchReferences(workspaceId)`
 - `workspace` -> `loadWorkspace(workspaceId)`
 
 实现位置: `frontend/hooks/useWorkspaceEventStream.ts` 与 `frontend/app/(workbench)/workspaces/[id]/components/ThreadPanel.tsx`

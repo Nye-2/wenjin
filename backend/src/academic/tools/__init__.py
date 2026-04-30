@@ -1,5 +1,8 @@
-"""Academic tools module initialization."""
+"""Academic tool package.
 
-from .semantic_scholar import semantic_scholar_search_tool
+Direct paper-search tools are intentionally not exported. Workspace agents must
+use Reference Library tools or Compute features so discovered papers become
+workspace-scoped references before citation or BibTeX projection.
+"""
 
-__all__ = ["semantic_scholar_search_tool"]
+__all__: list[str] = []

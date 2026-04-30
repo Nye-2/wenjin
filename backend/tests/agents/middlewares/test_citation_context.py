@@ -1,13 +1,16 @@
 """Tests for citation extraction and validation."""
 
+from unittest.mock import AsyncMock
+
 import pytest
+from langchain_core.messages import AIMessage
 
 from src.agents.middlewares.citation_context import CitationContextMiddleware
 
 
 class TestCitationExtraction:
     def setup_method(self):
-        self.middleware = CitationContextMiddleware(paper_service=None)
+        self.middleware = CitationContextMiddleware(reference_service=None)
 
     def test_extract_author_year(self):
         citations = self.middleware._extract_citations("As shown by (Smith, 2023)")
@@ -42,22 +45,48 @@ class TestCitationExtraction:
 @pytest.mark.asyncio
 class TestCitationValidation:
     async def test_after_model_skips_without_workspace_id(self):
-        middleware = CitationContextMiddleware(paper_service=None)
+        middleware = CitationContextMiddleware(reference_service=None)
         state = {"messages": []}
         result = await middleware.after_model(state, {})
         assert result == dict(state)
 
     async def test_after_model_skips_without_messages(self):
-        middleware = CitationContextMiddleware(paper_service=None)
+        middleware = CitationContextMiddleware(reference_service=None)
         state = {"workspace_id": "ws-1", "messages": []}
         result = await middleware.after_model(state, {})
         assert result == dict(state)
+
+    async def test_after_model_records_reference_usage(self):
+        class _Reference:
+            id = "reference-1"
+
+        reference_service = type("ReferenceService", (), {})()
+        reference_service.search_in_workspace = AsyncMock(return_value=[_Reference()])
+        reference_service.record_reference_usage = AsyncMock()
+        middleware = CitationContextMiddleware(reference_service=reference_service)
+        state = {
+            "workspace_id": "ws-1",
+            "messages": [AIMessage(content="Prior work reported this effect [1].")],
+        }
+
+        result = await middleware.after_model(
+            state,
+            {"configurable": {"execution_session_id": "exec-1", "task_id": "task-1"}},
+        )
+
+        assert result["cited_references"] == ["reference-1"]
+        reference_service.record_reference_usage.assert_awaited_once()
+        kwargs = reference_service.record_reference_usage.await_args.kwargs
+        assert kwargs["workspace_id"] == "ws-1"
+        assert kwargs["reference_ids"] == ["reference-1"]
+        assert kwargs["execution_session_id"] == "exec-1"
+        assert kwargs["task_id"] == "task-1"
 
 
 class TestCitationLogging:
     def test_extraction_logs_count(self, caplog):
         import logging
-        middleware = CitationContextMiddleware(paper_service=None)
+        middleware = CitationContextMiddleware(reference_service=None)
         with caplog.at_level(logging.DEBUG, logger="src.agents.middlewares.citation_context"):
             middleware._extract_citations("(Smith, 2023) and [1]")
         assert any("citation" in r.message.lower() for r in caplog.records)

@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import func, select
 
 from src.artifacts.types import ArtifactType
-from src.database import Artifact, WorkspaceLiterature
+from src.database import Artifact, ReferenceLibraryStatus, WorkspaceReference
 from src.services.dashboard.shared import DashboardStatusSharedMixin
 from src.services.workspace_skill_labels import list_workspace_feature_creator_ids
 
@@ -65,14 +65,19 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
 
     async def _get_literature_management_status(self, workspace_id: str) -> dict[str, Any]:
         total_result = await self.db.execute(
-            select(func.count()).where(WorkspaceLiterature.workspace_id == workspace_id)
+            select(func.count()).where(
+                WorkspaceReference.workspace_id == workspace_id,
+                WorkspaceReference.is_deleted.is_(False),
+                WorkspaceReference.library_status != ReferenceLibraryStatus.EXCLUDED,
+            )
         )
         total = total_result.scalar() or 0
 
         core_result = await self.db.execute(
             select(func.count()).where(
-                WorkspaceLiterature.workspace_id == workspace_id,
-                WorkspaceLiterature.is_core == True,  # noqa: E712
+                WorkspaceReference.workspace_id == workspace_id,
+                WorkspaceReference.is_deleted.is_(False),
+                WorkspaceReference.library_status == ReferenceLibraryStatus.CORE,
             )
         )
         core = core_result.scalar() or 0

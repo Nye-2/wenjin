@@ -297,41 +297,84 @@ export interface WorkspaceTemplate {
   isBuiltin: boolean;
 }
 
-export interface Paper {
+export interface ReferenceAsset {
   id: string;
-  doi?: string;
-  title: string;
-  authors: Array<{ name: string; id?: string }>;
-  year?: number;
-  venue?: string;
-  abstract?: string;
-  source: string;
-  citation_count?: number;
-  reference_count?: number;
-  file_url?: string | null;
+  workspace_id: string;
+  reference_id: string;
+  source_asset_id?: string | null;
+  asset_type: "pdf" | "markdown" | "manifest" | string;
+  file_path?: string | null;
+  virtual_path?: string | null;
+  public_url?: string | null;
+  content_type?: string | null;
+  file_size?: number | null;
+  file_hash?: string | null;
+  page_count?: number | null;
+  language?: string | null;
+  preprocess_status?: string | null;
+  preprocess_task_id?: string | null;
+  preprocess_error?: string | null;
+  manifest_path?: string | null;
+  markdown_paths?: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
-export interface PaperExtractionSubmission {
+export interface WorkspaceReference {
+  id: string;
+  workspace_id: string;
+  title: string;
+  normalized_title?: string | null;
+  authors: string[];
+  year?: number | null;
+  venue?: string | null;
+  publication_type?: string | null;
+  doi?: string | null;
+  url?: string | null;
+  abstract?: string | null;
+  citation_count?: number | null;
+  source_type: string;
+  source_label?: string | null;
+  source_run_id?: string | null;
+  source_artifact_id?: string | null;
+  verified_at?: string | null;
+  library_status: string;
+  evidence_level: string;
+  fulltext_status: string;
+  citation_key?: string | null;
+  bibtex_entry_type?: string | null;
+  bibtex_fields?: Record<string, unknown>;
+  read_status?: string | null;
+  tags?: string[];
+  notes?: string | null;
+  is_deleted?: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+  assets?: ReferenceAsset[];
+}
+
+export interface ReferencePreprocessSubmission {
   task_id?: string | null;
   status: string;
-  paper_id?: string | null;
-  workspace_id?: string | null;
-  tier?: number | null;
+  provider?: string | null;
+  file_type?: string | null;
   message?: string | null;
   progress?: number | null;
   current_step?: string | null;
   error?: string | null;
-  reused_existing_task?: boolean;
+  manifest_path?: string | null;
+  markdown_paths?: string[];
+  markdown_urls?: string[];
 }
 
-export interface UploadPaperResponse {
+export interface UploadReferenceResponse {
   success: boolean;
-  paper_id: string;
+  reference: WorkspaceReference;
+  asset: ReferenceAsset;
   filename: string;
   size_bytes: number;
   workspace_id: string;
-  file_url?: string | null;
-  extraction?: PaperExtractionSubmission | null;
+  preprocess?: ReferencePreprocessSubmission | null;
 }
 
 export interface Artifact {
@@ -365,7 +408,7 @@ export interface ThreadAttachment {
   url?: string | null;
   content_type?: string | null;
   size_bytes?: number | null;
-  paper_id?: string | null;
+  reference_id?: string | null;
   artifact_id?: string | null;
   metadata?: Record<string, unknown>;
 }
@@ -1195,25 +1238,35 @@ export interface McpConfigResponse {
   mcp_servers: Record<string, McpServerConfigInput>;
 }
 
-export interface Literature {
-  id: string;
-  title: string;
-  authors: string[];
-  year: number | null;
-  citations: number | null;
-  venue: string | null;
-  quartile: string | null;
-  abstract: string | null;
-  doi: string | null;
-  source: string;
-  is_core: boolean;
-  created_at: string;
-}
-
-export interface LiteratureListResponse {
-  items: Literature[];
+export interface ReferenceListResponse {
+  items: WorkspaceReference[];
   total: number;
   core_count: number;
+}
+
+export interface ReferenceCountResponse {
+  total: number;
+  core: number;
+  indexed: number;
+}
+
+export interface ReferenceImportResponse {
+  imported: number;
+  created: number;
+  items: WorkspaceReference[];
+  query?: string | null;
+  retrieval?: Record<string, unknown> | null;
+  error?: string | null;
+}
+
+export interface ReferenceBibtexResponse {
+  workspace_id: string;
+  scope: string;
+  content: string;
+  reference_count: number;
+  checksum: string;
+  latex_project_id?: string;
+  synced_file?: string;
 }
 
 export interface MemoryEntry {

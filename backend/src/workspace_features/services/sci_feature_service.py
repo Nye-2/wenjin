@@ -2,7 +2,7 @@
 
 This module keeps handler logic thin and reusable by encapsulating:
 1. framework-outline payload assembly,
-2. literature search (LLM synthesis),
+2. literature search (Semantic Scholar retrieval + grounded synthesis),
 3. paper analysis (structured method/experiment/conclusion extraction),
 4. SCI section-writing payload assembly.
 """
@@ -14,10 +14,11 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from src.academic.services import ArtifactService
+from src.academic.literature import LiteratureSearchService
+from src.academic.services.artifact_service import ArtifactService
 from src.artifacts import ArtifactType
 from src.database import get_db_session
-from src.services.literature_service import LiteratureService
+from src.services.references import ReferenceImportService, WorkspaceReferenceService
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     advance_runtime_phase,
@@ -36,6 +37,7 @@ from src.workspace_features.services.llm_json import (
 logger = logging.getLogger(__name__)
 
 SCI_SCHEMA_VERSION = "v1"
+SCI_LITERATURE_SEARCH_SCHEMA_VERSION = "semantic_scholar_v1"
 SCI_OUTPUT_LANGUAGE = "en"
 
 
@@ -81,15 +83,15 @@ SCI_WRITING_SECTION_MAP: dict[str, str] = {
 }
 
 
-async def _load_workspace_literature(workspace_id: str) -> list[dict[str, Any]]:
-    """Load literature from workspace for context enrichment."""
+async def _load_workspace_references(workspace_id: str) -> list[dict[str, Any]]:
+    """Load Reference Library records from workspace for context enrichment."""
     try:
         async with get_db_session() as db:
-            service = LiteratureService(db)
-            response = await service.list_literature(workspace_id, offset=0, limit=100)
+            service = WorkspaceReferenceService(db)
+            response = await service.list_references(workspace_id, offset=0, limit=100)
     except Exception as exc:
         logger.warning(
-            "Failed to load workspace literature for '%s', fallback to empty context: %s",
+            "Failed to load workspace references for '%s', fallback to empty context: %s",
             workspace_id,
             exc,
         )
@@ -99,15 +101,136 @@ async def _load_workspace_literature(workspace_id: str) -> list[dict[str, Any]]:
     return items if isinstance(items, list) else []
 
 
-async def _try_llm_literature_search(
+def _format_verified_papers_for_prompt(verified_papers: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for index, paper in enumerate(verified_papers[:15], start=1):
+        title = str(paper.get("title") or "Untitled").strip()
+        year = str(paper.get("year") or "n/a")
+        venue = str(paper.get("venue") or "").strip()
+        doi = str(paper.get("doi") or "").strip()
+        external_id = str(paper.get("external_id") or "").strip()
+        citations = paper.get("citations_count")
+        abstract = _truncate(str(paper.get("abstract") or "").strip(), 520)
+        meta = ", ".join(
+            part
+            for part in [
+                f"year={year}",
+                f"venue={venue}" if venue else "",
+                f"citations={citations}" if citations is not None else "",
+                f"doi={doi}" if doi else "",
+                f"semantic_scholar_id={external_id}" if external_id else "",
+            ]
+            if part
+        )
+        lines.append(f"{index}. {title} ({meta})\nAbstract: {abstract or 'n/a'}")
+    return "\n\n".join(lines) if lines else "未检索到 Semantic Scholar 已验证论文。"
+
+
+def _build_literature_synthesis_template(
     *,
     query: str,
     discipline: str,
+    verified_papers: list[dict[str, Any]],
+) -> dict[str, Any]:
+    titles = [str(item.get("title") or "").strip() for item in verified_papers[:5]]
+    titles = [title for title in titles if title]
+    if verified_papers:
+        summary = f"Semantic Scholar 已围绕“{query}”返回 {len(verified_papers)} 篇可核验论文，可先按引用量、年份和摘要相关性筛选精读对象。"
+    else:
+        summary = f"Semantic Scholar 暂未围绕“{query}”返回可核验论文，需要调整关键词或缩小/扩大研究范围。"
+    return {
+        "summary": summary,
+        "themes": [
+            {
+                "name": "已验证检索结果",
+                "description": f"当前结果全部来自 Semantic Scholar 元数据；学科上下文：{discipline}。",
+                "supporting_external_ids": [
+                    str(item.get("external_id"))
+                    for item in verified_papers[:5]
+                    if item.get("external_id")
+                ],
+            }
+        ] if verified_papers else [],
+        "research_gaps": [],
+        "recommended_reading_order": [
+            {
+                "title": title,
+                "reason": "先核对摘要、方法和引用关系，再决定是否导入精读。"
+            }
+            for title in titles
+        ],
+    }
+
+
+def _normalize_verified_title(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _sanitize_literature_synthesis(
+    synthesis: dict[str, Any],
+    *,
+    verified_papers: list[dict[str, Any]],
+) -> dict[str, Any]:
+    allowed_ids = {
+        str(item.get("external_id") or "").strip()
+        for item in verified_papers
+        if item.get("external_id")
+    }
+    allowed_titles = {
+        _normalize_verified_title(str(item.get("title") or ""))
+        for item in verified_papers
+        if str(item.get("title") or "").strip()
+    }
+
+    sanitized_order: list[dict[str, Any]] = []
+    raw_order = synthesis.get("recommended_reading_order")
+    if isinstance(raw_order, list):
+        for item in raw_order:
+            if not isinstance(item, dict):
+                continue
+            external_id = str(item.get("external_id") or "").strip()
+            title = str(item.get("title") or "").strip()
+            if (external_id and external_id in allowed_ids) or (_normalize_verified_title(title) in allowed_titles):
+                sanitized_order.append(item)
+
+    sanitized_themes: list[dict[str, Any]] = []
+    raw_themes = synthesis.get("themes")
+    if isinstance(raw_themes, list):
+        for item in raw_themes:
+            if not isinstance(item, dict):
+                continue
+            theme = dict(item)
+            supporting_ids = theme.get("supporting_external_ids")
+            if isinstance(supporting_ids, list):
+                theme["supporting_external_ids"] = [
+                    str(external_id)
+                    for external_id in supporting_ids
+                    if str(external_id) in allowed_ids
+                ]
+            sanitized_themes.append(theme)
+
+    return {
+        "summary": str(synthesis.get("summary") or "").strip(),
+        "themes": sanitized_themes,
+        "research_gaps": synthesis.get("research_gaps") if isinstance(synthesis.get("research_gaps"), list) else [],
+        "recommended_reading_order": sanitized_order,
+    }
+
+
+async def _try_llm_literature_synthesis(
+    *,
+    query: str,
+    discipline: str,
+    verified_papers: list[dict[str, Any]],
     existing_literature: list[dict[str, Any]],
     preferred_model: str | None,
-) -> tuple[dict[str, Any] | None, str | None, str | None]:
-    """Attempt LLM-based literature search synthesis."""
-    literature_context = ""
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], str | None, str | None]:
+    """Synthesize findings strictly from Semantic Scholar verified papers."""
+    model_id = _resolve_generation_model(preferred_model)
+    if model_id is None:
+        return None, [], None, "no_generation_model_configured"
+
+    existing_context = ""
     if existing_literature:
         lit_summaries = []
         for lit in existing_literature[:10]:
@@ -115,47 +238,45 @@ async def _try_llm_literature_search(
             year = lit.get("year", "")
             venue = lit.get("venue", "")
             lit_summaries.append(f"- {title} ({year}) - {venue}")
-        literature_context = "已有相关文献：\n" + "\n".join(lit_summaries)
+        existing_context = "已有相关文献：\n" + "\n".join(lit_summaries)
 
     prompt = build_json_prompt(
-        instruction="请根据检索需求生成文献检索建议和分析。",
+        instruction="请基于 Semantic Scholar 已验证论文生成文献检索综合分析。",
         context_sections=[
             ("检索查询", query),
             ("学科领域", discipline),
-            ("已有文献", literature_context or "暂无已有文献"),
+            ("Semantic Scholar 已验证论文", _format_verified_papers_for_prompt(verified_papers)),
+            ("已有工作区文献", existing_context or "暂无已有文献"),
         ],
-        schema='{"papers":[{"title":"论文标题","authors":["作者1"],"year":2024,"venue":"期刊/会议","abstract":"摘要","relevance":"相关性说明"}],"top_hits":[{"title":"高相关论文","reason":"推荐理由"}],"filters":{"year_range":{"min":2020,"max":2025},"sources":["数据源"],"quartiles":["Q1","Q2"]},"summary":"检索结果综述"}',
+        schema='{"summary":"基于已验证论文的检索综述","themes":[{"name":"主题","description":"主题说明","supporting_external_ids":["Semantic Scholar paperId"]}],"research_gaps":["只基于已验证论文可见证据提出的空白"],"recommended_reading_order":[{"external_id":"Semantic Scholar paperId","title":"已验证论文标题","reason":"推荐精读理由"}],"unverified_leads":[{"lead":"后续检索关键词/方向，不是论文条目","reason":"为什么需要继续检索","next_query":"建议下一轮 Semantic Scholar 查询"}]}',
         requirements=[
-            "papers 数组提供 5-10 条建议条目；无法确认的具体论文需明确标注待核验。",
-            "top_hits 提供 3 条最相关命中及推荐理由。",
-            "filters 提供合理的筛选维度建议。",
-            "summary 提供检索结果综述和研究方向建议。",
+            "不得新增、编造或改写任何论文条目；论文只能来自 Semantic Scholar 已验证论文。",
+            "recommended_reading_order 只能引用已验证论文中的 title/external_id。",
+            "themes 和 research_gaps 必须明确受限于已验证论文的可见摘要与元数据。",
+            "unverified_leads 只能写关键词、概念、作者群或下一轮检索式，不得写成论文引用。",
         ],
         output_language="zh",
     )
     parsed, model_id, generation_error = await invoke_json_chat_model(
-        system_prompt="你是问津 Compute 的学术文献检索专家，负责把检索需求转成高信号、可核验的候选文献和研究空白线索。",
+        system_prompt="你是问津 Compute 的证据驱动文献分析专家。你只能基于 Semantic Scholar 已验证论文做综合，不允许生成未验证论文条目。",
         prompt=prompt,
         preferred_model=preferred_model,
-        temperature=0.3,
+        temperature=0.2,
     )
     if parsed is None:
-        return None, model_id, generation_error
+        return None, [], model_id, generation_error
 
-    return {
-        "query": query,
-        "discipline": discipline,
-        "papers": parsed.get("papers", [])[:10],
-        "top_hits": parsed.get("top_hits", [])[:5],
-        "filters": parsed.get("filters", {
-            "year_range": {"min": 2020, "max": 2025},
-            "sources": ["Semantic Scholar", "CrossRef"],
-            "quartiles": ["Q1", "Q2"],
-        }),
-        "summary": parsed.get("summary", ""),
-        "search_strategy": "llm_synthesis",
-        "generated_at": _utc_now_iso(),
-    }, model_id, None
+    synthesis = _sanitize_literature_synthesis(
+        {
+            "summary": str(parsed.get("summary") or "").strip(),
+            "themes": parsed.get("themes") if isinstance(parsed.get("themes"), list) else [],
+            "research_gaps": parsed.get("research_gaps") if isinstance(parsed.get("research_gaps"), list) else [],
+            "recommended_reading_order": parsed.get("recommended_reading_order") if isinstance(parsed.get("recommended_reading_order"), list) else [],
+        },
+        verified_papers=verified_papers,
+    )
+    unverified_leads = parsed.get("unverified_leads") if isinstance(parsed.get("unverified_leads"), list) else []
+    return synthesis, unverified_leads, model_id, None
 
 
 def _resolve_generation_model(preferred_model: str | None) -> str | None:
@@ -257,7 +378,7 @@ async def build_sci_literature_review_payload(
         workspace_id=workspace_id,
         context_artifact_ids=context_artifact_ids or [],
     )
-    literature = await _load_workspace_literature(workspace_id)
+    literature = await _load_workspace_references(workspace_id)
     llm_result, model_id, generation_error = await _try_llm_literature_review(
         topic=resolved_topic,
         discipline=resolved_discipline,
@@ -595,7 +716,7 @@ async def build_literature_search_payload(
     discipline: str | None = None,
     preferred_model: str | None = None,
 ) -> dict[str, Any]:
-    """Build literature search artifact content with LLM synthesis.
+    """Build literature search artifact content from Semantic Scholar evidence.
 
     Args:
         workspace_id: UUID of the workspace
@@ -604,7 +725,7 @@ async def build_literature_search_payload(
         preferred_model: Optional model ID for generation
 
     Returns:
-        Structured literature search result payload
+        Structured Semantic Scholar grounded literature search result payload
     """
     normalized_query = (query or "").strip()
     if not normalized_query:
@@ -614,7 +735,7 @@ async def build_literature_search_payload(
     runtime = get_runtime_state()
 
     # Load existing literature for context
-    existing_literature = await _load_workspace_literature(workspace_id)
+    existing_literature = await _load_workspace_references(workspace_id)
     if runtime is not None:
         upsert_runtime_block(
             runtime,
@@ -636,86 +757,143 @@ async def build_literature_search_payload(
         )
         advance_runtime_phase(runtime, "prepare", "retrieve")
         await _emit_bound_runtime(
-            message="正在生成候选论文与高相关命中...",
+            message="正在检索 Semantic Scholar 已验证论文...",
             current_phase="retrieve",
             stage_transition=True,
         )
 
-    # Try LLM-based synthesis
-    llm_result, model_id, generation_error = await _try_llm_literature_search(
+    search_service = LiteratureSearchService()
+    retrieval_result = await search_service.search(
         query=normalized_query,
         discipline=normalized_discipline,
+        limit=10,
+    )
+    verified_papers = retrieval_result.get("verified_papers")
+    if not isinstance(verified_papers, list):
+        verified_papers = []
+    retrieval = retrieval_result.get("retrieval")
+    retrieval_info = retrieval if isinstance(retrieval, dict) else {}
+
+    reference_import: dict[str, Any] = {"imported": 0, "created": 0, "items": []}
+    if verified_papers:
+        try:
+            async with get_db_session() as db:
+                reference_import = await ReferenceImportService(db).import_semantic_scholar_papers(
+                    workspace_id=workspace_id,
+                    papers=verified_papers,
+                    source_label=f"Literature search: {normalized_query}",
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to import Semantic Scholar results into reference library for workspace %s: %s",
+                workspace_id,
+                exc,
+                exc_info=True,
+            )
+            reference_import = {
+                "imported": 0,
+                "created": 0,
+                "items": [],
+                "error": str(exc),
+            }
+
+    if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "verified-papers",
+                "kind": "list",
+                "title": "Semantic Scholar 已验证论文",
+                "description": "以下条目来自 Semantic Scholar 元数据，不包含模型生成论文。",
+                "items": [
+                    {
+                        "title": str(item.get("title") or "Untitled"),
+                        "description": _truncate(str(item.get("abstract") or ""), 220),
+                        "meta": str(item.get("venue") or item.get("doi") or item.get("external_id") or ""),
+                        "badge": str(item.get("year") or "") or None,
+                    }
+                    for item in verified_papers[:6]
+                    if isinstance(item, dict)
+                ],
+            },
+        )
+        append_runtime_activity(
+            runtime,
+            title="Semantic Scholar 检索完成",
+            description=(
+                f"已核验 {len(verified_papers)} 篇论文，"
+                f"其中 {int(reference_import.get('imported') or 0)} 篇已同步到参考库。"
+            ),
+            tone="success" if retrieval_info.get("status") == "ok" else "warning",
+        )
+
+    synthesis, unverified_leads, model_id, generation_error = await _try_llm_literature_synthesis(
+        query=normalized_query,
+        discipline=normalized_discipline,
+        verified_papers=verified_papers,
         existing_literature=existing_literature,
         preferred_model=preferred_model,
     )
+    generation_mode = "semantic_scholar_grounded_llm" if synthesis is not None else "semantic_scholar_metadata"
+    if synthesis is None:
+        synthesis = _build_literature_synthesis_template(
+            query=normalized_query,
+            discipline=normalized_discipline,
+            verified_papers=verified_papers,
+        )
 
-    if llm_result is not None:
-        llm_result["model_id"] = model_id
-        llm_result["existing_literature_count"] = len(existing_literature)
-        if runtime is not None:
-            top_hits = llm_result.get("top_hits")
-            upsert_runtime_block(
-                runtime,
-                {
-                    "id": "search-results",
-                    "kind": "list",
-                    "title": "高相关命中",
-                    "description": "模型已整理候选文献与优先命中",
-                    "items": [
-                        {
-                            "title": str(item.get("title") or "Untitled"),
-                            "description": str(item.get("summary") or ""),
-                            "meta": str(item.get("venue") or ""),
-                            "badge": str(item.get("year") or "") or None,
-                        }
-                        for item in (top_hits or [])[:6]
-                        if isinstance(item, dict)
-                    ],
-                },
-            )
-            upsert_runtime_block(
-                runtime,
-                {
-                    "id": "result-summary",
-                    "kind": "metrics",
-                    "title": "检索结果",
-                    "entries": [
-                        {"label": "候选文献", "value": str(len(llm_result.get("papers") or []))},
-                        {"label": "Top Hits", "value": str(len(top_hits) if isinstance(top_hits, list) else 0)},
-                        {"label": "生成模式", "value": str(llm_result.get("search_strategy") or "llm")},
-                    ],
-                },
-            )
-            append_runtime_activity(
-                runtime,
-                title="检索完成",
-                description="已生成候选文献和高相关命中列表。",
-                tone="success",
-            )
-            advance_runtime_phase(runtime, "retrieve", "finalize")
-            await _emit_bound_runtime(
-                message="正在整理文献检索产物...",
-                current_phase="finalize",
-                stage_transition=True,
-            )
-        return llm_result
+    payload = {
+        "schema_version": SCI_LITERATURE_SEARCH_SCHEMA_VERSION,
+        "document_type": ArtifactType.LITERATURE_SEARCH_RESULTS.value,
+        "output_language": "zh",
+        "query": normalized_query,
+        "discipline": normalized_discipline,
+        "source": "semantic_scholar",
+        "retrieval": retrieval_info,
+        "verified_papers": verified_papers,
+        "model_synthesis": synthesis,
+        "unverified_leads": unverified_leads,
+        "reference_import": {
+            "imported": int(reference_import.get("imported") or 0),
+            "created": int(reference_import.get("created") or 0),
+            "error": reference_import.get("error"),
+        },
+        "existing_literature_count": len(existing_literature),
+        "generated_at": _utc_now_iso(),
+        "model_id": model_id,
+        "generation_error": generation_error,
+        "generation_mode": generation_mode,
+    }
 
     if runtime is not None:
+        upsert_runtime_block(
+            runtime,
+            {
+                "id": "result-summary",
+                "kind": "metrics",
+                "title": "检索结果",
+                "entries": [
+                    {"label": "已验证论文", "value": str(len(verified_papers))},
+                    {"label": "已入参考库", "value": str(int(reference_import.get("imported") or 0))},
+                    {"label": "未验证线索", "value": str(len(unverified_leads))},
+                    {"label": "事实来源", "value": "Semantic Scholar"},
+                    {"label": "生成模式", "value": generation_mode},
+                ],
+            },
+        )
         append_runtime_activity(
             runtime,
-            title="检索失败",
-            description=f"模型未返回结构化检索结果：{generation_error or 'unknown_error'}",
-            tone="error",
+            title="文献检索产物完成",
+            description="已将 Semantic Scholar 结果和基于证据的综合分析写入产物。",
+            tone="success",
         )
         advance_runtime_phase(runtime, "retrieve", "finalize")
         await _emit_bound_runtime(
-            message="文献检索失败，正在回传错误信息...",
+            message="正在整理文献检索产物...",
             current_phase="finalize",
             stage_transition=True,
         )
-    raise RuntimeError(
-        f"literature_search_llm_failed: {generation_error or 'unknown_error'}"
-    )
+    return payload
 
 
 async def _try_llm_paper_analysis(
@@ -810,7 +988,7 @@ async def _try_llm_paper_analysis(
 async def build_paper_analysis_payload(
     *,
     workspace_id: str,
-    paper_id: str | None = None,
+    reference_id: str | None = None,
     paper_title: str | None = None,
     paper_abstract: str | None = None,
     preferred_model: str | None = None,
@@ -819,8 +997,8 @@ async def build_paper_analysis_payload(
 
     Args:
         workspace_id: UUID of the workspace
-        paper_id: Optional paper ID for reference
-        paper_title: Paper title (required if paper_id not provided)
+        reference_id: Optional reference-library ID for context
+        paper_title: Paper title (required if reference_id not provided)
         paper_abstract: Optional paper abstract for context
         preferred_model: Optional model ID for generation
 
@@ -833,19 +1011,18 @@ async def build_paper_analysis_payload(
         resolved_title = "未命名论文"
     runtime = get_runtime_state()
 
-    # Try to load more paper context if paper_id is provided
+    # Try to load more reference context if reference_id is provided
     paper_content = None
-    if paper_id:
+    if reference_id:
         try:
-            from src.academic.services.paper_service import PaperService
             async with get_db_session() as db:
-                service = PaperService(db)
-                paper = await service.get(paper_id)
-                if paper:
-                    resolved_title = paper.title or resolved_title
-                    paper_abstract = paper.abstract or paper_abstract
+                service = WorkspaceReferenceService(db)
+                reference = await service.get(workspace_id, reference_id)
+                if reference:
+                    resolved_title = reference.title or resolved_title
+                    paper_abstract = reference.abstract or paper_abstract
         except Exception as e:
-            logger.warning(f"Failed to load paper {paper_id}: {e}")
+            logger.warning("Failed to load reference %s: %s", reference_id, e)
 
     if runtime is not None:
         upsert_runtime_block(
@@ -856,7 +1033,7 @@ async def build_paper_analysis_payload(
                 "title": "论文上下文",
                 "entries": [
                     {"label": "标题", "value": resolved_title},
-                    {"label": "Paper ID", "value": paper_id or "未提供"},
+                    {"label": "Reference ID", "value": reference_id or "未提供"},
                     {"label": "摘要", "value": "已提供" if paper_abstract else "未提供"},
                 ],
             },
@@ -883,7 +1060,7 @@ async def build_paper_analysis_payload(
     )
 
     if llm_result is not None:
-        llm_result["paper_id"] = paper_id
+        llm_result["reference_id"] = reference_id
         llm_result["model_id"] = model_id
         if runtime is not None:
             sections = llm_result.get("sections")
@@ -1052,9 +1229,9 @@ def _summarize_artifact_for_prompt(artifact_type: str, content: dict[str, Any]) 
         return _truncate(summary, 320) if summary else "论文分析结果"
     if artifact_type == ArtifactType.LITERATURE_SEARCH_RESULTS.value:
         query = str(content.get("query") or "").strip()
-        top_hits = content.get("top_hits")
-        hit_count = len(top_hits) if isinstance(top_hits, list) else 0
-        return f"文献检索主题：{query or '未命名主题'}；高相关命中 {hit_count} 篇。"
+        verified_papers = content.get("verified_papers")
+        verified_count = len(verified_papers) if isinstance(verified_papers, list) else 0
+        return f"文献检索主题：{query or '未命名主题'}；Semantic Scholar 已验证论文 {verified_count} 篇。"
     if artifact_type == ArtifactType.PAPER_DRAFT.value:
         section_title = str(content.get("section_title") or content.get("section_type") or "章节").strip()
         draft_excerpt = str(content.get("content") or "").strip()

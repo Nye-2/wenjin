@@ -2,13 +2,14 @@
 
 更新时间：2026-04-28
 
-本目录只保留当前实现的事实源文档，覆盖架构、产品契约、基础设施与文档治理入口。
+本目录主要保留当前实现的事实源文档，覆盖架构、产品契约、基础设施与文档治理入口；`strategy/` 仅保存明确标注为 Seed 的长期方向文档，不作为当前实现契约。
 
 ## 快速入口
 
 - `documentation-map.md`：全量文档导航（推荐先读）
 - `architecture/README.md`：系统分层、主链路、API surface
 - `product/README.md`：workspace/thread/feature 当前行为与前后端契约
+- `strategy/wenjin-long-term-direction-seed.md`：长期产品方向与数据产品路径种子
 - `infrastructure/README.md`：部署、环境变量、运行与排障
 
 ## 文档分层（Current）
@@ -16,6 +17,10 @@
 - `architecture/`：Chat/Compute/Feature 执行平面、线程/运行链路、API 面
 - `product/`：workspace/thread/Compute/WenjinPrism 行为、前后端契约、发布门禁
 - `infrastructure/`：部署、环境变量、排障与压测
+
+## 战略种子（Seed）
+
+- `strategy/`：长期产品方向、数据产品路径和 AI Scientist 路线种子；不作为当前实现事实源。
 
 ## 推荐阅读顺序
 
@@ -38,6 +43,7 @@
 ## 治理规则（必须执行）
 
 - 文档仅保留 `Current` 事实源；阶段性执行稿完成后应清理，而不是长期并存。
+- `strategy/` 例外：只允许保留明确标注为 `Seed` 的方向性文档，且不得作为实现验收依据。
 - 任何影响架构、接口、运行方式、前端交互的变更，都必须同步更新对应文档。
 - 文档与实现冲突时，以实现为准，并在同一改动中回补文档。
 - 提交前至少完成一次文档入口检查：`README.md`、`docs/README.md`、`docs/documentation-map.md`、`backend/README.md`、`frontend/README.md`。

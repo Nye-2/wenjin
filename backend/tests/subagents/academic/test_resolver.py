@@ -13,10 +13,10 @@ class TestAcademicAgentResolver:
     def sandbox_tools(self):
         """Create mock sandbox tools."""
         return {
-            "semantic_scholar_search": lambda q: f"search: {q}",
             "read_file": lambda p: f"read: {p}",
-            "get_paper_section": lambda s: f"section: {s}",
-            "get_paper_toc": lambda: "toc",
+            "list_workspace_reference_outline": lambda workspace_id: f"outline: {workspace_id}",
+            "search_workspace_references": lambda q: f"reference search: {q}",
+            "read_workspace_reference_section": lambda s: f"section: {s}",
             "python_exec": lambda c: f"exec: {c}",
             "web_search": lambda q: f"web: {q}",
         }
@@ -43,14 +43,15 @@ class TestAcademicAgentResolver:
         """Test resolving scout configuration."""
         config = resolver.resolve_config("scout")
         assert config.name == "Scout"
-        assert "semantic_scholar_search" in config.tools
+        assert "list_workspace_reference_outline" in config.tools
+        assert "search_workspace_references" in config.tools
         assert config.system_prompt is not None
 
     def test_resolve_config_valid_writer(self, resolver):
         """Test resolving writer configuration."""
         config = resolver.resolve_config("writer")
         assert config.name == "Writer"
-        assert "get_paper_section" in config.tools
+        assert "read_workspace_reference_section" in config.tools
 
     def test_resolve_config_valid_synthesizer(self, resolver):
         """Test resolving synthesizer configuration."""
@@ -68,13 +69,19 @@ class TestAcademicAgentResolver:
             resolver.resolve_config("researcher")
         assert exc_info.value.subagent_type == "researcher"
 
-    def test_resolve_config_with_tool_override(self, resolver, sandbox_tools):
+    def test_resolve_config_with_tool_override(self, resolver):
         """Test resolving config with custom tools."""
-        config = resolver.resolve_config("scout", requested_tools=["read_file", "web_search"])
+        config = resolver.resolve_config("scout", requested_tools=["read_file", "search_workspace_references"])
         assert "read_file" in config.tools
-        assert "web_search" in config.tools
+        assert "search_workspace_references" in config.tools
         # Should only have requested tools, not all sandbox tools
         assert len(config.tools) == 2
+
+    def test_resolve_config_rejects_retired_search_tool_override(self, resolver):
+        """Academic agents should not opt back into retired web/arXiv discovery."""
+        config = resolver.resolve_config("scout", requested_tools=["read_file", "web_search"])
+        assert "read_file" in config.tools
+        assert "web_search" not in config.tools
 
     def test_resolve_config_with_invalid_tool_in_override(self, resolver):
         """Test that invalid tools in override are filtered out."""
@@ -95,8 +102,9 @@ class TestAcademicAgentResolver:
         """Test that default behavior merges all sandbox tools."""
         config = resolver.resolve_config("scout")
         # Should have base tools + all sandbox tools
-        for tool_name in sandbox_tools.keys():
+        for tool_name in set(sandbox_tools.keys()) - {"web_search"}:
             assert tool_name in config.tools
+        assert "web_search" not in config.tools
 
     def test_validate_tools_filters_invalid(self, resolver):
         """Test _validate_tools filters out invalid tools."""
@@ -106,6 +114,7 @@ class TestAcademicAgentResolver:
 
     def test_merge_default_tools_includes_all_sandbox(self, resolver, sandbox_tools):
         """Test _merge_default_tools includes all sandbox tools."""
-        merged = resolver._merge_default_tools(["semantic_scholar_search"])
-        for tool_name in sandbox_tools.keys():
+        merged = resolver._merge_default_tools(["search_workspace_references"])
+        for tool_name in set(sandbox_tools.keys()) - {"web_search"}:
             assert tool_name in merged
+        assert "web_search" not in merged

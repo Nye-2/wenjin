@@ -8,7 +8,7 @@ from .thread_state import (
     ThreadState,
     ViewedImageData,
     merge_artifacts,
-    merge_cited_papers,
+    merge_cited_references,
     merge_viewed_images,
 )
 
@@ -19,7 +19,7 @@ __all__ = [
     "ThreadDataState",
     "ViewedImageData",
     "merge_artifacts",
-    "merge_cited_papers",
+    "merge_cited_references",
     "merge_viewed_images",
     "make_lead_agent",
 ]

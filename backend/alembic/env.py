@@ -20,14 +20,17 @@ from src.database.models import (  # noqa: F401
     LatexCompileHistory,
     LatexProject,
     LatexTemplate,
-    Paper,
-    PaperChunk,
-    PaperExtraction,
+    ReferenceAsset,
+    ReferenceBibtexSnapshot,
+    ReferenceExternalId,
+    ReferenceOutlineNode,
+    ReferenceTextUnit,
+    ReferenceUsageEvent,
     TaskRecord,
     User,
     UserKnowledge,
     Workspace,
-    WorkspacePaper,
+    WorkspaceReference,
 )
 
 # Alembic Config object

@@ -93,8 +93,8 @@ function refreshWorkspaceTargets(workspaceId: string, targets: string[]) {
   if (targetSet.has("artifacts")) {
     void workspaceStore.fetchArtifacts(workspaceId);
   }
-  if (targetSet.has("papers")) {
-    void workspaceStore.fetchPapers(workspaceId);
+  if (targetSet.has("references")) {
+    void workspaceStore.fetchReferences(workspaceId);
   }
   if (targetSet.has("workspace")) {
     void workspaceStore.loadWorkspace(workspaceId);
@@ -136,8 +136,11 @@ function handleWorkspaceEvent(
       if (event.activity) {
         workspaceStore.upsertActivity(event.activity);
       }
-      if (event.task.task_type === "paper_extraction") {
-        chatStore.syncAttachmentExtractionTask(event.task);
+      if (
+        event.task.task_type === "document_preprocess" ||
+        event.task.task_type === "reference_preprocess"
+      ) {
+        chatStore.syncAttachmentPreprocessTask(event.task);
       }
       break;
     }

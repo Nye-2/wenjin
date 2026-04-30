@@ -9,6 +9,13 @@ from .registry import SubagentConfig, get_subagent_config
 
 logger = logging.getLogger(__name__)
 
+_RETIRED_ACADEMIC_SEARCH_TOOLS = {
+    "web_search",
+    "arxiv_search",
+    "crossref_search",
+    "openalex_search",
+}
+
 
 class AcademicAgentResolver:
     """Resolves academic agent configuration based on type and requested tools."""
@@ -21,8 +28,17 @@ class AcademicAgentResolver:
         """
         self._sandbox_tools = self._normalize_tools(sandbox_tools)
         self._tool_categories = {
-            "search": ["semantic_scholar_search", "web_search", "arxiv_search"],
-            "file": ["read_file", "get_paper_section", "get_paper_toc"],
+            "search": [
+                "list_workspace_reference_outline",
+                "search_workspace_references",
+                "read_workspace_reference_section",
+            ],
+            "file": [
+                "read_file",
+                "list_workspace_reference_outline",
+                "search_workspace_references",
+                "read_workspace_reference_section",
+            ],
             "code": ["python_exec", "data_analysis"],
         }
 
@@ -93,7 +109,9 @@ class AcademicAgentResolver:
         invalid_tools = []
 
         for name in tool_names:
-            if name in self._sandbox_tools:
+            if name in _RETIRED_ACADEMIC_SEARCH_TOOLS:
+                invalid_tools.append(name)
+            elif name in self._sandbox_tools:
                 valid_tools.append(name)
             else:
                 invalid_tools.append(name)
@@ -115,6 +133,14 @@ class AcademicAgentResolver:
         Returns:
             Merged list of all available tools.
         """
-        merged = set(base_tools)
-        merged.update(self._sandbox_tools.keys())
+        merged = {
+            tool_name
+            for tool_name in base_tools
+            if tool_name not in _RETIRED_ACADEMIC_SEARCH_TOOLS
+        }
+        merged.update(
+            tool_name
+            for tool_name in self._sandbox_tools.keys()
+            if tool_name not in _RETIRED_ACADEMIC_SEARCH_TOOLS
+        )
         return list(merged)

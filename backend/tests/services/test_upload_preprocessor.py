@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from unittest.mock import AsyncMock
 
 import httpx
@@ -91,6 +92,9 @@ async def test_preprocess_pdf_with_ocr_provider(tmp_path, monkeypatch: pytest.Mo
     assert (output_dir / "figures" / "fig-1.png").read_bytes() == b"figure-bytes"
     assert (output_dir / "layout_view_0.jpg").read_bytes() == b"layout-bytes"
     assert (output_dir / "manifest.json").is_file()
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["page_index_kind"] == "layout_result_index"
+    assert manifest["pages"][0]["markdown_path"] == "/mnt/user-data/uploads/_preprocessed/paper/doc_0.md"
 
 
 @pytest.mark.asyncio

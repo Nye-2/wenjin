@@ -22,7 +22,7 @@ _FEATURE_RUNTIME_CONFIG: dict[str, dict[str, Any]] = {
         "title": "文献检索",
         "phases": [
             {"id": "prepare", "label": "准备检索", "description": "整理检索主题与上下文"},
-            {"id": "retrieve", "label": "生成结果", "description": "调用模型整理候选文献与命中"},
+            {"id": "retrieve", "label": "检索核验", "description": "调用 Semantic Scholar 获取已验证论文"},
             {"id": "finalize", "label": "整理产物", "description": "归档结果并生成 artifact"},
         ],
     },

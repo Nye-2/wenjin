@@ -1,5 +1,6 @@
 """Integration tests for citation-to-LaTeX workflow."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,37 +9,31 @@ import pytest
 @pytest.mark.asyncio
 async def test_citation_to_latex_workflow():
     """Test complete workflow: citation_ids -> BibTeX -> LaTeX compilation."""
-    from src.academic.citation.bibtex.exporter import generate_citation_key
     from src.agents.middlewares.execution import ExecutionMiddleware
 
-    # Setup mock papers in database
-    mock_paper = MagicMock()
-    mock_paper.id = "test-uuid"
-    mock_paper.title = "Deep Learning Advances"
-    mock_paper.authors = [{"name": "John Smith"}]
-    mock_paper.year = 2024
-    mock_paper.venue = "Nature"
-    mock_paper.doi = "10.1234/test"
-    mock_paper.abstract = None
+    # Setup mock Reference Library row in database
+    mock_reference = SimpleNamespace(
+        id="test-uuid",
+        title="Deep Learning Advances",
+        authors=["John Smith"],
+        year=2024,
+        venue="Nature",
+        doi="10.1234/test",
+        url=None,
+        citation_key="Smith2024",
+        bibtex_entry_type="article",
+        bibtex_fields={},
+    )
 
     mock_db = AsyncMock()
     mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = [mock_paper]
+    mock_result.scalars.return_value.all.return_value = [mock_reference]
     mock_db.execute.return_value = mock_result
 
     # Setup middleware
     mock_service = MagicMock()
     mock_service.execute = AsyncMock()
     middleware = ExecutionMiddleware(mock_service)
-
-    # Generate citation key
-    paper_dict = {
-        "title": mock_paper.title,
-        "authors": mock_paper.authors,
-        "year": mock_paper.year,
-    }
-    citation_key = generate_citation_key(paper_dict)
-    assert citation_key == "Smith2024"
 
     # Generate bibliography
     bibliography = await middleware._generate_bibliography(mock_db, ["test-uuid"])
@@ -78,24 +73,27 @@ According to \cite{Smith2024}, this is important.
 @pytest.mark.asyncio
 async def test_end_to_end_citation_workflow():
     """Test complete end-to-end citation workflow with mocked components."""
-    from src.academic.citation.bibtex.exporter import generate_citation_key
     from src.agents.middlewares.execution import ExecutionMiddleware
     from src.execution.types import ExecutionResult, ExecutionStatus, ExecutionType
 
-    # Mock paper
-    mock_paper = MagicMock()
-    mock_paper.id = "paper-1"
-    mock_paper.title = "Research Paper"
-    mock_paper.authors = [{"name": "Alice Researcher"}]
-    mock_paper.year = 2024
-    mock_paper.venue = "Conference on Testing"
-    mock_paper.doi = "10.5678/paper"
-    mock_paper.abstract = None
+    # Mock Reference Library row
+    mock_reference = SimpleNamespace(
+        id="paper-1",
+        title="Research Paper",
+        authors=["Alice Researcher"],
+        year=2024,
+        venue="Conference on Testing",
+        doi="10.5678/paper",
+        url=None,
+        citation_key="Researcher2024",
+        bibtex_entry_type="inproceedings",
+        bibtex_fields={},
+    )
 
     # Mock database
     mock_db = AsyncMock()
     mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = [mock_paper]
+    mock_result.scalars.return_value.all.return_value = [mock_reference]
     mock_db.execute.return_value = mock_result
 
     # Mock execution service
@@ -114,20 +112,12 @@ async def test_end_to_end_citation_workflow():
     bibliography = await middleware._generate_bibliography(mock_db, ["paper-1"])
     assert bibliography is not None
 
-    # Step 2: Verify citation key format
-    citation_key = generate_citation_key({
-        "title": mock_paper.title,
-        "authors": mock_paper.authors,
-        "year": mock_paper.year,
-    })
-    assert citation_key == "Researcher2024"
-
-    # Step 3: Verify bibliography contains expected content
+    # Step 2: Verify bibliography contains expected Reference Library content
     assert "Researcher2024" in bibliography
     assert "Research Paper" in bibliography
     assert "Alice Researcher" in bibliography
 
-    # Step 4: Build execution request
+    # Step 3: Build execution request
     request = middleware._build_request(
         exec_type=ExecutionType.LATEX_COMPILE,
         tool_args={
@@ -145,27 +135,3 @@ async def test_end_to_end_citation_workflow():
     assert request.execution_type == ExecutionType.LATEX_COMPILE
     assert request.options.get("bibliography") == bibliography
     assert request.options.get("bibliography_style") == "plain"
-
-
-def test_citation_key_consistency():
-    """Test that citation keys are consistent between exporter and generation."""
-    from src.academic.citation.bibtex.exporter import BibTeXExporter, generate_citation_key
-
-    paper = {
-        "title": "Test Paper",
-        "authors": [{"name": "John Smith"}],
-        "year": 2024,
-    }
-
-    # Generate key directly
-    key = generate_citation_key(paper)
-
-    # Generate key via exporter
-    exporter = BibTeXExporter()
-    bib_output = exporter.export([paper])
-
-    # Both should use same key
-    assert key in bib_output
-    # Verify the BibTeX entry format includes the key
-    # Format is: @type{key, ...} - check that key appears after opening brace
-    assert f"{{{key}," in bib_output

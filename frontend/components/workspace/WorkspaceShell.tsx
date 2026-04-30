@@ -77,7 +77,7 @@ export function WorkspaceShell({
   className,
 }: WorkspaceShellProps) {
   const [mode, setMode] = useState<WorkspaceMode>("chat"); // eslint-disable-line @typescript-eslint/no-unused-vars
-  const [krActiveTab, setKrActiveTab] = useState<RailTab>("papers");
+  const [krActiveTab, setKrActiveTab] = useState<RailTab>("references");
   const [krOverlayOpen, setKrOverlayOpen] = useState(false);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
   const computePanelRef = usePanelRef();

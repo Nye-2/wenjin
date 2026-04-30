@@ -1,5 +1,6 @@
 """Tests for ExecutionMiddleware citation handling."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -14,28 +15,36 @@ async def test_generate_bibliography_from_citations():
     mock_service = MagicMock()
     middleware = ExecutionMiddleware(mock_service)
 
-    # Mock database and papers
-    mock_paper_1 = MagicMock()
-    mock_paper_1.id = "uuid-1"
-    mock_paper_1.title = "Test Paper"
-    mock_paper_1.authors = [{"name": "John Smith"}]
-    mock_paper_1.year = 2024
-    mock_paper_1.venue = "Nature"
-    mock_paper_1.doi = "10.1234/test"
-    mock_paper_1.abstract = None
+    # Mock database and Reference Library rows
+    mock_reference_1 = SimpleNamespace(
+        id="uuid-1",
+        title="Test Paper",
+        authors=["John Smith"],
+        year=2024,
+        venue="Nature",
+        doi="10.1234/test",
+        url=None,
+        citation_key="Smith2024",
+        bibtex_entry_type="article",
+        bibtex_fields={},
+    )
 
-    mock_paper_2 = MagicMock()
-    mock_paper_2.id = "uuid-2"
-    mock_paper_2.title = "Another Paper"
-    mock_paper_2.authors = [{"name": "Jane Doe"}]
-    mock_paper_2.year = 2023
-    mock_paper_2.venue = "Science"
-    mock_paper_2.doi = None
-    mock_paper_2.abstract = None
+    mock_reference_2 = SimpleNamespace(
+        id="uuid-2",
+        title="Another Paper",
+        authors=["Jane Doe"],
+        year=2023,
+        venue="Science",
+        doi=None,
+        url=None,
+        citation_key="Doe2023",
+        bibtex_entry_type="article",
+        bibtex_fields={},
+    )
 
     mock_db = AsyncMock()
     mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = [mock_paper_1, mock_paper_2]
+    mock_result.scalars.return_value.all.return_value = [mock_reference_1, mock_reference_2]
     mock_db.execute.return_value = mock_result
 
     # Generate bibliography

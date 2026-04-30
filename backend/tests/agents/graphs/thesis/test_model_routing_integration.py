@@ -31,7 +31,14 @@ async def test_deep_research_graph_propagates_model_id():
         deep_research,
         "_phase1_discovery",
         new_callable=AsyncMock,
-        return_value={"seminal_works": [], "recent_works": [], "trends": []},
+        return_value={
+            "source": "semantic_scholar",
+            "verified_papers": [],
+            "seminal_works": [],
+            "recent_works": [],
+            "trends": [],
+            "reference_import": {"imported": 0, "created": 0, "items": []},
+        },
     ) as phase1, patch.object(
         deep_research,
         "_phase2_gap_mining",
@@ -71,7 +78,7 @@ async def test_opening_research_graph_propagates_model_id():
         return_value="resolved-writing-model",
     ) as resolve_model, patch.object(
         opening_research,
-        "_load_literature",
+        "_load_references",
         new_callable=AsyncMock,
         return_value=[{"title": "Paper A", "year": 2024}],
     ), patch.object(
@@ -157,14 +164,15 @@ async def test_literature_management_graph_propagates_model_id():
         return_value="resolved-chat-model",
     ) as resolve_model, patch.object(
         literature_management,
-        "_load_literature",
+        "_load_references",
         new_callable=AsyncMock,
         return_value=[
             {
                 "title": "Paper A",
                 "year": 2024,
-                "source": "scopus",
-                "citations": 12,
+                "source_type": "semantic_scholar",
+                "citation_count": 12,
+                "library_status": "core",
                 "abstract": "abs",
                 "doi": "10.1/x",
             }

@@ -16,8 +16,8 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 
-from src.academic.literature.index_service import IndexService
-from src.academic.services import ArtifactService, PaperService, WorkspaceService
+from src.academic.services.artifact_service import ArtifactService
+from src.academic.services.workspace_service import WorkspaceService
 from src.agents.middlewares.thread_data import get_thread_data_root
 from src.application.errors import ApplicationError, BadRequestError, NotFoundError, PaymentRequiredError
 from src.application.results import (
@@ -231,7 +231,7 @@ def _attachment_state_for_thread_turn(
                 "kind": attachment.kind,
                 "content_type": attachment.content_type,
                 "url": attachment.url,
-                "paper_id": attachment.paper_id,
+                "reference_id": attachment.reference_id,
                 "artifact_id": attachment.artifact_id,
                 "metadata": attachment.metadata,
             }
@@ -691,15 +691,15 @@ class ThreadTurnHandler:
         *,
         thread_service: ThreadService,
         workspace_service: WorkspaceService | None = None,
-        index_service: IndexService | None = None,
+        index_service: Any | None = None,
         artifact_service: ArtifactService | None = None,
-        paper_service: PaperService | None = None,
+        reference_service: Any | None = None,
     ) -> None:
         self.thread_service = thread_service
         self.workspace_service = workspace_service
         self.index_service = index_service
         self.artifact_service = artifact_service
-        self.paper_service = paper_service
+        self.reference_service = reference_service
 
     async def prepare_turn(
         self,
@@ -1167,7 +1167,7 @@ class ThreadTurnHandler:
             workspace_service=self.workspace_service,
             index_service=self.index_service,
             artifact_service=self.artifact_service,
-            paper_service=self.paper_service,
+            reference_service=self.reference_service,
             budget_checked=True,
         )
 
@@ -1185,7 +1185,7 @@ class ThreadTurnHandler:
             workspace_service=self.workspace_service,
             index_service=self.index_service,
             artifact_service=self.artifact_service,
-            paper_service=self.paper_service,
+            reference_service=self.reference_service,
             budget_checked=True,
         )
 
@@ -1211,9 +1211,9 @@ def _build_thread_agent_runtime(
     actor_id: str,
     execution_session_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
-    index_service: IndexService | None = None,
+    index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
-    paper_service: PaperService | None = None,
+    reference_service: Any | None = None,
 ) -> _ThreadAgentRuntime:
     from src.agents.lead_agent.agent import build_pipeline
 
@@ -1245,7 +1245,7 @@ def _build_thread_agent_runtime(
         workspace_service=workspace_service,
         index_service=index_service,
         artifact_service=artifact_service,
-        paper_service=paper_service,
+        reference_service=reference_service,
         memory_capture_enabled=False,
     )
     return _ThreadAgentRuntime(
@@ -1264,9 +1264,9 @@ async def generate_thread_response(
     *,
     actor_id: str,
     workspace_service: WorkspaceService | None = None,
-    index_service: IndexService | None = None,
+    index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
-    paper_service: PaperService | None = None,
+    reference_service: Any | None = None,
     budget_checked: bool = False,
 ) -> GeneratedThreadReply:
     """Generate a thread response through the unified lead-agent pipeline."""
@@ -1284,7 +1284,7 @@ async def generate_thread_response(
         workspace_service=workspace_service,
         index_service=index_service,
         artifact_service=artifact_service,
-        paper_service=paper_service,
+        reference_service=reference_service,
     )
 
     agent = cast(Any, make_lead_agent(runtime.config, middlewares=runtime.middlewares))
@@ -1322,9 +1322,9 @@ def stream_thread_response(
     *,
     actor_id: str,
     workspace_service: WorkspaceService | None = None,
-    index_service: IndexService | None = None,
+    index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
-    paper_service: PaperService | None = None,
+    reference_service: Any | None = None,
     budget_checked: bool = False,
 ) -> _ReplyStreamRun:
     """Stream a thread response while still returning the final structured reply."""
@@ -1345,7 +1345,7 @@ def stream_thread_response(
                 workspace_service=workspace_service,
                 index_service=index_service,
                 artifact_service=artifact_service,
-                paper_service=paper_service,
+                reference_service=reference_service,
             )
             agent = cast(
                 Any,

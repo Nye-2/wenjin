@@ -51,6 +51,7 @@ class TestSemanticScholarClient:
         assert len(results) == 1
         assert results[0].title == "Test Paper"
         assert results[0].source == "semantic_scholar"
+        assert results[0].external_id == "abc123"
         assert results[0].citations_count == 100
 
     @pytest.mark.asyncio
@@ -74,6 +75,7 @@ class TestSemanticScholarClient:
 
         assert result is not None
         assert result.title == "DOI Paper"
+        assert result.external_id == "abc123"
 
     @pytest.mark.asyncio
     async def test_get_by_doi_returns_none_when_not_found(self, client):

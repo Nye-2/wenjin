@@ -249,10 +249,10 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
         <div className="max-w-sm text-center">
           <Cpu className="mx-auto h-8 w-8 text-compute-text-muted" />
           <h3 className="mt-3 text-sm font-semibold text-compute-text-primary">
-            Compute 工作面
+            Agent 工作现场
           </h3>
           <p className="mt-2 text-xs leading-6 text-compute-text-secondary">
-            启动 feature 后，这里会展开运行时、sandbox、日志和 review gate。
+            启动任务后，这里会展示 Agent 的工作过程，不需要你手动操作。
           </p>
         </div>
       </div>
@@ -284,12 +284,12 @@ export function ComputeStage({ workspaceId, activeExecution }: ComputeStageProps
             isRunning={isRunningStatus(effectiveExecution?.status)}
             status={
               isLoadingProjection
-                ? "正在加载 Compute projection"
+                ? "正在加载工作现场"
                 : statusLabel(effectiveExecution?.status)
             }
             error={effectiveExecution?.last_error ?? null}
-            title="Compute Runtime"
-            emptyTitle="Compute Runtime"
+            title="Agent 运行时"
+            emptyTitle="Agent 运行时"
             emptyDescription="当前执行还没有发布运行时块。"
             className="rounded-2xl"
           />

@@ -378,7 +378,7 @@ class TestWorkspaceFiles:
             lambda workspace_id, path: file_path,
         )
 
-        response = client.get(f"/workspaces/{WORKSPACE_ID}/files/papers/paper.pdf")
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/files/references/reference.pdf")
 
         assert response.status_code == 200
         assert response.content == b"%PDF-1.4"
@@ -401,7 +401,7 @@ class TestWorkspaceFiles:
         assert "escapes workspace uploads root" in response.json()["detail"]
 
     def test_get_workspace_file_requires_owner(self, client):
-        response = client.get("/workspaces/non-owned/files/papers/paper.pdf")
+        response = client.get("/workspaces/non-owned/files/references/reference.pdf")
 
         assert response.status_code == 404
 
@@ -412,7 +412,7 @@ class TestWorkspaceFiles:
         tmp_path,
     ):
         workspace_root = tmp_path / "workspace_uploads" / WORKSPACE_ID
-        file_path = workspace_root / "papers" / "paper.pdf"
+        file_path = workspace_root / "references" / "reference.pdf"
         file_path.parent.mkdir(parents=True)
         file_path.write_bytes(b"%PDF-1.4")
 
@@ -425,7 +425,7 @@ class TestWorkspaceFiles:
         client = TestClient(app)
         sign_response = client.post(
             "/assets/sign",
-            json={"url": f"/workspaces/{WORKSPACE_ID}/files/papers/paper.pdf"},
+            json={"url": f"/workspaces/{WORKSPACE_ID}/files/references/reference.pdf"},
         )
         assert sign_response.status_code == 200
         signed_url = sign_response.json()["signed_url"]
@@ -439,7 +439,7 @@ class TestWorkspaceFiles:
     def test_sign_asset_url_rejects_absolute_urls(self, client):
         response = client.post(
             "/assets/sign",
-            json={"url": f"https://evil.example/workspaces/{WORKSPACE_ID}/files/papers/paper.pdf"},
+            json={"url": f"https://evil.example/workspaces/{WORKSPACE_ID}/files/references/reference.pdf"},
         )
 
         assert response.status_code == 400

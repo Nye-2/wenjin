@@ -24,7 +24,7 @@ import {
   createStoreAssistantMessage,
   removeTrailingEmptyAssistantMessage,
   removeTrailingPendingAssistantMessage,
-  syncAttachmentExtractionsWithTask,
+  syncAttachmentPreprocessWithTask,
   toStoreMessages,
   toThreadSummary,
   upsertTrailingAssistantReasoning,
@@ -88,7 +88,7 @@ interface ThreadState {
   syncCurrentThreadSummary: (summary: ThreadSummary) => void;
   clearCurrentThread: () => void;
   setThreadStatus: (status: ThreadRuntimeStatus) => void;
-  syncAttachmentExtractionTask: (
+  syncAttachmentPreprocessTask: (
     task: import("@/lib/api").WorkspaceTaskEvent["task"]
   ) => void;
   startNewThread: () => void;
@@ -443,7 +443,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     });
   },
 
-  syncAttachmentExtractionTask: (task) => {
+  syncAttachmentPreprocessTask: (task) => {
     if (!task.thread_id) {
       return;
     }
@@ -453,7 +453,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         return state;
       }
 
-      const nextMessages = syncAttachmentExtractionsWithTask(state.messages, task);
+      const nextMessages = syncAttachmentPreprocessWithTask(state.messages, task);
       if (nextMessages === state.messages) {
         return state;
       }

@@ -25,8 +25,8 @@ Frontend (Next.js App Router + Zustand)
   -> HTTP/SSE (/api/*)
 Nginx (reverse proxy + rate limit + SSE no-buffer)
   -> Gateway (FastAPI)
-    -> Application Handlers (chat / feature / papers)
-      -> Domain Services (workspace / credits / literature / execution session)
+    -> Application Handlers (chat / feature / references)
+      -> Domain Services (workspace / credits / Reference Library / execution session)
         -> Feature Ingress + Compute Projection
           -> Task System (TaskService -> Celery -> Worker)
             -> Feature Leader Runtime / LangGraph Graphs / AgentHarness
@@ -125,7 +125,7 @@ State Stores:
 - `compute_sessions`：execution session 的用户可见工作台 shell（不持有业务状态）
 - `subagent_task_records`：子代理任务持久化（强关联 `execution_session_id`）
 - `latex_projects`、`latex_compile_history`：WenjinPrism 工程与编译历史
-- `artifacts`、`papers`：工作产物与文献
+- `artifacts`、`workspace_references`：工作产物与 Reference Library
 
 ### 5.2 Redis 职责全景（重点）
 
@@ -209,7 +209,7 @@ State Stores:
 - `execution.*` -> execution store
 - `subagent.updated` -> execution store + activity
 - `compute.updated` -> compute store hydrate/projection refresh
-- `workspace.refresh` -> 按 target 精准重拉（dashboard/artifacts/papers/workspace/threads/activity）
+- `workspace.refresh` -> 按 target 精准重拉（dashboard/artifacts/references/workspace/threads/activity）
 
 ### 7.2 Chat 主链（普通问答）
 
@@ -441,7 +441,7 @@ sequenceDiagram
 - `latex`：WenjinPrism 项目、文件树、待确认/已应用 file changes、编译结果
 - `execution`：execution session 聚合、task/subagent 增量合并
 - `features`：workspace 级 feature/skill 缓存与切换
-- `workspace`：workspace 实体、artifacts、papers、activity
+- `workspace`：workspace 实体、artifacts、references、activity
 - `dashboard`：仪表盘摘要
 
 ### 10.2 ThreadPanel 的主线能力
@@ -449,7 +449,7 @@ sequenceDiagram
 - 支持 `entry seed`（URL feature/skill/params 预置）
 - 支持 skill pending 选择并与 thread skill 对账
 - 读取 assistant `metadata.orchestration`，在 `awaiting_user_input` 场景自动携带 `execution_session_id` 续跑
-- 上传附件后自动刷新相关目标（papers/artifacts/dashboard）
+- 上传附件后自动刷新相关目标（references/artifacts/dashboard）
 
 ### 10.3 ComputeStage 的主线能力
 

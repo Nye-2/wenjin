@@ -33,13 +33,13 @@ class TestBuildMiddlewares:
         workspace_service = MagicMock()
         index_service = MagicMock()
         artifact_service = MagicMock()
-        paper_service = MagicMock()
+        reference_service = MagicMock()
 
         middlewares = build_middlewares(
             workspace_service=workspace_service,
             index_service=index_service,
             artifact_service=artifact_service,
-            paper_service=paper_service,
+            reference_service=reference_service,
         )
 
         assert len(middlewares) == 5
@@ -49,13 +49,13 @@ class TestBuildMiddlewares:
         workspace_service = MagicMock()
         index_service = MagicMock()
         artifact_service = MagicMock()
-        paper_service = MagicMock()
+        reference_service = MagicMock()
 
         middlewares = build_middlewares(
             workspace_service=workspace_service,
             index_service=index_service,
             artifact_service=artifact_service,
-            paper_service=paper_service,
+            reference_service=reference_service,
         )
 
         # Verify order:
@@ -301,13 +301,13 @@ class TestMakeLeadAgent:
         workspace_service = MagicMock()
         index_service = MagicMock()
         artifact_service = MagicMock()
-        paper_service = MagicMock()
+        reference_service = MagicMock()
 
         middlewares = build_middlewares(
             workspace_service=workspace_service,
             index_service=index_service,
             artifact_service=artifact_service,
-            paper_service=paper_service,
+            reference_service=reference_service,
         )
 
         config = {"configurable": {"model_name": "gpt-4o"}}

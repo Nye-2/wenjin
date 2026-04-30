@@ -9,7 +9,7 @@ from src.application.services.feature_submission_service import FeatureSubmissio
 from src.compute.session_service import ComputeSessionService
 from src.services.credit_service import CreditService
 from src.services.execution_session_service import ExecutionSessionService
-from src.services.literature_service import LiteratureService
+from src.services.references import WorkspaceReferenceService
 from src.task.service import TaskService
 
 from .feature_launch_service import FeatureIngressService
@@ -21,7 +21,7 @@ def build_feature_ingress_service(
     db: Any,
     workspace_service: WorkspaceService,
     task_service: TaskService,
-    literature_service: LiteratureService,
+    reference_service: WorkspaceReferenceService,
     credit_service: CreditService,
 ) -> FeatureIngressService:
     """Build the single application-level feature launch/resume entrypoint."""
@@ -29,7 +29,7 @@ def build_feature_ingress_service(
         actor_id=str(actor_id),
         workspace_service=workspace_service,
         task_service=task_service,
-        literature_service=literature_service,
+        reference_service=reference_service,
         credit_service=credit_service,
     )
     return FeatureIngressService(
