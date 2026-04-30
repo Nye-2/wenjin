@@ -425,6 +425,8 @@ class WorkspaceReferenceService:
         *,
         workspace_id: str,
         reference_ids: Sequence[str],
+        outline_node_id: str | None = None,
+        text_unit_id: str | None = None,
         execution_session_id: str | None = None,
         task_id: str | None = None,
         artifact_id: str | None = None,
@@ -434,10 +436,13 @@ class WorkspaceReferenceService:
         generated_text: str | None = None,
         usage_type: ReferenceUsageType | str = ReferenceUsageType.CITATION_ONLY,
         accepted_status: ReferenceAcceptedStatus | str = ReferenceAcceptedStatus.PENDING,
+        mark_used_in_draft: bool = True,
     ) -> dict[str, Any]:
         return await ReferenceUsageService(self.db).record_usage(
             workspace_id=workspace_id,
             reference_ids=reference_ids,
+            outline_node_id=outline_node_id,
+            text_unit_id=text_unit_id,
             execution_session_id=execution_session_id,
             task_id=task_id,
             artifact_id=artifact_id,
@@ -447,6 +452,7 @@ class WorkspaceReferenceService:
             generated_text=generated_text,
             usage_type=usage_type,
             accepted_status=accepted_status,
+            mark_used_in_draft=mark_used_in_draft,
         )
 
     async def soft_delete(self, workspace_id: str, reference_id: str) -> bool:
@@ -1624,8 +1630,13 @@ class ReferenceIndexService:
             .where(
                 ReferenceTextUnit.workspace_id == workspace_id,
                 ReferenceTextUnit.reference_id == reference_id,
-                ReferenceTextUnit.page_start >= page_start,
+                ReferenceTextUnit.page_start.is_not(None),
                 ReferenceTextUnit.page_start <= page_end,
+                func.coalesce(
+                    ReferenceTextUnit.page_end,
+                    ReferenceTextUnit.page_start,
+                )
+                >= page_start,
             )
             .order_by(ReferenceTextUnit.unit_index)
         )
@@ -1696,9 +1707,12 @@ class ReferenceIndexService:
             node_id=str(node.id),
         )
         return {
+            "reference_id": str(node.reference_id),
+            "node_id": str(node.id),
             "title": node.title,
             "section_path": node.section_path,
             "content": content["content"] if content else "",
+            "units": content["units"] if content else [],
         }
 
     async def _get_reference_section(
@@ -1724,9 +1738,12 @@ class ReferenceIndexService:
             node_id=str(node.id),
         )
         return {
+            "reference_id": str(node.reference_id),
+            "node_id": str(node.id),
             "title": node.title,
             "section_path": node.section_path,
             "content": content["content"] if content else "",
+            "units": content["units"] if content else [],
         }
 
 
@@ -1771,6 +1788,8 @@ class ReferenceUsageService:
         *,
         workspace_id: str,
         reference_ids: Sequence[str],
+        outline_node_id: str | None = None,
+        text_unit_id: str | None = None,
         execution_session_id: str | None = None,
         task_id: str | None = None,
         artifact_id: str | None = None,
@@ -1780,6 +1799,7 @@ class ReferenceUsageService:
         generated_text: str | None = None,
         usage_type: ReferenceUsageType | str = ReferenceUsageType.CITATION_ONLY,
         accepted_status: ReferenceAcceptedStatus | str = ReferenceAcceptedStatus.PENDING,
+        mark_used_in_draft: bool = True,
         commit: bool = True,
     ) -> dict[str, Any]:
         unique_ids = [
@@ -1816,6 +1836,8 @@ class ReferenceUsageService:
                 ReferenceUsageEvent(
                     workspace_id=workspace_id,
                     reference_id=reference_id,
+                    outline_node_id=outline_node_id,
+                    text_unit_id=text_unit_id,
                     execution_session_id=execution_session_id,
                     task_id=task_id,
                     artifact_id=artifact_id,
@@ -1828,7 +1850,7 @@ class ReferenceUsageService:
                     accepted_status=resolved_accepted_status,
                 )
             )
-            if _enum_value(reference.library_status) in {
+            if mark_used_in_draft and _enum_value(reference.library_status) in {
                 ReferenceLibraryStatus.CANDIDATE.value,
                 ReferenceLibraryStatus.INCLUDED.value,
             }:
@@ -1838,6 +1860,59 @@ class ReferenceUsageService:
         if commit:
             await self.db.commit()
         return {"recorded": len(recorded_ids), "reference_ids": recorded_ids}
+
+    async def record_usage_by_citation_keys(
+        self,
+        *,
+        workspace_id: str,
+        citation_keys: Sequence[str],
+        execution_session_id: str | None = None,
+        task_id: str | None = None,
+        artifact_id: str | None = None,
+        latex_project_id: str | None = None,
+        target_section: str | None = None,
+        claim_text: str | None = None,
+        generated_text: str | None = None,
+        usage_type: ReferenceUsageType | str = ReferenceUsageType.CITATION_ONLY,
+        accepted_status: ReferenceAcceptedStatus | str = ReferenceAcceptedStatus.PENDING,
+        mark_used_in_draft: bool = True,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        unique_keys = [
+            key
+            for key in dict.fromkeys(str(item).strip() for item in citation_keys)
+            if key
+        ]
+        if not workspace_id or not unique_keys:
+            return {"recorded": 0, "reference_ids": [], "citation_keys": []}
+        result = await self.db.execute(
+            select(WorkspaceReference).where(
+                WorkspaceReference.workspace_id == workspace_id,
+                WorkspaceReference.citation_key.in_(unique_keys),
+                WorkspaceReference.is_deleted.is_(False),
+                WorkspaceReference.library_status != ReferenceLibraryStatus.EXCLUDED,
+            )
+        )
+        references = list(result.scalars().all())
+        usage_result = await self.record_usage(
+            workspace_id=workspace_id,
+            reference_ids=[str(reference.id) for reference in references],
+            execution_session_id=execution_session_id,
+            task_id=task_id,
+            artifact_id=artifact_id,
+            latex_project_id=latex_project_id,
+            target_section=target_section,
+            claim_text=claim_text,
+            generated_text=generated_text,
+            usage_type=usage_type,
+            accepted_status=accepted_status,
+            mark_used_in_draft=mark_used_in_draft,
+            commit=commit,
+        )
+        usage_result["citation_keys"] = [
+            str(reference.citation_key) for reference in references
+        ]
+        return usage_result
 
 
 class ReferenceBibTeXService:

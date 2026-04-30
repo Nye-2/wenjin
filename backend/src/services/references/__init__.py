@@ -1,5 +1,9 @@
 """Workspace reference library service surface."""
 
+from .boundaries import (
+    REFERENCE_LIBRARY_BYPASS_TOOL_NAMES,
+    is_reference_library_bypass_tool,
+)
 from .service import (
     REFERENCE_PREPROCESS_THRESHOLD_BYTES,
     ReferenceBibTeXService,
@@ -28,4 +32,6 @@ __all__ = [
     "serialize_asset",
     "serialize_outline_node",
     "serialize_text_unit",
+    "REFERENCE_LIBRARY_BYPASS_TOOL_NAMES",
+    "is_reference_library_bypass_tool",
 ]

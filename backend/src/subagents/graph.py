@@ -6,12 +6,42 @@ import warnings
 from collections import OrderedDict
 from typing import Any, cast
 
+from src.agents.middlewares.base import Middleware
+
 logger = logging.getLogger(__name__)
+
+_REFERENCE_WORKSPACE_TOOL_NAMES = {
+    "list_workspace_reference_outline",
+    "search_workspace_references",
+    "read_workspace_reference_section",
+}
+
+
+class ReferenceWorkspaceScopeMiddleware(Middleware):
+    """Inject runtime workspace id for subagent Reference Library tools."""
+
+    async def before_model(self, state: Any, config: Any) -> dict[str, Any]:
+        return {}
+
+    async def before_tool(
+        self,
+        state: Any,
+        config: Any,
+        tool_name: str,
+        tool_args: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        if tool_name not in _REFERENCE_WORKSPACE_TOOL_NAMES:
+            return tool_name, tool_args
+        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        workspace_id = str(configurable.get("workspace_id") or "").strip()
+        if not workspace_id or tool_args.get("workspace_id"):
+            return tool_name, tool_args
+        return tool_name, {**tool_args, "workspace_id": workspace_id}
 
 
 def build_subagent_tool_middlewares() -> list[Any]:
     """Build tool middlewares that are safe for subagent runtime use."""
-    middlewares: list[Any] = []
+    middlewares: list[Any] = [ReferenceWorkspaceScopeMiddleware()]
 
     try:
         from src.agents.middlewares.execution import ExecutionMiddleware

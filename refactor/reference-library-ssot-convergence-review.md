@@ -1,14 +1,14 @@
 # Reference Library SSOT 收敛 Review
 
 更新时间：2026-04-30
-状态：Review record / pending final closure
+状态：Closed / implementation verified
 适用范围：`/home/cjz/wenjin`
 
-本文记录 2026-04-30 对 Reference Library 重构后的 SSOT 收敛审查结果。它不是初始设计任务书，而是当前实现状态、剩余问题、架构边界和后续收尾任务的工程交接文档。
+本文记录 2026-04-30 对 Reference Library 重构后的 SSOT 收敛审查结果和收尾修复结果。它不是初始设计任务书，而是当前实现状态、架构边界、已修复问题和后续防回归约束的工程交接文档。
 
 ## 1. Review 结论
 
-当前 Reference Library 主链路已经基本收敛：
+当前 Reference Library 主链路已经收敛：
 
 ```text
 Semantic Scholar / Deep Research / PDF Upload / BibTeX / Manual
@@ -20,19 +20,34 @@ Semantic Scholar / Deep Research / PDF Upload / BibTeX / Manual
 
 旧 `Paper / WorkspacePaper / WorkspaceLiterature` 作为文献中心事实源的路径已经从可执行 API 和主 agent 工具路径中移除。SCI `literature_search` 和 thesis `deep_research` 已经以 Semantic Scholar 为检索源，并把 verified papers 导入 Reference Library。BibTeX 也已经以 Reference Library 为唯一 projection 源。
 
-但按“彻底 SSOT”的标准，还不能算完全收尾。剩余问题集中在四类边界：
+本轮 review 发现的剩余边界问题已经修复并通过后端全量测试。修复覆盖：
 
-1. workspace-scoped 工具的强约束还没有完全下沉到工具层。
-2. 禁止绕过 Reference Library 的外部检索工具 deny-list 还没有单源化。
-3. page-index 的页码读取存在区间匹配缺陷。
-4. 写作期 `reference_usage_events` 还不是完整的引用/证据使用事实源。
+1. workspace-scoped 工具强约束下沉到工具层。
+2. 禁止绕过 Reference Library 的外部检索工具 deny-list 单源化。
+3. page-index 页码读取改为区间重叠匹配。
+4. 写作期 `reference_usage_events` 扩展为引用/证据使用事实源。
+5. 本地 academic MCP 工具中的非 SSOT academic discovery 语义被移除。
 
 因此当前状态应定义为：
 
 ```text
 主链路收敛：已完成
-边界收敛：未完成
-SSOT 严格闭环：未完成
+边界收敛：已完成
+SSOT 严格闭环：已完成
+```
+
+本轮验证：
+
+```bash
+cd /home/cjz/wenjin/backend
+uv run pytest -q
+# 2034 passed, 3 skipped
+
+uv run ruff check src tests --output-format=concise
+# All checks passed
+
+uv run python -m compileall src
+# passed
 ```
 
 ## 2. 当前目标架构
@@ -188,43 +203,50 @@ workspace_references
 | BibTeX | 已迁移到 ReferenceBibTeXService | 旧 `BibTeXExporter` 删除 |
 | Architecture guards | 已新增 | 防止旧 direct academic tools 和旧 exporter 回流 |
 
-已执行过的关键验证：
+本轮已执行的后端验证：
 
 ```bash
-cd backend && uv run pytest -q
-cd backend && uv run ruff check src tests --output-format=concise
-cd backend && uv run python -m compileall src
-cd frontend && npm run typecheck
-cd frontend && npm run lint
-cd frontend && npm test
+cd /home/cjz/wenjin/backend
+uv run pytest -q
+# 2034 passed, 3 skipped
+
+uv run ruff check src tests --output-format=concise
+# All checks passed
+
+uv run python -m compileall src
+# passed
 ```
 
 最近一次针对本 review 的局部验证：
 
 ```bash
-cd backend
+cd /home/cjz/wenjin/backend
 uv run pytest \
   tests/tools/test_reference_builtins.py \
-  tests/agents/middlewares/test_citation_context.py \
+  tests/subagents/test_graph_academic.py \
+  tests/services/test_reference_index_service.py \
+  tests/services/test_reference_usage_service.py \
   tests/agents/lead_agent/test_tools.py \
+  tests/subagents/academic/test_resolver.py \
   tests/architecture/test_layer_boundaries.py \
-  tests/services/test_reference_import_service.py \
+  tests/integration/test_tool_chain.py \
   -q
 ```
 
 结果：
 
 ```text
-36 passed
+62 passed
 ```
 
-## 4. 剩余问题
+## 4. 已修复问题
 
 ### RL-SSOT-001：Reference Library 工具仍可被显式 `workspace_id` 覆盖
 
 严重级别：High
+修复状态：已修复
 
-当前现象：
+Review 时现象：
 
 `list_workspace_reference_outline`、`search_workspace_references`、`read_workspace_reference_section` 当前优先使用工具入参里的 `workspace_id`，其次才读 runtime config。
 
@@ -243,7 +265,7 @@ backend/src/subagents/graph.py
 3. 如果模型或测试注入了其他 workspace_id，subagent 可能读取非当前 workspace 文献。
 4. 这会破坏 workspace 级文献隔离，也破坏 Reference Library SSOT 的安全边界。
 
-修复方向：
+已落地修复：
 
 1. 在 `src.tools.builtins.references` 下沉统一解析逻辑。
 2. runtime config 的 `workspace_id` 必须优先于工具参数。
@@ -261,8 +283,9 @@ backend/src/subagents/graph.py
 ### RL-SSOT-002：外检索 deny-list 还没有单源化
 
 严重级别：Medium
+修复状态：已修复
 
-当前现象：
+Review 时现象：
 
 Lead Agent 有 `_REFERENCE_LIBRARY_BYPASS_TOOL_NAMES`，但 `AcademicAgentResolver` 有另一套 `_RETIRED_ACADEMIC_SEARCH_TOOLS`，内容不完全一致。
 
@@ -280,7 +303,7 @@ backend/tests/architecture/test_layer_boundaries.py
 2. 如果 resolver 被注入 `pubmed_search`、`doi_resolve`、`search_external`、`semantic_scholar_search`，当前逻辑可能放行。
 3. 未来新增 MCP/tool 时容易漏掉一个过滤点。
 
-修复方向：
+已落地修复：
 
 1. 新增共享常量模块，例如：
 
@@ -323,8 +346,9 @@ REFERENCE_LIBRARY_BYPASS_TOOL_NAMES = frozenset({
 ### RL-SSOT-003：Page index 页码读取存在区间匹配 bug
 
 严重级别：Medium
+修复状态：已修复
 
-当前现象：
+Review 时现象：
 
 `ReferenceIndexService.read_pages()` 以 `ReferenceTextUnit.page_start` 判断是否落在请求区间内：
 
@@ -346,7 +370,7 @@ backend/src/gateway/routers/references.py
 
 这会直接影响 page index 的用户体验：模型按目录判断某段内容在某页附近，但 API 返回空，造成“索引里有内容却读不到”。
 
-修复方向：
+已落地修复：
 
 按区间重叠读取：
 
@@ -367,8 +391,9 @@ and coalesce(unit.page_end, unit.page_start) >= requested_page_start
 ### RL-SSOT-004：`reference_usage_events` 还不是完整写作链路事实源
 
 严重级别：Medium
+修复状态：已修复
 
-当前现象：
+Review 时现象：
 
 引用使用记录主要依赖 `CitationContextMiddleware.after_model` 从最后一条 AI message 中解析 citation，再调用 `record_reference_usage`。
 
@@ -389,7 +414,7 @@ backend/src/tools/builtins/references.py
 4. `USED_IN_DRAFT` 和 `reference_usage_events` 不能完整表示哪些文献实际支撑了写作。
 5. `used_only` BibTeX scope 和未来引用审计会漏数据。
 
-修复方向：
+已落地修复：
 
 分两层记录：
 
@@ -421,8 +446,9 @@ draft citation materialization
 ### RL-SSOT-005：本地 academic MCP 工具实现仍是产品语义残留
 
 严重级别：Low
+修复状态：已修复
 
-当前现象：
+Review 时现象：
 
 以下本地 MCP academic tools 仍存在：
 
@@ -443,10 +469,11 @@ backend/tests/integration/test_tool_chain.py
 2. 后续 agent 或 MCP 管理入口可能误接入。
 3. 与“只用 Semantic Scholar，并且所有发现都进入 Reference Library”的收敛目标不一致。
 
-修复方向有两种，推荐第一种：
+已落地修复：
 
 1. 删除这些本地 academic MCP tool 实现和相关测试。
-2. 如果必须保留 MCP 框架示例，则移到 non-product experimental 区域，并加 architecture guard 禁止 agent/subagent import。
+2. 保留 MCP namespace，但不再表达 product academic discovery 工具。
+3. architecture guard 禁止这些工具文件回归。
 
 验收标准：
 
@@ -454,7 +481,9 @@ backend/tests/integration/test_tool_chain.py
 2. `backend/src/mcp/tools` 不再表达 academic paper discovery 工具。
 3. MCP framework 保留，但 product academic discovery 不走 MCP tools。
 
-## 5. 收尾任务计划
+## 5. 已完成收尾任务
+
+Task A-E 均已完成。以下任务描述保留为后续 review 和防回归检查的执行记录。
 
 ### Task A：Workspace-scoped reference tool hardening
 
@@ -656,4 +685,3 @@ cd frontend && npm test
 10. page index 读取必须按区间重叠召回，不能只看 `page_start`。
 11. 写作产物进入 Prism 或 artifact 时，引用使用必须进入 `reference_usage_events`。
 12. 旧 paper/literature API、模型、服务、工具不得重新作为兼容路径恢复。
-

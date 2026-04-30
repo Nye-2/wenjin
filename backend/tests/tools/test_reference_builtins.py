@@ -29,11 +29,24 @@ async def test_list_workspace_reference_outline_tool_returns_summary() -> None:
         patch("src.tools.builtins.references.ReferenceIndexService", return_value=index_service),
     ):
         result = await list_workspace_reference_outline_tool.ainvoke(
-            {"workspace_id": "ws-1"},
+            {},
+            config={"configurable": {"workspace_id": "ws-1"}},
         )
 
     assert "文献库概览" in result
     index_service.get_workspace_toc_summary.assert_awaited_once_with("ws-1")
+
+
+@pytest.mark.asyncio
+async def test_list_workspace_reference_outline_rejects_workspace_mismatch() -> None:
+    result = await list_workspace_reference_outline_tool.ainvoke(
+        {"workspace_id": "ws-other"},
+        config={"configurable": {"workspace_id": "ws-runtime"}},
+    )
+
+    assert "workspace_scope_violation" in result
+    assert "ws-runtime" in result
+    assert "ws-other" in result
 
 
 @pytest.mark.asyncio
@@ -64,7 +77,8 @@ async def test_search_workspace_references_tool_serializes_results() -> None:
         patch("src.tools.builtins.references.ReferenceIndexService", return_value=index_service),
     ):
         result = await search_workspace_references_tool.ainvoke(
-            {"workspace_id": "ws-1", "query": "intro", "limit": 5},
+            {"query": "intro", "limit": 5},
+            config={"configurable": {"workspace_id": "ws-1"}},
         )
 
     assert "\"count\": 1" in result
@@ -89,7 +103,8 @@ async def test_read_workspace_reference_section_tool_reads_by_title() -> None:
         patch("src.tools.builtins.references.ReferenceIndexService", return_value=index_service),
     ):
         result = await read_workspace_reference_section_tool.ainvoke(
-            {"workspace_id": "ws-1", "reference_id": "reference-1", "section_title": "Method"},
+            {"reference_id": "reference-1", "section_title": "Method"},
+            config={"configurable": {"workspace_id": "ws-1"}},
         )
 
     assert result.startswith("## Method")
@@ -102,9 +117,63 @@ async def test_read_workspace_reference_section_tool_reads_by_title() -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_workspace_reference_section_records_access_usage() -> None:
+    db = MagicMock()
+    index_service = MagicMock()
+    index_service.get_reference_section_by_title = AsyncMock(
+        return_value={
+            "node_id": "node-1",
+            "title": "Method",
+            "content": "Section body",
+            "units": [{"id": "unit-1"}],
+        }
+    )
+    usage_service = MagicMock()
+    usage_service.record_usage = AsyncMock(return_value={"recorded": 1})
+
+    @asynccontextmanager
+    async def _db_session():
+        yield db
+
+    with (
+        patch("src.tools.builtins.references.get_db_session", _db_session),
+        patch("src.tools.builtins.references.ReferenceIndexService", return_value=index_service),
+        patch("src.tools.builtins.references.ReferenceUsageService", return_value=usage_service),
+    ):
+        result = await read_workspace_reference_section_tool.ainvoke(
+            {"reference_id": "reference-1", "section_title": "Method"},
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "execution_session_id": "exec-1",
+                    "task_id": "task-1",
+                }
+            },
+        )
+
+    assert "Section body" in result
+    usage_service.record_usage.assert_awaited_once()
+    kwargs = usage_service.record_usage.await_args.kwargs
+    assert kwargs["workspace_id"] == "ws-1"
+    assert kwargs["reference_ids"] == ["reference-1"]
+    assert kwargs["outline_node_id"] == "node-1"
+    assert kwargs["text_unit_id"] == "unit-1"
+    assert kwargs["mark_used_in_draft"] is False
+
+
+@pytest.mark.asyncio
 async def test_read_workspace_reference_section_tool_requires_workspace_context() -> None:
     result = await read_workspace_reference_section_tool.ainvoke(
         {"reference_id": "reference-1", "section_title": "Method"}
     )
 
     assert "workspace runtime context" in result
+
+
+@pytest.mark.asyncio
+async def test_reference_tools_do_not_trust_explicit_workspace_without_runtime() -> None:
+    result = await list_workspace_reference_outline_tool.ainvoke(
+        {"workspace_id": "ws-explicit"},
+    )
+
+    assert "runtime_context_missing" in result

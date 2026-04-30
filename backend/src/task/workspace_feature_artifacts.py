@@ -6,9 +6,13 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from sqlalchemy import select
+
 from src.academic.services import ArtifactService
 from src.artifacts.types import ArtifactType
-from src.database import get_db_session
+from src.database import WorkspaceReference, get_db_session
+from src.services.references import ReferenceUsageService
+from src.services.references.utils import extract_citation_keys_from_payload
 from src.services.workspace_skill_labels import resolve_workspace_feature_skill_id
 
 logger = logging.getLogger(__name__)
@@ -589,6 +593,46 @@ def build_langgraph_artifact_drafts(
     return builder(feature_id, workspace_name, workspace_type, result)
 
 
+async def _record_artifact_reference_usage(
+    db: Any,
+    *,
+    workspace_id: str,
+    feature_id: str,
+    artifact_id: str,
+    content: Any,
+) -> None:
+    try:
+        citation_keys = extract_citation_keys_from_payload(content)
+        if not citation_keys:
+            return
+        result = await db.execute(
+            select(WorkspaceReference.citation_key).where(
+                WorkspaceReference.workspace_id == workspace_id,
+                WorkspaceReference.citation_key.in_(citation_keys),
+                WorkspaceReference.is_deleted.is_(False),
+            )
+        )
+        matched_keys = [str(item) for item in result.scalars().all()]
+        if not matched_keys:
+            return
+        await ReferenceUsageService(db).record_usage_by_citation_keys(
+            workspace_id=workspace_id,
+            citation_keys=matched_keys,
+            artifact_id=artifact_id,
+            target_section=feature_id,
+            generated_text=str(content)[:4000],
+            usage_type="citation_only",
+            accepted_status="pending",
+        )
+    except Exception:
+        logger.warning(
+            "Failed to record artifact reference usage for workspace=%s artifact=%s",
+            workspace_id,
+            artifact_id,
+            exc_info=True,
+        )
+
+
 async def persist_langgraph_artifacts(
     feature_id: str,
     workspace_type: str,
@@ -625,6 +669,13 @@ async def persist_langgraph_artifacts(
                     title=str(draft["title"]),
                     content=draft["content"],
                     created_by_skill=created_by_skill,
+                )
+                await _record_artifact_reference_usage(
+                    db,
+                    workspace_id=workspace_id,
+                    feature_id=feature_id,
+                    artifact_id=str(artifact.id),
+                    content=draft["content"],
                 )
                 refs.append(
                     {

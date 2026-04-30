@@ -10,6 +10,11 @@ from typing import Any
 
 _NON_WORD_RE = re.compile(r"\W+", flags=re.UNICODE)
 _UNSAFE_KEY_RE = re.compile(r"[^A-Za-z0-9_:-]+")
+_SAFE_CITATION_KEY_RE = re.compile(r"^[A-Za-z0-9_:-]+$")
+_LATEX_CITE_RE = re.compile(
+    r"\\(?:cite|citep|citet|citealp|citealt|parencite|textcite|autocite|supercite)"
+    r"(?:\[[^\]]*\])*\{([^}]+)\}"
+)
 
 
 def utc_now() -> datetime:
@@ -115,3 +120,47 @@ def clean_bibtex_value(value: Any) -> str:
 
 def maybe_path_name(path: str | None) -> str:
     return Path(str(path or "")).name
+
+
+def extract_citation_keys_from_text(text: str) -> list[str]:
+    """Extract BibTeX citation keys from LaTeX citation commands."""
+    keys: list[str] = []
+    seen: set[str] = set()
+    for match in _LATEX_CITE_RE.finditer(str(text or "")):
+        raw_keys = match.group(1)
+        for raw_key in raw_keys.split(","):
+            key = raw_key.strip()
+            if not key or key == "*" or not _SAFE_CITATION_KEY_RE.fullmatch(key):
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            keys.append(key)
+    return keys
+
+
+def extract_citation_keys_from_payload(payload: Any) -> list[str]:
+    """Extract citation keys from nested artifact/feature payloads."""
+    keys: list[str] = []
+    seen: set[str] = set()
+
+    def add_from_text(value: str) -> None:
+        for key in extract_citation_keys_from_text(value):
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+
+    def visit(value: Any) -> None:
+        if isinstance(value, str):
+            add_from_text(value)
+            return
+        if isinstance(value, dict):
+            for item in value.values():
+                visit(item)
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                visit(item)
+
+    visit(payload)
+    return keys

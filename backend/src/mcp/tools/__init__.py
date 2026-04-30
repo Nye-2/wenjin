@@ -1,7 +1,7 @@
-"""Academic MCP tools for searching papers and resolving DOIs."""
+"""MCP tool namespace.
 
-from src.mcp.tools.arxiv import ArxivTool
-from src.mcp.tools.doi import DOITool
-from src.mcp.tools.pubmed import PubMedTool
+Product academic discovery must enter the workspace Reference Library through
+domain services/features, not through direct MCP paper-search tools.
+"""
 
-__all__ = ["ArxivTool", "PubMedTool", "DOITool"]
+__all__: list[str] = []

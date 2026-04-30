@@ -43,21 +43,12 @@ from src.config import get_default_model_id
 from src.config.config_loader import get_app_config
 from src.models import model_supports_vision
 from src.sandbox.runtime import get_sandbox_provider
+from src.services.references.boundaries import is_reference_library_bypass_tool
 from src.workspace_features.skills import list_workspace_thread_skills
 
 logger = logging.getLogger(__name__)
 
 JsonObject = dict[str, Any]
-
-_REFERENCE_LIBRARY_BYPASS_TOOL_NAMES = {
-    "semantic_scholar_search",
-    "semantic_scholar_search_tool",
-    "search_external",
-    "get_paper_by_doi",
-    "arxiv_search",
-    "pubmed_search",
-    "doi_resolve",
-}
 
 _PROMPT_CONTEXT_CHAR_LIMITS = {
     "literature_context": 3000,
@@ -178,7 +169,7 @@ def _filter_reference_library_bypass_tools(tools: list[BaseTool]) -> list[BaseTo
     return [
         tool
         for tool in tools
-        if getattr(tool, "name", "") not in _REFERENCE_LIBRARY_BYPASS_TOOL_NAMES
+        if not is_reference_library_bypass_tool(getattr(tool, "name", ""))
     ]
 
 

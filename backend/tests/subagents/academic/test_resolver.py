@@ -19,6 +19,10 @@ class TestAcademicAgentResolver:
             "read_workspace_reference_section": lambda s: f"section: {s}",
             "python_exec": lambda c: f"exec: {c}",
             "web_search": lambda q: f"web: {q}",
+            "semantic_scholar_search": lambda q: f"s2: {q}",
+            "search_external": lambda q: f"external: {q}",
+            "pubmed_search": lambda q: f"pubmed: {q}",
+            "doi_resolve": lambda q: f"doi: {q}",
         }
 
     @pytest.fixture
@@ -78,10 +82,24 @@ class TestAcademicAgentResolver:
         assert len(config.tools) == 2
 
     def test_resolve_config_rejects_retired_search_tool_override(self, resolver):
-        """Academic agents should not opt back into retired web/arXiv discovery."""
-        config = resolver.resolve_config("scout", requested_tools=["read_file", "web_search"])
+        """Academic agents should not opt back into retired discovery tools."""
+        config = resolver.resolve_config(
+            "scout",
+            requested_tools=[
+                "read_file",
+                "web_search",
+                "semantic_scholar_search",
+                "search_external",
+                "pubmed_search",
+                "doi_resolve",
+            ],
+        )
         assert "read_file" in config.tools
         assert "web_search" not in config.tools
+        assert "semantic_scholar_search" not in config.tools
+        assert "search_external" not in config.tools
+        assert "pubmed_search" not in config.tools
+        assert "doi_resolve" not in config.tools
 
     def test_resolve_config_with_invalid_tool_in_override(self, resolver):
         """Test that invalid tools in override are filtered out."""
@@ -102,9 +120,19 @@ class TestAcademicAgentResolver:
         """Test that default behavior merges all sandbox tools."""
         config = resolver.resolve_config("scout")
         # Should have base tools + all sandbox tools
-        for tool_name in set(sandbox_tools.keys()) - {"web_search"}:
+        for tool_name in set(sandbox_tools.keys()) - {
+            "web_search",
+            "semantic_scholar_search",
+            "search_external",
+            "pubmed_search",
+            "doi_resolve",
+        }:
             assert tool_name in config.tools
         assert "web_search" not in config.tools
+        assert "semantic_scholar_search" not in config.tools
+        assert "search_external" not in config.tools
+        assert "pubmed_search" not in config.tools
+        assert "doi_resolve" not in config.tools
 
     def test_validate_tools_filters_invalid(self, resolver):
         """Test _validate_tools filters out invalid tools."""
@@ -115,6 +143,16 @@ class TestAcademicAgentResolver:
     def test_merge_default_tools_includes_all_sandbox(self, resolver, sandbox_tools):
         """Test _merge_default_tools includes all sandbox tools."""
         merged = resolver._merge_default_tools(["search_workspace_references"])
-        for tool_name in set(sandbox_tools.keys()) - {"web_search"}:
+        for tool_name in set(sandbox_tools.keys()) - {
+            "web_search",
+            "semantic_scholar_search",
+            "search_external",
+            "pubmed_search",
+            "doi_resolve",
+        }:
             assert tool_name in merged
         assert "web_search" not in merged
+        assert "semantic_scholar_search" not in merged
+        assert "search_external" not in merged
+        assert "pubmed_search" not in merged
+        assert "doi_resolve" not in merged

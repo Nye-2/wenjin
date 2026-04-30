@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import hmac
 import io
+import logging
 import mimetypes
 import os
 import zipfile
@@ -20,9 +21,10 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import User
+from src.database import User, WorkspaceReference
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps.core import get_db
 from src.services.latex import (
@@ -53,8 +55,11 @@ from src.services.latex.rewrite_guard import (
     validate_latex_document_structure,
     validate_rewrite_segment,
 )
+from src.services.references import ReferenceUsageService
+from src.services.references.utils import extract_citation_keys_from_text
 
 router = APIRouter(prefix="/latex", tags=["latex"])
+logger = logging.getLogger(__name__)
 
 LatexEngine = Literal["xelatex", "pdflatex"]
 RewriteProfile = Literal["balanced", "conservative", "aggressive"]
@@ -845,6 +850,49 @@ def _read_project_metadata(project: Any) -> tuple[dict[str, Any], dict[str, Any]
     if not isinstance(metadata.get("applied_file_changes"), dict):
         metadata["applied_file_changes"] = {}
     return llm_config, metadata
+
+
+async def _record_latex_reference_usage(
+    db: AsyncSession,
+    *,
+    workspace_id: str | None,
+    latex_project_id: str,
+    path: str,
+    content: str,
+) -> None:
+    normalized_workspace_id = str(workspace_id or "").strip()
+    if not normalized_workspace_id:
+        return
+    citation_keys = extract_citation_keys_from_text(content)
+    if not citation_keys:
+        return
+    try:
+        result = await db.execute(
+            select(WorkspaceReference.citation_key).where(
+                WorkspaceReference.workspace_id == normalized_workspace_id,
+                WorkspaceReference.citation_key.in_(citation_keys),
+                WorkspaceReference.is_deleted.is_(False),
+            )
+        )
+        matched_keys = [str(item) for item in result.scalars().all()]
+        if not matched_keys:
+            return
+        await ReferenceUsageService(db).record_usage_by_citation_keys(
+            workspace_id=normalized_workspace_id,
+            citation_keys=matched_keys,
+            latex_project_id=latex_project_id,
+            target_section=path,
+            generated_text=content[:4000],
+            usage_type="citation_only",
+            accepted_status="accepted",
+        )
+    except Exception:
+        logger.warning(
+            "Failed to record LaTeX reference usage for project=%s workspace=%s",
+            latex_project_id,
+            normalized_workspace_id,
+            exc_info=True,
+        )
 
 
 def _find_file_change(metadata: dict[str, Any], logical_key: str) -> dict[str, Any]:
@@ -1999,6 +2047,13 @@ async def apply_project_file_change(
     }
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
+    await _record_latex_reference_usage(
+        db,
+        workspace_id=str(llm_config.get("workspace_id") or ""),
+        latex_project_id=str(project.id),
+        path=path,
+        content=pending_content,
+    )
 
     undo = LatexFileChangeUndoPayload(
         logical_key=request.logical_key,

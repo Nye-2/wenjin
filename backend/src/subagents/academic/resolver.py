@@ -4,17 +4,12 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from src.services.references.boundaries import is_reference_library_bypass_tool
+
 from .errors import InvalidToolError, UnknownSubagentTypeError
 from .registry import SubagentConfig, get_subagent_config
 
 logger = logging.getLogger(__name__)
-
-_RETIRED_ACADEMIC_SEARCH_TOOLS = {
-    "web_search",
-    "arxiv_search",
-    "crossref_search",
-    "openalex_search",
-}
 
 
 class AcademicAgentResolver:
@@ -109,7 +104,7 @@ class AcademicAgentResolver:
         invalid_tools = []
 
         for name in tool_names:
-            if name in _RETIRED_ACADEMIC_SEARCH_TOOLS:
+            if is_reference_library_bypass_tool(name):
                 invalid_tools.append(name)
             elif name in self._sandbox_tools:
                 valid_tools.append(name)
@@ -136,11 +131,11 @@ class AcademicAgentResolver:
         merged = {
             tool_name
             for tool_name in base_tools
-            if tool_name not in _RETIRED_ACADEMIC_SEARCH_TOOLS
+            if not is_reference_library_bypass_tool(tool_name)
         }
         merged.update(
             tool_name
             for tool_name in self._sandbox_tools.keys()
-            if tool_name not in _RETIRED_ACADEMIC_SEARCH_TOOLS
+            if not is_reference_library_bypass_tool(tool_name)
         )
         return list(merged)

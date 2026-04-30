@@ -182,6 +182,9 @@ def test_reference_library_has_no_direct_agent_external_search_tools():
         backend_src / "academic" / "tools" / "semantic_scholar.py",
         backend_src / "academic" / "literature" / "tools.py",
         backend_src / "academic" / "citation" / "bibtex" / "exporter.py",
+        backend_src / "mcp" / "tools" / "arxiv.py",
+        backend_src / "mcp" / "tools" / "pubmed.py",
+        backend_src / "mcp" / "tools" / "doi.py",
     ]
     for path in retired_paths:
         assert not path.exists(), f"Retired non-SSOT tool surface still exists: {path}"
@@ -208,6 +211,18 @@ def test_academic_subagents_do_not_request_direct_semantic_scholar_tool():
     ):
         source = (backend_src / relative).read_text()
         assert "semantic_scholar_search" not in source
+
+
+def test_reference_library_bypass_tool_denylist_is_shared():
+    """Lead agent and academic resolver must use the shared SSOT boundary list."""
+    backend_src = Path(__file__).parents[2] / "src"
+    lead_agent_source = (backend_src / "agents" / "lead_agent" / "agent.py").read_text()
+    resolver_source = (backend_src / "subagents" / "academic" / "resolver.py").read_text()
+
+    assert "is_reference_library_bypass_tool" in lead_agent_source
+    assert "is_reference_library_bypass_tool" in resolver_source
+    assert "_REFERENCE_LIBRARY_BYPASS_TOOL_NAMES" not in lead_agent_source
+    assert "_RETIRED_ACADEMIC_SEARCH_TOOLS" not in resolver_source
 
 
 def test_application_handlers_have_no_http_imports():

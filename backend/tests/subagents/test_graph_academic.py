@@ -7,6 +7,7 @@ from langchain_core.tools import tool
 
 from src.subagents.graph import (
     GraphTemplateRegistry,
+    ReferenceWorkspaceScopeMiddleware,
 )
 
 
@@ -17,6 +18,39 @@ def _make_test_tool(name: str):
         return query
 
     return _test_tool
+
+
+@pytest.mark.asyncio
+async def test_reference_workspace_scope_middleware_injects_runtime_workspace():
+    """Subagent reference tools inherit the runtime workspace scope."""
+    middleware = ReferenceWorkspaceScopeMiddleware()
+
+    tool_name, tool_args = await middleware.before_tool(
+        {},
+        {"configurable": {"workspace_id": "ws-runtime"}},
+        "search_workspace_references",
+        {"query": "neural rendering"},
+    )
+
+    assert tool_name == "search_workspace_references"
+    assert tool_args["workspace_id"] == "ws-runtime"
+    assert tool_args["query"] == "neural rendering"
+
+
+@pytest.mark.asyncio
+async def test_reference_workspace_scope_middleware_preserves_explicit_workspace_for_tool_guard():
+    """A mismatched explicit workspace is preserved so the tool can reject it."""
+    middleware = ReferenceWorkspaceScopeMiddleware()
+
+    tool_name, tool_args = await middleware.before_tool(
+        {},
+        {"configurable": {"workspace_id": "ws-runtime"}},
+        "read_workspace_reference_section",
+        {"reference_id": "ref-1", "workspace_id": "ws-other"},
+    )
+
+    assert tool_name == "read_workspace_reference_section"
+    assert tool_args["workspace_id"] == "ws-other"
 
 
 class TestCreateAcademicAgentGraph:

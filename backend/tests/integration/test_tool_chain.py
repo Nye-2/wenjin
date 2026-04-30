@@ -1,89 +1,11 @@
 """Integration tests for tool chain execution.
 
 This module tests that various tools work together in skill execution chains:
-- MCP tools (ArxivTool, DOITool) work correctly
 - SandboxExecutor executes code safely
 - Tools can be chained together
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
-
-
-class TestMCPToolInSkill:
-    """Tests for MCP tools being used within skills."""
-
-    @pytest.mark.asyncio
-    async def test_arxiv_tool_returns_data(self):
-        """ArxivTool should return paper data."""
-        from src.mcp.tools.arxiv import ArxivTool
-
-        tool = ArxivTool()
-        # Mock the arxiv client
-        with patch("src.mcp.tools.arxiv.arxiv") as mock_arxiv:
-            mock_client = MagicMock()
-            mock_arxiv.Client.return_value = mock_client
-
-            # Create mock result
-            mock_result = MagicMock()
-            mock_result.__iter__ = lambda self: iter([])
-            mock_client.results.return_value = mock_result
-
-            results = await tool.search("test query", max_results=5)
-            assert isinstance(results, list)
-
-    @pytest.mark.asyncio
-    async def test_arxiv_tool_returns_paper_metadata(self):
-        """ArxivTool should return properly structured paper metadata."""
-        from src.mcp.tools.arxiv import ArxivTool
-
-        # Create the tool and directly patch the client instance
-        tool = ArxivTool()
-
-        # Create mock author objects with .name attribute
-        mock_author1 = MagicMock()
-        mock_author1.name = "Author One"
-        mock_author2 = MagicMock()
-        mock_author2.name = "Author Two"
-
-        # Create a mock paper with all expected fields
-        mock_paper = MagicMock()
-        mock_paper.title = "Test Paper Title"
-        mock_paper.authors = [mock_author1, mock_author2]
-        mock_paper.summary = "This is the abstract.\nWith newlines."
-        mock_paper.pdf_url = "https://arxiv.org/pdf/1234.5678"
-        mock_paper.entry_id = "https://arxiv.org/abs/1234.5678"
-        mock_paper.doi = "10.1234/test.doi"
-        mock_paper.published = MagicMock()
-        mock_paper.published.year = 2024
-        mock_paper.categories = ["cs.AI", "cs.LG"]
-
-        # Patch the client's results method directly
-        tool._client.results = MagicMock(return_value=[mock_paper])
-
-        results = await tool.search("test query", max_results=1)
-
-        assert len(results) == 1
-        paper = results[0]
-        assert paper["title"] == "Test Paper Title"
-        assert len(paper["authors"]) == 2
-        assert "Author One" in paper["authors"]
-        assert "abstract" in paper
-        assert "url" in paper
-        assert "doi" in paper
-        assert paper["year"] == 2024
-
-    @pytest.mark.asyncio
-    async def test_tool_error_handling(self):
-        """Tools should handle errors gracefully."""
-        from src.mcp.tools.arxiv import ArxivTool
-
-        tool = ArxivTool()
-        # Force an error
-        with patch("src.mcp.tools.arxiv.arxiv", side_effect=Exception("API error")):
-            results = await tool.search("test", max_results=5)
-            assert results == []  # Should return empty list, not raise
 
 
 class TestSandboxInSkill:
@@ -164,20 +86,9 @@ class TestFullToolChain:
 
     @pytest.mark.asyncio
     async def test_search_to_analysis_chain(self):
-        """Should chain search -> sandbox analysis."""
-        from src.mcp.tools.arxiv import ArxivTool
+        """Should chain prepared data -> sandbox analysis."""
         from src.sandbox.executor import SandboxExecutor
 
-        # 1. Search for papers (mocked)
-        arxiv = ArxivTool()
-        with patch("src.mcp.tools.arxiv.arxiv") as mock_arxiv:
-            mock_client = MagicMock()
-            mock_arxiv.Client.return_value = mock_client
-            mock_client.results.return_value = []
-            papers = await arxiv.search("machine learning", max_results=10)
-            assert isinstance(papers, list)
-
-        # 2. Analyze in sandbox
         sandbox = SandboxExecutor()
         result = await sandbox.execute("""
 papers = ["Paper 1", "Paper 2", "Paper 3"]
@@ -187,55 +98,6 @@ print(f"Found {count} papers")
 
         assert result.success
         assert "3" in result.output
-
-    @pytest.mark.asyncio
-    async def test_doi_resolve_to_metadata(self):
-        """Should resolve DOI to metadata."""
-        from src.mcp.tools.doi import DOITool
-
-        tool = DOITool()
-        # Test with mock
-        with patch("src.mcp.tools.doi._http") as mock_http:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "title": "Test Paper",
-                "author": [{"given": "John", "family": "Doe"}],
-            }
-            mock_response.raise_for_status = MagicMock()
-            mock_http.get = AsyncMock(return_value=mock_response)
-
-            result = await tool.resolve("10.1234/test")
-            # Result may be None if mock isn't set up perfectly, that's ok
-            assert result is None or isinstance(result, dict)
-
-    @pytest.mark.asyncio
-    async def test_doi_tool_normalizes_metadata(self):
-        """DOITool should normalize metadata format."""
-        from src.mcp.tools.doi import DOITool
-
-        tool = DOITool()
-        # Test the normalization method directly
-        raw_data = {
-            "title": "Test Paper Title",
-            "author": [
-                {"given": "John", "family": "Doe"},
-                {"literal": "Jane Smith"},
-            ],
-            "published": {"date-parts": [[2023, 5, 15]]},
-            "container-title": "Test Journal",
-            "publisher": "Test Publisher",
-            "type": "article-journal",
-        }
-
-        normalized = tool._normalize_metadata(raw_data)
-
-        assert normalized["title"] == "Test Paper Title"
-        assert "John Doe" in normalized["authors"]
-        assert "Jane Smith" in normalized["authors"]
-        assert normalized["year"] == 2023
-        assert normalized["container"] == "Test Journal"
-        assert normalized["publisher"] == "Test Publisher"
 
     @pytest.mark.asyncio
     async def test_tool_chain_with_multiple_steps(self):
@@ -265,20 +127,6 @@ print(f"Median: {median_val}")
         assert step2_result.success
         assert "5.5" in step2_result.output
 
-    @pytest.mark.asyncio
-    async def test_doi_handles_404(self):
-        """DOITool should handle 404 errors gracefully."""
-        from src.mcp.tools.doi import DOITool
-
-        tool = DOITool()
-
-        with patch("src.mcp.tools.doi._http") as mock_http:
-            mock_response = MagicMock()
-            mock_response.status_code = 404
-            mock_http.get = AsyncMock(return_value=mock_response)
-
-            result = await tool.resolve("10.1234/nonexistent")
-            assert result is None
 
 class TestToolChainPerformance:
     """Tests for tool chain performance."""
@@ -301,48 +149,6 @@ print(f"Total: {total}")
 
         assert result.success
         assert elapsed < 5.0, f"Sandbox took {elapsed:.2f}s (limit: 5s)"
-
-    @pytest.mark.asyncio
-    async def test_arxiv_tool_mocked_completes_quickly(self):
-        """ArxivTool with mocked API should complete quickly."""
-        import time
-
-        from src.mcp.tools.arxiv import ArxivTool
-
-        tool = ArxivTool()
-
-        with patch("src.mcp.tools.arxiv.arxiv") as mock_arxiv:
-            mock_client = MagicMock()
-            mock_arxiv.Client.return_value = mock_client
-            mock_client.results.return_value = []
-
-            start = time.time()
-            await tool.search("test", max_results=10)
-            elapsed = time.time() - start
-
-            assert elapsed < 5.0, f"ArxivTool took {elapsed:.2f}s (limit: 5s)"
-
-    @pytest.mark.asyncio
-    async def test_doi_tool_mocked_completes_quickly(self):
-        """DOITool with mocked API should complete quickly."""
-        import time
-
-        from src.mcp.tools.doi import DOITool
-
-        tool = DOITool()
-
-        with patch("src.mcp.tools.doi._http") as mock_http:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"title": "Test"}
-            mock_response.raise_for_status = MagicMock()
-            mock_http.get = AsyncMock(return_value=mock_response)
-
-            start = time.time()
-            await tool.resolve("10.1234/test")
-            elapsed = time.time() - start
-
-            assert elapsed < 5.0, f"DOITool took {elapsed:.2f}s (limit: 5s)"
 
 
 class TestToolChainErrorRecovery:
@@ -382,29 +188,3 @@ print("Should not reach here")
 
         assert not result.success
         assert "timeout" in result.error.lower()
-
-    @pytest.mark.asyncio
-    async def test_multiple_tool_errors_isolated(self):
-        """Errors in one tool should not affect other tools."""
-        from src.mcp.tools.arxiv import ArxivTool
-        from src.mcp.tools.doi import DOITool
-
-        arxiv = ArxivTool()
-        doi = DOITool()
-
-        # Arxiv fails
-        with patch("src.mcp.tools.arxiv.arxiv", side_effect=Exception("API error")):
-            arxiv_result = await arxiv.search("test", max_results=5)
-            assert arxiv_result == []
-
-        # DOI should still work
-        with patch("src.mcp.tools.doi._http") as mock_http:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"title": "Test Paper"}
-            mock_response.raise_for_status = MagicMock()
-            mock_http.get = AsyncMock(return_value=mock_response)
-
-            doi_result = await doi.resolve("10.1234/test")
-            # Should complete without error
-            assert doi_result is None or isinstance(doi_result, dict)
