@@ -27,7 +27,7 @@ from src.gateway.deps import (
 from src.gateway.routers.thread_contracts import ThreadAttachment, ThreadUploadKind
 from src.services import ThreadService
 from src.services.knowledge_service import KnowledgeService
-from src.services.upload_preprocessor import UploadPreprocessor
+from src.services.upload_preprocessor import UploadPreprocessor, _is_image_upload
 from src.services.workspace_uploads import (
     DEFAULT_WORKSPACE_UPLOAD_ROOT,
     extract_document_preview,
@@ -46,6 +46,8 @@ _MEMORY_PREVIEW_MAX_CHARS = 280
 _MAX_UPLOAD_FILES = 20
 _MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
 _UPLOAD_READ_CHUNK_SIZE = 64 * 1024
+# Files larger than this threshold are marked as pending for async processing
+_ASYNC_PREPROCESS_THRESHOLD_BYTES = 5 * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 
@@ -269,6 +271,10 @@ async def upload_thread_files(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Literature uploads must be PDF files: {filename}",
             )
+        # Restrict layout parsing / VLM to PDF and image files only
+        is_parseable = is_pdf_upload(upload.filename, upload.content_type) or _is_image_upload(
+            upload.filename, upload.content_type
+        )
 
         thread_path = next_available_path(uploads_dir, filename)
         thread_path.write_bytes(content)
@@ -291,27 +297,44 @@ async def upload_thread_files(
                 source_path=thread_path,
                 root=_PERSISTED_UPLOAD_ROOT,
             )
-            preprocess_result = await upload_preprocessor.preprocess_file(
-                filename=saved_name,
-                content_type=upload.content_type,
-                source_path=persistent_path,
-                output_dir=(
-                    persistent_path.parent
-                    / "_preprocessed"
-                    / persistent_path.stem
-                ),
-                output_virtual_root=f"papers/_preprocessed/{persistent_path.stem}",
-            )
-            metadata["preprocess"] = preprocess_result.to_metadata()
-            _attach_workspace_preprocess_urls(
-                workspace_id=resolved_workspace_id,
-                metadata=metadata,
-            )
-            preprocess_metadata = metadata.get("preprocess")
-            if isinstance(preprocess_metadata, dict):
-                markdown_paths = preprocess_metadata.get("markdown_paths")
-                if isinstance(markdown_paths, list) and markdown_paths:
-                    metadata["preprocessed_markdown_paths"] = markdown_paths
+            if is_parseable:
+                # Large PDFs are marked as pending; actual async processing
+                # can be wired to a background task in future iterations.
+                if is_pdf_upload(upload.filename, upload.content_type) and len(content) > _ASYNC_PREPROCESS_THRESHOLD_BYTES:
+                    metadata["preprocess"] = {
+                        "status": "pending",
+                        "provider": "layout_parsing",
+                        "file_type": "pdf",
+                        "error": "文件较大，同步解析已跳过，后台解析任务待接入",
+                    }
+                else:
+                    preprocess_result = await upload_preprocessor.preprocess_file(
+                        filename=saved_name,
+                        content_type=upload.content_type,
+                        source_path=persistent_path,
+                        output_dir=(
+                            persistent_path.parent
+                            / "_preprocessed"
+                            / persistent_path.stem
+                        ),
+                        output_virtual_root=f"papers/_preprocessed/{persistent_path.stem}",
+                    )
+                    metadata["preprocess"] = preprocess_result.to_metadata()
+                _attach_workspace_preprocess_urls(
+                    workspace_id=resolved_workspace_id,
+                    metadata=metadata,
+                )
+                preprocess_metadata = metadata.get("preprocess")
+                if isinstance(preprocess_metadata, dict):
+                    markdown_paths = preprocess_metadata.get("markdown_paths")
+                    if isinstance(markdown_paths, list) and markdown_paths:
+                        metadata["preprocessed_markdown_paths"] = markdown_paths
+            else:
+                metadata["preprocess"] = {
+                    "status": "skipped",
+                    "provider": "unknown",
+                    "file_type": "unsupported",
+                }
             paper_title = (
                 str(document_preview.get("title") or "").strip()
                 or persistent_path.stem
@@ -359,18 +382,35 @@ async def upload_thread_files(
                 metadata["text_preview"] = document_preview["text_preview"]
             refresh_targets.update({"dashboard", "papers"})
         else:
-            preprocess_result = await upload_preprocessor.preprocess_file(
-                filename=filename,
-                content_type=upload.content_type,
-                content=content,
-                output_dir=uploads_dir / "_preprocessed" / Path(saved_name).stem,
-                output_virtual_root=f"/mnt/user-data/uploads/_preprocessed/{Path(saved_name).stem}",
-            )
-            preprocess_metadata = preprocess_result.to_metadata()
-            metadata["preprocess"] = preprocess_metadata
-            markdown_paths = preprocess_metadata.get("markdown_paths")
-            if isinstance(markdown_paths, list) and markdown_paths:
-                metadata["preprocessed_markdown_paths"] = markdown_paths
+            if is_parseable:
+                # Large PDFs are marked as pending; actual async processing
+                # can be wired to a background task in future iterations.
+                if is_pdf_upload(upload.filename, upload.content_type) and len(content) > _ASYNC_PREPROCESS_THRESHOLD_BYTES:
+                    metadata["preprocess"] = {
+                        "status": "pending",
+                        "provider": "layout_parsing",
+                        "file_type": "pdf",
+                        "error": "文件较大，同步解析已跳过，后台解析任务待接入",
+                    }
+                else:
+                    preprocess_result = await upload_preprocessor.preprocess_file(
+                        filename=filename,
+                        content_type=upload.content_type,
+                        content=content,
+                        output_dir=uploads_dir / "_preprocessed" / Path(saved_name).stem,
+                        output_virtual_root=f"/mnt/user-data/uploads/_preprocessed/{Path(saved_name).stem}",
+                    )
+                    metadata["preprocess"] = preprocess_result.to_metadata()
+                    preprocess_metadata = metadata["preprocess"]
+                    markdown_paths = preprocess_metadata.get("markdown_paths") if isinstance(preprocess_metadata, dict) else None
+                    if isinstance(markdown_paths, list) and markdown_paths:
+                        metadata["preprocessed_markdown_paths"] = markdown_paths
+            else:
+                metadata["preprocess"] = {
+                    "status": "skipped",
+                    "provider": "unknown",
+                    "file_type": "unsupported",
+                }
 
         if kind == "workspace_context" and resolved_workspace_id:
             persistent_path = persist_workspace_upload(
@@ -385,7 +425,19 @@ async def upload_thread_files(
                 upload.content_type,
                 content=content,
             )
-            text_preview = (
+            # Prefer Markdown preview from preprocess when available
+            preprocess = metadata.get("preprocess")
+            markdown_preview = None
+            if isinstance(preprocess, dict) and preprocess.get("status") == "succeeded":
+                md_paths = preprocess.get("markdown_paths")
+                if isinstance(md_paths, list) and md_paths:
+                    try:
+                        md_path = Path(str(md_paths[0]))
+                        if md_path.exists():
+                            markdown_preview = md_path.read_text(encoding="utf-8")[:_MEMORY_PREVIEW_MAX_CHARS]
+                    except Exception:
+                        pass
+            text_preview = markdown_preview or (
                 str(document_preview.get("text_preview") or "").strip() or None
             )
             artifact = await artifact_service.create(
@@ -410,6 +462,9 @@ async def upload_thread_files(
                     "document_title": document_preview.get("title"),
                     "document_authors": document_preview.get("authors") or [],
                     "page_count": document_preview.get("page_count"),
+                    "preprocess_status": preprocess.get("status") if isinstance(preprocess, dict) else None,
+                    "preprocess_manifest_path": preprocess.get("manifest_path") if isinstance(preprocess, dict) else None,
+                    "preprocessed_markdown_paths": preprocess.get("markdown_paths") if isinstance(preprocess, dict) else None,
                 },
             )
             artifact_id = str(artifact.id)

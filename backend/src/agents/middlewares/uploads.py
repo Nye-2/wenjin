@@ -12,6 +12,9 @@ from src.agents.middlewares.base import Middleware
 from src.agents.middlewares.thread_data import get_thread_data_root
 from src.agents.thread_state import ThreadState
 
+_MAX_EXCERPT_CHARS = 1600
+_MAX_HISTORICAL_FILES = 10
+
 
 class UploadsMiddleware(Middleware):
     """Tracks current-thread uploads and prepends them to the last HumanMessage."""
@@ -40,6 +43,24 @@ class UploadsMiddleware(Middleware):
         return normalized
 
     @staticmethod
+    def _read_markdown_excerpt(path: str, max_chars: int = _MAX_EXCERPT_CHARS) -> str | None:
+        """Read a limited excerpt from a markdown file path.
+
+        Handles both absolute paths and virtual reference paths by trying
+        to resolve them against the thread data root.
+        """
+        if not path or not isinstance(path, str):
+            return None
+        try:
+            candidate = Path(path)
+            if candidate.is_absolute() and candidate.exists():
+                text = candidate.read_text(encoding="utf-8")
+                return text[:max_chars] if len(text) <= max_chars else text[:max_chars] + "\n..."
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
     def _render_uploaded_files_block(
         current_files: list[dict[str, Any]],
         historical_files: list[dict[str, Any]],
@@ -60,20 +81,40 @@ class UploadsMiddleware(Middleware):
                 if not isinstance(preprocess, dict):
                     continue
                 status = str(preprocess.get("status") or "").strip()
-                markdown_paths = preprocess.get("markdown_paths")
+                provider = str(preprocess.get("provider") or "").strip()
                 if status:
-                    lines.append(f"  预处理状态: {status}")
+                    status_label = status
+                    if provider:
+                        status_label = f"{status} ({provider})"
+                    lines.append(f"  预处理状态: {status_label}")
+                if provider == "layout_parsing" and status == "succeeded":
+                    lines.append("  该文件已解析为结构化 Markdown，请使用 `read_file` 读取完整内容，不要直接臆测 PDF 内容。")
+                elif provider == "image_vlm" and status == "succeeded":
+                    lines.append("  该图片已通过 VLM 生成描述文本，请使用 `read_file` 读取完整内容。")
+                markdown_paths = preprocess.get("markdown_paths")
                 if isinstance(markdown_paths, list) and markdown_paths:
                     preview = ", ".join(
-                        str(path)
-                        for path in markdown_paths[:3]
-                        if isinstance(path, str)
+                        str(p)
+                        for p in markdown_paths[:3]
+                        if isinstance(p, str)
                     )
                     if preview:
                         lines.append(f"  可读文本路径: {preview}")
+                    # Add limited excerpt for first markdown file
+                    for md_path in markdown_paths[:1]:
+                        if not isinstance(md_path, str):
+                            continue
+                        excerpt = UploadsMiddleware._read_markdown_excerpt(md_path)
+                        if excerpt:
+                            lines.append("  内容摘要:")
+                            for excerpt_line in excerpt.splitlines():
+                                lines.append(f"    {excerpt_line}")
                 manifest_path = preprocess.get("manifest_path")
                 if isinstance(manifest_path, str) and manifest_path.strip():
                     lines.append(f"  清单路径: {manifest_path}")
+                error = preprocess.get("error")
+                if isinstance(error, str) and error.strip():
+                    lines.append(f"  错误信息: {error}")
 
         if historical_files:
             lines.append("此前上传且仍可使用的文件:")
@@ -124,7 +165,8 @@ class UploadsMiddleware(Middleware):
                     "size": file_path.stat().st_size,
                 }
             )
-        return historical
+        # Limit historical files to avoid prompt pollution
+        return historical[:_MAX_HISTORICAL_FILES]
 
     async def before_model(
         self,

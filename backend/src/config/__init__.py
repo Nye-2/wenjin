@@ -3,6 +3,7 @@
 from .app_config import (
     AppConfig,
     CelerySettings,
+    ImageVLMSettings,
     JWTSettings,
     LayoutParsingSettings,
     PrometheusSettings,
@@ -11,6 +12,7 @@ from .app_config import (
     SMTPSettings,
     celery_settings,
     get_celery_settings,
+    get_image_vlm_settings,
     get_jwt_settings,
     get_layout_parsing_settings,
     get_prometheus_settings,
@@ -18,6 +20,7 @@ from .app_config import (
     get_sentry_settings,
     get_settings,
     get_smtp_settings,
+    image_vlm_settings,
     jwt_settings,
     layout_parsing_settings,
     prometheus_settings,
@@ -84,6 +87,10 @@ __all__ = [
     "layout_parsing_settings",
     "LayoutParsingSettings",
     "get_layout_parsing_settings",
+    # Image VLM
+    "image_vlm_settings",
+    "ImageVLMSettings",
+    "get_image_vlm_settings",
     # LLM
     "LLMSettings",
     "ModelConfig",

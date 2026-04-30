@@ -58,6 +58,22 @@ interface PendingAttachment {
   kind: ThreadUploadKind;
 }
 
+function _isPdfFile(name: string): boolean {
+  return name.toLowerCase().endsWith(".pdf");
+}
+
+function _isImageFile(name: string): boolean {
+  const imageExts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"];
+  return imageExts.some((ext) => name.toLowerCase().endsWith(ext));
+}
+
+function resolveParseHint(name: string): string {
+  if (_isPdfFile(name) || _isImageFile(name)) {
+    return "发送后自动解析为 Markdown";
+  }
+  return "不解析，仅作为附件";
+}
+
 interface WorkspaceThreadComposerProps {
   workspaceId: string;
   actionError: string | null;
@@ -231,6 +247,8 @@ export function WorkspaceThreadComposer({
                   {attachment.size < 1024 * 1024
                     ? `${Math.max(1, Math.round(attachment.size / 1024))} KB`
                     : `${(attachment.size / 1024 / 1024).toFixed(1)} MB`}
+                  {" · "}
+                  <span className="text-[var(--text-secondary)]">{resolveParseHint(attachment.name)}</span>
                 </p>
               </div>
               <select

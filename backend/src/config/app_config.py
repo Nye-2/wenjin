@@ -198,6 +198,41 @@ class LayoutParsingSettings(BaseSettings):
         default=False,
         description="Enable chart recognition",
     )
+    # Extended layout parsing options
+    use_layout_detection: bool = Field(
+        default=True,
+        description="Enable layout region detection and sorting",
+    )
+    layout_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Layout model score threshold",
+    )
+    layout_nms: bool = Field(
+        default=True,
+        description="Enable NMS post-processing for layout detection",
+    )
+    restructure_pages: bool = Field(
+        default=False,
+        description="Restructure multi-page PDF results",
+    )
+    merge_tables: bool = Field(
+        default=True,
+        description="Merge cross-page tables",
+    )
+    relevel_titles: bool = Field(
+        default=True,
+        description="Recognize paragraph title levels",
+    )
+    prettify_markdown: bool = Field(
+        default=True,
+        description="Output prettified Markdown",
+    )
+    visualize: bool | None = Field(
+        default=None,
+        description="Return visualization images (null=use server config)",
+    )
 
     model_config = _settings_config("LAYOUT_PARSING_")
 
@@ -339,10 +374,49 @@ def get_smtp_settings() -> SMTPSettings:
     return SMTPSettings()
 
 
+class ImageVLMSettings(BaseSettings):
+    """Image VLM upload preprocessor settings."""
+
+    enabled: bool = Field(default=False, description="Enable image VLM preprocessor")
+    api_url: str = Field(default="", description="VLM API base URL (OpenAI-compatible)")
+    token: str = Field(default="", description="VLM API token")
+    model: str = Field(default="qwen2.5-vl-7b-instruct", description="VLM model name")
+    timeout_seconds: float = Field(
+        default=60.0,
+        ge=1.0,
+        le=300.0,
+        description="VLM API timeout in seconds",
+    )
+    prompt: str = Field(
+        default="请详细描述这张图片的内容。如果是图表，请说明数据趋势和关键数值；如果是文字截图，请提取主要文字内容；如果是照片，请描述场景和主体。",
+        description="System prompt for image understanding",
+    )
+    max_tokens: int = Field(
+        default=2048,
+        ge=256,
+        le=8192,
+        description="Max tokens for VLM response",
+    )
+    temperature: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature",
+    )
+
+    model_config = _settings_config("IMAGE_VLM_")
+
+
 @lru_cache
 def get_layout_parsing_settings() -> LayoutParsingSettings:
     """Get cached layout parsing settings instance."""
     return LayoutParsingSettings()
+
+
+@lru_cache
+def get_image_vlm_settings() -> ImageVLMSettings:
+    """Get cached image VLM settings instance."""
+    return ImageVLMSettings()
 
 
 # Convenience instances (backward compatible)
@@ -354,3 +428,4 @@ sentry_settings = get_sentry_settings()
 prometheus_settings = get_prometheus_settings()
 smtp_settings = get_smtp_settings()
 layout_parsing_settings = get_layout_parsing_settings()
+image_vlm_settings = get_image_vlm_settings()

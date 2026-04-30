@@ -290,6 +290,31 @@ function readAttachmentExtraction(
   };
 }
 
+interface PreprocessInfo {
+  status: string;
+  provider: string | null;
+  file_type: string | null;
+  error: string | null;
+}
+
+function readAttachmentPreprocess(attachment: AttachmentRecord): PreprocessInfo | null {
+  const preprocess = readAttachmentMetadata(attachment).preprocess;
+  if (!preprocess || typeof preprocess !== "object") {
+    return null;
+  }
+  const payload = preprocess as Record<string, unknown>;
+  const status = readStringValue(payload.status);
+  if (!status) {
+    return null;
+  }
+  return {
+    status,
+    provider: readStringValue(payload.provider),
+    file_type: readStringValue(payload.file_type),
+    error: readStringValue(payload.error),
+  };
+}
+
 function formatExtractionLabel(status: string): string {
   switch (status) {
     case "scheduled":
@@ -306,6 +331,23 @@ function formatExtractionLabel(status: string): string {
       return "抽取失败";
     case "cancelled":
       return "抽取已取消";
+    default:
+      return status;
+  }
+}
+
+function formatPreprocessLabel(status: string): string {
+  switch (status) {
+    case "succeeded":
+      return "已解析";
+    case "failed":
+      return "解析失败";
+    case "pending":
+      return "解析中";
+    case "disabled":
+      return "解析未启用";
+    case "skipped":
+      return "不解析";
     default:
       return status;
   }
@@ -373,7 +415,25 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
         const paperId = readStringValue(attachment.paper_id);
         const artifactId = readStringValue(attachment.artifact_id);
         const extraction = readAttachmentExtraction(attachment);
+        const preprocess = readAttachmentPreprocess(attachment);
         const storageLabel = formatAttachmentStorage(attachment);
+
+        const preprocessTone =
+          preprocess?.status === "failed"
+            ? isUser
+              ? "bg-red-500/15 text-white"
+              : "bg-red-500/10 text-red-600"
+            : preprocess?.status === "succeeded"
+              ? isUser
+                ? "bg-emerald-500/20 text-white"
+                : "bg-emerald-500/10 text-emerald-600"
+              : preprocess?.status === "pending"
+                ? isUser
+                  ? "bg-amber-500/20 text-white"
+                  : "bg-amber-500/10 text-amber-600"
+                : isUser
+                  ? "bg-white/10 text-white/80"
+                  : "bg-[var(--bg-muted)] text-[var(--text-muted)]";
 
         const extractionTone =
           extraction?.status === "failed" || extraction?.status === "cancelled"
@@ -448,6 +508,50 @@ function renderMessageAttachments(message: Message, isUser: boolean) {
                   >
                     作者：{authors.slice(0, 4).join("、")}
                     {authors.length > 4 ? ` 等 ${authors.length} 人` : ""}
+                  </p>
+                ) : null}
+
+                {preprocess ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                        preprocessTone
+                      )}
+                    >
+                      {preprocess.status === "failed" ? (
+                        <AlertCircle className="h-3 w-3" />
+                      ) : preprocess.status === "succeeded" ? (
+                        <CheckCircle2 className="h-3 w-3" />
+                      ) : preprocess.status === "pending" ? (
+                        <Clock3 className="h-3 w-3" />
+                      ) : null}
+                      {formatPreprocessLabel(preprocess.status)}
+                      {preprocess.provider ? ` · ${preprocess.provider}` : ""}
+                    </span>
+                    {preprocess.file_type ? (
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[10px]",
+                          isUser
+                            ? "bg-white/10 text-white/90"
+                            : "bg-[var(--bg-muted)] text-[var(--text-muted)]"
+                        )}
+                      >
+                        {preprocess.file_type}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {preprocess?.error ? (
+                  <p
+                    className={cn(
+                      "mt-2 text-[11px]",
+                      isUser ? "text-white/90" : "text-red-600/90"
+                    )}
+                  >
+                    {truncateText(preprocess.error, 120)}
                   </p>
                 ) : null}
 

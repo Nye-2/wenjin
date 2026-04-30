@@ -385,14 +385,15 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
       return;
     }
 
-    const content = inputValue.trim();
+    let content = inputValue.trim();
     if (!content) {
-      setActionError(
-        pendingAttachments.length > 0
-          ? "发送附件时请补充一句说明。"
-          : "请输入消息内容。"
-      );
-      return;
+      if (pendingAttachments.length > 0) {
+        // Allow attachment-only send with a default message
+        content = "请阅读这些附件，并结合上下文继续分析。";
+      } else {
+        setActionError("请输入消息内容。");
+        return;
+      }
     }
 
     setActionError(null);
@@ -520,6 +521,7 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
         ref={attachmentInputRef}
         type="file"
         multiple
+        accept=".pdf,image/*"
         className="hidden"
         onChange={handleSelectFiles}
       />
