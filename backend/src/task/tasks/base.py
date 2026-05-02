@@ -325,6 +325,7 @@ async def _execute_task_async(
         execution_session_id=str(payload.get("execution_session_id") or "") or None,
         task_type=task_type,
         feature_id=str(payload.get("feature_id") or "") or None,
+        worker_id=celery_task.request.hostname,
     )
 
     async with get_db_session() as db:
