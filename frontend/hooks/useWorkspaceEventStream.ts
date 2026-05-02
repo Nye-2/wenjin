@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { TERMINAL_TASK_STATUSES } from "@/lib/execution-status";
 import { subscribeWorkspaceEvents, type WorkspaceEvent } from "@/lib/api";
 import { useThreadStore } from "@/stores/thread";
 import { useDashboardStore } from "@/stores/dashboard";
@@ -126,7 +127,7 @@ function handleWorkspaceEvent(
 
   switch (event.type) {
     case "task.updated": {
-      const terminalStatuses = new Set(["success", "failed", "cancelled"]);
+      const terminalStatuses = TERMINAL_TASK_STATUSES;
       if (
         event.task.execution_session_id &&
         terminalStatuses.has(event.task.status)

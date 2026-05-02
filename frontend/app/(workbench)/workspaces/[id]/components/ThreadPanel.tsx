@@ -27,6 +27,7 @@ import {
   resolveWorkspaceThreadEntrySkill,
   type WorkspaceThreadEntrySeed,
 } from "@/lib/workspace-thread-entry";
+import { ACTIVE_EXECUTION_STATUSES } from "@/lib/execution-status";
 
 interface ThreadPanelProps {
   workspaceId: string;
@@ -201,9 +202,7 @@ export function ThreadPanel({ workspaceId, entrySeed = null }: ThreadPanelProps)
       executionSessions.find(
         (execution) =>
           !dismissedExecutionIds.includes(execution.id) &&
-          (execution.status === "running" ||
-            execution.status === "pending" ||
-            execution.status === "awaiting_user_input")
+          ACTIVE_EXECUTION_STATUSES.has(execution.status as never)
       ) ??
       executionSessions.find(
         (execution) => !dismissedExecutionIds.includes(execution.id)

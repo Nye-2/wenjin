@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
 from src.database.models.execution_session import ExecutionSessionRecord
+from src.database.models.execution_session import ExecutionSessionStatus
 from src.services.execution_session_events import publish_execution_session_event
 
 _UNSET = object()
@@ -68,7 +69,7 @@ class ExecutionSessionService:
             entry_skill_id=entry_skill_id,
             launch_source=launch_source,
             launch_message=launch_message,
-            status="launching",
+            status=ExecutionSessionStatus.LAUNCHING,
             params=dict(params or {}),
             task_ids=[],
             artifact_ids=[],
@@ -210,9 +211,12 @@ class ExecutionSessionService:
             await self.db.commit()
             await self.db.refresh(session)
             event_type = "execution.updated"
-            if session.status == "completed":
+            if session.status == ExecutionSessionStatus.COMPLETED:
                 event_type = "execution.completed"
-            elif session.status in {"failed", "advisory"}:
+            elif session.status in {
+                ExecutionSessionStatus.FAILED,
+                ExecutionSessionStatus.ADVISORY,
+            }:
                 event_type = "execution.failed"
             await publish_execution_session_event(session, event_type=event_type)
 

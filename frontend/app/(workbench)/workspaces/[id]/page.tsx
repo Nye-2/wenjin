@@ -30,6 +30,7 @@ import type { ExecutionSession, WorkspaceFeature } from "@/lib/api";
 import { useI18n } from "@/components/i18n-provider";
 import { workspaceStages, getFeatureStageId } from "@/lib/workspace-feature-stages";
 import { getWorkspaceFeatureThreadRoute } from "@/lib/workspace-feature-routes";
+import { ACTIVE_EXECUTION_STATUSES } from "@/lib/execution-status";
 import { WorkspaceInspector } from "./components/WorkspaceInspector";
 
 const workspaceTypeLabels: Record<string, string> = {
@@ -320,10 +321,7 @@ export default function WorkbenchPage() {
     const featureById = new Map(features.map((feature) => [feature.id, feature]));
     return executionSessions
       .filter(
-        (execution) =>
-          execution.status === "running" ||
-          execution.status === "pending" ||
-          execution.status === "awaiting_user_input"
+        (execution) => ACTIVE_EXECUTION_STATUSES.has(execution.status as never)
       )
       .map((execution) => ({
         id: execution.primary_task_id || execution.id,

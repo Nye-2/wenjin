@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.compute.events import serialize_compute_session
 from src.database.models.compute_session import ComputeSessionRecord
-from src.database.models.execution_session import ExecutionSessionRecord
+from src.database.models.execution_session import (
+    ExecutionSessionRecord,
+    ExecutionSessionStatus,
+)
 from src.database.models.subagent_task import SubagentTaskRecord
 from src.database.models.task import TaskRecord
 from src.execution.public_paths import sandbox_path_to_public_url
@@ -718,7 +721,7 @@ def _build_review_gate(execution: ExecutionSessionRecord) -> dict[str, Any]:
     status = "clear"
     if execution.advisory_code or has_required_item:
         status = "awaiting_user"
-    elif execution.status == "failed":
+    elif execution.status == ExecutionSessionStatus.FAILED:
         status = "failed"
     elif items:
         status = "advisory"

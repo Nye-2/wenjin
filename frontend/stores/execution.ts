@@ -4,6 +4,7 @@ import {
   getWorkspaceExecutionSessions,
   type ExecutionSession,
 } from "@/lib/api";
+import { ACTIVE_EXECUTION_STATUSES } from "@/lib/execution-status";
 
 interface ExecutionStoreState {
   byWorkspace: Record<string, ExecutionSession[]>;
@@ -68,9 +69,7 @@ function upsertExecutionList(
 function selectPreferredExecutionId(items: ExecutionSession[]): string | null {
   const active = items.find(
     (item) =>
-      item.status === "running" ||
-      item.status === "pending" ||
-      item.status === "awaiting_user_input"
+      ACTIVE_EXECUTION_STATUSES.has(item.status as never)
   );
   return active?.id ?? items[0]?.id ?? null;
 }
@@ -147,9 +146,7 @@ export const useExecutionStore = create<ExecutionStoreState>((set) => ({
       const dismissedExecutionIds =
         state.dismissedExecutionIdsByWorkspace[workspaceId] ?? [];
       const shouldRestoreDismissedExecution =
-        (execution.status === "running" ||
-          execution.status === "pending" ||
-          execution.status === "awaiting_user_input") &&
+        ACTIVE_EXECUTION_STATUSES.has(execution.status as never) &&
         dismissedExecutionIds.includes(execution.id);
       const nextDismissedExecutionIds = shouldRestoreDismissedExecution
         ? dismissedExecutionIds.filter((item) => item !== execution.id)

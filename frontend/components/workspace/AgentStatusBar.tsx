@@ -23,6 +23,7 @@ import {
 import { buildExecutionCurrentTask } from "@/lib/execution-presenters";
 import { cn } from "@/lib/utils";
 import { useThreadStore } from "@/stores/thread";
+import { ACTIVE_EXECUTION_STATUSES } from "@/lib/execution-status";
 import { useExecutionStore } from "@/stores/execution";
 import { useFeaturesStore } from "@/stores/features";
 
@@ -160,9 +161,7 @@ export function AgentStatusBar({ workspaceId }: AgentStatusBarProps) {
   const activeExecution =
     sortedExecutions.find(
       (execution) =>
-        execution.status === "running" ||
-        execution.status === "pending" ||
-        execution.status === "awaiting_user_input"
+        ACTIVE_EXECUTION_STATUSES.has(execution.status as never)
     ) ?? null;
   const latestFailedExecution =
     sortedExecutions.find(

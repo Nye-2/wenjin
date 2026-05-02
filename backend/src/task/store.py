@@ -11,6 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.task_config import task_settings
+from src.database.models.execution_session import ExecutionSessionStatus
 from src.database.models.task import TaskRecord
 from src.runtime.serialization import dumps_json
 from src.services.execution_session_events import publish_execution_session_event
@@ -124,7 +125,7 @@ class TaskStore:
             id=task_id,
             user_id=user_id,
             task_type=task_type,
-            status="pending",
+            status=ExecutionSessionStatus.PENDING,
             priority=priority,
             payload=payload,
             workspace_id=_payload.get("workspace_id") or _params.get("workspace_id"),
@@ -483,7 +484,11 @@ class TaskStore:
                 await ExecutionSessionService(self._db).update_session_record(
                     session,
                     commit=False,
-                    status="completed" if success else "failed",
+                    status=(
+                        ExecutionSessionStatus.COMPLETED
+                        if success
+                        else ExecutionSessionStatus.FAILED
+                    ),
                     runtime_snapshot=runtime_snapshot,
                     result_summary=result_summary,
                     artifact_ids=artifact_ids,
@@ -516,9 +521,12 @@ class TaskStore:
             )
             if session:
                 event_type = "execution.updated"
-                if session.status == "completed":
+                if session.status == ExecutionSessionStatus.COMPLETED:
                     event_type = "execution.completed"
-                elif session.status in {"failed", "advisory"}:
+                elif session.status in {
+                    ExecutionSessionStatus.FAILED,
+                    ExecutionSessionStatus.ADVISORY,
+                }:
                     event_type = "execution.failed"
                 await publish_execution_session_event(session, event_type=event_type)
                 from src.compute.session_service import ComputeSessionService

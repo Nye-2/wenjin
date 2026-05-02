@@ -16,6 +16,7 @@ import { ArtifactDetailDialog } from "@/components/workspace/ArtifactDetailDialo
 import { TaskRuntimePanel } from "@/components/workspace/TaskRuntimePanel";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { LiteraturePanel } from "./LiteraturePanel";
+import { ACTIVE_EXECUTION_STATUSES } from "@/lib/execution-status";
 import { cn } from "@/lib/utils";
 
 type InspectorTab = "work" | "outputs" | "sources" | "activity";
@@ -149,10 +150,7 @@ export function WorkspaceInspector({ workspaceId }: WorkspaceInspectorProps) {
       (execution) => execution.id === activeExecutionId
     ) ??
     visibleExecutions.find(
-      (execution) =>
-        execution.status === "running" ||
-        execution.status === "pending" ||
-        execution.status === "awaiting_user_input"
+      (execution) => ACTIVE_EXECUTION_STATUSES.has(execution.status as never)
     ) ?? null;
   const latestCompletedExecution =
     [...visibleExecutions]

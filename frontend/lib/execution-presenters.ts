@@ -3,6 +3,7 @@ import type {
   TokenUsageCounter,
   WorkspaceFeature,
 } from "@/lib/api";
+import { ACTIVE_EXECUTION_STATUSES } from "@/lib/execution-status";
 import type { TaskRuntimeState } from "@/lib/task-runtime";
 
 export interface ExecutionTaskStage {
@@ -95,9 +96,7 @@ export function selectPreferredExecution(
   }
   const active = sessions.find(
     (session) =>
-      session.status === "running" ||
-      session.status === "pending" ||
-      session.status === "awaiting_user_input"
+      ACTIVE_EXECUTION_STATUSES.has(session.status as never)
   );
   return active ?? sessions[0] ?? null;
 }
@@ -327,8 +326,7 @@ export function adaptExecutionToPanelSession(
           ? "failed"
           : execution.status === "cancelled"
             ? "cancelled"
-          : execution.status === "running" ||
-              execution.status === "awaiting_user_input"
+          : ACTIVE_EXECUTION_STATUSES.has(execution.status as never)
             ? "running"
             : "pending",
     progress: execution.progress ?? 0,
@@ -358,7 +356,7 @@ export function groupExecutionSessions(
   sessions: ExecutionPanelSession[]
 ): GroupedExecutionSessions {
   const active = sessions.filter(
-    (session) => session.status === "running" || session.status === "pending"
+    (session) => ACTIVE_EXECUTION_STATUSES.has(session.status as never)
   );
   const completed = sessions.filter(
     (session) =>

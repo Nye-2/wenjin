@@ -1,6 +1,7 @@
 """Execution session model for converged thread->feature runtime state."""
 
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import DateTime, Index, String, Text
@@ -8,6 +9,19 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..base import Base, generate_uuid
+
+
+class ExecutionSessionStatus(StrEnum):
+    """Canonical execution session lifecycle statuses."""
+
+    LAUNCHING = "launching"
+    PENDING = "pending"
+    RUNNING = "running"
+    AWAITING_USER_INPUT = "awaiting_user_input"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    ADVISORY = "advisory"
 
 
 class ExecutionSessionRecord(Base):

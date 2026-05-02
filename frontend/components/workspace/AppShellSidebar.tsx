@@ -21,6 +21,7 @@ import { useExecutionStore } from "@/stores/execution";
 import { useFeaturesStore } from "@/stores/features";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useI18n } from "@/components/i18n-provider";
+import { ACTIVE_EXECUTION_STATUSES } from "@/lib/execution-status";
 import { cn } from "@/lib/utils";
 
 interface AppShellSidebarProps {
@@ -81,7 +82,7 @@ function SessionGroup({
       </div>
       {sessions.map((session) => {
         const isActive = activeSessionId === session.executionId;
-        const isWorking = session.status === "running" || session.status === "pending";
+        const isWorking = ACTIVE_EXECUTION_STATUSES.has(session.status as never);
         return (
           <button
             key={session.executionId}
