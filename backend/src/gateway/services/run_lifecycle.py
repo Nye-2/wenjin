@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
+from collections.abc import AsyncIterator
 
 from fastapi import HTTPException, Request
 
@@ -209,7 +210,7 @@ async def sse_consumer(
     record: RunRecord,
     request: Request,
     run_manager: RunManager,
-) -> None:
+) -> AsyncIterator[str]:
     """Consume run stream events and emit SSE frames."""
 
     last_event_id = request.headers.get("Last-Event-ID")

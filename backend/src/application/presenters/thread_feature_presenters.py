@@ -20,7 +20,7 @@ _FEATURE_TITLES: dict[str, str] = {
 }
 _FEATURE_TITLES.update(_FEATURE_TITLE_OVERRIDES)
 _FEATURE_FOLLOW_UP_PROMPTS: dict[str, str] = {
-    feature.id: feature.follow_up_prompt
+    feature.id: str(feature.follow_up_prompt or "")
     for feature in iter_workspace_features()
     if getattr(feature, "follow_up_prompt", None)
 }

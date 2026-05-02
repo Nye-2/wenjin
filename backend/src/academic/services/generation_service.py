@@ -168,11 +168,11 @@ class GenerationService:
         total_output_tokens = sum(r.output_tokens for r in records_list)
         total_duration_ms = sum(r.duration_ms or 0 for r in records_list)
 
-        skill_counts = {}
+        skill_counts: dict[str, int] = {}
         for r in records_list:
             skill_counts[r.skill_name] = skill_counts.get(r.skill_name, 0) + 1
 
-        status_counts = {}
+        status_counts: dict[str, int] = {}
         for r in records_list:
             status_counts[r.status] = status_counts.get(r.status, 0) + 1
 

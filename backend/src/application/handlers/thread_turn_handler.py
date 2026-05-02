@@ -130,9 +130,9 @@ def _stringify_persisted_message_content(message: Mapping[str, Any]) -> str:
                 if note:
                     additions.append(f"[task: {note}]")
             elif block_type == "result" and isinstance(data, Mapping):
-                summary = data.get("summary")
-                if isinstance(summary, str) and summary.strip():
-                    additions.append(f"[result: {summary.strip()}]")
+                result_summary = data.get("summary")
+                if isinstance(result_summary, str) and result_summary.strip():
+                    additions.append(f"[result: {result_summary.strip()}]")
             elif block_type == "warning" and isinstance(data, Mapping):
                 detail = data.get("detail")
                 if isinstance(detail, str) and detail.strip():

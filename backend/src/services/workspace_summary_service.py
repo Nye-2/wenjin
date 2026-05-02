@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -125,9 +126,9 @@ class WorkspaceSummaryService:
         normalized: list[dict[str, Any]] = []
         for feature in list_workspace_features(workspace_type):
             module = module_by_id.get(feature.id, {})
-            execution = latest_execution_by_feature.get(feature.id)
-            if execution:
-                module_status = self._module_status_from_execution(execution)
+            latest_execution: dict[str, Any] | None = latest_execution_by_feature.get(feature.id)
+            if latest_execution:
+                module_status = self._module_status_from_execution(latest_execution)
                 module_summary = {
                     **(module.get("summary") if isinstance(module.get("summary"), dict) else {}),
                     "execution_session_id": execution.get("id"),
@@ -592,7 +593,7 @@ class WorkspaceSummaryService:
             "title": str(item.get("title") or "最近活动"),
             "summary": item.get("summary"),
             "kind": str(item.get("kind") or ""),
-            "occurred_at": occurred_at.isoformat() if hasattr(occurred_at, "isoformat") else str(occurred_at or ""),
+            "occurred_at": occurred_at.isoformat() if isinstance(occurred_at, datetime) else str(occurred_at or ""),
         }
 
     def _build_headline(

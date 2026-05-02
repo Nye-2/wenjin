@@ -272,8 +272,8 @@ def _get_artifact_excerpt(artifact: Artifact | None) -> str | None:
         if isinstance(ideas, list):
             ideas_text = "\n".join(
                 (
-                    _read_string(item.get("title"))
-                    or _read_string(item.get("description"))
+                    str(_read_string(item.get("title")) or "")
+                    or str(_read_string(item.get("description")) or "")
                 )
                 for item in ideas[:4]
                 if isinstance(item, dict)
@@ -282,7 +282,7 @@ def _get_artifact_excerpt(artifact: Artifact | None) -> str | None:
         gaps_text = None
         if isinstance(gaps, list):
             gaps_text = "\n".join(
-                _read_string(item.get("description"))
+                str(_read_string(item.get("description")) or "")
                 for item in gaps[:3]
                 if isinstance(item, dict)
             ) or None
@@ -992,8 +992,8 @@ def _resolve_prior_art_search(
             _read_string(content.get("innovation_description"))
             or _read_string(workspace.name if workspace else None)
             or _workspace_fallback(workspace),
-            _read_string(content.get("technical_field")),
-            _read_string(content.get("application_scenario")),
+            str(_read_string(content.get("technical_field")) or ""),
+            str(_read_string(content.get("application_scenario")) or ""),
         ]
         keywords = [k for k in keywords if k]
 

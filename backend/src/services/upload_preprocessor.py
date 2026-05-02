@@ -401,7 +401,7 @@ class OCRProvider(BaseProvider):
                         safe_image_name = _sanitize_component(
                             str(image_name), fallback=f"output_{index}"
                         )
-                        img_bytes: bytes | None = None
+                        img_bytes = None
                         suffix = ".jpg"
                         try:
                             decoded, ext_or_url = _decode_image_data(image_data)
@@ -715,10 +715,10 @@ class UploadPreprocessor:
                     error="OCR service is not configured",
                 )
         elif file_type == "image":
-            settings = self._vlm_provider._settings
-            if not settings.enabled:
+            vlm_settings = self._vlm_provider._settings
+            if not vlm_settings.enabled:
                 return UploadPreprocessResult(status="disabled", file_type=file_type)
-            if not settings.api_url or not settings.token:
+            if not vlm_settings.api_url or not vlm_settings.token:
                 return UploadPreprocessResult(
                     status="disabled",
                     file_type=file_type,

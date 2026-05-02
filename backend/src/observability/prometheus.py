@@ -49,7 +49,7 @@ def _build_metrics_registry() -> Any:
         from prometheus_client import CollectorRegistry, multiprocess
 
         registry = CollectorRegistry()
-        multiprocess.MultiProcessCollector(registry)
+        multiprocess.MultiProcessCollector(registry)  # type: ignore[no-untyped-call]
         return registry
 
     from prometheus_client import REGISTRY
@@ -227,7 +227,7 @@ def mark_worker_process_dead(pid: int | None = None) -> None:
     try:
         from prometheus_client import multiprocess
 
-        multiprocess.mark_process_dead(pid or os.getpid())
+        multiprocess.mark_process_dead(pid or os.getpid())  # type: ignore[no-untyped-call]
     except Exception:
         logger.warning("Failed to mark Prometheus worker process dead", exc_info=True)
 

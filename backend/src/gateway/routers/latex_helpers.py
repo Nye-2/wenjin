@@ -226,8 +226,8 @@ async def _write_feedback_items_to_project(
     project: Any,
     items: list[dict[str, Any]],
 ) -> None:
-    llm_config = deepcopy(project.llm_config) if isinstance(project.llm_config, dict) else {}
-    metadata = deepcopy(llm_config.get("metadata")) if isinstance(llm_config.get("metadata"), dict) else {}
+    llm_config = cast(dict[str, Any], deepcopy(project.llm_config)) if isinstance(project.llm_config, dict) else {}
+    metadata = cast(dict[str, Any], deepcopy(llm_config.get("metadata"))) if isinstance(llm_config.get("metadata"), dict) else {}
     metadata["feedback_items"] = items
     metadata["feedback_updated_at"] = datetime.now().isoformat()
     llm_config["metadata"] = metadata

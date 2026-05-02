@@ -123,7 +123,8 @@ async def literature_management_graph(
     stats["model_id"] = model_id
     stats["generated_at"] = datetime.now(tz=UTC).isoformat()
     if runtime is not None:
-        summary = stats.get("summary") if isinstance(stats.get("summary"), dict) else {}
+        _summary = stats.get("summary")
+        summary = _summary if isinstance(_summary, dict) else {}
         upsert_runtime_block(
             runtime,
             {

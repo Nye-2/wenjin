@@ -74,12 +74,13 @@ async def _execute_thread_feature_request(
         or "workspace_feature"
     )
 
-    if getattr(execution, "task_id", None):
+    task_id = getattr(execution, "task_id", None)
+    if task_id:
         return build_execution_success_response(
             feature_id=resolved_feature_id,
-            task_id=str(execution.task_id),
+            task_id=str(task_id),
             execution_session_id=launch.execution_session_id,
-            message=str(execution.message),
+            message=str(getattr(execution, "message", "")),
             params=resolved_params,
         )
 

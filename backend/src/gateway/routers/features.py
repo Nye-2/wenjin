@@ -276,7 +276,7 @@ async def resolve_feature_action(
         artifacts=artifacts,
         orchestration_params=request.orchestration_params,
         explicit_source_artifact_id=request.source_artifact_id,
-        follow_up_prompt=follow_up_prompt,
+        follow_up_prompt=follow_up_prompt or "",
     )
 
     return ResolveActionResponse(

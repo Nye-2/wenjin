@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -397,7 +397,7 @@ def _prism_payload_from_dict(value: dict[str, Any], *, source: str) -> dict[str,
         "main_file": main_file,
         "section_file": _read_text(value.get("section_file")),
         "target_files": target_files,
-        "section_map": dict(value.get("section_map")) if isinstance(value.get("section_map"), dict) else {},
+        "section_map": dict(cast(dict[str, Any], value.get("section_map"))) if isinstance(value.get("section_map"), dict) else {},
         "file_changes": file_changes,
         "applied_file_changes": applied_file_changes,
         "compile": compile,

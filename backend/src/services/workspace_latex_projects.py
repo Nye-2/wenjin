@@ -1286,7 +1286,7 @@ class WorkspaceLatexProjectService:
 
         if review_checklist:
             lines.append("\\subsection{核对清单}")
-            for item in review_checklist:
-                lines.append(f"- {str(item)}")
+            for check_item in review_checklist:
+                lines.append(f"- {str(check_item)}")
 
         return "\n".join(lines).strip() or "待补充软件著作权申请材料。"

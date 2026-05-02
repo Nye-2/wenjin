@@ -357,13 +357,13 @@ def _render_snapshot_document(sections: list[str]) -> str | None:
     if not sections:
         return None
     body = "\n\n".join(sections)
-    body = _truncate(body, limit=_TOTAL_LIMIT)
-    if body is None:
+    truncated = _truncate(body, limit=_TOTAL_LIMIT)
+    if truncated is None:
         return None
     return (
         "## Inherited Workspace Context\n"
         "Use this snapshot as bounded parent context. Prefer it over generic assumptions.\n\n"
-        f"{body}"
+        f"{truncated}"
     )
 
 

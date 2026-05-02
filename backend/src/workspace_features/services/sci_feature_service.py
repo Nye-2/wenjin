@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.academic.literature import LiteratureSearchService
 from src.academic.services.artifact_service import ArtifactService

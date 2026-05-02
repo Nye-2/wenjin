@@ -234,6 +234,7 @@ async def invoke_json_chat_model(
         return None, model_id, f"llm_generation_failed: {exc}"
 
     raw_text = extract_response_text(response)
+    parsed: JsonValue | None
     if expected_type == "array":
         parsed = parse_json_array(raw_text)
     else:

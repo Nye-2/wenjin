@@ -62,7 +62,7 @@ async def _load_copyright_materials_artifact(workspace_id: str) -> dict[str, Any
         service = ArtifactService(db)
         artifacts = await service.list_by_workspace(
             workspace_id=workspace_id,
-            artifact_type=ArtifactType.COPYRIGHT_MATERIALS.value,
+            type=ArtifactType.COPYRIGHT_MATERIALS.value,
             limit=1,
         )
         if artifacts:

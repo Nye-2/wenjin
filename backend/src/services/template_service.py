@@ -210,7 +210,7 @@ async def parse_template_content(file_content: str) -> dict[str, Any]:
         response = await model.ainvoke(prompt)
         content = response.content if hasattr(response, "content") else str(response)
 
-        text = content.strip()
+        text = content.strip() if isinstance(content, str) else ""
         if text.startswith("```"):
             lines = text.split("\n")
             text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])

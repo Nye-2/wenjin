@@ -198,14 +198,15 @@ def _metadata_from_reference(reference: WorkspaceReference) -> dict[str, Any]:
 def _paper_candidate_from_bibtex(entry: dict[str, str]) -> dict[str, Any]:
     parser = BibTeXParser()
     payload = parser.to_paper_dict(entry)
-    payload["citation_key"] = entry.get("key")
-    payload["bibtex_entry_type"] = entry.get("entry_type") or "article"
-    payload["bibtex_fields"] = {
+    result = dict(payload)
+    result["citation_key"] = entry.get("key")
+    result["bibtex_entry_type"] = entry.get("entry_type") or "article"
+    result["bibtex_fields"] = {
         key: value
         for key, value in entry.items()
         if key not in {"key", "entry_type"}
     }
-    return dict(payload)
+    return result
 
 
 class WorkspaceReferenceService:
@@ -670,10 +671,10 @@ class WorkspaceReferenceService:
             existing.source_artifact_id = existing.source_artifact_id or source_artifact_id
             if verified_at and existing.verified_at is None:
                 existing.verified_at = verified_at if hasattr(verified_at, "isoformat") else utc_now()
-            existing.evidence_level = self._max_evidence_level(existing.evidence_level, resolved_evidence_level)
-            existing.fulltext_status = self._max_fulltext_status(existing.fulltext_status, resolved_fulltext_status)
+            existing.evidence_level = self._max_evidence_level(existing.evidence_level, resolved_evidence_level)  # type: ignore[assignment]
+            existing.fulltext_status = self._max_fulltext_status(existing.fulltext_status, resolved_fulltext_status)  # type: ignore[assignment]
             if resolved_library_status != ReferenceLibraryStatus.CANDIDATE.value:
-                existing.library_status = resolved_library_status
+                existing.library_status = resolved_library_status  # type: ignore[assignment]
             if bibtex_fields:
                 existing.bibtex_fields = {**dict(existing.bibtex_fields or {}), **bibtex_fields}
 
@@ -1224,7 +1225,7 @@ class ReferencePreprocessService:
             reference.evidence_level = WorkspaceReferenceService._max_evidence_level(
                 reference.evidence_level,
                 ReferenceEvidenceLevel.UPLOADED_FULLTEXT,
-            )
+            )  # type: ignore[assignment]
         else:
             asset.preprocess_status = ReferencePreprocessStatus.FAILED
             reference.fulltext_status = ReferenceFulltextStatus.FAILED

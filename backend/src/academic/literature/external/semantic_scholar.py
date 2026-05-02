@@ -123,7 +123,7 @@ class SemanticScholarClient(ExternalDBBase):
         for item in data.get("data", []):
             citing_paper = item.get("citingPaper", {})
             results.append(
-                PaperSearchResult(
+                PaperSearchResult(  # type: ignore[call-arg]
                     title=citing_paper.get("title", ""),
                     authors=self._normalize_authors(citing_paper.get("authors", [])),
                     year=citing_paper.get("year"),

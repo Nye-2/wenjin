@@ -109,6 +109,8 @@ async def create_model_safe(
     try:
         from src.models.factory import create_chat_model
 
+        if model_id is None:
+            return None
         return create_chat_model(model_id, temperature=temperature)
     except Exception:
         logger.exception("Failed to create chat model")

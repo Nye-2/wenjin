@@ -580,7 +580,7 @@ async def _try_generate_background_sections(
 
     # Extract references if provided
     raw_refs = parsed.get("references")
-    references = None
+    references: list[dict[str, str]] | None = None
     if isinstance(raw_refs, list) and raw_refs:
         references = []
         for ref in raw_refs[:10]:

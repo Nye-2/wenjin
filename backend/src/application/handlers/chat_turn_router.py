@@ -60,10 +60,10 @@ def _optional_str(value: Any) -> str | None:
     return normalized or None
 
 
-def _read_orchestration(request: ThreadTurnRequest) -> Mapping[str, Any]:
+def _read_orchestration(request: ThreadTurnRequest) -> dict[str, Any]:
     metadata = request.metadata if isinstance(request.metadata, Mapping) else None
     orchestration = metadata.get("orchestration") if metadata is not None else None
-    return orchestration if isinstance(orchestration, Mapping) else {}
+    return dict(orchestration) if isinstance(orchestration, Mapping) else {}
 
 
 def _thread_workspace_type(thread: Any) -> str | None:
@@ -84,7 +84,7 @@ def _orchestration_from_decision(
     request: ThreadTurnRequest,
     decision: ThreadIntentDecision,
     intent: str,
-) -> Mapping[str, Any]:
+) -> dict[str, Any]:
     orchestration = dict(_read_orchestration(request))
     orchestration["intent"] = intent
     if decision.feature_id is not None:

@@ -148,7 +148,7 @@ def _parse_model_from_json(data: dict[str, Any]) -> ModelConfig | None:
         return None
 
     try:
-        return ModelConfig(
+        return ModelConfig(  # type: ignore[call-arg]
             id=data["id"],
             model=data["model"],
             api_key=data["api_key"],
@@ -291,7 +291,7 @@ def get_image_models() -> list[ModelConfig]:
         List of ModelConfig objects for image generation models.
     """
     _, image_models = _get_cached_models()
-    return list(image_models.values())
+    return list(image_models.values()) if image_models is not None else []
 
 
 def get_model_config(model_id: str) -> ModelConfig | None:
@@ -370,7 +370,7 @@ def get_all_models() -> dict[str, list[ModelConfig]]:
 
     return {
         "llm": list(llm_models.values()),
-        "image": list(image_models.values()),
+        "image": list(image_models.values()) if image_models is not None else [],
     }
 
 

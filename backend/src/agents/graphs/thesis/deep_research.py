@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.academic.literature.search_service import LiteratureSearchService
 from src.agents.feature_leader.graph_registry import register_feature_graph
@@ -59,8 +59,8 @@ def _combine_verified_discovery_papers(discovery: dict[str, Any]) -> list[dict[s
         sources = [verified]
     else:
         sources = [
-            discovery.get("seminal_works"),
-            discovery.get("recent_works"),
+            cast(list[Any], discovery.get("seminal_works")),
+            cast(list[Any], discovery.get("recent_works")),
         ]
 
     for works in sources:
@@ -196,7 +196,7 @@ async def deep_research_graph(
                     {
                         "label": "经典/基础文献",
                         "value": str(
-                            len(discovery.get("seminal_works"))
+                            len(cast(list[Any], discovery.get("seminal_works")))
                             if isinstance(discovery.get("seminal_works"), list)
                             else 0
                         ),
@@ -204,7 +204,7 @@ async def deep_research_graph(
                     {
                         "label": "近期文献",
                         "value": str(
-                            len(discovery.get("recent_works"))
+                            len(cast(list[Any], discovery.get("recent_works")))
                             if isinstance(discovery.get("recent_works"), list)
                             else 0
                         ),
@@ -212,7 +212,7 @@ async def deep_research_graph(
                     {
                         "label": "已验证文献",
                         "value": str(
-                            len(discovery.get("verified_papers"))
+                            len(cast(list[Any], discovery.get("verified_papers")))
                             if isinstance(discovery.get("verified_papers"), list)
                             else 0
                         ),
@@ -220,7 +220,7 @@ async def deep_research_graph(
                     {
                         "label": "研究趋势",
                         "value": str(
-                            len(discovery.get("trends"))
+                            len(cast(list[Any], discovery.get("trends")))
                             if isinstance(discovery.get("trends"), list)
                             else 0
                         ),
@@ -347,7 +347,7 @@ async def deep_research_graph(
                         {
                             "label": "一致性问题",
                             "value": str(
-                                len(cross_validation.get("consistency_issues"))
+                                len(cast(list[Any], cross_validation.get("consistency_issues")))
                                 if isinstance(cross_validation.get("consistency_issues"), list)
                                 else 0
                             ),
@@ -355,7 +355,7 @@ async def deep_research_graph(
                         {
                             "label": "改进建议",
                             "value": str(
-                                len(cross_validation.get("recommendations"))
+                                len(cast(list[Any], cross_validation.get("recommendations")))
                                 if isinstance(cross_validation.get("recommendations"), list)
                                 else 0
                             ),
@@ -465,7 +465,7 @@ async def _phase1_discovery(
         if isinstance(recent_result, dict) and isinstance(recent_result.get("verified_papers"), list)
         else []
     )
-    verified_papers = _dedupe_verified_papers([*seminal_papers, *recent_papers])
+    verified_papers = _dedupe_verified_papers([*cast(list[Any], seminal_papers), *cast(list[Any], recent_papers)])
     reference_import = await _import_verified_papers_to_reference_library(
         workspace_id=workspace_id,
         topic=topic,
@@ -474,8 +474,8 @@ async def _phase1_discovery(
 
     return {
         "source": "semantic_scholar",
-        "seminal_works": _annotate_discovery_papers(seminal_papers, category="seminal"),
-        "recent_works": _annotate_discovery_papers(recent_papers, category="recent"),
+        "seminal_works": _annotate_discovery_papers(cast(list[dict[str, Any]], seminal_papers), category="seminal"),
+        "recent_works": _annotate_discovery_papers(cast(list[dict[str, Any]], recent_papers), category="recent"),
         "verified_papers": verified_papers,
         "retrieval": _merge_retrieval_info(
             seminal_result if isinstance(seminal_result, dict) else {},
@@ -615,18 +615,18 @@ def _merge_retrieval_info(*results: dict[str, Any]) -> dict[str, Any]:
         "source": "semantic_scholar",
         "queries": [
             {
-                "query": retrieval.get("query"),
-                "status": retrieval.get("status"),
-                "returned": retrieval.get("returned"),
-                "verified": retrieval.get("verified"),
-                "error": retrieval.get("error"),
-                "verified_at": retrieval.get("verified_at"),
+                "query": retrieval.get("query"),  # type: ignore
+                "status": retrieval.get("status"),  # type: ignore
+                "returned": retrieval.get("returned"),  # type: ignore
+                "verified": retrieval.get("verified"),  # type: ignore
+                "error": retrieval.get("error"),  # type: ignore
+                "verified_at": retrieval.get("verified_at"),  # type: ignore
             }
             for retrieval in retrievals
         ],
-        "verified": sum(int(retrieval.get("verified") or 0) for retrieval in retrievals),
-        "status": "ok" if retrievals and all(retrieval.get("status") == "ok" for retrieval in retrievals) else "partial",
-        "verified_at": next((retrieval.get("verified_at") for retrieval in retrievals if retrieval.get("verified_at")), None),
+        "verified": sum(int(retrieval.get("verified") or 0) for retrieval in retrievals),  # type: ignore
+        "status": "ok" if retrievals and all(retrieval.get("status") == "ok" for retrieval in retrievals) else "partial",  # type: ignore
+        "verified_at": next((retrieval.get("verified_at") for retrieval in retrievals if retrieval.get("verified_at")), None),  # type: ignore
     }
 
 

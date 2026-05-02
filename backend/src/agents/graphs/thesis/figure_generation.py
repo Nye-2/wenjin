@@ -256,7 +256,7 @@ async def _generate_figure_code(
         record_token_usage(response)
         content = response.content if hasattr(response, "content") else str(response)
         # Strip potential markdown fences
-        text = content.strip()
+        text = content.strip() if isinstance(content, str) else ""
         if text.startswith("```"):
             lines = text.split("\n")
             text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
@@ -403,6 +403,7 @@ async def figure_generation_graph(
 
     if not code_gen_ok:
         raise RuntimeError("figure_generation_failed: llm_output_missing_source")
+    assert generated_code is not None
 
     generation_mode = "llm"
     execution_ok = False

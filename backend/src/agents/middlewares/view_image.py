@@ -8,7 +8,7 @@ After model processing, the viewed_images are cleared to prevent re-injection.
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -91,7 +91,7 @@ class ViewImageMiddleware(Middleware):
 
         # Append a HumanMessage with image content instead of replacing the
         # existing conversation history.
-        message = HumanMessage(content=image_content)
+        message = HumanMessage(content=cast(list[str | dict[str, Any]], image_content))
         existing_messages = list(state.get("messages", []))
 
         return {"messages": existing_messages + [message]}

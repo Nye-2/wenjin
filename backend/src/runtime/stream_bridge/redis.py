@@ -11,7 +11,7 @@ from typing import Any
 try:
     from redis.exceptions import TimeoutError as RedisTimeoutError
 except Exception:  # pragma: no cover - redis package always present in runtime
-    RedisTimeoutError = TimeoutError
+    RedisTimeoutError = TimeoutError  # type: ignore
 
 from src.runtime.serialization import dumps_json
 

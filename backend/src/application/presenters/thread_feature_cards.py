@@ -644,8 +644,9 @@ def build_feature_task_completion_card(
             "label": "WenjinPrism 主稿",
             "project_id": prism_info["project_id"],
         })
-    if feature_id == "literature_search" and isinstance(data.get("reference_import"), Mapping):
-        imported_count = int(data["reference_import"].get("imported") or 0)
+    reference_import = data.get("reference_import")
+    if feature_id == "literature_search" and isinstance(reference_import, Mapping):
+        imported_count = int(reference_import.get("imported") or 0)
         if imported_count > 0:
             destinations.append({
                 "kind": "references",
@@ -661,8 +662,7 @@ def build_feature_task_completion_card(
     literature_evidence = _extract_literature_evidence_from_result(data)
     if literature_evidence:
         trust.update(literature_evidence)
-
-    reference_import: dict[str, Any] | None = None
+        reference_import = None
 
     blocks: list[dict[str, Any]] = [
         _build_task_result_block(

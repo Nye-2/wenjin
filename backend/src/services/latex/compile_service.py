@@ -115,7 +115,7 @@ class LatexCompileService:
             success = pdf_path.exists()
             failure_status = exit_code if isinstance(exit_code, int) and exit_code != 0 else 1
             page_count = self._count_pdf_pages(pdf_path) if success else None
-            history_id: str | None = None
+            history_id = None
             pdf_endpoint: str | None = None
             if record_history:
                 history = LatexCompileHistory(
@@ -249,7 +249,7 @@ class LatexCompileService:
     @staticmethod
     def _count_pdf_pages(pdf_path: Path) -> int | None:
         try:
-            from pypdf import PdfReader  # type: ignore
+            from pypdf import PdfReader
         except Exception:
             return None
         try:
@@ -401,7 +401,7 @@ class LatexCompileService:
     @staticmethod
     def _read_pdf_page_size(pdf_path: Path, page: int) -> tuple[float, float] | None:
         try:
-            from pypdf import PdfReader  # type: ignore
+            from pypdf import PdfReader
         except Exception:
             return None
         try:

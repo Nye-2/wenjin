@@ -149,7 +149,7 @@ async def search_workspace_references_tool(
     query: str,
     limit: int = 8,
     workspace_id: str | None = None,
-    config: RunnableConfig = None,
+    config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
     """Search reference sections by title/content in one workspace."""
     resolved_workspace_id, error = _resolve_workspace_scope(workspace_id, config)
@@ -182,7 +182,7 @@ async def read_workspace_reference_section_tool(
     section_path: str | None = None,
     section_title: str | None = None,
     workspace_id: str | None = None,
-    config: RunnableConfig = None,
+    config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
     """Read one reference section by section_path or section_title."""
     resolved_workspace_id, error = _resolve_workspace_scope(workspace_id, config)
