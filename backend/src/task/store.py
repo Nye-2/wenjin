@@ -410,7 +410,8 @@ class TaskStore:
         await self._db.commit()
         await self._db.refresh(record)
 
-        # Post-commit: publish execution event and touch compute projection
+        # Post-commit: publish execution event, touch compute projection,
+        # and broadcast task.updated so the frontend event stream stays complete.
         if record.execution_session_id and runtime_state is not None:
             if session is not None:
                 await publish_execution_session_event(
@@ -420,6 +421,27 @@ class TaskStore:
 
             await ComputeSessionService(self._db).touch_session_by_execution(
                 record.execution_session_id
+            )
+
+        payload = record.payload if isinstance(record.payload, dict) else {}
+        workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
+        if workspace_id:
+            await publish_workspace_event(
+                workspace_id,
+                "task.updated",
+                {
+                    "task": {
+                        "task_id": task_id,
+                        "execution_session_id": record.execution_session_id,
+                        "task_type": record.task_type,
+                        "status": record.status,
+                        "progress": record.progress,
+                        "message": record.message,
+                        "feature_id": payload.get("feature_id"),
+                        "thread_id": payload.get("thread_id"),
+                        "metadata": runtime_state,
+                    }
+                },
             )
 
     async def mark_task_completed(
