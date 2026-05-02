@@ -1,5 +1,5 @@
 """Dynamic module loading via path strings like 'module.path:variable_name'."""
-from typing import Any
+from typing import Any, cast
 
 import importlib
 import os
@@ -54,7 +54,7 @@ def resolve_variable[T](
         msg = f"Expected {expected_type}, got {type(variable)}"
         raise TypeError(msg)
 
-    return variable
+    return cast(T, variable)
 
 
 def resolve_class[T](class_path: str, base_class: type[T] | None = None) -> type[T]:

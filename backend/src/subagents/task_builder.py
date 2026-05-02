@@ -26,6 +26,7 @@ def _normalize_positive_int(value: Any) -> int | None:
         return None
     if value < 1:
         return None
+    assert isinstance(value, int)
     return value
 
 

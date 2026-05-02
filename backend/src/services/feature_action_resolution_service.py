@@ -1237,4 +1237,4 @@ def resolve_feature_action_state(
             "当前卡片没有可复用的 artifact 执行上下文。",
         )
 
-    return resolver(workspace, orchestration_params, source_artifact, follow_up_prompt)
+    return resolver(workspace, orchestration_params, source_artifact, follow_up_prompt)  # type: ignore[no-any-return]

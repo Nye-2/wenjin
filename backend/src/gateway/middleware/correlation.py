@@ -2,7 +2,7 @@
 
 import uuid
 from typing import Any
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 
 from fastapi import Request, Response
@@ -11,7 +11,7 @@ from fastapi import Request, Response
 correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
 
-async def correlation_middleware(request: Request, call_next: Callable[[Request], Any]) -> Response:
+async def correlation_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """Add correlation ID to all requests.
 
     Args:

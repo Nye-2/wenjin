@@ -58,6 +58,12 @@ _AUTH_PATTERNS = (
 class LLMErrorHandlingMiddleware(Middleware):
     """Handle transient LLM failures and expose graceful fallback responses."""
 
+    retry_max_attempts: int
+    retry_base_delay_ms: int
+    retry_cap_delay_ms: int
+    circuit_failure_threshold: int
+    circuit_recovery_timeout_sec: int
+
     def __init__(
         self,
         retry_max_attempts: int = 3,
@@ -155,7 +161,7 @@ class LLMErrorHandlingMiddleware(Middleware):
         if retry_after_ms is not None:
             return retry_after_ms
         backoff = self.retry_base_delay_ms * (2 ** max(0, attempt - 1))
-        return min(backoff, self.retry_cap_delay_ms)
+        return int(min(backoff, self.retry_cap_delay_ms))
 
     def log_retry(self, attempt: int, wait_ms: int, reason: str, error: BaseException) -> None:
         logger.warning(

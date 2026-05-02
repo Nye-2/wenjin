@@ -8,9 +8,12 @@ not scattered across the control plane.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.execution.types import ExecutionRequest, ExecutionResult
+
+if TYPE_CHECKING:
+    from src.execution.base import ExecutionService
 
 
 class ComputeDispatchService:
@@ -21,7 +24,7 @@ class ComputeDispatchService:
     work-plane boundary explicit and auditable.
     """
 
-    def __init__(self, execution_service: Any) -> None:
+    def __init__(self, execution_service: "ExecutionService") -> None:
         """Initialize with an execution service instance.
 
         Args:

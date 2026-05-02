@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import func, select
 
@@ -66,7 +66,7 @@ class DashboardStatusSharedMixin:
         elif created_by_skill:
             stmt = stmt.where(Artifact.created_by_skill == created_by_skill)
         result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
+        return cast(Artifact | None, result.scalar_one_or_none())
 
     async def _count_running_workspace_feature_tasks(
         self,
@@ -95,7 +95,7 @@ class DashboardStatusSharedMixin:
             .order_by(TaskRecord.created_at.desc())
             .limit(1)
         )
-        return result.scalar_one_or_none()
+        return cast(str | None, result.scalar_one_or_none())
 
     async def _status_from_count_and_running(
         self,

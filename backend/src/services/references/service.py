@@ -76,7 +76,7 @@ def _coerce_enum_value(enum_cls: type[Any], value: Any, field_name: str) -> str:
     normalized = _enum_value(value).strip()
     for item in enum_cls:
         if normalized == item.value:
-            return item.value
+            return str(item.value)
     allowed = ", ".join(item.value for item in enum_cls)
     raise ValueError(f"Invalid {field_name}: {normalized}. Allowed values: {allowed}")
 

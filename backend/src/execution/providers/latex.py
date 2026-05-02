@@ -310,7 +310,7 @@ class LaTeXProvider(ExecutionProvider):
         try:
             import fitz  # PyMuPDF
             with fitz.open(str(pdf_path)) as doc:
-                return doc.page_count
+                return int(doc.page_count)
         except Exception as e:
             logger.warning(f"Failed to count PDF pages: {e}")
             return 0

@@ -4,10 +4,13 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from .base import ExecutionService
+
+if TYPE_CHECKING:
+    from .base import ExecutionProvider
 from .docker.client import DockerClient, DockerExecutionError
 from .path_utils import normalize_thread_id
 from .providers.ai_image import AIImageProvider
@@ -51,9 +54,9 @@ class DockerExecutionService(ExecutionService):
         """
         self.sandbox_base_dir = Path(sandbox_base_dir)
         self.docker_client = DockerClient()
-        self._providers: dict[ExecutionType, Any] = {}
+        self._providers: dict[ExecutionType, "ExecutionProvider"] = {}
 
-    def _get_provider(self, exec_type: ExecutionType) -> Any:
+    def _get_provider(self, exec_type: ExecutionType) -> "ExecutionProvider":
         """Get or create provider instance.
 
         Args:
@@ -207,13 +210,14 @@ class DockerExecutionService(ExecutionService):
         )
 
         # Process result
-        return await provider.process_result(
+        result = await provider.process_result(
             exit_code=exit_code,
             stdout=stdout,
             stderr=stderr,
             work_dir=work_dir,
             options=request.options,
         )
+        return result  # type: ignore[no-any-return]
 
     def _prepare_work_dir(self, request: ExecutionRequest) -> Path:
         """Prepare working directory for execution.

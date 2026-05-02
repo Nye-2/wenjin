@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import Request
 
 from src.runtime.runs import RunManager
@@ -16,7 +18,7 @@ def get_run_manager(request: Request) -> RunManager:
             "Run runtime is not initialized. "
             "Gateway startup must create app.state.run_manager."
         )
-    return manager
+    return cast(RunManager, manager)
 
 
 def get_stream_bridge(request: Request) -> StreamBridge:
@@ -27,4 +29,4 @@ def get_stream_bridge(request: Request) -> StreamBridge:
             "Run stream bridge is not initialized. "
             "Gateway startup must create app.state.stream_bridge."
         )
-    return bridge
+    return cast(StreamBridge, bridge)

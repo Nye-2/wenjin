@@ -82,19 +82,19 @@ class GenerationRecord(Base, UUIDMixin, TimestampMixin):
     def total_tokens(self) -> int:
         """Get total tokens used."""
         if self.token_usage:
-            return self.token_usage.get("total", 0)
+            return int(self.token_usage.get("total", 0))
         return 0
 
     @property
     def input_tokens(self) -> int:
         """Get input tokens used."""
         if self.token_usage:
-            return self.token_usage.get("input", 0)
+            return int(self.token_usage.get("input", 0))
         return 0
 
     @property
     def output_tokens(self) -> int:
         """Get output tokens used."""
         if self.token_usage:
-            return self.token_usage.get("output", 0)
+            return int(self.token_usage.get("output", 0))
         return 0

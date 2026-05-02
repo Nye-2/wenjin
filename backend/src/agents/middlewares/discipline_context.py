@@ -65,7 +65,7 @@ class DisciplineRegistry:
             type_config = self._workspace_types.get(workspace_type, {})
             norms = {**norms, **type_config}
 
-        return norms
+        return dict(norms)
 
 
 class DisciplineContextMiddleware(Middleware):

@@ -214,7 +214,7 @@ async def parse_template_content(file_content: str) -> dict[str, Any]:
         if text.startswith("```"):
             lines = text.split("\n")
             text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        return json.loads(text)
+        return dict(json.loads(text))
     except Exception:
         logger.exception("Failed to parse template content")
         return {}
