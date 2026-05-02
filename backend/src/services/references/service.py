@@ -205,7 +205,7 @@ def _paper_candidate_from_bibtex(entry: dict[str, str]) -> dict[str, Any]:
         for key, value in entry.items()
         if key not in {"key", "entry_type"}
     }
-    return payload
+    return dict(payload)
 
 
 class WorkspaceReferenceService:

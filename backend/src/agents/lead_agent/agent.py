@@ -1098,7 +1098,7 @@ class _MiddlewareWrappedAgent:
         state: ThreadState,
         runtime_config: RunnableConfig,
         error: Exception,
-    ) -> dict[str, Any] | None:
+    ) -> ThreadState | None:
         for middleware in self._middlewares:
             try:
                 updates = await middleware.on_model_error(state, runtime_config, error)

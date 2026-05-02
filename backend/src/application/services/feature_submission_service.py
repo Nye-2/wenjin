@@ -273,7 +273,7 @@ class FeatureSubmissionService:
         """
         action = params.get("action")
 
-        async def _do_submit() -> dict[str, Any]:
+        async def _do_submit() -> FeatureExecutionOutcome:
             # Re-check for active task inside lock (atomic dedup)
             existing_task_id = await self.task_service.find_active_task(
                 user_id=self.actor_id,

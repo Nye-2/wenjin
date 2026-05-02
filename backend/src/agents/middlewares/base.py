@@ -32,7 +32,7 @@ class Middleware(ABC):
         Returns:
             Updated state dict (partial update)
         """
-        return state
+        return {}
 
     async def after_model(
         self,
@@ -48,7 +48,7 @@ class Middleware(ABC):
         Returns:
             Updated state dict (partial update)
         """
-        return state
+        return {}
 
     async def before_tool(
         self,

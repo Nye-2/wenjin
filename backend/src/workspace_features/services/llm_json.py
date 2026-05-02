@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, overload
 
 from src.models.factory import create_chat_model
 from src.models.router import list_user_selectable_models, route_writing_model
@@ -175,6 +175,28 @@ def build_json_system_prompt(role_prompt: str) -> str:
         return _JSON_SYSTEM_RULES
     return f"{normalized}\n\n{_JSON_SYSTEM_RULES}"
 
+
+@overload
+async def invoke_json_chat_model(
+    *,
+    system_prompt: str,
+    prompt: str,
+    preferred_model: str | None = None,
+    resolved_model_id: str | None = None,
+    temperature: float = 0.2,
+    expected_type: Literal["object"] = "object",
+) -> tuple[dict[str, Any] | None, str | None, str | None]: ...
+
+@overload
+async def invoke_json_chat_model(
+    *,
+    system_prompt: str,
+    prompt: str,
+    preferred_model: str | None = None,
+    resolved_model_id: str | None = None,
+    temperature: float = 0.2,
+    expected_type: Literal["array"],
+) -> tuple[list[Any] | None, str | None, str | None]: ...
 
 async def invoke_json_chat_model(
     *,

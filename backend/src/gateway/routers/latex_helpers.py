@@ -13,7 +13,7 @@ from copy import deepcopy
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
@@ -343,8 +343,8 @@ def _compute_file_change_revert_signature(
 
 
 def _read_project_metadata(project: Any) -> tuple[dict[str, Any], dict[str, Any]]:
-    llm_config = deepcopy(project.llm_config) if isinstance(project.llm_config, dict) else {}
-    metadata = deepcopy(llm_config.get("metadata")) if isinstance(llm_config.get("metadata"), dict) else {}
+    llm_config = cast(dict[str, Any], deepcopy(project.llm_config)) if isinstance(project.llm_config, dict) else {}
+    metadata = cast(dict[str, Any], deepcopy(llm_config.get("metadata"))) if isinstance(llm_config.get("metadata"), dict) else {}
     if not isinstance(metadata.get("managed_files"), dict):
         metadata["managed_files"] = {}
     if not isinstance(metadata.get("file_changes"), list):

@@ -276,7 +276,7 @@ async def _try_llm_literature_synthesis(
         verified_papers=verified_papers,
     )
     unverified_leads = parsed.get("unverified_leads") if isinstance(parsed.get("unverified_leads"), list) else []
-    return synthesis, unverified_leads, model_id, None
+    return synthesis, cast(list[dict[str, Any]], unverified_leads), model_id, None
 
 
 def _resolve_generation_model(preferred_model: str | None) -> str | None:
