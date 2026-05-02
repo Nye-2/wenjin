@@ -58,7 +58,7 @@ _FEATURE_MEMORY_CONTEXT_KEYS = (
 )
 
 
-def register_feature_graph(feature_id: str, workspace_type: str):
+def register_feature_graph(feature_id: str, workspace_type: str) -> Callable[..., Any]:
     """Decorator to register a feature graph function.
 
     Args:

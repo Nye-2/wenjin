@@ -60,7 +60,7 @@ os.makedirs('/workspace/output', exist_ok=True)
         content: str,
         work_dir: str,
         options: dict[str, Any],
-        docker_client=None,
+        docker_client: Any = None,
     ) -> ProviderResult:
         """Execute Python visualization (handled by Docker).
 

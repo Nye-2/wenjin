@@ -27,7 +27,7 @@ class WorkspaceContextMiddleware(Middleware):
     3. Injects workspace type, discipline, and config into state
     """
 
-    def __init__(self, workspace_service, timeout: float = 5.0):
+    def __init__(self, workspace_service: Any, timeout: float = 5.0) -> None:
         """Initialize with workspace service.
 
         Args:

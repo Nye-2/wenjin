@@ -62,7 +62,7 @@ class _AsyncEngineProxy:
 class _AsyncSessionFactoryProxy:
     """Stable session-factory reference that follows engine resets."""
 
-    def __call__(self, *args: Any, **kwargs: Any):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return get_async_session_factory()(*args, **kwargs)
 
     def __getattr__(self, name: str) -> Any:

@@ -63,7 +63,7 @@ def _attach_workspace_preprocess_urls(
             metadata["manifest_url"] = manifest_url
 
 
-async def execute_document_preprocess(payload: dict[str, Any], progress) -> dict[str, Any]:
+async def execute_document_preprocess(payload: dict[str, Any], progress: Any) -> dict[str, Any]:
     """Execute asynchronous preprocessing for one uploaded document."""
     source_path = Path(_read_required_text(payload, "source_path"))
     output_dir = Path(_read_required_text(payload, "output_dir"))

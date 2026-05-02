@@ -251,7 +251,7 @@ class ArtifactService:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def update(self, artifact_id: str, **kwargs) -> Artifact | None:
+    async def update(self, artifact_id: str, **kwargs: Any) -> Artifact | None:
         """Update artifact fields.
 
         Args:

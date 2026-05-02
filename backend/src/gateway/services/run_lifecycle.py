@@ -209,7 +209,7 @@ async def sse_consumer(
     record: RunRecord,
     request: Request,
     run_manager: RunManager,
-):
+) -> None:
     """Consume run stream events and emit SSE frames."""
 
     last_event_id = request.headers.get("Last-Event-ID")

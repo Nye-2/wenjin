@@ -30,7 +30,7 @@ _EXPORT_MODULES = {
 __all__ = sorted(_EXPORT_MODULES)
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     module_name = _EXPORT_MODULES.get(name)
     if module_name is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

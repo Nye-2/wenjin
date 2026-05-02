@@ -21,7 +21,7 @@ class KnowledgeContextMiddleware(Middleware):
     3. Injects into state for context
     """
 
-    def __init__(self, artifact_service, timeout: float = 5.0):
+    def __init__(self, artifact_service: Any, timeout: float = 5.0) -> None:
         """Initialize with artifact service.
 
         Args:

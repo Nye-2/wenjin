@@ -1,4 +1,5 @@
 """Dynamic module loading via path strings like 'module.path:variable_name'."""
+from typing import Any
 
 import importlib
 import os
@@ -65,7 +66,7 @@ def resolve_class[T](class_path: str, base_class: type[T] | None = None) -> type
     return cls
 
 
-def resolve_env_variables(data):
+def resolve_env_variables(data: Any) -> Any:
     """Recursively resolve $ENV_VAR references in config data."""
     if isinstance(data, str) and data.startswith("$"):
         return os.getenv(data[1:], "")

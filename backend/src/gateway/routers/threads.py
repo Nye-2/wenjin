@@ -176,7 +176,7 @@ async def create_thread(
     request: ThreadCreate,
     current_user: User = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
-):
+) -> ThreadDetailResponse:
     actor_id = str(current_user.id)
     await _require_owned_workspace_if_provided(
         request.workspace_id,
@@ -205,7 +205,7 @@ async def ensure_workspace_thread(
     ),
     current_user: User = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
-):
+) -> ThreadDetailResponse:
     actor_id = str(current_user.id)
     await _require_owned_workspace_if_provided(
         workspace_id,
@@ -231,7 +231,7 @@ async def get_thread_details(
     thread_id: str,
     current_user: User = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
-):
+) -> ThreadDetailResponse:
     thread = await _get_owned_thread_or_404(
         thread_id=thread_id,
         user_id=str(current_user.id),
@@ -245,7 +245,7 @@ async def delete_thread(
     thread_id: str,
     current_user: User = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
-):
+) -> dict[str, Any]:
     thread = await _get_owned_thread_or_404(
         thread_id=thread_id,
         user_id=str(current_user.id),
@@ -264,7 +264,7 @@ async def list_threads(
     limit: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
-):
+) -> ThreadListResponse:
     actor_id = str(current_user.id)
     await _require_owned_workspace_if_provided(
         workspace_id,

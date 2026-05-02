@@ -49,7 +49,7 @@ def resolve_summarization_settings(config: Any) -> SummarizationSettings:
 
 
 @lru_cache(maxsize=32)
-def _resolve_token_encoder(model_name: str | None):
+def _resolve_token_encoder(model_name: str | None) -> Any | None:
     """Resolve tokenizer encoder for a model, with stable fallback."""
     try:
         import tiktoken

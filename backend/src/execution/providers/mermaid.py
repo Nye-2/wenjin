@@ -52,7 +52,7 @@ class MermaidProvider(ExecutionProvider):
         content: str,
         work_dir: str,
         options: dict[str, Any],
-        docker_client=None,
+        docker_client: Any = None,
     ) -> ProviderResult:
         """Execute Mermaid rendering (handled by Docker)."""
         raise NotImplementedError("Use DockerExecutionService.execute instead")

@@ -96,7 +96,7 @@ def parse_json_list_response(text: str) -> list[dict[str, Any]] | None:
 async def create_model_safe(
     model_id: str | None = None,
     temperature: float = 0.3,
-):
+) -> Any:
     """Safely create a chat model with error handling.
 
     Args:

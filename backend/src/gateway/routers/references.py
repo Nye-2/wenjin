@@ -443,7 +443,7 @@ async def get_reference(
     }
 
 
-def select_assets_for_reference(*, workspace_id: str, reference_id: str):
+def select_assets_for_reference(*, workspace_id: str, reference_id: str) -> Any:
     return select(ReferenceAsset).where(
         ReferenceAsset.workspace_id == workspace_id,
         ReferenceAsset.reference_id == reference_id,

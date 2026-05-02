@@ -95,7 +95,7 @@ class InMemoryTaskStorage(TaskStorage):
     For production with multiple workers, use Redis or database-backed storage.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._tasks: dict[str, ThesisTask] = {}
         self._lock = threading.RLock()
 

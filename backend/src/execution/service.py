@@ -53,7 +53,7 @@ class DockerExecutionService(ExecutionService):
         self.docker_client = DockerClient()
         self._providers: dict[ExecutionType, Any] = {}
 
-    def _get_provider(self, exec_type: ExecutionType):
+    def _get_provider(self, exec_type: ExecutionType) -> Any:
         """Get or create provider instance.
 
         Args:

@@ -27,7 +27,7 @@ class LiteratureContextMiddleware(Middleware):
     If no workspace_id is present, the middleware skips loading context.
     """
 
-    def __init__(self, index_service, timeout: float = 5.0):
+    def __init__(self, index_service: Any, timeout: float = 5.0) -> None:
         """Initialize with index service.
 
         Args:

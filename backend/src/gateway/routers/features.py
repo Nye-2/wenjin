@@ -9,6 +9,8 @@ after task completion from measured token usage.
 import logging
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -241,7 +243,7 @@ async def resolve_feature_action(
     request: ResolveActionRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db=Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> ResolveActionResponse:
     """Resolve feature action state for a workspace feature.
 

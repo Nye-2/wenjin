@@ -16,7 +16,7 @@ def _required_text(payload: dict[str, Any], key: str) -> str:
     return value
 
 
-async def execute_reference_preprocess(payload: dict[str, Any], progress) -> dict[str, Any]:
+async def execute_reference_preprocess(payload: dict[str, Any], progress: Any) -> dict[str, Any]:
     """Execute asynchronous preprocessing for one reference asset."""
     workspace_id = _required_text(payload, "workspace_id")
     reference_id = _required_text(payload, "reference_id")

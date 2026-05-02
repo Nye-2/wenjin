@@ -108,7 +108,7 @@ def _collect_models(purpose: Literal["chat", "writing", "image", "all"] = "chat"
 @router.get("/models", response_model=ModelsListResponse)
 async def list_models(
     purpose: Literal["chat", "writing", "image", "all"] = "chat",
-):
+) -> ModelsListResponse:
     """List user-selectable models for a specific purpose."""
     return ModelsListResponse(models=_collect_models(purpose=purpose))
 
@@ -117,7 +117,7 @@ async def list_models(
 async def get_model(
     model_name: str,
     purpose: Literal["chat", "writing", "image", "all"] = "chat",
-):
+) -> ModelInfo:
     """Get details of a specific model by id."""
     for model in _collect_models(purpose=purpose):
         if model.name == model_name:

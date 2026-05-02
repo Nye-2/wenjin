@@ -30,7 +30,7 @@ class CitationContextMiddleware(Middleware):
         r"doi:(10\.[^\s]+)",  # doi:10.xxx
     ]
 
-    def __init__(self, reference_service):
+    def __init__(self, reference_service: Any) -> None:
         """Initialize with reference service.
 
         Args:
