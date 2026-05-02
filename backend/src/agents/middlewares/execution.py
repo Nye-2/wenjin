@@ -1,4 +1,10 @@
-"""Execution middleware for handling execution tools."""
+"""Chat → Compute bridge middleware for handling execution tools.
+
+All Agent-side tool calls that require compute resources (LaTeX compilation,
+diagram generation, etc.) are routed through this middleware, which in turn
+dispatches them via ComputeDispatchService — the canonical entry point from
+the Chat control plane to the Compute work-plane.
+"""
 
 import logging
 from typing import Any
@@ -8,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.thread_state import ThreadState
+from src.compute.dispatch_service import ComputeDispatchService
 from src.database import WorkspaceReference
 from src.execution.types import (
     ExecutionRequest,
@@ -21,10 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 class ExecutionMiddleware(Middleware):
-    """Middleware for handling execution tool calls.
+    """Chat → Compute bridge middleware for execution tool calls.
 
-    Intercepts execution tool calls and routes them through
-    the ExecutionService for Docker-based or API-based execution.
+    Intercepts execution tool calls from the Agent control plane and dispatches
+    them through ComputeDispatchService to the Compute work-plane.  This keeps
+    the control-plane / work-plane boundary explicit and ensures all compute
+    operations enter through a single named gateway.
     """
 
     # Mapping of tool names to execution types
@@ -43,7 +52,7 @@ class ExecutionMiddleware(Middleware):
             execution_service: ExecutionService instance.
             reference_service: Optional reference service for citation bibliography lookup.
         """
-        self.execution_service = execution_service
+        self._dispatch = ComputeDispatchService(execution_service)
         self.reference_service = reference_service
 
     async def before_model(
@@ -146,8 +155,8 @@ class ExecutionMiddleware(Middleware):
             workspace_id=workspace_id,
         )
 
-        # Execute
-        result = await self.execution_service.execute(request)
+        # Dispatch to Compute work-plane through canonical bridge.
+        result = await self._dispatch.dispatch(request)
 
         # Store result for after_tool
         configurable["execution_result"] = result
