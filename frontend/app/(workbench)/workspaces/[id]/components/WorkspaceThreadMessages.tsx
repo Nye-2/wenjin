@@ -1007,7 +1007,7 @@ function WorkspaceThreadMessageBubble({
     return readWorkspaceFeatureOrchestrationParams(orchestration?.params);
   }, [message]);
   const [actionContext, setActionContext] = useState<WorkspaceFeatureActionContext | null>(null);
-  const [isActionContextLoading, setIsActionContextLoading] = useState(false);
+  const [, setIsActionContextLoading] = useState(false);
   useEffect(() => {
     let cancelled = false;
     async function load() {

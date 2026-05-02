@@ -84,9 +84,9 @@ class Artifact(Base, UUIDMixin, TimestampMixin):
 
     def get_lineage(self) -> list["Artifact"]:
         """Get artifact lineage from root to this artifact."""
-        lineage = []
-        current = self
-        while current:
+        lineage: list[Artifact] = []
+        current: Artifact | None = self
+        while current is not None:
             lineage.append(current)
             current = current.parent
         return list(reversed(lineage))

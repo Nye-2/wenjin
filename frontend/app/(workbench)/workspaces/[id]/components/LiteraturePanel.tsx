@@ -472,7 +472,7 @@ export function LiteraturePanel({
           next.set(reference.id, items);
           return next;
         });
-      } catch (error) {
+      } catch {
         setReferenceOutlines((prev) => {
           const next = new Map(prev);
           next.set(reference.id, []);

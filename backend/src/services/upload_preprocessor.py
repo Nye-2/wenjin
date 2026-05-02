@@ -147,7 +147,7 @@ def _extract_layout_page_number(
             return value, key
     for key in ("page_index", "pageIndex"):
         try:
-            parsed = int(layout_result.get(key))
+            parsed = int(layout_result.get(key) or "")
         except (TypeError, ValueError):
             continue
         if parsed >= 0:

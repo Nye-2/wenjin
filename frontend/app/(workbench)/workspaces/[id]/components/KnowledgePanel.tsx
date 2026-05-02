@@ -90,7 +90,7 @@ export function KnowledgePanel({
   const [selectedActivityActionContext, setSelectedActivityActionContext] = useState<
     Awaited<ReturnType<typeof resolveWorkspaceFeatureActionContext>> | null
   >(null);
-  const [isActionContextLoading, setIsActionContextLoading] = useState(false);
+  const [, setIsActionContextLoading] = useState(false);
   useEffect(() => {
     let cancelled = false;
     async function load() {

@@ -63,7 +63,7 @@ class RateLimitError(WenjinException):
 class ServiceUnavailableError(WenjinException):
     """External service unavailable."""
 
-    def __init__(self, service: str, message: str = None):
+    def __init__(self, service: str, message: str | None = None):
         error_message = message or f"{service} is currently unavailable"
         super().__init__(error_message, code="SERVICE_UNAVAILABLE")
 

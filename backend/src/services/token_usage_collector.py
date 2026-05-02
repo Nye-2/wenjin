@@ -30,6 +30,7 @@ def reset_token_usage_collector(token: Token[list[TokenUsage] | None]) -> None:
 
 def record_token_usage(value: Any) -> TokenUsage | None:
     """Record token usage from a provider response, usage dict, or TokenUsage."""
+    usage: TokenUsage | None
     if isinstance(value, TokenUsage):
         usage = value
     else:

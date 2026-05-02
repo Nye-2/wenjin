@@ -149,12 +149,12 @@ async def _load_deep_research_snapshot(
 
     dedup_gaps: list[str] = []
     seen_gap_keys: set[str] = set()
-    for item in gap_highlights:
-        key = item.strip().lower()
+    for gap_item in gap_highlights:
+        key = gap_item.strip().lower()
         if not key or key in seen_gap_keys:
             continue
         seen_gap_keys.add(key)
-        dedup_gaps.append(item)
+        dedup_gaps.append(gap_item)
         if len(dedup_gaps) >= 6:
             break
 

@@ -132,7 +132,7 @@ async def _record_reference_access(
 @tool("list_workspace_reference_outline", args_schema=ListWorkspaceReferenceOutlineInput)
 async def list_workspace_reference_outline_tool(
     workspace_id: str | None = None,
-    config: RunnableConfig = None,
+    config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
     """List outline summary for all references in a workspace."""
     resolved_workspace_id, error = _resolve_workspace_scope(workspace_id, config)

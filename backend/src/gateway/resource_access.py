@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import HTTPException, status
 
 OwnerSessionResolver = Callable[[Any], Any]
-RequireWorkspaceOwner = Callable[[Any, str, str], Awaitable[Any]]
+RequireWorkspaceOwner = Any
 
 
 async def ensure_workspace_owner_for_service(
