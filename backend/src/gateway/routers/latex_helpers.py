@@ -22,6 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import WorkspaceReference
 from src.gateway.contracts.latex import (
+    _MAX_REWRITE_CANDIDATES,
+    _REWRITE_CANDIDATE_TIMEOUT_SECONDS,
+    _REWRITE_PROFILE_GUIDANCE,
+    _REWRITE_PROFILE_ORDER,
     LatexDiffPayload,
     LatexFeedbackAnchorPayload,
     LatexFeedbackRewriteCandidatePayload,
@@ -29,10 +33,6 @@ from src.gateway.contracts.latex import (
     LatexFileChangePreviewResponse,
     RewriteProfile,
     RewriteRiskLevel,
-    _MAX_REWRITE_CANDIDATES,
-    _REWRITE_CANDIDATE_TIMEOUT_SECONDS,
-    _REWRITE_PROFILE_GUIDANCE,
-    _REWRITE_PROFILE_ORDER,
 )
 from src.services.latex import LatexProjectService
 from src.services.latex.feedback_revision_service import (
@@ -40,14 +40,14 @@ from src.services.latex.feedback_revision_service import (
     rewrite_with_feedback,
 )
 from src.services.latex.paths import is_reserved_project_path, normalize_relative_path
-from src.services.latex.rewrite_guard import (
-    LatexStructureValidationError,
-    validate_rewrite_segment,
-)
 from src.services.latex.rewrite_diff import (
     build_latex_rewrite_diff,
     compute_content_hash,
     compute_range_hash,
+)
+from src.services.latex.rewrite_guard import (
+    LatexStructureValidationError,
+    validate_rewrite_segment,
 )
 from src.services.references import ReferenceUsageService
 from src.services.references.utils import extract_citation_keys_from_text

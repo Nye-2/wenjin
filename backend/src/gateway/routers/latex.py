@@ -18,6 +18,8 @@ from src.gateway.routers.latex_files import (
     discard_project_file_change,
     preview_project_file_change,
     revert_project_file_change,
+)
+from src.gateway.routers.latex_files import (
     router as files_router,
 )
 from src.gateway.routers.latex_helpers import (
@@ -33,7 +35,6 @@ from src.gateway.routers.latex_helpers import (
 from src.gateway.routers.latex_projects import router as projects_router
 from src.gateway.routers.latex_templates import router as templates_router
 from src.gateway.routers.latex_upload import router as upload_router
-from src.services.latex import LatexProjectService
 
 router = APIRouter()
 router.include_router(projects_router)

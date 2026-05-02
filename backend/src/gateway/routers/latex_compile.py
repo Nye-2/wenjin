@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps.core import get_db
 from src.gateway.contracts.latex import LatexCompileRequest, LatexCompileResponse
+from src.gateway.deps.core import get_db
 from src.gateway.routers.latex_helpers import _not_found
 from src.services.latex import LatexCompileService, LatexProjectService
 

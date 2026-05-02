@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps.core import get_db
 from src.gateway.contracts.latex import (
     LatexFeedbackAnchorPayload,
     LatexFeedbackItemPayload,
@@ -19,7 +18,6 @@ from src.gateway.contracts.latex import (
     LatexFeedbackMapResponse,
     LatexFeedbackRewriteApplyRequest,
     LatexFeedbackRewriteApplyResponse,
-    LatexFeedbackRewriteCandidatePayload,
     LatexFeedbackRewritePreviewResponse,
     LatexFeedbackRewriteRequest,
     LatexFeedbackRewriteResponse,
@@ -29,6 +27,7 @@ from src.gateway.contracts.latex import (
     LatexFeedbackSaveRequest,
     get_default_latex_engine,
 )
+from src.gateway.deps.core import get_db
 from src.gateway.routers.latex_helpers import (
     _build_rewrite_candidate,
     _compute_candidate_signature,

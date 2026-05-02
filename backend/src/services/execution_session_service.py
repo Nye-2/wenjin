@@ -9,8 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
-from src.database.models.execution_session import ExecutionSessionRecord
-from src.database.models.execution_session import ExecutionSessionStatus
+from src.database.models.execution_session import ExecutionSessionRecord, ExecutionSessionStatus
 from src.services.execution_session_events import publish_execution_session_event
 
 _UNSET = object()

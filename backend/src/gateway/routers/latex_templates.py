@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps.core import get_db
 from src.gateway.contracts.latex import LatexTemplateListResponse
+from src.gateway.deps.core import get_db
 from src.services.latex import LatexTemplateService
 
 router = APIRouter(prefix="/latex", tags=["latex"])

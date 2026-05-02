@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hmac
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse, Response
@@ -11,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps.core import get_db
 from src.gateway.contracts.latex import (
     LatexCreateFolderRequest,
     LatexFileChangeActionRequest,
@@ -29,6 +27,7 @@ from src.gateway.contracts.latex import (
     LatexTreeResponse,
     LatexWriteFileRequest,
 )
+from src.gateway.deps.core import get_db
 from src.gateway.routers.latex_helpers import (
     _compute_file_change_revert_signature,
     _compute_file_change_signature,
