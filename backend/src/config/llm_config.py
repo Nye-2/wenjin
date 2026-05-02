@@ -103,6 +103,8 @@ class ModelConfig(BaseModel):
     Each model must have independent api_key and base_url.
     """
 
+    model_config = ConfigDict(populate_by_name=True)
+
     # Required fields
     id: str = Field(..., description="Unique model identifier (used by frontend)")
     model: str = Field(..., description="Actual model string for API calls")
@@ -226,7 +228,7 @@ _cache_lock = threading.Lock()
 
 def _get_cached_models() -> tuple[
     dict[str, ModelConfig],
-    dict[str, ModelConfig],
+    dict[str, ModelConfig] | None,
 ]:
     """
     Get cached model configurations (lazy loading, thread-safe).
@@ -247,7 +249,7 @@ def _get_cached_models() -> tuple[
 
 def reload_models() -> tuple[
     dict[str, ModelConfig],
-    dict[str, ModelConfig],
+    dict[str, ModelConfig] | None,
 ]:
     """
     Reload model configurations from environment variables.
