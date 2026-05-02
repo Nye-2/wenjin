@@ -23,14 +23,14 @@ export function readWorkspaceFeatureOrchestrationParams(
   return value as Record<string, unknown>;
 }
 
-export function resolveWorkspaceFeatureActionContext(options: {
+export async function resolveWorkspaceFeatureActionContext(options: {
   workspaceId: string;
   featureId: string | null | undefined;
   feature?: { id: string; followUpPrompt?: string | null; defaultSkillId?: string | null } | null;
   workspace: Workspace | null | undefined;
   artifacts: Artifact[];
   orchestrationParams?: Record<string, unknown> | null;
-}): WorkspaceFeatureActionContext {
+}): Promise<WorkspaceFeatureActionContext> {
   const { workspaceId, featureId, feature, workspace, artifacts, orchestrationParams } = options;
   if (!featureId) {
     return {
@@ -43,7 +43,7 @@ export function resolveWorkspaceFeatureActionContext(options: {
     };
   }
 
-  const actionState = resolveFeatureActionState({
+  const actionState = await resolveFeatureActionState({
     featureId,
     feature: feature ?? null,
     workspace: workspace ?? null,

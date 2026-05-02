@@ -6,6 +6,8 @@ import logging
 from typing import Any
 
 from src.artifacts import ArtifactType
+from src.database import get_db_session
+from src.services.references import ReferenceEvidenceService
 from src.workspace_features.services.llm_json import (
     build_json_prompt,
     invoke_json_chat_model,
@@ -301,6 +303,7 @@ async def build_outline_payload(
 
 async def build_chapter_payload(
     *,
+    workspace_id: str | None = None,
     paper_title: str,
     chapter_index: int,
     chapter_title: str,
@@ -308,24 +311,66 @@ async def build_chapter_payload(
     references_used: list[str] | None = None,
     preferred_model: str | None = None,
 ) -> dict[str, Any]:
-    """Build thesis chapter draft via LLM only."""
+    """Build thesis chapter draft via LLM only.
+
+    When ``workspace_id`` is provided, the function loads an evidence pack
+    from the workspace Reference Library so the LLM can ground citations in
+    actual text units rather than title lists alone.
+    """
     normalized_refs = [str(ref).strip() for ref in (references_used or []) if str(ref).strip()]
     refs_text = "\n".join(f"- {ref}" for ref in normalized_refs[:20]) or "- 无明确参考文献"
 
+    evidence_sections: list[tuple[str, str]] = []
+    if workspace_id:
+        try:
+            async with get_db_session() as db:
+                evidence = await ReferenceEvidenceService(db).build_evidence_pack(
+                    workspace_id=workspace_id,
+                    query=chapter_title,
+                    max_units=8,
+                )
+                selected_units = evidence.get("selected_units", [])
+                if selected_units:
+                    evidence_lines = []
+                    for unit in selected_units[:8]:
+                        if not isinstance(unit, dict):
+                            continue
+                        ref_title = str(unit.get("reference_title") or unit.get("title") or "未知文献")
+                        section = str(unit.get("section_title") or unit.get("unit_type") or "")
+                        content = str(unit.get("content") or "")[:600]
+                        evidence_lines.append(f"- [{ref_title}] {section}: {content}")
+                    evidence_sections.append(("参考文本片段", "\n".join(evidence_lines)))
+                outline = evidence.get("library_outline", [])
+                if outline:
+                    evidence_sections.append(
+                        ("文献库概览", f"工作区共有 {len(outline)} 篇文献可供引用")
+                    )
+        except Exception:
+            logger.debug(
+                "Evidence pack load failed for workspace=%s chapter=%s",
+                workspace_id,
+                chapter_title,
+                exc_info=True,
+            )
+
+    context_sections = [
+        ("论文题目", paper_title),
+        ("章节序号", str(chapter_index + 1)),
+        ("章节标题", chapter_title),
+        ("目标字数", str(target_words)),
+        ("可用参考线索", refs_text),
+    ]
+    context_sections.extend(evidence_sections)
+
     prompt = build_json_prompt(
         instruction="请撰写毕业论文单章节草稿。",
-        context_sections=[
-            ("论文题目", paper_title),
-            ("章节序号", str(chapter_index + 1)),
-            ("章节标题", chapter_title),
-            ("目标字数", str(target_words)),
-            ("可用参考线索", refs_text),
-        ],
+        context_sections=context_sections,
         schema='{"markdown":"完整章节 Markdown","estimated_words":2300,"references_used":["参考1","参考2"]}',
         requirements=[
             "markdown 必须是可直接落库的章节正文，包含标题和若干小节。",
             "内容具备学术写作风格，避免口语化表达。",
             "estimated_words 为正文实际估算字数。",
+            "引用必须使用 Reference Library 中提供的 citation_key，禁止编造引用。",
         ],
         output_language="zh",
     )

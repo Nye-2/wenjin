@@ -18,7 +18,7 @@ from src.academic.literature import LiteratureSearchService
 from src.academic.services.artifact_service import ArtifactService
 from src.artifacts import ArtifactType
 from src.database import get_db_session
-from src.services.references import ReferenceImportService, WorkspaceReferenceService
+from src.services.references import ReferenceEvidenceService, ReferenceImportService, WorkspaceReferenceService
 from src.task.progress import get_runtime_state
 from src.task.runtime_blocks import (
     advance_runtime_phase,
@@ -1247,6 +1247,7 @@ async def _try_llm_sci_writing(
     section_type: str,
     target_words: int,
     context_summaries: list[dict[str, str]],
+    evidence_units: list[dict[str, Any]],
     preferred_model: str | None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Attempt LLM-based SCI section writing."""
@@ -1262,6 +1263,16 @@ async def _try_llm_sci_writing(
         )
     context_block = "\n".join(context_lines) if context_lines else "- No usable context artifacts."
 
+    evidence_lines = []
+    for unit in evidence_units[:8]:
+        if not isinstance(unit, dict):
+            continue
+        ref_title = str(unit.get("reference_title") or unit.get("title") or "Unknown")
+        section = str(unit.get("section_title") or unit.get("unit_type") or "")
+        content = str(unit.get("content") or "")[:500]
+        evidence_lines.append(f"- [{ref_title}] {section}: {content}")
+    evidence_block = "\n".join(evidence_lines) if evidence_lines else "- No evidence units available."
+
     prompt = build_json_prompt(
         instruction="Write a SCI paper section draft.",
         context_sections=[
@@ -1270,12 +1281,14 @@ async def _try_llm_sci_writing(
             ("Section title", section_title),
             ("Target length", f"around {target_words} words"),
             ("Available context summaries", context_block),
+            ("Reference text units (grounded evidence)", evidence_block),
         ],
         schema='{"section_title":"Section Title","content":"Section body in English","outline":["Subsection 1","Subsection 2"],"references":["Reference suggestion 1","Reference suggestion 2"]}',
         requirements=[
             "content must be directly editable academic prose in English.",
             "Maintain a rigorous, specific academic tone.",
-            "If context lacks evidence, keep the prose conservative and use references for supplemental suggestions only.",
+            "Ground claims in the provided reference text units when possible.",
+            "Use citation keys from the Reference Library; do not invent citations.",
         ],
         output_language="en",
     )
@@ -1335,6 +1348,43 @@ async def build_sci_writing_payload(
         workspace_id=workspace_id,
         context_artifact_ids=resolved_context_ids,
     )
+
+    evidence_units: list[dict[str, Any]] = []
+    try:
+        async with get_db_session() as db:
+            evidence = await ReferenceEvidenceService(db).build_evidence_pack(
+                workspace_id=workspace_id,
+                query=f"{resolved_title} {normalized_section_type}",
+                max_units=8,
+            )
+            evidence_units = evidence.get("selected_units", [])
+            if evidence_units and runtime is not None:
+                upsert_runtime_block(
+                    runtime,
+                    {
+                        "id": "evidence-pack",
+                        "kind": "list",
+                        "title": "文献证据包",
+                        "description": "从 Reference Library 召回的相关文本片段",
+                        "items": [
+                            {
+                                "title": str(u.get("reference_title") or u.get("title") or "未知文献"),
+                                "description": str(u.get("section_title") or u.get("unit_type") or "")[:80],
+                                "meta": f"{len(str(u.get('content') or ''))} chars",
+                            }
+                            for u in evidence_units[:5]
+                            if isinstance(u, dict)
+                        ],
+                    },
+                )
+    except Exception:
+        logger.debug(
+            "Evidence pack load failed for workspace=%s section=%s",
+            workspace_id,
+            normalized_section_type,
+            exc_info=True,
+        )
+
     if runtime is not None:
         upsert_runtime_block(
             runtime,
@@ -1386,6 +1436,7 @@ async def build_sci_writing_payload(
         section_type=normalized_section_type,
         target_words=resolved_target_words,
         context_summaries=context_summaries,
+        evidence_units=evidence_units,
         preferred_model=preferred_model,
     )
 

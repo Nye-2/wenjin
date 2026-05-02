@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   useWorkspaceStore,
@@ -87,21 +87,38 @@ export function KnowledgePanel({
         : {},
     [selectedActivity]
   );
-  const selectedActivityActionContext = useMemo(() => {
-    if (!selectedActivity?.feature_id) {
-      return null;
+  const [selectedActivityActionContext, setSelectedActivityActionContext] = useState<
+    Awaited<ReturnType<typeof resolveWorkspaceFeatureActionContext>> | null
+  >(null);
+  const [isActionContextLoading, setIsActionContextLoading] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!selectedActivity?.feature_id) {
+        setSelectedActivityActionContext(null);
+        setIsActionContextLoading(false);
+        return;
+      }
+      setIsActionContextLoading(true);
+      const ctx = await resolveWorkspaceFeatureActionContext({
+        workspaceId,
+        featureId: selectedActivity.feature_id,
+        feature: selectedActivityFeature ?? null,
+        workspace,
+        artifacts,
+        orchestrationParams: readWorkspaceFeatureOrchestrationParams(
+          selectedActivityMeta.params
+        ),
+      });
+      if (!cancelled) {
+        setSelectedActivityActionContext(ctx);
+        setIsActionContextLoading(false);
+      }
     }
-
-    return resolveWorkspaceFeatureActionContext({
-      workspaceId,
-      featureId: selectedActivity.feature_id,
-      feature: selectedActivityFeature ?? null,
-      workspace,
-      artifacts,
-      orchestrationParams: readWorkspaceFeatureOrchestrationParams(
-        selectedActivityMeta.params
-      ),
-    });
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [
     artifacts,
     selectedActivity,

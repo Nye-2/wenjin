@@ -84,9 +84,9 @@ def _followup_prompt_reads_from_api() -> bool:
     )
 
 
-def _extract_action_case_keys() -> set[str]:
-    content = ACTIONS_FILE.read_text(encoding="utf-8")
-    return set(re.findall(r'case "([a-z_]+)"\s*:', content))
+def _extract_backend_resolver_keys() -> set[str]:
+    from src.services import feature_action_resolution_service
+    return set(feature_action_resolution_service._RESOLVERS.keys())
 
 
 def _extract_retry_feature_task_body() -> str:
@@ -153,7 +153,7 @@ def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_threa
 
 def test_workspace_feature_actions_explicitly_cover_all_features() -> None:
     registry_feature_ids = _registry_feature_ids()
-    action_case_keys = _extract_action_case_keys()
+    resolver_keys = _extract_backend_resolver_keys()
 
     # Follow-up prompts live in the backend registry (see test_registry_spec.py::test_every_feature_has_follow_up_prompt).
     # Verify the frontend reads them from the API rather than a hardcoded dict.
@@ -162,8 +162,8 @@ def test_workspace_feature_actions_explicitly_cover_all_features() -> None:
         "See backend/src/workspace_features/registry.py."
     )
 
-    missing_action_cases = sorted(registry_feature_ids - action_case_keys)
-    assert not missing_action_cases, f"Missing action-state cases for: {missing_action_cases}"
+    missing_resolvers = sorted(registry_feature_ids - resolver_keys)
+    assert not missing_resolvers, f"Missing backend action-state resolvers for: {missing_resolvers}"
 
 
 def test_workspace_thread_skill_catalog_is_loaded_from_backend_api() -> None:

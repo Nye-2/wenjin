@@ -12,7 +12,7 @@ import { resolveWorkspaceFeatureActionContext } from "@/lib/workspace-feature-ac
 describe("workspace-feature-action-context", () => {
   beforeEach(() => {
     mockResolveFeatureActionState.mockReset();
-    mockResolveFeatureActionState.mockReturnValue({
+    mockResolveFeatureActionState.mockResolvedValue({
       routeParams: { skill: "explicit-skill", topic: "proposal topic" },
       followUpPrompt: "",
       rerunParams: null,
@@ -20,8 +20,8 @@ describe("workspace-feature-action-context", () => {
     });
   });
 
-  it("preserves explicit route skill over the feature default skill", () => {
-    const context = resolveWorkspaceFeatureActionContext({
+  it("preserves explicit route skill over the feature default skill", async () => {
+    const context = await resolveWorkspaceFeatureActionContext({
       workspaceId: "workspace-1",
       featureId: "feature-1",
       feature: {

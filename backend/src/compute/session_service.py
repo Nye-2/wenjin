@@ -91,6 +91,50 @@ class ComputeSessionService:
         )
         return list(result.scalars().all())
 
+    async def touch_session(
+        self,
+        compute_session_id: str,
+        *,
+        ui_state_delta: dict[str, Any] | None = None,
+    ) -> ComputeSessionRecord | None:
+        """Bump updated_at and optionally merge ui_state_delta.
+
+        Used when the bound execution session changes (task progress,
+        runtime blocks, etc.) so that the Compute Stage projection is
+        refreshed without mutating ComputeSession business state.
+        """
+        session = await self.get_by_id(compute_session_id)
+        if session is None:
+            return None
+
+        session.updated_at = datetime.now(UTC)
+        if ui_state_delta:
+            current_ui = dict(session.ui_state or {})
+            current_ui.update(ui_state_delta)
+            session.ui_state = current_ui
+
+        await self.db.commit()
+        await self.db.refresh(session)
+        await publish_compute_session_event(session, event_type="compute.updated")
+        return session
+
+    async def touch_session_by_execution(
+        self,
+        execution_session_id: str,
+        *,
+        ui_state_delta: dict[str, Any] | None = None,
+    ) -> ComputeSessionRecord | None:
+        """Bump updated_at for the compute session bound to an execution session."""
+        session = await self.get_by_execution_session_id(execution_session_id)
+        # Defensive: in mock test environments db.execute returns AsyncMock,
+        # so scalar_one_or_none() may yield a coroutine instead of a record.
+        if session is None or not isinstance(session, ComputeSessionRecord):
+            return None
+        return await self.touch_session(
+            str(session.id),
+            ui_state_delta=ui_state_delta,
+        )
+
     async def update_ui_state(
         self,
         compute_session_id: str,

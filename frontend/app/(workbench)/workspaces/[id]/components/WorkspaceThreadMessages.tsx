@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -21,6 +21,7 @@ import { parseThreadTokenUsage } from "@/lib/thread-token-usage";
 import {
   readWorkspaceFeatureOrchestrationParams,
   resolveWorkspaceFeatureActionContext,
+  type WorkspaceFeatureActionContext,
 } from "@/lib/workspace-feature-action-context";
 import { getWorkspaceFeatureThreadRoute } from "@/lib/workspace-feature-routes";
 import { openAuthorizedAsset, resolvePublicAssetUrl } from "@/lib/public-assets";
@@ -775,7 +776,6 @@ function renderStructuredBlocks(
       featureId: string | null,
       routeParams?: Record<string, unknown> | null
     ) => void;
-    resolveRerunAvailability?: (featureId: string | null) => RerunAvailability;
   }
 ) {
   if (!message.blocks || message.blocks.length === 0) {
@@ -1006,18 +1006,34 @@ function WorkspaceThreadMessageBubble({
     const orchestration = readMessageOrchestration(message);
     return readWorkspaceFeatureOrchestrationParams(orchestration?.params);
   }, [message]);
-  const actionContext = useMemo(() => {
-    if (!messageFeatureId) {
-      return null;
+  const [actionContext, setActionContext] = useState<WorkspaceFeatureActionContext | null>(null);
+  const [isActionContextLoading, setIsActionContextLoading] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!messageFeatureId) {
+        setActionContext(null);
+        setIsActionContextLoading(false);
+        return;
+      }
+      setIsActionContextLoading(true);
+      const ctx = await resolveWorkspaceFeatureActionContext({
+        workspaceId,
+        featureId: messageFeatureId,
+        feature: getFeatureById(messageFeatureId) ?? null,
+        workspace,
+        artifacts,
+        orchestrationParams: messageOrchestrationParams,
+      });
+      if (!cancelled) {
+        setActionContext(ctx);
+        setIsActionContextLoading(false);
+      }
     }
-    return resolveWorkspaceFeatureActionContext({
-      workspaceId,
-      featureId: messageFeatureId,
-      feature: getFeatureById(messageFeatureId) ?? null,
-      workspace,
-      artifacts,
-      orchestrationParams: messageOrchestrationParams,
-    });
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [
     artifacts,
     getFeatureById,
@@ -1026,7 +1042,8 @@ function WorkspaceThreadMessageBubble({
     workspace,
     workspaceId,
   ]);
-  const resolveTargetActionContext = (targetFeatureId: string) => {
+
+  const resolveTargetActionContext = async (targetFeatureId: string): Promise<WorkspaceFeatureActionContext> => {
     if (targetFeatureId === messageFeatureId && actionContext) {
       return actionContext;
     }
@@ -1039,16 +1056,16 @@ function WorkspaceThreadMessageBubble({
       orchestrationParams: messageOrchestrationParams,
     });
   };
-  const resolveRerunAvailability = (
+  const resolveRerunAvailability = async (
     targetFeatureId: string | null
-  ): RerunAvailability => {
+  ): Promise<RerunAvailability> => {
     if (!targetFeatureId) {
       return {
         canRerun: false,
         reason: "当前卡片没有可复用的 artifact 执行上下文。",
       };
     }
-    const targetContext = resolveTargetActionContext(targetFeatureId);
+    const targetContext = await resolveTargetActionContext(targetFeatureId);
     const canRerun = Boolean(
       targetContext.route &&
         targetContext.rerunParams &&
@@ -1063,7 +1080,7 @@ function WorkspaceThreadMessageBubble({
     };
   };
 
-  const handleCardAction = (
+  const handleCardAction = async (
     action: CardActionType,
     featureId: string | null,
     routeParams?: Record<string, unknown> | null
@@ -1071,15 +1088,15 @@ function WorkspaceThreadMessageBubble({
     const baseThreadRoute = `/workspaces/${workspaceId}/chat`;
     const resolvedFeatureId = featureId || messageFeatureId;
     const sanitizedRouteParams = sanitizeRouteParamMap(routeParams ?? null);
-    const resolveFeatureRoute = (
+    const resolveFeatureRoute = async (
       targetFeatureId: string,
       options?: {
         useRerunParams?: boolean;
         includeContextParams?: boolean;
         routeParams?: RouteParamMap | null;
       }
-    ): string | null => {
-      const targetContext = resolveTargetActionContext(targetFeatureId);
+    ): Promise<string | null> => {
+      const targetContext = await resolveTargetActionContext(targetFeatureId);
       const targetFeature = getFeatureById(targetFeatureId);
       const contextParams =
         options?.includeContextParams === false
@@ -1104,19 +1121,19 @@ function WorkspaceThreadMessageBubble({
     if (action === "resume_execution") {
       if (resolvedFeatureId) {
         const resumeRoute =
-          resolveFeatureRoute(resolvedFeatureId, {
+          (await resolveFeatureRoute(resolvedFeatureId, {
             includeContextParams: false,
             routeParams: {
               ...sanitizedRouteParams,
               entry: "resume",
             },
-          }) ??
-          resolveFeatureRoute(resolvedFeatureId, {
+          })) ??
+          (await resolveFeatureRoute(resolvedFeatureId, {
             routeParams: {
               ...sanitizedRouteParams,
               entry: "resume",
             },
-          });
+          }));
         if (resumeRoute) {
           router.push(resumeRoute);
           return;
@@ -1174,7 +1191,11 @@ function WorkspaceThreadMessageBubble({
         return;
       }
       if (projectId) {
-        router.push(`/latex/${projectId}`);
+        const path =
+          action === "preview_prism_changes"
+            ? `/latex/${projectId}?focus=file_changes`
+            : `/latex/${projectId}`;
+        router.push(path);
         return;
       }
       router.push(baseThreadRoute);
@@ -1211,29 +1232,29 @@ function WorkspaceThreadMessageBubble({
 
     if (action === "rerun_from_artifact" || action === "rerun_feature") {
       if (resolvedFeatureId) {
-        const rerunAvailability = resolveRerunAvailability(resolvedFeatureId);
+        const rerunAvailability = await resolveRerunAvailability(resolvedFeatureId);
         if (rerunAvailability.canRerun) {
           const rerunRoute =
-            resolveFeatureRoute(resolvedFeatureId, {
+            (await resolveFeatureRoute(resolvedFeatureId, {
               useRerunParams: true,
               routeParams: sanitizedRouteParams,
-            }) ??
-            resolveFeatureRoute(resolvedFeatureId, {
+            })) ??
+            (await resolveFeatureRoute(resolvedFeatureId, {
               routeParams: sanitizedRouteParams,
-            });
+            }));
           if (rerunRoute) {
             router.push(rerunRoute);
             return;
           }
         }
         const fallbackRerunRoute =
-          resolveFeatureRoute(resolvedFeatureId, {
+          (await resolveFeatureRoute(resolvedFeatureId, {
             routeParams: sanitizedRouteParams,
-          }) ??
-          resolveFeatureRoute(resolvedFeatureId, {
+          })) ??
+          (await resolveFeatureRoute(resolvedFeatureId, {
             includeContextParams: false,
             routeParams: sanitizedRouteParams,
-          });
+          }));
         if (fallbackRerunRoute) {
           router.push(fallbackRerunRoute);
           return;
@@ -1249,13 +1270,13 @@ function WorkspaceThreadMessageBubble({
         return;
       }
       const passiveFeatureRoute =
-        resolveFeatureRoute(resolvedFeatureId, {
+        (await resolveFeatureRoute(resolvedFeatureId, {
           routeParams: sanitizedRouteParams,
-        }) ??
-        resolveFeatureRoute(resolvedFeatureId, {
+        })) ??
+        (await resolveFeatureRoute(resolvedFeatureId, {
           includeContextParams: false,
           routeParams: sanitizedRouteParams,
-        });
+        }));
       if (passiveFeatureRoute) {
         const [pathname, queryString = ""] = passiveFeatureRoute.split("?");
         const query = new URLSearchParams(queryString);
@@ -1276,13 +1297,13 @@ function WorkspaceThreadMessageBubble({
     }
 
     const featureRoute =
-      resolveFeatureRoute(resolvedFeatureId, {
+      (await resolveFeatureRoute(resolvedFeatureId, {
         routeParams: sanitizedRouteParams,
-      }) ??
-      resolveFeatureRoute(resolvedFeatureId, {
+      })) ??
+      (await resolveFeatureRoute(resolvedFeatureId, {
         includeContextParams: false,
         routeParams: sanitizedRouteParams,
-      });
+      }));
     router.push(featureRoute ?? baseThreadRoute);
   };
 
@@ -1328,7 +1349,6 @@ function WorkspaceThreadMessageBubble({
             {renderStructuredBlocks(message, {
               isStreaming: isLast && !isUser && isStreaming,
               onCardAction: handleCardAction,
-              resolveRerunAvailability,
             })}
             {actionNotice ? (
               <p

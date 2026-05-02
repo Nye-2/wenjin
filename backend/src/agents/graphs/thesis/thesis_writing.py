@@ -308,7 +308,9 @@ async def _handle_write_chapter(
             stage_transition=True,
         )
 
+    workspace_id = str(params.get("workspace_id") or "").strip() or None
     chapter_payload = await build_chapter_payload(
+        workspace_id=workspace_id,
         paper_title=paper_title,
         chapter_index=chapter_index,
         chapter_title=chapter_title,
@@ -447,6 +449,7 @@ async def _handle_write_all(
                 _coerce_int(chapter.get("targetWords"), max(1000, target_words // max(len(chapters), 1))),
             )
             chapter_payload = await build_chapter_payload(
+                workspace_id=workspace_id,
                 paper_title=paper_title,
                 chapter_index=index,
                 chapter_title=chapter_title,

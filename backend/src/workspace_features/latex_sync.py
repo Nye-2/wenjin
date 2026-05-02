@@ -14,6 +14,7 @@ from typing import Any
 
 from src.database import get_db_session
 from src.services.latex import LatexCompileService
+from src.services.references import ReferenceBibTeXService
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 
 logger = logging.getLogger(__name__)
@@ -577,6 +578,13 @@ async def compile_thesis_payload(
             )
     try:
         async with get_db_session() as db:
+            try:
+                await ReferenceBibTeXService(db).sync_prism(workspace_id=workspace_id)
+            except Exception:
+                logger.warning(
+                    "Failed to sync refs.bib via ReferenceBibTeXService, continuing with payload bib_content",
+                    exc_info=True,
+                )
             bridge_service = WorkspaceLatexProjectService(db)
             linked_project = await bridge_service.sync_project(
                 workspace_id=workspace_id,

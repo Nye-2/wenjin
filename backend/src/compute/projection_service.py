@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.compute.events import serialize_compute_session
 from src.database.models.compute_session import ComputeSessionRecord
 from src.database.models.execution_session import ExecutionSessionRecord
-from src.database.models.latex_project import LatexProject
 from src.database.models.subagent_task import SubagentTaskRecord
 from src.database.models.task import TaskRecord
 from src.execution.public_paths import sandbox_path_to_public_url
@@ -502,61 +501,6 @@ def _build_prism_projection(
     }
 
 
-async def _refresh_prism_from_project(
-    db: AsyncSession,
-    prism: dict[str, Any],
-    *,
-    user_id: str,
-) -> dict[str, Any]:
-    project_id = _read_text(prism.get("project_id"))
-    if project_id is None:
-        return prism
-
-    result = await db.execute(
-        select(LatexProject).where(
-            LatexProject.id == project_id,
-            LatexProject.user_id == user_id,
-        )
-    )
-    project = result.scalar_one_or_none()
-    if project is None:
-        return prism
-
-    llm_config = project.llm_config if isinstance(project.llm_config, dict) else {}
-    metadata = llm_config.get("metadata") if isinstance(llm_config.get("metadata"), dict) else {}
-    current_file_changes = _normalize_prism_file_changes(metadata.get("file_changes"))
-    current_applied_file_changes = _normalize_applied_prism_file_changes(
-        metadata.get("applied_file_changes")
-    )
-    prism["file_changes"] = current_file_changes
-    prism["applied_file_changes"] = current_applied_file_changes
-    prism["main_file"] = str(project.main_file or prism.get("main_file") or "main.tex")
-    for change in current_file_changes:
-        _append_unique_text(prism.setdefault("target_files", []), change.get("path"))
-    for change in current_applied_file_changes:
-        _append_unique_text(prism.setdefault("target_files", []), change.get("path"))
-    compile_info = prism.get("compile") if isinstance(prism.get("compile"), dict) else {}
-    status = "ready"
-    if compile_info.get("status") == "failed" or compile_info.get("error"):
-        status = "compile_failed"
-    elif current_file_changes:
-        status = "pending_changes"
-    prism["status"] = status
-    for item in prism.get("items", []):
-        if not isinstance(item, dict) or item.get("latex_project_id") != project_id:
-            continue
-        item["file_changes"] = current_file_changes
-        item["applied_file_changes"] = current_applied_file_changes
-        item_status = "ready"
-        item_compile = item.get("compile") if isinstance(item.get("compile"), dict) else {}
-        if item_compile.get("status") == "failed" or item_compile.get("error"):
-            item_status = "compile_failed"
-        elif current_file_changes:
-            item_status = "pending_changes"
-        item["status"] = item_status
-    return prism
-
-
 def _append_prism_files(files: list[dict[str, Any]], prism: dict[str, Any]) -> None:
     project_id = _read_text(prism.get("project_id"))
     if project_id is None:
@@ -914,8 +858,9 @@ class ComputeProjectionService:
             execution=execution,
             tasks=tasks,
         )
-        prism = await _refresh_prism_from_project(
-            self.db,
+        from src.services.latex.prism_status_resolver import LatexPrismStatusResolver
+
+        prism = await LatexPrismStatusResolver(self.db).refresh(
             prism,
             user_id=user_id,
         )

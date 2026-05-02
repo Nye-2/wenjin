@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowLeft, Eye, FileImage, Loader2, RotateCcw, Trash2 } from "lucide-react";
 
 import { LatexFileChangeDiffPreview } from "@/components/latex/LatexFileChangeDiffPreview";
@@ -534,6 +534,9 @@ function shiftFeedbacksAfterRewrite(
 
 export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fileChangesRef = useRef<HTMLDivElement | null>(null);
+  const hasScrolledToFileChanges = useRef(false);
   const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const {
     project,
@@ -619,6 +622,18 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
     setBusyFileChangeKey(null);
     setFileChangeError("");
   }, [projectId]);
+
+  useEffect(() => {
+    if (
+      searchParams.get("focus") === "file_changes" &&
+      fileChanges.length > 0 &&
+      fileChangesRef.current &&
+      !hasScrolledToFileChanges.current
+    ) {
+      hasScrolledToFileChanges.current = true;
+      fileChangesRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [searchParams, fileChanges]);
 
   const dirty = activeFileContent !== activeFileSavedContent;
   const effectiveSelectedPath = selectedPath || activeFilePath;
@@ -1536,7 +1551,7 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
             />
 
             {fileChanges.length > 0 ? (
-              <div className="rounded-[1.5rem] border border-amber-500/25 bg-amber-500/10 p-4">
+              <div ref={fileChangesRef} className="rounded-[1.5rem] border border-amber-500/25 bg-amber-500/10 p-4">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-amber-700" />
                   <p className="text-sm font-medium text-amber-900">

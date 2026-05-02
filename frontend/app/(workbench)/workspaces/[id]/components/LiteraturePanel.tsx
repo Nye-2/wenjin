@@ -7,6 +7,8 @@ import {
   BookOpen,
   Calendar,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock3,
   Database,
   ExternalLink,
@@ -16,6 +18,7 @@ import {
   Users,
 } from "lucide-react";
 import {
+  getReferenceOutline,
   syncReferenceBibtexToPrism,
   type ReferenceAsset,
   type ReferencePreprocessSubmission,
@@ -25,11 +28,24 @@ import { openAuthorizedAsset, resolvePublicAssetUrl } from "@/lib/public-assets"
 import { cn } from "@/lib/utils";
 import { type Reference, useWorkspaceStore } from "@/stores/workspace";
 
+interface OutlineNode {
+  id: string;
+  section_path: string;
+  title: string;
+  level: number;
+  page_start?: number | null;
+  page_end?: number | null;
+}
+
 interface ReferenceItemProps {
   reference: Reference;
   index: number;
   isOpening: boolean;
   onOpen: (reference: Reference) => void | Promise<void>;
+  isExpanded: boolean;
+  outline: OutlineNode[] | null;
+  isLoadingOutline: boolean;
+  onToggleExpand: (reference: Reference) => void;
 }
 
 interface UploadState {
@@ -139,6 +155,10 @@ function ReferenceItem({
   index,
   isOpening,
   onOpen,
+  isExpanded,
+  outline,
+  isLoadingOutline,
+  onToggleExpand,
 }: ReferenceItemProps) {
   const url = primaryReferenceUrl(reference);
   const citationCount = formatCount(reference.citation_count);
@@ -162,9 +182,20 @@ function ReferenceItem({
         </span>
       </div>
 
-      <h4 className="mb-2 line-clamp-2 text-sm font-medium text-[var(--text-primary)]">
-        {reference.title || "未命名参考文献"}
-      </h4>
+      <button
+        type="button"
+        onClick={() => onToggleExpand(reference)}
+        className="mb-2 flex w-full items-start gap-1 text-left"
+      >
+        {isExpanded ? (
+          <ChevronDown className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+        ) : (
+          <ChevronRight className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+        )}
+        <h4 className="line-clamp-2 text-sm font-medium text-[var(--text-primary)]">
+          {reference.title || "未命名参考文献"}
+        </h4>
+      </button>
 
       {reference.authors.length > 0 && (
         <div className="mb-1 flex items-center gap-1 text-xs text-[var(--text-secondary)]">
@@ -226,6 +257,50 @@ function ReferenceItem({
           {isOpening ? "打开中" : url ? "查看来源" : "无可打开来源"}
         </button>
       </div>
+
+      {isExpanded && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          className="mt-3 overflow-hidden border-t border-[var(--border-default)] pt-2"
+        >
+          {isLoadingOutline ? (
+            <div className="flex items-center gap-2 py-2 text-xs text-[var(--text-muted)]">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              加载目录索引…
+            </div>
+          ) : outline && outline.length > 0 ? (
+            <div className="space-y-1">
+              {outline.map((node) => (
+                <div
+                  key={node.id}
+                  className="flex items-start gap-2 text-xs"
+                  style={{ paddingLeft: `${(node.level - 1) * 12}px` }}
+                >
+                  <span className="mt-0.5 flex-shrink-0 text-[10px] text-[var(--text-muted)]">
+                    {node.section_path}
+                  </span>
+                  <span className="flex-1 truncate text-[var(--text-secondary)]">
+                    {node.title}
+                  </span>
+                  {node.page_start ? (
+                    <span className="flex-shrink-0 text-[10px] text-[var(--text-muted)]">
+                      p.{node.page_start}
+                      {node.page_end && node.page_end !== node.page_start
+                        ? `–${node.page_end}`
+                        : ""}
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="py-1 text-xs text-[var(--text-muted)]">
+              暂无目录索引
+            </p>
+          )}
+        </motion.div>
+      )}
     </motion.div>
   );
 }
@@ -335,6 +410,9 @@ export function LiteraturePanel({
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [isSyncingBibtex, setIsSyncingBibtex] = useState(false);
   const [openingReferenceId, setOpeningReferenceId] = useState<string | null>(null);
+  const [expandedReferenceId, setExpandedReferenceId] = useState<string | null>(null);
+  const [referenceOutlines, setReferenceOutlines] = useState<Map<string, OutlineNode[]>>(new Map());
+  const [loadingOutlineId, setLoadingOutlineId] = useState<string | null>(null);
 
   useEffect(() => {
     if (workspaceId) {
@@ -377,6 +455,34 @@ export function LiteraturePanel({
       setOpeningReferenceId((current) =>
         current === reference.id ? null : current
       );
+    }
+  };
+
+  const handleToggleExpand = async (reference: Reference) => {
+    const nextId = expandedReferenceId === reference.id ? null : reference.id;
+    setExpandedReferenceId(nextId);
+
+    if (nextId && !referenceOutlines.has(reference.id)) {
+      setLoadingOutlineId(reference.id);
+      try {
+        const result = await getReferenceOutline(workspaceId, reference.id);
+        const items = ((result.items || []) as unknown) as OutlineNode[];
+        setReferenceOutlines((prev) => {
+          const next = new Map(prev);
+          next.set(reference.id, items);
+          return next;
+        });
+      } catch (error) {
+        setReferenceOutlines((prev) => {
+          const next = new Map(prev);
+          next.set(reference.id, []);
+          return next;
+        });
+      } finally {
+        setLoadingOutlineId((current) =>
+          current === reference.id ? null : current
+        );
+      }
     }
   };
 
@@ -588,6 +694,10 @@ export function LiteraturePanel({
                   index={index}
                   isOpening={openingReferenceId === reference.id}
                   onOpen={handleOpenReference}
+                  isExpanded={expandedReferenceId === reference.id}
+                  outline={referenceOutlines.get(reference.id) ?? null}
+                  isLoadingOutline={loadingOutlineId === reference.id}
+                  onToggleExpand={handleToggleExpand}
                 />
               ))}
             </div>

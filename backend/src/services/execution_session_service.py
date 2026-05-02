@@ -55,6 +55,7 @@ class ExecutionSessionService:
         launch_source: str,
         launch_message: str | None,
         params: dict[str, Any] | None,
+        commit: bool = True,
     ) -> ExecutionSessionRecord:
         now = datetime.now(UTC)
         session = ExecutionSessionRecord(
@@ -76,9 +77,12 @@ class ExecutionSessionService:
             updated_at=now,
         )
         self.db.add(session)
-        await self.db.commit()
-        await self.db.refresh(session)
-        await publish_execution_session_event(session, event_type="execution.created")
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(session)
+            await publish_execution_session_event(session, event_type="execution.created")
+        else:
+            await self.db.flush()
         return session
 
     async def get_by_id(self, session_id: str) -> ExecutionSessionRecord | None:
@@ -105,17 +109,19 @@ class ExecutionSessionService:
         )
         return list(result.scalars().all())
 
-    async def delete_session(self, session_id: str) -> None:
+    async def delete_session(self, session_id: str, *, commit: bool = True) -> None:
         session = await self.get_by_id(session_id)
         if session is None:
             return
         await self.db.delete(session)
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
 
     async def update_session_record(
         self,
         session: ExecutionSessionRecord,
         *,
+        commit: bool = True,
         status: str | None = None,
         thread_id: str | None = None,
         entry_skill_id: str | None = None,
@@ -199,22 +205,37 @@ class ExecutionSessionService:
             return session
 
         session.updated_at = datetime.now(UTC)
-        await self.db.commit()
-        await self.db.refresh(session)
-        event_type = "execution.updated"
-        if session.status == "completed":
-            event_type = "execution.completed"
-        elif session.status in {"failed", "advisory"}:
-            event_type = "execution.failed"
-        await publish_execution_session_event(session, event_type=event_type)
+
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(session)
+            event_type = "execution.updated"
+            if session.status == "completed":
+                event_type = "execution.completed"
+            elif session.status in {"failed", "advisory"}:
+                event_type = "execution.failed"
+            await publish_execution_session_event(session, event_type=event_type)
+
+            # Execution session is the SSOT for feature business state.
+            # ComputeSession is a UI projection; when execution changes we
+            # touch the compute session so the Compute Stage refreshes.
+            # Deferred import to avoid circular dependency between
+            # execution_session_service -> compute -> projection_service -> runtime_profiles -> registry.
+            from src.compute.session_service import ComputeSessionService
+
+            await ComputeSessionService(self.db).touch_session_by_execution(
+                execution_session_id=session.id,
+            )
         return session
 
     async def update_session(
         self,
         session_id: str,
+        *,
+        commit: bool = True,
         **updates: Any,
     ) -> ExecutionSessionRecord | None:
         session = await self.get_by_id(session_id)
         if session is None:
             return None
-        return await self.update_session_record(session, **updates)
+        return await self.update_session_record(session, commit=commit, **updates)

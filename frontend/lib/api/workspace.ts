@@ -499,3 +499,26 @@ export async function deleteWorkspaceTemplate(
 ): Promise<void> {
   await apiClient.delete(`/workspaces/${workspaceId}/templates/${templateId}`);
 }
+
+export interface FeatureActionResolutionResponse {
+  source_artifact_id: string | null;
+  follow_up_prompt: string;
+  route_params: Record<string, unknown>;
+  rerun_params: Record<string, unknown> | null;
+  rerun_unavailable_reason: string | null;
+}
+
+export async function resolveFeatureAction(
+  workspaceId: string,
+  featureId: string,
+  data: {
+    orchestration_params?: Record<string, unknown> | null;
+    source_artifact_id?: string | null;
+  }
+): Promise<FeatureActionResolutionResponse> {
+  const response = await apiClient.post(
+    `/workspaces/${workspaceId}/features/${featureId}/resolve-action`,
+    data
+  );
+  return response.data;
+}

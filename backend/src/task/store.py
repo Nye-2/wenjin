@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config.task_config import task_settings
 from src.database.models.task import TaskRecord
 from src.runtime.serialization import dumps_json
+from src.services.execution_session_events import publish_execution_session_event
 from src.services.execution_session_service import ExecutionSessionService
 from src.services.workspace_activity_contracts import (
     build_task_activity_item,
@@ -207,6 +208,8 @@ class TaskStore:
     async def update_task_record(
         self,
         task_id: str,
+        *,
+        commit: bool = True,
         **updates: Any,
     ) -> TaskRecord | None:
         """Update task record in PostgreSQL."""
@@ -218,8 +221,9 @@ class TaskStore:
             if hasattr(record, key):
                 setattr(record, key, value)
 
-        await self._db.commit()
-        await self._db.refresh(record)
+        if commit:
+            await self._db.commit()
+            await self._db.refresh(record)
         return record
 
     async def list_user_tasks(
@@ -277,26 +281,61 @@ class TaskStore:
         return result.scalar() or 0
 
     async def mark_task_started(self, task_id: str, worker_id: str | None = None) -> None:
-        """Mark task as started."""
+        """Mark task as started.
+
+        Updates both TaskRecord and ExecutionSession in a single DB transaction
+        so that the two sources cannot diverge if one commit fails.
+        """
         started_at = datetime.now(UTC)
-        record = await self.update_task_record(
-            task_id,
-            status=TaskStatus.RUNNING.value,
-            started_at=started_at,
-        )
-        await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
-        if record and record.execution_session_id:
-            await ExecutionSessionService(self._db).update_session(
-                record.execution_session_id,
-                status=TaskStatus.RUNNING.value,
-                started_at=started_at,
-                primary_task_id=record.id,
-                append_task_id=record.id,
-                next_actions=[],
-                advisory_code=None,
-                last_error=None,
+        record = await self.get_task_record(task_id)
+        if not record:
+            return
+
+        # Modify TaskRecord in-memory (not yet flushed)
+        record.status = TaskStatus.RUNNING.value
+        record.started_at = started_at
+
+        # Modify ExecutionSession in the same transaction
+        if record.execution_session_id:
+            session = await ExecutionSessionService(self._db).get_by_id(
+                record.execution_session_id
             )
-        payload = record.payload if record and isinstance(record.payload, dict) else {}
+            if session:
+                await ExecutionSessionService(self._db).update_session_record(
+                    session,
+                    commit=False,
+                    status=TaskStatus.RUNNING.value,
+                    started_at=started_at,
+                    primary_task_id=record.id,
+                    append_task_id=record.id,
+                    next_actions=[],
+                    advisory_code=None,
+                    last_error=None,
+                )
+
+        # Single atomic commit for both TaskRecord and ExecutionSession
+        await self._db.commit()
+        await self._db.refresh(record)
+
+        # Redis runtime cache (always derived from committed DB state)
+        await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
+
+        # Post-commit: publish execution events and touch compute projection
+        if record.execution_session_id:
+            session = await ExecutionSessionService(self._db).get_by_id(
+                record.execution_session_id
+            )
+            if session:
+                await publish_execution_session_event(
+                    session, event_type="execution.updated"
+                )
+                from src.compute.session_service import ComputeSessionService
+
+                await ComputeSessionService(self._db).touch_session_by_execution(
+                    record.execution_session_id
+                )
+
+        payload = record.payload if isinstance(record.payload, dict) else {}
         workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
         if workspace_id:
             await publish_workspace_event(
@@ -305,11 +344,11 @@ class TaskStore:
                 {
                     "task": {
                         "task_id": task_id,
-                        "execution_session_id": record.execution_session_id if record else None,
-                        "task_type": record.task_type if record else None,
+                        "execution_session_id": record.execution_session_id,
+                        "task_type": record.task_type,
                         "status": TaskStatus.RUNNING.value,
-                        "progress": record.progress if record else 0,
-                        "message": record.message if record else None,
+                        "progress": record.progress,
+                        "message": record.message,
                         "feature_id": payload.get("feature_id"),
                         "thread_id": payload.get("thread_id"),
                         "metadata": None,
@@ -318,14 +357,14 @@ class TaskStore:
                         build_task_activity_item(
                             task_id=task_id,
                             workspace_id=workspace_id,
-                            task_type=record.task_type if record else None,
-                            payload=payload if isinstance(payload, dict) else None,
+                            task_type=record.task_type,
+                            payload=payload,
                             status=TaskStatus.RUNNING.value,
-                            progress=record.progress if record else 0,
-                            message=record.message if record else None,
+                            progress=record.progress,
+                            message=record.message,
                             error=None,
                             occurred_at=started_at,
-                            created_at=record.created_at if record else None,
+                            created_at=record.created_at,
                             started_at=started_at,
                         )
                     ),
@@ -333,19 +372,48 @@ class TaskStore:
             )
 
     async def persist_runtime_state(self, task_id: str, metadata: dict[str, Any] | None) -> None:
-        """Persist task runtime metadata to PostgreSQL for refresh/reconnect recovery."""
+        """Persist task runtime metadata to PostgreSQL for refresh/reconnect recovery.
+
+        Updates both TaskRecord and ExecutionSession in a single DB transaction.
+        """
         runtime_state: dict[str, Any] | None = None
         if isinstance(metadata, dict):
             runtime_candidate = metadata.get("runtime")
             if isinstance(runtime_candidate, dict):
                 runtime_state = runtime_candidate
-        record = await self.update_task_record(task_id, runtime_state=runtime_state)
-        if record and record.execution_session_id and runtime_state is not None:
-            await ExecutionSessionService(self._db).update_session(
-                record.execution_session_id,
-                status=record.status,
-                runtime_snapshot=runtime_state,
-                started_at=record.started_at,
+
+        record = await self.get_task_record(task_id)
+        if not record:
+            return
+
+        # Modify TaskRecord in-memory (not yet flushed)
+        if runtime_state is not None:
+            record.runtime_state = runtime_state
+
+        # Modify ExecutionSession in the same transaction
+        if record.execution_session_id and runtime_state is not None:
+            session = await ExecutionSessionService(self._db).get_by_id(
+                record.execution_session_id
+            )
+            if session:
+                await ExecutionSessionService(self._db).update_session_record(
+                    session,
+                    commit=False,
+                    status=record.status,
+                    runtime_snapshot=runtime_state,
+                    started_at=record.started_at,
+                )
+
+        # Single atomic commit for both TaskRecord and ExecutionSession
+        await self._db.commit()
+        await self._db.refresh(record)
+
+        # Post-commit: touch compute projection
+        if record.execution_session_id and runtime_state is not None:
+            from src.compute.session_service import ComputeSessionService
+
+            await ComputeSessionService(self._db).touch_session_by_execution(
+                record.execution_session_id
             )
 
     async def mark_task_completed(
@@ -355,27 +423,79 @@ class TaskStore:
         result: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> None:
-        """Mark task as completed (success or failed)."""
+        """Mark task as completed (success or failed).
+
+        Updates both TaskRecord and ExecutionSession in a single DB transaction
+        so that the two sources cannot diverge if one commit fails.
+        """
         status = TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value
         runtime_state = await self.get_task_state(task_id)
         final_progress = 100 if success else runtime_state.get("progress", 0) if runtime_state else 0
         final_message = error or runtime_state.get("message") if runtime_state else error
         completed_at = datetime.now(UTC)
-        record = await self.update_task_record(
-            task_id,
-            status=status,
-            result=result,
-            error=error,
-            completed_at=completed_at,
-            progress=final_progress,
-            message=final_message,
-            runtime_state=(
-                runtime_state.get("metadata", {}).get("runtime")
-                if runtime_state and isinstance(runtime_state.get("metadata"), dict)
-                else None
-            ),
+
+        record = await self.get_task_record(task_id)
+        if not record:
+            return
+
+        # Derive result_summary, artifact_ids, next_actions before the tx
+        result_summary = final_message if isinstance(final_message, str) and final_message else None
+        artifact_ids: list[str] = []
+        next_actions: list[dict[str, Any]] = []
+        if isinstance(result, dict):
+            raw_artifact_ids = result.get("artifact_ids")
+            if isinstance(raw_artifact_ids, list):
+                artifact_ids = [str(item) for item in raw_artifact_ids if str(item).strip()]
+            raw_next_actions = result.get("next_actions")
+            if isinstance(raw_next_actions, list):
+                next_actions = [item for item in raw_next_actions if isinstance(item, dict)]
+            if result_summary is None:
+                raw_summary = result.get("summary")
+                if isinstance(raw_summary, str) and raw_summary.strip():
+                    result_summary = raw_summary.strip()
+
+        runtime_snapshot = (
+            runtime_state.get("metadata", {}).get("runtime")
+            if runtime_state and isinstance(runtime_state.get("metadata"), dict)
+            else None
         )
-        # Keep Redis state for a while for queries
+
+        # Modify TaskRecord in-memory (not yet flushed)
+        record.status = status
+        record.result = result
+        record.error = error
+        record.completed_at = completed_at
+        record.progress = final_progress
+        record.message = final_message
+        record.runtime_state = runtime_snapshot
+
+        # Modify ExecutionSession in the same transaction
+        if record.execution_session_id:
+            session = await ExecutionSessionService(self._db).get_by_id(
+                record.execution_session_id
+            )
+            if session:
+                await ExecutionSessionService(self._db).update_session_record(
+                    session,
+                    commit=False,
+                    status="completed" if success else "failed",
+                    runtime_snapshot=runtime_snapshot,
+                    result_summary=result_summary,
+                    artifact_ids=artifact_ids,
+                    next_actions=next_actions,
+                    advisory_code=None,
+                    last_error=error,
+                    started_at=record.started_at,
+                    completed_at=completed_at,
+                    primary_task_id=record.id,
+                    append_task_id=record.id,
+                )
+
+        # Single atomic commit for both TaskRecord and ExecutionSession
+        await self._db.commit()
+        await self._db.refresh(record)
+
+        # Redis runtime cache (always derived from committed DB state)
         await self.set_task_state(
             task_id,
             status,
@@ -384,41 +504,25 @@ class TaskStore:
             metadata=runtime_state.get("metadata") if runtime_state else None,
         )
 
-        payload = record.payload if record and isinstance(record.payload, dict) else {}
-        if record and record.execution_session_id:
-            result_summary = final_message if isinstance(final_message, str) and final_message else None
-            artifact_ids = []
-            next_actions = []
-            if isinstance(result, dict):
-                raw_artifact_ids = result.get("artifact_ids")
-                if isinstance(raw_artifact_ids, list):
-                    artifact_ids = [str(item) for item in raw_artifact_ids if str(item).strip()]
-                raw_next_actions = result.get("next_actions")
-                if isinstance(raw_next_actions, list):
-                    next_actions = [item for item in raw_next_actions if isinstance(item, dict)]
-                if result_summary is None:
-                    raw_summary = result.get("summary")
-                    if isinstance(raw_summary, str) and raw_summary.strip():
-                        result_summary = raw_summary.strip()
-
-            await ExecutionSessionService(self._db).update_session(
-                record.execution_session_id,
-                status="completed" if success else "failed",
-                runtime_snapshot=(
-                    runtime_state.get("metadata", {}).get("runtime")
-                    if runtime_state and isinstance(runtime_state.get("metadata"), dict)
-                    else None
-                ),
-                result_summary=result_summary,
-                artifact_ids=artifact_ids,
-                next_actions=next_actions,
-                advisory_code=None,
-                last_error=error,
-                started_at=record.started_at,
-                completed_at=completed_at,
-                primary_task_id=record.id,
-                append_task_id=record.id,
+        # Post-commit: publish execution events and touch compute projection
+        if record.execution_session_id:
+            session = await ExecutionSessionService(self._db).get_by_id(
+                record.execution_session_id
             )
+            if session:
+                event_type = "execution.updated"
+                if session.status == "completed":
+                    event_type = "execution.completed"
+                elif session.status in {"failed", "advisory"}:
+                    event_type = "execution.failed"
+                await publish_execution_session_event(session, event_type=event_type)
+                from src.compute.session_service import ComputeSessionService
+
+                await ComputeSessionService(self._db).touch_session_by_execution(
+                    record.execution_session_id
+                )
+
+        payload = record.payload if isinstance(record.payload, dict) else {}
         workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
         if workspace_id:
             await publish_workspace_event(
@@ -427,8 +531,8 @@ class TaskStore:
                 {
                     "task": {
                         "task_id": task_id,
-                        "execution_session_id": record.execution_session_id if record else None,
-                        "task_type": record.task_type if record else None,
+                        "execution_session_id": record.execution_session_id,
+                        "task_type": record.task_type,
                         "status": status,
                         "progress": final_progress,
                         "message": final_message,
@@ -444,16 +548,16 @@ class TaskStore:
                         build_task_activity_item(
                             task_id=task_id,
                             workspace_id=workspace_id,
-                            task_type=record.task_type if record else None,
-                            payload=payload if isinstance(payload, dict) else None,
+                            task_type=record.task_type,
+                            payload=payload,
                             status=status,
                             progress=final_progress,
                             message=final_message,
                             error=error,
                             result=result if isinstance(result, dict) else result,
                             occurred_at=completed_at,
-                            created_at=record.created_at if record else None,
-                            started_at=record.started_at if record else None,
+                            created_at=record.created_at,
+                            started_at=record.started_at,
                             completed_at=completed_at,
                         )
                     )

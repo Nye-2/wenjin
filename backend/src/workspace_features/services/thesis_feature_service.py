@@ -21,7 +21,7 @@ from src.database import Artifact, get_db_session
 from src.execution.capabilities import execution_type_readiness
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.execution.types import ExecutionType
-from src.services.references import WorkspaceReferenceService
+from src.services.references import ReferenceBibTeXService, WorkspaceReferenceService
 from src.thesis.execution import get_execution_service
 from src.thesis.execution.figure_tool import generate_figure
 from src.thesis.latex_template import get_template
@@ -947,7 +947,15 @@ async def build_compile_payload(
         acknowledgements="",
         bibliography_style=bibliography_style,
     )
-    bib_content = _build_bibtex(literature)
+    try:
+        async with get_db_session() as bib_db:
+            bibtex_result = await ReferenceBibTeXService(bib_db).build_bibtex(
+                workspace_id=workspace_id,
+            )
+        bib_content = bibtex_result.get("content", "")
+    except Exception:
+        # Fallback for environments where db session is unavailable (e.g. tests)
+        bib_content = _build_bibtex(literature)
 
     normalized_compiler = compiler.lower().strip()
     if normalized_compiler not in {"xelatex", "pdflatex"}:

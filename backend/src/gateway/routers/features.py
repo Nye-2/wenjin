@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from src.academic.services.artifact_service import ArtifactService
 from src.academic.services.workspace_service import WorkspaceService
 from src.application.commands import FeatureLaunchCommand
 from src.application.errors import ApplicationError
@@ -21,9 +22,11 @@ from src.application.workspace_resolvers import resolve_workspace_type
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_feature_launch_service, get_workspace_service
+from src.gateway.deps.core import get_db
 from src.gateway.error_mapping import to_http_exception
+from src.services.feature_action_resolution_service import resolve_feature_action_state
 from src.task.registry import WORKSPACE_FEATURE_TASK
-from src.workspace_features import list_workspace_features
+from src.workspace_features import get_workspace_feature, list_workspace_features
 from src.workspace_features.skills import get_default_skill_for_feature
 
 logger = logging.getLogger(__name__)
@@ -84,6 +87,23 @@ class ExecuteResponse(BaseModel):
     message: str
     warning: str | None = None
     detail: dict[str, Any] | None = None
+
+
+class ResolveActionRequest(BaseModel):
+    """Request to resolve feature action state."""
+
+    orchestration_params: dict[str, Any] | None = Field(default=None)
+    source_artifact_id: str | None = Field(default=None)
+
+
+class ResolveActionResponse(BaseModel):
+    """Response for feature action resolution."""
+
+    source_artifact_id: str | None = None
+    follow_up_prompt: str
+    route_params: dict[str, Any]
+    rerun_params: dict[str, Any] | None = None
+    rerun_unavailable_reason: str | None = None
 
 
 # ============ Helpers ============
@@ -208,4 +228,59 @@ async def execute_feature(
             else None
         ),
         detail=result.get("detail") if isinstance(result.get("detail"), dict) else None,
+    )
+
+
+@router.post(
+    "/workspaces/{workspace_id}/features/{feature_id}/resolve-action",
+    response_model=ResolveActionResponse,
+)
+async def resolve_feature_action(
+    workspace_id: str,
+    feature_id: str,
+    request: ResolveActionRequest,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    db=Depends(get_db),
+) -> ResolveActionResponse:
+    """Resolve feature action state for a workspace feature.
+
+    Computes route_params, rerun_params, and rerun availability based on
+    workspace state, artifacts, and orchestration parameters.
+    """
+    workspace = await workspace_service.get(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    if str(workspace.user_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    try:
+        workspace_type = resolve_workspace_type(workspace)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    feature_def = get_workspace_feature(workspace_type, feature_id)
+    if feature_def is None:
+        raise HTTPException(status_code=404, detail="Feature not found")
+    follow_up_prompt = feature_def.follow_up_prompt
+
+    artifact_service = ArtifactService(db)
+    artifacts = await artifact_service.list_by_workspace(workspace_id)
+
+    state = resolve_feature_action_state(
+        feature_id=feature_id,
+        workspace=workspace,
+        artifacts=artifacts,
+        orchestration_params=request.orchestration_params,
+        explicit_source_artifact_id=request.source_artifact_id,
+        follow_up_prompt=follow_up_prompt,
+    )
+
+    return ResolveActionResponse(
+        source_artifact_id=state.get("source_artifact_id"),
+        follow_up_prompt=state["follow_up_prompt"],
+        route_params=state["route_params"],
+        rerun_params=state.get("rerun_params"),
+        rerun_unavailable_reason=state.get("rerun_unavailable_reason"),
     )
