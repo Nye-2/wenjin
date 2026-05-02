@@ -5,7 +5,7 @@ creation, update, and query parameters.
 """
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -39,7 +39,7 @@ class CreateWorkspaceValidator(BaseModel):
     type: WorkspaceType
     discipline: Annotated[str, Field(max_length=100)] | None = None
     description: Annotated[str, Field(max_length=2000)] | None = None
-    config: dict | None = None
+    config: dict[str, Any] | None = None
 
     @field_validator("name")
     @classmethod
@@ -68,7 +68,7 @@ class CreateWorkspaceValidator(BaseModel):
 
     @field_validator("config")
     @classmethod
-    def validate_config(cls, v: dict | None) -> dict | None:
+    def validate_config(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
         """Validate config dictionary."""
         if v is None:
             return None
@@ -87,7 +87,7 @@ class UpdateWorkspaceValidator(BaseModel):
     discipline: Annotated[str, Field(max_length=100)] | None = None
     description: Annotated[str, Field(max_length=2000)] | None = None
     status: WorkspaceStatus | None = None
-    config: dict | None = None
+    config: dict[str, Any] | None = None
 
     @field_validator("name")
     @classmethod
@@ -118,7 +118,7 @@ class UpdateWorkspaceValidator(BaseModel):
 
     @field_validator("config")
     @classmethod
-    def validate_config(cls, v: dict | None) -> dict | None:
+    def validate_config(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
         """Validate config dictionary."""
         if v is None:
             return None

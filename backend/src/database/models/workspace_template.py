@@ -1,5 +1,7 @@
 """Workspace template model for thesis/paper formatting templates."""
 
+from typing import Any
+
 from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -37,9 +39,9 @@ class WorkspaceTemplate(Base, UUIDMixin, TimestampMixin):
     category: Mapped[str] = mapped_column(String(50), nullable=False)
     source_type: Mapped[str] = mapped_column(String(50), nullable=False)
     source_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
-    structure: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    format_spec: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    content_guidelines: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    structure: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    format_spec: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    content_guidelines: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     latex_preamble: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_builtin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

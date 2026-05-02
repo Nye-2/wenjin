@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Any
 
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,9 +88,9 @@ class TemplateService:
         category: str,
         source_type: str,
         source_file_path: str | None = None,
-        structure: dict | None = None,
-        format_spec: dict | None = None,
-        content_guidelines: dict | None = None,
+        structure: dict[str, Any] | None = None,
+        format_spec: dict[str, Any] | None = None,
+        content_guidelines: dict[str, Any] | None = None,
         latex_preamble: str | None = None,
     ) -> WorkspaceTemplate:
         # Deactivate existing active templates

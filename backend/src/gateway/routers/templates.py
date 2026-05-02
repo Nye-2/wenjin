@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
@@ -31,9 +32,9 @@ class TemplateResponse(BaseModel):
     name: str
     category: str
     sourceType: str
-    structure: dict | None = None
-    formatSpec: dict | None = None
-    contentGuidelines: dict | None = None
+    structure: dict[str, Any] | None = None
+    formatSpec: dict[str, Any] | None = None
+    contentGuidelines: dict[str, Any] | None = None
     isActive: bool
     isBuiltin: bool
 

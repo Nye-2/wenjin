@@ -1,6 +1,7 @@
 """Canonical workspace feature registry."""
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from src.task.registry import WORKSPACE_FEATURE_TASK
 
@@ -42,7 +43,7 @@ class WorkspaceFeatureDefinition:
     graph_module: str | None = None
     follow_up_prompt: str | None = None
 
-    def to_api_dict(self) -> dict:
+    def to_api_dict(self) -> dict[str, Any]:
         """Serialize to the frontend API contract."""
         return {
             "id": self.id,

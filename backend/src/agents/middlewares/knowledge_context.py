@@ -31,7 +31,7 @@ class KnowledgeContextMiddleware(Middleware):
         self.artifact_service = artifact_service
         self._timeout = timeout
 
-    def _build_knowledge_graph(self, artifacts: list) -> str:
+    def _build_knowledge_graph(self, artifacts: list[Any]) -> str:
         """Build knowledge graph context from artifacts."""
         if not artifacts:
             return ""

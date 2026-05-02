@@ -18,7 +18,7 @@ from src.services.workspace_skill_labels import resolve_workspace_feature_skill_
 logger = logging.getLogger(__name__)
 
 # Type for artifact builder functions
-ArtifactBuilderFn = Callable[[str, str, str, dict], list]
+ArtifactBuilderFn = Callable[[str, str, str, dict[str, Any]], list[Any]]
 _ARTIFACT_BUILDERS: dict[str, ArtifactBuilderFn] = {}
 
 
@@ -67,8 +67,8 @@ def _resolve_artifact_creator_skill(
 
 @_register("literature_management")
 def _build_literature_management_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     return [
         {
@@ -81,8 +81,8 @@ def _build_literature_management_artifacts(
 
 @_register("opening_research")
 def _build_opening_research_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     report_type = str(result.get("report_type", "opening_report"))
     return [
@@ -96,8 +96,8 @@ def _build_opening_research_artifacts(
 
 @_register("figure_generation")
 def _build_figure_generation_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     description = str(result.get("description") or "图表")
     return [
@@ -111,8 +111,8 @@ def _build_figure_generation_artifacts(
 
 @_register("deep_research")
 def _build_deep_research_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     topic = str(result.get("topic") or title_prefix)
     discovery = result.get("discovery")
@@ -165,8 +165,8 @@ def _build_deep_research_artifacts(
 
 @_register("thesis_writing")
 def _build_thesis_writing_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     action = str(result.get("action") or "").strip().lower()
 
@@ -275,8 +275,8 @@ def _build_thesis_writing_artifacts(
 
 @_register("literature_search")
 def _build_literature_search_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     return [
         {
@@ -289,8 +289,8 @@ def _build_literature_search_artifacts(
 
 @_register("paper_analysis")
 def _build_paper_analysis_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     return [
         {
@@ -303,8 +303,8 @@ def _build_paper_analysis_artifacts(
 
 @_register("writing")
 def _build_writing_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     section_label = str(
         result.get("section_title")
@@ -322,8 +322,8 @@ def _build_writing_artifacts(
 
 @_register("literature_review")
 def _build_literature_review_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     return [
         {
@@ -336,8 +336,8 @@ def _build_literature_review_artifacts(
 
 @_register("framework_outline")
 def _build_framework_outline_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     drafts = [
         {
@@ -369,8 +369,8 @@ def _build_framework_outline_artifacts(
 
 @_register("peer_review")
 def _build_peer_review_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     return [
         {
@@ -383,8 +383,8 @@ def _build_peer_review_artifacts(
 
 @_register("journal_recommend")
 def _build_journal_recommend_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     return [
         {
@@ -401,8 +401,8 @@ def _build_journal_recommend_artifacts(
 
 @_register("patent_outline")
 def _build_patent_outline_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     drafts = [
         {
@@ -431,8 +431,8 @@ def _build_patent_outline_artifacts(
 
 @_register("prior_art_search")
 def _build_prior_art_search_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     return [
         {
@@ -449,8 +449,8 @@ def _build_prior_art_search_artifacts(
 
 @_register("proposal_outline")
 def _build_proposal_outline_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     drafts = [
         {
@@ -480,8 +480,8 @@ def _build_proposal_outline_artifacts(
 
 @_register("background_research")
 def _build_background_research_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     return [
         {
@@ -494,8 +494,8 @@ def _build_background_research_artifacts(
 
 @_register("experiment_design")
 def _build_experiment_design_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     return [
         {
@@ -512,8 +512,8 @@ def _build_experiment_design_artifacts(
 
 @_register("copyright_materials")
 def _build_copyright_materials_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     drafts = [
         {
@@ -546,8 +546,8 @@ def _build_copyright_materials_artifacts(
 
 @_register("technical_description")
 def _build_technical_description_artifacts(
-    feature_id: str, workspace_name: str, workspace_type: str, result: dict
-) -> list:
+    feature_id: str, workspace_name: str, workspace_type: str, result: dict[str, Any]
+) -> list[Any]:
     title_prefix = workspace_name or "未命名工作区"
     drafts = [
         {

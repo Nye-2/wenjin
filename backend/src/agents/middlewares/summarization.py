@@ -102,7 +102,7 @@ class SummarizationMiddleware(Middleware):
         """Public token-counting entrypoint for compaction callers."""
         return self._count_tokens(messages, model_name=model_name)
 
-    async def summarize_messages(self, messages: list) -> str | None:
+    async def summarize_messages(self, messages: list[Any]) -> str | None:
         """Public summarization entrypoint for compaction callers."""
         return await self._summarize(messages)
 
@@ -166,7 +166,7 @@ class SummarizationMiddleware(Middleware):
             total_bytes += 12 + len(content.encode("utf-8"))
         return total_bytes // 3
 
-    async def _summarize(self, messages: list) -> str | None:
+    async def _summarize(self, messages: list[Any]) -> str | None:
         """Generate a summary of the messages."""
         try:
             from src.models.factory import create_chat_model

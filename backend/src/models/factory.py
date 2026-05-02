@@ -153,7 +153,7 @@ class ReasoningChatOpenAI(ChatOpenAI):
     def _create_chat_result(
         self,
         response: Any,
-        generation_info: dict | None = None,
+        generation_info: dict[str, Any] | None = None,
     ) -> ChatResult:
         result = super()._create_chat_result(response, generation_info)
         # Pull reasoning_content from the raw response and attach it to
@@ -173,7 +173,7 @@ class ReasoningChatOpenAI(ChatOpenAI):
         self,
         chunk: dict,
         default_chunk_class: type,
-        base_generation_info: dict | None = None,
+        base_generation_info: dict[str, Any] | None = None,
     ) -> ChatGenerationChunk | None:
         generation_chunk = super()._convert_chunk_to_generation_chunk(
             chunk, default_chunk_class, base_generation_info

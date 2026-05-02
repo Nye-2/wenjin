@@ -184,6 +184,6 @@ async def create_task_sse_stream(task_id: str) -> AsyncGenerator[str, None]:
     return _stream()
 
 
-def _format_sse_event(data: dict) -> str:
+def _format_sse_event(data: dict[str, Any]) -> str:
     """Format data as SSE event."""
     return encode_sse_data(data)

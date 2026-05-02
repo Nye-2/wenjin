@@ -1,6 +1,7 @@
 """Generation record service for tracking skill executions."""
 
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,10 +29,10 @@ class GenerationService:
         input_summary: str | None = None,
         output_summary: str | None = None,
         duration_ms: int | None = None,
-        token_usage: dict | None = None,
+        token_usage: dict[str, Any] | None = None,
         status: str = "success",
         error_message: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> GenerationRecord:
         """Create a generation record.
 
@@ -143,7 +144,7 @@ class GenerationService:
         self,
         workspace_id: str,
         since: datetime | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get usage statistics for a workspace.
 
         Args:

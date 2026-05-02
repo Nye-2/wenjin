@@ -7,6 +7,8 @@ for use by thesis workflow nodes.
 
 from __future__ import annotations
 
+from typing import Any
+
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -53,7 +55,7 @@ class ExecutionServiceProtocol(Protocol):
         """
         ...
 
-    async def health_check(self) -> dict:
+    async def health_check(self) -> dict[str, Any]:
         """Check service health.
 
         Returns:
