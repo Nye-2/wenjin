@@ -13,7 +13,6 @@ import {
   getWorkspace,
   listWorkspaceReferences,
   listArtifacts,
-  createArtifact,
   createWorkspace as apiCreateWorkspace,
   deleteWorkspace as apiDeleteWorkspace,
   getWorkspaceActivity,
@@ -76,14 +75,7 @@ interface WorkspaceState {
   fetchActivity: (workspaceId: string, limit?: number) => Promise<void>;
   upsertActivity: (activity: WorkspaceActivityItem) => void;
   removeActivity: (activityId: string) => void;
-  createArtifact: (data: {
-    workspace_id: string;
-    type: string;
-    title?: string;
-    content: Record<string, unknown>;
-    created_by_skill?: string;
-    parent_artifact_id?: string;
-  }) => Promise<Artifact>;
+
   clearError: () => void;
   isThreadCockpitEnabled: () => boolean;
 }
@@ -286,37 +278,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set((state) => ({
       activities: state.activities.filter((item) => item.id !== activityId),
     }));
-  },
-
-  createArtifact: async (data) => {
-    try {
-      const artifact = await createArtifact({
-        workspace_id: data.workspace_id,
-        type: data.type,
-        title: data.title,
-        content: data.content,
-        created_by_skill: data.created_by_skill,
-        parent_artifact_id: data.parent_artifact_id,
-      });
-      const mappedArtifact: Artifact = {
-        id: artifact.id,
-        workspace_id: artifact.workspace_id,
-        type: artifact.type,
-        title: artifact.title || null,
-        content: artifact.content,
-        created_by_skill: artifact.created_by_skill ?? null,
-        parent_artifact_id: artifact.parent_artifact_id ?? null,
-        version: artifact.version,
-        status: artifact.status,
-        created_at: artifact.created_at,
-        updated_at: artifact.updated_at,
-      };
-      get().addArtifact(mappedArtifact);
-      return mappedArtifact;
-    } catch (error) {
-      set({ error: (error as Error).message });
-      throw error;
-    }
   },
 
   clearError: () => {
