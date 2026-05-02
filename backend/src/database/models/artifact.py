@@ -1,5 +1,5 @@
 """Artifact model for academic outputs."""
-from typing import TYPE_CHECKING, Optional
+from typing import Any, TYPE_CHECKING, Optional, Any
 
 from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
@@ -54,7 +54,7 @@ class Artifact(Base, UUIDMixin, TimestampMixin):
     )
     type: Mapped[str] = mapped_column(String(100), nullable=False)
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    content: Mapped[dict] = mapped_column(
+    content: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
     )

@@ -1,7 +1,7 @@
 """Abstract base classes for execution service."""
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .types import ExecutionRequest, ExecutionResult, ProviderResult
@@ -26,7 +26,7 @@ class ExecutionService(ABC):
         pass
 
     @abstractmethod
-    async def health_check(self) -> dict:
+    async def health_check(self) -> dict[str, Any]:
         """Check service health.
 
         Returns:
@@ -53,7 +53,7 @@ class ExecutionProvider(ABC):
         """Docker image name, or None if no Docker needed."""
         pass
 
-    def build_command(self, content: str, options: dict) -> list[str]:
+    def build_command(self, content: str, options: dict[str, Any]) -> list[str]:
         """Build Docker command for execution.
 
         Args:
@@ -70,7 +70,7 @@ class ExecutionProvider(ABC):
         self,
         content: str,
         work_dir: str,
-        options: dict,
+        options: dict[str, Any],
         docker_client: object | None = None,
     ) -> "ProviderResult":
         """Execute the task.
@@ -92,7 +92,7 @@ class ExecutionProvider(ABC):
         stdout: str,
         stderr: str,
         work_dir: str,
-        options: dict,
+        options: dict[str, Any],
     ) -> "ProviderResult":
         """Process Docker execution result.
 

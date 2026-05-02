@@ -1,6 +1,7 @@
 """Task record model for persistent storage."""
 
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -54,7 +55,7 @@ class TaskRecord(Base):
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
 
     # Request
-    payload: Mapped[dict] = mapped_column(
+    payload: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         default=dict,

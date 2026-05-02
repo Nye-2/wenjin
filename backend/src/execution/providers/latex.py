@@ -7,7 +7,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from ..base import ExecutionProvider
 from ..security.latex_sanitizer import sanitize_latex
@@ -45,7 +45,7 @@ class LaTeXProvider(ExecutionProvider):
         """Docker image name."""
         return os.getenv("GUANLAN_TEXLIVE_IMAGE", self._docker_image)
 
-    def build_command(self, content: str, options: dict) -> list[str]:
+    def build_command(self, content: str, options: dict[str, Any]) -> list[str]:
         """Build Docker command for LaTeX compilation.
 
         Args:
@@ -155,7 +155,7 @@ class LaTeXProvider(ExecutionProvider):
         self,
         content: str,
         work_dir: str,
-        options: dict,
+        options: dict[str, Any],
         docker_client: "DockerClient | None" = None,
     ) -> ProviderResult:
         """Execute LaTeX compilation.
@@ -206,7 +206,7 @@ class LaTeXProvider(ExecutionProvider):
         stdout: str,
         stderr: str,
         work_dir: str,
-        options: dict,
+        options: dict[str, Any],
     ) -> ProviderResult:
         """Process Docker execution result.
 

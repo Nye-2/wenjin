@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -78,7 +78,7 @@ class CreditTransaction(Base, UUIDMixin):
         index=True,
     )
     # Keep DB column name as "metadata" but avoid reserved Declarative attribute name.
-    tx_metadata: Mapped[dict] = mapped_column(
+    tx_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata",
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,

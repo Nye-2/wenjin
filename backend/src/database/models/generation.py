@@ -1,6 +1,6 @@
 """GenerationRecord model for skill execution tracking."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -61,7 +61,7 @@ class GenerationRecord(Base, UUIDMixin, TimestampMixin):
         nullable=False,
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    extra_data: Mapped[dict] = mapped_column(
+    extra_data: Mapped[dict[str, Any]] = mapped_column(
         "metadata",
         JSONB,
         nullable=False,

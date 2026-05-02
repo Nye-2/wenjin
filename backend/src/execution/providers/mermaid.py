@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from ..base import ExecutionProvider
 from ..types import ProviderResult
@@ -23,7 +24,7 @@ class MermaidProvider(ExecutionProvider):
     def docker_image(self) -> str | None:
         return self._docker_image
 
-    def build_command(self, content: str, options: dict) -> list[str]:
+    def build_command(self, content: str, options: dict[str, Any]) -> list[str]:
         """Build mmdc command for Mermaid rendering.
 
         The content (Mermaid source) is written to /workspace/input.mmd
@@ -50,7 +51,7 @@ class MermaidProvider(ExecutionProvider):
         self,
         content: str,
         work_dir: str,
-        options: dict,
+        options: dict[str, Any],
         docker_client=None,
     ) -> ProviderResult:
         """Execute Mermaid rendering (handled by Docker)."""
@@ -62,7 +63,7 @@ class MermaidProvider(ExecutionProvider):
         stdout: str,
         stderr: str,
         work_dir: str,
-        options: dict,
+        options: dict[str, Any],
     ) -> ProviderResult:
         """Process Docker execution result for Mermaid."""
         work_path = Path(work_dir)

@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from ..base import ExecutionProvider
 from ..types import ProviderResult
@@ -25,7 +26,7 @@ class PythonVizProvider(ExecutionProvider):
         """Docker image name."""
         return self._docker_image
 
-    def build_command(self, content: str, options: dict) -> list[str]:
+    def build_command(self, content: str, options: dict[str, Any]) -> list[str]:
         """Build execution command.
 
         Args:
@@ -58,7 +59,7 @@ os.makedirs('/workspace/output', exist_ok=True)
         self,
         content: str,
         work_dir: str,
-        options: dict,
+        options: dict[str, Any],
         docker_client=None,
     ) -> ProviderResult:
         """Execute Python visualization (handled by Docker).
@@ -83,7 +84,7 @@ os.makedirs('/workspace/output', exist_ok=True)
         stdout: str,
         stderr: str,
         work_dir: str,
-        options: dict,
+        options: dict[str, Any],
     ) -> ProviderResult:
         """Process execution result.
 
