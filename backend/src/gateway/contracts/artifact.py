@@ -16,7 +16,7 @@ class ArtifactResponse(BaseModel):
     workspace_id: str
     type: str
     title: str | None
-    content: dict
+    content: dict[str, Any]
     created_by_skill: str | None
     parent_artifact_id: str | None = None
     version: int

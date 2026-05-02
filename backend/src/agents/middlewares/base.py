@@ -55,7 +55,7 @@ class Middleware(ABC):
         state: ThreadState,
         config: RunnableConfig,
         tool_name: str,
-        tool_args: dict,
+        tool_args: dict[str, Any],
     ) -> tuple[str, dict]:
         """Called before a tool is executed.
 

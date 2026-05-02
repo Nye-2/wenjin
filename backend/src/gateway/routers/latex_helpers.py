@@ -209,7 +209,7 @@ def _not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
 
-def _read_feedback_items_from_project(project_llm_config: dict | None) -> list[dict[str, Any]]:
+def _read_feedback_items_from_project(project_llm_config: dict[str, Any] | None) -> list[dict[str, Any]]:
     llm_config = deepcopy(project_llm_config) if isinstance(project_llm_config, dict) else {}
     metadata = llm_config.get("metadata")
     if not isinstance(metadata, dict):

@@ -46,7 +46,7 @@ class SubagentConfig(BaseModel):
         default=None,
         description="LLM instance to use for subagents"
     )
-    default_tools: list = Field(
+    default_tools: list[Any] = Field(
         default_factory=list,
         description="Default tools available to all subagents"
     )

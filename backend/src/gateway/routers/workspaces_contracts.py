@@ -23,7 +23,7 @@ class WorkspaceResponse(BaseModel):
     type: str
     discipline: str | None
     description: str | None
-    config: dict
+    config: dict[str, Any]
     created_at: str
     updated_at: str
 

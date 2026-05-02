@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from src.database import Thread
 from src.runtime.serialization import serialize_lc_object
 from src.services.thread_events import serialize_thread_summary

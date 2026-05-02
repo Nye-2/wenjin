@@ -98,7 +98,7 @@ class SummarizationMiddleware(Middleware):
             model_name=settings.model_name,
         )
 
-    def count_tokens(self, messages: list, *, model_name: str | None = None) -> int:
+    def count_tokens(self, messages: list[Any], *, model_name: str | None = None) -> int:
         """Public token-counting entrypoint for compaction callers."""
         return self._count_tokens(messages, model_name=model_name)
 
@@ -149,7 +149,7 @@ class SummarizationMiddleware(Middleware):
         """No-op after model."""
         return {}
 
-    def _count_tokens(self, messages: list, *, model_name: str | None = None) -> int:
+    def _count_tokens(self, messages: list[Any], *, model_name: str | None = None) -> int:
         """Estimate prompt token count, preferring model tokenizer when available."""
         encoder = _resolve_token_encoder(model_name)
         if encoder is not None:

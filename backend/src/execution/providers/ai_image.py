@@ -80,7 +80,7 @@ class AIImageProvider(ExecutionProvider):
         self,
         content: str,
         work_dir: str,
-        options: dict,
+        options: dict[str, Any],
         docker_client: object | None = None,
     ) -> ProviderResult:
         """Generate image via model API and write it to output file."""

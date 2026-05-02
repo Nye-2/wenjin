@@ -101,7 +101,7 @@ class WorkspaceContextMiddleware(Middleware):
         state: ThreadState,
         config: RunnableConfig,
         tool_name: str,
-        tool_args: dict,
+        tool_args: dict[str, Any],
     ) -> tuple[str, dict]:
         """Force workspace-scoped tools to use the runtime workspace."""
         if tool_name not in _WORKSPACE_SCOPED_TOOL_NAMES:

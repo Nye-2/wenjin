@@ -174,7 +174,7 @@ class SandboxAuditMiddleware(Middleware):
         state: ThreadState,
         config: RunnableConfig,
         tool_name: str,
-        tool_args: dict,
+        tool_args: dict[str, Any],
     ) -> tuple[str, dict]:
         if tool_name != "bash":
             return tool_name, tool_args

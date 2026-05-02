@@ -255,7 +255,7 @@ class DockerExecutionService(ExecutionService):
         relative = physical_path.relative_to(self.sandbox_base_dir / thread_id)
         return f"/mnt/user-data/{relative}"
 
-    async def health_check(self) -> dict:
+    async def health_check(self) -> dict[str, Any]:
         """Check service health.
 
         Returns:

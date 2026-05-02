@@ -130,7 +130,7 @@ class ModelConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-def _parse_model_from_json(data: dict) -> ModelConfig | None:
+def _parse_model_from_json(data: dict[str, Any]) -> ModelConfig | None:
     """
     Parse a ModelConfig from JSON data.
 

@@ -6,6 +6,7 @@ This service provides artifact management functionality including:
 - Artifact lineage tracking
 """
 
+from typing import Any
 
 from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
@@ -40,7 +41,7 @@ class ArtifactService:
         self,
         workspace_id: str,
         type: str,
-        content: dict,
+        content: dict[str, Any],
         title: str | None = None,
         created_by_skill: str | None = None,
         parent_artifact_id: str | None = None,

@@ -92,8 +92,8 @@ class ExecutionMiddleware(Middleware):
         state: ThreadState,
         config: RunnableConfig,
         tool_name: str,
-        tool_args: dict,
-    ) -> tuple[str, dict]:
+        tool_args: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
         """Process tool before execution.
 
         Args:
@@ -228,7 +228,7 @@ class ExecutionMiddleware(Middleware):
     def _build_request(
         self,
         exec_type: ExecutionType,
-        tool_args: dict,
+        tool_args: dict[str, Any],
         thread_id: str | None,
         workspace_id: str | None,
     ) -> ExecutionRequest:

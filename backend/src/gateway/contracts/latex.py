@@ -53,7 +53,7 @@ class LatexProjectResponse(BaseModel):
     trashed: bool
     trashed_at: datetime | None
     file_order: dict[str, list[str]]
-    llm_config: dict | None
+    llm_config: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
 

@@ -171,7 +171,7 @@ class ReasoningChatOpenAI(ChatOpenAI):
 
     def _convert_chunk_to_generation_chunk(
         self,
-        chunk: dict,
+        chunk: dict[str, Any],
         default_chunk_class: type,
         base_generation_info: dict[str, Any] | None = None,
     ) -> ChatGenerationChunk | None:

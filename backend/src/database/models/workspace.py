@@ -1,7 +1,7 @@
 """Workspace model for academic project organization."""
 
 import enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy import ForeignKey, String, Text
