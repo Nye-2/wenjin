@@ -115,6 +115,7 @@ function handleWorkspaceEvent(
       event: Extract<WorkspaceEvent, { type: "thread.updated" }>
     ) => void;
     scheduleExecutionHydrate?: () => void;
+    scheduleExecutionHydrateDebounced?: () => void;
     scheduleComputeHydrate?: () => void;
   }
 ) {
@@ -125,7 +126,11 @@ function handleWorkspaceEvent(
 
   switch (event.type) {
     case "task.updated": {
-      if (event.task.execution_session_id) {
+      const terminalStatuses = new Set(["success", "failed", "cancelled"]);
+      if (
+        event.task.execution_session_id &&
+        terminalStatuses.has(event.task.status)
+      ) {
         options?.scheduleExecutionHydrate?.();
       }
       if (event.activity) {
@@ -177,7 +182,7 @@ function handleWorkspaceEvent(
       void computeStore.fetchProjection(event.compute_session.id);
       break;
     case "subagent.updated":
-      options?.scheduleExecutionHydrate?.();
+      options?.scheduleExecutionHydrateDebounced?.();
       if (event.activity) {
         workspaceStore.upsertActivity(event.activity);
       } else {
@@ -199,6 +204,7 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
   const inFlightThreadRefreshKeyRef = useRef<string | null>(null);
   const inFlightExecutionHydrateRef = useRef(false);
   const inFlightComputeHydrateRef = useRef(false);
+  const executionHydrateDebounceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!workspaceId) {
@@ -254,6 +260,15 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
         inFlightExecutionHydrateRef.current = false;
       });
     };
+    const scheduleExecutionHydrateDebounced = () => {
+      if (executionHydrateDebounceTimerRef.current !== null) {
+        window.clearTimeout(executionHydrateDebounceTimerRef.current);
+      }
+      executionHydrateDebounceTimerRef.current = window.setTimeout(() => {
+        executionHydrateDebounceTimerRef.current = null;
+        scheduleExecutionHydrate();
+      }, 2000);
+    };
     const scheduleComputeHydrate = () => {
       if (inFlightComputeHydrateRef.current) {
         return;
@@ -281,6 +296,7 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
           handleWorkspaceEvent(workspaceId, event, {
             scheduleThreadRefresh,
             scheduleExecutionHydrate,
+            scheduleExecutionHydrateDebounced,
             scheduleComputeHydrate,
           });
         },
@@ -317,6 +333,10 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
       inFlightThreadRefreshKeyRef.current = null;
       inFlightExecutionHydrateRef.current = false;
       inFlightComputeHydrateRef.current = false;
+      if (executionHydrateDebounceTimerRef.current !== null) {
+        window.clearTimeout(executionHydrateDebounceTimerRef.current);
+        executionHydrateDebounceTimerRef.current = null;
+      }
       if (reconnectTimer !== null) {
         window.clearTimeout(reconnectTimer);
       }

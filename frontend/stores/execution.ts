@@ -35,6 +35,9 @@ function upsertExecutionList(
       }
     : execution;
 
+  const isSameObject = <T>(left: T, right: T): boolean =>
+    JSON.stringify(left) === JSON.stringify(right);
+
   if (
     existing &&
     existing.status === merged.status &&
@@ -45,10 +48,10 @@ function upsertExecutionList(
     existing.progress === merged.progress &&
     existing.task_message === merged.task_message &&
     existing.current_step === merged.current_step &&
-    existing.runtime_snapshot === merged.runtime_snapshot &&
-    existing.result_payload === merged.result_payload &&
-    existing.subagents === merged.subagents &&
-    existing.token_usage === merged.token_usage
+    isSameObject(existing.runtime_snapshot, merged.runtime_snapshot) &&
+    isSameObject(existing.result_payload, merged.result_payload) &&
+    isSameObject(existing.subagents, merged.subagents) &&
+    isSameObject(existing.token_usage, merged.token_usage)
   ) {
     return items;
   }
