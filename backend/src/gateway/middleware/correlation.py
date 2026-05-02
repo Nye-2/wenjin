@@ -11,7 +11,7 @@ from fastapi import Request, Response
 correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
 
-async def correlation_middleware(request: Request, call_next: Callable) -> Response:
+async def correlation_middleware(request: Request, call_next: Callable[[Request], Any]) -> Response:
     """Add correlation ID to all requests.
 
     Args:

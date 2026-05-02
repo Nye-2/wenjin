@@ -184,7 +184,7 @@ async def literature_management_graph(
     return stats
 
 
-def _compute_statistics(literature: list[dict], focus_topic: str) -> dict[str, Any]:
+def _compute_statistics(literature: list[dict[str, Any]], focus_topic: str) -> dict[str, Any]:
     """Compute base statistics (no LLM needed)."""
     total = len(literature)
     if total == 0:
@@ -269,7 +269,7 @@ LLM_ANALYSIS_PROMPT = """你是问津 Compute 的学术文献管理分析专家�
 
 
 async def _llm_analyze_literature(
-    literature: list[dict],
+    literature: list[dict[str, Any]],
     focus_topic: str,
     memory_context: str | None,
     *,

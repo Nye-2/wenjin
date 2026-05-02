@@ -37,7 +37,7 @@ class KnowledgeContextMiddleware(Middleware):
             return ""
 
         # Group artifacts by type
-        by_type: dict[str, list] = {}
+        by_type: dict[str, list[Any]] = {}
         for artifact in artifacts:
             artifact_type = artifact.type
             if artifact_type not in by_type:

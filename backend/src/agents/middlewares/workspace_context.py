@@ -102,7 +102,7 @@ class WorkspaceContextMiddleware(Middleware):
         config: RunnableConfig,
         tool_name: str,
         tool_args: dict[str, Any],
-    ) -> tuple[str, dict]:
+    ) -> tuple[str, dict[str, Any]]:
         """Force workspace-scoped tools to use the runtime workspace."""
         if tool_name not in _WORKSPACE_SCOPED_TOOL_NAMES:
             return tool_name, tool_args

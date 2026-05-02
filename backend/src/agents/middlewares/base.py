@@ -56,7 +56,7 @@ class Middleware(ABC):
         config: RunnableConfig,
         tool_name: str,
         tool_args: dict[str, Any],
-    ) -> tuple[str, dict]:
+    ) -> tuple[str, dict[str, Any]]:
         """Called before a tool is executed.
 
         Args:

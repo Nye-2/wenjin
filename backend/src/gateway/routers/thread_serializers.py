@@ -12,7 +12,7 @@ from src.services.workspace_skill_labels import resolve_thread_skill_name
 from .thread_contracts import ThreadMessage, ThreadResponse, ThreadSummaryResponse
 
 
-def thread_messages_to_response(messages: list[dict]) -> list[ThreadMessage]:
+def thread_messages_to_response(messages: list[dict[str, Any]]) -> list[ThreadMessage]:
     """Map persisted JSON messages to API models."""
     rendered_messages: list[ThreadMessage] = []
     for message in messages:

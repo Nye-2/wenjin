@@ -62,7 +62,7 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
     )
     discipline: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    config: Mapped[dict] = mapped_column(
+    config: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         default=dict,

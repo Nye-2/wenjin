@@ -70,7 +70,7 @@ def register_feature_graph(feature_id: str, workspace_type: str):
         Decorator function that registers the graph and returns it unchanged.
     """
 
-    def decorator(fn: Callable) -> Callable:
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         key = f"{workspace_type}.{feature_id}"
         _FEATURE_GRAPH_REGISTRY[key] = fn
         logger.debug("Registered feature graph: %s", key)

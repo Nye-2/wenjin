@@ -83,7 +83,7 @@ class VirtualPathMapper:
             rf"{re.escape(self.VIRTUAL_PREFIX)}(/[^\s\"';&|<>()]*)?"
         )
 
-        def replace_match(match: re.Match) -> str:
+        def replace_match(match: re.Match[str]) -> str:
             virtual_path = match.group(0)
             return self.to_physical(virtual_path, thread_id)
 

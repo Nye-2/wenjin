@@ -176,7 +176,7 @@ class AppConfig(BaseModel):
 
     @field_validator("tool_groups", mode="before")
     @classmethod
-    def _coerce_tool_groups(cls, v: object) -> list[dict]:
+    def _coerce_tool_groups(cls, v: object) -> list[dict[str, Any]]:
         """Accept ``tool_groups`` as either a list or a name→attrs dict."""
         if isinstance(v, dict):
             return [{"name": k, **(val if isinstance(val, dict) else {})} for k, val in v.items()]

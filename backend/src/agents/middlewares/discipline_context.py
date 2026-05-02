@@ -46,7 +46,7 @@ class DisciplineRegistry:
         self._disciplines: dict[str, Any] = config.get("disciplines", {})
         self._workspace_types: dict[str, Any] = config.get("workspace_types", {})
 
-    def get_norms(self, discipline: str, workspace_type: str | None = None) -> dict:
+    def get_norms(self, discipline: str, workspace_type: str | None = None) -> dict[str, Any]:
         """Get norms for a discipline and workspace type.
 
         Args:
