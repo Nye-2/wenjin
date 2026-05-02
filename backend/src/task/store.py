@@ -391,6 +391,7 @@ class TaskStore:
             record.runtime_state = runtime_state
 
         # Modify ExecutionSession in the same transaction
+        session = None
         if record.execution_session_id and runtime_state is not None:
             session = await ExecutionSessionService(self._db).get_by_id(
                 record.execution_session_id
@@ -408,8 +409,12 @@ class TaskStore:
         await self._db.commit()
         await self._db.refresh(record)
 
-        # Post-commit: touch compute projection
+        # Post-commit: publish execution event and touch compute projection
         if record.execution_session_id and runtime_state is not None:
+            if session is not None:
+                await publish_execution_session_event(
+                    session, event_type="execution.updated"
+                )
             from src.compute.session_service import ComputeSessionService
 
             await ComputeSessionService(self._db).touch_session_by_execution(

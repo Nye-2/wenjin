@@ -125,12 +125,7 @@ function handleWorkspaceEvent(
 
   switch (event.type) {
     case "task.updated": {
-      const applied = executionStore.ingestTaskEvent(
-        workspaceId,
-        event.task,
-        event.timestamp
-      );
-      if (!applied && event.task.execution_session_id) {
+      if (event.task.execution_session_id) {
         options?.scheduleExecutionHydrate?.();
       }
       if (event.activity) {
@@ -182,9 +177,7 @@ function handleWorkspaceEvent(
       void computeStore.fetchProjection(event.compute_session.id);
       break;
     case "subagent.updated":
-      if (!executionStore.appendSubagentUpdate(workspaceId, event)) {
-        options?.scheduleExecutionHydrate?.();
-      }
+      options?.scheduleExecutionHydrate?.();
       if (event.activity) {
         workspaceStore.upsertActivity(event.activity);
       } else {
