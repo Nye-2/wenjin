@@ -308,6 +308,7 @@ async def _try_langgraph_execution(
             "message": f"{feature_id} 已通过 LangGraph 增强完成",
             "data": result,
             "artifacts": artifacts,
+            "artifact_ids": [a["id"] for a in artifacts if a.get("id")],
             "refresh_targets": refresh_targets,
             "generated_at": result.get("generated_at", datetime.now(tz=UTC).isoformat()),
         }

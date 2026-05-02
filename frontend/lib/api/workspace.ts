@@ -356,27 +356,6 @@ export async function listArtifacts(
   return response.data;
 }
 
-export async function createArtifact(data: {
-  workspace_id: string;
-  type: string;
-  title?: string;
-  content: Record<string, unknown>;
-  created_by_skill?: string;
-  parent_artifact_id?: string;
-}): Promise<Artifact> {
-  const response = await apiClient.post(
-    `/workspaces/${data.workspace_id}/artifacts`,
-    {
-      type: data.type,
-      title: data.title,
-      content: data.content,
-      created_by_skill: data.created_by_skill,
-      parent_artifact_id: data.parent_artifact_id,
-    }
-  );
-  return response.data;
-}
-
 export async function getWorkspaceFeatures(
   workspaceId: string
 ): Promise<{ features: WorkspaceFeature[] }> {

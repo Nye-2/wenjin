@@ -33,6 +33,7 @@ class ArtifactCreatePayloadValidator(BaseModel):
     content: dict[str, Any]
     created_by_skill: Annotated[str, Field(max_length=100)] | None = None
     parent_artifact_id: str | None = None
+    execution_session_id: str | None = None
 
     @field_validator("title")
     @classmethod

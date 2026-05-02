@@ -50,6 +50,7 @@ from src.gateway.validators.artifact import (
 )
 from src.services import ThreadService
 from src.services.asset_url_signing import get_asset_url_signer
+from src.services.execution_session_service import ExecutionSessionService
 from src.services.workspace_skill_labels import (
     normalize_workspace_type,
     resolve_workspace_skill_name,
@@ -165,6 +166,25 @@ async def _create_workspace_artifact(
         created_by_skill=request.created_by_skill,
         parent_artifact_id=request.parent_artifact_id,
     )
+
+    # SSOT: associate newly-created artifact with its ExecutionSession so that
+    # ComputeProjectionService can surface it in the Compute Stage file list.
+    if request.execution_session_id:
+        session = await ExecutionSessionService(
+            artifact_service.db
+        ).get_by_id(request.execution_session_id)
+        if session is not None:
+            await ExecutionSessionService(
+                artifact_service.db
+            ).update_session_record(
+                session,
+                commit=False,
+                artifact_ids=[
+                    *list(session.artifact_ids or []),
+                    str(artifact.id),
+                ],
+            )
+
     return artifact_to_responses([artifact])[0]
 
 
