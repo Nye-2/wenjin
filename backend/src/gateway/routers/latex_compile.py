@@ -1,0 +1,106 @@
+"""LaTeX compile endpoints."""
+
+from __future__ import annotations
+
+import mimetypes
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.database import User
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.deps.core import get_db
+from src.gateway.contracts.latex import LatexCompileRequest, LatexCompileResponse
+from src.gateway.routers.latex_helpers import _not_found
+from src.services.latex import LatexCompileService, LatexProjectService
+
+router = APIRouter(prefix="/latex", tags=["latex"])
+
+
+@router.post("/projects/{project_id}/compile", response_model=LatexCompileResponse)
+async def compile_project(
+    project_id: str,
+    request: LatexCompileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LatexCompileResponse:
+    project_service = LatexProjectService(db)
+    project = await project_service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+    compile_service = LatexCompileService(db)
+    try:
+        payload = await compile_service.compile_project(
+            project,
+            main_file=request.main_file,
+            engine=request.engine,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return LatexCompileResponse(**payload)
+
+
+@router.get("/projects/{project_id}/compile/{history_id}/pdf")
+async def get_compiled_pdf(
+    project_id: str,
+    history_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    project_service = LatexProjectService(db)
+    project = await project_service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    compile_service = LatexCompileService(db)
+    pdf_path = await compile_service.get_history_pdf(
+        history_id=history_id,
+        project_id=project_id,
+    )
+    if pdf_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Compiled PDF not found")
+
+    media_type = mimetypes.guess_type(pdf_path.name)[0] or "application/pdf"
+    encoded_filename = quote(pdf_path.name)
+    return FileResponse(
+        path=pdf_path,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"
+        },
+    )
+
+
+@router.get("/projects/{project_id}/compile/{history_id}/synctex")
+async def get_compiled_synctex(
+    project_id: str,
+    history_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    project_service = LatexProjectService(db)
+    project = await project_service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    compile_service = LatexCompileService(db)
+    synctex_path = await compile_service.get_history_synctex(
+        history_id=history_id,
+        project_id=project_id,
+    )
+    if synctex_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Synctex file not found")
+
+    media_type = mimetypes.guess_type(synctex_path.name)[0] or "application/gzip"
+    encoded_filename = quote(synctex_path.name)
+    return FileResponse(
+        path=synctex_path,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        },
+    )

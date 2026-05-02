@@ -548,7 +548,7 @@ async def test_file_change_preview_and_apply_use_signature_guard(
 ) -> None:
     _reset_fake_router_service()
     monkeypatch.setattr(
-        "src.gateway.routers.latex.LatexProjectService",
+        "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
     user = SimpleNamespace(id="user-1")
@@ -588,7 +588,7 @@ async def test_file_change_apply_rejects_stale_preview_signature(
 ) -> None:
     _reset_fake_router_service()
     monkeypatch.setattr(
-        "src.gateway.routers.latex.LatexProjectService",
+        "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
     user = SimpleNamespace(id="user-1")
@@ -622,7 +622,7 @@ async def test_file_change_discard_protects_current_content(
 ) -> None:
     _reset_fake_router_service()
     monkeypatch.setattr(
-        "src.gateway.routers.latex.LatexProjectService",
+        "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
 
@@ -645,7 +645,7 @@ async def test_file_change_revert_restores_previous_content(
 ) -> None:
     _reset_fake_router_service()
     monkeypatch.setattr(
-        "src.gateway.routers.latex.LatexProjectService",
+        "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
     user = SimpleNamespace(id="user-1")

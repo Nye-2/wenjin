@@ -54,8 +54,8 @@ def client(app):
 
 def test_latex_upload_rejects_too_many_files(client):
     _FakeLatexProjectService.save_uploads_calls = 0
-    with patch("src.gateway.routers.latex.LatexProjectService", _FakeLatexProjectService), patch(
-        "src.gateway.routers.latex._MAX_UPLOAD_FILES",
+    with patch("src.gateway.routers.latex_upload.LatexProjectService", _FakeLatexProjectService), patch(
+        "src.gateway.routers.latex_upload._MAX_UPLOAD_FILES",
         2,
     ):
         response = client.post(
@@ -74,11 +74,11 @@ def test_latex_upload_rejects_too_many_files(client):
 
 def test_latex_upload_rejects_oversized_total_batch(client):
     _FakeLatexProjectService.save_uploads_calls = 0
-    with patch("src.gateway.routers.latex.LatexProjectService", _FakeLatexProjectService), patch(
-        "src.gateway.routers.latex._MAX_UPLOAD_FILE_BYTES",
+    with patch("src.gateway.routers.latex_upload.LatexProjectService", _FakeLatexProjectService), patch(
+        "src.gateway.routers.latex_upload._MAX_UPLOAD_FILE_BYTES",
         16,
     ), patch(
-        "src.gateway.routers.latex._MAX_UPLOAD_TOTAL_BYTES",
+        "src.gateway.routers.latex_upload._MAX_UPLOAD_TOTAL_BYTES",
         8,
     ):
         response = client.post(
@@ -96,8 +96,8 @@ def test_latex_upload_rejects_oversized_total_batch(client):
 
 def test_latex_upload_rejects_single_file_over_limit(client):
     _FakeLatexProjectService.save_uploads_calls = 0
-    with patch("src.gateway.routers.latex.LatexProjectService", _FakeLatexProjectService), patch(
-        "src.gateway.routers.latex._MAX_UPLOAD_FILE_BYTES",
+    with patch("src.gateway.routers.latex_upload.LatexProjectService", _FakeLatexProjectService), patch(
+        "src.gateway.routers.latex_upload._MAX_UPLOAD_FILE_BYTES",
         4,
     ):
         response = client.post(
