@@ -86,6 +86,31 @@ function formatPreprocessLabel(status: string): string {
   }
 }
 
+function buildBibtexPreview(reference: Reference): string | null {
+  if (!reference.citation_key) return null;
+  const entryType = reference.bibtex_entry_type || "article";
+  const fields: Record<string, string> = {};
+  fields.title = reference.title;
+  if (reference.authors && reference.authors.length > 0) {
+    fields.author = reference.authors.join(" and ");
+  }
+  if (reference.year) fields.year = String(reference.year);
+  if (reference.venue) {
+    fields[entryType === "inproceedings" ? "booktitle" : "journal"] = reference.venue;
+  }
+  if (reference.doi) fields.doi = reference.doi;
+  if (reference.url) fields.url = reference.url;
+  if (reference.bibtex_fields) {
+    for (const [key, value] of Object.entries(reference.bibtex_fields)) {
+      if (typeof value === "string" && value) fields[key] = value;
+    }
+  }
+  const rendered = Object.entries(fields)
+    .map(([key, value]) => `  ${key} = {${value}}`)
+    .join(",\n");
+  return `@${entryType}{${reference.citation_key},\n${rendered}\n}`;
+}
+
 function formatLibraryStatus(status: string): string {
   switch (status) {
     case "core":
@@ -771,6 +796,46 @@ export function LiteraturePanel({
                   <p className="max-h-40 overflow-y-auto text-xs text-[var(--text-secondary)]">
                     {selectedReference.abstract}
                   </p>
+                </div>
+              ) : null}
+              {(() => {
+                const bibtex = buildBibtexPreview(selectedReference);
+                return bibtex ? (
+                  <div>
+                    <h5 className="mb-1 text-xs font-medium text-[var(--text-primary)]">BibTeX</h5>
+                    <pre className="max-h-40 overflow-auto rounded-md bg-[var(--bg-muted)] p-2 text-[11px] text-[var(--text-secondary)]">
+                      {bibtex}
+                    </pre>
+                  </div>
+                ) : null;
+              })()}
+              {referenceOutlines.get(selectedReference.id) ? (
+                <div>
+                  <h5 className="mb-1 text-xs font-medium text-[var(--text-primary)]">目录</h5>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {referenceOutlines.get(selectedReference.id)?.map((node) => (
+                      <div
+                        key={node.id}
+                        className="flex items-start gap-2 text-xs"
+                        style={{ paddingLeft: `${(node.level - 1) * 12}px` }}
+                      >
+                        <span className="mt-0.5 flex-shrink-0 text-[10px] text-[var(--text-muted)]">
+                          {node.section_path}
+                        </span>
+                        <span className="flex-1 truncate text-[var(--text-secondary)]">
+                          {node.title}
+                        </span>
+                        {node.page_start ? (
+                          <span className="flex-shrink-0 text-[10px] text-[var(--text-muted)]">
+                            p.{node.page_start}
+                            {node.page_end && node.page_end !== node.page_start
+                              ? `–${node.page_end}`
+                              : ""}
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>
