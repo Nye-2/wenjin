@@ -13,6 +13,7 @@ import {
   Database,
   ExternalLink,
   FileText,
+  Info,
   Loader2,
   Upload,
   Users,
@@ -25,6 +26,13 @@ import {
   uploadReferenceFile,
 } from "@/lib/api";
 import { openAuthorizedAsset, resolvePublicAssetUrl } from "@/lib/public-assets";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { type Reference, useWorkspaceStore } from "@/stores/workspace";
 
@@ -46,6 +54,7 @@ interface ReferenceItemProps {
   outline: OutlineNode[] | null;
   isLoadingOutline: boolean;
   onToggleExpand: (reference: Reference) => void;
+  onViewDetail: (reference: Reference) => void;
 }
 
 interface UploadState {
@@ -159,6 +168,7 @@ function ReferenceItem({
   outline,
   isLoadingOutline,
   onToggleExpand,
+  onViewDetail,
 }: ReferenceItemProps) {
   const url = primaryReferenceUrl(reference);
   const citationCount = formatCount(reference.citation_count);
@@ -255,6 +265,14 @@ function ReferenceItem({
             <ExternalLink className="h-3 w-3" />
           )}
           {isOpening ? "打开中" : url ? "查看来源" : "无可打开来源"}
+        </button>
+        <button
+          type="button"
+          onClick={() => onViewDetail(reference)}
+          className="flex items-center gap-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+        >
+          <Info className="h-3 w-3" />
+          详情
         </button>
       </div>
 
@@ -413,6 +431,7 @@ export function LiteraturePanel({
   const [expandedReferenceId, setExpandedReferenceId] = useState<string | null>(null);
   const [referenceOutlines, setReferenceOutlines] = useState<Map<string, OutlineNode[]>>(new Map());
   const [loadingOutlineId, setLoadingOutlineId] = useState<string | null>(null);
+  const [selectedReference, setSelectedReference] = useState<Reference | null>(null);
 
   useEffect(() => {
     if (workspaceId) {
@@ -698,12 +717,66 @@ export function LiteraturePanel({
                   outline={referenceOutlines.get(reference.id) ?? null}
                   isLoadingOutline={loadingOutlineId === reference.id}
                   onToggleExpand={handleToggleExpand}
+                  onViewDetail={setSelectedReference}
                 />
               ))}
             </div>
           )}
         </AnimatePresence>
       </div>
+
+      <Dialog open={!!selectedReference} onOpenChange={() => setSelectedReference(null)}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{selectedReference?.title || "文献详情"}</DialogTitle>
+            <DialogDescription>
+              {selectedReference?.authors && selectedReference.authors.length > 0
+                ? selectedReference.authors.join(", ")
+                : "未知作者"}
+              {selectedReference?.year ? ` · ${selectedReference.year}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedReference && (
+            <div className="space-y-4 text-sm">
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full bg-[var(--accent-primary)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--accent-primary)]">
+                  {formatLibraryStatus(selectedReference.library_status)}
+                </span>
+                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+                  {formatEvidenceLevel(selectedReference.evidence_level)}
+                </span>
+                <span className="rounded-full bg-[var(--bg-muted)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">
+                  {formatFulltextStatus(selectedReference.fulltext_status)}
+                </span>
+              </div>
+              {selectedReference.venue ? (
+                <div className="flex items-center gap-2 text-[var(--text-secondary)]">
+                  <BookOpen className="h-4 w-4" />
+                  <span>{selectedReference.venue}</span>
+                </div>
+              ) : null}
+              {selectedReference.doi ? (
+                <div className="text-[var(--text-muted)]">
+                  DOI: {selectedReference.doi}
+                </div>
+              ) : null}
+              {selectedReference.citation_key ? (
+                <div className="rounded-md bg-[var(--bg-muted)] px-3 py-2 font-mono text-xs text-[var(--text-secondary)]">
+                  @{selectedReference.citation_key}
+                </div>
+              ) : null}
+              {selectedReference.abstract ? (
+                <div>
+                  <h5 className="mb-1 text-xs font-medium text-[var(--text-primary)]">摘要</h5>
+                  <p className="max-h-40 overflow-y-auto text-xs text-[var(--text-secondary)]">
+                    {selectedReference.abstract}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
