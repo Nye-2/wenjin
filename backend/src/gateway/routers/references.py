@@ -92,6 +92,10 @@ class BibtexScopeRequest(BaseModel):
     scope: ReferenceBibtexScope = ReferenceBibtexScope.INCLUDED_AND_CORE
 
 
+class BibtexValidateRequest(BaseModel):
+    latex_content: str | None = Field(default=None, description="LaTeX content to validate citation keys against.")
+
+
 async def _read_upload(upload: UploadFile) -> bytes:
     chunks: list[bytes] = []
     total = 0
@@ -380,6 +384,7 @@ async def get_bibtex(
 @router.post("/bibtex/validate")
 async def validate_bibtex(
     workspace_id: str,
+    request: BibtexValidateRequest | None = None,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     db: AsyncSession = Depends(get_db),
@@ -389,7 +394,13 @@ async def validate_bibtex(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    return await ReferenceBibTeXService(db).validate_bibtex(workspace_id=workspace_id)
+    service = ReferenceBibTeXService(db)
+    if request and request.latex_content:
+        return await service.validate_citations(
+            workspace_id=workspace_id,
+            latex_content=request.latex_content,
+        )
+    return await service.validate_bibtex(workspace_id=workspace_id)
 
 
 @router.post("/bibtex/sync-prism")

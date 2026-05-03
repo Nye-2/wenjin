@@ -1916,6 +1916,21 @@ class ReferenceUsageService:
         return usage_result
 
 
+_LATEX_CITATION_RE = re.compile(r"\\cite[a-zA-Z]*(?:\[[^\]]*\])*\{([^{}]*)\}")
+
+
+def _extract_citation_keys(latex_content: str) -> set[str]:
+    """Extract all citation keys from LaTeX content."""
+    keys: set[str] = set()
+    for match in _LATEX_CITATION_RE.finditer(latex_content):
+        raw = match.group(1)
+        for key in raw.split(","):
+            key = key.strip()
+            if key:
+                keys.add(key)
+    return keys
+
+
 class ReferenceBibTeXService:
     """Generate and synchronize BibTeX from workspace references."""
 
@@ -1952,6 +1967,46 @@ class ReferenceBibTeXService:
             "ok": not missing and not duplicates,
             "missing_citation_key_reference_ids": missing,
             "duplicate_citation_keys": duplicates,
+        }
+
+    async def validate_citations(
+        self,
+        *,
+        workspace_id: str,
+        latex_content: str,
+    ) -> dict[str, Any]:
+        """Validate cite keys in LaTeX content against workspace references.
+
+        Returns:
+            dict with valid, missing_keys, unused_bib_keys, unverified_keys.
+        """
+        cited_keys = _extract_citation_keys(latex_content)
+        result = await self.db.execute(
+            select(WorkspaceReference).where(
+                WorkspaceReference.workspace_id == workspace_id,
+                WorkspaceReference.is_deleted.is_(False),
+            )
+        )
+        references = list(result.scalars().all())
+        workspace_keys = {ref.citation_key for ref in references if ref.citation_key}
+        verified_keys = {
+            ref.citation_key
+            for ref in references
+            if ref.citation_key
+            and ref.evidence_level not in {
+                ReferenceEvidenceLevel.METADATA_ONLY.value,
+            }
+        }
+
+        missing_keys = sorted(cited_keys - workspace_keys)
+        unused_bib_keys = sorted(workspace_keys - cited_keys)
+        unverified_keys = sorted(cited_keys & (workspace_keys - verified_keys))
+
+        return {
+            "valid": not missing_keys and not unverified_keys,
+            "missing_keys": missing_keys,
+            "unused_bib_keys": unused_bib_keys,
+            "unverified_keys": unverified_keys,
         }
 
     async def sync_prism(
