@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useThreadStore } from "@/stores/thread";
 import { useExecutionStore } from "@/stores/execution";
@@ -8,6 +8,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { ThreadPanel } from "../components/ThreadPanel";
 import { parseWorkspaceThreadEntrySeed } from "@/lib/workspace-thread-entry";
 import { WorkspaceInspector } from "../components/WorkspaceInspector";
+import { ArtifactDetailDialog } from "@/components/workspace/ArtifactDetailDialog";
 import { cn } from "@/lib/utils";
 import type { ExecutionSession } from "@/lib/api";
 
@@ -24,6 +25,31 @@ function ThreadPageInner() {
   const skillFromUrl = searchParams?.get("skill") ?? null;
   const entrySeed = searchParams ? parseWorkspaceThreadEntrySeed(searchParams) : null;
   const isOnboarding = searchParams?.get("onboarding") === "true";
+  const artifactIdFromUrl = searchParams?.get("artifact") ?? null;
+
+  const artifacts = useWorkspaceStore((state) => state.artifacts);
+  const [artifactDialogOpen, setArtifactDialogOpen] = useState(false);
+  const selectedArtifact = useMemo(
+    () => artifacts.find((a) => a.id === artifactIdFromUrl) ?? null,
+    [artifacts, artifactIdFromUrl]
+  );
+
+  useEffect(() => {
+    if (artifactIdFromUrl && selectedArtifact) {
+      setArtifactDialogOpen(true);
+    }
+  }, [artifactIdFromUrl, selectedArtifact]);
+
+  const handleArtifactDialogClose = (open: boolean) => {
+    setArtifactDialogOpen(open);
+    if (!open && artifactIdFromUrl) {
+      const nextParams = new URLSearchParams(searchParamString);
+      nextParams.delete("artifact");
+      const nextQuery = nextParams.toString();
+      const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+      router.replace(nextUrl, { scroll: false });
+    }
+  };
 
   const workspace = useWorkspaceStore((state) => state.workspace);
   const executionSessions = useExecutionStore(
@@ -166,6 +192,11 @@ function ThreadPageInner() {
           <WorkspaceInspector workspaceId={workspaceId} />
         </div>
       </div>
+      <ArtifactDetailDialog
+        artifact={selectedArtifact}
+        open={artifactDialogOpen}
+        onOpenChange={handleArtifactDialogClose}
+      />
     </div>
   );
 }
