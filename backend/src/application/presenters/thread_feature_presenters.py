@@ -144,7 +144,8 @@ def summarize_feature_result(
                 else ["论文大纲已生成。"]
             )
         elif action == "write_chapter":
-            chapter = data.get("chapter") if isinstance(data.get("chapter"), Mapping) else {}
+            raw_chapter = data.get("chapter")
+            chapter = raw_chapter if isinstance(raw_chapter, Mapping) else {}
             chapter_title = str(
                 chapter.get("chapter_title") or chapter.get("title") or "章节草稿"
             ).strip()

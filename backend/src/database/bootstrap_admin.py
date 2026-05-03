@@ -95,7 +95,7 @@ async def async_main() -> int:
 
     # Create async engine
     engine = create_async_engine(database_url, echo=False)
-    async_session = sessionmaker(
+    async_session = sessionmaker(  # type: ignore[call-overload]
         engine,
         class_=AsyncSession,
         expire_on_commit=False,

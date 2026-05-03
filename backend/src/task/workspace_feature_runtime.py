@@ -640,7 +640,7 @@ def enrich_runtime_with_result(
         verified_papers: list[Any] | None = corpus.get("verified_papers")
         if not isinstance(verified_papers, list):
             verified_papers = result.get("verified_papers") if isinstance(result.get("verified_papers"), list) else []
-        result_metrics.insert(1, {"label": "已验证文献", "value": str(corpus.get("verified_count") or len(verified_papers))})
+        result_metrics.insert(1, {"label": "已验证文献", "value": str(corpus.get("verified_count") or len(verified_papers or []))})
         result_metrics.insert(
             2,
             {"label": "研究空白", "value": str(len(gaps) if isinstance(gaps, list) else 0)},
@@ -1287,9 +1287,10 @@ def enrich_runtime_with_result(
             phase_count = len(workflow.get("phases") or []) if isinstance(workflow.get("phases"), list) else 0
         task_count = workflow.get("task_count")
         if task_count is None:
-            phase_list = workflow.get("phases") if isinstance(workflow.get("phases"), list) else []
+            phases_raw = workflow.get("phases")
+            phase_list = phases_raw if isinstance(phases_raw, list) else []
             task_count = sum(
-                len(phase.get("tasks") or [])  # type: ignore[misc]
+                len(phase.get("tasks") or [])
                 for phase in phase_list
                 if isinstance(phase, dict)
             )

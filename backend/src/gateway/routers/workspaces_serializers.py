@@ -19,7 +19,7 @@ def workspace_to_response(workspace: Workspace) -> WorkspaceResponse:
         id=str(workspace.id),
         user_id=str(workspace.user_id),
         name=workspace.name,
-        type=workspace.type.value if workspace.type else None,
+        type=workspace.type.value,
         discipline=workspace.discipline,
         description=workspace.description,
         config=workspace.config or {},

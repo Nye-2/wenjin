@@ -126,7 +126,8 @@ async def execute_document_preprocess(payload: dict[str, Any], progress: Any) ->
         raise ValueError(result.error or "Document preprocess failed")
 
     refresh_targets = ["dashboard"]
-    attachment = payload.get("attachment") if isinstance(payload.get("attachment"), dict) else {}
+    raw_attachment = payload.get("attachment")
+    attachment = raw_attachment if isinstance(raw_attachment, dict) else {}
     if attachment.get("reference_id"):
         refresh_targets.append("references")
     if attachment.get("artifact_id"):

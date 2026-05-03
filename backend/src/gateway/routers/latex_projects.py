@@ -35,7 +35,7 @@ async def list_projects(
 ) -> LatexProjectListResponse:
     service = LatexProjectService(db)
     projects = await service.list_by_user(str(current_user.id), include_trashed=include_trashed)
-    return LatexProjectListResponse(projects=projects)
+    return LatexProjectListResponse(projects=projects)  # type: ignore[arg-type]
 
 
 @router.post("/projects", response_model=LatexProjectResponse, status_code=status.HTTP_201_CREATED)

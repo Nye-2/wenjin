@@ -147,7 +147,7 @@ class LatexCompileService:
                 "page_count": page_count,
             }
         except (DockerExecutionError, FileNotFoundError, TimeoutError) as exc:
-            history_id: str | None = None
+            history_id = None
             if record_history:
                 history = LatexCompileHistory(
                     project_id=project.id,

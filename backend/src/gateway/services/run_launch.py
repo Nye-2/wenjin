@@ -51,7 +51,7 @@ async def launch_run_from_create_request(
     actor_id: str,
     run_thread_id: str,
     request_thread_id: str | None,
-    handler,
+    handler: Any,
     run_manager: RunManager,
     bridge: StreamBridge,
 ) -> RunRecord:

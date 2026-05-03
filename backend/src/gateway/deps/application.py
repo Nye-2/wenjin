@@ -1,5 +1,7 @@
 """Application-handler dependency factories."""
 
+from typing import Any
+
 from fastapi import Depends
 
 from src.application.handlers.thread_turn_handler import ThreadTurnHandler
@@ -18,11 +20,11 @@ from src.gateway.deps.threads import get_thread_service
 
 
 async def get_thread_turn_handler(
-    thread_service=Depends(get_thread_service),
-    workspace_service=Depends(get_workspace_service),
-    index_service=Depends(get_reference_index_service),
-    artifact_service=Depends(get_artifact_service),
-    reference_service=Depends(get_reference_service),
+    thread_service: Any = Depends(get_thread_service),
+    workspace_service: Any = Depends(get_workspace_service),
+    index_service: Any = Depends(get_reference_index_service),
+    artifact_service: Any = Depends(get_artifact_service),
+    reference_service: Any = Depends(get_reference_service),
 ) -> ThreadTurnHandler:
     """Construct a request-scoped thread turn handler."""
     return ThreadTurnHandler(
@@ -35,12 +37,12 @@ async def get_thread_turn_handler(
 
 
 async def get_feature_launch_service(
-    current_user=Depends(get_current_user),
-    db=Depends(get_db),
-    workspace_service=Depends(get_workspace_service),
-    task_service=Depends(get_task_service),
-    reference_service=Depends(get_reference_service),
-    credit_service=Depends(get_credit_service),
+    current_user: Any = Depends(get_current_user),
+    db: Any = Depends(get_db),
+    workspace_service: Any = Depends(get_workspace_service),
+    task_service: Any = Depends(get_task_service),
+    reference_service: Any = Depends(get_reference_service),
+    credit_service: Any = Depends(get_credit_service),
 ) -> FeatureIngressService:
     """Construct a request-scoped feature launch service."""
     return build_feature_ingress_service(

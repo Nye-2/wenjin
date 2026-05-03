@@ -16,7 +16,7 @@ async def build_wait_payload(
     *,
     record: RunRecord,
     actor_id: str,
-    handler,
+    handler: Any,
     run_manager: RunManager,
 ) -> dict[str, Any]:
     latest = await run_manager.get_or_load(record.run_id, refresh=True) or record

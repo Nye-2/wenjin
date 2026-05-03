@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from importlib import import_module
+from typing import Any
 
 _EXPORT_MODULES = {
     "get_admin_dashboard_service": "src.gateway.deps.dashboard",

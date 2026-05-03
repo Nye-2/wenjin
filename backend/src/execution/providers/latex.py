@@ -156,7 +156,7 @@ class LaTeXProvider(ExecutionProvider):
         content: str,
         work_dir: str,
         options: dict[str, Any],
-        docker_client: "DockerClient | None" = None,
+        docker_client: "DockerClient | None" = None,  # type: ignore[override]
     ) -> ProviderResult:
         """Execute LaTeX compilation.
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
@@ -103,7 +103,8 @@ async def _record_reference_access(
 ) -> None:
     """Best-effort evidence-access audit for outline/page navigation."""
     try:
-        units = section.get("units") if isinstance(section.get("units"), list) else []
+        raw_units = section.get("units")
+        units = raw_units if isinstance(raw_units, list) else []
         first_unit = next((item for item in units if isinstance(item, dict)), {})
         await ReferenceUsageService(db).record_usage(
             workspace_id=workspace_id,
@@ -138,6 +139,7 @@ async def list_workspace_reference_outline_tool(
     resolved_workspace_id, error = _resolve_workspace_scope(workspace_id, config)
     if error is not None:
         return json.dumps(error, ensure_ascii=False)
+    assert resolved_workspace_id is not None
     async with get_db_session() as db:
         index_service = ReferenceIndexService(db)
         summary = await index_service.get_workspace_toc_summary(resolved_workspace_id)
@@ -155,6 +157,7 @@ async def search_workspace_references_tool(
     resolved_workspace_id, error = _resolve_workspace_scope(workspace_id, config)
     if error is not None:
         return json.dumps(error, ensure_ascii=False)
+    assert resolved_workspace_id is not None
     async with get_db_session() as db:
         index_service = ReferenceIndexService(db)
         records = await index_service.search_workspace_sections(
@@ -212,7 +215,7 @@ async def read_workspace_reference_section_tool(
         if section:
             await _record_reference_access(
                 db=db,
-                workspace_id=resolved_workspace_id,
+                workspace_id=cast(str, resolved_workspace_id),
                 reference_id=reference_id,
                 section=section,
                 config=config,

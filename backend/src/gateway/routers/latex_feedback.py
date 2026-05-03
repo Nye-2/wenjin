@@ -580,8 +580,8 @@ async def map_project_feedback_selection(
                     if mapped_path:
                         target_file_path = mapped_path
                     source_content = service.read_text_file(project, target_file_path)
-                    synctex_line = int(mapped.get("line") or 1)
-                    synctex_column = int(mapped.get("column") or 1)
+                    synctex_line = int(mapped.get("line") or 1)  # type: ignore[call-overload]
+                    synctex_column = int(mapped.get("column") or 1)  # type: ignore[call-overload]
                     synctex_offset = LatexCompileService._line_column_to_offset(
                         source_content,
                         synctex_line,
@@ -662,7 +662,7 @@ async def map_project_feedback_selection(
                 norm_y = mapped_pdf.get("normalized_y")
                 if isinstance(norm_x, (int, float)) and isinstance(norm_y, (int, float)):
                     response_pdf_anchor = {
-                        "page": int(mapped_pdf.get("page") or 1),
+                        "page": int(mapped_pdf.get("page") or 1),  # type: ignore[call-overload]
                         "text": resolved.text,
                         "rects": [
                             {

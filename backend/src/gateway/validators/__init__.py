@@ -3,7 +3,7 @@
 This module provides comprehensive input validation using Pydantic v2 patterns.
 """
 
-from .artifact import (
+from .artifact import (  # type: ignore[attr-defined]
     ArtifactCreatePayloadValidator,
     ArtifactStatus,
     ArtifactType,

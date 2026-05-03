@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse, Response
@@ -55,7 +56,13 @@ async def get_project_tree(
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
-    items = [LatexFileItem(**item) for item in service.build_tree(project)]
+    items = [
+        LatexFileItem(
+            path=item["path"],
+            type=cast(Literal["file", "dir"], item["type"]),
+        )
+        for item in service.build_tree(project)
+    ]
     return LatexTreeResponse(items=items, file_order=dict(project.file_order or {}))
 
 

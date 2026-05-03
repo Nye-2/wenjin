@@ -92,7 +92,7 @@ class DockerSDKProtocol(Protocol):
 
 def _create_docker_client() -> DockerSDKProtocol:
     """Create a Docker SDK client through the dynamically imported module."""
-    from_env = cast(Callable[[], DockerSDKProtocol], docker.from_env)
+    from_env = cast(Callable[[], DockerSDKProtocol], docker.from_env)  # type: ignore[attr-defined]
     return from_env()
 
 

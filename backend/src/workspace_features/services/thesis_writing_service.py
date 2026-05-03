@@ -223,16 +223,10 @@ async def build_outline_payload(
         workspace_id=workspace_id,
         artifact_ids=deep_research_artifact_ids,
     )
-    idea_items = (
-        deep_research_snapshot.get("idea_items")
-        if isinstance(deep_research_snapshot.get("idea_items"), list)
-        else []
-    )
-    gap_highlights = (
-        deep_research_snapshot.get("gap_highlights")
-        if isinstance(deep_research_snapshot.get("gap_highlights"), list)
-        else []
-    )
+    raw_idea_items = deep_research_snapshot.get("idea_items")
+    idea_items = raw_idea_items if isinstance(raw_idea_items, list) else []
+    raw_gap_highlights = deep_research_snapshot.get("gap_highlights")
+    gap_highlights = raw_gap_highlights if isinstance(raw_gap_highlights, list) else []
 
     ideas_text = "\n".join(
         f"- {item.get('title')}: {item.get('description')}"

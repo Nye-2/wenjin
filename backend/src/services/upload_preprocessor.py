@@ -299,7 +299,7 @@ class OCRProvider(BaseProvider):
         output_dir: Path,
         output_virtual_root: str | None,
     ) -> ProviderResult:
-        file_type = "pdf" if is_pdf_upload(filename, content_type) else "image"
+        file_type: Literal["pdf", "image"] = "pdf" if is_pdf_upload(filename, content_type) else "image"
 
         timeout = httpx.Timeout(self._settings.timeout_seconds)
         async with httpx.AsyncClient(timeout=timeout) as client:

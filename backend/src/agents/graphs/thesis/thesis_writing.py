@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
@@ -424,12 +424,10 @@ async def _handle_write_all(
         workspace_id=workspace_id,
         preferred_model=model_id,
     )
-    outline = (
-        outline_payload.get("outline")
-        if isinstance(outline_payload.get("outline"), dict)
-        else {}
-    )
-    chapters = outline.get("chapters") if isinstance(outline.get("chapters"), list) else []
+    raw_outline = outline_payload.get("outline")
+    outline = raw_outline if isinstance(raw_outline, dict) else {}
+    raw_chapters = outline.get("chapters")
+    chapters = raw_chapters if isinstance(raw_chapters, list) else []
 
     chapter_payloads: list[dict[str, Any]] = []
     if chapters:
@@ -785,7 +783,7 @@ async def _review_section(
         response = await model.ainvoke(prompt)
         record_token_usage(response)
         content = response.content if hasattr(response, "content") else str(response)
-        parsed = _parse_json_response(content)
+        parsed = _parse_json_response(cast(str, content))
         if parsed is not None and _validate_review_result(parsed):
             return parsed
         return None
@@ -826,7 +824,7 @@ async def _revise_section(
         response = await model.ainvoke(prompt)
         record_token_usage(response)
         content = response.content if hasattr(response, "content") else str(response)
-        parsed = _parse_json_response(content)
+        parsed = _parse_json_response(cast(str, content))
         if parsed is not None and "revised_content" in parsed:
             return parsed
         return None

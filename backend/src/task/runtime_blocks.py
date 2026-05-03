@@ -7,6 +7,18 @@ from typing import Any
 
 from src.task.progress import emit_runtime_update, get_runtime_state
 
+__all__ = [
+    "emit_runtime_update",
+    "get_runtime_state",
+    "create_feature_runtime",
+    "append_runtime_activity",
+    "set_runtime_phase",
+    "advance_runtime_phase",
+    "upsert_runtime_block",
+    "runtime_progress_for_phase",
+    "emit_bound_runtime",
+]
+
 _FEATURE_RUNTIME_CONFIG: dict[str, dict[str, Any]] = {
     "deep_research": {
         "title": "深度调研",

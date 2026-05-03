@@ -13,6 +13,7 @@ import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any
 
 from src.academic.services.artifact_service import ArtifactService
@@ -357,7 +358,7 @@ async def _load_workspace_references(workspace_id: str) -> list[dict[str, Any]]:
 
 
 def extract_thesis_chapter_summaries(
-    artifacts: list[Artifact | dict[str, Any]],
+    artifacts: Sequence[Artifact | dict[str, Any]],
     max_content_chars: int = 500,
 ) -> list[dict[str, str]]:
     """Extract sorted thesis chapter summaries from artifact records."""

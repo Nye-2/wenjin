@@ -609,16 +609,13 @@ def build_feature_task_completion_card(
     result: Mapping[str, Any] | None,
 ) -> GeneratedThreadReply:
     """Build a structured assistant card for async feature completion."""
-    data = (
-        result.get("data")
-        if isinstance(result, Mapping) and isinstance(result.get("data"), Mapping)
-        else {}
-    )
-    artifacts = (
-        result.get("artifacts")
-        if isinstance(result, Mapping) and isinstance(result.get("artifacts"), list)
-        else []
-    )
+    raw_data = result.get("data") if isinstance(result, Mapping) else None
+    data: dict[str, Any] = dict(raw_data) if isinstance(raw_data, Mapping) else {}
+    raw_artifacts = result.get("artifacts") if isinstance(result, Mapping) else None
+    artifacts: list[dict[str, Any]] = [
+        a for a in (raw_artifacts if isinstance(raw_artifacts, list) else [])
+        if isinstance(a, dict)
+    ]
     summary = _feature_result_summary(feature_id, data, artifacts)
     params = _sanitize_orchestration_params(coerce_workspace_feature_params(payload))
     follow_up_prompt = _feature_follow_up_prompt(feature_id)

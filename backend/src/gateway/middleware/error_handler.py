@@ -156,9 +156,9 @@ def register_error_handlers(app: FastAPI) -> None:
     Args:
         app: The FastAPI application instance.
     """
-    app.add_exception_handler(WenjinException, wenjin_exception_handler)
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)
-    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(WenjinException, wenjin_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, generic_exception_handler)
 
     logger.info("Error handlers registered successfully")

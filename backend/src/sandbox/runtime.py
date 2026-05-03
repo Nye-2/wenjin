@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from langchain_core.runnables import RunnableConfig
 
@@ -108,7 +108,7 @@ async def resolve_runtime_sandbox(
 
     runtime_config = config or {}
     configurable = runtime_config.get("configurable", {})
-    sandbox_state = (state or {}).get("sandbox") or {}
+    sandbox_state = cast(dict[str, Any], state or {}).get("sandbox") or {}
 
     sandbox_id = sandbox_state.get("sandbox_id")
     if sandbox_id:

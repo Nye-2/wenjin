@@ -18,7 +18,7 @@ from src.agents.harness import (
 )
 from src.agents.harness.claude_agent_adapter import ClaudeAgentSdkAdapter
 from src.agents.harness.codex_adapter import CodexAgentAdapter
-from src.agents.harness.contracts import PhaseResult
+from src.agents.harness.contracts import PhaseResult  # type: ignore[attr-defined]
 from src.agents.harness.deerflow_adapter import DeerFlowHarnessAdapter
 from src.task.runtime_blocks import (
     append_runtime_activity,

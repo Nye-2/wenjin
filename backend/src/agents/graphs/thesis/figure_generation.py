@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
@@ -157,7 +157,7 @@ async def _plan_figure(
         response = await model.ainvoke(prompt)
         record_token_usage(response)
         content = response.content if hasattr(response, "content") else str(response)
-        plan = _parse_json_response(content)
+        plan = _parse_json_response(cast(str, content))
         if plan is None:
             return None
         # Validate recommended_strategy

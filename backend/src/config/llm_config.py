@@ -310,7 +310,7 @@ def get_model_config(model_id: str) -> ModelConfig | None:
 
     if model_id in llm_models:
         return llm_models[model_id]
-    if model_id in image_models:
+    if image_models is not None and model_id in image_models:
         return image_models[model_id]
 
     return None

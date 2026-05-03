@@ -6,7 +6,7 @@ import json
 import logging
 from collections import Counter
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.agents.feature_leader.graph_registry import register_feature_graph
 from src.agents.graphs._shared import _read_optional_str, _read_payload_params
@@ -309,7 +309,7 @@ async def _llm_analyze_literature(
         response = await model.ainvoke(prompt)
         record_token_usage(response)
         content = response.content if hasattr(response, "content") else str(response)
-        return _parse_json_response(content)
+        return _parse_json_response(cast(str, content))
     except Exception:
         logger.exception("LLM literature analysis failed")
         return None

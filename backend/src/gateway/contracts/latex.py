@@ -30,12 +30,12 @@ _SUPPORTED_ENGINES = frozenset({"xelatex", "pdflatex"})
 _FALLBACK_ENGINE = "xelatex"
 
 
-def get_default_latex_engine() -> str:
+def get_default_latex_engine() -> LatexEngine:
     """Resolve default LaTeX engine from environment with safe fallback."""
     configured = str(os.getenv("WENJIN_LATEX_DEFAULT_COMPILER", "")).strip().lower()
     if configured and configured in _SUPPORTED_ENGINES:
-        return configured
-    return _FALLBACK_ENGINE
+        return configured  # type: ignore[return-value]
+    return _FALLBACK_ENGINE  # type: ignore[return-value]
 
 
 class LatexProjectResponse(BaseModel):

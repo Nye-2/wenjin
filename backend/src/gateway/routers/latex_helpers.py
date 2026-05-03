@@ -605,11 +605,11 @@ async def _generate_rewrite_candidates(
 
     candidate_pairs: list[tuple[LatexFeedbackRewriteCandidatePayload, dict[str, Any]]] = []
     seen_rewrites: set[str] = set()
-    first_error: Exception | None = None
+    first_error: BaseException | None = None
 
     for profile, result in zip(profiles, results, strict=False):
-        if isinstance(result, Exception):
-            if first_error is None:
+        if not isinstance(result, dict):
+            if first_error is None and isinstance(result, BaseException):
                 first_error = result
             continue
         try:

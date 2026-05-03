@@ -199,4 +199,4 @@ class WorkspaceService:
             delete(Workspace).where(Workspace.id == workspace_id)
         )
         await self.db.commit()
-        return (result.rowcount or 0) > 0
+        return (result.rowcount or 0) > 0  # type: ignore[attr-defined]

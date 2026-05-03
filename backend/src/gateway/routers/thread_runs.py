@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import Response, StreamingResponse
 
 from src.database import User
@@ -49,7 +49,7 @@ async def create_run(
     thread_id: str,
     body: RunCreateRequest,
     current_user: User = Depends(get_current_user),
-    handler=Depends(get_thread_turn_handler),
+    handler: Any = Depends(get_thread_turn_handler),
     run_manager: RunManager = Depends(get_run_manager),
     bridge: StreamBridge = Depends(get_stream_bridge),
 ) -> RunResponse:
@@ -71,7 +71,7 @@ async def stream_run(
     body: RunCreateRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
-    handler=Depends(get_thread_turn_handler),
+    handler: Any = Depends(get_thread_turn_handler),
     run_manager: RunManager = Depends(get_run_manager),
     bridge: StreamBridge = Depends(get_stream_bridge),
 ) -> StreamingResponse:
@@ -97,7 +97,7 @@ async def wait_run(
     thread_id: str,
     body: RunCreateRequest,
     current_user: User = Depends(get_current_user),
-    handler=Depends(get_thread_turn_handler),
+    handler: Any = Depends(get_thread_turn_handler),
     run_manager: RunManager = Depends(get_run_manager),
     bridge: StreamBridge = Depends(get_stream_bridge),
 ) -> RunWaitResponse:
@@ -211,7 +211,7 @@ async def stream_existing_run(
     thread_service: ThreadService = Depends(get_thread_service),
     run_manager: RunManager = Depends(get_run_manager),
     bridge: StreamBridge = Depends(get_stream_bridge),
-):
+) -> Response:
     await _require_owned_thread(
         thread_service=thread_service,
         thread_id=thread_id,

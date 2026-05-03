@@ -642,7 +642,7 @@ async def compile_thesis_payload(
         else None
     )
     page_count = (
-        int(compile_response.get("page_count"))
+        int(compile_response.get("page_count") or 0)  # type: ignore[call-overload]
         if compile_response.get("page_count") is not None
         else None
     )

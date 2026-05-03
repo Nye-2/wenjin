@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -130,7 +130,7 @@ class WorkspaceSummaryService:
             if latest_execution:
                 module_status = self._module_status_from_execution(latest_execution)
                 module_summary = {
-                    **(module.get("summary") if isinstance(module.get("summary"), dict) else {}),
+                    **(cast(dict[str, Any], module.get("summary")) if isinstance(module.get("summary"), dict) else {}),
                     "execution_session_id": execution.get("id"),
                     "primary_task_id": execution.get("primary_task_id"),
                     "result_summary": execution.get("result_summary"),

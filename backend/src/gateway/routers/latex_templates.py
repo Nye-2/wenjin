@@ -21,4 +21,4 @@ async def list_templates(
 ) -> LatexTemplateListResponse:
     service = LatexTemplateService(db)
     templates = await service.list_templates()
-    return LatexTemplateListResponse(templates=templates)
+    return LatexTemplateListResponse(templates=templates)  # type: ignore[arg-type]

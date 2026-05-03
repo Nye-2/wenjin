@@ -78,16 +78,17 @@ def _init_metrics() -> None:
         "HTTP request duration in seconds",
         ["method", "path_template"],
     )
-    gauge_kwargs = (
-        {"multiprocess_mode": "livesum"}
-        if _prometheus_multiproc_dir()
-        else {}
-    )
-    _active_tasks_gauge = Gauge(
-        "active_tasks_total",
-        "Currently running async tasks",
-        **gauge_kwargs,
-    )
+    if _prometheus_multiproc_dir():
+        _active_tasks_gauge = Gauge(
+            "active_tasks_total",
+            "Currently running async tasks",
+            multiprocess_mode="livesum",
+        )
+    else:
+        _active_tasks_gauge = Gauge(
+            "active_tasks_total",
+            "Currently running async tasks",
+        )
     _task_duration_seconds = Histogram(
         "task_duration_seconds",
         "Task execution duration in seconds",

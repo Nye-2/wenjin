@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import Response, StreamingResponse
 
 from src.database import User
@@ -65,7 +65,7 @@ async def stream_run(
     body: RunCreateRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
-    handler=Depends(get_thread_turn_handler),
+    handler: Any = Depends(get_thread_turn_handler),
     run_manager: RunManager = Depends(get_run_manager),
     bridge: StreamBridge = Depends(get_stream_bridge),
 ) -> StreamingResponse:
@@ -90,7 +90,7 @@ async def stream_run(
 async def wait_run(
     body: RunCreateRequest,
     current_user: User = Depends(get_current_user),
-    handler=Depends(get_thread_turn_handler),
+    handler: Any = Depends(get_thread_turn_handler),
     run_manager: RunManager = Depends(get_run_manager),
     bridge: StreamBridge = Depends(get_stream_bridge),
 ) -> RunWaitResponse:
@@ -124,7 +124,7 @@ async def stream_existing_run(
     thread_service: ThreadService = Depends(get_thread_service),
     run_manager: RunManager = Depends(get_run_manager),
     bridge: StreamBridge = Depends(get_stream_bridge),
-):
+) -> Response:
     """Join or cancel-then-join an existing run by run_id."""
     record = await get_run_or_404(run_manager, run_id)
     await _require_owned_run(

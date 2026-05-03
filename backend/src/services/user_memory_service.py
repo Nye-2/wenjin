@@ -7,7 +7,7 @@ import logging
 import math
 import re
 from collections import Counter
-from typing import Any
+from typing import Any, cast
 
 from src.database.models.knowledge import KnowledgeCategory
 
@@ -276,7 +276,7 @@ async def load_user_memory(
     from src.services.knowledge_service import KnowledgeService
 
     config = _load_memory_config()
-    effective_limit = limit or getattr(config, "max_facts", 20)
+    effective_limit = limit if limit is not None else int(getattr(config, "max_facts", 20))
     effective_min_confidence = (
         min_confidence
         if min_confidence is not None
@@ -403,7 +403,7 @@ async def extract_and_persist_knowledge(
         response = await model.ainvoke(prompt)
         content = response.content if hasattr(response, "content") else str(response)
 
-        items = _parse_knowledge_json(content)
+        items = _parse_knowledge_json(cast(str, content))
         if not items:
             return 0
 

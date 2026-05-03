@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from src.database.models.knowledge import KnowledgeCategory
 
@@ -174,7 +174,7 @@ async def compact_user_memory(
             )
             response = await model.ainvoke(prompt)
             content = response.content if hasattr(response, "content") else str(response)
-            result = _parse_compact_result(content)
+            result = _parse_compact_result(cast(str, content))
         except Exception:
             logger.exception("LLM compaction failed")
             raise

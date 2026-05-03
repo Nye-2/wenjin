@@ -76,11 +76,8 @@ class LatexPrismStatusResolver:
         llm_config = (
             project.llm_config if isinstance(project.llm_config, dict) else {}
         )
-        metadata = (
-            llm_config.get("metadata")
-            if isinstance(llm_config.get("metadata"), dict)
-            else {}
-        )
+        raw_metadata = llm_config.get("metadata")
+        metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
         current_file_changes = _normalize_prism_file_changes(
             metadata.get("file_changes")
         )
@@ -101,9 +98,8 @@ class LatexPrismStatusResolver:
                 prism.setdefault("target_files", []), change.get("path")
             )
 
-        compile_info = (
-            prism.get("compile") if isinstance(prism.get("compile"), dict) else {}
-        )
+        raw_compile = prism.get("compile")
+        compile_info = raw_compile if isinstance(raw_compile, dict) else {}
         status = "ready"
         if compile_info.get("status") == "failed" or compile_info.get("error"):
             status = "compile_failed"
@@ -120,9 +116,8 @@ class LatexPrismStatusResolver:
             item["file_changes"] = current_file_changes
             item["applied_file_changes"] = current_applied_file_changes
             item_status = "ready"
-            item_compile = (
-                item.get("compile") if isinstance(item.get("compile"), dict) else {}
-            )
+            raw_item_compile = item.get("compile")
+            item_compile = raw_item_compile if isinstance(raw_item_compile, dict) else {}
             if item_compile.get("status") == "failed" or item_compile.get("error"):
                 item_status = "compile_failed"
             elif current_file_changes:
