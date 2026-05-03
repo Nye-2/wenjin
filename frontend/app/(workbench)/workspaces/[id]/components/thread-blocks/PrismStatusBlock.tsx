@@ -1,7 +1,8 @@
 "use client";
 
-import { BookOpen } from "lucide-react";
+import { BookOpen, RefreshCw } from "lucide-react";
 import { BlockActionButtons, readStringValue, type BlockActionType } from "./shared";
+import { useLatexStore } from "@/stores/latex";
 import type { ThreadMessageBlock } from "@/lib/api";
 import type { BlockActionItem } from "./shared";
 
@@ -20,16 +21,26 @@ export function PrismStatusBlock({
   const projectId = readStringValue(data.project_id);
   const projectName = readStringValue(data.project_name);
   const mainFile = readStringValue(data.main_file);
-  const pendingFileChanges =
+  const blockPending =
     typeof data.pending_file_changes === "number"
       ? data.pending_file_changes
       : 0;
-  const appliedFileChanges =
+  const blockApplied =
     typeof data.applied_file_changes === "number"
       ? data.applied_file_changes
       : 0;
   const compileStatus = readStringValue(data.compile_status);
   const prismUrl = readStringValue(data.url);
+
+  const latexProject = useLatexStore((state) => state.project);
+  const liveFileChanges = useLatexStore((state) => state.fileChanges);
+  const liveAppliedChanges = useLatexStore((state) => state.appliedFileChanges);
+
+  const isLive = projectId && latexProject?.id === projectId;
+
+  const pendingFileChanges = isLive ? liveFileChanges.length : blockPending;
+  const appliedFileChanges = isLive ? liveAppliedChanges.length : blockApplied;
+  const isStale = isLive && (liveFileChanges.length !== blockPending || liveAppliedChanges.length !== blockApplied);
 
   const actions: BlockActionItem[] = [];
 
@@ -62,9 +73,17 @@ export function PrismStatusBlock({
           <BookOpen className="h-3.5 w-3.5" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-[var(--text-primary)]">
-            {block.title || "主稿状态"}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              {block.title || "主稿状态"}
+            </p>
+            {isStale ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600">
+                <RefreshCw className="h-2.5 w-2.5" />
+                已更新
+              </span>
+            ) : null}
+          </div>
           {projectName ? (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
               {projectName}
