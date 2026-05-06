@@ -1,8 +1,15 @@
 # Reference Library SSOT 收敛 Review
 
 更新时间：2026-04-30
-状态：Closed / implementation verified
+状态：Closed / implementation verified（2026-05-06 复验通过）
 适用范围：`/home/cjz/wenjin`
+
+> **复验记录（2026-05-06）**
+> - 静态扫描：旧 `WorkspacePaper/WorkspaceLiterature/BibTeXExporter` 无残留
+> - bypass tool deny-list：单源化正常（`REFERENCE_LIBRARY_BYPASS_TOOL_NAMES`）
+> - Targeted tests：56 passed
+> - Full verification：2067 passed
+> - mypy：0 errors (402 files)
 
 本文记录 2026-04-30 对 Reference Library 重构后的 SSOT 收敛审查结果和收尾修复结果。它不是初始设计任务书，而是当前实现状态、架构边界、已修复问题和后续防回归约束的工程交接文档。
 

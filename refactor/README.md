@@ -1,17 +1,27 @@
 # Refactor 文档索引
 
-更新时间：2026-04-30
+更新时间：2026-05-06
 
-本目录集中存放问津下一轮架构收敛与迁移文档。当前项目仍处于开发阶段，没有真实用户和历史数据兼容负担，因此本轮迁移按一次性完成设计，不保留 fallback、兼容入口、双写、灰度或旧链路适配层。
+本目录集中存放问津架构收敛与迁移文档。当前项目仍处于开发阶段，没有真实用户和历史数据兼容负担，因此本轮迁移按一次性完成设计，不保留 fallback、兼容入口、双写、灰度或旧链路适配层。
 
-## 文档
+## 活跃文档
 
-- [目标架构：Wenjin Compute Architecture](./target-architecture.md)
-- [一次性迁移计划](./migration-plan.md)
-- [Chat-first Workspace 功能落实规划](./chat-first-workspace-functional-plan.md)
-- [Workspace 功能完善收尾：下一阶段任务书](./workspace-functional-finalization-next-phase.md)
-- [Workspace Reference Library 重建工程任务书](./reference-library-rebuild-taskbook.md)
-- [Reference Library SSOT 收敛 Review](./reference-library-ssot-convergence-review.md)
+| 文档 | 状态 | 说明 |
+|---|---|---|
+| [目标架构：Wenjin Compute Architecture](./target-architecture.md) | 📋 总纲 | 架构设计总纲，持续维护 |
+| [一次性迁移计划](./migration-plan.md) | 📋 总纲 | 主迁移路线 |
+| [Workspace Reference Library 重建工程任务书](./reference-library-rebuild-taskbook.md) | ⚠️ 核心已实现 | 7 表/7 服务/API/前端面板/Agent 工具已落地，少量扩展项待续 |
+| [Reference Library SSOT 收敛 Review](./reference-library-ssot-convergence-review.md) | ✅ 已完成 | 验收记录，5 个 SSOT 问题已修复并通过验证 |
+| [Workspace 功能完善收尾：下一阶段任务书](./workspace-functional-finalization-next-phase.md) | ⚠️ 种子已实现 | G-L 种子落地完成，剩余可扩展项见文档第 8 节 |
+| [Landing Page 重设计规划](./landing-page-redesign-plan.md) | 📋 待启动 | 尚未开始 |
+
+## 归档文档
+
+已完成的规划文档移至 [archive/](./archive/)：
+
+- Chat-first Workspace 功能落实规划 ✅
+- Chat Document Upload + Layout Parsing 规划 ✅
+- UI/UX Redesign 规划 ✅
 
 ## 迁移原则
 

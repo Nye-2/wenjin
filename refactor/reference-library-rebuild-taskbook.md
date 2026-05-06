@@ -1,8 +1,17 @@
 # Workspace Reference Library 重建工程任务书
 
 更新时间：2026-04-30
-状态：Draft for implementation
+状态：核心已实现（2026-05-06），少量扩展项待续
 适用范围：`/home/cjz/wenjin`
+
+> **完成度概要**
+> - ✅ 7 张数据表（迁移 028）
+> - ✅ 7 个服务类（WorkspaceReference / Import / Preprocess / Index / Evidence / Usage / BibTeX）
+> - ✅ API 路由（Catalog / Import / Index / Evidence / BibTeX / 状态操作）
+> - ✅ 前端 LiteraturePanel（统计、筛选、卡片、操作、目录查看、上传、详情 Dialog、BibTeX 预览）
+> - ✅ Agent 工具命名对齐（list_reference_library / search_reference_text_units / read_reference_outline_node）
+> - ✅ `validate_citations` LaTeX citation 校验工具
+> - ⚠️ 详情 Drawer 完整功能：Usage events / Source history / Preprocess status 需后端 API 扩展
 
 本文用于指导“文献中心”彻底重建。当前前提是：没有需要保留的历史真实数据，可以破坏性删除旧表、旧 API、旧服务和旧前端入口；不做双写、不做兼容层、不保留 fallback。目标是把文献中心从“上传 PDF 列表 + 调研导入列表”的双轨结构，重建为 workspace 级的统一证据库，支撑调研、page index、写作取证、BibTeX、Prism 和最终 LaTeX 编译。
 

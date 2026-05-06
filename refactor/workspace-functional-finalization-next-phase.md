@@ -1,8 +1,18 @@
 # Workspace 功能完善收尾：下一阶段任务书
 
 更新时间：2026-04-30
-状态：Implemented seed / 可继续扩展
+状态：种子已实现（2026-05-06），可继续扩展项见第 8 节
 适用范围：`/home/cjz/wenjin`
+
+> **完成度概要**
+> - ✅ Task G：Chat Block Action 契约集中（`SUPPORTED_BLOCK_ACTIONS` / `isBlockActionType`）
+> - ✅ Task H：上传 preprocess UI 状态显示（pending/running/succeeded/failed）
+> - ✅ Task I：Semantic Scholar 检索 → Reference Library 导入闭环
+> - ✅ Task J：Prism 写入确认（`preview_prism_changes` / `open_prism` / URL 跳转）
+> - ✅ `open_artifact` 真正打开 artifact（chat URL query param → `ArtifactDetailDialog`）
+> - ✅ PrismStatusBlock 实时刷新（订阅 `useLatexStore`，显示"已更新"提示）
+> - ✅ Reference Library Agent 工具命名对齐
+> - ⚠️ 可继续扩展：其他 block 类型实时刷新、历史 block 引用式渲染架构
 
 本文承接已经完成的 Chat-first Workspace、Compute Agent 工作现场、Prism 状态卡片、大文件异步预处理、Semantic Scholar 单源文献检索等工作，目标不是继续扩张功能面，而是把现有能力串成稳定、可验收、可继续迭代的用户闭环。
 
