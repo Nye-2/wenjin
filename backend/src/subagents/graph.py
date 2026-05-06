@@ -11,9 +11,9 @@ from src.agents.middlewares.base import Middleware
 logger = logging.getLogger(__name__)
 
 _REFERENCE_WORKSPACE_TOOL_NAMES = {
-    "list_workspace_reference_outline",
-    "search_workspace_references",
-    "read_workspace_reference_section",
+    "list_reference_library",
+    "search_reference_text_units",
+    "read_reference_outline_node",
 }
 
 

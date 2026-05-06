@@ -105,8 +105,8 @@ class TestSubagentRegistry:
         config = get_subagent_config("scout")
         assert config is not None
         assert config.name == "Scout"
-        assert "list_workspace_reference_outline" in config.tools
-        assert "search_workspace_references" in config.tools
+        assert "list_reference_library" in config.tools
+        assert "search_reference_text_units" in config.tools
         assert config.max_turns == 10
 
     def test_get_writer_config(self):
@@ -114,8 +114,8 @@ class TestSubagentRegistry:
         config = get_subagent_config("writer")
         assert config is not None
         assert config.name == "Writer"
-        assert "list_workspace_reference_outline" in config.tools
-        assert "read_workspace_reference_section" in config.tools
+        assert "list_reference_library" in config.tools
+        assert "read_reference_outline_node" in config.tools
         assert config.max_turns == 15
 
     def test_get_synthesizer_config(self):
@@ -123,8 +123,8 @@ class TestSubagentRegistry:
         config = get_subagent_config("synthesizer")
         assert config is not None
         assert config.name == "Synthesizer"
-        assert "list_workspace_reference_outline" in config.tools
-        assert "read_workspace_reference_section" in config.tools
+        assert "list_reference_library" in config.tools
+        assert "read_reference_outline_node" in config.tools
         assert config.max_turns == 10
 
     def test_get_analyst_config(self):
@@ -132,7 +132,7 @@ class TestSubagentRegistry:
         config = get_subagent_config("analyst")
         assert config is not None
         assert config.name == "Analyst"
-        assert "read_workspace_reference_section" in config.tools
+        assert "read_reference_outline_node" in config.tools
         assert config.max_turns == 10
 
     def test_get_invalid_subagent_raises_error(self):
@@ -157,7 +157,7 @@ class TestSubagentRegistry:
                 types={
                     "scout": SimpleNamespace(
                         allowed_tools=["read_file"],
-                        disallowed_tools=["search_workspace_references"],
+                        disallowed_tools=["search_reference_text_units"],
                         max_turns=6,
                         timeout=321,
                         model_name="resolved-tool-model",
@@ -173,7 +173,7 @@ class TestSubagentRegistry:
             config = get_subagent_config("scout", apply_runtime_overrides=True)
 
         assert config.tools == ["read_file"]
-        assert config.disallowed_tools == ["search_workspace_references"]
+        assert config.disallowed_tools == ["search_reference_text_units"]
         assert config.max_turns == 6
         assert config.timeout == 321
         assert config.model_name == "resolved-tool-model"
@@ -200,6 +200,6 @@ class TestSubagentToolAssignments:
         """Test that Analyst uses Reference Library section tools."""
         config = get_subagent_config("analyst")
         assert config.tools == [
-            "search_workspace_references",
-            "read_workspace_reference_section",
+            "search_reference_text_units",
+            "read_reference_outline_node",
         ]

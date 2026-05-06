@@ -17,7 +17,7 @@ from src.services.references import ReferenceIndexService, ReferenceUsageService
 logger = logging.getLogger(__name__)
 
 
-class ListWorkspaceReferenceOutlineInput(BaseModel):
+class ListReferenceLibraryInput(BaseModel):
     """Input for listing workspace Reference Library outline."""
 
     workspace_id: str | None = Field(
@@ -26,7 +26,7 @@ class ListWorkspaceReferenceOutlineInput(BaseModel):
     )
 
 
-class SearchWorkspaceReferencesInput(BaseModel):
+class SearchReferenceTextUnitsInput(BaseModel):
     """Input for searching indexed text units inside a workspace Reference Library."""
 
     workspace_id: str | None = Field(
@@ -37,7 +37,7 @@ class SearchWorkspaceReferencesInput(BaseModel):
     limit: int = Field(default=8, ge=1, le=20, description="Maximum matches")
 
 
-class ReadWorkspaceReferenceSectionInput(BaseModel):
+class ReadReferenceOutlineNodeInput(BaseModel):
     """Input for reading one reference section."""
 
     reference_id: str = Field(description="Reference id")
@@ -130,8 +130,8 @@ async def _record_reference_access(
         )
 
 
-@tool("list_workspace_reference_outline", args_schema=ListWorkspaceReferenceOutlineInput)
-async def list_workspace_reference_outline_tool(
+@tool("list_reference_library", args_schema=ListReferenceLibraryInput)
+async def list_reference_library_tool(
     workspace_id: str | None = None,
     config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
@@ -146,8 +146,8 @@ async def list_workspace_reference_outline_tool(
     return summary or "该工作区暂无可用参考文献目录。"
 
 
-@tool("search_workspace_references", args_schema=SearchWorkspaceReferencesInput)
-async def search_workspace_references_tool(
+@tool("search_reference_text_units", args_schema=SearchReferenceTextUnitsInput)
+async def search_reference_text_units_tool(
     query: str,
     limit: int = 8,
     workspace_id: str | None = None,
@@ -177,10 +177,10 @@ async def search_workspace_references_tool(
 
 
 @tool(
-    "read_workspace_reference_section",
-    args_schema=ReadWorkspaceReferenceSectionInput,
+    "read_reference_outline_node",
+    args_schema=ReadReferenceOutlineNodeInput,
 )
-async def read_workspace_reference_section_tool(
+async def read_reference_outline_node_tool(
     reference_id: str,
     section_path: str | None = None,
     section_title: str | None = None,

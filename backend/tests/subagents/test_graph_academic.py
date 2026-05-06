@@ -28,11 +28,11 @@ async def test_reference_workspace_scope_middleware_injects_runtime_workspace():
     tool_name, tool_args = await middleware.before_tool(
         {},
         {"configurable": {"workspace_id": "ws-runtime"}},
-        "search_workspace_references",
+        "search_reference_text_units",
         {"query": "neural rendering"},
     )
 
-    assert tool_name == "search_workspace_references"
+    assert tool_name == "search_reference_text_units"
     assert tool_args["workspace_id"] == "ws-runtime"
     assert tool_args["query"] == "neural rendering"
 
@@ -45,11 +45,11 @@ async def test_reference_workspace_scope_middleware_preserves_explicit_workspace
     tool_name, tool_args = await middleware.before_tool(
         {},
         {"configurable": {"workspace_id": "ws-runtime"}},
-        "read_workspace_reference_section",
+        "read_reference_outline_node",
         {"reference_id": "ref-1", "workspace_id": "ws-other"},
     )
 
-    assert tool_name == "read_workspace_reference_section"
+    assert tool_name == "read_reference_outline_node"
     assert tool_args["workspace_id"] == "ws-other"
 
 
@@ -108,9 +108,9 @@ class TestRegisterAcademicTemplates:
         """Create mock tools dict."""
         return {
             "read_file": _make_test_tool("read_file"),
-            "list_workspace_reference_outline": _make_test_tool("list_workspace_reference_outline"),
-            "search_workspace_references": _make_test_tool("search_workspace_references"),
-            "read_workspace_reference_section": _make_test_tool("read_workspace_reference_section"),
+            "list_reference_library": _make_test_tool("list_reference_library"),
+            "search_reference_text_units": _make_test_tool("search_reference_text_units"),
+            "read_reference_outline_node": _make_test_tool("read_reference_outline_node"),
         }
 
     def test_registers_all_unified_academic_templates(self, mock_tools):
@@ -167,7 +167,7 @@ class TestRegisterAcademicTemplates:
         mock_llm = MagicMock()
         # Only provide one tool
         limited_tools = {
-            "search_workspace_references": _make_test_tool("search_workspace_references"),
+            "search_reference_text_units": _make_test_tool("search_reference_text_units"),
         }
 
         with patch(

@@ -14,9 +14,9 @@ class TestAcademicAgentResolver:
         """Create mock sandbox tools."""
         return {
             "read_file": lambda p: f"read: {p}",
-            "list_workspace_reference_outline": lambda workspace_id: f"outline: {workspace_id}",
-            "search_workspace_references": lambda q: f"reference search: {q}",
-            "read_workspace_reference_section": lambda s: f"section: {s}",
+            "list_reference_library": lambda workspace_id: f"outline: {workspace_id}",
+            "search_reference_text_units": lambda q: f"reference search: {q}",
+            "read_reference_outline_node": lambda s: f"section: {s}",
             "python_exec": lambda c: f"exec: {c}",
             "web_search": lambda q: f"web: {q}",
             "semantic_scholar_search": lambda q: f"s2: {q}",
@@ -47,15 +47,15 @@ class TestAcademicAgentResolver:
         """Test resolving scout configuration."""
         config = resolver.resolve_config("scout")
         assert config.name == "Scout"
-        assert "list_workspace_reference_outline" in config.tools
-        assert "search_workspace_references" in config.tools
+        assert "list_reference_library" in config.tools
+        assert "search_reference_text_units" in config.tools
         assert config.system_prompt is not None
 
     def test_resolve_config_valid_writer(self, resolver):
         """Test resolving writer configuration."""
         config = resolver.resolve_config("writer")
         assert config.name == "Writer"
-        assert "read_workspace_reference_section" in config.tools
+        assert "read_reference_outline_node" in config.tools
 
     def test_resolve_config_valid_synthesizer(self, resolver):
         """Test resolving synthesizer configuration."""
@@ -75,9 +75,9 @@ class TestAcademicAgentResolver:
 
     def test_resolve_config_with_tool_override(self, resolver):
         """Test resolving config with custom tools."""
-        config = resolver.resolve_config("scout", requested_tools=["read_file", "search_workspace_references"])
+        config = resolver.resolve_config("scout", requested_tools=["read_file", "search_reference_text_units"])
         assert "read_file" in config.tools
-        assert "search_workspace_references" in config.tools
+        assert "search_reference_text_units" in config.tools
         # Should only have requested tools, not all sandbox tools
         assert len(config.tools) == 2
 
@@ -142,7 +142,7 @@ class TestAcademicAgentResolver:
 
     def test_merge_default_tools_includes_all_sandbox(self, resolver, sandbox_tools):
         """Test _merge_default_tools includes all sandbox tools."""
-        merged = resolver._merge_default_tools(["search_workspace_references"])
+        merged = resolver._merge_default_tools(["search_reference_text_units"])
         for tool_name in set(sandbox_tools.keys()) - {
             "web_search",
             "semantic_scholar_search",

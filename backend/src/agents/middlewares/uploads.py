@@ -142,7 +142,7 @@ class UploadsMiddleware(Middleware):
                     lines.append(f"  预处理状态: {status_label}")
                 if provider == "layout_parsing" and status == "succeeded":
                     if file_info.get("kind") == "literature":
-                        lines.append("  该文献已建立结构化索引，请优先使用 `list_workspace_reference_outline` 和 `read_workspace_reference_section` 读取内容。")
+                        lines.append("  该文献已建立结构化索引，请优先使用 `list_reference_library` 和 `read_reference_outline_node` 读取内容。")
                     else:
                         lines.append("  该文件已解析为结构化 Markdown，请使用 `read_file` 读取完整内容，不要直接臆测 PDF 内容。")
                 elif provider == "image_vlm" and status == "succeeded":

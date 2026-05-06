@@ -88,17 +88,17 @@ SCOUT_CONFIG = SubagentConfig(
     description="Reference Library exploration agent for selecting workspace evidence",
     system_prompt=SCOUT_PROMPT,
     tools=[
-        "list_workspace_reference_outline",
-        "search_workspace_references",
-        "read_workspace_reference_section",
+        "list_reference_library",
+        "search_reference_text_units",
+        "read_reference_outline_node",
     ],
     max_turns=10,
 )
 
 REFERENCE_NAVIGATION_TOOLS = [
-    "list_workspace_reference_outline",
-    "search_workspace_references",
-    "read_workspace_reference_section",
+    "list_reference_library",
+    "search_reference_text_units",
+    "read_reference_outline_node",
 ]
 
 WRITER_CONFIG = SubagentConfig(
@@ -121,7 +121,7 @@ ANALYST_CONFIG = SubagentConfig(
     name="Analyst",
     description="Data analysis agent for methodology review and analysis",
     system_prompt=ANALYST_PROMPT,
-    tools=["search_workspace_references", "read_workspace_reference_section"],
+    tools=["search_reference_text_units", "read_reference_outline_node"],
     max_turns=10,
 )
 
@@ -137,7 +137,7 @@ TREND_SPOTTER_CONFIG = SubagentConfig(
     name="Trend Spotter",
     description="Research trend analysis agent",
     system_prompt=TREND_SPOTTER_PROMPT,
-    tools=["list_workspace_reference_outline", "search_workspace_references"],
+    tools=["list_reference_library", "search_reference_text_units"],
     max_turns=8,
 )
 

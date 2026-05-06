@@ -101,7 +101,7 @@ class TestSubagentTaskBuilder:
             fallback_max_turns=10,
             requested_max_turns=99,
             requested_timeout=9999,
-            tools=["search_workspace_references"],
+            tools=["search_reference_text_units"],
             metadata={
                 "subagent_type": "scout",
                 "workspace_id": "ws-1",
@@ -112,7 +112,7 @@ class TestSubagentTaskBuilder:
         assert task.thread_id == "thread-1"
         assert task.max_turns == 50
         assert task.timeout == 3600
-        assert task.tools == ["search_workspace_references"]
+        assert task.tools == ["search_reference_text_units"]
         assert task.metadata["workspace_id"] == "ws-1"
 
     def test_build_subagent_task_requires_execution_session_id(self):

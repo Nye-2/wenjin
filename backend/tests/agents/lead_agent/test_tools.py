@@ -63,9 +63,9 @@ def test_get_available_tools_uses_canonical_runtime_tool_names():
     assert "view_image" in tool_names
     assert "ask_clarification" in tool_names
     assert "present_files" in tool_names
-    assert "list_workspace_reference_outline" in tool_names
-    assert "search_workspace_references" in tool_names
-    assert "read_workspace_reference_section" in tool_names
+    assert "list_reference_library" in tool_names
+    assert "search_reference_text_units" in tool_names
+    assert "read_reference_outline_node" in tool_names
     assert "semantic_scholar_search" not in tool_names
     assert "semantic_scholar_search_tool" not in tool_names
     assert "search_external" not in tool_names

@@ -498,12 +498,12 @@ def get_available_tools(
         grep_tool,
         list_workspace_artifacts_tool,
         list_workspace_features_tool,
-        list_workspace_reference_outline_tool,
+        list_reference_library_tool,
         ls_tool,
         present_files_tool,
         read_file_tool,
-        read_workspace_reference_section_tool,
-        search_workspace_references_tool,
+        read_reference_outline_node_tool,
+        search_reference_text_units_tool,
         str_replace_tool,
         view_image_tool,
         write_file_tool,
@@ -526,9 +526,9 @@ def get_available_tools(
     tools.extend([
         list_workspace_features_tool,
         list_workspace_artifacts_tool,
-        list_workspace_reference_outline_tool,
-        search_workspace_references_tool,
-        read_workspace_reference_section_tool,
+        list_reference_library_tool,
+        search_reference_text_units_tool,
+        read_reference_outline_node_tool,
     ])
 
     # Output tools

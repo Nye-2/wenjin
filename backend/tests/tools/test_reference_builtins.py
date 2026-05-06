@@ -8,14 +8,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.tools.builtins.references import (
-    list_workspace_reference_outline_tool,
-    read_workspace_reference_section_tool,
-    search_workspace_references_tool,
+    list_reference_library_tool,
+    read_reference_outline_node_tool,
+    search_reference_text_units_tool,
 )
 
 
 @pytest.mark.asyncio
-async def test_list_workspace_reference_outline_tool_returns_summary() -> None:
+async def test_list_reference_library_tool_returns_summary() -> None:
     db = MagicMock()
     index_service = MagicMock()
     index_service.get_workspace_toc_summary = AsyncMock(return_value="## 文献库概览")
@@ -28,7 +28,7 @@ async def test_list_workspace_reference_outline_tool_returns_summary() -> None:
         patch("src.tools.builtins.references.get_db_session", _db_session),
         patch("src.tools.builtins.references.ReferenceIndexService", return_value=index_service),
     ):
-        result = await list_workspace_reference_outline_tool.ainvoke(
+        result = await list_reference_library_tool.ainvoke(
             {},
             config={"configurable": {"workspace_id": "ws-1"}},
         )
@@ -38,8 +38,8 @@ async def test_list_workspace_reference_outline_tool_returns_summary() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_workspace_reference_outline_rejects_workspace_mismatch() -> None:
-    result = await list_workspace_reference_outline_tool.ainvoke(
+async def test_list_reference_library_rejects_workspace_mismatch() -> None:
+    result = await list_reference_library_tool.ainvoke(
         {"workspace_id": "ws-other"},
         config={"configurable": {"workspace_id": "ws-runtime"}},
     )
@@ -50,7 +50,7 @@ async def test_list_workspace_reference_outline_rejects_workspace_mismatch() -> 
 
 
 @pytest.mark.asyncio
-async def test_search_workspace_references_tool_serializes_results() -> None:
+async def test_search_reference_text_units_tool_serializes_results() -> None:
     db = MagicMock()
     index_service = MagicMock()
     index_service.search_workspace_sections = AsyncMock(
@@ -76,7 +76,7 @@ async def test_search_workspace_references_tool_serializes_results() -> None:
         patch("src.tools.builtins.references.get_db_session", _db_session),
         patch("src.tools.builtins.references.ReferenceIndexService", return_value=index_service),
     ):
-        result = await search_workspace_references_tool.ainvoke(
+        result = await search_reference_text_units_tool.ainvoke(
             {"query": "intro", "limit": 5},
             config={"configurable": {"workspace_id": "ws-1"}},
         )
@@ -87,7 +87,7 @@ async def test_search_workspace_references_tool_serializes_results() -> None:
 
 
 @pytest.mark.asyncio
-async def test_read_workspace_reference_section_tool_reads_by_title() -> None:
+async def test_read_reference_outline_node_tool_reads_by_title() -> None:
     db = MagicMock()
     index_service = MagicMock()
     index_service.get_reference_section_by_title = AsyncMock(
@@ -102,7 +102,7 @@ async def test_read_workspace_reference_section_tool_reads_by_title() -> None:
         patch("src.tools.builtins.references.get_db_session", _db_session),
         patch("src.tools.builtins.references.ReferenceIndexService", return_value=index_service),
     ):
-        result = await read_workspace_reference_section_tool.ainvoke(
+        result = await read_reference_outline_node_tool.ainvoke(
             {"reference_id": "reference-1", "section_title": "Method"},
             config={"configurable": {"workspace_id": "ws-1"}},
         )
@@ -117,7 +117,7 @@ async def test_read_workspace_reference_section_tool_reads_by_title() -> None:
 
 
 @pytest.mark.asyncio
-async def test_read_workspace_reference_section_records_access_usage() -> None:
+async def test_read_reference_outline_node_records_access_usage() -> None:
     db = MagicMock()
     index_service = MagicMock()
     index_service.get_reference_section_by_title = AsyncMock(
@@ -140,7 +140,7 @@ async def test_read_workspace_reference_section_records_access_usage() -> None:
         patch("src.tools.builtins.references.ReferenceIndexService", return_value=index_service),
         patch("src.tools.builtins.references.ReferenceUsageService", return_value=usage_service),
     ):
-        result = await read_workspace_reference_section_tool.ainvoke(
+        result = await read_reference_outline_node_tool.ainvoke(
             {"reference_id": "reference-1", "section_title": "Method"},
             config={
                 "configurable": {
@@ -162,8 +162,8 @@ async def test_read_workspace_reference_section_records_access_usage() -> None:
 
 
 @pytest.mark.asyncio
-async def test_read_workspace_reference_section_tool_requires_workspace_context() -> None:
-    result = await read_workspace_reference_section_tool.ainvoke(
+async def test_read_reference_outline_node_tool_requires_workspace_context() -> None:
+    result = await read_reference_outline_node_tool.ainvoke(
         {"reference_id": "reference-1", "section_title": "Method"}
     )
 
@@ -172,7 +172,7 @@ async def test_read_workspace_reference_section_tool_requires_workspace_context(
 
 @pytest.mark.asyncio
 async def test_reference_tools_do_not_trust_explicit_workspace_without_runtime() -> None:
-    result = await list_workspace_reference_outline_tool.ainvoke(
+    result = await list_reference_library_tool.ainvoke(
         {"workspace_id": "ws-explicit"},
     )
 

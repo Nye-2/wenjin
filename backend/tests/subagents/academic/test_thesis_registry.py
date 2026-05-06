@@ -20,8 +20,8 @@ def test_librarian_in_registry():
     config = get_subagent_config("librarian")
     assert config is not None
     assert config.name == "Librarian"
-    assert "list_workspace_reference_outline" in config.tools
-    assert "search_workspace_references" in config.tools
+    assert "list_reference_library" in config.tools
+    assert "search_reference_text_units" in config.tools
 
 
 def test_figure_planner_in_registry():

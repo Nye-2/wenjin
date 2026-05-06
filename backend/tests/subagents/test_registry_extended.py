@@ -14,7 +14,7 @@ class TestExtendedSubagentRegistry:
         """Trend Spotter subagent should be registered."""
         config = registry.get("trend_spotter")
         assert config is not None
-        assert "search_workspace_references" in config.tools
+        assert "search_reference_text_units" in config.tools
 
     def test_has_reviewer_subagent(self):
         """Reviewer subagent should be registered."""

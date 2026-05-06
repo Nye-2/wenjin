@@ -24,15 +24,15 @@ class AcademicAgentResolver:
         self._sandbox_tools = self._normalize_tools(sandbox_tools)
         self._tool_categories = {
             "search": [
-                "list_workspace_reference_outline",
-                "search_workspace_references",
-                "read_workspace_reference_section",
+                "list_reference_library",
+                "search_reference_text_units",
+                "read_reference_outline_node",
             ],
             "file": [
                 "read_file",
-                "list_workspace_reference_outline",
-                "search_workspace_references",
-                "read_workspace_reference_section",
+                "list_reference_library",
+                "search_reference_text_units",
+                "read_reference_outline_node",
             ],
             "code": ["python_exec", "data_analysis"],
         }

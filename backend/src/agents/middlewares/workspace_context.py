@@ -12,9 +12,9 @@ from src.agents.thread_state import ThreadState
 logger = logging.getLogger(__name__)
 
 _WORKSPACE_SCOPED_TOOL_NAMES = {
-    "list_workspace_reference_outline",
-    "search_workspace_references",
-    "read_workspace_reference_section",
+    "list_reference_library",
+    "search_reference_text_units",
+    "read_reference_outline_node",
 }
 
 

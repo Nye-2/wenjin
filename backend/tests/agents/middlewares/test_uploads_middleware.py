@@ -92,7 +92,7 @@ async def test_uploads_middleware_reads_workspace_relative_markdown_excerpt(
     rendered = result["messages"][-1].content
     assert "内容摘要:" in rendered
     assert "Important PDF content." in rendered
-    assert "read_workspace_reference_section" in rendered
+    assert "read_reference_outline_node" in rendered
 
 
 @pytest.mark.asyncio
