@@ -6,6 +6,8 @@ import {
   type ThreadSummary,
   type WorkspaceTaskEvent,
 } from "@/lib/api";
+import type { AgentBlock } from "@/lib/api/blocks";
+import type { ChatMessage } from "@/app/(workbench)/workspaces/[id]/components/chat-thread/MessageList";
 
 export interface Message {
   id: string;
@@ -13,8 +15,113 @@ export interface Message {
   content: string;
   created_at: string;
   blocks: ThreadMessageBlock[];
+  agentBlocks?: AgentBlock[];
+  run_id?: string | null;
   metadata: Record<string, unknown> | null;
   pending?: boolean;
+}
+
+function blockRunId(block: AgentBlock): string | null {
+  if (block.kind === "status_line" || block.kind === "result_card") {
+    return block.run_id;
+  }
+  return null;
+}
+
+export function appendAgentBlock(
+  messages: Message[],
+  messageId: string,
+  block: AgentBlock,
+): Message[] {
+  const existing = messages.findIndex((m) => m.id === messageId);
+  if (existing >= 0) {
+    return messages.map((m, i) =>
+      i === existing
+        ? {
+            ...m,
+            agentBlocks: [...(m.agentBlocks ?? []), block],
+            run_id: m.run_id ?? blockRunId(block),
+            pending: false,
+          }
+        : m,
+    );
+  }
+
+  const lastIndex = messages.length - 1;
+  const last = messages[lastIndex];
+  if (last && last.role === "assistant" && last.pending) {
+    return messages.map((m, i) =>
+      i === lastIndex
+        ? {
+            ...m,
+            id: messageId,
+            agentBlocks: [block],
+            run_id: blockRunId(block),
+            content: "",
+            pending: false,
+          }
+        : m,
+    );
+  }
+
+  return [
+    ...messages,
+    {
+      id: messageId,
+      role: "assistant",
+      content: "",
+      created_at: new Date().toISOString(),
+      blocks: [],
+      agentBlocks: [block],
+      run_id: blockRunId(block),
+      metadata: null,
+      pending: false,
+    },
+  ];
+}
+
+export function toChatMessages(messages: Message[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (let i = 0; i < messages.length; i += 1) {
+    const m = messages[i]!;
+    if (m.role === "user") {
+      let runId: string | null = m.run_id ?? null;
+      if (!runId) {
+        for (let j = i + 1; j < messages.length; j += 1) {
+          const next = messages[j]!;
+          if (next.role === "assistant" && next.run_id) {
+            runId = next.run_id;
+            break;
+          }
+        }
+      }
+      out.push({
+        id: m.id,
+        role: "user",
+        run_id: runId ?? `local:user:${m.id}`,
+        text: m.content,
+      });
+      continue;
+    }
+
+    const agentBlocks = m.agentBlocks ?? [];
+    const blocks: AgentBlock[] =
+      agentBlocks.length > 0
+        ? agentBlocks
+        : m.content
+          ? [{ kind: "text", content: m.content }]
+          : [];
+    if (blocks.length === 0 && m.pending) {
+      continue;
+    }
+    out.push({
+      id: m.id,
+      role: "agent",
+      run_id: m.run_id ?? `local:assistant:${m.id}`,
+      blocks,
+    });
+  }
+  return out;
 }
 
 export function createPendingUserMessage(options: {
