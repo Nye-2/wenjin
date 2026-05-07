@@ -310,6 +310,55 @@
     "title": "Work Line",
     "subtitle": "An AI workspace that keeps research work moving"
   },
+  "chatRedesign": {
+    "subagent": {
+      "status": {
+        "pending": "Pending",
+        "running": "Running",
+        "completed": "Done",
+        "waiting": "Needs your answer",
+        "failed": "Failed · retrying",
+        "cancelled": "Cancelled",
+        "timed_out": "Timed out"
+      },
+      "waitingPointer": "↩︎ Asked you a question in chat"
+    },
+    "liveWorkflow": {
+      "title": "Live workflow",
+      "pause": "Pause at next safe point",
+      "resume": "Resume",
+      "scrollToCurrent": "↓ Back to current"
+    },
+    "phase": {
+      "showCompletedFolded": "{count} completed (click to expand)"
+    },
+    "chatThread": {
+      "inputPlaceholderIdle": "Type to start...",
+      "inputPlaceholderRunning": "Or just type your thoughts...",
+      "interrupt": "Cancel current run",
+      "starterPromptsLabel": "Start like this?"
+    },
+    "questionCard": {
+      "freeInputHint": "Or just type your thoughts."
+    },
+    "resultCard": {
+      "completedPill": "Done",
+      "tldrLabel": "TL;DR: ",
+      "findingsLabel": "Key findings"
+    },
+    "workspaceAssets": {
+      "header": "📚 Literature · 📦 Outputs · 🧠 Context",
+      "tabArtifacts": "Outputs",
+      "tabLiterature": "Literature",
+      "tabKnowledge": "Context"
+    },
+    "runContainer": {
+      "headerFolded": "Run {index} · {title} ✓"
+    },
+    "emptyState": {
+      "fallback": "Type to start the conversation."
+    }
+  },
   "skills": {
     "deep-research": {
       "name": "Deep Research",
