@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from src.services.token_usage_collector import record_token_usage
 from src.subagents.academic.registry import get_subagent_config
@@ -294,7 +297,41 @@ class ParallelExecutor:
         task_index: int,
         context: dict[str, Any],
     ) -> dict[str, Any]:
-        """Execute a single subagent task."""
+        """Execute a single subagent task.
+
+        Spec §6.3 — wraps the underlying execution to auto-pause the run on a
+        high-criticality failure, so the lead agent can stop and ask the user
+        how to proceed before more work happens.
+        """
+        payload = await self._execute_task_impl(
+            task,
+            phase_name=phase_name,
+            phase_index=phase_index,
+            task_index=task_index,
+            context=context,
+        )
+        if not payload.get("success", False) and task.get("criticality") == "high":
+            logger.warning(
+                "high-criticality subagent failure: pausing run",
+                extra={
+                    "subagent_type": task.get("subagent_type"),
+                    "phase": phase_name,
+                    "error": payload.get("error"),
+                },
+            )
+            self.pause()
+        return payload
+
+    async def _execute_task_impl(
+        self,
+        task: dict[str, Any],
+        *,
+        phase_name: str,
+        phase_index: int,
+        task_index: int,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Run the subagent task and return its result payload."""
         async with self._semaphore:
             subagent_type = task.get("subagent_type", "general")
             prompt = task.get("prompt", "")
