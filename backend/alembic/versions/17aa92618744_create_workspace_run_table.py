@@ -22,8 +22,8 @@ def upgrade():
     op.create_table(
         "workspace_run",
         sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("workspace_id", sa.String(length=36), sa.ForeignKey("workspace.id"), nullable=False),
-        sa.Column("thread_id", sa.String(length=36), sa.ForeignKey("thread.id"), nullable=False),
+        sa.Column("workspace_id", sa.String(length=36), sa.ForeignKey("workspaces.id"), nullable=False),
+        sa.Column("thread_id", sa.String(length=36), sa.ForeignKey("threads.id"), nullable=False),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),

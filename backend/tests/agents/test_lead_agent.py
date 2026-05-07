@@ -185,10 +185,7 @@ class TestApplyPromptTemplate:
 
         prompt = apply_prompt_template(state, config)
 
-        # Workspace type marker from prompts.system.render("sci")
-        assert "sci" in prompt
-        assert "科研论文" in prompt
-        # Dynamic context still gets injected after the base prompt
+        assert "学术论文（SCI/EI）" in prompt
         assert "Computer Science" in prompt
         assert "Lit context" in prompt
         assert "Memory context" in prompt
@@ -414,10 +411,7 @@ class TestMakeLeadAgent:
             )
 
         system_prompt = capture_model._captured_messages[0].content
-        # Workspace type from new prompts.system.render("sci")
-        assert "sci" in system_prompt
-        assert "科研论文" in system_prompt
-        # Dynamic context survives middleware injection
+        assert "学术论文（SCI/EI）" in system_prompt
         assert "Computer Science" in system_prompt
         assert "TOC summary" in system_prompt
         assert "Framework A" in system_prompt

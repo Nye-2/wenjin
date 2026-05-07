@@ -11,8 +11,8 @@ class WorkspaceRunRow(Base):
     __tablename__ = "workspace_run"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspace.id"), nullable=False)
-    thread_id: Mapped[str] = mapped_column(String(36), ForeignKey("thread.id"), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(36), ForeignKey("threads.id"), nullable=False)
     title: Mapped[str] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
