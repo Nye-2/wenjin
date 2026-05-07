@@ -24,3 +24,6 @@ htmlcov/
 
 # Local docker image archives
 backend/docker/images/texlive/*.tar
+
+# Superpowers brainstorming sessions
+.superpowers/
