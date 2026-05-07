@@ -30,3 +30,19 @@ def test_system_prompt_mentions_no_blacklist_tokens():
     body = rendered.split("# 反例")[0] if "# 反例" in rendered else rendered
     for token in BLACKLIST:
         assert token not in body, f"token {token!r} appears in prompt body"
+
+from src.agents.lead_agent.prompts import skills as skill_prompts
+
+
+def test_skill_paper_analyst_prompt(snapshot):
+    rendered = skill_prompts.render("paper-analyst")
+    assert rendered == snapshot
+
+
+def test_skill_framework_designer_prompt(snapshot):
+    rendered = skill_prompts.render("framework-designer")
+    assert rendered == snapshot
+
+
+def test_skill_unknown_returns_empty():
+    assert skill_prompts.render("nonexistent") == ""

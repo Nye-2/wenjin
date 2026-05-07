@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from src.agents.lead_agent.prompts import skills as skill_prompts
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceThreadSkillDefinition:
@@ -141,15 +142,7 @@ _THESIS_SKILLS = (
         defaults=(("action", "generate_outline"),),
         icon="list",
         color="navy",
-        guidance_prompt=_guidance(
-            purpose="用户已经有论文题目或研究方向，需要生成可执行的章节大纲和写作计划。",
-            minimum_inputs=(
-                "论文题目或研究主题",
-                "目标字数、学位层次或章节数量要求（如有）",
-                "可选：Deep Research 产物、导师要求或已有草稿",
-            ),
-            output="结构化论文大纲、章节定位、建议字数、关键论点和后续章节写作入口。",
-        ),
+        guidance_prompt=skill_prompts.render("framework-designer"),
         follow_up_skills=("fullpaper-writer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -221,15 +214,7 @@ _SCI_SKILLS = (
         feature_id="paper_analysis",
         icon="microscope",
         color="cyan",
-        guidance_prompt=_guidance(
-            purpose="用户需要对论文标题、PDF、摘要或工作区论文做结构化深读。",
-            minimum_inputs=(
-                "论文标题、reference_id、PDF/上传材料或摘要",
-                "分析重点：方法、实验、结论、创新点、写法或对比",
-                "可选：要比较的论文或目标章节用途",
-            ),
-            output="方法/实验/结论/创新点拆解、质量评估、可复用写作点和后续研究建议。",
-        ),
+        guidance_prompt=skill_prompts.render("paper-analyst"),
         follow_up_skills=("framework-designer",),
     ),
     WorkspaceThreadSkillDefinition(
@@ -276,15 +261,7 @@ _SCI_SKILLS = (
         feature_id="framework_outline",
         icon="list",
         color="navy",
-        guidance_prompt=_guidance(
-            purpose="用户已有论文主题或初步贡献，需要形成 SCI 摘要、关键词和整体结构。",
-            minimum_inputs=(
-                "论文题目或研究主题",
-                "核心创新点、方法路线或目标贡献",
-                "可选：目标期刊、上下文产物、章节结构偏好",
-            ),
-            output="Abstract、keywords、章节框架、贡献点表达和下一章写作建议。",
-        ),
+        guidance_prompt=skill_prompts.render("framework-designer"),
         follow_up_skills=("section-writer", "figure-designer"),
     ),
     WorkspaceThreadSkillDefinition(
