@@ -1123,6 +1123,31 @@ class _MiddlewareWrappedAgent:
                         state = merge_thread_state(
                             state, {"response_blocks": existing_blocks + new_blocks}
                         )
+
+                        # Spec §6.2 B3 — persist result_card when the agent
+                        # emits one.  Failures must not interrupt the chat flow.
+                        from src.agents.lead_agent.blocks import ResultCardBlock
+                        for block in agent_msg.blocks:
+                            if isinstance(block, ResultCardBlock):
+                                try:
+                                    from src.database.session import get_db_session
+                                    from src.services.workspace_run_service import (
+                                        WorkspaceRunService,
+                                    )
+                                    async with get_db_session() as db:
+                                        svc = WorkspaceRunService(db)
+                                        await svc.complete_run(
+                                            block.run_id,
+                                            result_card=block.model_dump(
+                                                exclude_none=True
+                                            ),
+                                            stats=block.stats.model_dump(),
+                                        )
+                                except Exception:
+                                    logger.exception(
+                                        "workspace_run.complete_run failed for run_id=%s",
+                                        block.run_id,
+                                    )
                     except Exception:
                         logger.exception(
                             "parse_with_fallback failed in _apply_after_model; "

@@ -189,6 +189,21 @@ async def cancel_run(
     )
 
 
+@router.delete("/{run_id}", status_code=204)
+async def delete_run(
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Spec §6.2 B3 — soft-delete a workspace_run row. User-initiated."""
+    from src.database.session import get_db_session
+    from src.services.workspace_run_service import WorkspaceRunService
+
+    async with get_db_session() as db:
+        svc = WorkspaceRunService(db)
+        await svc.delete_run(run_id)
+    return Response(status_code=204)
+
+
 @router.post("/{run_id}/pause", status_code=204)
 async def pause_run(
     run_id: str,
