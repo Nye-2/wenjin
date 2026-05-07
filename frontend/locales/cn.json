@@ -310,6 +310,55 @@
     "title": "工作主线",
     "subtitle": "持续推进研究任务的 AI 工作台"
   },
+  "chatRedesign": {
+    "subagent": {
+      "status": {
+        "pending": "待启动",
+        "running": "运行中",
+        "completed": "完成",
+        "waiting": "需要你回答",
+        "failed": "失败 · 重试",
+        "cancelled": "已取消",
+        "timed_out": "超时"
+      },
+      "waitingPointer": "↩︎ 在 chat 里问了你一个问题"
+    },
+    "liveWorkflow": {
+      "title": "实时工作台",
+      "pause": "在下个安全点暂停",
+      "resume": "继续",
+      "scrollToCurrent": "↓ 回到当前进度"
+    },
+    "phase": {
+      "showCompletedFolded": "{count} 个已完成（点开查看）"
+    },
+    "chatThread": {
+      "inputPlaceholderIdle": "输入开始对话...",
+      "inputPlaceholderRunning": "或者直接说想法...",
+      "interrupt": "中断当前任务",
+      "starterPromptsLabel": "想这样开始？"
+    },
+    "questionCard": {
+      "freeInputHint": "或者直接打字告诉我你的想法。"
+    },
+    "resultCard": {
+      "completedPill": "已完成",
+      "tldrLabel": "TL;DR：",
+      "findingsLabel": "关键发现"
+    },
+    "workspaceAssets": {
+      "header": "📚 文献 · 📦 成果 · 🧠 上下文",
+      "tabArtifacts": "成果",
+      "tabLiterature": "文献",
+      "tabKnowledge": "上下文"
+    },
+    "runContainer": {
+      "headerFolded": "轮 {index} · {title} ✓"
+    },
+    "emptyState": {
+      "fallback": "输入开始对话。"
+    }
+  },
   "skills": {
     "deep-research": {
       "name": "深度研究",
