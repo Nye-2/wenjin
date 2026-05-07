@@ -99,6 +99,47 @@ class ParallelExecutor:
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._phase_events: dict[str, asyncio.Event] = {}
 
+        # Spec §6.1 — pause/cancel signals checked at every phase boundary.
+        # _pause_event is initially set (= unpaused). pause() clears it; resume()
+        # sets it again. _cancel_event, once set, makes the next pause check raise
+        # asyncio.CancelledError so a paused or about-to-run phase aborts cleanly.
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()
+        self._cancel_event = asyncio.Event()
+
+    def pause(self) -> None:
+        """Pause execution at the next phase boundary.
+
+        Tasks in the current phase finish naturally; the executor blocks before
+        starting the next phase until resume() or cancel() is called.
+        """
+        self._pause_event.clear()
+
+    def resume(self) -> None:
+        """Resume from a paused state."""
+        self._pause_event.set()
+
+    def cancel(self) -> None:
+        """Cancel: convert the next pause check into asyncio.CancelledError.
+
+        Also releases any current pause-wait so the waiter wakes up and raises.
+        Does not interrupt a phase already in flight.
+        """
+        self._cancel_event.set()
+        self._pause_event.set()
+
+    async def _wait_if_paused(self) -> None:
+        """Phase-boundary pause/cancel check.
+
+        Returns immediately if not paused and not cancelled. Otherwise waits
+        on the pause event, then raises asyncio.CancelledError if cancel was
+        signalled.
+        """
+        if not self._pause_event.is_set():
+            await self._pause_event.wait()
+        if self._cancel_event.is_set():
+            raise asyncio.CancelledError()
+
     async def execute_plan(
         self,
         plan: PhasedPlan,
@@ -147,6 +188,9 @@ class ParallelExecutor:
             # Wait for dependencies
             for dep in phase.depends_on:
                 await self._phase_events[dep].wait()
+
+            # Spec §6.1 — pause/cancel boundary
+            await self._wait_if_paused()
 
             # If fail_fast is enabled, skip phases whose dependencies failed
             if self.fail_fast:
