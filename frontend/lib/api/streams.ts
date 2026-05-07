@@ -4,6 +4,7 @@ import {
   readErrorMessage,
   subscribeJsonEventStream,
 } from "@/lib/api/client";
+import type { AgentBlock } from "@/lib/api/blocks";
 import type {
   ThreadMessage,
   RunRequest,
@@ -59,7 +60,11 @@ export function streamThread(
   }) => void,
   onAssistantMessage?: (message: ThreadMessage) => void,
   onError?: (error: string) => void,
-  onDone?: () => void
+  onDone?: () => void,
+  // Plan 1 T7 — backend now emits per-block events instead of a single
+  // `assistant_message`. This callback fires once per block; consumers
+  // assemble them into a Message keyed by `messageId`.
+  onBlock?: (event: { messageId: string; block: AgentBlock }) => void,
 ): () => void {
   const controller = new AbortController();
   const requestPayload: RunRequest = {
@@ -128,6 +133,18 @@ export function streamThread(
         case "assistant_message":
           onAssistantMessage?.(json.message as ThreadMessage);
           break;
+        case "block": {
+          // Plan 1 T7 — per-block SSE event. Frontend can assemble blocks
+          // into a Message via the shared `messageId`. Until a thread-store
+          // consumer exists, this just forwards the payload.
+          const messageId =
+            typeof json.message_id === "string" ? json.message_id : "";
+          const block = json.block as AgentBlock | undefined;
+          if (messageId && block) {
+            onBlock?.({ messageId, block });
+          }
+          break;
+        }
         case "error":
           onError?.(json.error);
           break;
