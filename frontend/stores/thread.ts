@@ -18,6 +18,7 @@ import {
   syncCurrentSkillWithThread,
 } from '@/lib/thread-skill-state';
 import {
+  appendAgentBlock,
   buildPendingThreadSummary,
   createPendingUserMessage,
   createPlaceholderAssistantMessage,
@@ -289,7 +290,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       },
       () => {
         set({ isStreaming: false, _abortStream: null });
-      }
+      },
+      ({ messageId, block }) => {
+        streamAcceptedByServer = true;
+        set((state) => ({
+          messages: appendAgentBlock(state.messages, messageId, block),
+        }));
+      },
     );
 
     set({ _abortStream: abort });

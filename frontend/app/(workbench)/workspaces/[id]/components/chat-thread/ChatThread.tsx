@@ -8,7 +8,13 @@
  * `onSubmit` and `onJumpToPhase` down so blocks (question_card pills,
  * result_card feedback, status_line jump-targets) can drive the
  * conversation forward.
+ *
+ * Pass `inputArea` to replace the default minimal InputArea with a
+ * production composer (e.g. WorkspaceThreadComposer with model picker,
+ * skill selector, attachments).
  */
+import type { ReactNode } from "react";
+
 import { ChatMessage, MessageList } from "./MessageList";
 import { EmptyState } from "./EmptyState";
 import { InputArea } from "./InputArea";
@@ -27,6 +33,7 @@ interface ChatThreadProps {
   starterPrompts: string[];
   onSubmit?: (text: string) => void;
   onJumpToPhase?: (runId: string, phaseIndex: number) => void;
+  inputArea?: ReactNode;
 }
 
 export function ChatThread({
@@ -36,6 +43,7 @@ export function ChatThread({
   starterPrompts,
   onSubmit,
   onJumpToPhase,
+  inputArea,
 }: ChatThreadProps) {
   const submit = onSubmit ?? (() => {});
 
@@ -60,7 +68,7 @@ export function ChatThread({
           />
         )}
       </div>
-      <InputArea onSubmit={submit} />
+      {inputArea ?? <InputArea onSubmit={submit} />}
     </div>
   );
 }

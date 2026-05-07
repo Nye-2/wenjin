@@ -12,16 +12,9 @@ import {
   Loader2,
   MessageSquare,
 } from "lucide-react";
-import {
-  adaptExecutionToPanelSession,
-  groupExecutionSessions,
-} from "@/lib/execution-presenters";
-import type { ExecutionSession } from "@/lib/api";
-import { useExecutionStore } from "@/stores/execution";
-import { useFeaturesStore } from "@/stores/features";
+import { useWorkflowStore } from "@/stores/workflow-store";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useI18n } from "@/components/i18n-provider";
-import { ACTIVE_EXECUTION_STATUSES } from "@/lib/execution-status";
 import { cn } from "@/lib/utils";
 
 interface AppShellSidebarProps {
@@ -29,14 +22,24 @@ interface AppShellSidebarProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }
-const EMPTY_EXECUTION_SESSIONS: ExecutionSession[] = [];
-const EMPTY_EXECUTION_IDS: string[] = [];
+
+interface PanelSession {
+  executionId: string;
+  taskId: string;
+  title: string;
+  status: string;
+  updatedAt: string;
+  message: string | null;
+  description?: string | null;
+}
+
+const ACTIVE_RUN_STATUSES = new Set(["running", "paused"]);
 
 function sessionStatusTone(status: string) {
-  if (status === "running" || status === "pending") {
+  if (status === "running" || status === "paused") {
     return "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]";
   }
-  if (status === "success") {
+  if (status === "completed") {
     return "bg-emerald-500/10 text-emerald-700";
   }
   if (status === "failed") {
@@ -55,14 +58,7 @@ function SessionGroup({
   onOpenSession,
 }: {
   title: string;
-  sessions: Array<{
-    executionId: string;
-    taskId: string;
-    title: string;
-    status: string;
-    updatedAt: string;
-    message: string | null;
-  }>;
+  sessions: PanelSession[];
   activeSessionId: string | null;
   onOpenSession: (executionId: string) => void;
 }) {
@@ -82,7 +78,7 @@ function SessionGroup({
       </div>
       {sessions.map((session) => {
         const isActive = activeSessionId === session.executionId;
-        const isWorking = ACTIVE_EXECUTION_STATUSES.has(session.status as never);
+        const isWorking = ACTIVE_RUN_STATUSES.has(session.status);
         return (
           <button
             key={session.executionId}
@@ -147,45 +143,54 @@ export function AppShellSidebar({
 
   const workspace = useWorkspaceStore((state) => state.workspace);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
-  const executionSessions = useExecutionStore(
-    (state) => state.byWorkspace[workspaceId] ?? EMPTY_EXECUTION_SESSIONS
-  );
-  const activeExecutionId = useExecutionStore(
-    (state) => state.activeExecutionIdByWorkspace[workspaceId] ?? null
-  );
-  const dismissedExecutionIds = useExecutionStore(
-    (state) =>
-      state.dismissedExecutionIdsByWorkspace[workspaceId] ?? EMPTY_EXECUTION_IDS
-  );
-  const setActiveExecution = useExecutionStore((state) => state.setActiveExecution);
-  const getFeatureById = useFeaturesStore((state) => state.getFeatureById);
-  const visibleExecutions = useMemo(
+  const runs = useWorkflowStore((state) => state.runs);
+  const currentRunId = useWorkflowStore((state) => state.currentRunId);
+
+  const displaySessions = useMemo<PanelSession[]>(
     () =>
-      executionSessions.filter(
-        (execution) => !dismissedExecutionIds.includes(execution.id)
-      ),
-    [dismissedExecutionIds, executionSessions]
+      runs.map((run) => {
+        const runningPhase = run.phases.find((p) =>
+          p.subagents.some((s) => s.status === "running"),
+        );
+        const lastPhase = run.phases[run.phases.length - 1];
+        const message = runningPhase?.name ?? lastPhase?.name ?? null;
+        return {
+          executionId: run.id,
+          taskId: run.id,
+          title: run.title || `运行 ${run.id.slice(0, 6)}`,
+          status: run.status,
+          updatedAt: run.started_at,
+          message,
+          description: message,
+        };
+      }),
+    [runs],
   );
-  const displaySessions = useMemo(
-    () =>
-      visibleExecutions.map((execution) =>
-        adaptExecutionToPanelSession(
-          execution,
-          getFeatureById(execution.feature_id)
-        )
-      ),
-    [getFeatureById, visibleExecutions]
-  );
+
+  const groupedSessions = useMemo(() => {
+    const active = displaySessions.filter((s) =>
+      ACTIVE_RUN_STATUSES.has(s.status),
+    );
+    const closed = displaySessions
+      .filter((s) => !ACTIVE_RUN_STATUSES.has(s.status))
+      .sort((l, r) => r.updatedAt.localeCompare(l.updatedAt));
+    return {
+      active,
+      recent: closed.slice(0, 3),
+      completed: closed.slice(3),
+    };
+  }, [displaySessions]);
+
   const resolvedActiveSessionId =
-    activeExecutionId &&
-    displaySessions.some((session) => session.executionId === activeExecutionId)
-      ? activeExecutionId
+    currentRunId &&
+    displaySessions.some((session) => session.executionId === currentRunId)
+      ? currentRunId
       : displaySessions[0]?.executionId ?? null;
-  const groupedSessions = groupExecutionSessions(displaySessions);
-  const primarySession =
-    resolvedActiveSessionId
-      ? displaySessions.find((session) => session.executionId === resolvedActiveSessionId) ?? displaySessions[0]
-      : displaySessions[0];
+  const primarySession = resolvedActiveSessionId
+    ? displaySessions.find(
+        (session) => session.executionId === resolvedActiveSessionId,
+      ) ?? displaySessions[0]
+    : displaySessions[0];
 
   const isOnChat = pathname.startsWith(`/workspaces/${workspaceId}/chat`);
   const isOnDashboard = pathname === `/workspaces/${workspaceId}`;
@@ -202,8 +207,7 @@ export function AppShellSidebar({
 
   const goToDashboard = () => router.push(`/workspaces/${workspaceId}`);
   const goToChat = () => router.push(`/workspaces/${workspaceId}/chat`);
-  const handleOpenSession = (executionId: string) => {
-    setActiveExecution(workspaceId, executionId);
+  const handleOpenSession = (_runId: string) => {
     router.push(`/workspaces/${workspaceId}/chat`);
   };
 

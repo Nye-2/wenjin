@@ -208,3 +208,8 @@ app.include_router(references.router, prefix="/api", tags=["references"])
 app.include_router(mcp.router, prefix="/api", tags=["mcp"])
 app.include_router(memory.router, prefix="/api", tags=["memory"])
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])
+
+# Dev-only test hooks for Playwright e2e (Plan 3 T2). Disabled in production.
+if settings.environment.lower() != "production":
+    from .routers import dev_test_hooks  # noqa: E402
+    app.include_router(dev_test_hooks.router)

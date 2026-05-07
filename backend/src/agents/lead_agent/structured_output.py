@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from src.agents.lead_agent.blocks import AgentMessage, TextBlock
+from src.config.app_config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,18 @@ async def parse_with_fallback(llm: Any, prompt: str, *, run_id: str) -> AgentMes
     Returns:
         A valid AgentMessage. Never raises on parse error.
     """
+    # Plan 3 T2 — dev-only short-circuit: if a Playwright test has queued a
+    # scripted AgentMessage via /__test__/llm/queue, return it instead of
+    # calling the real LLM. Disabled in production.
+    if get_settings().environment.lower() != "production":
+        try:
+            from src.gateway.routers.dev_test_hooks import pop_next
+            queued = pop_next()
+            if queued is not None:
+                return queued
+        except ImportError:
+            pass
+
     try:
         structured = llm.with_structured_output(AgentMessage)
         result = await structured.ainvoke(prompt)

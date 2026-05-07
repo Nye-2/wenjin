@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
 import { useFeaturesStore } from "@/stores/features";
 import { useThreadStore } from "@/stores/thread";
-import { useExecutionStore } from "@/stores/execution";
 import { useComputeStore } from "@/stores/compute";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { CommandPalette } from "@/components/workspace/CommandPalette";
@@ -32,8 +31,6 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const clearSkills = useFeaturesStore((state) => state.clearSkills);
   const clearMessages = useThreadStore((state) => state.clearMessages);
   const abortStream = useThreadStore((state) => state.abortStream);
-  const hydrateExecutions = useExecutionStore((state) => state.hydrateWorkspace);
-  const clearExecutions = useExecutionStore((state) => state.clearWorkspace);
   const hydrateCompute = useComputeStore((state) => state.hydrateWorkspace);
   const clearCompute = useComputeStore((state) => state.clearWorkspace);
 
@@ -48,7 +45,6 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     void fetchSkills(workspaceId);
     void fetchArtifacts(workspaceId);
     void fetchActivity(workspaceId);
-    void hydrateExecutions(workspaceId);
     void hydrateCompute(workspaceId);
     return () => {
       abortStream();
@@ -56,7 +52,6 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
       clearWorkspace();
       clearFeatures();
       clearSkills();
-      clearExecutions(workspaceId);
       clearCompute(workspaceId);
       clearMessages();
     };
@@ -68,12 +63,10 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     fetchSkills,
     fetchArtifacts,
     fetchActivity,
-    hydrateExecutions,
     hydrateCompute,
     clearWorkspace,
     clearFeatures,
     clearSkills,
-    clearExecutions,
     clearCompute,
     clearMessages,
     abortStream,

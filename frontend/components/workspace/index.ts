@@ -1,6 +1,5 @@
 // frontend/components/workspace/index.ts
 
-export { AgentStatusBar } from "./AgentStatusBar";
 export { ArtifactLibrary } from "./ArtifactLibrary";
 export { ImportReferencesButton } from "./ImportReferencesButton";
 export { SaveArtifactButton } from "./SaveArtifactButton";
