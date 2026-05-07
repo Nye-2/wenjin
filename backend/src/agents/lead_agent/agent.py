@@ -13,7 +13,11 @@ from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
+from src.agents.lead_agent.blocks import AgentMessage, TextBlock
 from src.agents.lead_agent.dynamic_tools import DynamicToolNode
+from src.agents.lead_agent.prompts import skills as _skill_prompts
+from src.agents.lead_agent.prompts import system as _system_prompts
+from src.agents.lead_agent.structured_output import parse_with_fallback
 from src.agents.middlewares import (
     CitationContextMiddleware,
     ClarificationMiddleware,
@@ -57,6 +61,31 @@ _PROMPT_CONTEXT_CHAR_LIMITS = {
     "template_context": 3200,
     "skill_guidance": 1400,
 }
+
+
+def _build_system_prompt(workspace_type: str, skill_id: str | None) -> str:
+    """Build the base system prompt from the spec-driven prompt modules.
+
+    Uses prompts.system.render for the workspace-type-aware base and
+    prompts.skills.render for per-skill additional guidance (Plan 1 Tasks 4+5).
+    """
+    base = _system_prompts.render(workspace_type)
+    skill = _skill_prompts.render(skill_id) if skill_id else ""
+    return f"{base}\n\n{skill}".strip() if skill else base
+
+
+def _concat_text_blocks(msg: AgentMessage) -> str:
+    """Join all TextBlock.content values from an AgentMessage.
+
+    Used to populate GeneratedThreadReply.content for legacy consumers
+    that still read .content rather than .blocks.
+    """
+    parts = [
+        block.content
+        for block in msg.blocks
+        if isinstance(block, TextBlock) and block.content.strip()
+    ]
+    return "\n\n".join(parts)
 
 
 def _runtime_dict(config: RunnableConfig | None) -> JsonObject:
@@ -195,7 +224,7 @@ Chat 侧重点：帮助用户快速判断 research gap、贡献表达、章节�
 
 质量边界：
 - 不编造论文、引用、实验结果、影响因子、分区或审稿周期。
-- 期刊推荐和文献线索必须提示“待核验”，除非已有可验证来源。
+- 期刊推荐和文献线索必须提示"待核验"，除非已有可验证来源。
 - 写作建议应优先围绕 research gap、contribution、method validity 和 experiment reproducibility。""",
 
     "proposal": """
@@ -207,7 +236,7 @@ Chat 侧重点：帮助用户收敛研究目标、关键科学问题、创新性
 
 质量边界：
 - 不把未知政策、预算标准或项目指南当作确定事实。
-- 计划书内容必须区分“已具备依据”和“需要补证据/补数据”。
+- 计划书内容必须区分"已具备依据"和"需要补证据/补数据"。
 - 优先把用户已有方向转成 SMART 目标、可执行任务和评审可读的结构。""",
 
     "software_copyright": """
@@ -322,54 +351,15 @@ def apply_prompt_template(
     Returns:
         System prompt string
     """
-    # Base system prompt
-    base_prompt = """You are Wenjin (问津), the chat-side academic workspace assistant.
-你的名字是「问津」(Wenjin)。注意：不是「文津」，是「问津」——取自《论语》"使子路问津焉"。
-
-## Chat Panel Contract
-- You are the conversational front door for the workspace, not the long-running Compute executor.
-- Handle lightweight academic Q&A, brainstorming, scope clarification, intent recognition, and next-step guidance directly in chat.
-- For complex or long-running work, produce a concise Compute feature proposal instead of trying to execute the work in chat.
-- Complex work includes deep literature reviews, full paper/chapter drafting, large document analysis, multi-artifact generation, code/file-heavy work, image generation, and multi-step workflows.
-- Feature launch/resume is controlled by the chat control plane outside the lead-agent tool loop; never claim that you personally launched a feature unless the runtime already provides that result.
-- When a Compute feature is appropriate, name the matching skill/feature, explain why it fits, and collect only the minimum missing inputs needed to launch.
-- If the user asks a simple conceptual question or requests a small edit/outline, answer directly without pushing them into Compute.
-
-## General Guidelines
-- Respond in the same language as the user (default: Chinese)
-- Reuse the current thread, workspace context, uploaded files, selected skill, and prior artifacts before asking the user to repeat context
-- Always cite sources when making claims; if you do not have verifiable sources, state the uncertainty instead of fabricating
-- Be thorough but concise — prefer structured output (headings, lists, tables)
-- Prefer concrete deliverables over generic coaching: outlines, options, action plans, draft text, evaluation criteria, or next-step recommendations
-- Ask for clarification when requirements are ambiguous
-- When the user asks for a workspace feature, propose the feature, identify the minimum missing inputs, and let the chat control plane launch it explicitly
-- When a selected skill is present, treat it as the user's preferred feature proposal; collect only the missing feature parameters, not a full rediscovery interview
-- Do not hallucinate references — only cite papers you can verify
-- If the user asks a concrete academic question, answer it directly first instead of introducing yourself
-- Do not give generic self-introductions, capability lists, or “what can I help with” replies unless the user explicitly asks for them
-- Treat the user's first message as the real task to solve, not as an invitation to greet
-- When more context would help, provide a best-effort answer first, then ask one focused follow-up question
-- Use the current thread history as authoritative context; do not ask the user to repeat information they already provided in this conversation
-- Do not restate the user's stored profile, memory, or background unless it is directly relevant to solving the current request
-- If the user states a research topic, paper idea, or writing intent, treat that as enough context to start advancing the task with concrete suggestions, outline options, or next steps
-- Avoid generic prompts like “请告诉我你的研究主题/具体任务” when the topic is already present in the user's message
-
-## Response Quality Bar
-- Separate confirmed facts, informed inferences, and pending assumptions when that distinction matters
-- Avoid filler, generic praise, and repetitive restatements of the user's goal
-- When proposing a plan, keep it short and execution-oriented
-- When giving writing help, favor argument structure, evidence planning, and directly reusable draft language
-- When continuing from an existing feature result, build on the latest artifact or activity output instead of restarting from scratch"""
-
-    # Add workspace-type-specific prompt
+    # Base system prompt — sourced from spec-driven prompt modules (Plan 1 Tasks 4+5).
     workspace_type = state.get("workspace_type")
     discipline = state.get("discipline")
-
-    type_specific = _WORKSPACE_TYPE_PROMPTS.get(workspace_type or "")
-    if type_specific:
-        base_prompt += type_specific
-    elif workspace_type:
-        base_prompt += f"\n\n## Current Project\nProject Type: {workspace_type}"
+    configurable_for_skill = config.get("configurable", {})
+    _skill_id_for_base = (
+        configurable_for_skill.get("selected_skill")
+        or state.get("current_skill")
+    )
+    base_prompt = _build_system_prompt(workspace_type or "", _skill_id_for_base)
 
     if discipline:
         discipline_label = discipline.replace("_", " ").title()
@@ -956,6 +946,7 @@ def make_lead_agent(
         agent,
         middlewares=middlewares,
         default_config=config,
+        base_model=base_model,
     )
 
 
@@ -968,10 +959,12 @@ class _MiddlewareWrappedAgent:
         *,
         middlewares: Sequence[Middleware] | None,
         default_config: RunnableConfig,
+        base_model: Any = None,
     ) -> None:
         self._agent = agent
         self._middlewares = middlewares or []
         self._default_config = default_config
+        self._base_model = base_model
 
     async def ainvoke(
         self,
@@ -1078,10 +1071,65 @@ class _MiddlewareWrappedAgent:
         result: Any,
         runtime_config: RunnableConfig,
     ) -> Any:
-        if not self._middlewares or not isinstance(result, dict):
+        if not isinstance(result, dict):
             return result
         state = create_thread_state(result)
-        return await middleware_after_model(state, runtime_config, self._middlewares)
+        if self._middlewares:
+            state = await middleware_after_model(state, runtime_config, self._middlewares)
+
+        # Two-step react+structured flow: create_react_agent handles tool-calling
+        # (step 1), then we reparse the final message through parse_with_fallback
+        # to produce AgentBlock-structured output (step 2). This is two LLM calls
+        # but provides a clean seam — the ReAct graph stays untouched and the
+        # structured output contract is enforced consistently.
+        if self._base_model is not None and not state.get("response_blocks"):
+            messages = list(state.get("messages") or [])
+            if messages:
+                last_msg = messages[-1]
+                last_content = getattr(last_msg, "content", None)
+                if isinstance(last_content, list):
+                    # Multi-part content: join text pieces
+                    text_parts = [
+                        part.get("text", "")
+                        for part in last_content
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    ]
+                    final_text = "\n".join(text_parts).strip()
+                elif isinstance(last_content, str):
+                    final_text = last_content.strip()
+                else:
+                    final_text = ""
+
+                if final_text:
+                    configurable = _coerce_json_object(
+                        runtime_config.get("configurable", {})
+                    )
+                    run_id = (
+                        configurable.get("thread_id")
+                        or configurable.get("run_id")
+                        or "unknown"
+                    )
+                    try:
+                        agent_msg: AgentMessage = await parse_with_fallback(
+                            llm=self._base_model,
+                            prompt=final_text,
+                            run_id=str(run_id),
+                        )
+                        new_blocks = [
+                            b.model_dump(exclude_none=True)
+                            for b in agent_msg.blocks
+                        ]
+                        existing_blocks = list(state.get("response_blocks") or [])
+                        state = merge_thread_state(
+                            state, {"response_blocks": existing_blocks + new_blocks}
+                        )
+                    except Exception:
+                        logger.exception(
+                            "parse_with_fallback failed in _apply_after_model; "
+                            "response_blocks will be empty for this turn"
+                        )
+
+        return state
 
     @staticmethod
     def _should_skip_model_call(state: ThreadState) -> bool:
