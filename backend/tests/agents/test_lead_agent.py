@@ -151,23 +151,21 @@ class TestApplyPromptTemplate:
         assert "Writing Guidelines" in prompt
 
     def test_prompt_without_context_fields(self):
-        """Test that prompt works without context fields."""
+        """Base prompt now sources from prompts.system.render (Plan 1 §8)."""
         state = ThreadState(messages=[])
         config = {"configurable": {}}
 
         prompt = apply_prompt_template(state, config)
 
-        # Should have base prompt content
-        assert "Wenjin" in prompt
-        assert "chat-side academic workspace assistant" in prompt
-        assert "Chat Panel Contract" in prompt
-        assert "not the long-running Compute executor" in prompt
-        assert "produce a concise Compute feature proposal" in prompt
-        assert "answer it directly first" in prompt
-        assert "Do not give generic self-introductions" in prompt
-        assert "do not ask the user to repeat information" in prompt
-        assert "Avoid generic prompts like" in prompt
-        assert "Subagent delegation for complex multi-step tasks" not in prompt
+        # Identity + AgentBlock contract markers (spec §5.1, §8)
+        assert "wenjin" in prompt
+        assert "lead agent" in prompt
+        assert "block" in prompt
+        assert "status_line" in prompt
+        assert "question_card" in prompt
+        assert "result_card" in prompt
+        # Jargon negative examples are part of the prompt body
+        assert "message_feature_proposal" in prompt
 
     def test_prompt_with_all_contexts(self):
         """Test that prompt includes all contexts when present."""
@@ -271,6 +269,9 @@ class TestMakeLeadAgent:
             }
 
     class _CaptureChatModel(BaseChatModel):
+        # Capture only the first call. T6 introduces a second LLM round-trip
+        # via parse_with_fallback (Plan 1 §5.5); that's expected and not what
+        # this test is checking — we want the original react-agent prompt.
         _captured_messages: object | None = PrivateAttr(default=None)
 
         @property
@@ -281,13 +282,15 @@ class TestMakeLeadAgent:
             return self
 
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-            self._captured_messages = messages
+            if self._captured_messages is None:
+                self._captured_messages = messages
             return ChatResult(
                 generations=[ChatGeneration(message=AIMessage(content="ok"))]
             )
 
         async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-            self._captured_messages = messages
+            if self._captured_messages is None:
+                self._captured_messages = messages
             return ChatResult(
                 generations=[ChatGeneration(message=AIMessage(content="ok"))]
             )
@@ -377,7 +380,9 @@ class TestMakeLeadAgent:
         rendered = prompt_fn({"messages": [HumanMessage(content="如何做实验设计？")]})
 
         assert isinstance(rendered[0], SystemMessage)
-        assert "Wenjin" in rendered[0].content
+        # New AgentBlock contract identifies the agent
+        assert "wenjin" in rendered[0].content
+        assert "lead agent" in rendered[0].content
         assert isinstance(rendered[1], HumanMessage)
         assert rendered[1].content == "如何做实验设计？"
 

@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from src.services.token_usage_collector import record_token_usage
 from src.subagents.academic.registry import get_subagent_config
@@ -99,6 +102,47 @@ class ParallelExecutor:
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._phase_events: dict[str, asyncio.Event] = {}
 
+        # Spec §6.1 — pause/cancel signals checked at every phase boundary.
+        # _pause_event is initially set (= unpaused). pause() clears it; resume()
+        # sets it again. _cancel_event, once set, makes the next pause check raise
+        # asyncio.CancelledError so a paused or about-to-run phase aborts cleanly.
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()
+        self._cancel_event = asyncio.Event()
+
+    def pause(self) -> None:
+        """Pause execution at the next phase boundary.
+
+        Tasks in the current phase finish naturally; the executor blocks before
+        starting the next phase until resume() or cancel() is called.
+        """
+        self._pause_event.clear()
+
+    def resume(self) -> None:
+        """Resume from a paused state."""
+        self._pause_event.set()
+
+    def cancel(self) -> None:
+        """Cancel: convert the next pause check into asyncio.CancelledError.
+
+        Also releases any current pause-wait so the waiter wakes up and raises.
+        Does not interrupt a phase already in flight.
+        """
+        self._cancel_event.set()
+        self._pause_event.set()
+
+    async def _wait_if_paused(self) -> None:
+        """Phase-boundary pause/cancel check.
+
+        Returns immediately if not paused and not cancelled. Otherwise waits
+        on the pause event, then raises asyncio.CancelledError if cancel was
+        signalled.
+        """
+        if not self._pause_event.is_set():
+            await self._pause_event.wait()
+        if self._cancel_event.is_set():
+            raise asyncio.CancelledError()
+
     async def execute_plan(
         self,
         plan: PhasedPlan,
@@ -147,6 +191,9 @@ class ParallelExecutor:
             # Wait for dependencies
             for dep in phase.depends_on:
                 await self._phase_events[dep].wait()
+
+            # Spec §6.1 — pause/cancel boundary
+            await self._wait_if_paused()
 
             # If fail_fast is enabled, skip phases whose dependencies failed
             if self.fail_fast:
@@ -250,7 +297,41 @@ class ParallelExecutor:
         task_index: int,
         context: dict[str, Any],
     ) -> dict[str, Any]:
-        """Execute a single subagent task."""
+        """Execute a single subagent task.
+
+        Spec §6.3 — wraps the underlying execution to auto-pause the run on a
+        high-criticality failure, so the lead agent can stop and ask the user
+        how to proceed before more work happens.
+        """
+        payload = await self._execute_task_impl(
+            task,
+            phase_name=phase_name,
+            phase_index=phase_index,
+            task_index=task_index,
+            context=context,
+        )
+        if not payload.get("success", False) and task.get("criticality") == "high":
+            logger.warning(
+                "high-criticality subagent failure: pausing run",
+                extra={
+                    "subagent_type": task.get("subagent_type"),
+                    "phase": phase_name,
+                    "error": payload.get("error"),
+                },
+            )
+            self.pause()
+        return payload
+
+    async def _execute_task_impl(
+        self,
+        task: dict[str, Any],
+        *,
+        phase_name: str,
+        phase_index: int,
+        task_index: int,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Run the subagent task and return its result payload."""
         async with self._semaphore:
             subagent_type = task.get("subagent_type", "general")
             prompt = task.get("prompt", "")

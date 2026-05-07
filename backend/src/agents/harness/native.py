@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from src.config.config_loader import get_app_config
@@ -115,13 +116,57 @@ class NativeWenjinAgentHarness:
         )
 
     async def run_session(self, request: AgentSessionRequest) -> AgentSessionResult:
-        _require_execution_session_id(request.context)
+        run_id = _require_execution_session_id(request.context)
         executor = self._build_executor()
-        phase_results = await executor.execute_plan(
-            request.phased_plan,
-            context=dict(request.context),
-            phase_callback=request.phase_callback,
-        )
+
+        # Spec §6.2 B3 — persist workspace_run row at run start so the row
+        # exists before any SSE events arrive.  Failures are non-fatal: a
+        # missing row degrades gracefully (no history entry).
+        context = dict(request.context) if request.context else {}
+        try:
+            from src.database.session import get_db_session
+            from src.services.workspace_run_service import WorkspaceRunService
+
+            workspace_id = str(context.get("workspace_id") or "").strip()
+            thread_id = str(context.get("thread_id") or "").strip()
+            title = str(context.get("title") or "").strip() or "untitled run"
+            if workspace_id and thread_id:
+                async with get_db_session() as db:
+                    svc = WorkspaceRunService(db)
+                    await svc.create_run(
+                        run_id=run_id,
+                        workspace_id=workspace_id,
+                        thread_id=thread_id,
+                        title=title,
+                        started_at=datetime.now(UTC),
+                    )
+        except Exception:
+            logger.warning(
+                "workspace_run.create_run failed for run_id=%s — continuing without persistence",
+                run_id,
+                exc_info=True,
+            )
+
+        # Spec §6.1 — register the executor so the runs router can deliver
+        # pause/resume/cancel signals while this session is in flight.
+        from src.subagents.manager import GlobalSubagentManager
+        try:
+            mgr = GlobalSubagentManager.get_instance()
+        except RuntimeError:
+            mgr = None  # In tests / standalone usage the singleton may not exist.
+        if mgr is not None:
+            mgr.register_executor(run_id, executor)
+
+        try:
+            phase_results = await executor.execute_plan(
+                request.phased_plan,
+                context=dict(request.context),
+                phase_callback=request.phase_callback,
+            )
+        finally:
+            if mgr is not None:
+                mgr.unregister_executor(run_id)
+
         return AgentSessionResult(
             provider=self.provider,
             strategy=request.strategy,

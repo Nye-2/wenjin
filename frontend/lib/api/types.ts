@@ -1281,3 +1281,11 @@ export interface MemoryResponse {
   formatted_context: string;
   items: MemoryEntry[];
 }
+
+import type { AgentBlock } from "./blocks";
+
+export interface ThreadBlockEvent {
+  type: "block";
+  message_id: string;
+  block: AgentBlock;
+}

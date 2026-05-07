@@ -122,3 +122,9 @@ disable_error_code = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[dependency-groups]
+dev = [
+    "greenlet>=3.3.2",
+    "syrupy>=5.1.0",
+]
