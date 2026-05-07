@@ -1,55 +1,60 @@
 import { describe, expect, it, vi } from "vitest";
-import { pauseRun, resumeRun, cancelWorkspaceRun, deleteRun } from "@/lib/api/runs";
 
-describe("runs API wrappers", () => {
-  it("POSTs to /pause", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(null, { status: 204 }),
-    );
-    await pauseRun("ws1", "r1");
+import {
+  deleteWorkspaceRun,
+  pauseRunLifecycle,
+  resumeRunLifecycle,
+} from "@/lib/api/runs";
+
+describe("runs lifecycle wrappers (Plan 2 T2)", () => {
+  it("POSTs to /api/runs/{id}/pause", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await pauseRunLifecycle("r1");
     expect(fetchSpy).toHaveBeenCalledWith(
-      "/api/workspaces/ws1/runs/r1/pause",
+      "/api/runs/r1/pause",
       expect.objectContaining({ method: "POST" }),
     );
   });
 
-  it("POSTs to /resume", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(null, { status: 204 }),
-    );
-    await resumeRun("ws1", "r1");
+  it("POSTs to /api/runs/{id}/resume", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await resumeRunLifecycle("r1");
     expect(fetchSpy).toHaveBeenCalledWith(
-      "/api/workspaces/ws1/runs/r1/resume",
+      "/api/runs/r1/resume",
       expect.objectContaining({ method: "POST" }),
     );
   });
 
-  it("POSTs to /cancel", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(null, { status: 204 }),
-    );
-    await cancelWorkspaceRun("ws1", "r1");
+  it("DELETEs /api/runs/{id} (soft-delete the workspace_run row)", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await deleteWorkspaceRun("r1");
     expect(fetchSpy).toHaveBeenCalledWith(
-      "/api/workspaces/ws1/runs/r1/cancel",
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
-
-  it("DELETEs runs", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(null, { status: 204 }),
-    );
-    await deleteRun("ws1", "r1");
-    expect(fetchSpy).toHaveBeenCalledWith(
-      "/api/workspaces/ws1/runs/r1",
+      "/api/runs/r1",
       expect.objectContaining({ method: "DELETE" }),
     );
   });
 
-  it("throws on non-2xx", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response("err", { status: 500 }),
+  it("encodes ids that contain special characters", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await pauseRunLifecycle("run/with/slashes");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/runs/run%2Fwith%2Fslashes/pause",
+      expect.objectContaining({ method: "POST" }),
     );
-    await expect(pauseRun("ws1", "r1")).rejects.toThrow(/500/);
+  });
+
+  it("throws on non-2xx response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("internal", { status: 500 }),
+    );
+    await expect(pauseRunLifecycle("r1")).rejects.toThrow(/500/);
   });
 });
