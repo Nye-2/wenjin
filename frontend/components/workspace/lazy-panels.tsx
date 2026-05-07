@@ -17,23 +17,6 @@ export const LazyKnowledgePanel = dynamic(
   }
 );
 
-// Lazy load ThreadPanel
-export const LazyThreadPanel = dynamic(
-  () => import('@/app/(workbench)/workspaces/[id]/components/ThreadPanel').then(
-    (mod) => mod.ThreadPanel
-  ),
-  {
-    loading: () => (
-      <div className="flex-1 p-4">
-        <MessageSkeleton />
-        <MessageSkeleton />
-        <MessageSkeleton />
-      </div>
-    ),
-    ssr: false,
-  }
-);
-
 // Lazy load LiteraturePanel
 export const LazyLiteraturePanel = dynamic(
   () => import('@/app/(workbench)/workspaces/[id]/components/LiteraturePanel').then(
