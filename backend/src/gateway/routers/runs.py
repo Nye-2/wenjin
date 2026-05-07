@@ -187,3 +187,39 @@ async def cancel_run(
         action=action,
         wait=wait,
     )
+
+
+@router.post("/{run_id}/pause", status_code=204)
+async def pause_run(
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Spec §6.1 — pause the in-flight ParallelExecutor at the next phase boundary.
+
+    Silently no-ops if no executor is registered for run_id (already finished or
+    never started). Auth required so callers cannot probe arbitrary run_ids.
+    """
+    from src.subagents.manager import GlobalSubagentManager
+
+    try:
+        mgr = GlobalSubagentManager.get_instance()
+    except RuntimeError:
+        return Response(status_code=204)
+    mgr.pause_run(run_id)
+    return Response(status_code=204)
+
+
+@router.post("/{run_id}/resume", status_code=204)
+async def resume_run(
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Spec §6.1 — resume a paused executor."""
+    from src.subagents.manager import GlobalSubagentManager
+
+    try:
+        mgr = GlobalSubagentManager.get_instance()
+    except RuntimeError:
+        return Response(status_code=204)
+    mgr.resume_run(run_id)
+    return Response(status_code=204)
