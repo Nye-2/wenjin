@@ -115,6 +115,38 @@ class GlobalSubagentManager:
         self._tools = config.default_tools
         self._lock = asyncio.Lock()
 
+        # Spec §6.1 — registry mapping run_id (= execution_session_id) to the
+        # ParallelExecutor handling that run. Populated by NativeWenjinAgentHarness
+        # while a session is in flight; consumed by the runs router (Plan 1 Task 10)
+        # to deliver pause/resume/cancel to the right executor.
+        self._executors: dict[str, "ParallelExecutor"] = {}
+
+    def register_executor(self, run_id: str, executor: "ParallelExecutor") -> None:
+        """Register an executor under run_id for the duration of a run."""
+        self._executors[run_id] = executor
+
+    def unregister_executor(self, run_id: str) -> None:
+        """Remove an executor from the registry. No-op if unknown."""
+        self._executors.pop(run_id, None)
+
+    def pause_run(self, run_id: str) -> None:
+        """Pause the executor for run_id at its next phase boundary. No-op if unknown."""
+        ex = self._executors.get(run_id)
+        if ex is not None:
+            ex.pause()
+
+    def resume_run(self, run_id: str) -> None:
+        """Resume a paused executor. No-op if unknown."""
+        ex = self._executors.get(run_id)
+        if ex is not None:
+            ex.resume()
+
+    def cancel_run(self, run_id: str) -> None:
+        """Cancel and unregister. Terminal — once cancelled, the run is done."""
+        ex = self._executors.pop(run_id, None)
+        if ex is not None:
+            ex.cancel()
+
     def _resolve_task_tools(self, task: SubagentTask) -> list[Any]:
         """Resolve the task's requested tool names against the configured tool pool."""
         if not task.tools:

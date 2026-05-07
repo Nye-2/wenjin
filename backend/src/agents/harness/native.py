@@ -115,13 +115,29 @@ class NativeWenjinAgentHarness:
         )
 
     async def run_session(self, request: AgentSessionRequest) -> AgentSessionResult:
-        _require_execution_session_id(request.context)
+        run_id = _require_execution_session_id(request.context)
         executor = self._build_executor()
-        phase_results = await executor.execute_plan(
-            request.phased_plan,
-            context=dict(request.context),
-            phase_callback=request.phase_callback,
-        )
+
+        # Spec §6.1 — register the executor so the runs router can deliver
+        # pause/resume/cancel signals while this session is in flight.
+        from src.subagents.manager import GlobalSubagentManager
+        try:
+            mgr = GlobalSubagentManager.get_instance()
+        except RuntimeError:
+            mgr = None  # In tests / standalone usage the singleton may not exist.
+        if mgr is not None:
+            mgr.register_executor(run_id, executor)
+
+        try:
+            phase_results = await executor.execute_plan(
+                request.phased_plan,
+                context=dict(request.context),
+                phase_callback=request.phase_callback,
+            )
+        finally:
+            if mgr is not None:
+                mgr.unregister_executor(run_id)
+
         return AgentSessionResult(
             provider=self.provider,
             strategy=request.strategy,
