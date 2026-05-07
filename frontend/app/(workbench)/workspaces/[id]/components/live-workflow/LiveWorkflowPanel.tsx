@@ -109,7 +109,7 @@ export function LiveWorkflowPanel({ workspaceId }: LiveWorkflowPanelProps) {
           <RunList runs={runs} currentRunId={currentRunId} />
         )}
         <div className={runs.length > 0 ? "mt-3" : ""}>
-          <WorkspaceAssets defaultOpen={!hasActiveRun} />
+          <WorkspaceAssets workspaceId={workspaceId} defaultOpen={!hasActiveRun} />
         </div>
 
         {/* Floating "回到当前进度" button when follow is paused */}

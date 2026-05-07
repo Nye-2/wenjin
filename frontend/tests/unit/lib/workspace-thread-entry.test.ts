@@ -73,4 +73,48 @@ describe("workspace-thread-entry", () => {
     expect(onboardingPrompt).toContain("刚创建了这个工作区");
     expect(featurePrompt).toBe("请帮我开始「开题撰写」。");
   });
+
+  // Plan 3 T3 — spec §7. Lock down the URL → params contract that the
+  // chat page's entrySeed flow uses to deliver context to the backend
+  // (via message metadata.orchestration.params).
+  it("captures source_artifact_id, paper_title, paper_abstract into params", () => {
+    const seed = parseWorkspaceThreadEntrySeed(
+      new URLSearchParams({
+        feature: "paper_analysis",
+        source_artifact_id: "art-1",
+        paper_title: "联邦学习+大模型",
+        paper_abstract: "短摘要",
+      }),
+    );
+    // Backend reads orchestration.params.source_artifact_id, so the
+    // frontend MUST keep snake_case keys verbatim.
+    expect(seed?.params.source_artifact_id).toBe("art-1");
+    expect(seed?.params.paper_title).toBe("联邦学习+大模型");
+    expect(seed?.params.paper_abstract).toBe("短摘要");
+  });
+
+  it("captures entry=open|resume + onboarding=true via params", () => {
+    const seed = parseWorkspaceThreadEntrySeed(
+      new URLSearchParams({
+        feature: "paper_analysis",
+        entry: "open",
+        onboarding: "true",
+      }),
+    );
+    expect(seed?.params.entry).toBe("open");
+    expect(seed?.params.onboarding).toBe(true);
+  });
+
+  it("never includes the reserved feature/skill keys inside params", () => {
+    const seed = parseWorkspaceThreadEntrySeed(
+      new URLSearchParams({
+        feature: "x",
+        skill: "y",
+        other: "z",
+      }),
+    );
+    expect(seed?.params).not.toHaveProperty("feature");
+    expect(seed?.params).not.toHaveProperty("skill");
+    expect(seed?.params.other).toBe("z");
+  });
 });

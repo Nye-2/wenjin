@@ -101,7 +101,9 @@ export function reduceSubagentEvent(
     subagent_type: sa.subagent_type ?? null,
     output_preview: sa.output_preview ?? null,
     error: sa.error ?? null,
-    token_usage: sa.token_usage ?? null,
+    token_usage: sa.token_usage
+      ? { total: sa.token_usage.total_tokens }
+      : null,
     model_name: sa.model_name ?? null,
   };
 

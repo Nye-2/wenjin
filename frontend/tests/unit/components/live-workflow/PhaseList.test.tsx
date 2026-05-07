@@ -33,9 +33,9 @@ function mockStore(
     ...overrides,
   };
   vi.mocked(useWorkflowStore).mockImplementation(
-    (selector?: (s: unknown) => unknown) => {
+    ((selector?: (s: unknown) => unknown) => {
       return selector ? selector(state) : state;
-    },
+    }) as unknown as typeof useWorkflowStore,
   );
   return state;
 }
