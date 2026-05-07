@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable
+import uuid
+from collections.abc import Awaitable, Mapping
 from typing import Any
 
 from src.application.errors import ApplicationError
@@ -18,6 +19,38 @@ from .manager import RunManager, RunRecord
 from .schemas import RunStatus
 
 logger = logging.getLogger(__name__)
+
+
+async def _emit_assistant_blocks(
+    bridge: StreamBridge, *, run_id: str, message: Mapping[str, Any]
+) -> None:
+    """Spec §5.2 — publish one 'block' event per AgentBlock.
+
+    Frontend groups blocks by message_id; we generate one fresh id per turn so
+    all blocks of the same agent message render together.
+
+    If the message arrives without a `blocks` field but with non-empty `content`,
+    coerce it into a single TextBlock — defensive (not a compat shim) for any
+    code path that hasn't yet been wired through structured output.
+    """
+    raw_blocks = message.get("blocks") if isinstance(message, Mapping) else None
+    blocks: list[dict[str, Any]]
+    if isinstance(raw_blocks, list) and raw_blocks:
+        blocks = [b for b in raw_blocks if isinstance(b, Mapping)]
+    else:
+        content = message.get("content") if isinstance(message, Mapping) else None
+        if isinstance(content, str) and content:
+            blocks = [{"kind": "text", "content": content}]
+        else:
+            return  # nothing to emit
+
+    message_id = str(uuid.uuid4())
+    for block in blocks:
+        await bridge.publish(
+            run_id,
+            "block",
+            {"type": "block", "message_id": message_id, "block": dict(block)},
+        )
 
 
 def _is_timeout_exception(exc: BaseException) -> bool:
@@ -163,14 +196,7 @@ async def run_thread_turn(
             return
 
         completed = await stream_run.wait_completed()
-        await bridge.publish(
-            run_id,
-            "assistant_message",
-            {
-                "type": "assistant_message",
-                "message": completed.assistant_message,
-            },
-        )
+        await _emit_assistant_blocks(bridge, run_id=run_id, message=completed.assistant_message)
         await bridge.publish(run_id, "done", {"type": "done"})
         await run_manager.set_status(run_id, RunStatus.success)
     except asyncio.CancelledError:

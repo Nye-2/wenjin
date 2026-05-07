@@ -203,7 +203,9 @@ def test_thread_run_stream_emits_expected_events(monkeypatch: pytest.MonkeyPatch
     assert response.headers["content-location"].endswith("/stream")
     assert "event: thread_id" in response.text
     assert "event: content" in response.text
-    assert "event: assistant_message" in response.text
+    # Spec §5.2 — assistant_message replaced by per-block events
+    assert "event: block" in response.text
+    assert "event: assistant_message" not in response.text
     assert "event: done" in response.text
     assert "event: end" in response.text
 
