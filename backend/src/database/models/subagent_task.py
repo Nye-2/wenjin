@@ -58,6 +58,7 @@ class SubagentTaskRecord(Base):
         nullable=True,
     )
     criticality: Mapped[str] = mapped_column(String(8), default="low", nullable=False)
+    run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("workspace_run.id"), nullable=True)
 
     def __repr__(self) -> str:
         return (
