@@ -152,15 +152,15 @@ T2 / T3 / T11 / T13 互相独立，可以并行但建议线性来：
 
 ```
 - [x] T1: d5c1dec  AgentBlock schema (control agent did this as the reference)
-- [ ] T2: ___
-- [ ] T3: ___
-- [ ] T4: ___
-- [ ] T5: ___
-- [ ] T11: ___
-- [ ] T13: ___
-- [ ] T14: ___
-- [ ] Plan2 T1: ___
-- [ ] Plan2 T2: ___
+- [x] T2: 1bf7877 结构化输出 wrapper + JSON 失败降级
+- [x] T3: b770ee3 Jargon blacklist + assert_no_jargon helper
+- [x] T4: 298eb00 重写 lead_agent system prompt + snapshot tests
+- [x] T5: 3699e75 重写 skill guidance prompts + 替换 workspace_features/skills.py 内联 prompt
+- [x] T11: 9686257 添加 criticality 列到 subagent_task_records + SubagentTask dataclass
+- [x] T13: 5558a96 创建 workspace_run 表 + run_id FK on subagent_task_records
+- [x] T14: 5c3bd46 WorkspaceRunService CRUD + 修复 agent.py 中文引号
+- [x] Plan2 T1: dd12b03 TypeScript AgentBlock mirrors + ThreadBlockEvent
+- [x] Plan2 T2: 99f8a3f runs.ts wrappers — pause/resume/cancel/delete
 ```
 
 我（控制 agent）会定期 `git log` 看你的进度，并在我 merge 集成 task 时一起拉过来。
