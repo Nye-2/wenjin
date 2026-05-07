@@ -89,3 +89,23 @@ export async function waitRun(data: RunRequest): Promise<RunWaitResponse> {
   return response.data;
 }
 
+
+// Run lifecycle controls (Plan 2 T2)
+async function postNoBody(url: string): Promise<void> {
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(`POST ${url} failed: ${res.status}`);
+}
+
+export const pauseRun = (wsId: string, runId: string) =>
+  postNoBody(`/api/workspaces/${wsId}/runs/${runId}/pause`);
+
+export const resumeRun = (wsId: string, runId: string) =>
+  postNoBody(`/api/workspaces/${wsId}/runs/${runId}/resume`);
+
+export const cancelWorkspaceRun = (wsId: string, runId: string) =>
+  postNoBody(`/api/workspaces/${wsId}/runs/${runId}/cancel`);
+
+export async function deleteRun(wsId: string, runId: string): Promise<void> {
+  const res = await fetch(`/api/workspaces/${wsId}/runs/${runId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`DELETE run failed: ${res.status}`);
+}
