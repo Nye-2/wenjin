@@ -4,12 +4,15 @@ import { useWorkflowStore } from "@/stores/workflow-store";
 
 import { RunList } from "./RunList";
 import { WorkspaceAssets } from "./WorkspaceAssets";
+import { useWorkflowSubscription } from "./useWorkflowSubscription";
 
 interface LiveWorkflowPanelProps {
   workspaceId: string;
 }
 
 export function LiveWorkflowPanel({ workspaceId }: LiveWorkflowPanelProps) {
+  useWorkflowSubscription(workspaceId);
+
   const runs = useWorkflowStore((s) => s.runs);
   const currentRunId = useWorkflowStore((s) => s.currentRunId);
   const pausedRunIds = useWorkflowStore((s) => s.pausedRunIds);
