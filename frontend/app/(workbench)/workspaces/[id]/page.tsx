@@ -21,17 +21,16 @@ import {
   Search,
   ShieldCheck,
 } from "lucide-react";
-import { useExecutionStore } from "@/stores/execution";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useFeaturesStore } from "@/stores/features";
+import { useWorkflowStore } from "@/stores/workflow-store";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
-import type { ExecutionSession, WorkspaceFeature } from "@/lib/api";
+import type { WorkspaceFeature } from "@/lib/api";
 import { useI18n } from "@/components/i18n-provider";
 import { workspaceStages, getFeatureStageId } from "@/lib/workspace-feature-stages";
 import { getWorkspaceFeatureThreadRoute } from "@/lib/workspace-feature-routes";
-import { ACTIVE_EXECUTION_STATUSES } from "@/lib/execution-status";
-import { WorkspaceInspector } from "./components/WorkspaceInspector";
+import { LiveWorkflowPanel } from "./components/live-workflow/LiveWorkflowPanel";
 
 const workspaceTypeLabels: Record<string, string> = {
   sci: "学术论文",
@@ -48,7 +47,6 @@ const workspaceTypeColors: Record<string, string> = {
   software_copyright: "bg-[rgba(120,135,139,0.08)] text-[var(--text-secondary)] border-[rgba(120,135,139,0.16)]",
   patent: "bg-[rgba(166,124,57,0.09)] text-[var(--brand-brass)] border-[rgba(166,124,57,0.16)]",
 };
-const EMPTY_EXECUTION_SESSIONS: ExecutionSession[] = [];
 
 interface RunningTask {
   id: string;
@@ -298,9 +296,7 @@ export default function WorkbenchPage() {
   const error = useWorkspaceStore((state) => state.error);
   const artifacts = useWorkspaceStore((state) => state.artifacts);
   const features = useFeaturesStore((state) => state.features);
-  const executionSessions = useExecutionStore(
-    (state) => state.byWorkspace[workspaceId] ?? EMPTY_EXECUTION_SESSIONS
-  );
+  const runs = useWorkflowStore((state) => state.runs);
 
   // Auto-redirect new workspaces to onboarding chat (only on first load)
   useEffect(() => {
@@ -318,23 +314,26 @@ export default function WorkbenchPage() {
   }, [workspace, isWorkspaceLoading, isArtifactsLoading, artifacts.length, features.length, router, workspaceId]);
 
   const runningTasks = useMemo<RunningTask[]>(() => {
-    const featureById = new Map(features.map((feature) => [feature.id, feature]));
-    return executionSessions
-      .filter(
-        (execution) => ACTIVE_EXECUTION_STATUSES.has(execution.status as never)
-      )
-      .map((execution) => ({
-        id: execution.primary_task_id || execution.id,
-        name:
-          featureById.get(execution.feature_id)?.name ?? execution.feature_id,
-        progress:
-          typeof execution.progress === "number"
-            ? Math.round(execution.progress)
-            : typeof execution.runtime_snapshot?.progress === "number"
-              ? Math.round(execution.runtime_snapshot.progress as number)
-              : 0,
-      }));
-  }, [executionSessions, features]);
+    return runs
+      .filter((run) => run.status === "running" || run.status === "paused")
+      .map((run) => {
+        const totalPhases = run.phases.length;
+        const completedPhases = run.phases.filter(
+          (p) =>
+            p.subagents.length > 0 &&
+            p.subagents.every((s) => s.status === "completed"),
+        ).length;
+        const runningPhase = run.phases.find((p) =>
+          p.subagents.some((s) => s.status === "running"),
+        );
+        const name = runningPhase?.name ?? run.title ?? `运行 ${run.id.slice(0, 6)}`;
+        const progress =
+          totalPhases > 0
+            ? Math.round((completedPhases / totalPhases) * 100)
+            : 0;
+        return { id: run.id, name, progress };
+      });
+  }, [runs]);
 
   const recommendedFeature = useMemo(
     () => inferRecommendedFeature(features, artifacts),
@@ -494,8 +493,8 @@ export default function WorkbenchPage() {
               <StagedFeatureCards features={features} workspaceId={workspaceId} />
             </div>
 
-            <div className="min-h-0">
-              <WorkspaceInspector workspaceId={workspaceId} />
+            <div className="min-h-0 overflow-hidden rounded-[1.75rem]">
+              <LiveWorkflowPanel workspaceId={workspaceId} />
             </div>
           </div>
         </main>

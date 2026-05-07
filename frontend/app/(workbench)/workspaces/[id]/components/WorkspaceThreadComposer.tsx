@@ -8,7 +8,6 @@ import type {
 import { motion } from "framer-motion";
 import { Paperclip, Send, X } from "lucide-react";
 import type { ThreadUploadKind, Model, ReasoningEffort } from "@/lib/api";
-import { AgentStatusBar } from "@/components/workspace";
 import { useI18n } from "@/components/i18n-provider";
 import { cn } from "@/lib/utils";
 
@@ -125,10 +124,6 @@ export function WorkspaceThreadComposer({
 
   return (
     <div className="p-4 border-t border-[var(--border-default)] bg-[var(--bg-elevated)] backdrop-blur-xl">
-      <div className="mb-3">
-        <AgentStatusBar workspaceId={workspaceId} />
-      </div>
-
       {actionError && (
         <div className="mb-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
           {actionError}
