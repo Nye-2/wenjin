@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 
 class SubagentStatus(StrEnum):
@@ -28,6 +28,7 @@ class SubagentTask:
     timeout: int = 900
     tools: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    criticality: Literal["low", "high"] = "low"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert task to dictionary for serialization."""

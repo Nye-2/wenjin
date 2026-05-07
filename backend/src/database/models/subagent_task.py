@@ -57,6 +57,7 @@ class SubagentTaskRecord(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    criticality: Mapped[str] = mapped_column(String(8), default="low", nullable=False)
 
     def __repr__(self) -> str:
         return (
