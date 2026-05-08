@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildWorkspaceThreadEntryOrchestration,
   buildWorkspaceThreadEntryPrompt,
   parseWorkspaceThreadEntrySeed,
   resolveWorkspaceThreadEntrySkill,
@@ -75,9 +74,8 @@ describe("workspace-thread-entry", () => {
     expect(featurePrompt).toBe("请帮我开始「开题撰写」。");
   });
 
-  // Plan 3 T3 — spec §7. Lock down the URL → params contract that the
-  // chat page's entrySeed flow uses to deliver context to the backend
-  // (via message metadata.orchestration.params).
+  // Lock down the URL → params contract that the chat page's entrySeed
+  // flow uses to deliver context to lead_agent (via the seed prompt + skill).
   it("captures source_artifact_id, paper_title, paper_abstract into params", () => {
     const seed = parseWorkspaceThreadEntrySeed(
       new URLSearchParams({
@@ -87,8 +85,6 @@ describe("workspace-thread-entry", () => {
         paper_abstract: "短摘要",
       }),
     );
-    // Backend reads orchestration.params.source_artifact_id, so the
-    // frontend MUST keep snake_case keys verbatim.
     expect(seed?.params.source_artifact_id).toBe("art-1");
     expect(seed?.params.paper_title).toBe("联邦学习+大模型");
     expect(seed?.params.paper_abstract).toBe("短摘要");
@@ -117,46 +113,5 @@ describe("workspace-thread-entry", () => {
     expect(seed?.params).not.toHaveProperty("feature");
     expect(seed?.params).not.toHaveProperty("skill");
     expect(seed?.params.other).toBe("z");
-  });
-
-  it("builds resume orchestration without leaking route control params", () => {
-    const orchestration = buildWorkspaceThreadEntryOrchestration({
-      featureId: "deep_research",
-      skillId: "deep-research",
-      params: {
-        entry: "resume",
-        execution_session_id: "exec-1",
-        topic: "多模态医学影像分割",
-      },
-    });
-
-    expect(orchestration).toEqual({
-      intent: "resume",
-      feature_id: "deep_research",
-      execution_session_id: "exec-1",
-      params: {
-        topic: "多模态医学影像分割",
-      },
-    });
-  });
-
-  it("builds launch orchestration with feature seed params", () => {
-    const orchestration = buildWorkspaceThreadEntryOrchestration({
-      featureId: "framework_outline",
-      skillId: null,
-      params: {
-        topic: "LLM planning",
-        source_artifact_id: "artifact-2",
-      },
-    });
-
-    expect(orchestration).toEqual({
-      intent: "launch",
-      feature_id: "framework_outline",
-      params: {
-        topic: "LLM planning",
-        source_artifact_id: "artifact-2",
-      },
-    });
   });
 });

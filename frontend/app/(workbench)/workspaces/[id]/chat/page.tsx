@@ -27,7 +27,6 @@ import {
 } from "../components/WorkspaceThreadComposer";
 import { ArtifactDetailDialog } from "@/components/workspace/ArtifactDetailDialog";
 import {
-  buildWorkspaceThreadEntryOrchestration,
   buildWorkspaceThreadEntryPrompt,
   parseWorkspaceThreadEntrySeed,
   resolveWorkspaceThreadEntrySkill,
@@ -276,7 +275,6 @@ function ChatPageInner() {
       seed: entrySeed,
       feature: entrySeedFeature ?? null,
     });
-    const orchestration = buildWorkspaceThreadEntryOrchestration(entrySeed);
     sendMessage(prompt, {
       workspaceId,
       ...(resolvedEntrySkillId !== null
@@ -285,9 +283,6 @@ function ChatPageInner() {
           ? { skill: currentSkill }
           : {}),
       model: selectedModel || undefined,
-      metadata: {
-        orchestration,
-      },
     });
   }, [
     currentSkill,

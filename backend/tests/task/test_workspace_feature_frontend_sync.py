@@ -140,13 +140,12 @@ def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_threa
     assert "<LiveWorkflowPanel workspaceId={workspaceId} />" in chat_route_body
     assert "export function parseWorkspaceThreadEntrySeed(" in chat_entry_body
     assert "export function buildWorkspaceThreadEntryPrompt(" in chat_entry_body
-    assert "export function buildWorkspaceThreadEntryOrchestration(" in chat_entry_body
-    assert "buildWorkspaceThreadEntryOrchestration(entrySeed)" in chat_route_body
-    assert "metadata: {" in chat_route_body
-    assert "orchestration," in chat_route_body
-    assert "feature_id: seed.featureId" in chat_entry_body
-    assert "params," in chat_entry_body
-    assert 'intent: isResumeEntry ? "resume" : "launch"' in chat_entry_body
+    # The chat-bypass removal eliminated metadata.orchestration on chat turns.
+    # The chat page must NOT send orchestration; lead_agent decides launch via
+    # the launch_feature tool based on the seed prompt + skill.
+    assert "metadata: {" not in chat_route_body
+    assert "buildWorkspaceThreadEntryOrchestration" not in chat_route_body
+    assert "buildWorkspaceThreadEntryOrchestration" not in chat_entry_body
     assert "latestAssistant.metadata" not in chat_route_body
     assert "void loadThreads(workspaceId);" not in layout_body
     assert "ensureWorkspaceThread(workspaceId" in chat_route_body
@@ -259,16 +258,13 @@ def test_agent_block_contract_is_centralized_and_rendered_by_chat_thread() -> No
     assert "onFeedback" in result_body
     assert "onJumpToPhase" in status_body
     assert "await importDeepSearchArtifactReferences(workspaceId" in import_references_body
-    assert "buildWorkspaceThreadEntryOrchestration(entrySeed)" in _read_text(CHAT_ROUTE_FILE)
 
 
-def test_task_failure_recovery_actions_keep_execution_session_seed() -> None:
-    entry_body = _read_text(CHAT_ENTRY_FILE)
-
-    assert 'entryAction === "resume"' in entry_body
-    assert 'seed.params?.execution_session_id' in entry_body
-    assert "execution_session_id: executionSessionId" in entry_body
-    assert 'key !== "entry" && key !== "execution_session_id"' in entry_body
+def test_chat_page_does_not_send_orchestration_metadata() -> None:
+    """After chat-bypass removal, chat turns must not send metadata.orchestration."""
+    chat_route_body = _read_text(CHAT_ROUTE_FILE)
+    assert "buildWorkspaceThreadEntryOrchestration" not in chat_route_body
+    assert "metadata: {" not in chat_route_body
 
 
 def test_upload_preprocess_status_stays_visible_until_full_text_is_ready() -> None:

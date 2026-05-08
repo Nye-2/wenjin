@@ -12,13 +12,6 @@ export interface WorkspaceThreadEntrySeed {
   params: Record<string, unknown>;
 }
 
-export interface WorkspaceThreadEntryOrchestration {
-  intent: "launch" | "resume";
-  feature_id: string;
-  execution_session_id?: string;
-  params: Record<string, unknown>;
-}
-
 export function resolveWorkspaceThreadEntrySkill(options: {
   seed: WorkspaceThreadEntrySeed | null | undefined;
   skills: WorkspaceThreadSkill[];
@@ -86,34 +79,6 @@ export function parseWorkspaceThreadEntrySeed(
   return {
     featureId,
     skillId,
-    params,
-  };
-}
-
-export function buildWorkspaceThreadEntryOrchestration(
-  seed: WorkspaceThreadEntrySeed
-): WorkspaceThreadEntryOrchestration {
-  const entryAction =
-    typeof seed.params?.entry === "string"
-      ? seed.params.entry.trim().toLowerCase()
-      : "";
-  const isResumeEntry = entryAction === "resume";
-  const executionSessionId =
-    typeof seed.params?.execution_session_id === "string"
-      ? seed.params.execution_session_id.trim()
-      : "";
-  const params = Object.fromEntries(
-    Object.entries(seed.params ?? {}).filter(
-      ([key]) => key !== "entry" && key !== "execution_session_id"
-    )
-  );
-
-  return {
-    intent: isResumeEntry ? "resume" : "launch",
-    feature_id: seed.featureId,
-    ...(isResumeEntry && executionSessionId
-      ? { execution_session_id: executionSessionId }
-      : {}),
     params,
   };
 }
