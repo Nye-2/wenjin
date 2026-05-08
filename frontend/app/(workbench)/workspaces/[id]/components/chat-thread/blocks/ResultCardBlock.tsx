@@ -10,6 +10,16 @@
  * Findings are numbered with circled numerals (①②③) so users can refer
  * to them in chat ("深入第 ① 点").
  */
+import { useState } from "react";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
+
 import type {
   FeedbackPill,
   ResultCardBlock as ResultCardBlockType,
@@ -60,6 +70,8 @@ interface ResultCardBlockProps {
 }
 
 export function ResultCardBlock({ block, onFeedback }: ResultCardBlockProps) {
+  const [showFull, setShowFull] = useState(false);
+
   return (
     <div
       className="rounded-xl px-4 py-4"
@@ -111,7 +123,20 @@ export function ResultCardBlock({ block, onFeedback }: ResultCardBlockProps) {
         <span className="font-semibold" style={{ color: "var(--brand-teal)" }}>
           TL;DR：
         </span>
-        {block.tldr}
+        <MarkdownRenderer
+          content={block.tldr}
+          className="inline [&>p]:mb-0 [&>p]:inline"
+        />
+        {block.full_summary && (
+          <button
+            type="button"
+            onClick={() => setShowFull(true)}
+            className="ml-2 text-[12px] font-medium transition-opacity hover:opacity-80"
+            style={{ color: "var(--brand-teal)" }}
+          >
+            查看完整结果 →
+          </button>
+        )}
       </div>
 
       {/* Findings */}
@@ -217,6 +242,16 @@ export function ResultCardBlock({ block, onFeedback }: ResultCardBlockProps) {
           })}
         </div>
       </div>
+
+      {/* Full summary dialog */}
+      <Dialog open={showFull} onOpenChange={setShowFull}>
+        <DialogContent className="max-h-[80vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{block.title}</DialogTitle>
+          </DialogHeader>
+          <MarkdownRenderer content={block.full_summary ?? block.tldr} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
