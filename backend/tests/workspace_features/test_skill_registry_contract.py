@@ -70,7 +70,7 @@ def test_skill_guidance_uses_compute_proposal_contract() -> None:
         for skill in list_workspace_thread_skills(workspace_type):
             guidance = skill.guidance_prompt
             markers = (
-                "Compute feature 提案",
+                "launch_feature",
                 "最小缺失信息",
                 "输出产物",
                 "不要编造",
