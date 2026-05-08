@@ -23,7 +23,6 @@ describe("ChatThread", () => {
       <ChatThread
         workspaceId="ws1"
         messages={[]}
-        currentRunId={null}
         feature={{
           id: "paper_analysis",
           name: "论文分析",
@@ -37,12 +36,10 @@ describe("ChatThread", () => {
   });
 
   it("renders MessageList when there are messages", () => {
-    useWorkflowStore.setState({ currentRunId: "r1" });
     render(
       <ChatThread
         workspaceId="ws1"
         messages={[{ id: "u", role: "user", run_id: "r1", text: "hi" }]}
-        currentRunId="r1"
         feature={null}
         starterPrompts={[]}
       />,
@@ -56,7 +53,6 @@ describe("ChatThread", () => {
       <ChatThread
         workspaceId="ws1"
         messages={[]}
-        currentRunId={null}
         feature={null}
         starterPrompts={[]}
       />,
@@ -69,7 +65,6 @@ describe("ChatThread", () => {
       <ChatThread
         workspaceId="ws1"
         messages={[{ id: "u", role: "user", run_id: "r1", text: "hi" }]}
-        currentRunId="r1"
         feature={null}
         starterPrompts={[]}
       />,

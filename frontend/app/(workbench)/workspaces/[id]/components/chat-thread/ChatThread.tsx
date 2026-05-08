@@ -28,7 +28,6 @@ interface FeatureMeta {
 interface ChatThreadProps {
   workspaceId: string;
   messages: ChatMessage[];
-  currentRunId: string | null;
   feature: FeatureMeta | null;
   starterPrompts: string[];
   onSubmit?: (text: string) => void;
@@ -38,7 +37,6 @@ interface ChatThreadProps {
 
 export function ChatThread({
   messages,
-  currentRunId,
   feature,
   starterPrompts,
   onSubmit,
@@ -62,7 +60,6 @@ export function ChatThread({
         ) : (
           <MessageList
             messages={messages}
-            currentRunId={currentRunId}
             onSubmit={submit}
             onJumpToPhase={onJumpToPhase}
           />

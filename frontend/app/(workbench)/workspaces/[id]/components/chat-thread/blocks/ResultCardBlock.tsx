@@ -1,14 +1,10 @@
 "use client";
 
 /**
- * ResultCardBlock · Plan 2 T11
+ * ResultCardBlock — the structured completion card for Compute feature runs.
  *
- * The closing card of every run: TL;DR → findings → recommend → links → feedback.
- * Uses the brand-teal accent (paper/ink ✓ semantic) to signal completion,
- * distinct from question_card's brand-brass "needs your input".
- *
- * Findings are numbered with circled numerals (①②③) so users can refer
- * to them in chat ("深入第 ① 点").
+ * Shows TL;DR, findings, recommend, links, and feedback pills.
+ * Clean modern card style: solid border, white background, subtle shadow.
  */
 import { useState } from "react";
 
@@ -76,15 +72,15 @@ export function ResultCardBlock({ block, onFeedback }: ResultCardBlockProps) {
     <div
       className="rounded-xl px-4 py-4"
       style={{
-        background:
-          "linear-gradient(180deg, rgba(46, 111, 109, 0.05), rgba(46, 111, 109, 0.02))",
-        border: "1px solid rgba(46, 111, 109, 0.25)",
+        background: "#FFFFFF",
+        border: "1px solid rgba(46, 111, 109, 0.2)",
+        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.06)",
       }}
     >
       {/* Header */}
       <div
         className="flex items-center justify-between pb-2.5"
-        style={{ borderBottom: "1px dashed rgba(46, 111, 109, 0.2)" }}
+        style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <div>
           <div
@@ -116,7 +112,7 @@ export function ResultCardBlock({ block, onFeedback }: ResultCardBlockProps) {
       <div
         className="mt-3 rounded-md px-3 py-2.5 text-[13px] leading-relaxed"
         style={{
-          background: "rgba(255, 255, 255, 0.55)",
+          background: "var(--bg-surface)",
           color: "var(--text-primary)",
         }}
       >
@@ -174,7 +170,7 @@ export function ResultCardBlock({ block, onFeedback }: ResultCardBlockProps) {
           className="mt-4 rounded-r-md py-2 pl-3 pr-2.5"
           style={{
             borderLeft: "2px solid var(--brand-navy)",
-            background: "rgba(31, 66, 99, 0.05)",
+            background: "rgba(31, 66, 99, 0.04)",
           }}
         >
           <div
@@ -216,7 +212,7 @@ export function ResultCardBlock({ block, onFeedback }: ResultCardBlockProps) {
       {/* Feedback */}
       <div
         className="mt-4 pt-3"
-        style={{ borderTop: "1px dashed rgba(46, 111, 109, 0.2)" }}
+        style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
         <div
           className="text-[13px]"

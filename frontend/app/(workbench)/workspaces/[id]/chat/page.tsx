@@ -33,7 +33,6 @@ import {
   type WorkspaceThreadEntrySeed,
 } from "@/lib/workspace-thread-entry";
 import { toChatMessages } from "@/stores/thread-store-support";
-import { useWorkflowStore } from "@/stores/workflow-store";
 
 interface PendingThreadAttachment {
   id: string;
@@ -95,8 +94,6 @@ function ChatPageInner() {
   const features = useFeaturesStore((state) => state.features);
   const skills = useFeaturesStore((state) => state.skills);
   const getFeatureById = useFeaturesStore((state) => state.getFeatureById);
-
-  const currentRunId = useWorkflowStore((state) => state.currentRunId);
 
   const entrySeedRaw: WorkspaceThreadEntrySeed | null = useMemo(
     () => (searchParams ? parseWorkspaceThreadEntrySeed(searchParams) : null),
@@ -512,7 +509,6 @@ function ChatPageInner() {
             <ChatThread
               workspaceId={workspaceId}
               messages={chatMessages}
-              currentRunId={currentRunId}
               feature={featureMeta}
               starterPrompts={starterPrompts}
               onSubmit={submitText}
