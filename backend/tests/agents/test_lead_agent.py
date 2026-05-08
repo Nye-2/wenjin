@@ -158,8 +158,8 @@ class TestApplyPromptTemplate:
         prompt = apply_prompt_template(state, config)
 
         # Identity + AgentBlock contract markers (spec §5.1, §8)
-        assert "wenjin" in prompt
-        assert "lead agent" in prompt
+        assert "Wenjin" in prompt
+        assert "研究助手" in prompt
         assert "block" in prompt
         assert "status_line" in prompt
         assert "question_card" in prompt
@@ -384,8 +384,8 @@ class TestMakeLeadAgent:
 
         assert isinstance(rendered[0], SystemMessage)
         # New AgentBlock contract identifies the agent
-        assert "wenjin" in rendered[0].content
-        assert "lead agent" in rendered[0].content
+        assert "Wenjin" in rendered[0].content
+        assert "研究助手" in rendered[0].content
         assert isinstance(rendered[1], HumanMessage)
         assert rendered[1].content == "如何做实验设计？"
 
