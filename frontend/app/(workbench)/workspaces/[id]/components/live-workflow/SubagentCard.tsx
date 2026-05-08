@@ -170,7 +170,7 @@ export function SubagentCard({ subagent }: { subagent: SubagentSnap }) {
       {subagent.output_preview && (
         <div
           style={{
-            background: "rgba(0, 0, 0, 0.28)",
+            background: "var(--compute-bg-surface)",
             color: "var(--compute-text-secondary)",
           }}
           className="mt-2 rounded px-2 py-1.5 font-mono text-[11px] leading-snug"

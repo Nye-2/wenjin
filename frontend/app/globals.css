@@ -62,25 +62,25 @@
   --duration-slow: 500ms;
 
   /* ═══════════════════════════════════════════════════════════════ */
-  /* ── Compute Stage Dark Theme (新增) ──                          */
+  /* ── Compute Stage Light Theme ──                                */
   /* ═══════════════════════════════════════════════════════════════ */
-  --compute-bg-base: #0B0F14;
-  --compute-bg-elevated: #111820;
-  --compute-bg-surface: #1A2330;
-  --compute-bg-overlay: rgba(11, 15, 20, 0.85);
-  --compute-border: #232D3D;
-  --compute-border-subtle: rgba(255, 255, 255, 0.06);
-  --compute-text-primary: #E8ECF2;
-  --compute-text-secondary: #8A94A6;
-  --compute-text-muted: #5A6378;
-  --compute-accent-cyan: #5C97A5;
-  --compute-accent-cyan-glow: rgba(92, 151, 165, 0.25);
-  --compute-accent-gold: #C8A050;
-  --compute-accent-green: #2D9D78;
-  --compute-accent-red: #D14B4B;
-  --compute-glass-bg: rgba(17, 24, 32, 0.85);
-  --compute-glass-border: rgba(255, 255, 255, 0.06);
-  --compute-glass-blur: blur(20px) saturate(110%);
+  --compute-bg-base: #F7F5EF;
+  --compute-bg-elevated: #FFFFFF;
+  --compute-bg-surface: #F0EDE5;
+  --compute-bg-overlay: rgba(247, 245, 239, 0.9);
+  --compute-border: #E0DDD4;
+  --compute-border-subtle: rgba(0, 0, 0, 0.06);
+  --compute-text-primary: #182738;
+  --compute-text-secondary: #4A5D63;
+  --compute-text-muted: #78878B;
+  --compute-accent-cyan: #2E6F6D;
+  --compute-accent-cyan-glow: rgba(46, 111, 109, 0.12);
+  --compute-accent-gold: #A67C39;
+  --compute-accent-green: #0D9265;
+  --compute-accent-red: #C42B2B;
+  --compute-glass-bg: rgba(255, 255, 255, 0.85);
+  --compute-glass-border: rgba(0, 0, 0, 0.06);
+  --compute-glass-blur: blur(16px) saturate(118%);
 }
 
 * {
