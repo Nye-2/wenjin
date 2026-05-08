@@ -737,11 +737,13 @@ class ThreadTurnHandler:
 
     @staticmethod
     def _requires_thread_turn_budget(request: ThreadTurnRequest, thread: Thread) -> bool:
-        """Return whether this prepared turn belongs to the pure chat budget."""
-        from src.application.handlers.chat_turn_router import ChatTurnMode, ChatTurnRouter
+        """Return whether this prepared turn belongs to the pure chat budget.
 
-        route = ChatTurnRouter.route(request, thread)
-        return route.mode == ChatTurnMode.PURE_CHAT
+        With the ChatTurnRouter bypass removed, every chat turn enters lead_agent;
+        feature launches happen via the launch_feature tool, not as a separate
+        ingress mode. So every turn is treated as a pure chat turn for budgeting.
+        """
+        return True
 
     async def _maybe_compact_thread_history(self, thread: Thread) -> None:
         """Durably compact long thread history before building model context."""
@@ -844,22 +846,6 @@ class ThreadTurnHandler:
         async def _iterator() -> AsyncIterator[ThreadStreamDelta]:
             reply_stream = None
             try:
-                feature_reply = await self._try_feature_command_reply(
-                    prepared,
-                    actor_id=actor_id,
-                )
-                if feature_reply is not None:
-                    if feature_reply.content:
-                        yield ThreadStreamDelta(kind="content", text=feature_reply.content)
-                    completed = await self._finalize_generated_reply(
-                        prepared,
-                        actor_id=actor_id,
-                        reply=feature_reply,
-                    )
-                    if not completed_future.done():
-                        completed_future.set_result(completed)
-                    return
-
                 await self._maybe_compact_thread_history(prepared.thread)
                 reply_stream = self._stream_thread_response(
                     prepared.request,
@@ -1114,38 +1100,12 @@ class ThreadTurnHandler:
             skill_name=resolve_thread_skill_name(thread),
         )
 
-    async def _try_feature_command_reply(
-        self,
-        prepared: PreparedThreadTurn,
-        *,
-        actor_id: str,
-    ) -> GeneratedThreadReply | None:
-        """Handle explicit feature launch/resume without entering lead-agent."""
-        from src.application.handlers.chat_turn_router import ChatTurnMode, ChatTurnRouter
-        from src.application.handlers.feature_command_handler import FeatureCommandHandler
-
-        route = ChatTurnRouter.route(prepared.request, prepared.thread)
-        if not route.is_feature_command and route.mode != ChatTurnMode.FEATURE_PROPOSAL:
-            return None
-        return await FeatureCommandHandler().handle(
-            request=prepared.request,
-            thread=prepared.thread,
-            actor_id=actor_id,
-            route=route,
-        )
-
     async def _generate_prepared_reply(
         self,
         prepared: PreparedThreadTurn,
         *,
         actor_id: str,
     ) -> GeneratedThreadReply:
-        feature_reply = await self._try_feature_command_reply(
-            prepared,
-            actor_id=actor_id,
-        )
-        if feature_reply is not None:
-            return feature_reply
         return await self._generate_thread_response(
             prepared.request,
             prepared.thread,
