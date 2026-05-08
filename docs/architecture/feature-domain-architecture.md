@@ -30,7 +30,7 @@
 User/UI (Chat / Feature API / Activity Retry / Automation)
         │
         ├─ Chat Control Plane
-        │        └─ ChatTurnRouter + FeatureCommandHandler
+        │        └─ lead_agent + launch_feature tool
         ├─ Feature API Adapter
         └─ Automation Adapter
                  │
@@ -91,10 +91,10 @@ Compute Stage（过程面）     Chat 总结消息（收口面）
 
 ### 4.3 Chat / Feature Leader
 
-1. chat lead-agent：只做 pure chat、建议与 workspace read，不持有显式 feature 执行权。
-2. `ChatTurnRouter`：在进入 lead-agent 前识别显式 launch/resume。
-3. feature leader：进入 feature 域后，独立负责编排节点、AgentHarness 与 subagents。
-4. 两者通过明确协议交接，避免一个 agent 同时承担会话策略和事务编排。
+1. chat lead-agent（LangGraph `create_react_agent`）：处理 pure chat、建议、workspace read，同时通过内置 `launch_feature` tool 决定何时启动 feature。
+2. lead-agent 根据 workspace skills 上下文判断是否需要调用 `launch_feature`，无需上游 router。
+3. `launch_feature` tool 直接调用 `FeatureIngressService.launch()`，是 chat 域进入 feature 域的唯一路径。
+4. feature leader：进入 feature 域后，独立负责编排节点、AgentHarness 与 subagents。
 
 ### 4.4 Subagents（Compute 内部）
 
@@ -165,8 +165,8 @@ Compute Stage（过程面）     Chat 总结消息（收口面）
 1. ingress 或 feature runtime 判断缺参，写入 execution session 状态：`awaiting_user_input`。
 2. 同时发布可读追问项（问题、缺失字段、建议默认值）。
 3. chat 面板展示追问，用户回复后携带同一 `execution_session_id`。
-4. `ChatTurnRouter` 识别 `intent=resume`。
-5. `FeatureCommandHandler` 构造携带 `execution_session_id` 的 `FeatureLaunchCommand` 并调用 `FeatureIngressService.launch(command)`。
+4. lead-agent 识别用户回复与待续执行上下文，调用 `launch_feature` tool 并传入 `execution_session_id`。
+5. `launch_feature` tool 构造 `FeatureLaunchCommand` 并调用 `FeatureIngressService.launch(command)`。
 6. ingress 在同一 session 上追加参数并继续执行，不新建事务。
 
 约束：
@@ -192,8 +192,8 @@ Compute Stage（过程面）     Chat 总结消息（收口面）
 | `backend/src/agents/feature_leader/runtime.py` | feature runtime 编排 |
 | `backend/src/agents/feature_leader/graph_registry.py` | feature graph 注册与执行 |
 | `backend/src/agents/harness/` | AgentHarness contract/provider |
-| `backend/src/application/handlers/chat_turn_router.py` | chat turn mode 分类 |
-| `backend/src/application/handlers/feature_command_handler.py` | chat 显式 launch/resume adapter |
+| `backend/src/tools/builtins/launch_feature.py` | lead-agent 内置 feature launch/resume tool |
+| `backend/src/agents/` (lead-agent) | chat 入口，`create_react_agent` 统一处理 pure chat 与 feature 启动 |
 | `backend/src/compute/session_service.py` | compute session shell 创建/查询 |
 | `backend/src/compute/projection_service.py` | compute projection 聚合 |
 | `backend/src/gateway/routers/features.py` | ingress adapter（feature API 入口） |

@@ -10,7 +10,7 @@
 
 1. workspace feature 执行主链路可用（提交、轮询、终态可见）。
 2. `thread-route(/chat)` feature 入口可用（feature 卡片 / artifact follow-up / activity retry 均能落到 `/chat` 并保留 orchestration seed）。
-3. Chat structured block action 契约全绿：所有 `next_steps` action 都在前端白名单中，并有真实处理或显式兜底。
+3. Chat structured block action 契约全绿：所有 AgentBlock（`text`、`status_line`、`question_card`、`result_card`）的 action 都在前端白名单中，并有真实处理或显式兜底。
 4. 文献检索只以 Semantic Scholar `verified_papers` 作为可导入事实来源，`model_synthesis` 和 `unverified_leads` 不进入文献库。
 5. 大文件上传预处理状态可见：pending/running 时 Chat 明确提示 Agent 暂不能引用全文，succeeded 后可引用 Markdown 摘要。
 6. Prism 写入链路可见：写作任务完成后优先进入 pending review，不能绕过 preview 直接覆盖主稿。
@@ -69,7 +69,7 @@ npm test
 
 验收断言：
 
-1. `WorkspaceThreadMessages.tsx` 只有一套 `next_steps` 渲染分支。
+1. `WorkspaceThreadMessages.tsx` 只有一套 AgentBlock 渲染分支（`text`、`status_line`、`question_card`、`result_card`）。
 2. `SUPPORTED_BLOCK_ACTIONS` 覆盖 `trigger_feature`、`continue_thread`、`open_feature`、`rerun_from_artifact`、`open_prism`、`preview_prism_changes`、`open_artifact`、`rerun_feature`、`resume_execution`、`import_references`。
 3. 失败态 recovery action 不输出内部 `resume`，只输出官方 action。
 4. 文献检索完成态展示 Semantic Scholar verified trust，并明确显示已自动同步到参考库。

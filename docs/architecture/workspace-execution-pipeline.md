@@ -13,7 +13,7 @@
 - `POST /api/threads/{thread_id}/runs/wait`
 - `POST /api/runs/wait`
 
-chat 统一通过 runs API 入口。显式 feature launch/resume 在 `ThreadTurnHandler` 内由 `ChatTurnRouter` 识别，随后交给 `FeatureCommandHandler`，直接进入 `FeatureIngressService`。普通聊天才进入 lead-agent。
+chat 统一通过 runs API 入口。所有 chat turns 进入 lead-agent（`create_react_agent`），lead-agent 通过内置 `launch_feature` tool 直接调用 `FeatureIngressService.launch()` 来启动 feature，无需上游 router。
 
 补充：
 
@@ -47,13 +47,9 @@ chat、feature API、activity retry 和 automation 只能作为 adapter 调用 d
 
 1. Runs router 接收消息，解析 thread/workspace/user 运行时上下文。
 2. `ThreadTurnHandler.prepare_turn()` 写入 user message 并设置 thread running。
-3. `ChatTurnRouter` 作为薄 adapter 调用 `ThreadIntentRouter`：
-   - `ThreadIntentRouter` 是 chat feature 意图 SSOT。
-   - 它负责合并 skill defaults、校验 skill/feature 一致性、校验 workspace feature availability。
-   - `launch` -> `feature_launch`，`resume` -> `feature_resume`，无显式 feature command -> `pure_chat`。
-4. `feature_launch` / `feature_resume` 交给 `FeatureCommandHandler`。
-5. `FeatureCommandHandler` 调用 `execute_workspace_feature_request(...)`，该 adapter 构造 `FeatureIngressService` 并进入 launch/resume。
-6. pure chat 才进入 lead-agent，lead-agent 只保留普通问答、建议、workspace read tools，不持有 feature 执行权。
+3. 所有 chat turns 统一进入 lead-agent（`create_react_agent`）。
+4. lead-agent 处理 pure chat（普通问答、建议、workspace read tools）。
+5. 当用户意在启动 feature 时，lead-agent 调用内置 `launch_feature` tool（`backend/src/tools/builtins/launch_feature.py`），该 tool 直接构造 `FeatureLaunchCommand` 并调用 `FeatureIngressService.launch()`。
 
 约束：
 
@@ -242,10 +238,8 @@ workspace feature 结果的关键字段：
 - `backend/src/runtime/runs/manager.py`
 - `backend/src/runtime/stream_bridge/redis.py`
 - `backend/src/application/handlers/thread_turn_handler.py`
-- `backend/src/application/handlers/chat_turn_router.py`
-- `backend/src/application/handlers/feature_command_handler.py`
+- `backend/src/tools/builtins/launch_feature.py`
 - `backend/src/application/commands.py`
-- `backend/src/application/services/thread_feature_service.py`
 - `backend/src/application/services/feature_launch_service.py`
 - `backend/src/application/services/feature_submission_service.py`
 - `backend/src/compute/session_service.py`

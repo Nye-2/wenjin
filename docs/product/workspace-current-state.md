@@ -23,7 +23,7 @@
 
 1. skill 是 thread 对话层的 feature 入口语义，不是独立执行框架。
 2. 用户在 chat 中选中的 skill 会绑定当前 turn 的默认 feature / params 倾向。
-3. 真正执行时统一走 `ChatTurnRouter` / feature API -> `FeatureIngressService` -> Compute-centered feature pipeline。
+3. 真正执行时统一走 lead-agent `launch_feature` tool / feature API -> `FeatureIngressService` -> Compute-centered feature pipeline。
 4. 入口可多样（chat/feature API/activity retry/automation），但 feature 事务执行统一经过 `FeatureIngressService`。
 
 ## 4. Thread 面板信息架构
@@ -37,7 +37,7 @@
 
 1. 首轮编排消息通过 `metadata.orchestration.feature_id + params` 传递 seed。
 2. feature 卡片、artifact follow-up、activity retry 都回落到 `/chat`，以 `metadata.orchestration.intent=launch|resume` 表达显式命令，并携带显式 artifact seed。
-3. API 发起的长任务执行统一走 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`；chat 发起的显式任务走 `ChatTurnRouter` 后直接进入同一个 ingress。
+3. API 发起的长任务执行统一走 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`；chat 发起的显式任务由 lead-agent 通过 `launch_feature` tool 直接进入同一个 ingress。
 4. 缺参时 execution session 状态进入 `awaiting_user_input`，chat 下一轮携带 `metadata.orchestration.execution_session_id` 在同 session 续跑。
 5. feature 完成后，UI 通过 `followUpPrompt` 和 activity detail 提供下一轮建议。
 

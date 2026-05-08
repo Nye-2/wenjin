@@ -40,7 +40,7 @@ State Stores:
 ### 2.2 后端目录职责
 
 - `backend/src/gateway/*`: FastAPI 入口、路由、中间件、健康检查
-- `backend/src/application/*`: 应用编排层（`ThreadTurnHandler`、`ChatTurnRouter`、`FeatureCommandHandler`、`FeatureSubmissionService`、`FeatureIngressService`）
+- `backend/src/application/*`: 应用编排层（`ThreadTurnHandler`、`FeatureSubmissionService`、`FeatureIngressService`）
 - `backend/src/compute/*`: ComputeSession、projection、用户可见工作台聚合
 - `backend/src/task/*`: 任务系统（submit/store/progress/worker/sse）
 - `backend/src/agents/*`: lead-agent、feature leader、LangGraph 图、AgentHarness contract
@@ -218,9 +218,9 @@ State Stores:
 - 获取或创建线程
 - 写入 user message
 - `set_thread_status(..., status="running")`
-3. `ChatTurnRouter` 路由：
-- `feature_launch` / `feature_resume` 交给 `FeatureCommandHandler`，不进入 lead-agent
-- `pure_chat` 进入 lead-agent（LangGraph ReAct + middleware + read tools）
+3. lead-agent（`create_react_agent`）统一处理所有 chat turns：
+- 纯聊天 → LLM 直接响应
+- 功能意图 → lead-agent 根据 workspace skills 上下文调用 `launch_feature` tool → `FeatureIngressService.launch()`
 4. 完成后：
 - assistant message 落库
 - token 用量计费（chat billing）
@@ -230,15 +230,12 @@ State Stores:
 - 退款（若已扣费）
 - `status=failed`
 
-### 7.3 Chat -> Feature 显式命令链
+### 7.3 Chat -> Feature 启动链
 
-`ThreadTurnHandler` 在进入 lead-agent 前执行 `ChatTurnRouter`。
+所有 chat turns 统一进入 lead-agent（`create_react_agent`）。lead-agent 拥有内置 `launch_feature` tool（`backend/src/tools/builtins/launch_feature.py`），当识别到用户意在启动 workspace feature 时，直接调用该 tool。
 
-- 线程层读取 `metadata.orchestration`（`intent/feature_id/params/execution_session_id`）
-- `intent=launch` 进入 `FeatureCommandHandler`
-- `intent=resume` 进入 `FeatureCommandHandler`
-- `FeatureCommandHandler` 调用 `application/services/thread_feature_service.execute_workspace_feature_request(...)`
-- 该 adapter 只负责把 chat 命令转为 `FeatureLaunchCommand` 并调用 `FeatureIngressService.launch(command)`
+- `launch_feature` tool 构造 `FeatureLaunchCommand` 并调用 `FeatureIngressService.launch(command)`
+- tool 参数包括 `feature_id`、`params`、可选 `skill_id` 和 `execution_session_id`（resume 时）
 - pure chat 不创建 execution session、compute session 或 task record
 
 ### 7.4 Skills 链路（入口语义，不是执行内核）
@@ -339,7 +336,8 @@ sequenceDiagram
     participant FE as Frontend ThreadPanel
     participant API as FastAPI /threads/{thread_id}/runs/stream
     participant CH as ThreadTurnHandler
-    participant TR as ChatTurnRouter
+    participant LA as Lead Agent (create_react_agent)
+    participant LF as launch_feature tool
     participant FI as FeatureIngressService
     participant CS as ComputeSessionService
     participant FS as FeatureSubmissionService
@@ -352,10 +350,11 @@ sequenceDiagram
     U->>FE: 发送消息
     FE->>API: POST /api/threads/{thread_id}/runs/stream
     API->>CH: prepare_turn + stream_turn (via run worker)
-    CH->>TR: route(metadata.orchestration)
+    CH->>LA: 统一进入 lead-agent
 
-    alt 显式 feature launch/resume
-        TR->>FI: FeatureCommandHandler launch/resume(...)
+    alt 功能意图（lead-agent 调用 launch_feature）
+        LA->>LF: launch_feature(feature_id, params, ...)
+        LF->>FI: FeatureIngressService.launch(command)
         FI->>CS: ensure_for_execution_session(...)
         FI->>FS: execute(...)
         FS->>TS: submit_task(...)
@@ -366,11 +365,9 @@ sequenceDiagram
         W-->>CP: execution/task/subagent/runtime/artifact/prism source data
         W-->>BUS: task.updated + compute.updated + workspace.refresh + execution.*
         W-->>API: assistant completion card writeback
-    else 普通 chat
-        TR->>CH: pure_chat
-        CH->>CH: Lead-Agent
-        CH-->>API: content/reasoning stream
-        CH-->>BUS: thread.updated / thread.status
+    else 纯聊天
+        LA-->>API: content/reasoning stream
+        LA-->>BUS: thread.updated / thread.status
     end
 
     API-->>FE: SSE events
@@ -493,8 +490,7 @@ sequenceDiagram
 - Nginx 配置：`nginx.conf`
 - Thread 路由：`backend/src/gateway/routers/threads.py`
 - Chat 编排：`backend/src/application/handlers/thread_turn_handler.py`
-- Chat route 分类：`backend/src/application/handlers/chat_turn_router.py`
-- Chat feature 命令：`backend/src/application/handlers/feature_command_handler.py`
+- Lead-agent launch_feature tool：`backend/src/tools/builtins/launch_feature.py`
 - Feature 路由：`backend/src/gateway/routers/features.py`
 - Feature 入口服务：`backend/src/application/services/feature_launch_service.py`
 - Feature 业务编排：`backend/src/application/services/feature_submission_service.py`

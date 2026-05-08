@@ -143,9 +143,9 @@ backend/src/
 │   ├── runs/manager.py   # RunManager：Redis 支持的运行恢复
 │   └── stream_bridge/    # Redis Stream 桥接（SSE 多路复用）
 ├── application/          # 应用编排层
-│   ├── handlers/         # ChatTurnRouter、ThreadTurnHandler、FeatureCommandHandler
+│   ├── handlers/         # ThreadTurnHandler
 │   ├── services/         # FeatureIngressService、FeatureSubmissionService、FeatureLaunchService
-│   └── presenters/       # ThreadFeatureCards（消息卡片渲染）
+│   └── presenters/       # AgentResultCard（结果卡片渲染）
 ├── mcp/                  # Model Context Protocol 运行时和工具注册
 ├── models/               # 模型路由（LLM  provider 选择和调用）
 ├── config/               # 应用配置加载
@@ -625,7 +625,7 @@ ThreadPageInner
 │   │   └── MessageBubble (user | assistant)
 │   │       ├── ReasoningPanel (可折叠)
 │   │       ├── MarkdownRenderer
-│   │       └── Structured Blocks (task_proposal, task_progress, ...)
+│   │       └── Structured Blocks (text, status_line, question_card, result_card, ...)
 │   └── WorkspaceThreadComposer
 │       ├── ModelSelector, ReasoningEffortSelector
 │       ├── 附件上传（PDF/图片）
@@ -652,18 +652,20 @@ ComputeStage
 
 #### 4.5.3 Thread Block 系统
 
-消息可包含类型化的 `blocks`，渲染为专用卡片：
+消息可包含类型化的 `blocks`，渲染为专用卡片。AgentBlock 协议定义 4 种核心类型：
+
+| Block 类型 | 用途 |
+|------------|------|
+| `text` | 普通文本内容 |
+| `status_line` | 实时状态/进度指示 |
+| `question_card` | 请求用户输入的交互卡片 |
+| `result_card` | 已完成任务的结果展示 |
+
+其他辅助 block 类型：
 
 | Block 类型 | 用途 |
 |------------|------|
 | `context_brief` | 工作区上下文摘要 |
-| `task_proposal` / `feature_proposal` | 可执行的功能启动卡片 |
-| `missing_input` | 请求用户输入 |
-| `task_progress` | 实时进度指示 |
-| `task_result` / `result` | 已完成任务输出 |
-| `task_failure` | 错误展示（含重试）|
-| `prism_status` | LaTeX 变更状态 |
-| `next_steps` | 建议后续操作 |
 | `warning` | 错误/警告横幅 |
 | `artifacts` | 文件下载列表 |
 | `reasoning` | 思考过程（可折叠）|
@@ -819,9 +821,9 @@ ComputeStage
 [后端] Gateway → ThreadTurnHandler / RunLifecycle
     │
     ▼
-[后端] ChatTurnRouter 解析用户意图
-    │     ├─ 纯聊天 → 直接 LLM 响应
-    │     └─ 功能意图 → FeatureIngressService.launch()
+[后端] lead_agent (create_react_agent) 处理所有 chat turns
+    │     ├─ 纯聊天 → LLM 直接响应
+    │     └─ 功能意图 → 调用 launch_feature tool → FeatureIngressService.launch()
     │
     ▼
 [后端] FeatureIngressService

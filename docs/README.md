@@ -1,6 +1,6 @@
 # Wenjin Docs
 
-更新时间：2026-05-06
+更新时间：2026-05-08
 
 本目录主要保留当前实现的事实源文档，覆盖架构、产品契约、基础设施与文档治理入口；`strategy/` 仅保存明确标注为 Seed 的长期方向文档，不作为当前实现契约。
 
@@ -31,6 +31,8 @@
 5. `docs/infrastructure/README.md`
 
 ## 已清理历史文档
+
+2026-05-08 清理：chat redesign plans（plan 1/2/3）、bypass removal plan、handoff 文档、flat-flow design spec 已删除，当前实现已同步到架构文档。ChatTurnRouter/FeatureCommandHandler/ThreadIntentRouter 相关过时引用已从全部架构文档中移除。
 
 2026-05-06 清理：历史规划、归档和执行计划已删除，当前事实已合并到 `docs/architecture/`、`docs/product/`、README 与 release gate 文档。
 

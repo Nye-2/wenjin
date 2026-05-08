@@ -15,7 +15,7 @@
 
 - Chat 是 control plane，Compute 是 work plane，Feature 是 transaction plane
 - feature 事务执行统一经过 `FeatureIngressService`（launch/resume）
-- 显式 feature launch/resume 经 `ChatTurnRouter` 和 `FeatureCommandHandler` 直接进入 ingress
+- lead-agent 通过内置 `launch_feature` tool 直接调用 `FeatureIngressService.launch()` 启动 feature
 - Compute projection 从 execution/task/subagent/runtime/artifact/Prism metadata 聚合，不成为第二事实源
 - feature metadata 以 registry 为单一事实源
 - runtime policy 以 `runtime_profiles.py` 为事实源

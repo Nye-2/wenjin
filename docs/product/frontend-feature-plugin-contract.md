@@ -82,8 +82,9 @@
   - 生成首条可编辑 prompt
   - 在第一次 chat turn 中把 `metadata.orchestration.intent=launch + feature_id + params` 一并发给后端
 - 后端职责:
-  - 优先消费显式 `metadata.orchestration`
-  - 由 `ChatTurnRouter` 判定 launch/resume，并由 `FeatureCommandHandler` 接回 canonical feature execution
+  - 所有 chat turns 统一进入 lead-agent（`create_react_agent`）
+  - lead-agent 根据 workspace skills 上下文判断是否调用 `launch_feature` tool
+  - `launch_feature` tool 直接调用 `FeatureIngressService.launch()` 启动或恢复 feature
   - 在 `metadata.orchestration.execution_session_id` 存在时，走 ingress resume 继续同一 execution session
 
 ## 4. 交互约束
