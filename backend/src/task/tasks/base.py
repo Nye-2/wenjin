@@ -353,18 +353,37 @@ async def _execute_task_async(
 
             # Track agent status in Redis
             thread_id = payload.get("thread_id")
+            workspace_id = str(payload.get("workspace_id") or "") or None
             thread_skill, thread_skill_name = _resolve_thread_skill(payload, task_type)
             if thread_id:
                 from src.services.thread_events import set_thread_status
 
                 await set_thread_status(
-                    str(payload.get("workspace_id") or "") or None,
+                    workspace_id,
                     str(thread_id),
                     status="running",
                     skill=thread_skill,
                     skill_name=thread_skill_name,
                     subagent_count=0,
                 )
+
+            # Publish task-level workspace event for right panel
+            from src.workspace_events import publish_workspace_event
+
+            await publish_workspace_event(
+                workspace_id,
+                "task.updated",
+                {
+                    "task": {
+                        "task_id": task_id,
+                        "thread_id": str(thread_id) if thread_id else None,
+                        "task_type": task_type,
+                        "feature_id": str(payload.get("feature_id") or "") or None,
+                        "status": "running",
+                        "progress": 0,
+                    }
+                },
+            )
 
             # Dispatch to task-specific handler
             result = await _dispatch_task(task_type, payload, progress)
@@ -381,13 +400,29 @@ async def _execute_task_async(
                 from src.services.thread_events import set_thread_status
 
                 await set_thread_status(
-                    str(payload.get("workspace_id") or "") or None,
+                    workspace_id,
                     str(thread_id),
                     status="completed",
                     skill=thread_skill,
                     skill_name=thread_skill_name,
                     subagent_count=0,
                 )
+
+            # Publish task completion workspace event
+            await publish_workspace_event(
+                workspace_id,
+                "task.updated",
+                {
+                    "task": {
+                        "task_id": task_id,
+                        "thread_id": str(thread_id) if thread_id else None,
+                        "task_type": task_type,
+                        "feature_id": str(payload.get("feature_id") or "") or None,
+                        "status": "success",
+                        "progress": 100,
+                    }
+                },
+            )
 
             track_task_end(task_type, time.perf_counter() - _task_start_time)
 
@@ -462,17 +497,37 @@ async def _execute_task_async(
                         credit_transaction_id,
                     )
             thread_id = payload.get("thread_id")
+            workspace_id = str(payload.get("workspace_id") or "") or None
             if thread_id:
                 from src.services.thread_events import set_thread_status
 
                 await set_thread_status(
-                    str(payload.get("workspace_id") or "") or None,
+                    workspace_id,
                     str(thread_id),
                     status="failed",
                     skill=thread_skill,
                     skill_name=thread_skill_name,
                     subagent_count=0,
                 )
+
+            # Publish task failure workspace event
+            from src.workspace_events import publish_workspace_event
+
+            await publish_workspace_event(
+                workspace_id,
+                "task.updated",
+                {
+                    "task": {
+                        "task_id": task_id,
+                        "thread_id": str(thread_id) if thread_id else None,
+                        "task_type": task_type,
+                        "feature_id": str(payload.get("feature_id") or "") or None,
+                        "status": "failed",
+                        "progress": 0,
+                        "error": str(e),
+                    }
+                },
+            )
 
             # Terminal state: single DB write + Pub/Sub broadcast
             await store.mark_task_completed(task_id, success=False, error=str(e))

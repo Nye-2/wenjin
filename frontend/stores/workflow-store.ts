@@ -18,6 +18,15 @@ import type { WorkspaceSubagentUpdatedEvent } from "@/lib/api/types";
 
 import { type Run, reduceSubagentEvent } from "./workflow-store-support";
 
+interface TaskEvent {
+  task_id: string;
+  thread_id?: string | null;
+  task_type?: string;
+  feature_id?: string | null;
+  status: string;
+  error?: string;
+}
+
 interface WorkflowState {
   runs: Run[];
   currentRunId: string | null;
@@ -27,6 +36,7 @@ interface WorkflowState {
   collapsedRunIds: Set<string>;
 
   upsertSubagentEvent: (ev: WorkspaceSubagentUpdatedEvent) => void;
+  upsertTaskEvent: (task: TaskEvent) => void;
   toggleRun: (runId: string) => void;
   togglePhase: (runId: string, phaseIndex: number) => void;
   setFollow: (enabled: boolean) => void;
@@ -47,6 +57,42 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
     set((state) => {
       const runs = reduceSubagentEvent(state.runs, ev);
       return { runs, currentRunId: ev.subagent.execution_session_id };
+    });
+  },
+
+  upsertTaskEvent(task) {
+    set((state) => {
+      const runId = task.task_id;
+      const existing = state.runs.find((r) => r.id === runId);
+      if (existing) {
+        const updated = state.runs.map((r) =>
+          r.id === runId
+            ? {
+                ...r,
+                status: task.status === "completed" ? "completed" as const
+                  : task.status === "failed" ? "failed" as const
+                  : "running" as const,
+              }
+            : r,
+        );
+        return { runs: updated };
+      }
+      // New task — create a run entry
+      const featureLabel = task.feature_id ?? task.task_type ?? "task";
+      const newRun: Run = {
+        id: runId,
+        thread_id: task.thread_id ?? "",
+        title: featureLabel,
+        phases: [],
+        status: task.status === "completed" ? "completed"
+          : task.status === "failed" ? "failed"
+          : "running",
+        started_at: new Date().toISOString(),
+      };
+      return {
+        runs: [...state.runs, newRun],
+        currentRunId: runId,
+      };
     });
   },
 
