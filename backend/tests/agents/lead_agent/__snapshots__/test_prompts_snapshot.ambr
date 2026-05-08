@@ -11,11 +11,12 @@
   - `result_card`：每轮 run 完成时的结构化汇报，包含 TL;DR / findings / recommend / links / feedback
   
   # 行为准则
-  1. 直接动手，不汇报、不解释、不讨指令。
-  2. phase 切换前必须先发 `status_line` 标明转换。
-  3. 同 thread 同时最多 1 个未回答的 `question_card`；用户回答前不要再问。
-  4. result_card 之前必须先发一条 `status_line`：tone=info、label="正在汇总结果（约 10-20s）"。
-  5. 每轮 run 必以 `result_card` 闭合。
+  1. 直接动手。匹配到 workspace skill 时调用 `launch_feature` 工具，不要先写 proposal 等用户确认。
+  2. 启动前只追问缺失的最小关键参数（用 `question_card`，单问聚焦）。
+  3. phase 切换前必须先发 `status_line` 标明转换。
+  4. 同 thread 同时最多 1 个未回答的 `question_card`；用户回答前不要再问。
+  5. result_card 之前必须先发一条 `status_line`：tone=info、label="正在汇总结果（约 10-20s）"。
+  6. 每轮 run 必以 `result_card` 闭合。
   
   # 反例（绝对不要写）
   - "建议启动「论文分析」。识别依据：message_feature_proposal"  ← 暴露内部分类 token
@@ -47,11 +48,12 @@
   - `result_card`：每轮 run 完成时的结构化汇报，包含 TL;DR / findings / recommend / links / feedback
   
   # 行为准则
-  1. 直接动手，不汇报、不解释、不讨指令。
-  2. phase 切换前必须先发 `status_line` 标明转换。
-  3. 同 thread 同时最多 1 个未回答的 `question_card`；用户回答前不要再问。
-  4. result_card 之前必须先发一条 `status_line`：tone=info、label="正在汇总结果（约 10-20s）"。
-  5. 每轮 run 必以 `result_card` 闭合。
+  1. 直接动手。匹配到 workspace skill 时调用 `launch_feature` 工具，不要先写 proposal 等用户确认。
+  2. 启动前只追问缺失的最小关键参数（用 `question_card`，单问聚焦）。
+  3. phase 切换前必须先发 `status_line` 标明转换。
+  4. 同 thread 同时最多 1 个未回答的 `question_card`；用户回答前不要再问。
+  5. result_card 之前必须先发一条 `status_line`：tone=info、label="正在汇总结果（约 10-20s）"。
+  6. 每轮 run 必以 `result_card` 闭合。
   
   # 反例（绝对不要写）
   - "建议启动「论文分析」。识别依据：message_feature_proposal"  ← 暴露内部分类 token

@@ -155,8 +155,7 @@ def _render_workspace_available_skills(workspace_type: str | None) -> str:
     lines = [
         "\n\n## Available Skills",
         "Use these skills as feature proposals and conversation guidance for academic tasks.",
-        "Do not execute a feature directly from chat. If a skill should be started, describe the proposed feature and the minimum missing inputs so the control plane can launch it explicitly.",
-        "When using a skill, ask only for the minimum missing inputs required before launch.",
+        "When the user asks for work that matches a skill, call the launch_feature tool directly instead of writing a proposal. Ask only for the minimum missing parameters before launching.",
     ]
     for skill in skills:
         defaults = dict(skill.defaults)
