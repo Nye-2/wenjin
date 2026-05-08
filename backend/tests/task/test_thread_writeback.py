@@ -77,8 +77,11 @@ async def test_append_task_thread_message_writes_completion_card(
     service.add_message.assert_awaited_once()
     kwargs = service.add_message.await_args.kwargs
     assert kwargs["role"] == "assistant"
-    assert kwargs["metadata"]["orchestration"]["status"] == "completed"
-    assert kwargs["metadata"]["orchestration"]["feature_id"] == "framework_outline"
+    assert len(kwargs["blocks"]) == 1
+    block = kwargs["blocks"][0]
+    assert block["kind"] == "result_card"
+    assert block["title"].startswith("框架大纲")
+    assert "已完成" in block["title"]
     publish_thread_updated.assert_awaited_once_with(thread)
 
 
@@ -114,8 +117,11 @@ async def test_append_task_thread_message_writes_failure_card(
     service.add_message.assert_awaited_once()
     kwargs = service.add_message.await_args.kwargs
     assert kwargs["role"] == "assistant"
-    assert kwargs["metadata"]["orchestration"]["status"] == "failed"
-    assert kwargs["metadata"]["orchestration"]["error"] == "tool timeout"
+    assert len(kwargs["blocks"]) == 1
+    block = kwargs["blocks"][0]
+    assert block["kind"] == "result_card"
+    assert "失败" in block["title"]
+    assert "tool timeout" in block["tldr"]
     publish_thread_updated.assert_awaited_once_with(thread)
 
 

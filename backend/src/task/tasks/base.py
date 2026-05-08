@@ -62,9 +62,9 @@ async def _append_task_thread_message(
         return
 
     try:
-        from src.application.presenters.thread_feature_cards import (
-            build_feature_task_completion_card,
-            build_feature_task_failure_card,
+        from src.application.presenters.agent_result_card import (
+            build_completion_result_card,
+            build_failure_result_card,
         )
         from src.services.thread_events import publish_thread_updated
         from src.services.thread_service import ThreadService
@@ -75,20 +75,29 @@ async def _append_task_thread_message(
             return
 
         if error:
-            reply = build_feature_task_failure_card(
+            reply = build_failure_result_card(
                 feature_id=feature_id,
                 task_id=task_id,
+                run_id=str(payload.get("run_id") or task_id),
                 execution_session_id=str(payload.get("execution_session_id") or "") or None,
                 payload=payload,
                 error=error,
+                failed_phase=str(payload.get("failed_phase") or "") or None,
+                duration_ms=int(payload.get("duration_ms") or 0),
+                subagents_count=int(payload.get("subagents_count") or 0),
+                tokens_total=int(payload.get("tokens_total") or 0),
             )
         else:
-            reply = build_feature_task_completion_card(
+            reply = build_completion_result_card(
                 feature_id=feature_id,
                 task_id=task_id,
+                run_id=str(payload.get("run_id") or task_id),
                 execution_session_id=str(payload.get("execution_session_id") or "") or None,
                 payload=payload,
                 result=result or {},
+                duration_ms=int(payload.get("duration_ms") or 0),
+                subagents_count=int(payload.get("subagents_count") or 0),
+                tokens_total=int(payload.get("tokens_total") or 0),
             )
 
         await thread_service.add_message(
