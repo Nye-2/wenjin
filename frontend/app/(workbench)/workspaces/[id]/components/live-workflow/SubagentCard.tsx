@@ -8,7 +8,16 @@
  * token/duration meta. Runs on the project's "compute stage" dark
  * theme tokens (--compute-*) — distinct from the paper/ink chat theme.
  */
+import { useState } from "react";
 import type { CSSProperties } from "react";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 
 import type { SubagentSnap } from "@/stores/workflow-store-support";
 
@@ -121,6 +130,7 @@ function styleFor(status: Status): CSSProperties {
 }
 
 export function SubagentCard({ subagent }: { subagent: SubagentSnap }) {
+  const [showDetail, setShowDetail] = useState(false);
   const status = (subagent.status as Status) ?? "pending";
   const pill = PILL[status] ?? PILL.pending;
   const cardStyle = styleFor(status);
@@ -129,13 +139,16 @@ export function SubagentCard({ subagent }: { subagent: SubagentSnap }) {
   const duration = formatDuration(subagent.duration_ms);
   const typeLabel = subagent.subagent_type ?? "subagent";
   const idTail = subagent.task_id.slice(0, 6);
+  const hasOutput = !!(subagent.output || subagent.output_preview);
 
   return (
+    <>
     <div
       data-testid={`subagent-card-${subagent.task_id}`}
       data-status={status}
       style={cardStyle}
-      className="px-3 py-2.5 transition-colors"
+      className={`px-3 py-2.5 transition-colors${hasOutput ? " cursor-pointer hover:opacity-90" : ""}`}
+      onClick={() => hasOutput && setShowDetail(true)}
     >
       {/* Header: type · id ↔ status pill */}
       <div className="flex items-center justify-between text-[11px] leading-none">
@@ -201,5 +214,17 @@ export function SubagentCard({ subagent }: { subagent: SubagentSnap }) {
         </div>
       )}
     </div>
+
+    <Dialog open={showDetail} onOpenChange={setShowDetail}>
+      <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{typeLabel} · #{idTail}</DialogTitle>
+        </DialogHeader>
+        <MarkdownRenderer
+          content={subagent.output ?? subagent.output_preview ?? ""}
+        />
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
