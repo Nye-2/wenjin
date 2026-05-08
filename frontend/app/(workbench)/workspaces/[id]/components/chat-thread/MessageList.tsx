@@ -4,9 +4,9 @@
  * MessageList — flat message flow (no run grouping).
  *
  * User messages render as right-aligned bubbles.
- * Agent messages render as left-aligned containers with block-level
- * children: text (simple bubble), status_line (inline), question_card
- * (card), result_card (card).
+ * Agent messages render as left-aligned: text blocks get a subtle
+ * bubble wrapper, card blocks (result_card, question_card) render
+ * with their own card style, status_line is inline.
  */
 import {
   isQuestionCard,
@@ -65,6 +65,51 @@ function renderBlock(
   return null;
 }
 
+/**
+ * Group consecutive text blocks into a single bubble, while card blocks
+ * and status_line blocks render standalone.
+ */
+function renderAgentBlocks(
+  blocks: AgentBlock[],
+  handlers: {
+    onPillClick?: (intent: string, label: string) => void;
+    onFeedback?: (intent: string, label: string) => void;
+    onJumpToPhase?: (runId: string, phaseIndex: number) => void;
+  },
+): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let textBuf: React.ReactNode[] = [];
+  let keyIdx = 0;
+
+  const flushText = () => {
+    if (textBuf.length === 0) return;
+    out.push(
+      <div
+        key={`bubble-${keyIdx}`}
+        className="rounded-2xl rounded-bl-sm px-3.5 py-2.5"
+        style={{
+          background: "var(--bg-elevated)",
+          border: "1px solid var(--border-subtle)",
+        }}
+      >
+        {textBuf}
+      </div>,
+    );
+    textBuf = [];
+  };
+
+  for (const b of blocks) {
+    if (isText(b)) {
+      textBuf.push(renderBlock(b, keyIdx++, handlers));
+    } else {
+      flushText();
+      out.push(renderBlock(b, keyIdx++, handlers));
+    }
+  }
+  flushText();
+  return out;
+}
+
 interface MessageListProps {
   messages: ChatMessage[];
   onSubmit?: (text: string) => void;
@@ -110,7 +155,7 @@ export function MessageList({
             </div>
           ) : (
             <div className="flex max-w-[95%] flex-col gap-2.5">
-              {(m.blocks ?? []).map((b, j) => renderBlock(b, j, handlers))}
+              {renderAgentBlocks(m.blocks ?? [], handlers)}
             </div>
           )}
         </div>

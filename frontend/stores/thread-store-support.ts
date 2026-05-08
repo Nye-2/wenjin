@@ -237,7 +237,16 @@ export function upsertTrailingAssistantMessage(
   const nextMessages = [...messages];
   const lastIndex = nextMessages.length - 1;
   if (lastIndex >= 0 && nextMessages[lastIndex].role === "assistant") {
-    nextMessages[lastIndex] = message;
+    const old = nextMessages[lastIndex];
+    // Preserve agentBlocks from streaming — the server's ThreadMessage
+    // has content (plain text) but not the structured AgentBlock array
+    // that was assembled during SSE block events.
+    nextMessages[lastIndex] = {
+      ...message,
+      agentBlocks: old.agentBlocks?.length
+        ? old.agentBlocks
+        : message.agentBlocks,
+    };
   } else {
     nextMessages.push(message);
   }

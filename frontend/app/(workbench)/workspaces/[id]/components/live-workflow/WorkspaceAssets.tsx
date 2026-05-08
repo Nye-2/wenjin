@@ -96,7 +96,7 @@ export function WorkspaceAssets({
             </div>
 
             <div
-              className="px-3 py-3"
+              className="max-h-[40vh] overflow-y-auto px-3 py-3"
               style={{ color: "var(--compute-text-secondary)" }}
             >
               {tab === "artifacts" && (
