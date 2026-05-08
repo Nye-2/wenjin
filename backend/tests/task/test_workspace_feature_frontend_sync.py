@@ -230,17 +230,6 @@ def test_chat_and_knowledge_panels_follow_canonical_chat_entry_and_retry_paths()
     assert "createWorkspaceFeatureTask({" not in knowledge_body
 
 
-def test_workbench_feature_cards_use_canonical_chat_seed_route() -> None:
-    page_body = _read_text(WORKBENCH_PAGE_FILE)
-    presenter_body = _read_text(REPO_ROOT / "backend" / "src" / "application" / "presenters" / "thread_feature_cards.py")
-
-    assert "getWorkspaceFeatureThreadRoute" in page_body
-    assert "<StagedFeatureCards features={features} workspaceId={workspaceId} />" in page_body
-    assert "router.push(route);" in page_body
-    assert '"type": "feature_proposal"' in presenter_body
-    assert 'action="trigger_feature"' in presenter_body
-
-
 def test_agent_block_contract_is_centralized_and_rendered_by_chat_thread() -> None:
     agent_blocks_body = _read_text(AGENT_BLOCKS_FILE)
     message_list_body = _read_text(MESSAGE_LIST_FILE)
@@ -274,12 +263,8 @@ def test_agent_block_contract_is_centralized_and_rendered_by_chat_thread() -> No
 
 
 def test_task_failure_recovery_actions_keep_execution_session_seed() -> None:
-    backend_body = _read_text(
-        REPO_ROOT / "backend" / "src" / "application" / "presenters" / "thread_feature_cards.py"
-    )
     entry_body = _read_text(CHAT_ENTRY_FILE)
 
-    assert '"action": "resume_execution"' in backend_body
     assert 'entryAction === "resume"' in entry_body
     assert 'seed.params?.execution_session_id' in entry_body
     assert "execution_session_id: executionSessionId" in entry_body

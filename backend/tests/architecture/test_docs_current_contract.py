@@ -35,9 +35,6 @@ FORBIDDEN_CURRENT_DOC_PHRASES = (
 )
 
 REQUIRED_CURRENT_DOC_PHRASES = (
-    "ChatTurnRouter",
-    "ThreadIntentRouter",
-    "FeatureCommandHandler",
     "FeatureIngressService",
     "SSOT",
     "Compute",

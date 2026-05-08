@@ -101,11 +101,13 @@ def test_legacy_workspace_lead_agent_module_is_removed() -> None:
     assert not violations, "Feature graph imports must use src.agents.feature_leader.graph_registry:\n" + "\n".join(violations)
 
 
-def test_chat_feature_routing_uses_thread_intent_router_ssot() -> None:
-    """ChatTurnRouter must stay a thin adapter over the canonical intent router."""
-    source = (_SRC_ROOT / "application/handlers/chat_turn_router.py").read_text()
-    assert "ThreadIntentRouter.route" in source
-    assert "metadata.orchestration.intent" not in source
+def test_chat_turn_router_bypass_is_removed() -> None:
+    """Chat turn ingress must go through lead_agent only — no router bypass."""
+    assert not (_SRC_ROOT / "application/handlers/chat_turn_router.py").exists()
+    assert not (_SRC_ROOT / "application/handlers/feature_command_handler.py").exists()
+    assert not (_SRC_ROOT / "application/intents/thread_intent_router.py").exists()
+    assert not (_SRC_ROOT / "application/services/thread_feature_service.py").exists()
+    assert not (_SRC_ROOT / "application/presenters/thread_feature_cards.py").exists()
 
 
 def test_workspace_skill_catalog_is_owned_by_workspace_features() -> None:
