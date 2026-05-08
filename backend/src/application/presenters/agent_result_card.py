@@ -1,0 +1,177 @@
+"""Build AgentBlock-conformant result_cards for async feature task completion / failure.
+
+These are emitted by the Celery write-back path (src/task/tasks/base.py) — not by
+lead_agent — but they conform to the same `AgentMessage` schema the frontend expects.
+"""
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from src.application.results import GeneratedThreadReply
+
+_FEATURE_DISPLAY = {
+    "paper_analysis": "论文分析",
+    "literature_search": "文献检索",
+    "literature_management": "文献管理",
+    "literature_review": "文献综述",
+    "framework_outline": "框架大纲",
+    "writing": "章节写作",
+    "thesis_writing": "学位论文写作",
+    "peer_review": "同行评审",
+    "journal_recommend": "期刊推荐",
+    "figure_generation": "配图生成",
+    "deep_research": "深度调研",
+    "opening_research": "开题调研",
+    "background_research": "背景调研",
+    "experiment_design": "实验设计",
+    "proposal_outline": "申报书大纲",
+    "patent_outline": "专利大纲",
+    "prior_art_search": "现有技术检索",
+    "copyright_materials": "软著材料",
+    "technical_description": "技术描述",
+}
+
+_FINDING_BULLETS = "①②③④⑤"
+
+
+def _feature_title(feature_id: str) -> str:
+    return _FEATURE_DISPLAY.get(feature_id, feature_id)
+
+
+def _truncate(text: str, limit: int = 280) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _findings_from_data(data: Mapping[str, Any]) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    raw = data.get("findings") if isinstance(data, Mapping) else None
+    if isinstance(raw, list):
+        for i, entry in enumerate(raw[:5], start=1):
+            text = ""
+            if isinstance(entry, str):
+                text = entry
+            elif isinstance(entry, Mapping):
+                text = str(entry.get("text") or entry.get("summary") or "")
+            text = text.strip()
+            if not text:
+                continue
+            items.append({"id": _FINDING_BULLETS[i - 1], "text": text})
+    return items
+
+
+def _links_from_artifacts(artifacts: list[Mapping[str, Any]]) -> list[dict[str, str]]:
+    links: list[dict[str, str]] = []
+    for art in artifacts[:6]:
+        if not isinstance(art, Mapping):
+            continue
+        artifact_id = str(art.get("id") or "").strip()
+        title = str(art.get("title") or "").strip()
+        if not artifact_id or not title:
+            continue
+        links.append(
+            {
+                "icon": "file",
+                "label": title,
+                "href": f"/artifacts/{artifact_id}",
+            }
+        )
+    return links
+
+
+def build_completion_result_card(
+    *,
+    feature_id: str,
+    task_id: str,
+    run_id: str,
+    execution_session_id: str | None,
+    payload: Mapping[str, Any] | None,
+    result: Mapping[str, Any] | None,
+    duration_ms: int,
+    subagents_count: int,
+    tokens_total: int,
+) -> GeneratedThreadReply:
+    """Build a result_card for a successful feature task."""
+    raw_data = result.get("data") if isinstance(result, Mapping) else None
+    data: Mapping[str, Any] = raw_data if isinstance(raw_data, Mapping) else {}
+    artifacts_raw = result.get("artifacts") if isinstance(result, Mapping) else None
+    artifacts = [a for a in (artifacts_raw if isinstance(artifacts_raw, list) else []) if isinstance(a, Mapping)]
+
+    summary = _truncate(str(data.get("summary") or "已完成。"), 280)
+    title = f"{_feature_title(feature_id)} 已完成"
+    findings = _findings_from_data(data)
+    links = _links_from_artifacts(artifacts)
+
+    block = {
+        "kind": "result_card",
+        "run_id": run_id,
+        "title": title,
+        "tldr": summary,
+        "findings": findings,
+        "recommend": None,
+        "links": links,
+        "feedback": {
+            "question": "对结果是否满意？",
+            "pills": [
+                {"kind": "primary", "label": "深入展开 ①", "intent": "expand_finding_1"},
+                {"kind": "normal", "label": "重新执行", "intent": "retry_run"},
+                {"kind": "warn", "label": "结果不对", "intent": "result_invalid"},
+            ],
+            "allow_free_input": True,
+        },
+        "stats": {
+            "duration_ms": int(duration_ms),
+            "subagents": int(subagents_count),
+            "tokens": int(tokens_total),
+        },
+    }
+
+    return GeneratedThreadReply(content=summary, blocks=[block], metadata=None)
+
+
+def build_failure_result_card(
+    *,
+    feature_id: str,
+    task_id: str,
+    run_id: str,
+    execution_session_id: str | None,
+    payload: Mapping[str, Any] | None,
+    error: str | None,
+    failed_phase: str | None,
+    duration_ms: int,
+    subagents_count: int,
+    tokens_total: int,
+) -> GeneratedThreadReply:
+    """Build a result_card for a failed feature task."""
+    detail = (error or "执行失败").strip()
+    phase_text = f"（{failed_phase}）" if failed_phase else ""
+    tldr = f"{_feature_title(feature_id)} 失败{phase_text}：{detail}"
+
+    block = {
+        "kind": "result_card",
+        "run_id": run_id,
+        "title": f"{_feature_title(feature_id)} 执行失败",
+        "tldr": _truncate(tldr, 280),
+        "findings": [],
+        "recommend": None,
+        "links": [],
+        "feedback": {
+            "question": "如何处理这次失败？",
+            "pills": [
+                {"kind": "primary", "label": "重试", "intent": "retry_run"},
+                {"kind": "normal", "label": "调整参数后重试", "intent": "adjust_and_retry"},
+                {"kind": "warn", "label": "放弃这一轮", "intent": "abandon_run"},
+            ],
+            "allow_free_input": True,
+        },
+        "stats": {
+            "duration_ms": int(duration_ms),
+            "subagents": int(subagents_count),
+            "tokens": int(tokens_total),
+        },
+    }
+
+    return GeneratedThreadReply(content=tldr, blocks=[block], metadata=None)
