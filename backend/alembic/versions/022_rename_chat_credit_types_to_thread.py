@@ -47,6 +47,8 @@ def upgrade() -> None:
         """
     )
 
+    op.execute("COMMIT")
+
     op.execute(
         """
         UPDATE credit_transactions

@@ -19,7 +19,8 @@ ARG APT_MIRROR=
 # Install TeXLive and essential packages
 RUN if [ -n "$APT_MIRROR" ]; then \
       sed -i "s|http://archive.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list && \
-      sed -i "s|http://security.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list; \
+      sed -i "s|http://security.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list && \
+      sed -i "s|http://ports.ubuntu.com/ubuntu-ports/|$APT_MIRROR|g" /etc/apt/sources.list; \
     fi && \
     apt-get update && apt-get install -y --no-install-recommends \
     # Core TeXLive packages
@@ -27,7 +28,6 @@ RUN if [ -n "$APT_MIRROR" ]; then \
     texlive-latex-extra \
     texlive-latex-recommended \
     texlive-fonts-recommended \
-    texlive-fonts-extra \
     # Science and bibliography
     texlive-science \
     texlive-bibtex-extra \

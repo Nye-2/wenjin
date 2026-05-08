@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 # Wenjin (问津) - Frontend Dockerfile
 # Next.js 16 with standalone output
 
