@@ -544,3 +544,12 @@ class TestMakeLeadAgent:
         assert chunks[0][0] == "messages"
         assert chunks[-1][0] == "values"
         assert result["messages"][0].content == "hello world"
+
+
+def test_get_available_tools_includes_launch_feature():
+    """lead_agent must expose launch_feature so it can start workspace features."""
+    from src.agents.lead_agent.agent import get_available_tools
+
+    tools = get_available_tools()
+    tool_names = {getattr(t, "name", "") for t in tools}
+    assert "launch_feature" in tool_names

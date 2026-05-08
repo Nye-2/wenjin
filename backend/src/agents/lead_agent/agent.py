@@ -486,6 +486,7 @@ def get_available_tools(
         bash_tool,
         glob_tool,
         grep_tool,
+        launch_feature_tool,
         list_reference_library_tool,
         list_workspace_artifacts_tool,
         list_workspace_features_tool,
@@ -513,6 +514,7 @@ def get_available_tools(
 
     # Interaction tools
     tools.append(ask_clarification_tool)
+    tools.append(launch_feature_tool)
     tools.extend([
         list_workspace_features_tool,
         list_workspace_artifacts_tool,
