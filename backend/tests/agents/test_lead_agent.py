@@ -244,7 +244,10 @@ class TestApplyPromptTemplate:
         assert "The user selected `framework-designer`" in prompt
         assert "Bound feature: `framework_outline`." in prompt
         assert "run_workspace_feature" not in prompt
-        assert "feature proposal" in prompt
+        # After chat-bypass removal: skills are launched directly, not via proposals.
+        assert "launch_feature" in prompt
+        # The old "wait for control-plane proposal" pattern must be gone.
+        assert "wait for explicit launch" not in prompt
 
 
 class TestMakeLeadAgent:

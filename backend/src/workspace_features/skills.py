@@ -44,9 +44,9 @@ class WorkspaceThreadSkillDefinition:
 
 
 _CHAT_FEATURE_CONTRACT = (
-    "Chat 侧职责：这是一个 Compute feature 提案入口，不在聊天里承诺已经启动或完成。"
-    "先复用工作区、线程、上传材料和已有产物，只追问最小缺失信息；"
-    "信息足够时输出简短 feature 提案，等待控制面显式启动。"
+    "Chat 侧职责：当用户的请求匹配这个 skill 时，直接调用 `launch_feature` 工具启动；"
+    "不要先写提案等控制面确认。先复用工作区、线程、上传材料和已有产物，"
+    "只追问最小缺失信息；最少输入到位后立刻 launch。"
 )
 
 
@@ -69,7 +69,7 @@ def _guidance(
         lines.append(f"不适合：{not_for}")
     lines.extend(
         [
-            "启动判断：如果最少输入已经具备，只需复述 feature、关键参数和预期产物；不要继续做完整访谈。",
+            "启动判断：如果最少输入已经具备，调用 `launch_feature(feature_id=..., params=...)` 立刻启动；不要继续做完整访谈。",
             "证据边界：涉及文献、专利、实验数据、期刊信息或法规事实时，必须标注待核验，不要编造来源。",
         ]
     )

@@ -35,6 +35,15 @@ class LaunchFeatureInput(BaseModel):
         default=None,
         description="Optional skill id when the user has selected one.",
     )
+    execution_session_id: str | None = Field(
+        default=None,
+        description=(
+            "When resuming a previous run, pass the execution_session_id to "
+            "continue that run instead of starting a new one. The seed prompt "
+            "will say 请继续「...」的执行 in this case; the value comes from "
+            "the URL params of the chat page."
+        ),
+    )
 
 
 def _read_required(config: RunnableConfig | None, key: str) -> str:
@@ -52,9 +61,13 @@ async def launch_feature_tool(
     feature_id: str,
     params: dict[str, Any],
     skill_id: str | None = None,
+    execution_session_id: str | None = None,
     config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     """Launch a workspace feature by id with the given params.
+
+    When `execution_session_id` is provided, FeatureLaunchService resumes that
+    existing run; otherwise a new run is started.
 
     Returns a dict with `status` ('launched' | 'advisory'), `task_id` (when launched),
     `execution_session_id`, `feature_id`, and either `message` (success) or
@@ -89,6 +102,7 @@ async def launch_feature_tool(
                 skill_id=skill_id,
                 launch_source="thread",
                 redis_client=runtime_redis,
+                execution_session_id=execution_session_id,
             )
         )
 

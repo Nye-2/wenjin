@@ -127,3 +127,45 @@ async def test_launch_feature_requires_workspace_in_config():
             {"feature_id": "paper_analysis", "params": {}},
             config={"configurable": {"thread_id": "th-1", "user_id": "u-1"}},
         )
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_passes_execution_session_id_for_resume():
+    """When the agent provides execution_session_id, it must reach FeatureLaunchCommand."""
+    submission = _StubFeatureTaskSubmission(
+        task_id="task-resumed",
+        feature_id="deep_research",
+        message="resumed",
+    )
+    fake_result = _StubFeatureLaunchResult(
+        execution_session_id="es-existing",
+        outcome=submission,
+    )
+    fake_service = AsyncMock()
+    fake_service.launch = AsyncMock(return_value=fake_result)
+
+    with patch(
+        "src.tools.builtins.launch_feature.build_feature_ingress_service",
+        return_value=fake_service,
+    ), patch(
+        "src.tools.builtins.launch_feature.get_db_session",
+        _fake_db_session,
+    ):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "deep_research",
+                "params": {},
+                "execution_session_id": "es-existing",
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "launched"
+    cmd = fake_service.launch.await_args.args[0]
+    assert cmd.execution_session_id == "es-existing"

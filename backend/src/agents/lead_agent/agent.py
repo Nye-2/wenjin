@@ -154,7 +154,7 @@ def _render_workspace_available_skills(workspace_type: str | None) -> str:
         return ""
     lines = [
         "\n\n## Available Skills",
-        "Use these skills as feature proposals and conversation guidance for academic tasks.",
+        "These skills name the workspace features the user can launch from chat.",
         "When the user asks for work that matches a skill, call the launch_feature tool directly instead of writing a proposal. Ask only for the minimum missing parameters before launching.",
     ]
     for skill in skills:
@@ -210,7 +210,7 @@ Chat 侧重点：帮助用户澄清选题、导师要求、章节逻辑、证据
 适合提议 Compute 的任务：深度调研、文献管理、开题/综述材料、大纲生成、全文或章节写作、图表生成。
 
 质量边界：
-- 不在 chat 中承诺完成全文、批量文献检索或图表生成；这些应转为 feature proposal。
+- 不在 chat 中承诺完成全文、批量文献检索或图表生成；这些应通过 `launch_feature` 工具启动对应的 Compute feature。
 - 论文内容必须标注待补充数据、待核验引用和 AI 辅助边界。
 - 优先复用已有大纲、调研产物、文献库和上传材料，不让用户重复输入。""",
 
@@ -434,7 +434,8 @@ def apply_prompt_template(
                 base_prompt += "\nLikely next skills: " + ", ".join(skill_def.follow_up_skills) + "."
             base_prompt += (
                 "\nExecution policy: first identify the minimum missing inputs, "
-                "then either answer directly or return a concise feature proposal for explicit launch."
+                "then call the launch_feature tool directly to start the run "
+                "(do not write a proposal and wait)."
             )
         else:
             base_prompt += "\nUse it as the default approach unless the request clearly requires a different toolchain."
@@ -452,7 +453,7 @@ def apply_prompt_template(
             base_prompt += f"\n- User ID: {user_id}"
         base_prompt += (
             "\nWorkspace tools automatically receive these ids from runtime context."
-            "\nFeature launch/resume is handled outside the lead-agent tool loop."
+            "\nUse the launch_feature tool to start workspace features when the user's request matches a skill."
         )
 
     base_prompt += _render_workspace_available_skills(workspace_type)
