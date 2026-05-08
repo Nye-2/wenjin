@@ -74,6 +74,7 @@ class ResultCardBlock(BaseModel):
     run_id: str
     title: str
     tldr: str
+    full_summary: str | None = None
     findings: list[Finding]
     recommend: Recommend | None = None
     links: list[Link] = Field(default_factory=list)

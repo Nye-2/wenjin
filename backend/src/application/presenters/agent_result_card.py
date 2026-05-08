@@ -100,7 +100,9 @@ def build_completion_result_card(
     artifacts_raw = result.get("artifacts") if isinstance(result, Mapping) else None
     artifacts = [a for a in (artifacts_raw if isinstance(artifacts_raw, list) else []) if isinstance(a, Mapping)]
 
-    summary = _truncate(str(data.get("summary") or "已完成。"), 280)
+    raw_summary = str(data.get("summary") or "已完成。")
+    summary = _truncate(raw_summary, 280)
+    full_summary = raw_summary if len(raw_summary) > 280 else None
     title = f"{_feature_title(feature_id)} 已完成"
     findings = _findings_from_data(data)
     links = _links_from_artifacts(artifacts)
@@ -110,6 +112,7 @@ def build_completion_result_card(
         "run_id": run_id,
         "title": title,
         "tldr": summary,
+        "full_summary": full_summary,
         "findings": findings,
         "recommend": None,
         "links": links,

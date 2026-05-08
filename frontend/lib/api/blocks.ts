@@ -53,6 +53,7 @@ export interface ResultCardBlock {
   run_id: string;
   title: string;
   tldr: string;
+  full_summary?: string | null;
   findings: Finding[];
   recommend?: Recommend | null;
   links: Link[];
