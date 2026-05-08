@@ -1,11 +1,12 @@
 # Architecture Docs
 
-更新时间：2026-04-28
+更新时间：2026-05-06
 
 ## 文档索引（Current）
 
 - `adr-platform-boundaries.md`：router / application / task / feature 分层边界
 - `api-surface-map.md`：网关 API 分组与活跃面
+- `system-architecture.md`：全栈系统架构、核心数据模型、技术栈和开发规范
 - `workspace-execution-pipeline.md`：thread、feature、task、artifact 的执行主链
 - `feature-domain-architecture.md`：workspace feature 域架构边界与核心关系
 - `tech-stack-and-main-chain.md`：端到端主链路与系统分层事实源

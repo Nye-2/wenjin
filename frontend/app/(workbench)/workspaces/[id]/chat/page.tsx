@@ -27,6 +27,7 @@ import {
 } from "../components/WorkspaceThreadComposer";
 import { ArtifactDetailDialog } from "@/components/workspace/ArtifactDetailDialog";
 import {
+  buildWorkspaceThreadEntryOrchestration,
   buildWorkspaceThreadEntryPrompt,
   parseWorkspaceThreadEntrySeed,
   resolveWorkspaceThreadEntrySkill,
@@ -275,16 +276,7 @@ function ChatPageInner() {
       seed: entrySeed,
       feature: entrySeedFeature ?? null,
     });
-    const isResumeEntry = entryAction === "resume";
-    const executionSessionId =
-      typeof entrySeed.params?.execution_session_id === "string"
-        ? entrySeed.params.execution_session_id.trim()
-        : null;
-    const orchestrationParams = Object.fromEntries(
-      Object.entries(entrySeed.params ?? {}).filter(
-        ([key]) => key !== "entry" && key !== "execution_session_id",
-      ),
-    );
+    const orchestration = buildWorkspaceThreadEntryOrchestration(entrySeed);
     sendMessage(prompt, {
       workspaceId,
       ...(resolvedEntrySkillId !== null
@@ -294,14 +286,7 @@ function ChatPageInner() {
           : {}),
       model: selectedModel || undefined,
       metadata: {
-        orchestration: {
-          intent: isResumeEntry ? "resume" : "launch",
-          feature_id: entrySeed.featureId,
-          ...(isResumeEntry && executionSessionId
-            ? { execution_session_id: executionSessionId }
-            : {}),
-          params: orchestrationParams,
-        },
+        orchestration,
       },
     });
   }, [
@@ -538,7 +523,6 @@ function ChatPageInner() {
               onSubmit={submitText}
               inputArea={
                 <WorkspaceThreadComposer
-                  workspaceId={workspaceId}
                   actionError={composerError}
                   availableModels={availableModels}
                   selectedModel={selectedModel}

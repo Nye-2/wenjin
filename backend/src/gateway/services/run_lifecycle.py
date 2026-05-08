@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import HTTPException, Request
 

@@ -1,8 +1,10 @@
 # Release Gate Checklist
 
-更新时间: 2026-04-30
+更新时间: 2026-05-07
 
 用于发布前 Go/No-Go 决策，覆盖五类 workspace 的核心可用性。
+
+最新验证：2026-05-07 运行 `uv run python -m src.quality.release_gate_cli --include-extended --timeout-seconds 180`，Core Gate 22/22 通过，Extended Gate 3/3 通过，Go/No-Go = `go`。
 
 ## 1. Core Gate (必须全绿)
 
@@ -12,11 +14,36 @@
 4. 文献检索只以 Semantic Scholar `verified_papers` 作为可导入事实来源，`model_synthesis` 和 `unverified_leads` 不进入文献库。
 5. 大文件上传预处理状态可见：pending/running 时 Chat 明确提示 Agent 暂不能引用全文，succeeded 后可引用 Markdown 摘要。
 6. Prism 写入链路可见：写作任务完成后优先进入 pending review，不能绕过 preview 直接覆盖主稿。
-7. 关键回归通过:
+7. Reference Library 写作闭环可回归：Evidence Pack、usage event、`refs.bib` sync、citation validation 保持同一 workspace SSOT。
+8. Artifact refresh 闭环可回归：feature 产物持久化后必须发布 `workspace.refresh(["artifacts"])`，前端必须重新拉取 artifact 列表。
+9. Artifact follow-up 闭环可回归：任务完成卡片必须显式输出 `open_artifact` 与带 `source_artifact_id/context_artifact_ids` 的 rerun seed，activity retry 必须复用任务结果 artifact。
+10. Failure recovery 闭环可回归：失败卡片必须显示明确错误；有 `execution_session_id` 时才暴露 resume；重试必须保留原始参数和 artifact seed。
+11. Prism Review 闭环可回归：主稿待确认写入必须进入 Compute projection / Review Gate，preview/apply/discard/revert 后状态回流。
+12. Auth Email 闭环可回归：SMTP 开启时注册必须验证 code；验证码只能一次性消费；前端注册页必须先请求验证码并提交 `verification_code`。
+13. 关键回归通过，统一门禁当前全绿：
+  - `cd backend && uv run python -m src.quality.release_gate_cli`
+14. 当前 Core Gate 覆盖:
   - `tests/workspace_features/test_workspace_e2e_matrix.py`
   - `tests/gateway/routers/test_features.py`
   - `tests/application/services/test_feature_submission_service.py`
-8. 前端静态检查通过:
+  - `tests/workspace_features/test_five_workspace_smoke.py`
+  - `tests/task/test_executor.py tests/task/test_service_executor.py`
+  - `tests/observability/test_sentry.py`
+  - `tests/observability/test_prometheus.py`
+  - `tests/task/test_agent_status.py`
+  - `tests/application/services/test_feature_submission_workspace_lock.py`
+  - `tests/task/test_task_metrics.py`
+  - `tests/academic/literature/test_search_service.py`
+  - `tests/gateway/routers/test_uploads.py tests/task/test_document_preprocess_handler.py`
+  - `frontend/tests/unit/lib/thread-store-support.test.ts`
+  - `tests/task/test_workspace_feature_handler_matrix.py tests/task/test_store.py::TestTaskStorePostgres::test_mark_task_completed_publishes_canonical_task_activity tests/task/test_workspace_feature_frontend_sync.py`
+  - `tests/services/test_artifact_followup_workflow_gate.py tests/agents/lead_agent/test_thread_feature_flow.py tests/services/test_workspace_activity_service.py::test_task_activity_promotes_result_artifact_as_retry_seed`
+  - `tests/services/test_failure_recovery_workflow_gate.py tests/agents/lead_agent/test_thread_feature_flow.py tests/task/test_workspace_feature_frontend_sync.py`
+  - `tests/services/test_reference_writing_workflow_gate.py`
+  - `tests/services/test_prism_review_workflow_gate.py tests/compute/test_projection_service.py`
+  - `tests/workspace_features/services/test_sci_feature_service.py`
+  - `tests/services/test_auth_email_workflow_gate.py tests/gateway/routers/test_auth.py tests/services/test_email_service.py`
+15. 前端静态检查通过:
   - `npx tsc --noEmit`
 
 ## 2. Workspace Functional Gate (本轮新增)
@@ -47,14 +74,18 @@ npm test
 3. 失败态 recovery action 不输出内部 `resume`，只输出官方 action。
 4. 文献检索完成态展示 Semantic Scholar verified trust，并明确显示已自动同步到参考库。
 5. Reference artifact 导入只读取 `verified_papers` 等已核验候选，不读取 LLM 合成的 `seminal_works/recent_works`。
-6. Prism pending change 优先展示 `preview_prism_changes`。
-7. 上传附件 pending/running 时 UI 和 prompt 都明确不可引用全文。
+6. feature 产物持久化后，任务结果带 `refresh_targets=["artifacts"]`，TaskStore 发布 workspace refresh，前端事件流调用 `fetchArtifacts`。
+7. 完成态 artifact destination 对应 `open_artifact`，rerun action 和 activity retry 都带 `source_artifact_id/context_artifact_ids`，前端 route 保留这些 seed。
+8. 失败态 recovery action 只有在存在 `execution_session_id` 时输出 `resume_execution`，rerun action 保留失败任务的参数种子。
+9. Prism pending change 优先展示 `preview_prism_changes`。
+10. 上传附件 pending/running 时 UI 和 prompt 都明确不可引用全文。
+11. SMTP enabled 时注册必须验证 6 位邮箱验证码，验证码校验成功后立即失效。
 
-## 3. Extended Gate (建议全绿)
+## 3. Extended Gate (已验证全绿)
 
 1. 工具链/集成测试通过:
    - `tests/integration/test_tool_chain.py`
-   - `tests/mcp/test_academic_tools.py`
+   - `tests/mcp`
    - `tests/integration/test_http_client.py`
 
 ## 4. Admin Release Gate API
@@ -65,13 +96,13 @@ npm test
 
 ## 5. Launch Checklist
 
-- [ ] 五个 workspace 页面路由可达，无 404
-- [ ] feature 卡片、artifact follow-up、activity retry 均进入 `/chat` 且首条消息保留 seed 上下文
-- [ ] feature 可提交并返回 task_id
-- [ ] 任务状态可从 pending/running 进入 success 或 failed
-- [ ] 失败态有明确错误提示且可重试
-- [ ] artifact 列表可反映最新产出
-- [ ] 文献检索和 thesis deep research 的 Semantic Scholar 结果会进入参考库，且只导入 `verified_papers`
-- [ ] 大 PDF 上传后 pending -> preprocess -> ready/failed 状态可见
-- [ ] 写作结果进入 Prism pending review，apply/revert 后状态可观察
-- [ ] SMTP 验证码链路（如启用）可稳定工作
+- [x] 五个 workspace 页面路由可达，无 404
+- [x] feature 卡片、artifact follow-up、activity retry 均进入 `/chat` 且首条消息保留 seed 上下文
+- [x] feature 可提交并返回 task_id
+- [x] 任务状态可从 pending/running 进入 success 或 failed
+- [x] 失败态有明确错误提示且可重试
+- [x] artifact 列表可反映最新产出
+- [x] 文献检索和 thesis deep research 的 Semantic Scholar 结果会进入参考库，且只导入 `verified_papers`
+- [x] 大 PDF 上传后 pending -> preprocess -> ready/failed 状态可见
+- [x] 写作结果进入 Prism pending review，apply/revert 后状态可观察
+- [x] SMTP 验证码链路（如启用）可稳定工作

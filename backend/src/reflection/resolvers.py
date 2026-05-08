@@ -1,8 +1,7 @@
 """Dynamic module loading via path strings like 'module.path:variable_name'."""
-from typing import Any, cast
-
 import importlib
 import os
+from typing import Any, cast
 
 MODULE_TO_PACKAGE_HINTS = {
     "langchain_google_genai": "langchain-google-genai",

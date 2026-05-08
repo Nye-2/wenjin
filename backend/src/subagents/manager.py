@@ -1,12 +1,14 @@
 """Global subagent manager and thread context."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from src.services.thread_billing import (
     extract_persisted_metadata_usage,
@@ -25,6 +27,9 @@ from .graph import (
 )
 from .limiter import DualLayerLimiter
 from .models import SubagentResult, SubagentStatus, SubagentTask
+
+if TYPE_CHECKING:
+    from .parallel import ParallelExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +100,7 @@ class ThreadContext:
 class GlobalSubagentManager:
     """Singleton manager for all subagent operations."""
 
-    _instance: Optional["GlobalSubagentManager"] = None
+    _instance: GlobalSubagentManager | None = None
     _init_lock = threading.Lock()  # Class-level lock for singleton initialization
 
     def __init__(self, config: SubagentConfig) -> None:
@@ -119,9 +124,9 @@ class GlobalSubagentManager:
         # ParallelExecutor handling that run. Populated by NativeWenjinAgentHarness
         # while a session is in flight; consumed by the runs router (Plan 1 Task 10)
         # to deliver pause/resume/cancel to the right executor.
-        self._executors: dict[str, "ParallelExecutor"] = {}
+        self._executors: dict[str, ParallelExecutor] = {}
 
-    def register_executor(self, run_id: str, executor: "ParallelExecutor") -> None:
+    def register_executor(self, run_id: str, executor: ParallelExecutor) -> None:
         """Register an executor under run_id for the duration of a run."""
         self._executors[run_id] = executor
 
@@ -206,7 +211,7 @@ class GlobalSubagentManager:
         return create_default_subagent_graph(task_llm, task_tools, task.max_turns)
 
     @classmethod
-    def get_instance(cls) -> "GlobalSubagentManager":
+    def get_instance(cls) -> GlobalSubagentManager:
         """Get the singleton instance.
 
         Returns:
@@ -220,7 +225,7 @@ class GlobalSubagentManager:
         return cls._instance
 
     @classmethod
-    def initialize(cls, config: SubagentConfig) -> "GlobalSubagentManager":
+    def initialize(cls, config: SubagentConfig) -> GlobalSubagentManager:
         """Initialize the singleton instance.
 
         Args:

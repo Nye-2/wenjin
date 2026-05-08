@@ -54,7 +54,7 @@ class DockerExecutionService(ExecutionService):
         """
         self.sandbox_base_dir = Path(sandbox_base_dir)
         self.docker_client = DockerClient()
-        self._providers: dict[ExecutionType, "ExecutionProvider"] = {}
+        self._providers: dict[ExecutionType, ExecutionProvider] = {}
 
     def _get_provider(self, exec_type: ExecutionType) -> "ExecutionProvider":
         """Get or create provider instance.

@@ -36,7 +36,7 @@
 ## 5. Feature 编排契约
 
 1. 首轮编排消息通过 `metadata.orchestration.feature_id + params` 传递 seed。
-2. feature 卡片、artifact follow-up、activity retry 都回落到 `/chat`，以 `metadata.orchestration.intent=launch|resume` 表达显式命令。
+2. feature 卡片、artifact follow-up、activity retry 都回落到 `/chat`，以 `metadata.orchestration.intent=launch|resume` 表达显式命令，并携带显式 artifact seed。
 3. API 发起的长任务执行统一走 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`；chat 发起的显式任务走 `ChatTurnRouter` 后直接进入同一个 ingress。
 4. 缺参时 execution session 状态进入 `awaiting_user_input`，chat 下一轮携带 `metadata.orchestration.execution_session_id` 在同 session 续跑。
 5. feature 完成后，UI 通过 `followUpPrompt` 和 activity detail 提供下一轮建议。

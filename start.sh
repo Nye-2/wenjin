@@ -364,7 +364,7 @@ ensure_local_redis_container() {
             --name "$LOCAL_REDIS_CONTAINER" \
             --restart unless-stopped \
             -p "${LOCAL_REDIS_PORT}:6379" \
-            redis:7-alpine > /dev/null
+            redis:8-alpine > /dev/null
     fi
 
     local attempts=0
@@ -577,13 +577,13 @@ init_backend() {
     # 运行数据库迁移（兼容 legacy create_all 无 alembic_version 的历史库）
     log_info "运行数据库迁移..."
     if check_command uv; then
-        if ! env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" uv run python -m src.database.migration_bootstrap; then
+        if ! env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" uv run python -m src.database.migration_bootstrap; then
             log_error "数据库迁移失败，请检查配置与迁移链"
             return 1
         fi
     else
         source .venv/bin/activate
-        if ! env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" python -m src.database.migration_bootstrap; then
+        if ! env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" python -m src.database.migration_bootstrap; then
             log_error "数据库迁移失败，请检查配置与迁移链"
             return 1
         fi
@@ -644,7 +644,7 @@ start_langgraph() {
     load_runtime_config
 
     # 使用 langgraph dev 启动本地开发服务（避免 langgraph up 的部署构建阻塞）
-    nohup env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" \
+    nohup env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" \
         uv run langgraph dev --no-browser --no-reload --host 0.0.0.0 --port 2024 --config langgraph.json \
         > "$LOG_DIR/langgraph.log" 2>&1 &
     echo $! > "$LANGGRAPH_PID_FILE"
@@ -678,11 +678,11 @@ start_backend() {
 
     if check_command uv; then
         # 启动 Gateway
-        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" uv run uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/backend.log" 2>&1 &
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" uv run uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/backend.log" 2>&1 &
         echo $! > "$BACKEND_PID_FILE"
     else
         source .venv/bin/activate
-        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/backend.log" 2>&1 &
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/backend.log" 2>&1 &
         echo $! > "$BACKEND_PID_FILE"
     fi
 
@@ -711,12 +711,12 @@ start_worker() {
     load_runtime_config
 
     if check_command uv; then
-        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" PYTHONUNBUFFERED=1 \
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" PYTHONUNBUFFERED=1 \
             uv run python -m src.task.worker > "$LOG_DIR/worker.log" 2>&1 &
         echo $! > "$WORKER_PID_FILE"
     else
         source .venv/bin/activate
-        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_URL="$RUNTIME_REDIS_URL" PYTHONUNBUFFERED=1 \
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" PYTHONUNBUFFERED=1 \
             python -m src.task.worker > "$LOG_DIR/worker.log" 2>&1 &
         echo $! > "$WORKER_PID_FILE"
     fi

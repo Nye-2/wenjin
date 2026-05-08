@@ -17,26 +17,26 @@ CHAT_ROUTE_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "chat" / "page.tsx"
 )
 CHAT_ENTRY_FILE = FRONTEND_DIR / "lib" / "workspace-thread-entry.ts"
-CHAT_PANEL_FILE = (
-    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "ThreadPanel.tsx"
+CHAT_COMPONENTS_DIR = (
+    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components"
 )
-WORKSPACE_THREAD_MESSAGES_FILE = (
-    FRONTEND_DIR
-    / "app"
-    / "(workbench)"
-    / "workspaces"
-    / "[id]"
-    / "components"
-    / "WorkspaceThreadMessages.tsx"
+CHAT_THREAD_DIR = CHAT_COMPONENTS_DIR / "chat-thread"
+MESSAGE_LIST_FILE = CHAT_THREAD_DIR / "MessageList.tsx"
+QUESTION_CARD_BLOCK_FILE = CHAT_THREAD_DIR / "blocks" / "QuestionCardBlock.tsx"
+RESULT_CARD_BLOCK_FILE = CHAT_THREAD_DIR / "blocks" / "ResultCardBlock.tsx"
+STATUS_LINE_BLOCK_FILE = CHAT_THREAD_DIR / "blocks" / "StatusLineBlock.tsx"
+AGENT_BLOCKS_FILE = FRONTEND_DIR / "lib" / "api" / "blocks.ts"
+IMPORT_REFERENCES_BUTTON_FILE = FRONTEND_DIR / "components" / "workspace" / "ImportReferencesButton.tsx"
+LIVE_WORKFLOW_PANEL_FILE = CHAT_COMPONENTS_DIR / "live-workflow" / "LiveWorkflowPanel.tsx"
+WORKFLOW_STORE_FILE = FRONTEND_DIR / "stores" / "workflow-store.ts"
+RUNS_API_FILE = FRONTEND_DIR / "lib" / "api" / "runs.ts"
+WORKSPACE_ACTIVITY_DETAIL_DIALOG_FILE = (
+    CHAT_COMPONENTS_DIR / "WorkspaceActivityDetailDialog.tsx"
 )
-THREAD_BLOCKS_DIR = (
-    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "thread-blocks"
+WORKSPACE_ACTIVITY_DETAIL_SECTIONS_FILE = (
+    CHAT_COMPONENTS_DIR / "WorkspaceActivityDetailSections.tsx"
 )
-THREAD_BLOCK_SHARED_FILE = THREAD_BLOCKS_DIR / "shared.tsx"
-THREAD_BLOCK_NEXT_STEPS_FILE = THREAD_BLOCKS_DIR / "NextStepsBlock.tsx"
-WORKSPACE_INSPECTOR_FILE = (
-    FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "WorkspaceInspector.tsx"
-)
+APP_SHELL_SIDEBAR_FILE = FRONTEND_DIR / "components" / "workspace" / "AppShellSidebar.tsx"
 CHAT_STORE_FILE = FRONTEND_DIR / "stores" / "thread.ts"
 CHAT_STORE_SUPPORT_FILE = FRONTEND_DIR / "stores" / "thread-store-support.ts"
 COMPUTE_STAGE_FILE = FRONTEND_DIR / "components" / "compute" / "ComputeStage.tsx"
@@ -44,7 +44,6 @@ COMPUTE_PRISM_PANEL_FILE = FRONTEND_DIR / "components" / "compute" / "PrismPanel
 COMPUTE_SANDBOX_FILE_PANEL_FILE = FRONTEND_DIR / "components" / "compute" / "SandboxFilePanel.tsx"
 COMPUTE_LOG_PANEL_FILE = FRONTEND_DIR / "components" / "compute" / "LogPanel.tsx"
 COMPUTE_REVIEW_GATE_PANEL_FILE = FRONTEND_DIR / "components" / "compute" / "ReviewGatePanel.tsx"
-AGENT_STATUS_BAR_FILE = FRONTEND_DIR / "components" / "workspace" / "AgentStatusBar.tsx"
 KNOWLEDGE_PANEL_FILE = (
     FRONTEND_DIR / "app" / "(workbench)" / "workspaces" / "[id]" / "components" / "KnowledgePanel.tsx"
 )
@@ -134,19 +133,21 @@ def test_workspace_feature_routes_use_canonical_chat_entry() -> None:
 def test_chat_route_consumes_feature_entry_seed_and_ensures_workspace_main_thread() -> None:
     chat_route_body = _read_text(CHAT_ROUTE_FILE)
     chat_entry_body = _read_text(CHAT_ENTRY_FILE)
-    chat_panel_body = _read_text(CHAT_PANEL_FILE)
     layout_body = _read_text(WORKBENCH_LAYOUT_FILE)
 
     assert "parseWorkspaceThreadEntrySeed(searchParams)" in chat_route_body
-    assert "<ThreadPanel workspaceId={workspaceId} entrySeed={effectiveEntrySeed} />" in chat_route_body
+    assert "<ChatThread" in chat_route_body
+    assert "<LiveWorkflowPanel workspaceId={workspaceId} />" in chat_route_body
     assert "export function parseWorkspaceThreadEntrySeed(" in chat_entry_body
     assert "export function buildWorkspaceThreadEntryPrompt(" in chat_entry_body
-    assert 'intent: isResumeEntry ? "resume" : "launch"' in chat_panel_body
-    assert 'intent: "resume"' in chat_panel_body
-    assert 'feature_id: entrySeed.featureId' in chat_panel_body
-    assert "params: entrySeed.params" in chat_panel_body
-    assert "buildFeatureResumeMetadata(activeExecution)" in chat_panel_body
-    assert "latestAssistant.metadata" not in chat_panel_body
+    assert "export function buildWorkspaceThreadEntryOrchestration(" in chat_entry_body
+    assert "buildWorkspaceThreadEntryOrchestration(entrySeed)" in chat_route_body
+    assert "metadata: {" in chat_route_body
+    assert "orchestration," in chat_route_body
+    assert "feature_id: seed.featureId" in chat_entry_body
+    assert "params," in chat_entry_body
+    assert 'intent: isResumeEntry ? "resume" : "launch"' in chat_entry_body
+    assert "latestAssistant.metadata" not in chat_route_body
     assert "void loadThreads(workspaceId);" not in layout_body
     assert "ensureWorkspaceThread(workspaceId" in chat_route_body
 
@@ -167,7 +168,8 @@ def test_workspace_feature_actions_explicitly_cover_all_features() -> None:
 
 
 def test_workspace_thread_skill_catalog_is_loaded_from_backend_api() -> None:
-    chat_panel_body = _read_text(CHAT_PANEL_FILE)
+    chat_route_body = _read_text(CHAT_ROUTE_FILE)
+    knowledge_body = _read_text(KNOWLEDGE_PANEL_FILE)
     skill_selector_body = _read_text(
         FRONTEND_DIR
         / "app"
@@ -178,7 +180,8 @@ def test_workspace_thread_skill_catalog_is_loaded_from_backend_api() -> None:
         / "SkillSelector.tsx"
     )
     assert "useFeaturesStore((state) => state.skills)" in skill_selector_body
-    assert "getSkillById" in chat_panel_body
+    assert "resolveWorkspaceThreadEntrySkill({ seed: entrySeed, skills })" in chat_route_body
+    assert "getSkillById" in knowledge_body
     assert not WORKSPACE_THREAD_SKILLS_FILE.exists()
 
 
@@ -191,25 +194,26 @@ def test_knowledge_panel_retry_uses_feature_action_state() -> None:
 
 def test_chat_skill_labels_use_backend_contract_or_backend_skill_catalog() -> None:
     export_body = _read_text(THREAD_EXPORT_FILE)
-    chat_body = _read_text(CHAT_PANEL_FILE)
     knowledge_body = _read_text(KNOWLEDGE_PANEL_FILE)
-    agent_status_bar_body = _read_text(AGENT_STATUS_BAR_FILE)
+    activity_detail_body = _read_text(WORKSPACE_ACTIVITY_DETAIL_SECTIONS_FILE)
+    thread_store_body = _read_text(CHAT_STORE_FILE)
 
     assert "workspace-chat-skills" not in export_body
     assert "thread.skill_name" in export_body
 
-    assert "workspace-chat-skills" not in chat_body
-    assert "currentThreadSummary.skill_name" in chat_body
-    assert "currentThreadStatus.current_skill_name" in chat_body
+    assert "workspace-chat-skills" not in thread_store_body
+    assert "summary.skill_name" in thread_store_body
+    assert "status.current_skill_name" in thread_store_body
 
     assert "workspace-chat-skills" not in knowledge_body
     assert "getSkillById" in knowledge_body
 
-    assert "current_skill_name" in agent_status_bar_body
+    assert "selectedActivity.skill_name" in activity_detail_body
+    assert "created_by_skill_name" in activity_detail_body
 
 
 def test_chat_and_knowledge_panels_follow_canonical_chat_entry_and_retry_paths() -> None:
-    chat_body = _read_text(CHAT_PANEL_FILE)
+    chat_body = _read_text(CHAT_ROUTE_FILE)
     chat_store_support_body = _read_text(CHAT_STORE_SUPPORT_FILE)
     knowledge_body = _read_text(KNOWLEDGE_PANEL_FILE)
 
@@ -228,48 +232,71 @@ def test_chat_and_knowledge_panels_follow_canonical_chat_entry_and_retry_paths()
 
 def test_workbench_feature_cards_use_canonical_chat_seed_route() -> None:
     page_body = _read_text(WORKBENCH_PAGE_FILE)
-    messages_body = _read_text(CHAT_PANEL_FILE.parent / "WorkspaceThreadMessages.tsx")
-    proposal_body = _read_text(CHAT_PANEL_FILE.parent / "thread-blocks" / "TaskProposalBlock.tsx")
+    presenter_body = _read_text(REPO_ROOT / "backend" / "src" / "application" / "presenters" / "thread_feature_cards.py")
 
     assert "getWorkspaceFeatureThreadRoute" in page_body
     assert "<StagedFeatureCards features={features} workspaceId={workspaceId} />" in page_body
     assert "router.push(route);" in page_body
-    assert "feature_proposal" in messages_body
-    assert 'action: "trigger_feature"' in proposal_body
+    assert '"type": "feature_proposal"' in presenter_body
+    assert 'action="trigger_feature"' in presenter_body
 
 
-def test_thread_block_action_contract_is_centralized_and_executable() -> None:
-    shared_body = _read_text(THREAD_BLOCK_SHARED_FILE)
-    next_steps_body = _read_text(THREAD_BLOCK_NEXT_STEPS_FILE)
-    messages_body = _read_text(WORKSPACE_THREAD_MESSAGES_FILE)
-    thread_panel_body = _read_text(CHAT_PANEL_FILE)
+def test_agent_block_contract_is_centralized_and_rendered_by_chat_thread() -> None:
+    agent_blocks_body = _read_text(AGENT_BLOCKS_FILE)
+    message_list_body = _read_text(MESSAGE_LIST_FILE)
+    question_body = _read_text(QUESTION_CARD_BLOCK_FILE)
+    result_body = _read_text(RESULT_CARD_BLOCK_FILE)
+    status_body = _read_text(STATUS_LINE_BLOCK_FILE)
+    import_references_body = _read_text(IMPORT_REFERENCES_BUTTON_FILE)
 
-    expected_actions = {
-        "trigger_feature",
-        "continue_thread",
-        "open_feature",
-        "rerun_from_artifact",
-        "open_prism",
-        "preview_prism_changes",
-        "open_artifact",
-        "rerun_feature",
-        "resume_execution",
-        "import_references",
+    expected_kinds = {
+        "text",
+        "status_line",
+        "question_card",
+        "result_card",
     }
-    for action in expected_actions:
-        assert f'"{action}"' in shared_body
+    for kind in expected_kinds:
+        assert f'"{kind}"' in agent_blocks_body
 
-    assert "export const SUPPORTED_BLOCK_ACTIONS" in shared_body
-    assert "export function isBlockActionType" in shared_body
-    assert "isBlockActionType(rawAction)" in next_steps_body
-    assert messages_body.count('block.type === "next_steps"') == 1
+    assert "export type AgentBlock" in agent_blocks_body
+    assert "isText(b)" in message_list_body
+    assert "isStatusLine(b)" in message_list_body
+    assert "isQuestionCard(b)" in message_list_body
+    assert "isResultCard(b)" in message_list_body
+    assert "<QuestionCardBlock" in message_list_body
+    assert "<ResultCardBlock" in message_list_body
+    assert "<StatusLineBlock" in message_list_body
+    assert "onPillClick" in question_body
+    assert "onFeedback" in result_body
+    assert "onJumpToPhase" in status_body
+    assert "await importDeepSearchArtifactReferences(workspaceId" in import_references_body
+    assert "buildWorkspaceThreadEntryOrchestration(entrySeed)" in _read_text(CHAT_ROUTE_FILE)
 
-    assert 'action === "open_prism" || action === "preview_prism_changes"' in messages_body
-    assert 'action === "import_references"' in messages_body
-    assert "await importDeepSearchArtifactReferences(workspaceId" in messages_body
-    assert 'action === "resume_execution"' in messages_body
-    assert 'entry: "resume"' in messages_body
-    assert 'intent: isResumeEntry ? "resume" : "launch"' in thread_panel_body
+
+def test_task_failure_recovery_actions_keep_execution_session_seed() -> None:
+    backend_body = _read_text(
+        REPO_ROOT / "backend" / "src" / "application" / "presenters" / "thread_feature_cards.py"
+    )
+    entry_body = _read_text(CHAT_ENTRY_FILE)
+
+    assert '"action": "resume_execution"' in backend_body
+    assert 'entryAction === "resume"' in entry_body
+    assert 'seed.params?.execution_session_id' in entry_body
+    assert "execution_session_id: executionSessionId" in entry_body
+    assert 'key !== "entry" && key !== "execution_session_id"' in entry_body
+
+
+def test_upload_preprocess_status_stays_visible_until_full_text_is_ready() -> None:
+    store_support_body = _read_text(CHAT_STORE_SUPPORT_FILE)
+    composer_body = _read_text(CHAT_COMPONENTS_DIR / "WorkspaceThreadComposer.tsx")
+    literature_body = _read_text(CHAT_COMPONENTS_DIR / "LiteraturePanel.tsx")
+
+    assert "syncAttachmentPreprocessWithTask" in store_support_body
+    assert "preprocess.status = task.status" in store_support_body
+    assert "pendingAttachments.map" in composer_body
+    assert "uploadThreadFiles({" in _read_text(CHAT_ROUTE_FILE)
+    assert 'case "running":' in literature_body
+    assert "正在解析" in literature_body
 
 
 def test_legacy_frontend_execute_workspace_feature_wrapper_removed() -> None:
@@ -290,16 +317,19 @@ def test_knowledge_rail_is_connected_to_workspace_data() -> None:
 
 
 def test_compute_stage_replaces_legacy_feature_panel_host() -> None:
-    inspector_body = _read_text(WORKSPACE_INSPECTOR_FILE)
+    chat_route_body = _read_text(CHAT_ROUTE_FILE)
+    workbench_body = _read_text(WORKBENCH_PAGE_FILE)
     compute_body = _read_text(COMPUTE_STAGE_FILE)
+    live_workflow_body = _read_text(LIVE_WORKFLOW_PANEL_FILE)
     prism_body = _read_text(COMPUTE_PRISM_PANEL_FILE)
     sandbox_body = _read_text(COMPUTE_SANDBOX_FILE_PANEL_FILE)
     log_body = _read_text(COMPUTE_LOG_PANEL_FILE)
     review_gate_body = _read_text(COMPUTE_REVIEW_GATE_PANEL_FILE)
     workspace_exports = _read_text(FRONTEND_DIR / "components" / "workspace" / "index.ts")
 
-    assert "ComputeStage" in inspector_body
-    assert "FeaturePanelHost" not in inspector_body
+    assert "LiveWorkflowPanel" in chat_route_body
+    assert "LiveWorkflowPanel" in workbench_body
+    assert "FeaturePanelHost" not in chat_route_body
     assert "useComputeStore" in compute_body
     assert "projection?.sandbox" in compute_body
     assert "projection?.prism" in compute_body
@@ -318,6 +348,7 @@ def test_compute_stage_replaces_legacy_feature_panel_host() -> None:
     assert "审核关卡" in review_gate_body
     assert "WorkspaceResultPanel" not in workspace_exports
     assert "FeatureWorkbenchShell" not in workspace_exports
+    assert "WorkspaceAssets" in live_workflow_body
 
 
 def test_chat_store_scopes_pending_skill_and_thread_reuse_to_current_workspace() -> None:
@@ -345,15 +376,22 @@ def test_legacy_feature_entry_shells_removed() -> None:
     assert not (FRONTEND_DIR / "lib" / "workspace-result.ts").exists()
 
 
-def test_agent_status_bar_uses_backend_cancel_api_and_failed_task_branch() -> None:
-    api_body = _read_text(WORKSPACE_API_FILE)
-    body = _read_text(AGENT_STATUS_BAR_FILE)
+def test_live_workflow_panel_uses_backend_run_lifecycle_api() -> None:
+    runs_api_body = _read_text(RUNS_API_FILE)
+    workflow_store_body = _read_text(WORKFLOW_STORE_FILE)
+    live_panel_body = _read_text(LIVE_WORKFLOW_PANEL_FILE)
+    sidebar_body = _read_text(APP_SHELL_SIDEBAR_FILE)
 
-    assert "export async function cancelTask(taskId: string): Promise<void>" in api_body
-    assert 'await apiClient.delete(`/tasks/${taskId}`);' in api_body
+    assert 'postNoBody(`/api/runs/${encodeURIComponent(runId)}/pause`)' in runs_api_body
+    assert 'postNoBody(`/api/runs/${encodeURIComponent(runId)}/resume`)' in runs_api_body
+    assert 'fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: "DELETE" })' in runs_api_body
 
-    assert 'effectiveCurrentTask?.status === "failed"' in body
-    assert "await cancelTaskRequest(effectiveCurrentTask.id);" in body
+    assert "pauseRunLifecycle as apiPause" in workflow_store_body
+    assert "resumeRunLifecycle as apiResume" in workflow_store_body
+    assert "deleteWorkspaceRun as apiDeleteRun" in workflow_store_body
+    assert "pauseRun(currentRunId)" in live_panel_body
+    assert "resumeRun(currentRunId)" in live_panel_body
+    assert '"failed"' in sidebar_body
 
 
 def test_workspace_event_stream_applies_thread_activity_incrementally() -> None:
@@ -377,6 +415,20 @@ def test_workspace_event_stream_applies_thread_activity_incrementally() -> None:
 
     assert "workspaceStore.upsertActivity(event.activity);" in subagent_updated_body
     assert 'refreshWorkspaceTargets(workspaceId, ["activity"]);' in subagent_updated_body
+
+
+def test_workspace_refresh_artifact_target_refetches_artifact_list() -> None:
+    event_stream_body = _read_text(WORKSPACE_EVENT_STREAM_FILE)
+    workspace_store_body = _read_text(WORKSPACE_STORE_FILE)
+    refresh_body = _extract_case_body(WORKSPACE_EVENT_STREAM_FILE, "workspace.refresh")
+
+    assert "if (targetSet.has(\"artifacts\"))" in event_stream_body
+    assert "void workspaceStore.fetchArtifacts(workspaceId);" in event_stream_body
+    assert "refreshWorkspaceTargets(workspaceId, event.refresh_targets || []);" in refresh_body
+
+    assert "fetchArtifacts: async (workspaceId: string)" in workspace_store_body
+    assert "const response = await listArtifacts(workspaceId);" in workspace_store_body
+    assert "artifacts: response.artifacts.map" in workspace_store_body
 
 
 def test_knowledge_panel_uses_canonical_subagent_title_instead_of_raw_type_formatting() -> None:

@@ -24,8 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.academic.services.workspace_service import WorkspaceService
 from src.agents.lead_agent.blocks import AgentMessage
 from src.database import User
-from src.gateway.deps.core import get_db
 from src.gateway.deps.academic import get_workspace_service
+from src.gateway.deps.core import get_db
 
 router = APIRouter(prefix="/__test__", tags=["dev"])
 

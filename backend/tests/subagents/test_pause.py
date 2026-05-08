@@ -12,8 +12,8 @@ import pytest
 from src.subagents.parallel import (
     ExecutionPhase,
     ParallelExecutor,
-    PhaseResult,
     PhasedPlan,
+    PhaseResult,
 )
 
 

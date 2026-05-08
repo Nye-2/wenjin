@@ -338,7 +338,7 @@ export function syncAttachmentPreprocessWithTask(
         preprocess.status =
           typeof preprocess.status === "string" ? preprocess.status : "succeeded";
       } else if (task.status === "running" || task.status === "pending") {
-        preprocess.status = "pending";
+        preprocess.status = task.status;
       }
       preprocess.progress = task.progress;
       preprocess.current_step = task.current_step ?? null;

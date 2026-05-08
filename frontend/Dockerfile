@@ -3,7 +3,7 @@
 # Wenjin (问津) - Frontend Dockerfile
 # Next.js 16 with standalone output
 
-ARG NODE_IMAGE=node:20-alpine
+ARG NODE_IMAGE=node:24-alpine
 ARG ALPINE_MIRROR=
 ARG NPM_REGISTRY=https://registry.npmjs.org
 ARG NPM_FALLBACK_REGISTRY=https://registry.npmjs.org

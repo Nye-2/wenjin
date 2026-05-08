@@ -59,6 +59,7 @@ _PRISM_REQUIRED_ACTIONS = {
     "confirm",
     "latex_apply",
     "latex_revert",
+    "preview_prism_changes",
     "review",
     "user_input_required",
 }

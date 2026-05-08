@@ -22,13 +22,12 @@ This file therefore contains two coherent groups:
 """
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -36,7 +35,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.pool import StaticPool
 
 from src.runtime.runs.worker import _emit_assistant_blocks
@@ -154,8 +152,8 @@ async def test_workspace_run_lifecycle_create_complete_get(
     # Patch the production WorkspaceRunRow with our SQLite-compatible version so
     # the service can work against the in-memory test schema without requiring
     # a real PostgreSQL connection.
-    import src.services.workspace_run_service as _svc_mod
     import src.database.models.workspace_run as _model_mod
+    import src.services.workspace_run_service as _svc_mod
 
     original_row_cls = _model_mod.WorkspaceRunRow
 
@@ -229,8 +227,8 @@ async def test_workspace_run_soft_delete(
     sqlite_session: AsyncSession, seeded_db: dict
 ):
     """Soft-delete sets deleted_at and hides the row from get_run."""
-    import src.services.workspace_run_service as _svc_mod
     import src.database.models.workspace_run as _model_mod
+    import src.services.workspace_run_service as _svc_mod
 
     original_row_cls = _model_mod.WorkspaceRunRow
     try:

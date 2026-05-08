@@ -160,6 +160,7 @@ make debug-langgraph
 - 总览：`docs/README.md`
 - 架构：`docs/architecture/README.md`
 - 产品契约：`docs/product/README.md`
+- 文献中心：`docs/product/workspace-reference-library.md`
 - 长期方向种子：`docs/strategy/wenjin-long-term-direction-seed.md`
 - 基础设施：`docs/infrastructure/README.md`
 - 后端专项：`backend/docs/README.md`
@@ -167,7 +168,7 @@ make debug-langgraph
 
 ## 文档治理
 
-- 只保留“当前事实源”文档，历史方案与兼容迁移说明已清理
+- 只保留“当前事实源”文档，历史方案与阶段性执行稿已清理
 - 架构、接口、运行方式变化后，必须同步更新 README 和对应 docs
 - 实现与文档冲突时，以实现为准，并立即回补文档
 - 提交前建议按 `docs/documentation-map.md` 的维护清单做一次最小回归

@@ -6,7 +6,7 @@ x-backend-gateway-build: &backend_gateway_build
   dockerfile: Dockerfile
   target: gateway
   args:
-    PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+    PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13-slim}
     PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
 
 x-langgraph-build: &langgraph_build
@@ -14,14 +14,14 @@ x-langgraph-build: &langgraph_build
   dockerfile: Dockerfile
   target: langgraph
   args:
-    PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+    PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13-slim}
     PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
 
 x-frontend-build: &frontend_build
   context: ./frontend
   dockerfile: Dockerfile
   args:
-    NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
+    NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
     ALPINE_MIRROR: ${ALPINE_MIRROR:-}
     NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     NPM_FALLBACK_REGISTRY: ${NPM_FALLBACK_REGISTRY:-https://registry.npmjs.org}
@@ -54,9 +54,9 @@ services:
     networks:
       - wenjin-network
 
-  # Redis 7 with AOF persistence (REQUIRED)
+  # Redis 8 with AOF persistence (REQUIRED)
   redis:
-    image: ${REDIS_IMAGE:-redis:7-alpine}
+    image: ${REDIS_IMAGE:-redis:8-alpine}
     container_name: wenjin-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --appendfsync everysec
@@ -95,8 +95,9 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379/0
-    command: ["uv", "run", "python", "-m", "src.database.migration_bootstrap"]
+    command: ["python", "-m", "src.database.migration_bootstrap"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,7 +119,7 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@wenjin.ai}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
-    command: ["uv", "run", "python", "-m", "src.database.bootstrap_admin"]
+    command: ["python", "-m", "src.database.bootstrap_admin"]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -136,6 +137,7 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379/0
       - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
       - REDIS_STREAM_MAX_CONNECTIONS=${REDIS_STREAM_MAX_CONNECTIONS:-200}
@@ -180,6 +182,7 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379/0
       - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
       - REDIS_STREAM_MAX_CONNECTIONS=${REDIS_STREAM_MAX_CONNECTIONS:-200}
@@ -229,6 +232,7 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379/0
       - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
       - REDIS_STREAM_MAX_CONNECTIONS=${REDIS_STREAM_MAX_CONNECTIONS:-200}

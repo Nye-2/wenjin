@@ -4,7 +4,9 @@ import type {
   DashboardData,
   MemoryResponse,
   ReferenceBibtexResponse,
+  ReferenceBibtexValidationResponse,
   ReferenceCountResponse,
+  ReferenceDetailResponse,
   ReferenceImportResponse,
   ReferenceListResponse,
   UploadReferenceResponse,
@@ -279,7 +281,7 @@ export async function getWorkspaceReferenceLibraryOutline(
 export async function getReferenceDetail(
   workspaceId: string,
   referenceId: string
-): Promise<{ reference: WorkspaceReference; assets: WorkspaceReference["assets"] }> {
+): Promise<ReferenceDetailResponse> {
   const response = await apiClient.get(
     `/workspaces/${workspaceId}/references/${referenceId}`
   );
@@ -316,10 +318,12 @@ export async function syncReferencesToPrism(
 }
 
 export async function validateReferenceBibtex(
-  workspaceId: string
-): Promise<Record<string, unknown>> {
+  workspaceId: string,
+  latexContent?: string
+): Promise<ReferenceBibtexValidationResponse> {
   const response = await apiClient.post(
-    `/workspaces/${workspaceId}/references/bibtex/validate`
+    `/workspaces/${workspaceId}/references/bibtex/validate`,
+    latexContent ? { latex_content: latexContent } : undefined
   );
   return response.data;
 }

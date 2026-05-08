@@ -55,6 +55,15 @@ export function ActivityItemRow({
   const Icon = meta.icon;
   const clickableArtifact = item.kind === "artifact" && artifact !== null;
   const metadataLine = resolveMetadataLine(item, title, resolveSkillLabel);
+  const handleRowKeyDown = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+    action: () => void
+  ) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    action();
+  };
 
   const content = (
     <>
@@ -136,27 +145,33 @@ export function ActivityItemRow({
 
   if (clickableArtifact && artifact) {
     return (
-      <motion.button
-        type="button"
+      <motion.div
+        role="button"
+        tabIndex={0}
         initial={{ opacity: 0, x: -12 }}
         animate={{ opacity: 1, x: 0 }}
         onClick={() => onSelectArtifact(artifact)}
-        className="group relative flex w-full items-start gap-3 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-3 text-left transition-all hover:border-[var(--accent-primary)]/30 hover:bg-[var(--bg-surface)]/80"
+        onKeyDown={(event) =>
+          handleRowKeyDown(event, () => onSelectArtifact(artifact))
+        }
+        className="group relative flex w-full cursor-pointer items-start gap-3 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-3 text-left transition-all hover:border-[var(--accent-primary)]/30 hover:bg-[var(--bg-surface)]/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]/40"
       >
         {content}
-      </motion.button>
+      </motion.div>
     );
   }
 
   return (
-    <motion.button
-      type="button"
+    <motion.div
+      role="button"
+      tabIndex={0}
       initial={{ opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
       onClick={() => onOpenDetails(item)}
-      className="relative flex w-full items-start gap-3 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-3 text-left transition-all hover:border-[var(--accent-primary)]/20"
+      onKeyDown={(event) => handleRowKeyDown(event, () => onOpenDetails(item))}
+      className="relative flex w-full cursor-pointer items-start gap-3 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-3 text-left transition-all hover:border-[var(--accent-primary)]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]/40"
     >
       {content}
-    </motion.button>
+    </motion.div>
   );
 }

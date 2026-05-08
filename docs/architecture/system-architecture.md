@@ -24,7 +24,7 @@
 | **FeatureIngress = 唯一入口** | 所有工作区功能（调研、写作、绘图等）必须经过 `FeatureIngressService` 统一调度 |
 | **ExecutionSession = 事实源 (SSOT)** | 功能执行业务状态的唯一事实源，ComputeSession 只做 UI 投影 |
 | **ReferenceLibrary = 文献 SSOT** | 所有文献以 `WorkspaceReference` 为唯一事实源，BibTeX/引用键均从它派生 |
-| **不保留旧链路 fallback** | 架构迁移完成后，旧代码路径直接删除，不保留兼容层 |
+| **不保留旧链路 fallback** | 新主链路落地后，旧代码路径直接删除，不保留兼容层 |
 
 ---
 
@@ -72,11 +72,11 @@
 | 层级 | 技术选型 |
 |------|----------|
 | **前端** | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS, Zustand, Framer Motion |
-| **后端 Gateway** | FastAPI, Python 3.12+, SQLAlchemy 2 (async), Alembic |
+| **后端 Gateway** | FastAPI, Python 3.13+, SQLAlchemy 2 (async), Alembic |
 | **后台 Worker** | Celery + asyncio.Runner, Redis 队列 |
 | **Agent 运行时** | LangGraph (in-process), 自定义 Subagent 并行执行器 |
 | **数据持久化** | PostgreSQL 16 + pgvector |
-| **缓存/消息** | Redis 7 (AOF 持久化)，分 3 个逻辑库 |
+| **缓存/消息** | Redis 8 (AOF 持久化)，分 3 个逻辑库 |
 | **编译环境** | Docker 化 TeXLive 2024 (xelatex/pdflatex/biber) |
 | **监控** | Prometheus + Grafana |
 | **部署** | Docker Compose, Nginx 反向代理 |
@@ -117,7 +117,7 @@ backend/src/
 ├── agents/               # Agent 编排层
 │   ├── feature_leader/   # 功能执行入口：FeatureLeaderRuntime、Workflow Plan、Graph Registry
 │   ├── graphs/           # LangGraph 子图（按 workspace_type/feature_id 组织）
-│   ├── harness/          # Agent 执行 harness 抽象（Native / Claude SDK / Codex / DeerFlow）
+│   ├── harness/          # AgentHarness 合约（当前仅启用 Native Wenjin provider）
 │   ├── middlewares/      # 20+ 中间件（沙箱、引用、知识、纠错、澄清等）
 │   ├── memory/           # 记忆捕获与压缩
 │   └── subagents/        # 子 Agent 并行执行器
@@ -334,9 +334,10 @@ src/agents/graphs/
 
 **文件**：`src/agents/harness/`
 
-抽象层，支持多 Agent 执行后端：
+`AgentHarness` 是功能运行时调用 Agent 的合约层。当前启用的 provider 是：
 - `NativeWenjinAgentHarness` → `src.subagents.parallel.ParallelExecutor`
-- `ClaudeAgentSdkAdapter`、`CodexAgentAdapter`、`DeerFlowHarnessAdapter`
+
+非 native provider 不作为当前运行能力；若 runtime profile 配置为 `deerflow`、`claude` 或 `codex`，`FeatureLeaderRuntime` 会拒绝执行，避免未集成 provider 被误用。
 
 协议：`AgentHarness` 接口含 `run_subtask()` 和 `run_session()`
 
@@ -466,7 +467,7 @@ ComputeProjectionService.get_projection() (按需 API)
 #### 3.7.2 Alembic 迁移
 
 - 配置：`backend/alembic.ini`，`backend/alembic/env.py`
-- 27 个迁移（`001_initial` → `027_add_compute_sessions`）
+- 28 个迁移（`001_initial` → `028_reference_library_rebuild`）
 - `init_db()` 仅创建 `vector` 扩展，表创建由迁移驱动
 - `migration_bootstrap.py` 处理 pre-Alembic 数据库的 stamp 兼容
 
@@ -747,8 +748,8 @@ ComputeStage
 - **角色**: 业务数据持久化
 - **连接**: SQLAlchemy async (`asyncpg`)，Gateway 和 Worker 共用
 
-#### Redis 7
-- **镜像**: `redis:7-alpine`，AOF 持久化（`appendonly yes`, `appendfsync everysec`）
+#### Redis 8
+- **镜像**: `redis:8-alpine`，AOF 持久化（`appendonly yes`, `appendfsync everysec`）
 - **逻辑库分区**：
   - **`/0`**: 应用运行时状态（任务、运行、pub/sub、锁、缓存、限流、SSE 缓冲）
   - **`/1`**: Celery Message Broker
@@ -913,7 +914,7 @@ ComputeProjectionService.get_projection() (按需 API)
 | **事件驱动刷新而非实时推送投影** | ComputeProjectionService 按需构建投影，不维护实时副本，降低复杂度 |
 | **Redis + PG 双写任务状态** | Redis 支持前端快速轮询，PG 支持持久化和恢复 |
 | **懒加载 LangGraph 子图** | 按 workspace_type 动态导入，一个领域的导入错误不影响其他领域 |
-| **Agent Harness 抽象** | 可在 Native Wenjin、Claude SDK、Codex、DeerFlow 之间切换，不改动功能代码 |
+| **Agent Harness 合约** | 保留 Agent 执行边界，但当前只启用 Native Wenjin，避免未集成 provider 被误用 |
 | **Runtime Blocks 作为 UI 契约** | 后端输出结构化 `runtime_blocks`，Compute Stage 通用渲染，无需前端为每个功能写定制代码 |
 | **Reference Library 作为 grounded evidence** | 所有文献检索经 Semantic Scholar 验证；LLM 综合只能引用已验证文献，防止幻觉引用 |
 | **延迟导入打破循环依赖** | `compute → projection_service → runtime_profiles → registry → task → store → compute` 链通过方法内延迟导入打破 |
@@ -926,10 +927,10 @@ ComputeProjectionService.get_projection() (按需 API)
 
 ### 8.1 后端规范
 
-- **Python 版本**: 3.12+
+- **Python 版本**: 3.13+
 - **代码风格**: Ruff（lint + format）
 - **类型检查**: mypy（增量检查）
-- **测试**: pytest（2037+ 用例）
+- **测试**: pytest（以 release gate 与 targeted suites 为准）
 - **模型**: 所有表使用 `String(36)` UUID 主键，`DateTime(timezone=True)`，`JSONB` 带 `server_default`
 - **枚举**: `StrEnum` + `Enum(..., native_enum=False)` 存储字符串值
 - **删除策略**: `WorkspaceReference` 使用 `is_deleted` 软删除；其他实体通常使用硬删除 + CASCADE
@@ -955,8 +956,7 @@ ComputeProjectionService.get_projection() (按需 API)
 | `docs/README.md` | 文档索引和导航 |
 | `docs/architecture/` | 技术栈、API 面、功能域架构、工作区执行流水线、ADRs |
 | `docs/infrastructure/` | 部署运行手册、环境变量、故障排查指南 |
-| `docs/product/` | 功能插件合约、工作区功能目录、发布门控检查表 |
+| `docs/product/` | 工作区当前状态、Reference Library、功能插件合约、工作区功能目录、发布门控检查表 |
 | `docs/strategy/` | 长期方向 |
-| `refactor/target-architecture.md` | 当前 Compute 中心化架构定义（四平面：Chat 控制面 → Compute 工作面 → Feature 事务面 → Agent/Sandbox 执行面）|
 | `backend/docs/` | 后端专属文档 |
 | `frontend/README.md` | 前端专属文档 |

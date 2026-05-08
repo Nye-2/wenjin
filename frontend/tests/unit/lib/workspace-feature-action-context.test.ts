@@ -36,4 +36,40 @@ describe("workspace-feature-action-context", () => {
       "/workspaces/workspace-1/chat?feature=feature-1&skill=explicit-skill&topic=proposal+topic"
     );
   });
+
+  it("keeps artifact follow-up seeds in the chat route", async () => {
+    mockResolveFeatureActionState.mockResolvedValueOnce({
+      routeParams: {
+        topic: "proposal topic",
+        source_artifact_id: "artifact-2",
+        context_artifact_ids: ["artifact-2"],
+      },
+      followUpPrompt: "",
+      rerunParams: {
+        topic: "proposal topic",
+        context_artifact_ids: ["artifact-2"],
+      },
+      rerunUnavailableReason: null,
+    });
+
+    const context = await resolveWorkspaceFeatureActionContext({
+      workspaceId: "workspace-1",
+      featureId: "framework_outline",
+      feature: {
+        id: "framework_outline",
+        defaultSkillId: "framework-designer",
+      },
+      workspace: null,
+      artifacts: [],
+    });
+
+    expect(context.route).toBe(
+      "/workspaces/workspace-1/chat?feature=framework_outline&skill=framework-designer&topic=proposal+topic&source_artifact_id=artifact-2&context_artifact_ids=artifact-2"
+    );
+    expect(context.routeParams).toEqual({
+      topic: "proposal topic",
+      source_artifact_id: "artifact-2",
+      context_artifact_ids: ["artifact-2"],
+    });
+  });
 });

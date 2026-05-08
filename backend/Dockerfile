@@ -1,7 +1,7 @@
 # Wenjin (问津) - Backend Dockerfile
 # Multi-stage build for Gateway and LangGraph services
 
-ARG PYTHON_IMAGE=python:3.12-slim
+ARG PYTHON_IMAGE=python:3.13-slim
 ARG PIP_INDEX_URL=https://pypi.org/simple
 
 # ============================================

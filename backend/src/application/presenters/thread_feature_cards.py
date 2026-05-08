@@ -252,11 +252,27 @@ def _build_rerun_from_artifact_step(
     feature_id: str,
     *,
     label: str,
+    params: Mapping[str, Any] | None = None,
 ) -> _NextStepItem:
     return _build_next_step_item(
         label=label,
         feature_id=feature_id,
         action="rerun_from_artifact",
+        params=params,
+    )
+
+
+def _build_open_artifact_step(
+    feature_id: str,
+    *,
+    artifact_id: str,
+    label: str,
+) -> _NextStepItem:
+    return _build_next_step_item(
+        label=label,
+        feature_id=feature_id,
+        action="open_artifact",
+        params={"artifact_id": artifact_id},
     )
 
 
@@ -299,13 +315,6 @@ def build_missing_response(
                 execution_session_id=execution_session_id,
                 message=message,
                 missing_fields=missing_fields_structured,
-            ),
-            # Keep warning block for backward compatibility
-            _build_warning_block(
-                title=f"{_feature_title(feature_id)} 还缺少必要信息",
-                detail=message,
-                feature_id=feature_id,
-                code="missing_params",
             ),
             _build_next_steps_block(next_steps),
         ],
@@ -619,6 +628,8 @@ def build_feature_task_completion_card(
     summary = _feature_result_summary(feature_id, data, artifacts)
     params = _sanitize_orchestration_params(coerce_workspace_feature_params(payload))
     follow_up_prompt = _feature_follow_up_prompt(feature_id)
+    primary_artifact_id: str | None = None
+    primary_artifact_title: str | None = None
 
     # Build destinations from artifacts and prism
     destinations: list[dict[str, Any]] = []
@@ -632,6 +643,9 @@ def build_feature_task_completion_card(
                     "label": title,
                     "id": artifact_id,
                 })
+                if artifact_id and primary_artifact_id is None:
+                    primary_artifact_id = artifact_id
+                    primary_artifact_title = title
 
     # Extract prism info
     prism_info = _extract_prism_from_result(data)
@@ -704,8 +718,32 @@ def build_feature_task_completion_card(
         _build_rerun_from_artifact_step(
             feature_id,
             label="基于 artifact 再执行",
+            params={
+                **params,
+                **(
+                    {
+                        "source_artifact_id": primary_artifact_id,
+                        "context_artifact_ids": [primary_artifact_id],
+                    }
+                    if primary_artifact_id
+                    else {}
+                ),
+            },
         ),
     ]
+    if primary_artifact_id:
+        next_step_items.insert(
+            0,
+            _build_open_artifact_step(
+                feature_id,
+                artifact_id=primary_artifact_id,
+                label=(
+                    f"打开 {primary_artifact_title}"
+                    if primary_artifact_title
+                    else "打开 artifact"
+                ),
+            ),
+        )
     if reference_import:
         next_step_items.insert(
             0,
@@ -789,10 +827,10 @@ def build_feature_task_failure_card(
     params = _sanitize_orchestration_params(coerce_workspace_feature_params(payload))
     summary = f"{_feature_title(feature_id)} 执行失败。{detail}"
 
-    recovery_actions: list[dict[str, Any]] = [
-        {"label": "基于已完成结果继续", "action": "resume_execution"},
-        {"label": "继续补充后重试", "action": "continue_thread"},
-    ]
+    recovery_actions: list[dict[str, Any]] = []
+    if execution_session_id:
+        recovery_actions.append({"label": "基于已完成结果继续", "action": "resume_execution"})
+    recovery_actions.append({"label": "继续补充后重试", "action": "continue_thread"})
 
     blocks: list[dict[str, Any]] = [
         _build_task_failure_block(
@@ -806,13 +844,6 @@ def build_feature_task_failure_card(
             prism_affected=prism_affected,
             recovery_actions=recovery_actions,
         ),
-        # Keep warning block for backward compatibility with older frontends
-        _build_warning_block(
-            title=f"{_feature_title(feature_id)} 执行失败",
-            detail=detail,
-            code="task_failed",
-            feature_id=feature_id,
-        ),
         _build_next_steps_block(
             [
                 _build_continue_thread_step(
@@ -822,6 +853,7 @@ def build_feature_task_failure_card(
                 _build_rerun_from_artifact_step(
                     feature_id,
                     label="重新基于 artifact 执行",
+                    params=params,
                 ),
             ]
         ),

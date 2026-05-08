@@ -7,6 +7,7 @@ import pytest
 from src.application.presenters.thread_feature_cards import (
     build_feature_task_completion_card,
     build_feature_task_failure_card,
+    build_missing_response,
 )
 from src.application.presenters.thread_feature_presenters import feature_title
 from src.task.workspace_feature_params import coerce_workspace_feature_params
@@ -38,9 +39,12 @@ def test_build_feature_task_completion_card_preserves_params_and_actions() -> No
     next_steps = reply.blocks[-1]["data"]["items"]
     assert [item["action"] for item in next_steps] == [
         "open_feature",
+        "open_artifact",
         "continue_thread",
         "rerun_from_artifact",
     ]
+    assert next_steps[1]["params"]["artifact_id"] == "artifact-2"
+    assert next_steps[3]["params"]["source_artifact_id"] == "artifact-2"
 
 
 def test_build_feature_task_completion_card_prioritizes_prism_review() -> None:
@@ -160,7 +164,13 @@ def test_build_feature_task_failure_card_exposes_retry_actions() -> None:
         feature_id="peer_review",
         task_id="task-456",
         execution_session_id="exec-456",
-        payload={"params": {"paper_title": "Agent Paper"}},
+        payload={
+            "params": {
+                "paper_title": "Agent Paper",
+                "source_artifact_id": "artifact-1",
+                "context_artifact_ids": ["artifact-1"],
+            }
+        },
         error="tool timeout",
     )
 
@@ -168,16 +178,58 @@ def test_build_feature_task_failure_card_exposes_retry_actions() -> None:
     assert reply.metadata["orchestration"]["execution_session_id"] == "exec-456"
     assert reply.metadata["orchestration"]["error"] == "tool timeout"
     assert reply.blocks[0]["type"] == "task_failure"
+    assert reply.blocks[0]["data"]["execution_session_id"] == "exec-456"
     recovery_actions = reply.blocks[0]["data"]["recovery_actions"]
     assert [item["action"] for item in recovery_actions] == [
         "resume_execution",
         "continue_thread",
     ]
-    assert reply.blocks[1]["type"] == "warning"
-    next_steps = reply.blocks[-1]["data"]["items"]
+    assert [block["type"] for block in reply.blocks] == [
+        "task_failure",
+        "next_steps",
+    ]
+    next_steps = reply.blocks[1]["data"]["items"]
     assert [item["action"] for item in next_steps] == [
         "continue_thread",
         "rerun_from_artifact",
+    ]
+    assert next_steps[1]["params"]["paper_title"] == "Agent Paper"
+    assert next_steps[1]["params"]["source_artifact_id"] == "artifact-1"
+    assert next_steps[1]["params"]["context_artifact_ids"] == ["artifact-1"]
+
+
+def test_build_feature_task_failure_card_omits_resume_without_execution_session() -> None:
+    reply = build_feature_task_failure_card(
+        feature_id="peer_review",
+        task_id="task-456",
+        execution_session_id=None,
+        payload={"params": {"paper_title": "Agent Paper"}},
+        error="tool timeout",
+    )
+
+    recovery_actions = reply.blocks[0]["data"]["recovery_actions"]
+    assert [item["action"] for item in recovery_actions] == [
+        "continue_thread",
+    ]
+    assert "resume_execution" not in {item["action"] for item in recovery_actions}
+
+
+def test_build_missing_response_uses_current_structured_blocks_only() -> None:
+    reply = build_missing_response(
+        feature_id="framework_outline",
+        execution_session_id="exec-missing",
+        message="还需要研究主题",
+        missing_fields=["topic"],
+        params={"workspace_id": "workspace-1"},
+    )
+
+    assert [block["type"] for block in reply.blocks] == [
+        "missing_input",
+        "next_steps",
+    ]
+    assert reply.blocks[0]["data"]["execution_session_id"] == "exec-missing"
+    assert reply.blocks[0]["data"]["missing_fields"] == [
+        {"field": "topic", "label": "topic"}
     ]
 
 

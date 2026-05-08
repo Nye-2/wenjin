@@ -125,13 +125,17 @@ def test_runtime_harness_provider_comes_from_profile() -> None:
     assert harness.provider == "native_wenjin"
 
 
-def test_runtime_rejects_unknown_harness_provider() -> None:
+@pytest.mark.parametrize(
+    "provider",
+    ["unknown", "deerflow", "claude_agent_sdk", "claude", "codex"],
+)
+def test_runtime_rejects_unsupported_harness_provider(provider: str) -> None:
     runtime = FeatureLeaderRuntime()
     profile = FeatureRuntimeProfile(
         workspace_type="thesis",
         feature_id="deep_research",
         runtime_mode=FeatureRuntimeMode.COMPUTE_AGENTIC,
-        agent_harness_provider="unknown",
+        agent_harness_provider=provider,
     )
 
     with pytest.raises(ValueError, match="unsupported_agent_harness_provider"):

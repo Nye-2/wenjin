@@ -92,7 +92,7 @@
 2. 功能执行后统一汇聚到 `ExecutionSession`，并由 `ComputeSession` 提供工作台 shell。
 3. 前端不再单独维护 task/panel 两套运行态；长任务详情统一进入 `ComputeStage`。
 4. workspace SSE 以 `execution.* / task.updated / subagent.updated / compute.updated` 驱动 execution/compute store 增量更新。
-5. feature 卡片、artifact follow-up、activity retry 必须统一落到 `/chat`，不得重新引入中间 feature slug 页面。
+5. feature 卡片、artifact follow-up、activity retry 必须统一落到 `/chat`，并保留 `source_artifact_id/context_artifact_ids` 等 seed；不得重新引入中间 feature slug 页面。
 
 ## 5. Refresh Targets Contract
 

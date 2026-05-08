@@ -22,6 +22,9 @@ node_modules/
 .coverage
 htmlcov/
 
+# Runtime logs
+logs/*.log
+
 # Local docker image archives
 backend/docker/images/texlive/*.tar
 

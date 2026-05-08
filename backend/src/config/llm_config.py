@@ -126,6 +126,10 @@ class ModelConfig(BaseModel):
         default=False,
         description="Supports configurable reasoning effort",
     )
+    default_headers: dict[str, str] = Field(
+        default_factory=dict,
+        description="Custom HTTP headers for API requests (e.g. {'api-key': 'xxx'})",
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -164,6 +168,7 @@ def _parse_model_from_json(data: dict[str, Any]) -> ModelConfig | None:
             supports_json_schema=data.get("supports_json_schema", False),
             supports_vision=data.get("supports_vision", False),
             supports_reasoning_effort=data.get("supports_reasoning_effort", False),
+            default_headers=data.get("default_headers", {}),
         )
     except Exception as e:
         logger.warning("Failed to parse model config: %s. Skipping.", e)

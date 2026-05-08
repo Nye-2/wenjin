@@ -10,8 +10,9 @@ Criticality is read from the task dict (`task["criticality"] in {"low","high"}`)
 because at the executor level tasks are still raw dicts, not SubagentTask
 dataclass instances.
 """
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from src.subagents.models import SubagentResult, SubagentStatus
 from src.subagents.parallel import (

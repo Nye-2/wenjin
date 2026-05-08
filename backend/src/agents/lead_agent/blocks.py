@@ -3,7 +3,7 @@
 The agent's only output contract: a list of AgentBlock variants.
 LangChain `with_structured_output` enforces this schema.
 """
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -82,7 +82,7 @@ class ResultCardBlock(BaseModel):
 
 
 AgentBlock = Annotated[
-    Union[TextBlock, StatusLineBlock, QuestionCardBlock, ResultCardBlock],
+    TextBlock | StatusLineBlock | QuestionCardBlock | ResultCardBlock,
     Field(discriminator="kind"),
 ]
 

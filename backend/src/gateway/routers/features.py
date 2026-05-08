@@ -9,10 +9,9 @@ after task completion from measured token usage.
 import logging
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.artifact_service import ArtifactService
 from src.academic.services.workspace_service import WorkspaceService

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildWorkspaceThreadEntryOrchestration,
   buildWorkspaceThreadEntryPrompt,
   parseWorkspaceThreadEntrySeed,
   resolveWorkspaceThreadEntrySkill,
@@ -116,5 +117,46 @@ describe("workspace-thread-entry", () => {
     expect(seed?.params).not.toHaveProperty("feature");
     expect(seed?.params).not.toHaveProperty("skill");
     expect(seed?.params.other).toBe("z");
+  });
+
+  it("builds resume orchestration without leaking route control params", () => {
+    const orchestration = buildWorkspaceThreadEntryOrchestration({
+      featureId: "deep_research",
+      skillId: "deep-research",
+      params: {
+        entry: "resume",
+        execution_session_id: "exec-1",
+        topic: "多模态医学影像分割",
+      },
+    });
+
+    expect(orchestration).toEqual({
+      intent: "resume",
+      feature_id: "deep_research",
+      execution_session_id: "exec-1",
+      params: {
+        topic: "多模态医学影像分割",
+      },
+    });
+  });
+
+  it("builds launch orchestration with feature seed params", () => {
+    const orchestration = buildWorkspaceThreadEntryOrchestration({
+      featureId: "framework_outline",
+      skillId: null,
+      params: {
+        topic: "LLM planning",
+        source_artifact_id: "artifact-2",
+      },
+    });
+
+    expect(orchestration).toEqual({
+      intent: "launch",
+      feature_id: "framework_outline",
+      params: {
+        topic: "LLM planning",
+        source_artifact_id: "artifact-2",
+      },
+    });
   });
 });

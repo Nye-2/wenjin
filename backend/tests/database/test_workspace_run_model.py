@@ -1,7 +1,6 @@
-import pytest
 
-from src.database.models.workspace_run import WorkspaceRunRow
 from src.database.models.subagent_task import SubagentTaskRecord
+from src.database.models.workspace_run import WorkspaceRunRow
 
 
 def test_workspace_run_table_exists():

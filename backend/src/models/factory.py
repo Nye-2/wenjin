@@ -136,6 +136,7 @@ def create_chat_model(
             reasoning_effort=(
                 resolved_reasoning_effort if supports_reasoning_effort else None
             ),
+            default_headers=config.get("default_headers"),
         )
 
 
@@ -201,6 +202,7 @@ def _create_openai_compatible_model(
     temperature: float,
     max_tokens: int,
     reasoning_effort: str | None = None,
+    default_headers: dict[str, str] | None = None,
 ) -> ChatOpenAI:
     """Create an OpenAI-compatible model instance.
 
@@ -212,6 +214,7 @@ def _create_openai_compatible_model(
         base_url: Base URL for the API
         temperature: Sampling temperature
         max_tokens: Maximum output tokens
+        default_headers: Custom HTTP headers for API requests
 
     Returns:
         Configured ReasoningChatOpenAI instance
@@ -233,6 +236,9 @@ def _create_openai_compatible_model(
     }
     if reasoning_effort:
         kwargs["reasoning_effort"] = reasoning_effort
+    # Pass through custom headers (e.g. api-key for non-standard endpoints)
+    if default_headers:
+        kwargs["default_headers"] = default_headers
     return ReasoningChatOpenAI(
         **kwargs,
     )

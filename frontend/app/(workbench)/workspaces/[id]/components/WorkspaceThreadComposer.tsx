@@ -74,7 +74,6 @@ function resolveParseHint(name: string): string {
 }
 
 interface WorkspaceThreadComposerProps {
-  workspaceId: string;
   actionError: string | null;
   availableModels: Model[];
   selectedModel: string | null;
@@ -98,7 +97,6 @@ interface WorkspaceThreadComposerProps {
 }
 
 export function WorkspaceThreadComposer({
-  workspaceId,
   actionError,
   availableModels,
   selectedModel,

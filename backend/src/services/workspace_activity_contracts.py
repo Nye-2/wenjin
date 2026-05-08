@@ -75,6 +75,47 @@ def _normalize_token_usage(value: dict[str, Any] | None) -> dict[str, int] | Non
     }
 
 
+def _normalize_result_artifact_ids(result: dict[str, Any] | None) -> list[str]:
+    """Read artifact ids from feature task result payloads."""
+    if not isinstance(result, dict):
+        return []
+
+    raw_ids = result.get("artifact_ids")
+    if isinstance(raw_ids, list):
+        ids = [str(item).strip() for item in raw_ids if str(item).strip()]
+        if ids:
+            return ids
+
+    raw_artifacts = result.get("artifacts")
+    if isinstance(raw_artifacts, list):
+        return [
+            artifact_id
+            for item in raw_artifacts
+            if isinstance(item, dict)
+            and (artifact_id := str(item.get("id") or "").strip())
+        ]
+
+    return []
+
+
+def _params_with_result_artifact_seed(
+    params: dict[str, Any] | None,
+    artifact_ids: list[str],
+) -> dict[str, Any] | None:
+    """Add an explicit source artifact seed for activity retry routes."""
+    if not isinstance(params, dict):
+        return None
+    normalized = dict(params)
+    if not artifact_ids:
+        return normalized
+
+    primary_artifact_id = artifact_ids[0]
+    normalized.setdefault("source_artifact_id", primary_artifact_id)
+    if not isinstance(normalized.get("context_artifact_ids"), list):
+        normalized["context_artifact_ids"] = [primary_artifact_id]
+    return normalized
+
+
 def serialize_activity_item(item: dict[str, Any]) -> dict[str, Any]:
     """Convert an activity item into an event/API-safe payload."""
     occurred_at = item.get("occurred_at")
@@ -186,6 +227,11 @@ def build_task_activity_item(
     feature_id = payload.get("feature_id") if isinstance(payload, dict) else None
     title_id = str(feature_id or task_type or "task")
     params = payload.get("params") if isinstance(payload, dict) else None
+    result_artifact_ids = _normalize_result_artifact_ids(result)
+    retry_params = _params_with_result_artifact_seed(
+        params if isinstance(params, dict) else None,
+        result_artifact_ids,
+    )
     normalized_usage = _normalize_token_usage(token_usage)
     return {
         "id": f"task:{task_id}",
@@ -201,7 +247,7 @@ def build_task_activity_item(
             else None
         ),
         "task_id": task_id,
-        "artifact_id": None,
+        "artifact_id": result_artifact_ids[0] if result_artifact_ids else None,
         "feature_id": str(feature_id) if feature_id else None,
         "skill": None,
         "skill_name": None,
@@ -215,7 +261,8 @@ def build_task_activity_item(
             "error": error,
             "result": result,
             "action": params.get("action") if isinstance(params, dict) else None,
-            "params": params if isinstance(params, dict) else None,
+            "params": retry_params,
+            "result_artifact_ids": result_artifact_ids,
             "created_at": _serialize_timestamp(created_at),
             "started_at": _serialize_timestamp(started_at),
             "completed_at": _serialize_timestamp(completed_at),

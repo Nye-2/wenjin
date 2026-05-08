@@ -11,9 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Sequence
 from typing import Any
 
 from src.academic.services.artifact_service import ArtifactService

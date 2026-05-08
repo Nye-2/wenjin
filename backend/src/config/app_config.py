@@ -5,7 +5,7 @@ import sys
 import warnings
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -330,6 +330,19 @@ class AppConfig(BaseSettings):
     # Paths
     config_path: str | None = None
     skills_path: str = "./skills/public"
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def parse_debug_flag(cls, value: object) -> object:
+        """Accept common environment-name values accidentally passed as DEBUG."""
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip().lower()
+        if normalized in {"release", "prod", "production", "stable"}:
+            return False
+        if normalized in {"dev", "development"}:
+            return True
+        return value
 
 
 @lru_cache

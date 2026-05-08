@@ -4,7 +4,6 @@ The manager keeps a registry: run_id -> ParallelExecutor, used by the
 HTTP layer (Plan 1 Task 10) to deliver pause/resume/cancel signals to
 the in-flight executor for that run.
 """
-import asyncio
 
 import pytest
 
@@ -87,9 +86,9 @@ async def test_native_harness_registers_and_unregisters_around_run_session(monke
     """Spec §6.1 — NativeAgentHarness wires the executor into the manager
     for the duration of the run, so HTTP pause/cancel can reach it.
     """
-    from src.agents.harness.native import NativeWenjinAgentHarness
     from src.agents.harness.contracts import AgentSessionRequest
-    from src.subagents.parallel import PhaseResult, PhasedPlan, ExecutionPhase
+    from src.agents.harness.native import NativeWenjinAgentHarness
+    from src.subagents.parallel import ExecutionPhase, PhasedPlan, PhaseResult
 
     mgr = _make_manager()
     monkeypatch.setattr(GlobalSubagentManager, "get_instance", classmethod(lambda cls: mgr))

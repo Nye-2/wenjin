@@ -6,11 +6,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import (
-    ReferenceAsset,
     ReferenceBibtexScope,
     ReferenceLibraryStatus,
     ReferenceReadStatus,
@@ -27,7 +25,6 @@ from src.services.references import (
     ReferenceImportService,
     ReferenceIndexService,
     WorkspaceReferenceService,
-    serialize_asset,
     serialize_reference,
 )
 from src.task.service import TaskService
@@ -441,24 +438,13 @@ async def get_reference(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    service = WorkspaceReferenceService(db)
-    reference = await service.get(workspace_id, reference_id)
-    if reference is None:
+    detail = await WorkspaceReferenceService(db).get_reference_detail(
+        workspace_id,
+        reference_id,
+    )
+    if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
-    assets_result = await db.execute(
-        select_assets_for_reference(workspace_id=workspace_id, reference_id=reference_id)
-    )
-    return {
-        "reference": serialize_reference(reference),
-        "assets": [serialize_asset(asset) for asset in assets_result.scalars().all()],
-    }
-
-
-def select_assets_for_reference(*, workspace_id: str, reference_id: str) -> Any:
-    return select(ReferenceAsset).where(
-        ReferenceAsset.workspace_id == workspace_id,
-        ReferenceAsset.reference_id == reference_id,
-    )
+    return detail
 
 
 @router.patch("/{reference_id}")

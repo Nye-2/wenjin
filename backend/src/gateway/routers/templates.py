@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 

@@ -1,6 +1,6 @@
 # Wenjin Docs
 
-更新时间：2026-04-28
+更新时间：2026-05-06
 
 本目录主要保留当前实现的事实源文档，覆盖架构、产品契约、基础设施与文档治理入口；`strategy/` 仅保存明确标注为 Seed 的长期方向文档，不作为当前实现契约。
 
@@ -30,7 +30,11 @@
 4. `docs/product/README.md`
 5. `docs/infrastructure/README.md`
 
-## 已清理历史文档（2026-04-15）
+## 已清理历史文档
+
+2026-05-06 清理：历史规划、归档和执行计划已删除，当前事实已合并到 `docs/architecture/`、`docs/product/`、README 与 release gate 文档。
+
+2026-04-15 清理：
 
 - `docs/architecture/deer-flow-upstream-migration-playbook.md`
 - `docs/architecture/feature-catalog-v2-plan.md`
@@ -38,7 +42,7 @@
 - `docs/architecture/wenjinprism-integration-plan.md`
 - `docs/thesis/generate_word_draft.py`
 
-以上文档均为阶段性迁移/实施材料，当前主链路已落地，继续保留会造成事实源混淆；追溯请使用 Git 历史。
+以上文档均为阶段性规划/实施材料，当前主链路已落地，继续保留会造成事实源混淆；追溯请使用 Git 历史。
 
 ## 治理规则（必须执行）
 

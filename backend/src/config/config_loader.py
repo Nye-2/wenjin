@@ -1,8 +1,8 @@
 """Unified config.yaml loader for Wenjin."""
 
 import os
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, field_validator

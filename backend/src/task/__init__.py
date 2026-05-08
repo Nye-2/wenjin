@@ -3,7 +3,6 @@
 from typing import Any
 
 from src.task.celery_app import celery_app
-from src.task.progress import ProgressTracker, get_progress_tracker
 from src.task.registry import (
     TASK_REGISTRY,
     TaskQueue,
@@ -13,8 +12,6 @@ from src.task.registry import (
     get_task_config,
     is_valid_task_type,
 )
-from src.task.service import TaskService
-from src.task.store import TaskStore
 
 
 def start_worker(*args: Any, **kwargs: Any) -> Any:
@@ -29,6 +26,26 @@ def start_flower(*args: Any, **kwargs: Any) -> Any:
     from src.task.worker import start_flower as _start_flower
 
     return _start_flower(*args, **kwargs)
+
+
+def __getattr__(name: str) -> Any:
+    if name == "get_progress_tracker":
+        from src.task.progress import get_progress_tracker
+
+        return get_progress_tracker
+    if name == "ProgressTracker":
+        from src.task.progress import ProgressTracker
+
+        return ProgressTracker
+    if name == "TaskService":
+        from src.task.service import TaskService
+
+        return TaskService
+    if name == "TaskStore":
+        from src.task.store import TaskStore
+
+        return TaskStore
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # Celery

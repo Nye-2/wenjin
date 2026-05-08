@@ -6,7 +6,6 @@ import json
 import logging
 from typing import Any
 
-
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 

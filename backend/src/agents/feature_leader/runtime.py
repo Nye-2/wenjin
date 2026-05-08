@@ -16,10 +16,7 @@ from src.agents.harness import (
     AgentSessionRequest,
     NativeWenjinAgentHarness,
 )
-from src.agents.harness.claude_agent_adapter import ClaudeAgentSdkAdapter
-from src.agents.harness.codex_adapter import CodexAgentAdapter
 from src.agents.harness.contracts import PhaseResult  # type: ignore[attr-defined]
-from src.agents.harness.deerflow_adapter import DeerFlowHarnessAdapter
 from src.task.runtime_blocks import (
     append_runtime_activity,
     get_runtime_state,
@@ -112,12 +109,6 @@ class FeatureLeaderRuntime:
             return NativeWenjinAgentHarness(
                 max_concurrent=profile.max_subagents or None,
             )
-        if provider == "deerflow":
-            return DeerFlowHarnessAdapter()
-        if provider in {"claude", "claude_agent_sdk"}:
-            return ClaudeAgentSdkAdapter()
-        if provider == "codex":
-            return CodexAgentAdapter()
         raise ValueError(
             "unsupported_agent_harness_provider: "
             f"{profile.workspace_type}.{profile.feature_id} provider={provider}"

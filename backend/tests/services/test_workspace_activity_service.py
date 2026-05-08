@@ -221,6 +221,34 @@ def test_build_task_activity_item_uses_canonical_task_shape() -> None:
     assert item["metadata"]["action"] == "generate_outline"
 
 
+def test_task_activity_promotes_result_artifact_as_retry_seed() -> None:
+    item = build_task_activity_item(
+        task_id="task-artifact",
+        workspace_id="ws-1",
+        task_type="workspace_feature",
+        payload={
+            "feature_id": "framework_outline",
+            "thread_id": "thread-1",
+            "params": {"topic": "LLM planning"},
+        },
+        status="success",
+        progress=100,
+        message="done",
+        error=None,
+        result={
+            "artifact_ids": ["artifact-current"],
+            "artifacts": [{"id": "artifact-current", "title": "LLM Framework"}],
+        },
+        occurred_at="2026-03-25T00:00:00Z",
+        completed_at="2026-03-25T00:00:00Z",
+    )
+
+    assert item["artifact_id"] == "artifact-current"
+    assert item["metadata"]["params"]["source_artifact_id"] == "artifact-current"
+    assert item["metadata"]["params"]["context_artifact_ids"] == ["artifact-current"]
+    assert item["metadata"]["result_artifact_ids"] == ["artifact-current"]
+
+
 def test_task_record_to_activity_includes_token_usage_metadata() -> None:
     db = AsyncMock()
     service = WorkspaceActivityService(db)

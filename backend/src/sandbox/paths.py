@@ -2,7 +2,6 @@
 
 import re
 from pathlib import Path
-from typing import Any
 
 
 class VirtualPathMapper:
@@ -24,7 +23,7 @@ class VirtualPathMapper:
 
     def __init__(self, base_dir: str):
         """Initialize path mapper."""
-        self.base_dir = str(Path(base_dir).resolve())
+        self.base_dir = str(Path(base_dir))
 
     def get_thread_paths(self, thread_id: str) -> dict[str, str]:
         """Get all thread-specific paths."""

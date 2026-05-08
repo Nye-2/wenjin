@@ -84,7 +84,7 @@ State Stores:
 ### 3.3 基础设施
 
 - PostgreSQL 16（镜像：`pgvector/pgvector:pg16`）
-- Redis 7（AOF 持久化）
+- Redis 8（AOF 持久化）
 - Nginx（统一入口）
 - Docker Compose
 - Prometheus + Grafana

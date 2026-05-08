@@ -19,9 +19,11 @@ import {
   Users,
 } from "lucide-react";
 import {
+  getReferenceDetail,
   getReferenceOutline,
   syncReferenceBibtexToPrism,
   type ReferenceAsset,
+  type ReferenceDetailResponse,
   type ReferencePreprocessSubmission,
   uploadReferenceFile,
 } from "@/lib/api";
@@ -158,6 +160,44 @@ function formatFulltextStatus(status: string): string {
     default:
       return status;
   }
+}
+
+function formatUsageType(type: string): string {
+  switch (type) {
+    case "citation_only":
+      return "引用";
+    case "background":
+      return "背景";
+    case "evidence":
+      return "证据";
+    default:
+      return type;
+  }
+}
+
+function formatAcceptedStatus(status: string): string {
+  switch (status) {
+    case "accepted":
+      return "已采纳";
+    case "rejected":
+      return "已拒绝";
+    case "pending":
+      return "待确认";
+    default:
+      return status;
+  }
+}
+
+function formatDetailDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function formatCount(value: number | null | undefined): string | null {
@@ -457,6 +497,9 @@ export function LiteraturePanel({
   const [referenceOutlines, setReferenceOutlines] = useState<Map<string, OutlineNode[]>>(new Map());
   const [loadingOutlineId, setLoadingOutlineId] = useState<string | null>(null);
   const [selectedReference, setSelectedReference] = useState<Reference | null>(null);
+  const [selectedReferenceDetail, setSelectedReferenceDetail] =
+    useState<ReferenceDetailResponse | null>(null);
+  const [isReferenceDetailLoading, setIsReferenceDetailLoading] = useState(false);
 
   useEffect(() => {
     if (workspaceId) {
@@ -499,6 +542,32 @@ export function LiteraturePanel({
       setOpeningReferenceId((current) =>
         current === reference.id ? null : current
       );
+    }
+  };
+
+  const handleViewDetail = async (reference: Reference) => {
+    setSelectedReference(reference);
+    setSelectedReferenceDetail(null);
+    setIsReferenceDetailLoading(true);
+    setPanelError(null);
+    try {
+      const detail = await getReferenceDetail(workspaceId, reference.id);
+      setSelectedReference(detail.reference);
+      setSelectedReferenceDetail(detail);
+    } catch (error) {
+      setPanelError(
+        error instanceof Error ? error.message : "加载文献详情失败"
+      );
+    } finally {
+      setIsReferenceDetailLoading(false);
+    }
+  };
+
+  const handleDetailOpenChange = (open: boolean) => {
+    if (!open) {
+      setSelectedReference(null);
+      setSelectedReferenceDetail(null);
+      setIsReferenceDetailLoading(false);
     }
   };
 
@@ -613,6 +682,9 @@ export function LiteraturePanel({
       await fetchReferences(workspaceId);
     }
   };
+
+  const detailReference = selectedReferenceDetail?.reference ?? selectedReference;
+  const detailAssets = selectedReferenceDetail?.assets ?? detailReference?.assets ?? [];
 
   return (
     <div
@@ -742,7 +814,7 @@ export function LiteraturePanel({
                   outline={referenceOutlines.get(reference.id) ?? null}
                   isLoadingOutline={loadingOutlineId === reference.id}
                   onToggleExpand={handleToggleExpand}
-                  onViewDetail={setSelectedReference}
+                  onViewDetail={(reference) => void handleViewDetail(reference)}
                 />
               ))}
             </div>
@@ -750,56 +822,138 @@ export function LiteraturePanel({
         </AnimatePresence>
       </div>
 
-      <Dialog open={!!selectedReference} onOpenChange={() => setSelectedReference(null)}>
+      <Dialog open={!!detailReference} onOpenChange={handleDetailOpenChange}>
         <DialogContent className="max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{selectedReference?.title || "文献详情"}</DialogTitle>
+            <DialogTitle>{detailReference?.title || "文献详情"}</DialogTitle>
             <DialogDescription>
-              {selectedReference?.authors && selectedReference.authors.length > 0
-                ? selectedReference.authors.join(", ")
+              {detailReference?.authors && detailReference.authors.length > 0
+                ? detailReference.authors.join(", ")
                 : "未知作者"}
-              {selectedReference?.year ? ` · ${selectedReference.year}` : ""}
+              {detailReference?.year ? ` · ${detailReference.year}` : ""}
             </DialogDescription>
           </DialogHeader>
-          {selectedReference && (
+          {detailReference && (
             <div className="space-y-4 text-sm">
               <div className="flex flex-wrap gap-2">
                 <span className="rounded-full bg-[var(--accent-primary)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--accent-primary)]">
-                  {formatLibraryStatus(selectedReference.library_status)}
+                  {formatLibraryStatus(detailReference.library_status)}
                 </span>
                 <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
-                  {formatEvidenceLevel(selectedReference.evidence_level)}
+                  {formatEvidenceLevel(detailReference.evidence_level)}
                 </span>
                 <span className="rounded-full bg-[var(--bg-muted)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">
-                  {formatFulltextStatus(selectedReference.fulltext_status)}
+                  {formatFulltextStatus(detailReference.fulltext_status)}
                 </span>
               </div>
-              {selectedReference.venue ? (
+
+              {isReferenceDetailLoading ? (
+                <div className="flex items-center gap-2 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  加载详情...
+                </div>
+              ) : null}
+
+              {detailReference.venue ? (
                 <div className="flex items-center gap-2 text-[var(--text-secondary)]">
                   <BookOpen className="h-4 w-4" />
-                  <span>{selectedReference.venue}</span>
+                  <span>{detailReference.venue}</span>
                 </div>
               ) : null}
-              {selectedReference.doi ? (
+              {detailReference.doi ? (
                 <div className="text-[var(--text-muted)]">
-                  DOI: {selectedReference.doi}
+                  DOI: {detailReference.doi}
                 </div>
               ) : null}
-              {selectedReference.citation_key ? (
+              {detailReference.citation_key ? (
                 <div className="rounded-md bg-[var(--bg-muted)] px-3 py-2 font-mono text-xs text-[var(--text-secondary)]">
-                  @{selectedReference.citation_key}
+                  @{detailReference.citation_key}
                 </div>
               ) : null}
-              {selectedReference.abstract ? (
+              {detailReference.abstract ? (
                 <div>
                   <h5 className="mb-1 text-xs font-medium text-[var(--text-primary)]">摘要</h5>
                   <p className="max-h-40 overflow-y-auto text-xs text-[var(--text-secondary)]">
-                    {selectedReference.abstract}
+                    {detailReference.abstract}
                   </p>
                 </div>
               ) : null}
+
+              {selectedReferenceDetail?.preprocess ? (
+                <div>
+                  <h5 className="mb-1 text-xs font-medium text-[var(--text-primary)]">预处理状态</h5>
+                  <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-[var(--bg-muted)] px-2 py-0.5">
+                        {formatPreprocessLabel(selectedReferenceDetail.preprocess.status)}
+                      </span>
+                      <span>{selectedReferenceDetail.preprocess.asset_count} 个资产</span>
+                      {selectedReferenceDetail.preprocess.task_ids[0] ? (
+                        <span>任务 {selectedReferenceDetail.preprocess.task_ids[0].slice(0, 8)}</span>
+                      ) : null}
+                    </div>
+                    {selectedReferenceDetail.preprocess.manifest_paths[0] ? (
+                      <p className="mt-2 truncate text-[11px] text-[var(--text-muted)]">
+                        Manifest: {selectedReferenceDetail.preprocess.manifest_paths[0]}
+                      </p>
+                    ) : null}
+                    {selectedReferenceDetail.preprocess.errors[0] ? (
+                      <p className="mt-2 text-[11px] text-red-600">
+                        {selectedReferenceDetail.preprocess.errors[0]}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedReferenceDetail?.source_history.length ? (
+                <div>
+                  <h5 className="mb-1 text-xs font-medium text-[var(--text-primary)]">来源记录</h5>
+                  <div className="space-y-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2">
+                    {selectedReferenceDetail.source_history.slice(0, 5).map((item, index) => (
+                      <div
+                        key={`${item.source_type ?? "source"}-${item.external_id ?? index}`}
+                        className="text-xs text-[var(--text-secondary)]"
+                      >
+                        <span className="font-medium text-[var(--text-primary)]">
+                          {item.source_label || item.source_type || "source"}
+                        </span>
+                        {item.external_id ? (
+                          <span className="ml-2 text-[var(--text-muted)]">
+                            {item.external_id}
+                          </span>
+                        ) : null}
+                        {item.verified_at || item.created_at ? (
+                          <span className="ml-2 text-[var(--text-muted)]">
+                            {formatDetailDate(item.verified_at || item.created_at)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {detailAssets.length > 0 ? (
+                <div>
+                  <h5 className="mb-1 text-xs font-medium text-[var(--text-primary)]">资产</h5>
+                  <div className="space-y-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2">
+                    {detailAssets.slice(0, 5).map((asset) => (
+                      <div key={asset.id} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="min-w-0 truncate text-[var(--text-secondary)]">
+                          {asset.file_path || asset.public_url || asset.asset_type}
+                        </span>
+                        <span className="flex-shrink-0 text-[var(--text-muted)]">
+                          {formatPreprocessLabel(asset.preprocess_status || "skipped")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               {(() => {
-                const bibtex = buildBibtexPreview(selectedReference);
+                const bibtex = buildBibtexPreview(detailReference);
                 return bibtex ? (
                   <div>
                     <h5 className="mb-1 text-xs font-medium text-[var(--text-primary)]">BibTeX</h5>
@@ -809,11 +963,42 @@ export function LiteraturePanel({
                   </div>
                 ) : null;
               })()}
-              {referenceOutlines.get(selectedReference.id) ? (
+
+              {selectedReferenceDetail?.usage_events.length ? (
+                <div>
+                  <h5 className="mb-1 text-xs font-medium text-[var(--text-primary)]">使用记录</h5>
+                  <div className="space-y-2 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2">
+                    {selectedReferenceDetail.usage_events.slice(0, 5).map((event) => (
+                      <div key={event.id} className="text-xs text-[var(--text-secondary)]">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-[var(--text-primary)]">
+                            {formatUsageType(event.usage_type)}
+                          </span>
+                          <span className="text-[var(--text-muted)]">
+                            {formatAcceptedStatus(event.accepted_status)}
+                          </span>
+                          {formatDetailDate(event.created_at) ? (
+                            <span className="text-[var(--text-muted)]">
+                              {formatDetailDate(event.created_at)}
+                            </span>
+                          ) : null}
+                        </div>
+                        {event.target_section ? (
+                          <p className="mt-1 truncate text-[11px] text-[var(--text-muted)]">
+                            {event.target_section}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {referenceOutlines.get(detailReference.id) ? (
                 <div>
                   <h5 className="mb-1 text-xs font-medium text-[var(--text-primary)]">目录</h5>
                   <div className="max-h-40 overflow-y-auto space-y-1">
-                    {referenceOutlines.get(selectedReference.id)?.map((node) => (
+                    {referenceOutlines.get(detailReference.id)?.map((node) => (
                       <div
                         key={node.id}
                         className="flex items-start gap-2 text-xs"

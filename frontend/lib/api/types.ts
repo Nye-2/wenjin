@@ -320,6 +320,64 @@ export interface ReferenceAsset {
   updated_at?: string | null;
 }
 
+export interface ReferenceExternalId {
+  id: string;
+  workspace_id: string;
+  reference_id: string;
+  source: string;
+  external_id: string;
+  url?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ReferenceUsageEvent {
+  id: string;
+  workspace_id: string;
+  reference_id: string;
+  outline_node_id?: string | null;
+  text_unit_id?: string | null;
+  execution_session_id?: string | null;
+  task_id?: string | null;
+  artifact_id?: string | null;
+  latex_project_id?: string | null;
+  target_section?: string | null;
+  claim_text?: string | null;
+  generated_text?: string | null;
+  citation_key?: string | null;
+  usage_type: string;
+  accepted_status: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ReferencePreprocessSummary {
+  status: string;
+  status_counts: Record<string, number>;
+  asset_count: number;
+  markdown_paths: string[];
+  manifest_paths: string[];
+  task_ids: string[];
+  errors: string[];
+}
+
+export interface ReferenceSourceHistoryItem {
+  source_type?: string | null;
+  source_label?: string | null;
+  source_run_id?: string | null;
+  source_artifact_id?: string | null;
+  external_id?: string | null;
+  url?: string | null;
+  verified_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface ReferenceUsageSummary {
+  recent_count: number;
+  status_counts: Record<string, number>;
+  last_used_at?: string | null;
+}
+
 export interface WorkspaceReference {
   id: string;
   workspace_id: string;
@@ -351,6 +409,16 @@ export interface WorkspaceReference {
   created_at?: string | null;
   updated_at?: string | null;
   assets?: ReferenceAsset[];
+}
+
+export interface ReferenceDetailResponse {
+  reference: WorkspaceReference;
+  assets: ReferenceAsset[];
+  external_ids: ReferenceExternalId[];
+  source_history: ReferenceSourceHistoryItem[];
+  preprocess: ReferencePreprocessSummary;
+  usage_events: ReferenceUsageEvent[];
+  usage_summary: ReferenceUsageSummary;
 }
 
 export interface ReferencePreprocessSubmission {
@@ -1267,6 +1335,16 @@ export interface ReferenceBibtexResponse {
   checksum: string;
   latex_project_id?: string;
   synced_file?: string;
+}
+
+export interface ReferenceBibtexValidationResponse {
+  ok?: boolean;
+  valid?: boolean;
+  missing_citation_key_reference_ids?: string[];
+  duplicate_citation_keys?: string[];
+  missing_keys?: string[];
+  unused_bib_keys?: string[];
+  unverified_keys?: string[];
 }
 
 export interface MemoryEntry {

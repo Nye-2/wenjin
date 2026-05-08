@@ -1,7 +1,6 @@
 """Correlation ID middleware for request tracing."""
 
 import uuid
-from typing import Any
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 

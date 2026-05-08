@@ -145,6 +145,81 @@ def serialize_asset(asset: ReferenceAsset) -> dict[str, Any]:
     }
 
 
+def serialize_external_id(external_id: ReferenceExternalId) -> dict[str, Any]:
+    return {
+        "id": str(external_id.id),
+        "workspace_id": str(external_id.workspace_id),
+        "reference_id": str(external_id.reference_id),
+        "source": external_id.source,
+        "external_id": external_id.external_id,
+        "url": external_id.url,
+        "created_at": _serialize_datetime(external_id.created_at),
+        "updated_at": _serialize_datetime(external_id.updated_at),
+    }
+
+
+def serialize_usage_event(event: ReferenceUsageEvent) -> dict[str, Any]:
+    return {
+        "id": str(event.id),
+        "workspace_id": str(event.workspace_id),
+        "reference_id": str(event.reference_id),
+        "outline_node_id": event.outline_node_id,
+        "text_unit_id": event.text_unit_id,
+        "execution_session_id": event.execution_session_id,
+        "task_id": event.task_id,
+        "artifact_id": event.artifact_id,
+        "latex_project_id": event.latex_project_id,
+        "target_section": event.target_section,
+        "claim_text": event.claim_text,
+        "generated_text": event.generated_text,
+        "citation_key": event.citation_key,
+        "usage_type": _enum_value(event.usage_type),
+        "accepted_status": _enum_value(event.accepted_status),
+        "created_at": _serialize_datetime(event.created_at),
+        "updated_at": _serialize_datetime(event.updated_at),
+    }
+
+
+def summarize_preprocess_assets(assets: Sequence[ReferenceAsset]) -> dict[str, Any]:
+    statuses = [_enum_value(asset.preprocess_status) for asset in assets]
+    status_counts = {status: statuses.count(status) for status in sorted(set(statuses))}
+    if any(status == ReferencePreprocessStatus.FAILED.value for status in statuses):
+        overall_status = ReferencePreprocessStatus.FAILED.value
+    elif any(status == ReferencePreprocessStatus.RUNNING.value for status in statuses):
+        overall_status = ReferencePreprocessStatus.RUNNING.value
+    elif any(status == ReferencePreprocessStatus.PENDING.value for status in statuses):
+        overall_status = ReferencePreprocessStatus.PENDING.value
+    elif any(status == ReferencePreprocessStatus.SUCCEEDED.value for status in statuses):
+        overall_status = ReferencePreprocessStatus.SUCCEEDED.value
+    elif statuses:
+        overall_status = ReferencePreprocessStatus.SKIPPED.value
+    else:
+        overall_status = "none"
+
+    markdown_paths: list[str] = []
+    manifest_paths: list[str] = []
+    task_ids: list[str] = []
+    errors: list[str] = []
+    for asset in assets:
+        markdown_paths.extend(str(path) for path in asset.markdown_paths or [] if path)
+        if asset.manifest_path:
+            manifest_paths.append(asset.manifest_path)
+        if asset.preprocess_task_id:
+            task_ids.append(asset.preprocess_task_id)
+        if asset.preprocess_error:
+            errors.append(asset.preprocess_error)
+
+    return {
+        "status": overall_status,
+        "status_counts": status_counts,
+        "asset_count": len(assets),
+        "markdown_paths": list(dict.fromkeys(markdown_paths)),
+        "manifest_paths": list(dict.fromkeys(manifest_paths)),
+        "task_ids": list(dict.fromkeys(task_ids)),
+        "errors": list(dict.fromkeys(errors)),
+    }
+
+
 def serialize_outline_node(node: ReferenceOutlineNode) -> dict[str, Any]:
     return {
         "id": str(node.id),
@@ -230,6 +305,95 @@ class WorkspaceReferenceService:
             stmt = stmt.where(WorkspaceReference.is_deleted.is_(False))
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_reference_detail(
+        self,
+        workspace_id: str,
+        reference_id: str,
+        *,
+        usage_limit: int = 10,
+    ) -> dict[str, Any] | None:
+        reference = await self.get(workspace_id, reference_id)
+        if reference is None:
+            return None
+
+        assets_result = await self.db.execute(
+            select(ReferenceAsset)
+            .where(
+                ReferenceAsset.workspace_id == workspace_id,
+                ReferenceAsset.reference_id == reference_id,
+            )
+            .order_by(ReferenceAsset.created_at.desc())
+        )
+        assets = list(assets_result.scalars().all())
+
+        external_ids_result = await self.db.execute(
+            select(ReferenceExternalId)
+            .where(
+                ReferenceExternalId.workspace_id == workspace_id,
+                ReferenceExternalId.reference_id == reference_id,
+            )
+            .order_by(ReferenceExternalId.created_at.desc())
+        )
+        external_ids = list(external_ids_result.scalars().all())
+
+        usage_events_result = await self.db.execute(
+            select(ReferenceUsageEvent)
+            .where(
+                ReferenceUsageEvent.workspace_id == workspace_id,
+                ReferenceUsageEvent.reference_id == reference_id,
+            )
+            .order_by(ReferenceUsageEvent.created_at.desc())
+            .limit(max(1, min(int(usage_limit), 50)))
+        )
+        usage_events = list(usage_events_result.scalars().all())
+        serialized_usage_events = [serialize_usage_event(event) for event in usage_events]
+        usage_status_counts: dict[str, int] = {}
+        for event in serialized_usage_events:
+            status = str(event.get("accepted_status") or "unknown")
+            usage_status_counts[status] = usage_status_counts.get(status, 0) + 1
+
+        serialized_external_ids = [serialize_external_id(item) for item in external_ids]
+        source_history: list[dict[str, Any]] = []
+        if reference.source_type or reference.source_label or reference.source_artifact_id:
+            source_history.append(
+                {
+                    "source_type": _enum_value(reference.source_type),
+                    "source_label": reference.source_label,
+                    "source_run_id": reference.source_run_id,
+                    "source_artifact_id": reference.source_artifact_id,
+                    "verified_at": _serialize_datetime(reference.verified_at),
+                }
+            )
+        for item in serialized_external_ids:
+            source_history.append(
+                {
+                    "source_type": item["source"],
+                    "external_id": item["external_id"],
+                    "url": item["url"],
+                    "created_at": item["created_at"],
+                }
+            )
+
+        serialized_assets = [serialize_asset(asset) for asset in assets]
+        return {
+            "reference": {
+                **serialize_reference(reference),
+                "assets": serialized_assets,
+            },
+            "assets": serialized_assets,
+            "external_ids": serialized_external_ids,
+            "source_history": source_history,
+            "preprocess": summarize_preprocess_assets(assets),
+            "usage_events": serialized_usage_events,
+            "usage_summary": {
+                "recent_count": len(serialized_usage_events),
+                "status_counts": usage_status_counts,
+                "last_used_at": serialized_usage_events[0]["created_at"]
+                if serialized_usage_events
+                else None,
+            },
+        }
 
     async def list_references(
         self,

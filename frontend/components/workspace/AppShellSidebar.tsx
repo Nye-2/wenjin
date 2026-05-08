@@ -207,7 +207,7 @@ export function AppShellSidebar({
 
   const goToDashboard = () => router.push(`/workspaces/${workspaceId}`);
   const goToChat = () => router.push(`/workspaces/${workspaceId}/chat`);
-  const handleOpenSession = (_runId: string) => {
+  const handleOpenSession = () => {
     router.push(`/workspaces/${workspaceId}/chat`);
   };
 

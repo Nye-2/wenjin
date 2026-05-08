@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -35,14 +37,30 @@ class ReleaseGateService:
         self.backend_root = resolved_backend_root
         self.project_root = project_root or resolved_backend_root.parent
         self.timeout_seconds = timeout_seconds
+        self.uv_binary = self._resolve_uv_binary()
+
+    def _uv_command(self, *args: str) -> tuple[str, ...]:
+        return (self.uv_binary, *args)
+
+    @staticmethod
+    def _resolve_uv_binary() -> str:
+        configured = os.environ.get("UV_BINARY")
+        if configured:
+            return configured
+        from_path = shutil.which("uv")
+        if from_path:
+            return from_path
+        local_uv = Path.home() / ".local" / "bin" / "uv"
+        if local_uv.exists():
+            return str(local_uv)
+        return "uv"
 
     @property
     def core_commands(self) -> tuple[ReleaseGateCommand, ...]:
         return (
             ReleaseGateCommand(
                 check_id="thesis_output_language_zh",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/workspace_features/test_workspace_e2e_matrix.py::test_thesis_output_language_is_forced_to_zh_for_any_template",
@@ -52,8 +70,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="sci_output_language_en",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/workspace_features/test_workspace_e2e_matrix.py::test_sci_output_language_constant_is_en",
@@ -63,8 +80,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="workspace_e2e_matrix",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/workspace_features/test_workspace_e2e_matrix.py",
@@ -74,8 +90,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="features_router_regression",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/gateway/routers/test_features.py",
@@ -85,8 +100,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="feature_submission_service_regression",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/application/services/test_feature_submission_service.py",
@@ -96,8 +110,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="five_workspace_smoke",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/workspace_features/test_five_workspace_smoke.py",
@@ -107,8 +120,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="executor_dual_mode",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/task/test_executor.py",
@@ -119,8 +131,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="observability_sentry",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/observability/test_sentry.py",
@@ -130,8 +141,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="observability_prometheus",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/observability/test_prometheus.py",
@@ -141,8 +151,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="agent_status_tracking",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/task/test_agent_status.py",
@@ -152,8 +161,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="workspace_lock",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/application/services/test_feature_submission_workspace_lock.py",
@@ -163,8 +171,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="task_metrics",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/task/test_task_metrics.py",
@@ -174,8 +181,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="semantic_scholar_reference_search",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/academic/literature/test_search_service.py",
@@ -185,8 +191,7 @@ class ReleaseGateService:
             ),
             ReleaseGateCommand(
                 check_id="reference_upload_preprocess",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/gateway/routers/test_uploads.py",
@@ -196,12 +201,80 @@ class ReleaseGateService:
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
+                check_id="artifact_refresh_workflow",
+                command=self._uv_command(
+                    "run",
+                    "pytest",
+                    "tests/task/test_workspace_feature_handler_matrix.py",
+                    "tests/task/test_store.py::TestTaskStorePostgres::test_mark_task_completed_publishes_canonical_task_activity",
+                    "tests/task/test_workspace_feature_frontend_sync.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="artifact_followup_workflow",
+                command=self._uv_command(
+                    "run",
+                    "pytest",
+                    "tests/services/test_artifact_followup_workflow_gate.py",
+                    "tests/agents/lead_agent/test_thread_feature_flow.py",
+                    "tests/services/test_workspace_activity_service.py::test_task_activity_promotes_result_artifact_as_retry_seed",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="failure_recovery_workflow",
+                command=self._uv_command(
+                    "run",
+                    "pytest",
+                    "tests/services/test_failure_recovery_workflow_gate.py",
+                    "tests/agents/lead_agent/test_thread_feature_flow.py",
+                    "tests/task/test_workspace_feature_frontend_sync.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="reference_writing_workflow",
+                command=self._uv_command(
+                    "run",
+                    "pytest",
+                    "tests/services/test_reference_writing_workflow_gate.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="prism_review_workflow",
+                command=self._uv_command(
+                    "run",
+                    "pytest",
+                    "tests/services/test_prism_review_workflow_gate.py",
+                    "tests/compute/test_projection_service.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
                 check_id="sci_reference_search",
-                command=(
-                    "uv",
+                command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/workspace_features/services/test_sci_feature_service.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="auth_email_workflow",
+                command=self._uv_command(
+                    "run",
+                    "pytest",
+                    "tests/services/test_auth_email_workflow_gate.py",
+                    "tests/gateway/routers/test_auth.py",
+                    "tests/services/test_email_service.py",
                     "-q",
                 ),
                 cwd=self.backend_root,
@@ -218,17 +291,17 @@ class ReleaseGateService:
         return (
             ReleaseGateCommand(
                 check_id="integration_tool_chain",
-                command=("uv", "run", "pytest", "tests/integration/test_tool_chain.py", "-q"),
+                command=self._uv_command("run", "pytest", "tests/integration/test_tool_chain.py", "-q"),
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
-                check_id="mcp_academic_tools",
-                command=("uv", "run", "pytest", "tests/mcp/test_academic_tools.py", "-q"),
+                check_id="mcp_runtime",
+                command=self._uv_command("run", "pytest", "tests/mcp", "-q"),
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
                 check_id="integration_http_client",
-                command=("uv", "run", "pytest", "tests/integration/test_http_client.py", "-q"),
+                command=self._uv_command("run", "pytest", "tests/integration/test_http_client.py", "-q"),
                 cwd=self.backend_root,
             ),
         )
@@ -259,6 +332,7 @@ class ReleaseGateService:
             "project_root": str(self.project_root),
             "backend_root": str(self.backend_root),
             "timeout_seconds": self.timeout_seconds,
+            "uv_binary": self.uv_binary,
         }
         return report
 
@@ -285,20 +359,11 @@ class ReleaseGateService:
                     check=False,
                 )
                 return_code = completed.returncode
-                output = "\n".join(
-                    part for part in [completed.stdout, completed.stderr] if part
-                ).strip()
+                output = self._join_process_output(completed.stdout, completed.stderr)
                 output_tail = self._tail_output(output)
                 success = completed.returncode == 0
             except subprocess.TimeoutExpired as exc:
-                output = "\n".join(
-                    part
-                    for part in [
-                        str(exc.stdout or ""),
-                        str(exc.stderr or ""),
-                    ]
-                    if part
-                ).strip()
+                output = self._join_process_output(exc.stdout, exc.stderr)
                 output_tail = self._tail_output(output)
                 error = f"timeout after {self.timeout_seconds}s"
                 success = False
@@ -321,6 +386,25 @@ class ReleaseGateService:
             }
 
         return results, details
+
+    @staticmethod
+    def _normalize_process_output(value: str | bytes | None) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return value
+
+    @classmethod
+    def _join_process_output(cls, stdout: str | bytes | None, stderr: str | bytes | None) -> str:
+        return "\n".join(
+            part
+            for part in [
+                cls._normalize_process_output(stdout),
+                cls._normalize_process_output(stderr),
+            ]
+            if part
+        ).strip()
 
     @staticmethod
     def _tail_output(output: str, limit: int = 40) -> str:

@@ -1,5 +1,5 @@
 """CRUD for WorkspaceRun (spec §6.2 B3 — full persistence + soft-delete)."""
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select

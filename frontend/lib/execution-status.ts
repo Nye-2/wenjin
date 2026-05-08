@@ -21,6 +21,7 @@ export type ExecutionSessionStatusValue =
 /** Statuses that indicate an active execution (visible in status bar). */
 export const ACTIVE_EXECUTION_STATUSES: ReadonlySet<ExecutionSessionStatusValue> =
   new Set([
+    ExecutionSessionStatus.LAUNCHING,
     ExecutionSessionStatus.RUNNING,
     ExecutionSessionStatus.PENDING,
     ExecutionSessionStatus.AWAITING_USER_INPUT,

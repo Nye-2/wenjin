@@ -106,7 +106,7 @@ class TestWorkerPrometheus:
                     )
                     prom.prepare_worker_prometheus()
 
-                assert os.environ["PROMETHEUS_MULTIPROC_DIR"] == tmpdir
+                assert os.environ["PROMETHEUS_MULTIPROC_DIR"] == os.path.realpath(tmpdir)
                 assert os.path.isdir(tmpdir)
                 assert not os.listdir(tmpdir)
             finally:

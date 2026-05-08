@@ -5,17 +5,16 @@ the worker streams as per-block SSE events.
 """
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.agents.lead_agent.agent import (
-    _MiddlewareWrappedAgent,
     _concat_text_blocks,
+    _MiddlewareWrappedAgent,
 )
 from src.agents.lead_agent.blocks import AgentMessage, StatusLineBlock, TextBlock
 from src.agents.lead_agent.prompts.jargon import assert_no_jargon
-
 
 # ---------------------------------------------------------------------------
 # Helpers

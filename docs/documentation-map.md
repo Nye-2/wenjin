@@ -1,6 +1,6 @@
 # Documentation Map
 
-更新时间：2026-04-28
+更新时间：2026-05-06
 状态：Current
 
 本文档是问津项目的文档总导航，用于统一入口、减少重复事实源，并明确每类变更应更新哪些文档。
@@ -22,6 +22,7 @@
 | `README.md` | 架构文档入口与原则 |
 | `adr-platform-boundaries.md` | 分层边界与非协商规则 |
 | `api-surface-map.md` | 网关 API 分组与兼容面变更 |
+| `system-architecture.md` | 全栈系统架构、数据模型、技术栈与开发规范 |
 | `workspace-execution-pipeline.md` | chat / feature / compute / task / subagent / Prism 执行主链 |
 | `feature-domain-architecture.md` | Chat / Compute / Feature 域边界、契约与守卫 |
 | `tech-stack-and-main-chain.md` | 技术栈、拓扑、状态模型、主链索引 |
@@ -33,6 +34,7 @@
 | `README.md` | 产品文档入口 |
 | `workspace-current-state.md` | workspace / thread / Compute / WenjinPrism 当前行为事实源 |
 | `workspace-feature-catalog.md` | workspace type、feature、skill 目录 |
+| `workspace-reference-library.md` | workspace 文献中心、证据、BibTeX 和 usage trace 当前事实源 |
 | `frontend-feature-plugin-contract.md` | 前后端 feature 合约与刷新约束 |
 | `release-gate-checklist.md` | 发布门禁检查项 |
 
