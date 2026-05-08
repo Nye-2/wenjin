@@ -600,6 +600,7 @@ class TestGlobalSubagentManager:
             subagent_type="paper_critic",
             prompt="Review the paper",
             output_preview=None,
+            output=None,
             error="Timed out after 60s",
             created_at=task.created_at,
             updated_at=completed_at,
@@ -740,6 +741,7 @@ class TestGlobalSubagentManager:
             thread_id="thread-1",
             status="completed",
             output_preview="Persisted output",
+            output=None,
             error=None,
             user_id="user-1",
         )

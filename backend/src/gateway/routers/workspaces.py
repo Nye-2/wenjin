@@ -80,6 +80,7 @@ def _serialize_subagent_record(record: SubagentTaskRecord) -> dict[str, Any]:
         "workflow_task_index": metadata.get("workflow_task_index"),
         "workflow_strategy": metadata.get("workflow_strategy"),
         "output_preview": record.output_preview,
+        "output": record.output,
         "error": record.error,
         "token_usage": usage.as_dict() if usage is not None else None,
         "model_name": (

@@ -36,6 +36,7 @@ class SubagentTaskRecord(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
     prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     output_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     task_metadata: Mapped[dict[str, Any]] = mapped_column(
         TASK_METADATA_JSON_TYPE,

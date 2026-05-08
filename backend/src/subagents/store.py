@@ -81,7 +81,8 @@ class SubagentTaskStore:
         ).strip()
         if not execution_session_id:
             raise ValueError("execution_session_id is required for subagent task persistence")
-        output_preview = _truncate_preview(result.output if result else None)
+        full_output = result.output if result else None
+        output_preview = _truncate_preview(full_output)
         error = result.error if result else None
 
         if record is None:
@@ -105,6 +106,7 @@ class SubagentTaskStore:
                 status=status,
                 prompt=task.prompt,
                 output_preview=output_preview,
+                output=full_output,
                 error=error,
                 task_metadata=task_metadata,
                 created_at=task.created_at or now,
@@ -120,6 +122,7 @@ class SubagentTaskStore:
             )
             record.subagent_type = str(subagent_type) if subagent_type is not None else None
             record.output_preview = output_preview
+            record.output = full_output
             record.error = error
             record.task_metadata = task_metadata
             record.updated_at = now

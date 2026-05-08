@@ -687,6 +687,7 @@ class GlobalSubagentManager:
                     "subagent_type": task.metadata.get("subagent_type"),
                     "error": result.error if result else None,
                     "output_preview": self._truncate_preview(result.output if result else None),
+                    "output": result.output if result else None,
                 }
             )
         return items
@@ -806,6 +807,7 @@ class GlobalSubagentManager:
                 "workflow_task_index": task.metadata.get("workflow_task_index"),
                 "workflow_strategy": task.metadata.get("workflow_strategy"),
                 "output_preview": self._truncate_preview(result.output if result else None),
+                "output": result.output if result else None,
                 "error": result.error if result else None,
             }
             result_metadata = result.metadata if result and isinstance(result.metadata, dict) else {}
@@ -922,6 +924,7 @@ class GlobalSubagentManager:
                 "execution_session_id": record.execution_session_id,
                 "error": record.error,
                 "output_preview": record.output_preview,
+                "output": record.output,
             }
             for record in records
         ]
@@ -1045,7 +1048,9 @@ class GlobalSubagentManager:
             task_id=str(record.id),
             status=status,
             output=(
-                str(record.output_preview)
+                str(record.output)
+                if getattr(record, "output", None) is not None
+                else str(record.output_preview)
                 if getattr(record, "output_preview", None) is not None
                 else None
             ),

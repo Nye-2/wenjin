@@ -22,6 +22,7 @@ export interface SubagentSnap {
   status: SubagentStatus | string;
   subagent_type?: string | null;
   output_preview?: string | null;
+  output?: string | null;
   error?: string | null;
   token_usage?: { total?: number } | null;
   model_name?: string | null;
@@ -100,6 +101,7 @@ export function reduceSubagentEvent(
     status: sa.status,
     subagent_type: sa.subagent_type ?? null,
     output_preview: sa.output_preview ?? null,
+    output: sa.output ?? null,
     error: sa.error ?? null,
     token_usage: sa.token_usage
       ? { total: sa.token_usage.total_tokens }

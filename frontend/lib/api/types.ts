@@ -811,6 +811,7 @@ export interface WorkspaceSubagentUpdatedEvent {
     workflow_task_index?: string | number | null;
     workflow_strategy?: string | null;
     output_preview?: string | null;
+    output?: string | null;
     error?: string | null;
     token_usage?: TokenUsageCounter | null;
     model_name?: string | null;
