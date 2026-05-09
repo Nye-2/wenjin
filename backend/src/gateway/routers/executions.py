@@ -130,6 +130,49 @@ async def get_execution(
         }
 
 
+@router.get("/{execution_id}/nodes/{node_id}")
+async def get_node_detail(
+    execution_id: str,
+    node_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return full detail for a single node within an execution."""
+    async with get_db_session() as db:
+        svc = ExecutionService(db)
+        record = await svc.get_by_id(execution_id)
+        if record is None or record.user_id != str(current_user.id):
+            raise HTTPException(status_code=404, detail="Execution not found")
+
+        # Extract static node info from graph_structure
+        graph_structure = record.graph_structure or {"nodes": [], "edges": []}
+        static_node = None
+        for n in graph_structure.get("nodes", []):
+            if n.get("id") == node_id:
+                static_node = n
+                break
+
+        # Extract dynamic state from node_states
+        node_states = record.node_states or {}
+        state = node_states.get(node_id, {})
+
+        if static_node is None and not state:
+            raise HTTPException(status_code=404, detail="Node not found")
+
+        return {
+            "id": node_id,
+            "label": (static_node or {}).get("label") or state.get("label"),
+            "status": state.get("status", "pending"),
+            "phase_index": (static_node or {}).get("phase_index"),
+            "input": state.get("input"),
+            "output": state.get("output"),
+            "thinking": state.get("thinking"),
+            "tools": state.get("tool_calls"),
+            "token_usage": state.get("token_usage"),
+            "started_at": state.get("started_at"),
+            "completed_at": state.get("completed_at"),
+        }
+
+
 @router.get("")
 async def list_executions(
     workspace_id: str | None = Query(default=None),
