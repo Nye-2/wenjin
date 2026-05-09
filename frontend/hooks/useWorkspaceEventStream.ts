@@ -2,11 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { subscribeWorkspaceEvents, type WorkspaceEvent } from "@/lib/api";
-import { useThreadStore } from "@/stores/thread";
 import { useDashboardStore } from "@/stores/dashboard";
 import { useComputeStore } from "@/stores/compute";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { useWorkflowStore } from "@/stores/workflow-store";
 import { useExecutionStream } from "@/hooks/useExecutionStream";
 
 function normalizePreview(value: string | null | undefined): string | null {
@@ -17,74 +15,8 @@ function normalizePreview(value: string | null | undefined): string | null {
   return normalized ? normalized : null;
 }
 
-function activeThreadNeedsReload(
-  chatStore: ReturnType<typeof useThreadStore.getState>,
-  event: Extract<WorkspaceEvent, { type: "thread.updated" }>
-): boolean {
-  if (
-    chatStore.threadId !== event.thread.id ||
-    chatStore.isStreaming ||
-    chatStore.isThreadLoading ||
-    chatStore.isWorkspaceThreadLoading
-  ) {
-    return false;
-  }
-
-  const currentSummary = chatStore.currentThreadSummary;
-  if (
-    currentSummary?.id === event.thread.id &&
-    currentSummary.updated_at === event.thread.updated_at
-  ) {
-    return false;
-  }
-
-  const summaryMessageCount = event.thread.message_count;
-  if (
-    typeof summaryMessageCount === "number" &&
-    summaryMessageCount !== chatStore.messages.length
-  ) {
-    return true;
-  }
-
-  const localLastMessage = chatStore.messages[chatStore.messages.length - 1];
-  const localPreview = normalizePreview(localLastMessage?.content);
-  const summaryPreview = normalizePreview(event.thread.last_message_preview);
-
-  if ((localLastMessage?.role ?? null) !== (event.thread.last_message_role ?? null)) {
-    return true;
-  }
-
-  if (localPreview !== summaryPreview) {
-    return true;
-  }
-
-  const summarySkill = event.thread.skill ?? null;
-  if (
-    !chatStore.isSkillSelectionPending &&
-    (chatStore.threadSkill ?? null) !== summarySkill
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-function buildThreadUpdateVersionKey(
-  event: Extract<WorkspaceEvent, { type: "thread.updated" }>
-): string {
-  return [
-    event.thread.id,
-    event.thread.updated_at,
-    event.thread.message_count ?? "",
-    event.thread.last_message_role ?? "",
-    normalizePreview(event.thread.last_message_preview) ?? "",
-    event.thread.skill ?? "",
-  ].join("|");
-}
-
 function refreshWorkspaceTargets(workspaceId: string, targets: string[]) {
   const workspaceStore = useWorkspaceStore.getState();
-  const chatStore = useThreadStore.getState();
   const dashboardStore = useDashboardStore.getState();
 
   const targetSet = new Set(targets);
@@ -103,22 +35,15 @@ function refreshWorkspaceTargets(workspaceId: string, targets: string[]) {
   if (targetSet.has("dashboard")) {
     void dashboardStore.fetchDashboard(workspaceId);
   }
-  if (targetSet.has("threads")) {
-    void chatStore.refreshCurrentThread(workspaceId);
-  }
 }
 
 function handleWorkspaceEvent(
   workspaceId: string,
   event: WorkspaceEvent,
   options?: {
-    scheduleThreadRefresh?: (
-      event: Extract<WorkspaceEvent, { type: "thread.updated" }>
-    ) => void;
     scheduleComputeHydrate?: () => void;
   }
 ) {
-  const chatStore = useThreadStore.getState();
   const computeStore = useComputeStore.getState();
   const workspaceStore = useWorkspaceStore.getState();
 
@@ -127,39 +52,18 @@ function handleWorkspaceEvent(
       if (event.activity) {
         workspaceStore.upsertActivity(event.activity);
       }
-      if (
-        event.task.task_type === "document_preprocess" ||
-        event.task.task_type === "reference_preprocess"
-      ) {
-        chatStore.syncAttachmentPreprocessTask(event.task);
-      }
-      // Forward to workflow store for live panel rendering
-      useWorkflowStore.getState().upsertTaskEvent(event.task);
       break;
     }
     case "thread.status":
-      chatStore.setThreadStatus(event.thread);
-      break;
     case "thread.updated":
-      chatStore.syncCurrentThreadSummary(event.thread);
-      if (event.activity) {
-        workspaceStore.upsertActivity(event.activity);
-      } else {
-        refreshWorkspaceTargets(workspaceId, ["activity"]);
-      }
-      if (activeThreadNeedsReload(chatStore, event)) {
-        options?.scheduleThreadRefresh?.(event);
-      }
-      break;
     case "thread.deleted":
-      if (chatStore.threadId === event.thread_id) {
-        chatStore.clearCurrentThread();
-        void chatStore.refreshCurrentThread(workspaceId);
-      }
-      if (event.activity_id) {
-        workspaceStore.removeActivity(event.activity_id);
-      } else {
-        refreshWorkspaceTargets(workspaceId, ["activity"]);
+      // v2 chat is managed by its own SSE stream; ignore thread events here
+      if (event.type === "thread.updated" || event.type === "thread.deleted") {
+        if ("activity" in event && event.activity) {
+          workspaceStore.upsertActivity(event.activity);
+        } else {
+          refreshWorkspaceTargets(workspaceId, ["activity"]);
+        }
       }
       break;
     case "compute.created":
@@ -173,8 +77,6 @@ function handleWorkspaceEvent(
       } else {
         refreshWorkspaceTargets(workspaceId, ["activity"]);
       }
-      // Forward to workflow store for live panel rendering
-      useWorkflowStore.getState().upsertSubagentEvent(event);
       break;
     case "workspace.refresh":
       refreshWorkspaceTargets(workspaceId, event.refresh_targets || []);
@@ -199,8 +101,6 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
   // Subscribe to the unified execution stream when an execution is active.
   useExecutionStream(activeExecutionId);
 
-  const lastThreadRefreshKeyRef = useRef<string | null>(null);
-  const inFlightThreadRefreshKeyRef = useRef<string | null>(null);
   const inFlightComputeHydrateRef = useRef(false);
 
   useEffect(() => {
@@ -208,8 +108,6 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
       return;
     }
 
-    lastThreadRefreshKeyRef.current = null;
-    inFlightThreadRefreshKeyRef.current = null;
     inFlightComputeHydrateRef.current = false;
 
     let disposed = false;
@@ -219,30 +117,6 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
     const MAX_RECONNECT_ATTEMPTS = 10;
     const BASE_DELAY = 1500;
 
-    const scheduleThreadRefresh = (
-      event: Extract<WorkspaceEvent, { type: "thread.updated" }>
-    ) => {
-      const refreshKey = buildThreadUpdateVersionKey(event);
-      if (
-        inFlightThreadRefreshKeyRef.current === refreshKey ||
-        lastThreadRefreshKeyRef.current === refreshKey
-      ) {
-        return;
-      }
-
-      inFlightThreadRefreshKeyRef.current = refreshKey;
-      void useThreadStore
-        .getState()
-        .refreshCurrentThread(workspaceId, {
-          preservePendingSkill: true,
-        })
-        .finally(() => {
-          if (inFlightThreadRefreshKeyRef.current === refreshKey) {
-            inFlightThreadRefreshKeyRef.current = null;
-          }
-          lastThreadRefreshKeyRef.current = refreshKey;
-        });
-    };
     const scheduleComputeHydrate = () => {
       if (inFlightComputeHydrateRef.current) {
         return;
@@ -289,7 +163,6 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
           }
 
           handleWorkspaceEvent(workspaceId, event, {
-            scheduleThreadRefresh,
             scheduleComputeHydrate,
           });
         },
@@ -323,7 +196,6 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
     return () => {
       disposed = true;
       disconnect();
-      inFlightThreadRefreshKeyRef.current = null;
       inFlightComputeHydrateRef.current = false;
       if (reconnectTimer !== null) {
         window.clearTimeout(reconnectTimer);

@@ -1,5 +1,5 @@
 import type { ThreadSummary } from "@/lib/api";
-import type { Message } from "@/stores/thread";
+import type { Message } from "@/stores/chat-store-v2";
 
 interface ExportableThread extends Partial<ThreadSummary> {
   id: string;
@@ -50,9 +50,11 @@ function serializeBlocks(message: Message): string[] {
 
   const lines = ["### Structured Blocks"];
   for (const block of message.blocks) {
-    const label = block.title?.trim() || block.type;
-    lines.push(`- ${label}`);
-    if (block.data && Object.keys(block.data).length > 0) {
+    lines.push(`- ${block.kind}`);
+    if ("content" in block && typeof block.content === "string") {
+      lines.push(`  ${block.content.slice(0, 200)}`);
+    }
+    if ("data" in block && block.data && typeof block.data === "object") {
       lines.push("");
       lines.push("```json");
       lines.push(JSON.stringify(block.data, null, 2));
@@ -102,9 +104,14 @@ export function formatConversationAsMarkdown(
   for (const message of messages) {
     const roleLabel = message.role === "user" ? "User" : "Assistant";
     lines.push(`## ${roleLabel}`);
-    lines.push(`- Timestamp: ${formatTimestamp(message.created_at)}`);
+    lines.push(`- Timestamp: ${formatTimestamp(message.createdAt)}`);
     lines.push("");
-    lines.push(message.content?.trim() || "_Empty message_");
+    // Extract text content from blocks
+    const textContent = message.blocks
+      .filter((b) => b.kind === "text")
+      .map((b) => ("content" in b ? b.content : ""))
+      .join("");
+    lines.push(textContent.trim() || "_Empty message_");
     lines.push("");
     const blockLines = serializeBlocks(message);
     if (blockLines.length > 0) {

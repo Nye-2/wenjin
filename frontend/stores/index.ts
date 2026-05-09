@@ -11,11 +11,17 @@ export {
   type Reference,
 } from './workspace';
 
-// Thread Store
+// Chat Store v2
 export {
-  useThreadStore,
+  useChatStoreV2,
   type Message,
-} from './thread';
+  type Block,
+} from './chat-store-v2';
+
+// Execution Store
+export {
+  useExecutionStore,
+} from './execution-store';
 
 // Compute Store
 export {

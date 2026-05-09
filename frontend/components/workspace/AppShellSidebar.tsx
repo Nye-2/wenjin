@@ -12,7 +12,7 @@ import {
   Loader2,
   MessageSquare,
 } from "lucide-react";
-import { useWorkflowStore } from "@/stores/workflow-store";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useI18n } from "@/components/i18n-provider";
 import { cn } from "@/lib/utils";
@@ -143,29 +143,21 @@ export function AppShellSidebar({
 
   const workspace = useWorkspaceStore((state) => state.workspace);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
-  const runs = useWorkflowStore((state) => state.runs);
-  const currentRunId = useWorkflowStore((state) => state.currentRunId);
+  const executions = useExecutionStore((state) => state.executions);
+  const currentExecutionId = useExecutionStore((state) => state.currentExecutionId);
 
-  const displaySessions = useMemo<PanelSession[]>(
-    () =>
-      runs.map((run) => {
-        const runningPhase = run.phases.find((p) =>
-          p.subagents.some((s) => s.status === "running"),
-        );
-        const lastPhase = run.phases[run.phases.length - 1];
-        const message = runningPhase?.name ?? lastPhase?.name ?? null;
-        return {
-          executionId: run.id,
-          taskId: run.id,
-          title: run.title || `运行 ${run.id.slice(0, 6)}`,
-          status: run.status,
-          updatedAt: run.started_at,
-          message,
-          description: message,
-        };
-      }),
-    [runs],
-  );
+  const displaySessions = useMemo<PanelSession[]>(() => {
+    const execList = Array.from(executions.values());
+    return execList.map((exec) => ({
+      executionId: exec.id,
+      taskId: exec.id,
+      title: exec.message || exec.feature_id || `运行 ${exec.id.slice(0, 6)}`,
+      status: exec.status,
+      updatedAt: exec.updated_at,
+      message: exec.message || null,
+      description: exec.message || null,
+    }));
+  }, [executions]);
 
   const groupedSessions = useMemo(() => {
     const active = displaySessions.filter((s) =>
@@ -182,9 +174,9 @@ export function AppShellSidebar({
   }, [displaySessions]);
 
   const resolvedActiveSessionId =
-    currentRunId &&
-    displaySessions.some((session) => session.executionId === currentRunId)
-      ? currentRunId
+    currentExecutionId &&
+    displaySessions.some((session) => session.executionId === currentExecutionId)
+      ? currentExecutionId
       : displaySessions[0]?.executionId ?? null;
   const primarySession = resolvedActiveSessionId
     ? displaySessions.find(
@@ -192,7 +184,7 @@ export function AppShellSidebar({
       ) ?? displaySessions[0]
     : displaySessions[0];
 
-  const isOnChat = pathname.startsWith(`/workspaces/${workspaceId}/chat`);
+  const isOnV2 = pathname.startsWith(`/workspaces/${workspaceId}/v2`);
   const isOnDashboard = pathname === `/workspaces/${workspaceId}`;
 
   const workspaceSnapshot =
@@ -206,9 +198,9 @@ export function AppShellSidebar({
     : null;
 
   const goToDashboard = () => router.push(`/workspaces/${workspaceId}`);
-  const goToChat = () => router.push(`/workspaces/${workspaceId}/chat`);
+  const goToV2 = () => router.push(`/workspaces/${workspaceId}/v2`);
   const handleOpenSession = () => {
-    router.push(`/workspaces/${workspaceId}/chat`);
+    router.push(`/workspaces/${workspaceId}/v2`);
   };
 
   if (collapsed) {
@@ -234,10 +226,10 @@ export function AppShellSidebar({
           <LayoutDashboard className="h-4 w-4" />
         </button>
         <button
-          onClick={goToChat}
+          onClick={goToV2}
           className={cn(
             "rounded-xl p-2 transition-colors",
-            isOnChat
+            isOnV2
               ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
               : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
           )}
@@ -327,10 +319,10 @@ export function AppShellSidebar({
       <div className="border-b border-[var(--border-default)] px-4 py-3">
         <div className="flex gap-2">
           <button
-            onClick={goToChat}
+            onClick={goToV2}
             className={cn(
               "flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
-              isOnChat
+              isOnV2
                 ? "border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
                 : "border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
             )}

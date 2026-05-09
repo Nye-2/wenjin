@@ -5,7 +5,7 @@ import { Download, FileJson, FileText } from "lucide-react";
 
 import type { ThreadSummary } from "@/lib/api";
 import { exportConversationAsJson, exportConversationAsMarkdown } from "@/lib/thread-export";
-import type { Message } from "@/stores/thread";
+import type { Message } from "@/stores/chat-store-v2";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

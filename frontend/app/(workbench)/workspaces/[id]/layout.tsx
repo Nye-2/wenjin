@@ -4,7 +4,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
 import { useFeaturesStore } from "@/stores/features";
-import { useThreadStore } from "@/stores/thread";
+import { useChatStoreV2 } from "@/stores/chat-store-v2";
 import { useComputeStore } from "@/stores/compute";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { CommandPalette } from "@/components/workspace/CommandPalette";
@@ -29,8 +29,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const fetchSkills = useFeaturesStore((state) => state.fetchSkills);
   const clearFeatures = useFeaturesStore((state) => state.clearFeatures);
   const clearSkills = useFeaturesStore((state) => state.clearSkills);
-  const clearMessages = useThreadStore((state) => state.clearMessages);
-  const abortStream = useThreadStore((state) => state.abortStream);
+  const resetChat = useChatStoreV2((state) => state.reset);
   const hydrateCompute = useComputeStore((state) => state.hydrateWorkspace);
   const clearCompute = useComputeStore((state) => state.clearWorkspace);
 
@@ -47,13 +46,12 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     void fetchActivity(workspaceId);
     void hydrateCompute(workspaceId);
     return () => {
-      abortStream();
       setActiveWorkspace(null);
       clearWorkspace();
       clearFeatures();
       clearSkills();
       clearCompute(workspaceId);
-      clearMessages();
+      resetChat();
     };
   }, [
     workspaceId,
@@ -68,8 +66,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     clearFeatures,
     clearSkills,
     clearCompute,
-    clearMessages,
-    abortStream,
+    resetChat,
   ]);
 
   return (

@@ -12,7 +12,7 @@ import {
 
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { exportConversationAsJson, exportConversationAsMarkdown } from "@/lib/thread-export";
-import { useThreadStore } from "@/stores/thread";
+import { useChatStoreV2 } from "@/stores/chat-store-v2";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -40,10 +40,8 @@ interface CommandAction {
 
 export function CommandPalette({ workspaceId }: CommandPaletteProps) {
   const router = useRouter();
-  const messages = useThreadStore((state) => state.messages);
-  const currentThreadSummary = useThreadStore(
-    (state) => state.currentThreadSummary
-  );
+  const messages = useChatStoreV2((state) => state.messages);
+  const hasMessages = messages.length > 0;
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -51,7 +49,6 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
   const isMac =
     typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("mac");
   const metaLabel = isMac ? "⌘" : "Ctrl+";
-  const currentThread = currentThreadSummary;
 
   const baseActions: CommandAction[] = [
     {
@@ -76,7 +73,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
   ];
 
   const exportActions: CommandAction[] =
-    currentThread && messages.length > 0
+    hasMessages
       ? [
           {
             id: "export-markdown",
@@ -84,7 +81,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
             description: "导出适合留档和评审阅读的对话记录。",
             section: "会话",
             keywords: ["export", "markdown", "conversation", "导出", "会话"],
-            perform: () => exportConversationAsMarkdown(currentThread, messages),
+            perform: () => exportConversationAsMarkdown({ id: workspaceId } as any, messages),
             icon: FileText,
           },
           {
@@ -93,7 +90,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
             description: "导出完整结构化会话数据。",
             section: "会话",
             keywords: ["export", "json", "conversation", "导出", "会话"],
-            perform: () => exportConversationAsJson(currentThread, messages),
+            perform: () => exportConversationAsJson({ id: workspaceId } as any, messages),
             icon: FileJson,
           },
         ]
