@@ -271,6 +271,25 @@ class _WorkspaceTask(_Base):
     deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
+class _AuditLog(_Base):
+    """SQLite-compatible mirror of AuditLog."""
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -326,3 +345,4 @@ DbMemoryFact = _MemoryFact
 DbRunHistory = _RunHistory
 DbSandbox = _Sandbox
 DbWorkspaceTask = _WorkspaceTask
+DbAuditLog = _AuditLog

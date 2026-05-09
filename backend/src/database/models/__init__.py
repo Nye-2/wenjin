@@ -1,6 +1,7 @@
 """Database models package - exports all ORM models."""
 
 from .admin_log import AdminActionType, AdminLog
+from .audit_log import AuditLog
 from .artifact import Artifact, ArtifactType
 from .compute_session import ComputeSessionRecord
 from .credit import CreditTransaction, CreditTransactionType
@@ -83,6 +84,8 @@ __all__ = [
     # Admin Audit
     "AdminLog",
     "AdminActionType",
+    # Audit Log
+    "AuditLog",
     # Thread
     "Thread",
     # Knowledge

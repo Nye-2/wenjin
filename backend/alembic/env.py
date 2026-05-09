@@ -15,6 +15,7 @@ from src.database import Base
 from src.database.alembic_version_guard import ensure_alembic_version_column_width
 from src.database.models import (  # noqa: F401
     Artifact,
+    AuditLog,
     Decision,
     DocumentV2,
     ExecutionNodeRecord,
