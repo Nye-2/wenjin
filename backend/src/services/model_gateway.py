@@ -6,6 +6,9 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
+import anthropic
+import openai
+
 from src.services.audit_service import AuditService
 from src.services.quota_service import QuotaExceeded, QuotaService
 
@@ -17,6 +20,17 @@ _COST_TABLE: dict[str, tuple[float, float]] = {
     "gpt-4o": (2.5, 10.0),
     "gpt-4o-mini": (0.15, 0.6),
 }
+
+# Only retry on transient infrastructure errors.
+# Non-transient errors (QuotaExceeded, auth errors, etc.) propagate immediately.
+TRANSIENT_EXCEPTIONS = (
+    anthropic.RateLimitError,
+    anthropic.APITimeoutError,
+    anthropic.APIConnectionError,
+    openai.RateLimitError,
+    openai.APITimeoutError,
+    openai.APIConnectionError,
+)
 
 
 @dataclass
@@ -73,7 +87,7 @@ class ModelGateway:
         if not can_proceed:
             raise QuotaExceeded(f"Daily token quota exceeded for user {user_id}")
 
-        # 2. Route + retry
+        # 2. Route + retry (transient errors only)
         last_exc: Exception | None = None
         for attempt in range(3):
             try:
@@ -87,7 +101,7 @@ class ModelGateway:
                         messages=messages, model=model, max_tokens=max_tokens,
                         workspace_id=workspace_id, user_id=user_id, **kwargs,
                     )
-            except Exception as exc:
+            except TRANSIENT_EXCEPTIONS as exc:
                 last_exc = exc
                 if attempt < 2:
                     wait = 2 ** attempt

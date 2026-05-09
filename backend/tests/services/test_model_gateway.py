@@ -97,3 +97,40 @@ async def test_raises_quota_exceeded():
             workspace_id="ws-1",
             user_id="u-1",
         )
+
+
+@pytest.mark.asyncio
+async def test_does_not_retry_on_quota_exceeded():
+    """QuotaExceeded raised inside _call_anthropic propagates immediately without retry."""
+    import anthropic as anthropic_mod
+    import openai as openai_mod
+    from unittest.mock import call
+
+    # quota.check passes (so we enter the retry loop), but consume raises QuotaExceeded
+    anthropic_client = AsyncMock()
+    anthropic_client.messages.create = AsyncMock(
+        return_value=_make_anthropic_response("Hi", 100, 50)
+    )
+    openai_client = AsyncMock()
+    audit = AsyncMock()
+    quota = AsyncMock()
+    quota.check = AsyncMock(return_value=True)
+    quota.consume = AsyncMock(side_effect=QuotaExceeded("token limit hit mid-call"))
+
+    gw = ModelGateway(
+        anthropic=anthropic_client,
+        openai=openai_client,
+        audit=audit,
+        quota=quota,
+    )
+
+    with pytest.raises(QuotaExceeded):
+        await gw.chat_completion(
+            messages=[{"role": "user", "content": "Hello"}],
+            model="claude-opus-4-7",
+            workspace_id="ws-1",
+            user_id="u-1",
+        )
+
+    # The LLM was called exactly once — no retry occurred
+    anthropic_client.messages.create.assert_called_once()
