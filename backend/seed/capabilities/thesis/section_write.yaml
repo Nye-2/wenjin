@@ -1,0 +1,77 @@
+id: section_write
+workspace_type: thesis
+version: 1
+display_name: 撰写论文章节
+enabled: true
+
+intent_description: 用户希望为论文的某个章节收集参考文献并撰写正文内容
+
+trigger_phrases:
+  - 帮我写这个章节
+  - 撰写论文章节
+  - 写第几章的内容
+
+required_decisions:
+  - key: section_title
+    ask: "请提供章节标题"
+    type: string
+  - key: word_count
+    ask: "目标字数是多少？（默认 2000 字）"
+    type: number
+    default: 2000
+
+brief_schema:
+  type: object
+  required: [topic, section_title]
+  properties:
+    topic:
+      type: string
+      description: 论文主题
+    section_title:
+      type: string
+      description: 章节标题
+    word_count:
+      type: number
+      description: 目标字数
+
+graph_template:
+  phases:
+    - name: gather
+      tasks:
+        - name: collect_references
+          subagent_type: scholar_searcher
+          prompt_template: |
+            为论文章节"{{section_title}}"（论文主题：{{topic}}）收集相关参考文献。
+            重点搜索与该章节核心论点直接相关的实证研究、方法论文献和综述文章。
+            请提供文献的标题、作者、年份、期刊/会议名称和摘要要点。
+          tools: [scholar_search]
+    - name: cluster
+      depends_on: [gather]
+      tasks:
+        - name: organize_references
+          subagent_type: clusterer
+          prompt_template: |
+            将为"{{section_title}}"章节收集到的参考文献按主题聚类，
+            识别出 3-5 个核心主题群组，并为每个群组命名、总结其研究要点。
+            这些主题群组将作为章节内部的论述线索。
+    - name: draft
+      depends_on: [cluster]
+      tasks:
+        - name: write_section
+          subagent_type: critical_writer
+          prompt_template: |
+            基于已聚类的参考文献，为论文章节"{{section_title}}"撰写正文内容。
+            论文主题：{{topic}}
+            目标字数：约 {{word_count}} 字（中文）
+            要求：
+            1. 按照主题聚类结果组织论述结构
+            2. 引用文献时使用 [作者, 年份] 格式
+            3. 语言学术严谨，逻辑清晰，观点有据
+            4. 以 Markdown 格式输出，使用适当的标题层级
+
+system_prompt: |
+  你是一位专业的学术写作助手，擅长撰写高质量的学术论文章节。
+  你的工作是基于系统收集和整理的参考文献，撰写逻辑严密、论据充分的章节正文。
+  写作时注重学术规范，确保论点清晰、论据充分、引用规范。
+
+result_card_template: section_draft

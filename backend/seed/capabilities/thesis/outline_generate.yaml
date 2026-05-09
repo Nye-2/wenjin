@@ -1,0 +1,61 @@
+id: outline_generate
+workspace_type: thesis
+version: 1
+display_name: 生成论文大纲
+enabled: true
+
+intent_description: 用户希望为论文主题生成结构化的章节大纲
+
+trigger_phrases:
+  - 帮我做个大纲
+  - 生成论文结构
+  - 给我拟一个论文大纲
+
+required_decisions:
+  - key: topic
+    ask: "请描述你的论文主题"
+    type: string
+  - key: degree
+    ask: "是本科、硕士还是博士论文？"
+    type: enum
+    enum_values: [bachelor, master, phd]
+    default: master
+
+brief_schema:
+  type: object
+  required: [topic]
+  properties:
+    topic:
+      type: string
+      description: 论文主题（一句话描述）
+    degree:
+      type: string
+      description: 学位层次
+
+graph_template:
+  phases:
+    - name: discover
+      tasks:
+        - name: search_related_work
+          subagent_type: scholar_searcher
+          prompt_template: |
+            搜索关于 {{topic}} 的相关学术文献，重点关注该领域的研究结构和章节组织方式。
+            查找综述性文献和博士论文，了解标准的论文结构。
+          tools: [scholar_search]
+    - name: synthesize
+      depends_on: [discover]
+      tasks:
+        - name: generate_outline
+          subagent_type: outliner
+          prompt_template: |
+            基于以下关于 {{topic}} 的文献背景，生成一份结构完整的论文大纲。
+            大纲应包含：引言、文献综述、研究方法、实验结果、讨论与结论等核心章节。
+            每个章节需提供 2-3 个子节标题，并简要说明该章节的核心内容。
+            请以 Markdown 格式输出大纲。
+
+system_prompt: |
+  你是一位资深学术写作顾问，专注于帮助研究生构建高质量的论文大纲。
+  你的任务是基于文献调研结果，生成逻辑严密、结构清晰的论文大纲。
+  大纲应符合学术规范，各章节之间具有良好的逻辑衔接，并能体现研究的创新性。
+
+result_card_template: outline
