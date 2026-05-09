@@ -1,48 +1,63 @@
-"""Model contract tests for the workspace.thread_id 1:1 FK link."""
+"""Round-trip tests for the workspace thread_id 1:1 link.
 
-from sqlalchemy import UniqueConstraint
+These tests exercise actual SQLite constraint enforcement, not just ORM
+metadata declarations.  The minimal SQLite-compatible models are provided by
+tests/database/conftest.py (DbUser, DbThread, DbWorkspace).
+"""
 
-from src.database.models.workspace import Workspace
+import pytest
+from sqlalchemy.exc import IntegrityError
 
-
-def test_workspace_has_thread_id_column() -> None:
-    """Workspace model must declare a thread_id column."""
-    cols = {c.name for c in Workspace.__table__.columns}
-    assert "thread_id" in cols
-
-
-def test_workspace_thread_id_is_nullable() -> None:
-    """thread_id must be nullable (workspaces can exist without a thread)."""
-    col = Workspace.__table__.columns["thread_id"]
-    assert col.nullable is True
+from tests.database.conftest import DbThread, DbUser, DbWorkspace
 
 
-def test_workspace_thread_id_unique_constraint() -> None:
-    """thread_id must carry a unique constraint (1:1 cardinality)."""
-    unique_cols: set[str] = set()
-    for constraint in Workspace.__table__.constraints:
-        if isinstance(constraint, UniqueConstraint):
-            for col in constraint.columns:
-                unique_cols.add(col.name)
-    # Also accept a column-level unique index
-    for idx in Workspace.__table__.indexes:
-        if idx.unique:
-            for col in idx.columns:
-                unique_cols.add(col.name)
-    assert "thread_id" in unique_cols, (
-        "thread_id must have a unique constraint or unique index"
+@pytest.mark.asyncio
+async def test_workspace_thread_id_round_trips(test_session):
+    """A workspace can store and retrieve a thread_id (DB round-trip)."""
+    user = DbUser(id="u-1", email="t@t.com", name="t", hashed_password="x")
+    test_session.add(user)
+    thread = DbThread(id="tid-1", user_id="u-1", title="t")
+    test_session.add(thread)
+    workspace = DbWorkspace(
+        id="ws-1",
+        user_id="u-1",
+        name="test",
+        type="thesis",
+        thread_id="tid-1",
     )
+    test_session.add(workspace)
+    await test_session.commit()
+
+    fetched = await test_session.get(DbWorkspace, "ws-1")
+    assert fetched is not None
+    assert fetched.thread_id == "tid-1"
 
 
-def test_workspace_thread_id_foreign_key_targets_threads() -> None:
-    """thread_id FK must reference threads.id."""
-    col = Workspace.__table__.columns["thread_id"]
-    fk_targets = {fk.target_fullname for fk in col.foreign_keys}
-    assert "threads.id" in fk_targets
-
-
-def test_workspace_thread_relationship_exists() -> None:
-    """Workspace model must expose a 'thread' relationship attribute."""
-    assert hasattr(Workspace, "thread"), (
-        "Workspace must have a 'thread' relationship attribute"
+@pytest.mark.asyncio
+async def test_workspace_thread_id_uniqueness_enforced(test_session):
+    """Two workspaces cannot share the same thread_id (DB-enforced unique constraint)."""
+    user = DbUser(id="u-2", email="t2@t.com", name="t2", hashed_password="x")
+    test_session.add(user)
+    thread = DbThread(id="tid-2", user_id="u-2", title="t")
+    test_session.add(thread)
+    ws1 = DbWorkspace(
+        id="ws-2",
+        user_id="u-2",
+        name="a",
+        type="thesis",
+        thread_id="tid-2",
     )
+    test_session.add(ws1)
+    await test_session.commit()
+
+    ws2 = DbWorkspace(
+        id="ws-3",
+        user_id="u-2",
+        name="b",
+        type="thesis",
+        thread_id="tid-2",  # duplicate — must violate the unique constraint
+    )
+    test_session.add(ws2)
+
+    with pytest.raises(IntegrityError):
+        await test_session.commit()
