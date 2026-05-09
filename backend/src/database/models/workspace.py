@@ -69,8 +69,16 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         server_default="{}",
     )
 
+    thread_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("threads.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+    )
+
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="workspaces")
+    thread: Mapped["Thread | None"] = relationship("Thread", lazy="selectin")
     references: Mapped[list["WorkspaceReference"]] = relationship(
         "WorkspaceReference",
         back_populates="workspace",
