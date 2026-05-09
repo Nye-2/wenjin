@@ -157,6 +157,57 @@ class NativeWenjinAgentHarness:
         if mgr is not None:
             mgr.register_executor(run_id, executor)
 
+        # Emit graph structure if execution_id is available
+        execution_id = context.get("execution_id")
+        if execution_id:
+            try:
+                from src.services.execution_event_publisher import publish_execution_event
+
+                graph_nodes = []
+                graph_edges = []
+                for phase_idx, phase in enumerate(request.phased_plan.phases):
+                    for task_idx, task in enumerate(phase.tasks):
+                        # Unique node ID: phase index + task index ensures no collision
+                        node_id = f"phase{phase_idx}:task{task_idx}"
+                        graph_nodes.append({
+                            "id": node_id,
+                            "type": task.get("subagent_type", "task"),
+                            "label": task.get("label") or task.get("subagent_type", "task"),
+                            "metadata": {
+                                "phase": phase_idx,
+                                "phase_name": phase.name,
+                                "task_index": task_idx,
+                                "subagent_type": task.get("subagent_type", "task"),
+                            },
+                        })
+                    # Add edges from dependencies (phase-level, not task-level)
+                    for dep in phase.depends_on:
+                        for prev_phase_idx, prev_phase in enumerate(request.phased_plan.phases):
+                            if prev_phase.name == dep:
+                                for prev_task_idx in range(len(prev_phase.tasks)):
+                                    for task_idx in range(len(phase.tasks)):
+                                        graph_edges.append({
+                                            "from": f"phase{prev_phase_idx}:task{prev_task_idx}",
+                                            "to": f"phase{phase_idx}:task{task_idx}",
+                                        })
+                await publish_execution_event(
+                    str(execution_id),
+                    "execution.graph_structure",
+                    {
+                        "graph_structure": {
+                            "nodes": graph_nodes,
+                            "edges": graph_edges,
+                        }
+                    },
+                    workspace_id=str(context.get("workspace_id") or "").strip() or None,
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to emit graph structure for execution_id=%s",
+                    execution_id,
+                    exc_info=True,
+                )
+
         try:
             phase_results = await executor.execute_plan(
                 request.phased_plan,

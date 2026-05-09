@@ -10,6 +10,7 @@ class FeatureTaskSubmission:
     feature_id: str
     message: str
     reused_existing_task: bool = False
+    execution_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -33,6 +34,7 @@ FeatureExecutionOutcome = FeatureTaskSubmission | FeatureExecutionAdvisory
 class FeatureLaunchResult:
     execution_session_id: str
     outcome: FeatureExecutionOutcome
+    execution_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -83,6 +83,7 @@ class ExecuteResponse(BaseModel):
 
     task_id: str | None = None
     execution_session_id: str | None = None
+    execution_id: str | None = None
     status: str
     feature_id: str
     message: str
@@ -195,6 +196,7 @@ async def execute_feature(
         return ExecuteResponse(
             task_id=result.task_id,
             execution_session_id=launch.execution_session_id,
+            execution_id=launch.execution_id,
             status="pending",
             feature_id=result.feature_id,
             message=result.message,
@@ -206,6 +208,7 @@ async def execute_feature(
         return ExecuteResponse(
             task_id=None,
             execution_session_id=launch.execution_session_id,
+            execution_id=launch.execution_id,
             status=(
                 "awaiting_user_input"
                 if result.code == "missing_params"
@@ -220,6 +223,7 @@ async def execute_feature(
     return ExecuteResponse(
         task_id=result.get("task_id"),
         execution_session_id=launch.execution_session_id,
+        execution_id=launch.execution_id,
         status=str(result.get("status", "success")),
         feature_id=str(result.get("feature_id", feature_id)),
         message=str(result.get("message", "")),

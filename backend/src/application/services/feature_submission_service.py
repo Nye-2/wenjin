@@ -68,6 +68,7 @@ def build_task_payload(
     thread_id: str | None,
     skill_id: str | None = None,
     execution_session_id: str | None = None,
+    execution_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the canonical task payload for workspace feature execution."""
     sanitized_params = dict(params)
@@ -101,6 +102,7 @@ def build_task_payload(
         "handler_key": feature.handler_key,
         "thread_id": thread_id,
         "execution_session_id": execution_session_id,
+        "execution_id": execution_id,
         "skill_id": resolved_skill_id,
         "skill_name": resolved_skill_name,
         "params": sanitized_params,
@@ -136,6 +138,7 @@ class FeatureSubmissionService:
         idempotency_key: str | None = None,
         redis_client: Any | None = None,
         execution_session_id: str | None = None,
+        execution_id: str | None = None,
     ) -> FeatureExecutionOutcome:
         """Submit a workspace feature task.
 
@@ -248,6 +251,7 @@ class FeatureSubmissionService:
             idempotency_key=idempotency_key,
             redis_client=redis_client,
             execution_session_id=execution_session_id,
+            execution_id=execution_id,
         )
 
     async def _submit_with_lock(
@@ -264,6 +268,7 @@ class FeatureSubmissionService:
         idempotency_key: str | None,
         redis_client: Any | None,
         execution_session_id: str | None,
+        execution_id: str | None = None,
     ) -> FeatureExecutionOutcome:
         """Submit task, optionally guarded by distributed workspace lock.
 
@@ -289,6 +294,7 @@ class FeatureSubmissionService:
                     feature_id=feature_id,
                     message=f"已有进行中的 {feature.name} 任务",
                     reused_existing_task=True,
+                    execution_id=execution_id,
                 )
 
             # Build task payload
@@ -301,6 +307,7 @@ class FeatureSubmissionService:
                 thread_id=thread_id,
                 skill_id=skill_id,
                 execution_session_id=execution_session_id,
+                execution_id=execution_id,
             )
 
             # Submit task
@@ -351,6 +358,7 @@ class FeatureSubmissionService:
                 task_id=task_id,
                 feature_id=feature_id,
                 message=f"Queued {feature.name}",
+                execution_id=execution_id,
             )
 
         # Try to use distributed lock; fall back to unlocked if Redis unavailable

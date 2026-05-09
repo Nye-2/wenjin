@@ -1,0 +1,171 @@
+"""Execution endpoints — converged with run stream protocol.
+
+Uses the SAME Redis Streams prefix (`runtime:runs:stream`) and SAME SSE
+framing as the run stream endpoints in ``thread_runs.py`` / ``runs.py``.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+
+from src.database import User, get_db_session
+from src.gateway.auth_dependencies import get_current_user
+from src.gateway.services.run_lifecycle import format_sse
+from src.runtime.stream_bridge import END_SENTINEL, HEARTBEAT_SENTINEL
+from src.services.execution_event_publisher import _get_stream_bridge
+from src.services.execution_service import ExecutionService
+
+router = APIRouter(prefix="/executions", tags=["executions"])
+
+
+async def _execution_sse_consumer(
+    *,
+    execution_id: str,
+    request: Request,
+) -> Any:
+    """Consume execution stream events and emit SSE frames.
+
+    Mirrors ``sse_consumer()`` in ``run_lifecycle.py`` — same protocol,
+    same sentinel handling, same heartbeat semantics.
+    """
+    bridge = _get_stream_bridge()
+    if bridge is None:
+        raise RuntimeError("Stream bridge is not available")
+
+    last_event_id = request.headers.get("Last-Event-ID")
+    reached_stream_end = False
+    subscription_failed = False
+
+    try:
+        try:
+            async for item in bridge.subscribe(
+                execution_id,
+                last_event_id=last_event_id,
+                heartbeat_interval=15.0,
+            ):
+                if await request.is_disconnected():
+                    break
+
+                if item is HEARTBEAT_SENTINEL:
+                    yield ": heartbeat\n\n"
+                    continue
+
+                if item is END_SENTINEL:
+                    reached_stream_end = True
+                    yield format_sse("end", None, event_id=item.id or None)
+                    return
+
+                yield format_sse(item.event, item.data, event_id=item.id or None)
+        except Exception:
+            subscription_failed = True
+            if not await request.is_disconnected():
+                yield format_sse(
+                    "error",
+                    {"type": "error", "error": "Stream subscription failed"},
+                )
+    finally:
+        if not reached_stream_end and not subscription_failed:
+            yield format_sse("end", None)
+
+
+@router.get("/{execution_id}/stream")
+async def stream_execution(
+    execution_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Subscribe to execution events via SSE (unified stream protocol)."""
+    async with get_db_session() as db:
+        svc = ExecutionService(db)
+        record = await svc.get_by_id(execution_id)
+        if record is None or record.user_id != str(current_user.id):
+            raise HTTPException(status_code=404, detail="Execution not found")
+    return StreamingResponse(
+        _execution_sse_consumer(execution_id=execution_id, request=request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Content-Location": f"/api/executions/{execution_id}/stream",
+        },
+    )
+
+
+@router.get("/{execution_id}")
+async def get_execution(
+    execution_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Get a single execution record by ID."""
+    async with get_db_session() as db:
+        svc = ExecutionService(db)
+        record = await svc.get_by_id(execution_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        if record.user_id != str(current_user.id):
+            raise HTTPException(status_code=404, detail="Execution not found")
+        return {
+            "id": record.id,
+            "status": record.status,
+            "execution_type": record.execution_type,
+            "feature_id": record.feature_id,
+            "workspace_id": record.workspace_id,
+            "thread_id": record.thread_id,
+            "params": record.params,
+            "result": record.result,
+            "error": record.error,
+            "progress": record.progress,
+            "message": record.message,
+            "artifact_ids": record.artifact_ids,
+            "next_actions": record.next_actions,
+            "graph_structure": record.graph_structure,
+            "node_states": record.node_states,
+            "created_at": record.created_at.isoformat() if record.created_at else None,
+            "started_at": record.started_at.isoformat() if record.started_at else None,
+            "completed_at": record.completed_at.isoformat() if record.completed_at else None,
+        }
+
+
+@router.get("")
+async def list_executions(
+    workspace_id: str | None = Query(default=None),
+    thread_id: str | None = Query(default=None),
+    execution_type: str | None = Query(default=None),
+    status: list[str] | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """List execution records for the current user."""
+    async with get_db_session() as db:
+        svc = ExecutionService(db)
+        items = await svc.list_executions(
+            user_id=str(current_user.id),
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            execution_type=execution_type,
+            status=status,
+            limit=limit,
+        )
+        return {
+            "items": [
+                {
+                    "id": r.id,
+                    "status": r.status,
+                    "execution_type": r.execution_type,
+                    "feature_id": r.feature_id,
+                    "workspace_id": r.workspace_id,
+                    "thread_id": r.thread_id,
+                    "progress": r.progress,
+                    "message": r.message,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "started_at": r.started_at.isoformat() if r.started_at else None,
+                    "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+                }
+                for r in items
+            ],
+            "count": len(items),
+        }

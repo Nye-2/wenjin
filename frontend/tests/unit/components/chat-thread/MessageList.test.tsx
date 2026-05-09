@@ -45,25 +45,17 @@ const msgs: ChatMessage[] = [
 ];
 
 describe("MessageList", () => {
-  it("groups messages by run_id and folds completed runs", () => {
-    render(<MessageList messages={msgs} currentRunId="r2" />);
-    // r1 is completed → folded by default → text "好" not in DOM
-    expect(screen.queryByText("好")).not.toBeInTheDocument();
-    // r2 is current → expanded
-    expect(screen.getByText("好的")).toBeInTheDocument();
-    // The folded r1 has its header visible
-    expect(screen.getByRole("button", { name: /轮 1 · 完成/ })).toBeInTheDocument();
-  });
-
-  it("clicking a folded run header expands it", () => {
-    render(<MessageList messages={msgs} currentRunId="r2" />);
-    fireEvent.click(screen.getByRole("button", { name: /轮 1 · 完成/ }));
+  it("renders all messages in flat flow", () => {
+    render(<MessageList messages={msgs} />);
+    // All messages are visible (no run grouping / folding)
+    expect(screen.getByText("hi")).toBeInTheDocument();
     expect(screen.getByText("好")).toBeInTheDocument();
+    expect(screen.getByText("深入第 1")).toBeInTheDocument();
+    expect(screen.getByText("好的")).toBeInTheDocument();
   });
 
   it("renders user bubble vs agent block-container distinctly", () => {
-    render(<MessageList messages={msgs} currentRunId="r2" />);
-    // The user message "深入第 1" should be visible (current run is open)
+    render(<MessageList messages={msgs} />);
     expect(screen.getByText("深入第 1")).toBeInTheDocument();
   });
 
@@ -85,7 +77,7 @@ describe("MessageList", () => {
       },
     ];
     render(
-      <MessageList messages={m} currentRunId="r1" onSubmit={onSubmit} />,
+      <MessageList messages={m} onSubmit={onSubmit} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "选 A" }));
     expect(onSubmit).toHaveBeenCalledWith("select-a");
@@ -93,7 +85,7 @@ describe("MessageList", () => {
 
   it("clicking a result_card feedback pill submits its intent", () => {
     const onSubmit = vi.fn();
-    render(<MessageList messages={msgs} currentRunId="r1" onSubmit={onSubmit} />);
+    render(<MessageList messages={msgs} onSubmit={onSubmit} />);
     fireEvent.click(screen.getByRole("button", { name: "next" }));
     expect(onSubmit).toHaveBeenCalledWith("next");
   });
@@ -117,7 +109,7 @@ describe("MessageList", () => {
       },
     ];
     render(
-      <MessageList messages={m} currentRunId="r1" onJumpToPhase={onJump} />,
+      <MessageList messages={m} onJumpToPhase={onJump} />,
     );
     fireEvent.click(screen.getByRole("button", { name: /phase 1 完成/ }));
     expect(onJump).toHaveBeenCalledWith("r1", 1);

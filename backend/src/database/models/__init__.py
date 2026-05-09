@@ -4,6 +4,8 @@ from .admin_log import AdminActionType, AdminLog
 from .artifact import Artifact, ArtifactType
 from .compute_session import ComputeSessionRecord
 from .credit import CreditTransaction, CreditTransactionType
+from .execution import ExecutionRecord
+from .execution_node import ExecutionNodeRecord
 from .execution_session import ExecutionSessionRecord
 from .generation import GenerationRecord
 from .knowledge import KnowledgeCategory, UserKnowledge
@@ -87,6 +89,9 @@ __all__ = [
     # Task
     "TaskRecord",
     "SubagentTaskRecord",
+    # Execution (unified)
+    "ExecutionRecord",
+    "ExecutionNodeRecord",
     # Workspace Template
     "WorkspaceTemplate",
 ]

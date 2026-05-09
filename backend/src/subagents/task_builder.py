@@ -38,6 +38,7 @@ class SubagentRuntimeContext:
     workspace_id: str | None = None
     user_id: str | None = None
     execution_session_id: str | None = None
+    execution_id: str | None = None
     model_name: str | None = None
     trace_id: str | None = None
 
@@ -55,6 +56,7 @@ class SubagentRuntimeContext:
             execution_session_id=_normalize_optional_str(
                 values.get("execution_session_id")
             ),
+            execution_id=_normalize_optional_str(values.get("execution_id")),
             model_name=_normalize_optional_str(values.get("model_name")),
             trace_id=_normalize_optional_str(values.get("trace_id")),
         )
@@ -111,6 +113,8 @@ def build_subagent_metadata(
             and runtime_context.execution_session_id is not None
         ):
             metadata["execution_session_id"] = runtime_context.execution_session_id
+        if runtime_context.execution_id is not None:
+            metadata["execution_id"] = runtime_context.execution_id
         if include_model and runtime_context.model_name is not None:
             metadata["model_name"] = runtime_context.model_name
 

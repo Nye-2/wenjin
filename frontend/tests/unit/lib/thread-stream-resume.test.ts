@@ -117,7 +117,7 @@ describe("chat stream resume", () => {
         ? JSON.parse(firstRequest.body)
         : null;
     expect(firstBody?.on_disconnect).toBe("continue");
-    expect(firstBody?.multitask_strategy).toBe("reject");
+    expect(firstBody?.multitask_strategy).toBe("interrupt");
     expect(mockAuthorizedFetch.mock.calls[1]?.[0]).toBe(
       "/api/threads/thread-1/runs/run-1/stream"
     );

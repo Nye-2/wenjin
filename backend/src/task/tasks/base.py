@@ -136,21 +136,25 @@ async def _settle_workspace_feature_billing(
     if usage is None:
         return
 
-    task_record = await store.get_task_record(task_id)
-    if task_record is None:
+    # Phase 3: Unified path — payload is the sole source of truth.
+    user_id = str(payload.get("user_id") or payload.get("created_by") or "").strip()
+    workspace_id = str(payload.get("workspace_id") or "").strip() or None
+
+    if not user_id:
+        logger.warning("Cannot settle billing: no user_id for task %s", task_id)
         return
 
-    feature_id = str(payload.get("feature_id") or task_record.feature_id or "").strip()
+    feature_id = str(payload.get("feature_id") or task_record.feature_id if task_record else "").strip()
     if not feature_id:
         return
 
     feature_name = str(payload.get("feature_name") or feature_id).strip()
     params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
     billing = await CreditService(db).consume_for_feature_usage(
-        user_id=task_record.user_id,
+        user_id=user_id,
         feature_id=feature_id,
         token_usage=usage,
-        workspace_id=str(payload.get("workspace_id") or task_record.workspace_id or "") or None,
+        workspace_id=workspace_id,
         task_id=task_id,
         description=f"{feature_name} token 扣费",
         metadata={
@@ -340,10 +344,55 @@ async def _execute_task_async(
     async with get_db_session() as db:
         store = TaskStore(redis_client, db)
 
+        # Phase 2: Unified execution model — atomic dual-write within the same session.
+        execution_record_id: str | None = None
+        if task_type == WORKSPACE_FEATURE_TASK:
+            from src.services.execution_service import ExecutionService
+
+            execution_service = ExecutionService(db)
+            # Gateway may have already created the ExecutionRecord and passed
+            # its id in the payload.  Re-use it to avoid duplicates.
+            existing_execution_id = str(payload.get("execution_id") or "").strip()
+            if existing_execution_id:
+                execution_record = await execution_service.get_by_id(existing_execution_id)
+                if execution_record is not None:
+                    execution_record_id = execution_record.id
+            if not execution_record_id:
+                execution_record = await execution_service.create_execution(
+                    execution_type="feature",
+                    user_id=str(payload.get("user_id") or payload.get("created_by") or ""),
+                    workspace_id=str(payload.get("workspace_id") or "") or None,
+                    thread_id=str(payload.get("thread_id") or "") or None,
+                    feature_id=str(payload.get("feature_id") or "") or None,
+                    entry_skill_id=str(payload.get("skill_id") or "") or None,
+                    workspace_type=str(payload.get("workspace_type") or "") or None,
+                    params=dict(payload.get("params") or {}),
+                    commit=False,
+                )
+                execution_record_id = execution_record.id
+                payload["execution_id"] = execution_record_id
+
         try:
-            # Mark task as started
+            # Phase 3: legacy TaskRecord writes are skipped for feature tasks inside
+            # the store layer, but we still call the method so it can do minimal
+            # status updates needed for idempotency (e.g. mark as running).
             await store.mark_task_started(task_id, worker_id=celery_task.request.hostname)
             await progress.update(0, "Task started")
+
+            # Phase 2+: Start execution tracking
+            if execution_record_id:
+                from src.services.execution_service import ExecutionService
+
+                execution_service = ExecutionService(db)
+                await execution_service.start_execution(execution_record_id, commit=False)
+                from src.services.execution_event_publisher import publish_execution_event
+
+                await publish_execution_event(
+                    execution_record_id,
+                    "execution.status",
+                    {"status": "running", "progress": 0, "message": "Task started"},
+                    workspace_id=str(payload.get("workspace_id") or "") or None,
+                )
 
             # Prometheus metrics
             _task_start_time = time.perf_counter()
@@ -366,24 +415,6 @@ async def _execute_task_async(
                     skill_name=thread_skill_name,
                     subagent_count=0,
                 )
-
-            # Publish task-level workspace event for right panel
-            from src.workspace_events import publish_workspace_event
-
-            await publish_workspace_event(
-                workspace_id,
-                "task.updated",
-                {
-                    "task": {
-                        "task_id": task_id,
-                        "thread_id": str(thread_id) if thread_id else None,
-                        "task_type": task_type,
-                        "feature_id": str(payload.get("feature_id") or "") or None,
-                        "status": "running",
-                        "progress": 0,
-                    }
-                },
-            )
 
             # Dispatch to task-specific handler
             result = await _dispatch_task(task_type, payload, progress)
@@ -408,30 +439,59 @@ async def _execute_task_async(
                     subagent_count=0,
                 )
 
-            # Publish task completion workspace event
-            await publish_workspace_event(
-                workspace_id,
-                "task.updated",
-                {
-                    "task": {
-                        "task_id": task_id,
-                        "thread_id": str(thread_id) if thread_id else None,
-                        "task_type": task_type,
-                        "feature_id": str(payload.get("feature_id") or "") or None,
-                        "status": "success",
-                        "progress": 100,
-                    }
-                },
-            )
-
             track_task_end(task_type, time.perf_counter() - _task_start_time)
 
-            # Terminal state: single DB write + Pub/Sub broadcast
-            # mark_task_completed → DB + Redis (authoritative)
-            # progress.complete  → Redis + Pub/Sub (SSE notification only)
-            await store.mark_task_completed(task_id, success=True, result=result)
+            # Phase 2+: Complete execution record on success (same DB session)
+            if execution_record_id:
+                from src.services.execution_service import ExecutionService
+
+                execution_service = ExecutionService(db)
+                await execution_service.complete_execution(
+                    execution_record_id,
+                    status="completed",
+                    result=result if isinstance(result, dict) else None,
+                    result_summary=str(result.get("message")) if isinstance(result, dict) else None,
+                    commit=False,
+                )
+                from src.services.execution_event_publisher import (
+                    publish_execution_event,
+                    publish_execution_stream_end,
+                )
+
+                await publish_execution_event(
+                    execution_record_id,
+                    "execution.completed",
+                    {
+                        "status": "completed",
+                        "result": result if isinstance(result, dict) else {},
+                    },
+                    workspace_id=str(payload.get("workspace_id") or "") or None,
+                )
+                await publish_execution_stream_end(execution_record_id)
+
+            # Phase 3: legacy TaskRecord writes are skipped for feature tasks inside
+            # the store layer, but we still call the method so it can do minimal
+            # status updates needed for idempotency (e.g. mark as completed).
             success_message = str(result.get("message")) if isinstance(result, Mapping) and result.get("message") else "Task completed"
+            await store.mark_task_completed(task_id, success=True, result=result)
             await progress.complete(success_message)
+
+            # Phase 3: Explicit workspace.refresh when unified (mark_task_completed normally does this)
+            if task_type == WORKSPACE_FEATURE_TASK:
+                workspace_id = str(payload.get("workspace_id") or "").strip()
+                if workspace_id and isinstance(result, dict):
+                    refresh_targets = ["dashboard"]
+                    for target in result.get("refresh_targets") or []:
+                        if isinstance(target, str) and target not in refresh_targets:
+                            refresh_targets.append(target)
+                    from src.workspace_events import publish_workspace_event
+
+                    await publish_workspace_event(
+                        workspace_id,
+                        "workspace.refresh",
+                        {"refresh_targets": refresh_targets},
+                    )
+
             await _sync_document_preprocess_attachment_state(
                 db=db,
                 task_id=task_id,
@@ -475,11 +535,12 @@ async def _execute_task_async(
                 try:
                     from src.services.credit_service import CreditService
 
-                    task_record = await store.get_task_record(task_id)
-                    if task_record is not None:
+                    # Phase 3: Unified path — payload is the sole source of truth.
+                    user_id = str(payload.get("user_id") or payload.get("created_by") or "").strip()
+                    if user_id:
                         credit_service = CreditService(db)
                         refund_tx = await credit_service.refund_failed_task(
-                            user_id=task_record.user_id,
+                            user_id=user_id,
                             original_transaction_id=str(credit_transaction_id),
                             reason="任务执行失败退款",
                             task_id=task_id,
@@ -510,26 +571,33 @@ async def _execute_task_async(
                     subagent_count=0,
                 )
 
-            # Publish task failure workspace event
-            from src.workspace_events import publish_workspace_event
+            # Phase 2+: Complete execution record on failure (same DB session)
+            if execution_record_id:
+                from src.services.execution_service import ExecutionService
 
-            await publish_workspace_event(
-                workspace_id,
-                "task.updated",
-                {
-                    "task": {
-                        "task_id": task_id,
-                        "thread_id": str(thread_id) if thread_id else None,
-                        "task_type": task_type,
-                        "feature_id": str(payload.get("feature_id") or "") or None,
-                        "status": "failed",
-                        "progress": 0,
-                        "error": str(e),
-                    }
-                },
-            )
+                execution_service = ExecutionService(db)
+                await execution_service.complete_execution(
+                    execution_record_id,
+                    status="failed",
+                    error=str(e),
+                    commit=False,
+                )
+                from src.services.execution_event_publisher import (
+                    publish_execution_event,
+                    publish_execution_stream_end,
+                )
 
-            # Terminal state: single DB write + Pub/Sub broadcast
+                await publish_execution_event(
+                    execution_record_id,
+                    "execution.error",
+                    {"status": "failed", "error": str(e)},
+                    workspace_id=str(payload.get("workspace_id") or "") or None,
+                )
+                await publish_execution_stream_end(execution_record_id)
+
+            # Phase 3: legacy TaskRecord writes are skipped for feature tasks inside
+            # the store layer, but we still call the method so it can do minimal
+            # status updates needed for idempotency (e.g. mark as failed).
             await store.mark_task_completed(task_id, success=False, error=str(e))
             await progress.fail(str(e))
             await _sync_document_preprocess_attachment_state(

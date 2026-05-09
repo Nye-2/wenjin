@@ -9,9 +9,7 @@ vi.mock("@/stores/workflow-store", () => ({
   useWorkflowStore: vi.fn(),
 }));
 
-vi.mock("@/app/(workbench)/workspaces/[id]/components/live-workflow/useWorkflowSubscription", () => ({
-  useWorkflowSubscription: vi.fn(),
-}));
+
 
 function mockStore(overrides: Partial<ReturnType<typeof useWorkflowStore>> = {}) {
   const state = {

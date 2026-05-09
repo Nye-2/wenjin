@@ -269,6 +269,18 @@ class FeatureIngressService:
         )
         return str(session.id)
 
+    async def _resolve_existing_execution_id(self, task_id: str) -> str | None:
+        """Get execution_id from an existing task's payload."""
+        try:
+            from src.task.store import TaskStore
+            store = TaskStore(None, self.execution_session_service.db)
+            record = await store.get_task_record(task_id)
+            if record and isinstance(record.payload, dict):
+                return str(record.payload.get("execution_id") or "").strip() or None
+        except Exception:
+            pass
+        return None
+
     async def _handle_execution_outcome(
         self,
         *,
@@ -280,8 +292,20 @@ class FeatureIngressService:
         allow_repoint_to_existing_session: bool,
         workspace_id: str,
         user_id: str,
+        execution_id: str | None = None,
     ) -> FeatureLaunchResult:
         if isinstance(outcome, FeatureTaskSubmission):
+            if outcome.reused_existing_task and execution_id:
+                # Cancel the pre-created ExecutionRecord; it won't be started.
+                try:
+                    from src.services.execution_service import ExecutionService
+                    await ExecutionService(self.execution_session_service.db).cancel_execution(execution_id)
+                except Exception:
+                    pass
+                # Return the existing task's execution_id so the frontend
+                # can subscribe to the correct stream.
+                execution_id = await self._resolve_existing_execution_id(outcome.task_id)
+
             execution_session_id = await self._finalize_submission(
                 session=session,
                 outcome=outcome,
@@ -292,7 +316,22 @@ class FeatureIngressService:
             return FeatureLaunchResult(
                 execution_session_id=execution_session_id,
                 outcome=outcome,
+                execution_id=execution_id,
             )
+
+        # Task was not submitted (advisory).  Complete the ExecutionRecord
+        # so it does not stay in ``pending`` forever.
+        if execution_id:
+            try:
+                from src.services.execution_service import ExecutionService
+
+                await ExecutionService(self.execution_session_service.db).complete_execution(
+                    execution_id,
+                    status="failed",
+                    error=f"Launch advisory: {outcome.code} — {outcome.message}",
+                )
+            except Exception:
+                pass
 
         if outcome.code == "missing_params":
             await self._persist_missing_context(
@@ -305,6 +344,7 @@ class FeatureIngressService:
             return FeatureLaunchResult(
                 execution_session_id=str(session.id),
                 outcome=outcome,
+                execution_id=execution_id,
             )
 
         await self.execution_session_service.update_session_record(
@@ -317,6 +357,7 @@ class FeatureIngressService:
         return FeatureLaunchResult(
             execution_session_id=str(session.id),
             outcome=outcome,
+            execution_id=execution_id,
         )
 
     async def launch(
@@ -393,6 +434,23 @@ class FeatureIngressService:
                     outcome=advisory,
                 )
 
+            # Create ExecutionRecord before task submission so the gateway
+            # can return execution_id to the frontend immediately.
+            from src.services.execution_service import ExecutionService
+
+            execution_service = ExecutionService(self.execution_session_service.db)
+            execution_record = await execution_service.create_execution(
+                execution_type="feature",
+                user_id=self.actor_id,
+                workspace_id=workspace_id,
+                thread_id=command.thread_id or session.thread_id,
+                feature_id=feature.id,
+                entry_skill_id=command.skill_id or session.entry_skill_id,
+                workspace_type=str(session.workspace_type) if session.workspace_type else None,
+                params=dict(merged_params),
+            )
+            execution_id = execution_record.id
+
             try:
                 outcome = await self.feature_submission_service.execute(
                     workspace_id,
@@ -403,6 +461,7 @@ class FeatureIngressService:
                     idempotency_key=command.idempotency_key,
                     redis_client=command.redis_client,
                     execution_session_id=str(session.id),
+                    execution_id=execution_id,
                 )
             except Exception as exc:
                 await self.execution_session_service.update_session(
@@ -421,6 +480,7 @@ class FeatureIngressService:
                 allow_repoint_to_existing_session=False,
                 workspace_id=workspace_id,
                 user_id=self.actor_id,
+                execution_id=execution_id,
             )
 
         if not resolved_feature_id:
@@ -470,6 +530,23 @@ class FeatureIngressService:
                 outcome=advisory,
             )
 
+        # Create ExecutionRecord before task submission so the gateway
+        # can return execution_id to the frontend immediately.
+        from src.services.execution_service import ExecutionService
+
+        execution_service = ExecutionService(self.execution_session_service.db)
+        execution_record = await execution_service.create_execution(
+            execution_type="feature",
+            user_id=self.actor_id,
+            workspace_id=workspace_id,
+            thread_id=command.thread_id,
+            feature_id=feature.id,
+            entry_skill_id=command.skill_id,
+            workspace_type=workspace_type,
+            params=dict(resolved_params),
+        )
+        execution_id = execution_record.id
+
         try:
             outcome = await self.feature_submission_service.execute(
                 workspace_id,
@@ -480,6 +557,7 @@ class FeatureIngressService:
                 idempotency_key=command.idempotency_key,
                 redis_client=command.redis_client,
                 execution_session_id=str(session.id),
+                execution_id=execution_id,
             )
         except Exception as exc:
             await self.execution_session_service.update_session(
@@ -498,4 +576,5 @@ class FeatureIngressService:
             allow_repoint_to_existing_session=True,
             workspace_id=workspace_id,
             user_id=self.actor_id,
+            execution_id=execution_id,
         )

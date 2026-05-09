@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { subscribeWorkspaceEvents, type WorkspaceEvent } from "@/lib/api";
 import { useThreadStore } from "@/stores/thread";
 import { useDashboardStore } from "@/stores/dashboard";
 import { useComputeStore } from "@/stores/compute";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useWorkflowStore } from "@/stores/workflow-store";
+import { useExecutionStream } from "@/hooks/useExecutionStream";
 
 function normalizePreview(value: string | null | undefined): string | null {
   if (typeof value !== "string") {
@@ -131,6 +133,8 @@ function handleWorkspaceEvent(
       ) {
         chatStore.syncAttachmentPreprocessTask(event.task);
       }
+      // Forward to workflow store for live panel rendering
+      useWorkflowStore.getState().upsertTaskEvent(event.task);
       break;
     }
     case "thread.status":
@@ -169,10 +173,19 @@ function handleWorkspaceEvent(
       } else {
         refreshWorkspaceTargets(workspaceId, ["activity"]);
       }
+      // Forward to workflow store for live panel rendering
+      useWorkflowStore.getState().upsertSubagentEvent(event);
       break;
     case "workspace.refresh":
       refreshWorkspaceTargets(workspaceId, event.refresh_targets || []);
       break;
+    case "execution.updated":
+    case "execution.completed":
+    case "execution.failed": {
+      // Phase 6: Unified execution notifications — route to execution store
+      // via the execution stream subscriber managed by useWorkspaceEventStream.
+      break;
+    }
     case "workspace.ready":
       break;
     default:
@@ -181,6 +194,11 @@ function handleWorkspaceEvent(
 }
 
 export function useWorkspaceEventStream(workspaceId: string | null) {
+  const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
+
+  // Subscribe to the unified execution stream when an execution is active.
+  useExecutionStream(activeExecutionId);
+
   const lastThreadRefreshKeyRef = useRef<string | null>(null);
   const inFlightThreadRefreshKeyRef = useRef<string | null>(null);
   const inFlightComputeHydrateRef = useRef(false);
@@ -249,6 +267,27 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
         workspaceId,
         (event) => {
           reconnectAttempts = 0;
+
+          // Phase 6: When a unified execution notification arrives, start
+          // (or stop) the execution stream subscription.
+          if (
+            event.type === "execution.updated" ||
+            event.type === "execution.completed" ||
+            event.type === "execution.failed"
+          ) {
+            if (event.execution_id) {
+              if (event.status === "running") {
+                setActiveExecutionId(event.execution_id);
+              } else if (
+                event.event_type === "execution.completed" ||
+                event.event_type === "execution.error"
+              ) {
+                // Terminal — give the stream a few seconds to drain
+                window.setTimeout(() => setActiveExecutionId(null), 3000);
+              }
+            }
+          }
+
           handleWorkspaceEvent(workspaceId, event, {
             scheduleThreadRefresh,
             scheduleComputeHydrate,

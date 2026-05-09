@@ -783,17 +783,12 @@ export interface ComputeProjection {
   review_gate: ComputeReviewGateProjection;
 }
 
-export interface WorkspaceExecutionCreatedEvent {
-  type: "execution.created";
-  workspace_id: string;
-  execution: ExecutionSession;
-  timestamp?: string;
-}
-
 export interface WorkspaceExecutionUpdatedEvent {
   type: "execution.updated" | "execution.completed" | "execution.failed";
   workspace_id: string;
-  execution: ExecutionSession;
+  execution_id: string;
+  event_type: string;
+  status?: string | null;
   timestamp?: string;
 }
 
@@ -834,7 +829,6 @@ export type WorkspaceEvent =
   | WorkspaceThreadStatusEvent
   | WorkspaceThreadUpdatedEvent
   | WorkspaceThreadDeletedEvent
-  | WorkspaceExecutionCreatedEvent
   | WorkspaceExecutionUpdatedEvent
   | WorkspaceSubagentUpdatedEvent
   | WorkspaceComputeSessionEvent;
@@ -1368,3 +1362,120 @@ export interface ThreadBlockEvent {
   message_id: string;
   block: AgentBlock;
 }
+
+// =============================================================================
+// Unified Execution Model Types (Phase 1)
+// =============================================================================
+
+export type ExecutionType = "chat_turn" | "feature" | "subagent" | "tool" | "advisory";
+
+export type ExecutionStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "awaiting_user_input";
+
+export interface ExecutionRecord {
+  id: string;
+  user_id: string;
+  workspace_id?: string | null;
+  thread_id?: string | null;
+  execution_type: ExecutionType;
+  feature_id?: string | null;
+  entry_skill_id?: string | null;
+  workspace_type?: string | null;
+  status: ExecutionStatus;
+  params: Record<string, unknown>;
+  result?: Record<string, unknown> | null;
+  error?: string | null;
+  result_summary?: string | null;
+  graph_structure?: ExecutionGraphStructure | null;
+  node_states: Record<string, ExecutionNodeState>;
+  runtime_state?: Record<string, unknown> | null;
+  progress: number;
+  message?: string | null;
+  artifact_ids: string[];
+  next_actions: Record<string, unknown>[];
+  advisory_code?: string | null;
+  last_error?: string | null;
+  parent_execution_id?: string | null;
+  child_execution_ids: string[];
+  dispatch_mode?: string | null;
+  worker_task_id?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  updated_at: string;
+}
+
+export interface ExecutionGraphStructure {
+  nodes: ExecutionGraphNode[];
+  edges: ExecutionGraphEdge[];
+}
+
+export interface ExecutionGraphNode {
+  id: string;
+  type: string;
+  label?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExecutionGraphEdge {
+  from: string;
+  to: string;
+  label?: string;
+}
+
+export interface ExecutionNodeState {
+  status?: string;
+  output_preview?: string | null;
+  token_usage?: Record<string, number> | null;
+  thinking?: string | null;
+  tool_calls?: Record<string, unknown>[] | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface ExecutionNodeRecord {
+  id: string;
+  execution_id: string;
+  parent_node_id?: string | null;
+  node_id: string;
+  node_type: string;
+  label?: string | null;
+  status: string;
+  input_data?: Record<string, unknown> | null;
+  output_data?: Record<string, unknown> | null;
+  thinking?: string | null;
+  tool_calls?: Record<string, unknown>[] | null;
+  token_usage?: Record<string, unknown> | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Execution stream events (SSE)
+export type ExecutionStreamEventType =
+  | "execution.metadata"
+  | "execution.graph_structure"
+  | "execution.node.started"
+  | "execution.node.delta"
+  | "execution.node.completed"
+  | "execution.node.failed"
+  | "execution.status"
+  | "execution.completed"
+  | "execution.error"
+  | "execution.end";
+
+export interface ExecutionStreamEvent {
+  execution_id: string;
+  type: ExecutionStreamEventType;
+  timestamp: string;
+  payload: Record<string, unknown>;
+}
+
+

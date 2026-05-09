@@ -783,56 +783,103 @@ class GlobalSubagentManager:
         result: SubagentResult | None = None,
         activity: dict[str, object] | None = None,
     ) -> None:
-        """Mirror subagent lifecycle into the workspace event stream."""
+        """Mirror subagent lifecycle into the workspace event stream.
+
+        Phase 3: Also publishes to the unified execution stream when
+        ``execution_id`` is present in task metadata.
+        """
         execution_session_id = str(
             task.metadata.get("execution_session_id") or ""
         ).strip()
-        if not execution_session_id:
+        execution_id = str(task.metadata.get("execution_id") or "").strip()
+        if not execution_session_id and not execution_id:
             logger.debug(
                 "Skipping subagent.updated for task %s because execution_session_id is missing",
                 task.task_id,
             )
             return
-        try:
-            from src.workspace_events import publish_workspace_event
 
-            subagent_payload: dict[str, Any] = {
-                "task_id": task.task_id,
-                "thread_id": task.thread_id,
-                "execution_session_id": execution_session_id,
-                "status": status,
-                "subagent_type": task.metadata.get("subagent_type"),
-                "workflow_phase": task.metadata.get("workflow_phase"),
-                "workflow_phase_index": task.metadata.get("workflow_phase_index"),
-                "workflow_task_index": task.metadata.get("workflow_task_index"),
-                "workflow_strategy": task.metadata.get("workflow_strategy"),
-                "output_preview": self._truncate_preview(result.output if result else None),
-                "output": result.output if result else None,
-                "error": result.error if result else None,
-            }
-            result_metadata = result.metadata if result and isinstance(result.metadata, dict) else {}
-            usage = extract_persisted_metadata_usage(result_metadata)
-            if usage is not None:
-                subagent_payload["token_usage"] = usage.as_dict()
-            model_name = result_metadata.get("model_name")
-            if not model_name:
-                model_name = task.metadata.get("model_name")
-            if isinstance(model_name, str) and model_name.strip():
-                subagent_payload["model_name"] = model_name.strip()
-            await publish_workspace_event(
-                workspace_id,
-                "subagent.updated",
-                {
-                    "subagent": subagent_payload,
-                }
-                | ({"activity": activity} if activity is not None else {}),
-            )
-        except Exception:
-            logger.debug(
-                "Failed to publish subagent update for thread %s",
-                task.thread_id,
-                exc_info=True,
-            )
+        # Build common payload
+        subagent_payload: dict[str, Any] = {
+            "task_id": task.task_id,
+            "thread_id": task.thread_id,
+            "execution_session_id": execution_session_id or None,
+            "status": status,
+            "subagent_type": task.metadata.get("subagent_type"),
+            "workflow_phase": task.metadata.get("workflow_phase"),
+            "workflow_phase_index": task.metadata.get("workflow_phase_index"),
+            "workflow_task_index": task.metadata.get("workflow_task_index"),
+            "workflow_strategy": task.metadata.get("workflow_strategy"),
+            "output_preview": self._truncate_preview(result.output if result else None),
+            "output": result.output if result else None,
+            "error": result.error if result else None,
+        }
+        result_metadata = result.metadata if result and isinstance(result.metadata, dict) else {}
+        usage = extract_persisted_metadata_usage(result_metadata)
+        if usage is not None:
+            subagent_payload["token_usage"] = usage.as_dict()
+        model_name = result_metadata.get("model_name")
+        if not model_name:
+            model_name = task.metadata.get("model_name")
+        if isinstance(model_name, str) and model_name.strip():
+            subagent_payload["model_name"] = model_name.strip()
+
+        # Publish to unified execution stream
+        if execution_id:
+            try:
+                from src.services.execution_event_publisher import publish_execution_event
+
+                event_type = (
+                    "execution.node.completed"
+                    if status in ("completed", "success")
+                    else "execution.node.failed"
+                    if status in ("failed", "error")
+                    else "execution.node.started"
+                    if status == "running"
+                    else "execution.node.delta"
+                )
+                await publish_execution_event(
+                    execution_id,
+                    event_type,
+                    {
+                        "node_id": task.task_id,
+                        "node_type": task.metadata.get("subagent_type", "subagent"),
+                        "status": status,
+                        "output_preview": subagent_payload.get("output_preview"),
+                        "output": subagent_payload.get("output"),
+                        "error": subagent_payload.get("error"),
+                        "token_usage": usage.as_dict() if usage else None,
+                        "model_name": model_name,
+                    },
+                    workspace_id=workspace_id,
+                    publish_to_workspace=False,
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to publish execution node event for task %s",
+                    task.task_id,
+                    exc_info=True,
+                )
+
+        # Phase 4: Feature tasks use the execution stream; skip legacy workspace event.
+        if execution_session_id:
+            try:
+                from src.workspace_events import publish_workspace_event
+
+                await publish_workspace_event(
+                    workspace_id,
+                    "subagent.updated",
+                    {
+                        "subagent": subagent_payload,
+                    }
+                    | ({"activity": activity} if activity is not None else {}),
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to publish subagent update for thread %s",
+                    task.thread_id,
+                    exc_info=True,
+                )
 
     async def _persist_subagent_activity(
         self,

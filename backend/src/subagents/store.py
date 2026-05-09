@@ -81,6 +81,9 @@ class SubagentTaskStore:
         ).strip()
         if not execution_session_id:
             raise ValueError("execution_session_id is required for subagent task persistence")
+        execution_id = str(
+            task_metadata.get("execution_id") or ""
+        ).strip() or None
         full_output = result.output if result else None
         output_preview = _truncate_preview(full_output)
         error = result.error if result else None
@@ -101,6 +104,7 @@ class SubagentTaskStore:
                 execution_session_id=(
                     execution_session_id
                 ),
+                execution_id=execution_id,
                 thread_id=task.thread_id,
                 subagent_type=str(subagent_type) if subagent_type is not None else None,
                 status=status,
@@ -120,6 +124,7 @@ class SubagentTaskStore:
             record.execution_session_id = (
                 execution_session_id
             )
+            record.execution_id = execution_id
             record.subagent_type = str(subagent_type) if subagent_type is not None else None
             record.output_preview = output_preview
             record.output = full_output

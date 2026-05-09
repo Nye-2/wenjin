@@ -20,7 +20,7 @@ from src.services.workspace_activity_contracts import (
     build_task_activity_item,
     serialize_activity_item,
 )
-from src.task.registry import TaskStatus
+from src.task.registry import WORKSPACE_FEATURE_TASK, TaskStatus
 from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
@@ -286,11 +286,25 @@ class TaskStore:
 
         Updates both TaskRecord and ExecutionSession in a single DB transaction
         so that the two sources cannot diverge if one commit fails.
+
+        Phase 5: When unified execution is active for feature tasks, this
+        method is a no-op — the ExecutionRecord lifecycle is managed by
+        ``ExecutionService`` in ``task/tasks/base.py``.
         """
-        started_at = datetime.now(UTC)
         record = await self.get_task_record(task_id)
         if not record:
             return
+
+        from src.task.registry import WORKSPACE_FEATURE_TASK
+
+        if record.task_type == WORKSPACE_FEATURE_TASK:
+            # Phase 5: unified path only — minimal status update for idempotency
+            record.status = TaskStatus.RUNNING.value
+            record.started_at = datetime.now(UTC)
+            await self._db.commit()
+            return
+
+        started_at = datetime.now(UTC)
 
         # Modify TaskRecord in-memory (not yet flushed)
         record.status = TaskStatus.RUNNING.value
@@ -376,16 +390,24 @@ class TaskStore:
         """Persist task runtime metadata to PostgreSQL for refresh/reconnect recovery.
 
         Updates both TaskRecord and ExecutionSession in a single DB transaction.
+
+        Phase 5: When unified execution is active for feature tasks, this
+        method is a no-op — runtime state is carried by the execution stream.
         """
+        record = await self.get_task_record(task_id)
+        if not record:
+            return
+
+        from src.task.registry import WORKSPACE_FEATURE_TASK
+
+        if record.task_type == WORKSPACE_FEATURE_TASK:
+            return
+
         runtime_state: dict[str, Any] | None = None
         if isinstance(metadata, dict):
             runtime_candidate = metadata.get("runtime")
             if isinstance(runtime_candidate, dict):
                 runtime_state = runtime_candidate
-
-        record = await self.get_task_record(task_id)
-        if not record:
-            return
 
         # Modify TaskRecord in-memory (not yet flushed)
         if runtime_state is not None:
@@ -455,16 +477,30 @@ class TaskStore:
 
         Updates both TaskRecord and ExecutionSession in a single DB transaction
         so that the two sources cannot diverge if one commit fails.
+
+        Phase 5: When unified execution is active for feature tasks, this
+        method is a no-op — completion is handled by ``ExecutionService``.
         """
+        record = await self.get_task_record(task_id)
+        if not record:
+            return
+
+        from src.task.registry import WORKSPACE_FEATURE_TASK
+
+        if record.task_type == WORKSPACE_FEATURE_TASK:
+            # Phase 5: unified path only — minimal status update for idempotency
+            record.status = TaskStatus.COMPLETED.value if success else TaskStatus.FAILED.value
+            record.completed_at = datetime.now(UTC)
+            if error:
+                record.error = error
+            await self._db.commit()
+            return
+
         status = TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value
         runtime_state = await self.get_task_state(task_id)
         final_progress = 100 if success else runtime_state.get("progress", 0) if runtime_state else 0
         final_message = error or runtime_state.get("message") if runtime_state else error
         completed_at = datetime.now(UTC)
-
-        record = await self.get_task_record(task_id)
-        if not record:
-            return
 
         # Derive result_summary, artifact_ids, next_actions before the tx
         result_summary = final_message if isinstance(final_message, str) and final_message else None

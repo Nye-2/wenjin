@@ -183,7 +183,6 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     const assistantMessageId = `assistant-${crypto.randomUUID()}`;
     let assistantContent = '';
     let assistantReasoning = '';
-    let streamAcceptedByServer = false;
     const assistantMessage = createPlaceholderAssistantMessage({
       id: assistantMessageId,
       createdAt: new Date().toISOString(),
@@ -223,7 +222,6 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         }));
       },
       ({ threadId: newThreadId, skill, skillName }) => {
-        streamAcceptedByServer = true;
         const createdAt = new Date().toISOString();
         set((state) => {
           const nextSkillState = syncCurrentSkillWithThread({
@@ -261,7 +259,6 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         });
       },
       (assistantMessage) => {
-        streamAcceptedByServer = true;
         const hydratedMessage = createStoreAssistantMessage({
           fallbackId: assistantMessageId,
           fallbackCreatedAt: new Date().toISOString(),
@@ -282,9 +279,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
             isSkillSelectionPending: false,
             pendingSkillWorkspaceId: null,
             _abortStream: null,
-            messages: streamAcceptedByServer
-              ? cleanedMessages
-              : cleanedMessages.filter((message) => message.id !== userMessageId),
+            messages: cleanedMessages,
           };
         });
       },
@@ -292,7 +287,6 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         set({ isStreaming: false, _abortStream: null });
       },
       ({ messageId, block }) => {
-        streamAcceptedByServer = true;
         set((state) => ({
           messages: appendAgentBlock(state.messages, messageId, block),
         }));
@@ -328,6 +322,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       return state.threadId;
     }
     const shouldResetMessages = !options?.forceRefresh;
+    const preCallMessagesLength = shouldResetMessages ? 0 : state.messages.length;
     set(() => ({
       isWorkspaceThreadLoading: true,
       isThreadLoading: true,
@@ -350,18 +345,39 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           })
         : createCommittedSkillState(detail.skill ?? null);
 
-      set({
-        messages,
-        ...nextSkillState,
-        pendingSkillWorkspaceId: nextSkillState.isSkillSelectionPending
-          ? normalizeWorkspaceId(workspaceId)
-          : null,
-        threadId: detail.id,
-        currentThreadSummary: summary,
-        isWorkspaceThreadLoading: false,
-        isThreadLoading: false,
-        error: null,
-      });
+      const stateAfter = get();
+      const hasLocalInflight =
+        stateAfter.isStreaming ||
+        stateAfter.messages.length !== preCallMessagesLength;
+
+      if (hasLocalInflight) {
+        // Local messages were added while the API call was in flight;
+        // do not overwrite them. Only update thread metadata.
+        set({
+          ...nextSkillState,
+          pendingSkillWorkspaceId: nextSkillState.isSkillSelectionPending
+            ? normalizeWorkspaceId(workspaceId)
+            : null,
+          threadId: detail.id,
+          currentThreadSummary: summary,
+          isWorkspaceThreadLoading: false,
+          isThreadLoading: false,
+          error: null,
+        });
+      } else {
+        set({
+          messages,
+          ...nextSkillState,
+          pendingSkillWorkspaceId: nextSkillState.isSkillSelectionPending
+            ? normalizeWorkspaceId(workspaceId)
+            : null,
+          threadId: detail.id,
+          currentThreadSummary: summary,
+          isWorkspaceThreadLoading: false,
+          isThreadLoading: false,
+          error: null,
+        });
+      }
       return detail.id;
     } catch (error) {
       set({

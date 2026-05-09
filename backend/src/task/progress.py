@@ -136,7 +136,14 @@ class ProgressTracker:
         *,
         now: str | None = None,
     ) -> None:
-        """Publish progress event to Pub/Sub subscribers."""
+        """Publish progress event to Pub/Sub subscribers.
+
+        Phase 4: When unified execution is active for feature tasks, the
+        execution stream replaces ``task.updated`` workspace events.
+        Redis pub/sub and the execution stream remain the primary channels.
+        """
+        from src.task.registry import WORKSPACE_FEATURE_TASK
+
         ts = now or datetime.now(UTC).isoformat()
         event_payload = {
             "task_id": self._task_id,
@@ -150,36 +157,42 @@ class ProgressTracker:
         event_data = dumps_json(event_payload)
         await self._redis.client.publish(self._channel_name(), event_data)
 
-        if self._workspace_id and status == TaskStatus.RUNNING.value:
-            from src.workspace_events import publish_workspace_event
+        if not self._workspace_id or status != TaskStatus.RUNNING.value:
+            return
 
-            await publish_workspace_event(
-                self._workspace_id,
-                "task.updated",
-                {
-                    "task": {
+        # Phase 4: Feature tasks use the execution stream; skip legacy workspace event.
+        if self._task_type == WORKSPACE_FEATURE_TASK:
+            return
+
+        from src.workspace_events import publish_workspace_event
+
+        await publish_workspace_event(
+            self._workspace_id,
+            "task.updated",
+            {
+                "task": {
                     "task_id": self._task_id,
                     "execution_session_id": self._execution_session_id,
                     "task_type": self._task_type,
-                        "status": status,
-                        "progress": progress,
-                        "message": message,
-                        "current_step": current_step,
-                        "feature_id": self._feature_id,
-                        "thread_id": self._thread_id,
-                        "metadata": metadata,
-                    }
+                    "status": status,
+                    "progress": progress,
+                    "message": message,
+                    "current_step": current_step,
+                    "feature_id": self._feature_id,
+                    "thread_id": self._thread_id,
+                    "metadata": metadata,
                 }
-                | {
-                    "activity": self._build_activity_payload(
-                        status=status,
-                        progress=progress,
-                        message=message,
-                        metadata=metadata,
-                        occurred_at=ts,
-                    )
-                },
-            )
+            }
+            | {
+                "activity": self._build_activity_payload(
+                    status=status,
+                    progress=progress,
+                    message=message,
+                    metadata=metadata,
+                    occurred_at=ts,
+                )
+            },
+        )
 
     async def update(
         self,
@@ -224,8 +237,8 @@ class ProgressTracker:
             now=ts,
         )
 
-        # DB flush (only on stage transitions)
-        if stage_transition:
+        # DB flush (only on stage transitions, and only for non-feature tasks)
+        if stage_transition and self._task_type != WORKSPACE_FEATURE_TASK:
             from src.database import get_db_session
             from src.task.store import TaskStore
 

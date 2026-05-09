@@ -10,15 +10,15 @@ describe("TextBlock", () => {
     expect(screen.getByText("好，先扫文献")).toBeInTheDocument();
   });
 
-  it("preserves whitespace and newlines", () => {
+  it("preserves whitespace and newlines via markdown paragraph rendering", () => {
     render(
       <TextBlock
         block={{ kind: "text", content: "line one\n\nline three" }}
       />,
     );
-    const el = screen.getByText(/line one/);
-    // CSS class encodes whitespace preservation
-    expect(el.className).toMatch(/whitespace-pre-wrap/);
+    // MarkdownRenderer parses double newlines into separate <p> tags
+    expect(screen.getByText(/line one/)).toBeInTheDocument();
+    expect(screen.getByText(/line three/)).toBeInTheDocument();
   });
 });
 

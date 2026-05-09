@@ -69,7 +69,7 @@ export function streamThread(
   const controller = new AbortController();
   const requestPayload: RunRequest = {
     on_disconnect: "continue",
-    multitask_strategy: "reject",
+    multitask_strategy: "interrupt",
     ...data,
   };
   const requestBody = JSON.stringify(requestPayload);

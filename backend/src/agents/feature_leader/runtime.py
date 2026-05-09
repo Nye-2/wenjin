@@ -74,6 +74,7 @@ class FeatureLeaderRuntime:
             "thread_id": _normalize_text(payload.get("thread_id")),
             "user_id": _normalize_text(payload.get("user_id") or payload.get("created_by")),
             "execution_session_id": execution_session_id,
+            "execution_id": _normalize_text(payload.get("execution_id")),
             "model_name": _normalize_text(params.get("model_id") or payload.get("model_id")),
             "trace_id": _normalize_text(
                 payload.get("trace_id") or execution_session_id or payload.get("task_id")

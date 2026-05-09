@@ -6,6 +6,7 @@ from .clarification import ClarificationMiddleware
 from .dangling_tool_call import DanglingToolCallMiddleware
 from .discipline_context import DisciplineContextMiddleware
 from .execution import ExecutionMiddleware
+from .guardrail import GuardrailMiddleware, GuardrailViolation
 from .knowledge_context import KnowledgeContextMiddleware
 from .literature_context import LiteratureContextMiddleware
 from .llm_error_handling import LLMErrorHandlingMiddleware
@@ -13,6 +14,7 @@ from .loop_detection import LoopDetectionMiddleware
 from .memory import MemoryMiddleware
 from .sandbox import SandboxMiddleware
 from .sandbox_audit import SandboxAuditMiddleware
+from .subagent_limit import SubagentLimitExceeded, SubagentLimitMiddleware
 from .summarization import (
     SummarizationMiddleware,
     SummarizationSettings,
@@ -40,6 +42,8 @@ __all__ = [
     "Middleware",
     "SandboxAuditMiddleware",
     "SandboxMiddleware",
+    "SubagentLimitExceeded",
+    "SubagentLimitMiddleware",
     "SummarizationMiddleware",
     "SummarizationSettings",
     "ThreadDataMiddleware",
@@ -49,5 +53,7 @@ __all__ = [
     "UploadsMiddleware",
     "ViewImageMiddleware",
     "WorkspaceContextMiddleware",
+    "GuardrailMiddleware",
+    "GuardrailViolation",
     "resolve_summarization_settings",
 ]
