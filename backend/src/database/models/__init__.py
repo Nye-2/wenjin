@@ -37,6 +37,7 @@ from .task import TaskRecord
 from .thread import Thread
 from .user import User
 from .workspace import Workspace, WorkspaceType
+from .workspace_settings import WorkspaceSettings
 from .workspace_template import WorkspaceTemplate
 
 __all__ = [
@@ -45,6 +46,7 @@ __all__ = [
     # Workspace
     "Workspace",
     "WorkspaceType",
+    "WorkspaceSettings",
     # Reference Library
     "WorkspaceReference",
     "ReferenceExternalId",

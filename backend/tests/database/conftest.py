@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import JSON, REAL, Boolean, ForeignKey, String, func
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -68,6 +68,40 @@ class _Workspace(_Base):
     )
 
 
+class _WorkspaceSettings(_Base):
+    """SQLite-compatible mirror of WorkspaceSettings for database contract tests.
+
+    Uses JSON instead of JSONB since SQLite does not support JSONB.
+    """
+
+    __tablename__ = "workspace_settings"
+
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    default_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    thinking_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True,
+    )
+    sandbox_provider: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="local",
+    )
+    auto_compact_threshold: Mapped[float] = mapped_column(
+        REAL, nullable=False, default=0.8,
+    )
+    capability_overrides: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict,
+    )
+    metadata_json: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict,
+    )
+    updated_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(), onupdate=func.now(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -115,3 +149,4 @@ async def test_session(_db_engine) -> AsyncGenerator[AsyncSession, None]:
 DbUser = _User
 DbThread = _Thread
 DbWorkspace = _Workspace
+DbWorkspaceSettings = _WorkspaceSettings

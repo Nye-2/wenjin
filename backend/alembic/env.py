@@ -33,6 +33,7 @@ from src.database.models import (  # noqa: F401
     UserKnowledge,
     Workspace,
     WorkspaceReference,
+    WorkspaceSettings,
 )
 
 # Alembic Config object

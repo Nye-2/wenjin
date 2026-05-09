@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from .reference import WorkspaceReference
     from .thread import Thread
     from .user import User
+    from .workspace_settings import WorkspaceSettings
 
 
 class WorkspaceType(enum.StrEnum):
@@ -106,6 +107,12 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         "Thread",
         back_populates="workspace",
         passive_deletes=True,
+    )
+    settings: Mapped["WorkspaceSettings | None"] = relationship(
+        "WorkspaceSettings",
+        back_populates="workspace",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
