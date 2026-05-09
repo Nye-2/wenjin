@@ -30,3 +30,4 @@ backend/docker/images/texlive/*.tar
 
 # Superpowers brainstorming sessions
 .superpowers/
+frontend/test-results/
