@@ -10,10 +10,10 @@ interface RunsDrawerProps {
 }
 
 const STATUS_COLORS: Record<RunRecord["status"], string> = {
-  completed: "var(--v2-status-success)",
+  completed: "var(--v2-status-success-deep)",
   failed: "var(--v2-status-error)",
   cancelled: "var(--v2-text-tertiary)",
-  running: "var(--v2-status-running)",
+  running: "var(--v2-status-running-deep)",
 };
 
 const STATUS_BG: Record<RunRecord["status"], string> = {

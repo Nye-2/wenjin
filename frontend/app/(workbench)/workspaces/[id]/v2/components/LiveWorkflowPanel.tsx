@@ -2,6 +2,7 @@
 
 import { useExecutionStreamV2 } from "@/hooks/useExecutionStreamV2";
 import { GraphCanvas } from "./GraphCanvas";
+import { NodeDetailDrawer } from "./NodeDetailDrawer";
 
 interface LiveWorkflowPanelProps {
   workspaceId: string;
@@ -78,62 +79,13 @@ export function LiveWorkflowPanel({
         )}
       </div>
 
-      {/* Node detail drawer placeholder -- Task 3.7 */}
-      {selectedNodeId && (
-        <div
-          style={{
-            position: "absolute",
-            right: 0,
-            top: 0,
-            bottom: 0,
-            width: 360,
-            background: "rgba(255, 255, 255, 0.85)",
-            backdropFilter: "blur(20px)",
-            WebkitBackdropFilter: "blur(20px)",
-            borderLeft: "1px solid rgba(20, 20, 30, 0.08)",
-            padding: 20,
-            zIndex: 10,
-          }}
-          data-testid="node-detail-drawer"
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 12,
-            }}
-          >
-            <span
-              style={{
-                fontWeight: 600,
-                color: "var(--v2-text-primary)",
-              }}
-            >
-              Node: {selectedNodeId}
-            </span>
-            <button
-              onClick={() => selectNode(null)}
-              style={{
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                fontSize: 18,
-                color: "var(--v2-text-tertiary)",
-              }}
-            >
-              ✕
-            </button>
-          </div>
-          <div
-            style={{
-              fontSize: 13,
-              color: "var(--v2-text-secondary)",
-            }}
-          >
-            Loading node details...
-          </div>
-        </div>
+      {/* Node detail drawer */}
+      {selectedNodeId && executionId && (
+        <NodeDetailDrawer
+          executionId={executionId}
+          nodeId={selectedNodeId}
+          onClose={() => selectNode(null)}
+        />
       )}
     </div>
   );

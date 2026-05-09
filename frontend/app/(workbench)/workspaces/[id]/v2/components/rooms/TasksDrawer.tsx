@@ -17,8 +17,8 @@ interface TasksDrawerProps {
 
 const STATUS_COLORS: Record<WorkspaceTask["status"], string> = {
   pending: "var(--v2-text-secondary)",
-  in_progress: "var(--v2-status-running)",
-  completed: "var(--v2-status-success)",
+  in_progress: "var(--v2-status-running-deep)",
+  completed: "var(--v2-status-success-deep)",
   cancelled: "var(--v2-text-tertiary)",
 };
 

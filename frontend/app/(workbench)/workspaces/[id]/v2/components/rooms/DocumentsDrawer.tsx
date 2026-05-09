@@ -23,8 +23,8 @@ const KIND_LABELS: Record<Document["doc_kind"], string> = {
 
 const KIND_COLORS: Record<Document["doc_kind"], string> = {
   draft: "var(--v2-accent-purple-700)",
-  outline: "var(--v2-status-running)",
-  figure: "var(--v2-status-success)",
+  outline: "var(--v2-status-running-deep)",
+  figure: "var(--v2-status-success-deep)",
   export: "var(--v2-accent-blue-700)",
   upload: "var(--v2-text-secondary)",
 };

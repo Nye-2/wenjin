@@ -4,6 +4,8 @@ interface RoomsTopbarProps {
   workspaceId: string;
   className?: string;
   "data-testid"?: string;
+  activeRoom?: string | null;
+  onRoomSelect?: (room: RoomKey | null) => void;
 }
 
 const ROOMS = [
@@ -17,10 +19,14 @@ const ROOMS = [
   { key: "settings", label: "Settings", icon: "⚙️" },
 ] as const;
 
+export type RoomKey = (typeof ROOMS)[number]["key"];
+
 export function RoomsTopbar({
   workspaceId,
   className,
   "data-testid": testId,
+  activeRoom,
+  onRoomSelect,
 }: RoomsTopbarProps) {
   return (
     <div
@@ -53,6 +59,9 @@ export function RoomsTopbar({
           key={room.key}
           title={room.label}
           aria-label={room.label}
+          onClick={() =>
+            onRoomSelect?.(activeRoom === room.key ? null : room.key)
+          }
           style={{
             display: "flex",
             alignItems: "center",
@@ -60,17 +69,27 @@ export function RoomsTopbar({
             width: 32,
             height: 32,
             borderRadius: 8,
-            border: "none",
-            background: "transparent",
+            border:
+              activeRoom === room.key
+                ? "1px solid var(--v2-accent-purple-300)"
+                : "none",
+            background:
+              activeRoom === room.key
+                ? "var(--v2-accent-purple-100)"
+                : "transparent",
             cursor: "pointer",
             fontSize: 14,
             transition: "background 150ms cubic-bezier(0.16, 1, 0.3, 1)",
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = "rgba(20, 20, 30, 0.06)";
+            if (activeRoom !== room.key) {
+              e.currentTarget.style.background = "rgba(20, 20, 30, 0.06)";
+            }
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
+            if (activeRoom !== room.key) {
+              e.currentTarget.style.background = "transparent";
+            }
           }}
         >
           {room.icon}

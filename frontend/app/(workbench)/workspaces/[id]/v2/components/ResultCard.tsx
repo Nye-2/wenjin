@@ -56,7 +56,7 @@ type ResultOutput =
       data: { title: string; description?: string; priority?: number };
     };
 
-interface ResultCardFullData {
+export type ResultCardFullData = {
   execution_id: string;
   capability_id?: string;
   capability_name?: string;
@@ -113,8 +113,10 @@ export function ResultCard({ data }: ResultCardProps) {
     status,
     duration_seconds,
     narrative,
-    outputs,
+    outputs: rawOutputs,
   } = data;
+
+  const outputs = Array.isArray(rawOutputs) ? rawOutputs : [];
 
   // Idempotency key: generated once per mount
   const [idempotencyKey] = useState(() => generateUUID());
