@@ -5,6 +5,15 @@ import pytest
 from src.subagents.v2 import REGISTRY, SubagentBase, SubagentContext, SubagentResult, subagent
 
 
+@pytest.fixture(autouse=True)
+def _cleanup_test_agents():
+    """Remove any subagents registered by these tests so REGISTRY isn't polluted globally."""
+    yield
+    for name in list(REGISTRY.all_names()):
+        if name.startswith("_test_"):
+            REGISTRY._d.pop(name, None)
+
+
 # ---------------------------------------------------------------------------
 # Helpers — test subagent implementations isolated to this module
 # ---------------------------------------------------------------------------

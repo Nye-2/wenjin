@@ -81,7 +81,15 @@ async def test_seeds_use_only_registered_subagents(test_session):
     assert len(caps) >= 5, "Expected at least 5 thesis capabilities"
 
     registered = set(REGISTRY.all_names())
-    assert len(registered) == 5, f"Expected 5 registered subagents, got: {registered}"
+    # The 5 V1 subagents must all be registered (other test-only agents may also be
+    # present from prior tests in the same session — that's fine, we don't enforce
+    # exact count, just that production subagents exist + seeds reference only known ones).
+    expected_v1_subagents = {
+        "scholar_searcher", "web_searcher", "clusterer",
+        "critical_writer", "outliner",
+    }
+    missing = expected_v1_subagents - registered
+    assert not missing, f"Missing V1 subagents from REGISTRY: {missing}"
 
     for cap in caps:
         for phase in cap.graph_template["phases"]:
