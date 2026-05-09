@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import JSON, REAL, Boolean, ForeignKey, String, func
+from sqlalchemy import JSON, REAL, BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -102,6 +102,175 @@ class _WorkspaceSettings(_Base):
     )
 
 
+class _LibraryItem(_Base):
+    """SQLite-compatible mirror of LibraryItem."""
+
+    __tablename__ = "library_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
+    )
+    item_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    authors: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    venue: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    doi: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
+    full_text_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    cited_in_documents: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    added_by: Mapped[str] = mapped_column(String(60), nullable=False)
+    created_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(),
+    )
+    updated_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(), onupdate=func.now(),
+    )
+    deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
+class _DocumentV2(_Base):
+    """SQLite-compatible mirror of DocumentV2."""
+
+    __tablename__ = "documents_v2"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    storage_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    parent_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("documents_v2.id"), nullable=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    added_by: Mapped[str] = mapped_column(String(60), nullable=False)
+    created_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(),
+    )
+    updated_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(), onupdate=func.now(),
+    )
+    deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
+class _Decision(_Base):
+    """SQLite-compatible mirror of Decision."""
+
+    __tablename__ = "decisions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
+    )
+    key: Mapped[str] = mapped_column(String(100), nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(REAL, nullable=False, default=1.0)
+    source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    extracted_by: Mapped[str] = mapped_column(String(20), nullable=False)
+    superseded_by: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("decisions.id"), nullable=True,
+    )
+    created_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(),
+    )
+    deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
+class _MemoryFact(_Base):
+    """SQLite-compatible mirror of MemoryFact."""
+
+    __tablename__ = "memory_facts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
+    )
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(REAL, nullable=False, default=1.0)
+    last_referenced_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    reference_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(),
+    )
+    deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
+class _RunHistory(_Base):
+    """SQLite-compatible mirror of RunHistory."""
+
+    __tablename__ = "run_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
+    )
+    execution_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    capability_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    artifact_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    token_usage: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(),
+    )
+    deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
+class _Sandbox(_Base):
+    """SQLite-compatible mirror of Sandbox."""
+
+    __tablename__ = "sandboxes"
+
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True,
+    )
+    sandbox_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    state: Mapped[str] = mapped_column(String(20), nullable=False)
+    workspace_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_active_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    created_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(),
+    )
+
+
+class _WorkspaceTask(_Base):
+    """SQLite-compatible mirror of WorkspaceTask."""
+
+    __tablename__ = "workspace_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    related_execution_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    created_by: Mapped[str] = mapped_column(String(60), nullable=False)
+    created_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(),
+    )
+    updated_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(), onupdate=func.now(),
+    )
+    completed_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -150,3 +319,10 @@ DbUser = _User
 DbThread = _Thread
 DbWorkspace = _Workspace
 DbWorkspaceSettings = _WorkspaceSettings
+DbLibraryItem = _LibraryItem
+DbDocumentV2 = _DocumentV2
+DbDecision = _Decision
+DbMemoryFact = _MemoryFact
+DbRunHistory = _RunHistory
+DbSandbox = _Sandbox
+DbWorkspaceTask = _WorkspaceTask
