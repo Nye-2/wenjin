@@ -3,6 +3,7 @@
 from .admin_log import AdminActionType, AdminLog
 from .audit_log import AuditLog
 from .artifact import Artifact, ArtifactType
+from .capability import Capability, CapabilityActiveVersion
 from .compute_session import ComputeSessionRecord
 from .credit import CreditTransaction, CreditTransactionType
 from .decision import Decision
@@ -86,6 +87,9 @@ __all__ = [
     "AdminActionType",
     # Audit Log
     "AuditLog",
+    # Capability
+    "Capability",
+    "CapabilityActiveVersion",
     # Thread
     "Thread",
     # Knowledge
