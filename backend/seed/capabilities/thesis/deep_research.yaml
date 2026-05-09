@@ -1,0 +1,34 @@
+id: deep_research
+workspace_type: thesis
+version: 1
+display_name: 深度文献调研
+enabled: true
+intent_description: 用户希望对某个主题做学术性的深度文献调研
+trigger_phrases:
+  - 调研一下
+  - 找综述
+required_decisions:
+  - key: topic_scope
+    ask: "主题边界是？"
+    type: string
+brief_schema:
+  type: object
+  required: [topic]
+  properties:
+    topic: {type: string}
+graph_template:
+  phases:
+    - name: discover
+      tasks:
+        - name: search
+          subagent_type: scholar_searcher
+          prompt_template: "搜索关于 {{topic}} 的文献"
+    - name: synthesize
+      depends_on: [discover]
+      tasks:
+        - name: write
+          subagent_type: critical_writer
+          prompt_template: "写综述 {{topic}}"
+system_prompt: |
+  你是学术文献调研专家。
+result_card_template: literature_review
