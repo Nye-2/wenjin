@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import type { Block } from "@/stores/chat-store-v2";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { StatusLineBlock } from "./StatusLineBlock";
@@ -8,7 +9,7 @@ interface MessageBlockProps {
   block: Block;
 }
 
-export function MessageBlock({ block }: MessageBlockProps) {
+export const MessageBlock = memo(function MessageBlock({ block }: MessageBlockProps) {
   switch (block.kind) {
     case "text":
       return <span style={{ whiteSpace: "pre-wrap" }}>{block.content}</span>;
@@ -79,4 +80,4 @@ export function MessageBlock({ block }: MessageBlockProps) {
     default:
       return null;
   }
-}
+});

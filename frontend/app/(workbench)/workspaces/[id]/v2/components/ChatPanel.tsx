@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, memo } from "react";
 import { useChatStoreV2, type Message } from "@/stores/chat-store-v2";
 import { MessageBlock } from "./MessageBlock";
 
@@ -72,7 +72,7 @@ export function ChatPanel({
   );
 }
 
-function MessageRow({ message }: { message: Message }) {
+const MessageRow = memo(function MessageRow({ message }: { message: Message }) {
   const isUser = message.role === "user";
   return (
     <div
@@ -99,4 +99,4 @@ function MessageRow({ message }: { message: Message }) {
       </div>
     </div>
   );
-}
+});

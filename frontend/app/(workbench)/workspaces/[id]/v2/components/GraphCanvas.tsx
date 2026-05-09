@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, memo } from "react";
 import {
   ReactFlow,
   Background,
@@ -23,7 +23,7 @@ interface GraphCanvasProps {
   onNodeClick?: (nodeId: string) => void;
 }
 
-export function GraphCanvas({ nodes, edges, onNodeClick }: GraphCanvasProps) {
+export const GraphCanvas = memo(function GraphCanvas({ nodes, edges, onNodeClick }: GraphCanvasProps) {
   const rfNodes: Node[] = useMemo(() => {
     // Group by phase, compute positions
     const phases = new Map<number, typeof nodes>();
@@ -83,4 +83,4 @@ export function GraphCanvas({ nodes, edges, onNodeClick }: GraphCanvasProps) {
       <Controls showInteractive={false} />
     </ReactFlow>
   );
-}
+});
