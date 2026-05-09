@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { I18nProvider } from "@/components/i18n-provider";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains-mono",
+});
 
 export const metadata: Metadata = {
   title: "问津 Wenjin | 研究工作流 AI 工作台",
@@ -16,7 +23,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body
-        className="font-sans antialiased"
+        className={`font-sans antialiased ${inter.variable} ${jetbrainsMono.variable}`}
         style={
           {
             "--font-sans":

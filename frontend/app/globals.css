@@ -81,6 +81,95 @@
   --compute-glass-bg: rgba(255, 255, 255, 0.85);
   --compute-glass-border: rgba(0, 0, 0, 0.06);
   --compute-glass-blur: blur(16px) saturate(118%);
+
+  /* ═══════════ V2 Glass Design Language (2026-05-09) ═══════════ */
+
+  /* Surfaces */
+  --v2-surface-white: #FFFFFF;
+  --v2-surface-soft:  #FAFAFA;
+  --v2-surface-card:  #F4F4F4;
+
+  /* Glass */
+  --v2-glass-bg:          rgba(255, 255, 255, 0.45);
+  --v2-glass-bg-elevated: rgba(255, 255, 255, 0.7);
+  --v2-glass-bg-subtle:   rgba(255, 255, 255, 0.3);
+  --v2-glass-border:      rgba(255, 255, 255, 0.6);
+  --v2-glass-border-hi:   rgba(255, 255, 255, 0.7);
+  --v2-glass-blur:        blur(20px);
+  --v2-glass-blur-hi:     blur(24px);
+  --v2-glass-shadow:      0 4px 16px rgba(20, 20, 30, 0.04);
+  --v2-glass-shadow-hi:   0 8px 32px rgba(139, 92, 246, 0.15);
+
+  /* Background gradient + orbs */
+  --v2-bg-gradient: linear-gradient(135deg, #E0EFFF 0%, #F0F4FF 50%, #E8E0FF 100%);
+  --v2-orb-purple:  rgba(139, 92, 246, 0.4);
+  --v2-orb-blue:    rgba(56, 189, 248, 0.35);
+
+  /* Text */
+  --v2-text-primary:   #14141E;
+  --v2-text-secondary: rgba(20, 20, 30, 0.55);
+  --v2-text-tertiary:  rgba(20, 20, 30, 0.4);
+  --v2-text-disabled:  rgba(20, 20, 30, 0.25);
+
+  /* Accents */
+  --v2-accent-purple-100: rgba(139, 92, 246, 0.12);
+  --v2-accent-purple-300: rgba(139, 92, 246, 0.25);
+  --v2-accent-purple-500: #A78BFA;
+  --v2-accent-purple-700: #7C3AED;
+  --v2-accent-blue-700:   #007AFF;
+
+  /* Status */
+  --v2-status-success-light: #4ADE80;
+  --v2-status-success-deep:  #16A34A;
+  --v2-status-running-light: #A78BFA;
+  --v2-status-running-deep:  #7C3AED;
+  --v2-status-error:         #DC2626;
+  --v2-status-idle:          rgba(20, 20, 30, 0.25);
+
+  /* Borders */
+  --v2-border-default: #EEEEEE;
+  --v2-border-soft:    rgba(20, 20, 30, 0.08);
+
+  /* Radius */
+  --v2-radius-sm:    6px;
+  --v2-radius-md:   10px;
+  --v2-radius-lg:   14px;
+  --v2-radius-xl:   16px;
+  --v2-radius-pill: 9999px;
+
+  /* Spacing */
+  --v2-space-1:  4px;
+  --v2-space-2:  8px;
+  --v2-space-3: 12px;
+  --v2-space-4: 14px;
+  --v2-space-5: 16px;
+  --v2-space-6: 20px;
+  --v2-space-7: 24px;
+  --v2-space-8: 32px;
+
+  /* Motion */
+  --v2-ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --v2-ease-snappy:   cubic-bezier(0.4, 0, 0.2, 1);
+  --v2-duration-fast:   150ms;
+  --v2-duration-medium: 300ms;
+
+  /* Fonts */
+  --v2-font-sans: 'SF Pro Display', 'Inter', system-ui, -apple-system, 'PingFang SC', sans-serif;
+  --v2-font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+}
+
+/* Global keyframes for v2 */
+@keyframes v2-pulse-soft {
+  0%, 100% { opacity: 0.4 }
+  50%      { opacity: 1 }
+}
+@keyframes v2-flow {
+  0%   { transform: translateX(-100%) }
+  100% { transform: translateX(300%) }
+}
+@keyframes v2-glass-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.99) }
+  to   { opacity: 1; transform: translateY(0) scale(1) }
 }
 
 * {

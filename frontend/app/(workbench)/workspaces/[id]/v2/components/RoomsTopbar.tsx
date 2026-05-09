@@ -1,0 +1,72 @@
+"use client";
+
+interface RoomsTopbarProps {
+  workspaceId: string;
+  className?: string;
+  "data-testid"?: string;
+}
+
+const ROOMS = [
+  { key: "library", label: "Library", icon: "\u{1F4DA}" },
+  { key: "documents", label: "Documents", icon: "\u{1F4C4}" },
+  { key: "decisions", label: "Decisions", icon: "✅" },
+  { key: "memory", label: "Memory", icon: "\u{1F9E0}" },
+  { key: "runs", label: "Runs", icon: "⚡" },
+  { key: "tasks", label: "Tasks", icon: "\u{1F4CB}" },
+  { key: "sandbox", label: "Sandbox", icon: "\u{1F52C}" },
+  { key: "settings", label: "Settings", icon: "⚙️" },
+] as const;
+
+export function RoomsTopbar({
+  workspaceId,
+  className,
+  "data-testid": testId,
+}: RoomsTopbarProps) {
+  return (
+    <div
+      data-testid={testId}
+      className={className}
+      style={{
+        height: 48,
+        display: "flex",
+        alignItems: "center",
+        padding: "0 16px",
+        gap: 4,
+        background: "rgba(255, 255, 255, 0.7)",
+        backdropFilter: "blur(20px)",
+        borderBottom: "1px solid rgba(20, 20, 30, 0.08)",
+        fontSize: 13,
+      }}
+    >
+      <span
+        style={{
+          fontWeight: 600,
+          color: "var(--v2-text-primary)",
+          marginRight: 16,
+        }}
+      >
+        Workspace
+      </span>
+      {ROOMS.map((room) => (
+        <button
+          key={room.key}
+          title={room.label}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            fontSize: 14,
+          }}
+        >
+          {room.icon}
+        </button>
+      ))}
+    </div>
+  );
+}
