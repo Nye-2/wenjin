@@ -1,5 +1,6 @@
 """Capability compiler — converts a capability graph_template into a LangGraph StateGraph."""
 
+import asyncio
 from typing import Callable
 
 from langgraph.graph import END, START, StateGraph
@@ -13,6 +14,7 @@ def compile_graph(
     *,
     state_class: type,
     runner_factory: Callable[[type[SubagentBase], dict], Callable] | None = None,
+    abort_check: Callable | None = None,
 ):
     """Compile capability graph_template → LangGraph StateGraph.
 
@@ -26,6 +28,8 @@ def compile_graph(
         state_class: The TypedDict (or similar) used as LangGraph state.
         runner_factory: Optional callable that takes (subagent_cls, task_spec) and
             returns an async node function. Defaults to _default_runner_factory.
+        abort_check: Optional async callable () → bool. If it returns True inside a node,
+            an ExecutionAborted exception is raised to halt the graph.
 
     Returns:
         A compiled LangGraph CompiledStateGraph ready for invocation.
@@ -33,6 +37,8 @@ def compile_graph(
     Raises:
         KeyError: If a task's subagent_type is not registered in the global REGISTRY.
     """
+    from src.agents.lead_agent.v2.runtime import ExecutionAborted
+
     builder = StateGraph(state_class)
     factory = runner_factory or _default_runner_factory
 
@@ -43,7 +49,10 @@ def compile_graph(
         for task in phase["tasks"]:
             node_name = f"{phase['name']}__{task['name']}"
             subagent_cls = REGISTRY.get(task["subagent_type"])  # raises KeyError if unknown
-            builder.add_node(node_name, factory(subagent_cls, task))
+            node_fn = factory(subagent_cls, task)
+            if abort_check is not None:
+                node_fn = _wrap_with_abort_check(node_fn, abort_check, ExecutionAborted)
+            builder.add_node(node_name, node_fn)
             nodes_by_phase[phase["name"]].append(node_name)
 
     # 2. Wire START → root phases (no depends_on)
@@ -73,25 +82,57 @@ def compile_graph(
 
 
 def _default_runner_factory(subagent_cls: type[SubagentBase], task_spec: dict) -> Callable:
-    """Build a default async node function that runs the subagent and stores results."""
+    """Build a default async node function that runs the subagent and stores results.
+
+    Supports retry via ``retry_on_failure`` in task_spec (default 0 extra retries).
+    On final failure, stores ``{"error": "<message>"}`` in node_results instead of
+    raising — this allows downstream nodes to continue running (failed_partial status).
+    """
+    import asyncio
+
+    _max_attempts = (task_spec.get("retry_on_failure") or 0) + 1
+    _task_name = task_spec["name"]
 
     async def run_node(state: dict) -> dict:
         ctx = SubagentContext(
             workspace_id=state.get("workspace_id", ""),
             execution_id=state.get("execution_id", ""),
             prompt=task_spec.get("prompt_template", ""),
-            inputs=state.get("inputs_for_tasks", {}).get(task_spec["name"], {}),
+            inputs=state.get("inputs_for_tasks", {}).get(_task_name, {}),
             tools=task_spec.get("tools", []),
             workspace_data=state.get("workspace_data", {}),
         )
-        result: SubagentResult = await subagent_cls().run(ctx)
+        last_error: Exception | None = None
+        for attempt in range(_max_attempts):
+            try:
+                result: SubagentResult = await subagent_cls().run(ctx)
+                node_results = dict(state.get("node_results", {}))
+                node_results[_task_name] = {
+                    "output": result.output,
+                    "thinking": result.thinking,
+                    "tool_calls": result.tool_calls,
+                    "token_usage": result.token_usage,
+                }
+                return {"node_results": node_results}
+            except Exception as exc:
+                last_error = exc
+                if attempt < _max_attempts - 1:
+                    await asyncio.sleep(2**attempt)
+
+        # All attempts failed — record error, don't raise (let graph continue)
         node_results = dict(state.get("node_results", {}))
-        node_results[task_spec["name"]] = {
-            "output": result.output,
-            "thinking": result.thinking,
-            "tool_calls": result.tool_calls,
-            "token_usage": result.token_usage,
-        }
+        node_results[_task_name] = {"error": str(last_error)}
         return {"node_results": node_results}
 
     return run_node
+
+
+def _wrap_with_abort_check(node_fn: Callable, abort_check: Callable, abort_exc: type) -> Callable:
+    """Wrap a node function to check for abort signal before execution."""
+
+    async def wrapped(state: dict) -> dict:
+        if await abort_check():
+            raise abort_exc("abort signal detected")
+        return await node_fn(state)
+
+    return wrapped

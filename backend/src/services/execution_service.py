@@ -16,8 +16,16 @@ from src.database.models.execution_node import ExecutionNodeRecord
 class ExecutionService:
     """CRUD and lifecycle helpers for unified execution records."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        redis: Any | None = None,
+        publish_event: Any | None = None,
+    ) -> None:
         self.db = db
+        self.redis = redis
+        self.publish_event = publish_event
 
     # ------------------------------------------------------------------
     # Create
@@ -218,12 +226,27 @@ class ExecutionService:
             return None
         if record.status not in ("pending", "running"):
             return record
-        record.status = "cancelled"
-        record.completed_at = datetime.now(UTC)
+        record.status = "cancelling"
         record.updated_at = datetime.now(UTC)
         if commit:
             await self.db.commit()
             await self.db.refresh(record)
+        # Write Redis abort signal so the runtime can detect cancellation
+        if self.redis is not None:
+            try:
+                await self.redis.set(f"abort:exec:{execution_id}", "1", ex=300)
+            except Exception:
+                pass
+        # Publish status event
+        if self.publish_event is not None:
+            try:
+                await self.publish_event(
+                    execution_id,
+                    "execution.status",
+                    {"status": "cancelling"},
+                )
+            except Exception:
+                pass
         return record
 
     # ------------------------------------------------------------------

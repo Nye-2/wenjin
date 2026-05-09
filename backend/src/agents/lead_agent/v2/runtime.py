@@ -14,6 +14,10 @@ from src.services.capability_resolver import CapabilityResolver
 logger = logging.getLogger(__name__)
 
 
+class ExecutionAborted(Exception):
+    """Raised when the execution is cancelled via the Redis abort signal."""
+
+
 class ExecutionState(TypedDict, total=False):
     """LangGraph state threaded through all subagent nodes."""
 
@@ -42,6 +46,7 @@ class LeadAgentRuntime:
         resolver: CapabilityResolver,
         publish_event: Callable | None = None,
         get_workspace_type: Callable | None = None,
+        redis: Any | None = None,
     ) -> None:
         """
         Args:
@@ -50,10 +55,13 @@ class LeadAgentRuntime:
                 Defaults to a no-op if not supplied.
             get_workspace_type: Async callable (workspace_id) → str.
                 Defaults to a stub that returns "thesis".
+            redis: Optional async Redis client used to poll abort signals.
+                If None, abort checking is skipped.
         """
         self.resolver = resolver
         self.publish_event = publish_event or _noop_publish
         self.get_workspace_type = get_workspace_type or _stub_get_ws_type
+        self.redis = redis
 
     async def run_session(
         self,
@@ -94,10 +102,22 @@ class LeadAgentRuntime:
 
         # Compile + Execute — both are wrapped so unknown subagent_type is also caught
         try:
-            graph = compile_graph(cap.graph_template, state_class=ExecutionState)
+            # Check abort before starting (covers cancel-before-run race)
+            if await self._check_abort(execution_id):
+                raise ExecutionAborted(f"execution {execution_id} was cancelled before start")
+            graph = compile_graph(
+                cap.graph_template,
+                state_class=ExecutionState,
+                abort_check=lambda: self._check_abort(execution_id),
+            )
             final_state = await graph.ainvoke(initial_state)
             errors: list[ResultError] = []
             status = "completed"
+        except ExecutionAborted:
+            logger.info("execution %s was cancelled", execution_id)
+            final_state = initial_state
+            errors = []
+            status = "cancelled"
         except Exception as exc:
             logger.exception(
                 "graph execution failed",
@@ -106,6 +126,13 @@ class LeadAgentRuntime:
             final_state = initial_state
             errors = [ResultError(phase="-", task="-", error=str(exc))]
             status = "failed_partial"
+
+        # Scan node_results for per-node errors (Task 2.12 failure handling)
+        if status == "completed":
+            node_errors = self._collect_node_errors(final_state, cap)
+            if node_errors:
+                errors = node_errors
+                status = "failed_partial"
 
         # Build report
         duration = int((datetime.now(timezone.utc) - started_at).total_seconds())
@@ -134,6 +161,16 @@ class LeadAgentRuntime:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _check_abort(self, execution_id: str) -> bool:
+        """Return True if a Redis abort signal exists for this execution."""
+        if self.redis is None:
+            return False
+        try:
+            val = await self.redis.get(f"abort:exec:{execution_id}")
+            return val is not None
+        except Exception:
+            return False
 
     def _to_panel_graph(self, template: dict) -> dict:
         """Translate capability template into Panel-friendly nodes + edges structure."""
@@ -175,6 +212,24 @@ class LeadAgentRuntime:
             for task in phase["tasks"]:
                 result[task["name"]] = dict(brief.brief)
         return result
+
+    def _collect_node_errors(self, state: dict, cap: Any) -> list[ResultError]:
+        """Scan node_results for entries that have an "error" key (Task 2.12)."""
+        node_results = state.get("node_results", {})
+        errors: list[ResultError] = []
+        for phase in cap.graph_template.get("phases", []):
+            for task in phase.get("tasks", []):
+                task_name = task["name"]
+                nr = node_results.get(task_name)
+                if isinstance(nr, dict) and "error" in nr and "output" not in nr:
+                    errors.append(
+                        ResultError(
+                            phase=phase["name"],
+                            task=task_name,
+                            error=nr["error"],
+                        )
+                    )
+        return errors
 
     def _collect_outputs(self, state: dict, cap: Any) -> list[ResultOutput]:
         """V1: return empty list.
