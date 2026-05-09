@@ -1,0 +1,282 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import {
+  listLibraryItems,
+  deleteLibraryItem,
+  type LibraryItem,
+} from "@/lib/api/v2/library";
+
+interface LibraryDrawerProps {
+  workspaceId: string;
+  open: boolean;
+  onClose: () => void;
+}
+
+export function LibraryDrawer({
+  workspaceId,
+  open,
+  onClose,
+}: LibraryDrawerProps) {
+  const [items, setItems] = useState<LibraryItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (open) setVisible(true);
+  }, [open]);
+
+  const fetchItems = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await listLibraryItems(workspaceId);
+      setItems(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load library");
+    } finally {
+      setLoading(false);
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (open) fetchItems();
+  }, [open, fetchItems]);
+
+  function handleClose() {
+    setVisible(false);
+    setTimeout(onClose, 200);
+  }
+
+  async function handleDelete(itemId: string) {
+    try {
+      await deleteLibraryItem(workspaceId, itemId);
+      setItems((prev) => prev.filter((item) => item.id !== itemId));
+    } catch {
+      setError("Failed to delete item");
+    }
+  }
+
+  const filtered = search
+    ? items.filter(
+        (item) =>
+          item.title.toLowerCase().includes(search.toLowerCase()) ||
+          item.authors.some((a) =>
+            a.toLowerCase().includes(search.toLowerCase()),
+          ),
+      )
+    : items;
+
+  if (!open) return null;
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        right: 0,
+        top: 0,
+        bottom: 0,
+        width: 400,
+        background: "rgba(255, 255, 255, 0.92)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        borderLeft: "1px solid rgba(20, 20, 30, 0.08)",
+        boxShadow: "0 8px 32px rgba(20, 20, 30, 0.08)",
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 10,
+        transform: visible ? "translateX(0)" : "translateX(100%)",
+        transition: "transform 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+        fontFamily: "var(--v2-font-sans)",
+        fontSize: 13,
+      }}
+      data-testid="library-drawer"
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          height: 48,
+          padding: "0 16px",
+          borderBottom: "1px solid rgba(20, 20, 30, 0.08)",
+        }}
+      >
+        <span
+          style={{
+            fontWeight: 600,
+            fontSize: 15,
+            color: "var(--v2-text-primary)",
+          }}
+        >
+          Library
+        </span>
+        <button
+          onClick={handleClose}
+          data-testid="drawer-close"
+          style={{
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            fontSize: 16,
+            color: "var(--v2-text-tertiary)",
+            lineHeight: 1,
+            padding: 4,
+          }}
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Search */}
+      <div style={{ padding: "12px 16px" }}>
+        <input
+          type="text"
+          placeholder="Search by title or author..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          data-testid="drawer-search"
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            padding: "8px 12px",
+            borderRadius: "var(--v2-radius-md)",
+            border: "1px solid rgba(20, 20, 30, 0.08)",
+            background: "var(--v2-glass-bg)",
+            fontSize: 13,
+            fontFamily: "var(--v2-font-sans)",
+            color: "var(--v2-text-primary)",
+            outline: "none",
+          }}
+        />
+      </div>
+
+      {/* Content */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "0 16px 16px",
+        }}
+      >
+        {loading && (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "40px 0",
+              color: "var(--v2-text-tertiary)",
+            }}
+            data-testid="drawer-loading"
+          >
+            Loading library...
+          </div>
+        )}
+
+        {error && (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "16px",
+              color: "var(--v2-status-error)",
+            }}
+            data-testid="drawer-error"
+          >
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && filtered.length === 0 && (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "40px 0",
+              color: "var(--v2-text-tertiary)",
+            }}
+            data-testid="drawer-empty"
+          >
+            No library items found
+          </div>
+        )}
+
+        {!loading &&
+          !error &&
+          filtered.map((item) => (
+            <div
+              key={item.id}
+              data-testid="library-item"
+              style={{
+                background: "var(--v2-glass-bg)",
+                borderRadius: "var(--v2-radius-md)",
+                border: "1px solid rgba(20, 20, 30, 0.06)",
+                padding: 12,
+                marginBottom: 8,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      color: "var(--v2-text-primary)",
+                      marginBottom: 4,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {item.title}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--v2-text-secondary)",
+                    }}
+                  >
+                    {item.authors.length > 0 && (
+                      <span>{item.authors.join(", ")}</span>
+                    )}
+                    {item.year && (
+                      <span style={{ marginLeft: 8 }}>({item.year})</span>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--v2-text-tertiary)",
+                      marginTop: 4,
+                    }}
+                  >
+                    {item.source.replace("_", " ")}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleDelete(item.id)}
+                  data-testid="item-delete"
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    color: "var(--v2-text-tertiary)",
+                    fontSize: 12,
+                    padding: "2px 4px",
+                    flexShrink: 0,
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
