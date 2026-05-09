@@ -1519,6 +1519,19 @@ CREATE INDEX ix_workspaces_user ON workspaces(user_id) WHERE deleted_at IS NULL;
 | O9 | Token 限额是 user-level 还是 workspace-level？| user-level（workspace 维度只做并发限）| Phase 1 |
 | O10 | run output 没全部 commit，30 天后 ExecutionRecord.staged_outputs 怎么办？| cron 清理（保留 30 天） | Phase 4 |
 
+### 9.1 Phase 2 实施债务（Phase 3 落实）
+
+Phase 1+2 已交付 278 测试通过的可工作骨架，但以下工作显式延后到 Phase 3 处理（决策已确认，无歧义，仅待 wire-up）：
+
+| # | 债务 | 当前状态 | Phase 3 落实方式 |
+|---|------|---------|-----------------|
+| D1 | **ResultOutput 的 capability-specific output mapping**：`LeadAgentRuntime._collect_outputs()` 当前返回空列表，subagent 输出未翻译为 `ResultOutput` | runtime 完整可跑 + commit 流端到端测过 | 引入 capability YAML 的 `output_mapping` 字段，描述 `{node_results.{task_name}.output → ResultOutput[]}` 翻译规则；runtime 应用翻译。Phase 3 中前端集成 result_card 渲染时一并落实 |
+| D2 | **Chat agent 的真实 LLM 调用**：`create_chat_agent()` factory 的 `langchain_chat_model` 是可选；测试用 `_AgentStub` | 9 tools + 5 prompts + compact middleware 全部测过 | Phase 3 wire 真实 `ChatAnthropic` / `ChatOpenAI`（取自 ModelGateway 或直接构造）。前端 chat SSE 流上线时一并打通 |
+| D3 | **4 个其他 workspace_type 的 capability seeds**：sci / proposal / 软著 / 专利各缺 5 个 seed YAML | 5 个 thesis capabilities 已 seed + 测过；seed loader 校验通过；架构无变化只需复制扩展 | 可延到 admin UI（V2）上线后由产品/运营按 spec §A.2-A.6 内容陆续灌库；Phase 3 不阻塞前端开发 |
+| D4 | **真实 Cancel signal 的 Redis 注入**：`ExecutionService.__init__` 的 `redis` 是可选；abort 信号写入跳过当无 redis | cancel API + lead agent abort check 端到端测过（mocked redis） | Phase 3 wire ExecutionService 实例化时传入项目共用 Redis 客户端；同一时机也 wire EventBus 与 publish_event 的真实 Redis |
+
+这 4 项都不影响 Phase 1+2 的测试覆盖与功能正确性，但需要在 Phase 3 完成 wire-up 才能让"系统真的跑起来"（vs "组件能 import 跑测试"）。
+
 ---
 
 ## 附录 A: V1 Capability 启动目录
