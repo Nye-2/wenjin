@@ -147,7 +147,7 @@ export function KnowledgePanel({
   };
 
   const openThread = async () => {
-    router.push(`/workspaces/${workspaceId}/chat`);
+    router.push(`/workspaces/${workspaceId}/v2`);
     setSelectedActivity(null);
   };
 
