@@ -78,7 +78,15 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="workspaces")
-    thread: Mapped["Thread | None"] = relationship("Thread", lazy="selectin")
+    # 1:1 link to the active session's thread.  No back_populates: the existing
+    # Thread.workspace (backed by threads.workspace_id) already maps to
+    # Workspace.threads (1:N).  Adding a second back_populates here would
+    # conflict with that chain, so the 1:1 intentionally omits back-navigation.
+    active_thread: Mapped["Thread | None"] = relationship(
+        "Thread",
+        foreign_keys=[thread_id],
+        lazy="selectin",
+    )
     references: Mapped[list["WorkspaceReference"]] = relationship(
         "WorkspaceReference",
         back_populates="workspace",
