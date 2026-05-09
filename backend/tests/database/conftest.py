@@ -217,7 +217,7 @@ class _RunHistory(_Base):
     execution_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
     capability_id: Mapped[str] = mapped_column(String(100), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
-    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     artifact_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -269,6 +269,42 @@ class _WorkspaceTask(_Base):
     )
     completed_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
     deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
+class _Capability(_Base):
+    """SQLite-compatible mirror of Capability (composite PK)."""
+
+    __tablename__ = "capabilities"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    workspace_type: Mapped[str] = mapped_column(String(50), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    intent_description: Mapped[str] = mapped_column(Text, nullable=False)
+    trigger_phrases: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    required_decisions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    brief_schema: Mapped[dict] = mapped_column(JSON, nullable=False)
+    graph_template: Mapped[dict] = mapped_column(JSON, nullable=False)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    result_card_template: Mapped[str] = mapped_column(String(100), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(),
+    )
+    updated_at: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=func.now(), onupdate=func.now(),
+    )
+
+
+class _CapabilityActiveVersion(_Base):
+    """SQLite-compatible mirror of CapabilityActiveVersion (composite PK, no FK constraint for SQLite)."""
+
+    __tablename__ = "capability_active_versions"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    workspace_type: Mapped[str] = mapped_column(String(50), primary_key=True)
+    active_version: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class _AuditLog(_Base):
@@ -346,3 +382,5 @@ DbRunHistory = _RunHistory
 DbSandbox = _Sandbox
 DbWorkspaceTask = _WorkspaceTask
 DbAuditLog = _AuditLog
+DbCapability = _Capability
+DbCapabilityActiveVersion = _CapabilityActiveVersion

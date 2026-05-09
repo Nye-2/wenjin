@@ -27,7 +27,7 @@ def upgrade() -> None:
         sa.Column("execution_id", sa.String(36), nullable=False, unique=True),
         sa.Column("capability_id", sa.String(100), nullable=False),
         sa.Column("title", sa.String(200), nullable=False),
-        sa.Column("summary", sa.Text, nullable=True),
+        sa.Column("summary", sa.Text, nullable=False),  # summary is required per spec §4.4.5
         sa.Column("status", sa.String(20), nullable=False),
         sa.Column("artifact_count", sa.Integer, nullable=False, server_default="0"),
         sa.Column("duration_seconds", sa.Integer, nullable=False),
