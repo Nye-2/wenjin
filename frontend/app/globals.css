@@ -702,4 +702,11 @@ html {
   .shimmer-bg::after {
     animation: none;
   }
+
+  /* V2 keyframes */
+  [style*="v2-pulse-soft"],
+  [style*="v2-flow"],
+  [style*="v2-glass-in"] {
+    animation: none !important;
+  }
 }

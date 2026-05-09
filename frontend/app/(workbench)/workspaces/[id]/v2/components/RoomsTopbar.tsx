@@ -34,6 +34,7 @@ export function RoomsTopbar({
         gap: 4,
         background: "rgba(255, 255, 255, 0.7)",
         backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
         borderBottom: "1px solid rgba(20, 20, 30, 0.08)",
         fontSize: 13,
       }}
@@ -51,6 +52,7 @@ export function RoomsTopbar({
         <button
           key={room.key}
           title={room.label}
+          aria-label={room.label}
           style={{
             display: "flex",
             alignItems: "center",
@@ -62,6 +64,13 @@ export function RoomsTopbar({
             background: "transparent",
             cursor: "pointer",
             fontSize: 14,
+            transition: "background 150ms cubic-bezier(0.16, 1, 0.3, 1)",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "rgba(20, 20, 30, 0.06)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
           }}
         >
           {room.icon}

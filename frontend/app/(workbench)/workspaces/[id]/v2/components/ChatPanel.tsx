@@ -15,7 +15,7 @@ export function ChatPanel({
     <div
       data-testid={testId}
       className={className}
-      style={{ background: "#FFFFFF" }}
+      style={{ background: "var(--v2-surface-white)" }}
     >
       <div
         className="flex items-center justify-center h-full text-sm"
