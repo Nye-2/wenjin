@@ -19,6 +19,24 @@ class QuotaUsage:
     storage_bytes: int = 0
 
 
+# Atomic check-and-increment Lua script.
+# Returns the new counter value on success, or -1 if limit would be exceeded.
+LUA_CONSUME = """
+local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+local limit = tonumber(ARGV[1])
+local amount = tonumber(ARGV[2])
+if current + amount <= limit then
+    local new_val = redis.call('INCRBY', KEYS[1], amount)
+    if ARGV[3] ~= '0' then
+        redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
+    end
+    return new_val
+else
+    return -1
+end
+"""
+
+
 class QuotaService:
     """Tracks and enforces per-user resource quotas via Redis.
 
@@ -47,25 +65,39 @@ class QuotaService:
         return f"quota:{user_id}:{kind}"
 
     async def check(self, user_id: str, *, kind: str, amount: int = 0) -> bool:
-        """Return True if the user can consume *amount* more of *kind*."""
+        """Read-only inspection: return True if the user can consume *amount* more of *kind*.
+
+        This is informational only and does not gate the actual consume — use
+        consume() for the authoritative atomic check-and-increment.
+        """
         key = self._key(user_id, kind)
         current = await self.redis.get(key)
         used = int(current) if current else 0
         return (used + amount) <= self.limits[kind]
 
-    async def consume(self, user_id: str, *, kind: str, amount: int) -> None:
-        """Increment usage by *amount*. Raises QuotaExceeded if over limit."""
+    async def consume(self, user_id: str, *, kind: str, amount: int) -> int:
+        """Atomically check and increment usage by *amount*.
+
+        Uses a Lua script so the check-and-increment is a single Redis
+        operation, eliminating the TOCTOU race in a plain incrby/post-check
+        approach.
+
+        Returns:
+            The new counter value after incrementing.
+
+        Raises:
+            QuotaExceeded: If current + amount would exceed the limit.
+        """
         key = self._key(user_id, kind)
-        new_val = await self.redis.incrby(key, amount)
-        if kind == "tokens_daily":
-            # Ensure daily keys expire after 48 hours
-            await self.redis.expire(key, 172800)
-        if new_val > self.limits[kind]:
-            # Roll back
-            await self.redis.decrby(key, amount)
+        limit = self.limits[kind]
+        # For tokens_daily, set a 48-hour TTL so keys auto-expire.
+        ttl_seconds = 172800 if kind == "tokens_daily" else 0
+        result = await self.redis.eval(LUA_CONSUME, 1, key, limit, amount, ttl_seconds)
+        if result == -1:
             raise QuotaExceeded(
-                f"Quota exceeded for {user_id}:{kind}: {new_val} > {self.limits[kind]}"
+                f"Quota exceeded for {user_id}:{kind}: would exceed limit of {limit}"
             )
+        return result
 
     async def release(self, user_id: str, *, kind: str, amount: int) -> None:
         """Decrement usage (e.g. when a concurrent execution finishes)."""
