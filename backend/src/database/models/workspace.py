@@ -106,6 +106,7 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
     threads: Mapped[list["Thread"]] = relationship(
         "Thread",
         back_populates="workspace",
+        foreign_keys="Thread.workspace_id",
         passive_deletes=True,
     )
     settings: Mapped["WorkspaceSettings | None"] = relationship(

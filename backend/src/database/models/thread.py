@@ -74,6 +74,7 @@ class Thread(Base, UUIDMixin, TimestampMixin):
     workspace: Mapped["Workspace | None"] = relationship(
         "Workspace",
         back_populates="threads",
+        foreign_keys=[workspace_id],
     )
 
     def __repr__(self) -> str:
