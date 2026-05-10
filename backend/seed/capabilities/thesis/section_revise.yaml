@@ -49,6 +49,15 @@ graph_template:
             2. 可以弥补现有论证不足的文献
             3. 方法论或理论框架方面的最新进展
           tools: [scholar_search]
+          outputs:
+            - kind: library_item
+              iterate_on: "output.papers"
+              mapping:
+                title: "{{item.title}}"
+                authors: "{{item.authors}}"
+                year: "{{item.year}}"
+                doi: "{{item.doi}}"
+                abstract: "{{item.abstract}}"
     - name: revise
       depends_on: [discover]
       tasks:
@@ -64,6 +73,14 @@ graph_template:
             3. 保持学术语言风格，逻辑连贯
             4. 在修改后的文本中标注主要变动之处
             5. 以 Markdown 格式输出修改后的完整章节
+          outputs:
+            - kind: document
+              mapping:
+                name: "论文章节修改稿"
+                mime_type: "text/markdown"
+                storage_path: "{{output.storage_path}}"
+                size_bytes: 0
+                doc_kind: "section_revision"
 
 system_prompt: |
   你是一位经验丰富的论文修改专家，熟悉学术同行评审的标准和要求。

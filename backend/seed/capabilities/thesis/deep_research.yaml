@@ -23,12 +23,29 @@ graph_template:
         - name: search
           subagent_type: scholar_searcher
           prompt_template: "搜索关于 {{topic}} 的文献"
+          outputs:
+            - kind: library_item
+              iterate_on: "output.papers"
+              mapping:
+                title: "{{item.title}}"
+                authors: "{{item.authors}}"
+                year: "{{item.year}}"
+                doi: "{{item.doi}}"
+                abstract: "{{item.abstract}}"
     - name: synthesize
       depends_on: [discover]
       tasks:
         - name: write
           subagent_type: critical_writer
           prompt_template: "写综述 {{topic}}"
+          outputs:
+            - kind: document
+              mapping:
+                name: "深度调研综述"
+                mime_type: "text/markdown"
+                storage_path: "{{output.storage_path}}"
+                size_bytes: 0
+                doc_kind: "literature_review"
 system_prompt: |
   你是学术文献调研专家。
 result_card_template: literature_review

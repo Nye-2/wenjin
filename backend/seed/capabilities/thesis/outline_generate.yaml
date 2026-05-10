@@ -42,6 +42,15 @@ graph_template:
             搜索关于 {{topic}} 的相关学术文献，重点关注该领域的研究结构和章节组织方式。
             查找综述性文献和博士论文，了解标准的论文结构。
           tools: [scholar_search]
+          outputs:
+            - kind: library_item
+              iterate_on: "output.papers"
+              mapping:
+                title: "{{item.title}}"
+                authors: "{{item.authors}}"
+                year: "{{item.year}}"
+                doi: "{{item.doi}}"
+                abstract: "{{item.abstract}}"
     - name: synthesize
       depends_on: [discover]
       tasks:
@@ -52,6 +61,14 @@ graph_template:
             大纲应包含：引言、文献综述、研究方法、实验结果、讨论与结论等核心章节。
             每个章节需提供 2-3 个子节标题，并简要说明该章节的核心内容。
             请以 Markdown 格式输出大纲。
+          outputs:
+            - kind: document
+              mapping:
+                name: "论文大纲"
+                mime_type: "text/markdown"
+                storage_path: "{{output.storage_path}}"
+                size_bytes: 0
+                doc_kind: "outline"
 
 system_prompt: |
   你是一位资深学术写作顾问，专注于帮助研究生构建高质量的论文大纲。

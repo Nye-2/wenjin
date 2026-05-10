@@ -52,6 +52,15 @@ graph_template:
             2. 搜索该主题下近 5 年内高影响力但可能被遗漏的重要文献
             3. 识别领域内的经典文献和奠基性工作
           tools: [scholar_search]
+          outputs:
+            - kind: library_item
+              iterate_on: "output.papers"
+              mapping:
+                title: "{{item.title}}"
+                authors: "{{item.authors}}"
+                year: "{{item.year}}"
+                doi: "{{item.doi}}"
+                abstract: "{{item.abstract}}"
     - name: analyze
       depends_on: [discover]
       tasks:
@@ -67,6 +76,14 @@ graph_template:
             3. **建议删除**：相关性不足或重复引用的文献
             4. **总体评估**：引用文献质量的综合评价和改进建议
             以 Markdown 格式输出审核报告。
+          outputs:
+            - kind: document
+              mapping:
+                name: "引用文献审核报告"
+                mime_type: "text/markdown"
+                storage_path: "{{output.storage_path}}"
+                size_bytes: 0
+                doc_kind: "audit_report"
 
 system_prompt: |
   你是一位专业的学术引用规范专家，熟悉各学科领域的核心文献和引用标准。
