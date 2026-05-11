@@ -25,6 +25,7 @@ export function ChatPanel({
   const sendMessage = useChatStoreV2((s) => s.sendMessage);
   const [inputValue, setInputValue] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const showThinking = isSending && messages.length > 0 && messages[messages.length - 1].role === "user";
 
@@ -34,6 +35,15 @@ export function ChatPanel({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, showThinking]);
+
+  // Auto-resize textarea based on content
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 120) + "px";
+    }
+  }, [inputValue]);
 
   // Load message history on mount
   useEffect(() => {
@@ -50,7 +60,7 @@ export function ChatPanel({
     void sendMessage(workspaceId, trimmed);
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -191,11 +201,13 @@ export function ChatPanel({
             alignItems: "center",
           }}
         >
-          <input
-            placeholder={isSending ? "等待回复中..." : "输入消息..."}
+          <textarea
+            ref={textareaRef}
+            placeholder={isSending ? "等待回复中..." : "输入消息... Shift+Enter 换行"}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
+            rows={1}
             style={{
               flex: 1,
               padding: "8px 12px",
@@ -207,6 +219,10 @@ export function ChatPanel({
               fontFamily: "var(--v2-font-sans)",
               color: "var(--v2-text-primary)",
               opacity: isSending ? 0.6 : 1,
+              resize: "none",
+              minHeight: 38,
+              maxHeight: 120,
+              lineHeight: "1.4",
             }}
           />
           <button
