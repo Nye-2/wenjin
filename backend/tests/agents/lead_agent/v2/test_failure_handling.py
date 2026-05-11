@@ -148,7 +148,7 @@ async def test_node_marked_failed_after_retries_exhausted():
 @pytest.mark.asyncio
 async def test_run_status_failed_partial_when_some_nodes_failed():
     """Runtime returns status='failed_partial' when a node has an error in node_results."""
-    # Use a capability template with one task (outliner)
+    # Use a capability template with one task (react)
     cap = _make_fake_capability(SINGLE_PHASE_TEMPLATE)
     resolver = _make_resolver(cap)
 

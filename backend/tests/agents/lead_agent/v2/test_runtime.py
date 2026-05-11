@@ -109,7 +109,7 @@ async def test_run_session_publishes_graph_structure_then_completed():
 
 @pytest.mark.asyncio
 async def test_run_session_invokes_subagents_and_collects_results():
-    """After invocation, node_results should contain the outliner output."""
+    """After invocation, node_results should contain the react output."""
     cap = _make_fake_capability()
     resolver = _make_resolver(cap)
 
@@ -132,7 +132,7 @@ async def test_run_session_invokes_subagents_and_collects_results():
 
     # Report must exist and be completed
     assert report.status == "completed"
-    # The outliner stub produces an outline with 3 sections
+    # The react stub produces output
     # (checked indirectly — node ran without error)
     assert report.narrative  # non-empty
     assert "1" in report.narrative or "节点" in report.narrative

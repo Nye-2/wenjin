@@ -198,7 +198,7 @@ def test_compile_unknown_subagent_raises():
 
 @pytest.mark.asyncio
 async def test_compile_actually_runs():
-    """Compile + invoke: real outliner stub output must appear in node_results."""
+    """Compile + invoke: real react stub output must appear in node_results."""
     template = {
         "phases": [
             {

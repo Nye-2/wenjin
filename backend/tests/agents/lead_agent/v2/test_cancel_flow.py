@@ -8,8 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 # Ensure subagent types are registered
-import src.subagents.v2.types.outliner  # noqa: F401
-import src.subagents.v2.types.scholar_searcher  # noqa: F401
+import src.subagents.v2.types  # noqa: F401
 
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.lead_agent.v2.runtime import ExecutionAborted, LeadAgentRuntime
@@ -26,7 +25,7 @@ SIMPLE_GRAPH_TEMPLATE = {
             "tasks": [
                 {
                     "name": "make_outline",
-                    "subagent_type": "outliner",
+                    "subagent_type": "react",
                     "display_name": "Make Outline",
                 }
             ],
