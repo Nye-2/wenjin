@@ -4,7 +4,7 @@ import pytest
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
-from tests.database.conftest import DbCapability, DbCapabilityActiveVersion
+from tests.database.conftest import DbCapability
 
 
 @asynccontextmanager
@@ -30,7 +30,6 @@ def _seed_capability(session, **overrides):
     defaults = {
         "id": "deep_research",
         "workspace_type": "thesis",
-        "version": 1,
         "display_name": "深度文献调研",
         "enabled": True,
         "intent_description": "用户希望对某个主题做学术性的深度文献调研",
@@ -56,7 +55,6 @@ def _seed_capability(session, **overrides):
                 },
             ]
         },
-        "system_prompt": "你是学术文献调研专家。关于 {{topic}} 的调研。",
         "result_card_template": "literature_review",
     }
     defaults.update(overrides)
@@ -84,7 +82,6 @@ async def test_resolve_from_db(test_session):
 
     assert cap.id == "deep_research"
     assert cap.workspace_type == "thesis"
-    assert cap.version == 1
     assert cap.display_name == "深度文献调研"
 
 
@@ -140,7 +137,6 @@ async def test_invalidate_clears_cache(test_session):
     # Resolve again — DB re-queried (same data, since same session identity map)
     cap2 = await resolver.resolve("deep_research", "thesis")
     assert cap2.id == cap1.id
-    assert cap2.version == cap1.version
 
 
 @pytest.mark.asyncio

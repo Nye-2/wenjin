@@ -86,8 +86,8 @@ def _session_factory(session):
 _SEED_YAML = textwrap.dedent("""\
     id: deep_research
     workspace_type: thesis
-    version: 1
     display_name: 深度文献调研
+    description: 对某个主题做学术性的深度文献调研
     intent_description: 用户希望对某个主题做学术性的深度文献调研
     brief_schema:
       type: object
@@ -99,8 +99,7 @@ _SEED_YAML = textwrap.dedent("""\
         - name: discover
           tasks:
             - name: search
-              subagent_type: scholar_searcher
-    system_prompt: 你是学术文献调研专家。
+              subagent_type: searcher
     result_card_template: literature_review
 """)
 

@@ -6,8 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 # Ensure subagent types are registered before importing compiler
-import src.subagents.v2.types.outliner  # noqa: F401
-import src.subagents.v2.types.scholar_searcher  # noqa: F401
+import src.subagents.v2.types  # noqa: F401
 
 from src.agents.lead_agent.v2.compiler import compile_graph
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
@@ -31,7 +30,7 @@ SINGLE_PHASE_TEMPLATE = {
         {
             "name": "outline",
             "tasks": [
-                {"name": "make_outline", "subagent_type": "outliner"},
+                {"name": "make_outline", "subagent_type": "react"},
             ],
         }
     ]
@@ -42,14 +41,14 @@ TWO_PHASE_SERIAL_TEMPLATE = {
         {
             "name": "discover",
             "tasks": [
-                {"name": "search", "subagent_type": "scholar_searcher"},
+                {"name": "search", "subagent_type": "searcher"},
             ],
         },
         {
             "name": "write",
             "depends_on": ["discover"],
             "tasks": [
-                {"name": "outline", "subagent_type": "outliner"},
+                {"name": "outline", "subagent_type": "react"},
             ],
         },
     ]
@@ -60,15 +59,15 @@ PARALLEL_TASKS_TEMPLATE = {
         {
             "name": "search",
             "tasks": [
-                {"name": "search_a", "subagent_type": "scholar_searcher"},
-                {"name": "search_b", "subagent_type": "scholar_searcher"},
+                {"name": "search_a", "subagent_type": "searcher"},
+                {"name": "search_b", "subagent_type": "searcher"},
             ],
         },
         {
             "name": "write",
             "depends_on": ["search"],
             "tasks": [
-                {"name": "outline", "subagent_type": "outliner"},
+                {"name": "outline", "subagent_type": "react"},
             ],
         },
     ]
@@ -207,7 +206,7 @@ async def test_compile_actually_runs():
                 "tasks": [
                     {
                         "name": "make_outline",
-                        "subagent_type": "outliner",
+                        "subagent_type": "react",
                     }
                 ],
             }
@@ -221,5 +220,4 @@ async def test_compile_actually_runs():
     assert "make_outline" in final_state["node_results"]
     result = final_state["node_results"]["make_outline"]
     assert "output" in result
-    assert "outline" in result["output"]
-    assert len(result["output"]["outline"]) == 3
+    assert "text" in result["output"]

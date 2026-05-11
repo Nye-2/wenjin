@@ -39,7 +39,7 @@ async def test_thesis_seeds_load(test_session):
         "outline_generate",
         "section_write",
         "section_revise",
-        "citation_manage",
+        "opening_research",
     ]
     for cap_id in expected_ids:
         result = await test_session.execute(
@@ -50,7 +50,6 @@ async def test_thesis_seeds_load(test_session):
         )
         cap = result.scalars().first()
         assert cap is not None, f"capability '{cap_id}' not loaded"
-        assert cap.system_prompt, f"capability '{cap_id}' has empty system_prompt"
         assert cap.brief_schema, f"capability '{cap_id}' has empty brief_schema"
         assert cap.graph_template, f"capability '{cap_id}' has empty graph_template"
         assert cap.display_name, f"capability '{cap_id}' has empty display_name"
@@ -84,10 +83,7 @@ async def test_seeds_use_only_registered_subagents(test_session):
     # The 5 V1 subagents must all be registered (other test-only agents may also be
     # present from prior tests in the same session — that's fine, we don't enforce
     # exact count, just that production subagents exist + seeds reference only known ones).
-    expected_v1_subagents = {
-        "scholar_searcher", "web_searcher", "clusterer",
-        "critical_writer", "outliner",
-    }
+    expected_v1_subagents = {"searcher", "react"}
     missing = expected_v1_subagents - registered
     assert not missing, f"Missing V1 subagents from REGISTRY: {missing}"
 

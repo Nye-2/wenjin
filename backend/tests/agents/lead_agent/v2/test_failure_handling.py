@@ -9,8 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # Ensure subagent types are registered before compiler
-import src.subagents.v2.types.outliner  # noqa: F401
-import src.subagents.v2.types.scholar_searcher  # noqa: F401
+import src.subagents.v2.types  # noqa: F401
 
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.lead_agent.v2.compiler import _default_runner_factory, compile_graph
@@ -77,7 +76,7 @@ SINGLE_PHASE_TEMPLATE = {
     "phases": [
         {
             "name": "outline_phase",
-            "tasks": [{"name": "make_outline", "subagent_type": "outliner"}],
+            "tasks": [{"name": "make_outline", "subagent_type": "react"}],
         }
     ]
 }
@@ -169,11 +168,12 @@ async def test_run_status_failed_partial_when_some_nodes_failed():
     # Patch compile_graph to use our error factory
     with patch(
         "src.agents.lead_agent.v2.runtime.compile_graph",
-        wraps=lambda template, state_class, abort_check=None: compile_graph(
+        wraps=lambda template, state_class, abort_check=None, skills=None: compile_graph(
             template,
             state_class=state_class,
             runner_factory=always_error_factory,
             abort_check=abort_check,
+            skills=skills,
         ),
     ):
         brief = _make_brief()
