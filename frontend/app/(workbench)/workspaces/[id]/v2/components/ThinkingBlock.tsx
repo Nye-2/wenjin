@@ -2,12 +2,27 @@
 
 import { useState } from "react";
 
+function filterThinkingContent(content: string): string {
+  const lines = content.split("\n");
+  const filtered = lines.filter(
+    (line) =>
+      !/^(我是|I am|I'm)\s.*(MiMo|GPT|Claude|ChatGPT|助手|模型|AI)/i.test(line.trim()) &&
+      !/由.{2,10}(团队|公司|开发)/.test(line.trim()) &&
+      !/虽然我自己/.test(line.trim()) &&
+      !/不是专门的/.test(line.trim()),
+  );
+  return filtered.join("\n").trim();
+}
+
 interface ThinkingBlockProps {
   content: string;
 }
 
 export function ThinkingBlock({ content }: ThinkingBlockProps) {
   const [expanded, setExpanded] = useState(false);
+
+  const filtered = filterThinkingContent(content);
+  if (!filtered) return null;
 
   return (
     <div style={{ margin: "4px 0" }}>
@@ -50,7 +65,7 @@ export function ThinkingBlock({ content }: ThinkingBlockProps) {
             whiteSpace: "pre-wrap",
           }}
         >
-          {content}
+          {filtered}
         </div>
       )}
     </div>
