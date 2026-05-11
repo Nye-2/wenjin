@@ -1,0 +1,37 @@
+id: experiment_design
+workspace_type: proposal
+enabled: true
+display_name: 实验设计
+description: 设计申报书的实验/技术路线
+intent_description: 用户希望设计实验或技术路线
+trigger_phrases:
+  - 实验设计
+  - 技术路线
+  - 设计实验
+required_decisions:
+  - key: topic
+    ask: "实验目标/主题是？"
+    type: string
+brief_schema:
+  type: object
+  required: [topic]
+  properties:
+    topic: { type: string }
+    contributions: { type: string, optional: true }
+graph_template:
+  phases:
+    - name: design
+      tasks:
+        - name: plan
+          subagent_type: react
+          skill_id: framework-designer
+          inputs:
+            topic: "实验设计：{{topic}}"
+            contributions: "{{contributions|default('')}}"
+          outputs:
+            - kind: document
+              mapping:
+                name: "{{topic}} 实验路线"
+                doc_kind: framework_outline
+                content: "{{output.markdown}}"
+result_card_template: framework_outline

@@ -1,0 +1,44 @@
+id: background_research
+workspace_type: proposal
+enabled: true
+display_name: 背景调研
+description: 项目背景的文献检索 + 综述
+intent_description: 用户希望做申报书的背景调研
+trigger_phrases:
+  - 背景调研
+  - 项目背景
+  - 调研项目
+required_decisions:
+  - key: topic
+    ask: "调研主题是？"
+    type: string
+brief_schema:
+  type: object
+  required: [topic]
+  properties:
+    topic: { type: string }
+graph_template:
+  phases:
+    - name: discover
+      tasks:
+        - name: search
+          subagent_type: searcher
+          skill_id: scholar-searcher
+          inputs:
+            query: "{{topic}}"
+    - name: synthesize
+      depends_on: [discover]
+      tasks:
+        - name: write
+          subagent_type: react
+          skill_id: literature-reviewer
+          inputs:
+            topic: "{{topic}}"
+            papers: "{{phases.discover.search.output.papers}}"
+          outputs:
+            - kind: document
+              mapping:
+                name: "{{topic}} 项目背景"
+                doc_kind: literature_review
+                content: "{{output.markdown}}"
+result_card_template: literature_review

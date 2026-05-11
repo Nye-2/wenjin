@@ -1,0 +1,37 @@
+id: proposal_outline
+workspace_type: proposal
+enabled: true
+display_name: 申报书大纲
+description: 把研究目标整理为申报书结构
+intent_description: 用户希望写申报书大纲
+trigger_phrases:
+  - 申报书
+  - 写申报
+  - 申报大纲
+required_decisions:
+  - key: topic
+    ask: "项目主题是？"
+    type: string
+brief_schema:
+  type: object
+  required: [topic]
+  properties:
+    topic: { type: string }
+    contributions: { type: string, optional: true }
+graph_template:
+  phases:
+    - name: design
+      tasks:
+        - name: outline
+          subagent_type: react
+          skill_id: framework-designer
+          inputs:
+            topic: "{{topic}}"
+            contributions: "{{contributions|default('')}}"
+          outputs:
+            - kind: document
+              mapping:
+                name: "{{topic}} 申报大纲"
+                doc_kind: framework_outline
+                content: "{{output.markdown}}"
+result_card_template: framework_outline
