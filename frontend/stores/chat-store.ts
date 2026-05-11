@@ -76,6 +76,7 @@ type ChatEvent =
     }
   | { type: "chat.assistant.thinking"; delta: string }
   | { type: "chat.assistant.block"; block: Block }
+  | { type: "chat.assistant.finalize_block"; block: Block }
   | { type: "chat.assistant.tool_invocation"; data: ToolInvocationData }
   | { type: "chat.assistant.tool_result"; data: ToolResultData }
   | { type: "chat.assistant.completion" }
@@ -90,6 +91,9 @@ interface ChatState {
   messages: Message[];
   currentAssistantId: string | null;
   isSending: boolean;
+  /** Tracks assistant message IDs that have received their first post-stream
+   *  block — subsequent finalize_block events append, the first one replaces. */
+  finalizedMessageIds: Set<string>;
   handleEvent(event: ChatEvent): void;
   loadHistory(workspaceId: string): Promise<string | null>;
   sendMessage(workspaceId: string, content: string, attachments?: Array<{ name: string; path: string }>): Promise<void>;
@@ -119,6 +123,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
   messages: [],
   currentAssistantId: null,
   isSending: false,
+  finalizedMessageIds: new Set<string>(),
 
   handleEvent(event: ChatEvent) {
     switch (event.type) {
@@ -232,6 +237,45 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
         break;
       }
 
+      // ── Finalize block (post-stream authoritative blocks) ─────────────
+      case "chat.assistant.finalize_block": {
+        const { currentAssistantId, finalizedMessageIds } = get();
+        if (!currentAssistantId) break;
+
+        set((state) => {
+          const idx = findAssistantMessageIndex(
+            state.messages,
+            currentAssistantId,
+          );
+          if (idx === -1) return state;
+
+          const msg = state.messages[idx];
+          const updatedMessages = [...state.messages];
+
+          // First finalize_block for this message: replace streamed blocks
+          if (!finalizedMessageIds.has(currentAssistantId)) {
+            updatedMessages[idx] = {
+              ...msg,
+              blocks: [event.block],
+            };
+            const newFinalized = new Set(finalizedMessageIds);
+            newFinalized.add(currentAssistantId);
+            return {
+              messages: updatedMessages,
+              finalizedMessageIds: newFinalized,
+            };
+          }
+
+          // Subsequent finalize_blocks: append
+          updatedMessages[idx] = {
+            ...msg,
+            blocks: [...msg.blocks, event.block],
+          };
+          return { messages: updatedMessages };
+        });
+        break;
+      }
+
       // ── Tool invocation ───────────────────────────────────────────────
       case "chat.assistant.tool_invocation": {
         const { currentAssistantId } = get();
@@ -313,7 +357,11 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
   },
 
   reset() {
-    set({ messages: [], currentAssistantId: null });
+    set({
+      messages: [],
+      currentAssistantId: null,
+      finalizedMessageIds: new Set<string>(),
+    });
   },
 
   async loadHistory(workspaceId: string): Promise<string | null> {
@@ -446,7 +494,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             case "block": {
               if (data.block) {
                 store.handleEvent({
-                  type: "chat.assistant.block",
+                  type: "chat.assistant.finalize_block",
                   block: data.block as Block,
                 });
               }
