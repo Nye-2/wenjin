@@ -91,6 +91,7 @@ interface ChatState {
   currentAssistantId: string | null;
   isSending: boolean;
   handleEvent(event: ChatEvent): void;
+  loadHistory(workspaceId: string): Promise<string | null>;
   sendMessage(workspaceId: string, content: string): Promise<void>;
   reset(): void;
 }
@@ -298,6 +299,33 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     set({ messages: [], currentAssistantId: null });
   },
 
+  async loadHistory(workspaceId: string): Promise<string | null> {
+    const { messages } = get();
+    if (messages.length > 0) return null; // already loaded
+
+    try {
+      const res = await authorizedFetch(
+        `/api/workspaces/${workspaceId}/thread`,
+        { method: "POST", headers: { "Content-Type": "application/json" } },
+      );
+      if (!res.ok) return null;
+      const thread = await res.json();
+
+      if (thread.messages && thread.messages.length > 0) {
+        const loaded: Message[] = thread.messages.map((m: Record<string, unknown>) => ({
+          id: (m.id as string) || crypto.randomUUID(),
+          role: (m.role as "user" | "assistant" | "system") || "assistant",
+          blocks: Array.isArray(m.blocks) ? (m.blocks as Block[]) : [{ kind: "text" as const, content: String(m.content || "") }],
+          createdAt: (m.created_at as string) || new Date().toISOString(),
+        }));
+        set({ messages: loaded });
+      }
+      return thread.id as string;
+    } catch {
+      return null;
+    }
+  },
+
   async sendMessage(workspaceId: string, content: string) {
     const { isSending } = get();
     if (isSending || !content.trim()) return;
@@ -318,6 +346,17 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       if (!threadRes.ok) throw new Error("Failed to create thread");
       const thread = await threadRes.json();
       const threadId = thread.id;
+
+      // Load existing messages if store is empty (first call after page load)
+      if (get().messages.length === 0 && thread.messages?.length > 0) {
+        const loaded: Message[] = thread.messages.map((m: Record<string, unknown>) => ({
+          id: (m.id as string) || crypto.randomUUID(),
+          role: (m.role as "user" | "assistant" | "system") || "assistant",
+          blocks: Array.isArray(m.blocks) ? (m.blocks as Block[]) : [{ kind: "text" as const, content: String(m.content || "") }],
+          createdAt: (m.created_at as string) || new Date().toISOString(),
+        }));
+        set({ messages: loaded });
+      }
 
       // Create assistant placeholder
       const assistantMsgId = crypto.randomUUID();

@@ -35,6 +35,14 @@ export function ChatPanel({
     }
   }, [messages, showThinking]);
 
+  // Load message history on mount
+  useEffect(() => {
+    const store = useChatStoreV2.getState();
+    if (store.messages.length === 0) {
+      void store.loadHistory(workspaceId);
+    }
+  }, [workspaceId]);
+
   function handleSubmit() {
     const trimmed = inputValue.trim();
     if (!trimmed || isSending) return;
