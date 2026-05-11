@@ -33,7 +33,7 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
     await redis_client.connect_stream()
 
     async with get_db_session() as db:
-        execution_service = ExecutionService(db, redis_client.client)
+        execution_service = ExecutionService(db, redis=redis_client.client)
         record = await execution_service.get_by_id(execution_id)
         if record is None:
             return {"ok": False, "reason": "execution_not_found", "execution_id": execution_id}
