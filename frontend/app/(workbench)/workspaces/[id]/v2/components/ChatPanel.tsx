@@ -26,12 +26,14 @@ export function ChatPanel({
   const [inputValue, setInputValue] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new messages
+  const showThinking = isSending && messages.length > 0 && messages[messages.length - 1].role === "user";
+
+  // Auto-scroll to bottom on new messages or thinking state change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, showThinking]);
 
   function handleSubmit() {
     const trimmed = inputValue.trim();
@@ -99,6 +101,22 @@ export function ChatPanel({
           </div>
         ) : (
           messages.map((msg) => <MessageRow key={msg.id} message={msg} />)
+        )}
+        {showThinking && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 4px",
+              color: "var(--v2-text-tertiary)",
+              fontSize: 13,
+              fontFamily: "var(--v2-font-sans)",
+            }}
+          >
+            <span style={{ animation: "v2-pulse-soft 1.5s infinite" }}>●</span>
+            思考中...
+          </div>
         )}
       </div>
 
