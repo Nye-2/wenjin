@@ -17,7 +17,6 @@ from src.agents.lead_agent.blocks import AgentMessage, TextBlock
 from src.agents.lead_agent.dynamic_tools import DynamicToolNode
 from src.agents.lead_agent.prompts import skills as _skill_prompts
 from src.agents.lead_agent.prompts import system as _system_prompts
-from src.agents.lead_agent.structured_output import parse_with_fallback
 from src.agents.middlewares import (
     CitationContextMiddleware,
     ClarificationMiddleware,
@@ -1079,11 +1078,11 @@ class _MiddlewareWrappedAgent:
         if self._middlewares:
             state = await middleware_after_model(state, runtime_config, self._middlewares)
 
-        # Two-step react+structured flow: create_react_agent handles tool-calling
-        # (step 1), then we reparse the final message through parse_with_fallback
-        # to produce AgentBlock-structured output (step 2). This is two LLM calls
-        # but provides a clean seam — the ReAct graph stays untouched and the
-        # structured output contract is enforced consistently.
+        # The ReAct loop above already streamed the model's text to the user.
+        # Wrap the same text as a single TextBlock for the canonical
+        # response_blocks representation — no second LLM call needed.
+        # Status/question/result cards come from infrastructure events
+        # (worker, execution.completed), not from re-parsing chat text.
         if self._base_model is not None and not state.get("response_blocks"):
             messages = list(state.get("messages") or [])
             if messages:
@@ -1103,20 +1102,9 @@ class _MiddlewareWrappedAgent:
                     final_text = ""
 
                 if final_text:
-                    configurable = _coerce_json_object(
-                        runtime_config.get("configurable", {})
-                    )
-                    run_id = (
-                        configurable.get("thread_id")
-                        or configurable.get("run_id")
-                        or "unknown"
-                    )
                     try:
-                        agent_msg: AgentMessage = await parse_with_fallback(
-                            llm=self._base_model,
-                            prompt=final_text,
-                            run_id=str(run_id),
-                        )
+                        text_block = TextBlock(content=final_text)
+                        agent_msg = AgentMessage(blocks=[text_block])
                         new_blocks = [
                             b.model_dump(exclude_none=True)
                             for b in agent_msg.blocks
@@ -1152,7 +1140,7 @@ class _MiddlewareWrappedAgent:
                                     )
                     except Exception:
                         logger.exception(
-                            "parse_with_fallback failed in _apply_after_model; "
+                            "_apply_after_model failed to build response_blocks; "
                             "response_blocks will be empty for this turn"
                         )
 
