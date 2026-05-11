@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { authorizedFetch } from "@/lib/api/client";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,7 +26,7 @@ export function AutoCompactToast({
   const handleCompact = async () => {
     setCompacting(true);
     try {
-      const res = await fetch(`/api/workspaces/${workspaceId}/chat/compact`, {
+      const res = await authorizedFetch(`/api/workspaces/${workspaceId}/chat/compact`, {
         method: "POST",
       });
       if (res.ok) {

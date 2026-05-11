@@ -1,16 +1,14 @@
 /**
- * Chat Store v2 — Zustand store for chat state management.
- *
- * Key fix over v1 (thread.ts): blocks are stored strictly in **arrival order**.
- * The old store prepended reasoning blocks, which caused the content/reasoning
- * ordering bug described in spec §1.1. Here, thinking blocks stay in position.
+ * Chat Store — Zustand store for chat state management.
+ * Blocks stored strictly in arrival order.
  */
 
 import { create } from "zustand";
+import { authorizedFetch } from "@/lib/api/client";
 
 // ── Data types ──────────────────────────────────────────────────────────────
 
-export type QuestionCardData = {
+type QuestionCardData = {
   question: string;
   options?: string[];
   context?: string;
@@ -18,17 +16,26 @@ export type QuestionCardData = {
 
 export type ResultCardData = {
   execution_id: string;
-  capability_name: string;
-  status: "completed" | "partial";
-  outputs: Record<string, unknown>;
+  capability_name?: string;
+  status: "completed" | "failed_partial" | "cancelled";
+  outputs: Array<{
+    id: string;
+    kind: string;
+    preview: string;
+    default_checked: boolean;
+    data: Record<string, unknown>;
+  }>;
+  narrative?: string;
+  duration_seconds?: number;
+  errors?: Array<{ message: string; phase?: string; task?: string }>;
 };
 
-export type ToolInvocationData = {
+type ToolInvocationData = {
   tool: string;
   args: Record<string, unknown>;
 };
 
-export type ToolResultData = {
+type ToolResultData = {
   execution_id?: string;
   status: string;
   [key: string]: unknown;
@@ -52,7 +59,7 @@ export type Message = {
 
 // ── Event type (discriminated union) ────────────────────────────────────────
 
-export type ChatEvent =
+type ChatEvent =
   | {
       type: "chat.user.message";
       data: {
@@ -74,13 +81,7 @@ export type ChatEvent =
   | { type: "chat.assistant.completion" }
   | {
       type: "execution.completed";
-      data: {
-        execution_id: string;
-        capability_name: string;
-        status: "completed" | "partial";
-        outputs: Record<string, unknown>;
-        [key: string]: unknown;
-      };
+      data: ResultCardData;
     };
 
 // ── Store interface ─────────────────────────────────────────────────────────
@@ -88,7 +89,9 @@ export type ChatEvent =
 interface ChatState {
   messages: Message[];
   currentAssistantId: string | null;
+  isSending: boolean;
   handleEvent(event: ChatEvent): void;
+  sendMessage(workspaceId: string, content: string): Promise<void>;
   reset(): void;
 }
 
@@ -114,6 +117,7 @@ function findAssistantMessageIndex(
 export const useChatStoreV2 = create<ChatState>((set, get) => ({
   messages: [],
   currentAssistantId: null,
+  isSending: false,
 
   handleEvent(event: ChatEvent) {
     switch (event.type) {
@@ -292,5 +296,157 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
 
   reset() {
     set({ messages: [], currentAssistantId: null });
+  },
+
+  async sendMessage(workspaceId: string, content: string) {
+    const { isSending } = get();
+    if (isSending || !content.trim()) return;
+    set({ isSending: true });
+
+    const userMsgId = crypto.randomUUID();
+    get().handleEvent({
+      type: "chat.user.message",
+      data: { id: userMsgId, content, timestamp: new Date().toISOString() },
+    });
+
+    try {
+      // Ensure thread exists
+      const threadRes = await authorizedFetch(
+        `/api/workspaces/${workspaceId}/thread`,
+        { method: "POST", headers: { "Content-Type": "application/json" } },
+      );
+      if (!threadRes.ok) throw new Error("Failed to create thread");
+      const thread = await threadRes.json();
+      const threadId = thread.id;
+
+      // Create assistant placeholder
+      const assistantMsgId = crypto.randomUUID();
+      get().handleEvent({
+        type: "chat.assistant.start",
+        data: { message_id: assistantMsgId },
+      });
+
+      // Stream run response — backend expects RunCreateRequest { message, ... }
+      const res = await authorizedFetch(
+        `/api/threads/${threadId}/runs/stream`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: content, workspace_id: workspaceId }),
+        },
+      );
+
+      if (!res.ok) throw new Error("Failed to start run");
+      if (!res.body) throw new Error("No response body");
+
+      // Parse SSE from fetch response
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let frameData: string[] = [];
+      let frameEvent: string | null = null;
+
+      const flushFrame = () => {
+        if (!frameData.length) {
+          frameEvent = null;
+          return;
+        }
+        const payload = frameData.join("\n");
+        frameData = [];
+        const eventName = frameEvent;
+        frameEvent = null;
+
+        if (eventName === "end") return;
+        if (!payload || payload === "null") return;
+
+        try {
+          const data = JSON.parse(payload);
+          const store = get();
+
+          // Backend run stream events: reasoning, content, block, done, error
+          switch (eventName) {
+            case "reasoning": {
+              store.handleEvent({
+                type: "chat.assistant.thinking",
+                delta: data.content ?? "",
+              });
+              break;
+            }
+            case "content": {
+              store.handleEvent({
+                type: "chat.assistant.block",
+                block: { kind: "text", content: data.content ?? "" },
+              });
+              break;
+            }
+            case "block": {
+              if (data.block) {
+                store.handleEvent({
+                  type: "chat.assistant.block",
+                  block: data.block as Block,
+                });
+              }
+              break;
+            }
+            case "error": {
+              store.handleEvent({
+                type: "chat.assistant.block",
+                block: {
+                  kind: "status_line",
+                  content: data.error ?? "Unknown error",
+                },
+              });
+              break;
+            }
+            default:
+              break;
+          }
+        } catch {
+          // Skip malformed frames
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.replace(/\r$/, "");
+          if (!trimmed) {
+            flushFrame();
+            continue;
+          }
+          if (trimmed.startsWith(":")) continue;
+          if (trimmed.startsWith("event:")) {
+            frameEvent = trimmed.slice(6).trim() || null;
+          } else if (trimmed.startsWith("data:")) {
+            frameData.push(trimmed.slice(5).trimStart());
+          }
+        }
+      }
+      buffer += decoder.decode();
+      for (const line of buffer.split("\n")) {
+        const trimmed = line.replace(/\r$/, "");
+        if (!trimmed) {
+          flushFrame();
+          continue;
+        }
+        if (trimmed.startsWith(":")) continue;
+        if (trimmed.startsWith("event:")) {
+          frameEvent = trimmed.slice(6).trim() || null;
+        } else if (trimmed.startsWith("data:")) {
+          frameData.push(trimmed.slice(5).trimStart());
+        }
+      }
+      flushFrame();
+
+      get().handleEvent({ type: "chat.assistant.completion" });
+    } catch {
+      get().handleEvent({ type: "chat.assistant.completion" });
+    } finally {
+      set({ isSending: false });
+    }
   },
 }));

@@ -86,7 +86,7 @@ test("paper analysis golden path", async ({ page }) => {
   ]);
 
   await page.goto(
-    `/workspaces/${workspaceId}/chat?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=${encodeURIComponent("联邦学习+大模型")}`,
+    `/workspaces/${workspaceId}/v2?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=${encodeURIComponent("联邦学习+大模型")}`,
   );
 
   await expect(page.getByText(/方向挺新/)).toBeVisible();

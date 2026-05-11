@@ -1,3 +1,5 @@
+import { authorizedFetch } from "@/lib/api/client";
+
 const BASE = "/api/workspaces";
 
 export type LibraryItem = {
@@ -8,7 +10,7 @@ export type LibraryItem = {
   doi?: string;
   url?: string;
   abstract?: string;
-  source: "user_upload" | "search_result" | "ai_suggested";
+  added_by: string;
   created_at: string;
 };
 
@@ -18,16 +20,17 @@ export async function listLibraryItems(
 ): Promise<LibraryItem[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  const res = await fetch(`${BASE}/${workspaceId}/library${params.toString() ? `?${params}` : ""}`);
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/library${params.toString() ? `?${params}` : ""}`);
   if (!res.ok) throw new Error("Failed to list library items");
-  return res.json();
+  const json = await res.json();
+  return json.items ?? json;
 }
 
 export async function deleteLibraryItem(
   workspaceId: string,
   itemId: string,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/${workspaceId}/library/${itemId}`, {
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/library/${itemId}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error("Failed to delete library item");

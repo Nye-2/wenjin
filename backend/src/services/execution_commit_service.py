@@ -142,9 +142,8 @@ class ExecutionCommitService:
                         "kind": data.get("doc_kind", "draft"),
                         "mime_type": data["mime_type"],
                         "storage_path": data["storage_path"],
-                        "size_bytes": data["size_bytes"],
+                        "size_bytes": data.get("size_bytes", 0),
                         "parent_id": data.get("parent_id"),
-                        "metadata_json": data.get("metadata") or {},
                         "added_by": f"execution:{execution_id}",
                     },
                 )
@@ -179,7 +178,7 @@ class ExecutionCommitService:
                     {
                         "title": data["title"],
                         "description": data.get("description"),
-                        "priority": 0,
+                        "priority": data["priority"] if isinstance(data.get("priority"), int) else 0,
                         "related_execution_ids": [execution_id],
                         "created_by": f"execution:{execution_id}",
                     },

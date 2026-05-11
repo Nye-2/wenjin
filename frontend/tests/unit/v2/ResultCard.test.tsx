@@ -42,10 +42,14 @@ describe("ResultCard", () => {
       "/api/executions/exec-1/commit",
       expect.objectContaining({
         method: "POST",
-        headers: expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
         body: JSON.stringify({ accept_all: true }),
       })
     );
+    // Verify Idempotency-Key was set (via Headers object from authorizedFetch)
+    const callArgs = mockFetch.mock.calls[0];
+    const headers = callArgs[1]?.headers as Headers;
+    expect(headers).toBeDefined();
+    expect(headers.get("Idempotency-Key")).toBeTruthy();
   });
 
   it("calls commit with selected ids on '仅勾选项'", async () => {
@@ -76,7 +80,8 @@ describe("ResultCard", () => {
     render(<ResultCard data={SAMPLE_DATA} />);
     fireEvent.click(screen.getByText("全部接受"));
     const call = mockFetch.mock.calls[0][1];
-    expect(call.headers["Idempotency-Key"]).toMatch(/^[0-9a-f-]{36}$/);
+    const headers = call.headers as Headers;
+    expect(headers.get("Idempotency-Key")).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("disables buttons after successful commit", async () => {

@@ -68,6 +68,11 @@ class ExecutionEngineV2:
 
         await self._mark_running(execution_id)
 
+        # Wire the runtime's graph_structure persistence callback
+        self.runtime.set_graph_structure = (
+            lambda gs: self.execution_service.set_graph_structure(execution_id, gs)
+        )
+
         try:
             brief = TaskBrief.model_validate(execution.params["brief"])
             report = await self.runtime.run_session(
@@ -105,6 +110,7 @@ class ExecutionEngineV2:
             execution_id,
             status=report.status,
             result={"task_report": report.model_dump(mode="json")},
+            result_summary=report.narrative[:200] if report.narrative else None,
         )
 
     async def _mark_failed(self, execution_id: str, error: str) -> None:

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { authorizedFetch } from "@/lib/api/client";
 
 interface NodeDetailDrawerProps {
   executionId: string;
@@ -51,7 +52,7 @@ export function NodeDetailDrawer({
     setLoading(true);
     setError(null);
 
-    fetch(`/api/executions/${executionId}/nodes/${nodeId}`)
+    authorizedFetch(`/api/executions/${executionId}/nodes/${nodeId}`)
       .then((res) => {
         if (!res.ok) throw new Error("Failed to fetch node detail");
         return res.json();

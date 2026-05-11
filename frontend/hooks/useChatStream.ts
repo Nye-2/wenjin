@@ -49,7 +49,7 @@ export function useChatStream(workspaceId: string) {
                 data: {
                   execution_id: (tr.execution_id as string) ?? eid,
                   capability_name: tr.capability_id as string | undefined,
-                  status: (tr.status as "completed" | "partial" | "failed_partial" | "cancelled") ?? "completed",
+                  status: (tr.status as "completed" | "failed_partial" | "cancelled") ?? "completed",
                   outputs: ((tr.outputs as Record<string, unknown>[]) ?? []).map(
                     (o) => ({
                       id: o.id as string,
@@ -65,13 +65,16 @@ export function useChatStream(workspaceId: string) {
                     (e) => ({
                       message: e.error as string,
                       phase: e.phase as string | undefined,
+                      task: e.task as string | undefined,
                     }),
                   ),
                 },
               });
             }
           })
-          .catch(() => {});
+          .catch((err) => {
+            console.error("[useChatStream] Failed to fetch execution record:", err);
+          });
 
         const status = (event as { status?: string }).status;
         if (status === "completed" || status === "failed") {

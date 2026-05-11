@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { useChatStoreV2 } from "@/stores/chat-store-v2";
+import { useChatStoreV2 } from "@/stores/chat-store";
 
 // Reset store between tests
 beforeEach(() => {
   useChatStoreV2.getState().reset();
 });
 
-describe("chat-store-v2 reducer", () => {
+describe("chat store", () => {
   it("appends content blocks in arrival order", () => {
     const { handleEvent } = useChatStoreV2.getState();
     handleEvent({
@@ -113,7 +113,7 @@ describe("chat-store-v2 reducer", () => {
         execution_id: "exec-1",
         capability_name: "literature_search",
         status: "completed",
-        outputs: {},
+        outputs: [],
       },
     });
 

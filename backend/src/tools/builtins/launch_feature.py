@@ -1,4 +1,4 @@
-"""launch_feature builtin tool — lead_agent's only path to start a workspace feature."""
+"""launch_feature builtin tool — dispatches a capability via the v2 execution pipeline."""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -8,28 +8,15 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from src.academic.cache.redis_client import redis_client
-from src.academic.services.workspace_service import WorkspaceService
-from src.application.commands import FeatureLaunchCommand
-from src.application.services.feature_ingress_factory import (
-    build_feature_ingress_service,
-)
-from src.config import redis_settings
-from src.database import get_db_session
-from src.services.credit_service import CreditService
-from src.services.references import WorkspaceReferenceService
-from src.task.service import TaskService
-from src.task.store import TaskStore
-
 
 class LaunchFeatureInput(BaseModel):
     feature_id: str = Field(
         ...,
-        description="Workspace feature id, e.g. 'paper_analysis', 'literature_search', 'writing'.",
+        description="Capability id, e.g. 'paper_analysis', 'deep_research', 'writing'.",
     )
     params: dict[str, Any] = Field(
         default_factory=dict,
-        description="Feature-specific parameters (paper_title, topic, query, etc.).",
+        description="Capability-specific parameters (paper_title, topic, query, etc.).",
     )
     skill_id: str | None = Field(
         default=None,
@@ -39,9 +26,7 @@ class LaunchFeatureInput(BaseModel):
         default=None,
         description=(
             "When resuming a previous run, pass the execution_session_id to "
-            "continue that run instead of starting a new one. The seed prompt "
-            "will say 请继续「...」的执行 in this case; the value comes from "
-            "the URL params of the chat page."
+            "continue that run instead of starting a new one."
         ),
     )
 
@@ -64,63 +49,72 @@ async def launch_feature_tool(
     execution_session_id: str | None = None,
     config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
-    """Launch a workspace feature by id with the given params.
+    """Launch a workspace capability by id with the given params.
 
-    When `execution_session_id` is provided, FeatureLaunchService resumes that
-    existing run; otherwise a new run is started.
-
-    Returns a dict with `status` ('launched' | 'advisory'), `task_id` (when launched),
-    `execution_session_id`, `feature_id`, and either `message` (success) or
-    `code`/`detail` (advisory).
+    Creates an ExecutionRecord and dispatches the v2 execution engine.
+    Returns a dict with `status` ('dispatched'), `execution_id`, and `feature_id`.
     """
     workspace_id = _read_required(config, "workspace_id")
     thread_id = _read_required(config, "thread_id")
     user_id = _read_required(config, "user_id")
 
-    runtime_redis = (
-        redis_client
-        if redis_settings.enabled and redis_client._client is not None
-        else None
-    )
+    from src.database import get_db_session
+    from src.services.execution_service import ExecutionService
 
     async with get_db_session() as db:
-        workspace_service = WorkspaceService(db)
-        launch_service = build_feature_ingress_service(
-            actor_id=user_id,
-            db=db,
-            workspace_service=workspace_service,
-            task_service=TaskService(TaskStore(redis_client, db)),
-            reference_service=WorkspaceReferenceService(db),
-            credit_service=CreditService(db),
+        execution_service = ExecutionService(db)
+
+        # Lead-busy check
+        all_active = await execution_service.list_executions(
+            workspace_id=workspace_id,
+            status=["pending", "running"],
         )
-        result = await launch_service.launch(
-            FeatureLaunchCommand(
-                workspace_id=workspace_id,
-                feature_id=feature_id,
-                params=dict(params or {}),
-                thread_id=thread_id,
-                skill_id=skill_id,
-                launch_source="thread",
-                redis_client=runtime_redis,
-                execution_session_id=execution_session_id,
-            )
+        if all_active:
+            active = all_active[0]
+            feature_label = getattr(active, "feature_id", "unknown")
+            progress = getattr(active, "progress", 0)
+            return {
+                "status": "advisory",
+                "code": "lead_busy",
+                "feature_id": feature_id,
+                "detail": f"正在执行「{feature_label}」({progress}%)，请稍候。",
+            }
+
+        execution = await execution_service.create_execution(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            execution_type="capability",
+            feature_id=feature_id,
+            params=dict(params or {}),
         )
 
-    outcome = result.outcome
-    task_id = getattr(outcome, "task_id", None)
-    if task_id:
-        return {
-            "status": "launched",
-            "task_id": str(task_id),
-            "execution_session_id": result.execution_session_id,
-            "feature_id": str(getattr(outcome, "feature_id", feature_id)),
-            "message": str(getattr(outcome, "message", "")),
-        }
+    # Publish workspace event so frontend knows execution started
+    from src.workspace_events import publish_workspace_event
+
+    await publish_workspace_event(
+        workspace_id,
+        "execution.updated",
+        {
+            "execution_id": str(execution.id),
+            "status": "running",
+            "event_type": "execution.status",
+        },
+    )
+
+    # Dispatch Celery task to run the execution
+    from src.config.app_config import celery_settings
+
+    if celery_settings.enabled:
+        from src.task.tasks.execution import execute_execution
+
+        execute_execution.apply_async(
+            args=[str(execution.id)],
+            queue="long_running",
+        )
 
     return {
-        "status": "advisory",
-        "execution_session_id": result.execution_session_id,
+        "status": "launched",
+        "execution_id": str(execution.id),
         "feature_id": feature_id,
-        "code": str(getattr(outcome, "code", "") or "advisory"),
-        "detail": str(getattr(outcome, "message", "") or ""),
+        "message": f"已启动「{feature_id}」",
     }

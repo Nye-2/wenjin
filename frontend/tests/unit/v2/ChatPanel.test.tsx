@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, beforeEach } from "vitest";
 import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/v2/components/ChatPanel";
-import { useChatStoreV2 } from "@/stores/chat-store-v2";
+import { useChatStoreV2 } from "@/stores/chat-store";
 
 beforeEach(() => {
   useChatStoreV2.getState().reset();
@@ -134,7 +134,7 @@ describe("ChatPanel v2", () => {
         execution_id: "ex1",
         capability_name: "literature_search",
         status: "completed",
-        outputs: {},
+        outputs: [],
       },
     });
 

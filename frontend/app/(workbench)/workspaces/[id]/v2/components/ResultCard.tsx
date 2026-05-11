@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useMemo, useId } from "react";
+import { useState, useMemo } from "react";
+import { authorizedFetch } from "@/lib/api/client";
+import type { ResultCardData } from "@/stores/chat-store";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -56,17 +58,6 @@ type ResultOutput =
       data: { title: string; description?: string; priority?: number };
     };
 
-export type ResultCardFullData = {
-  execution_id: string;
-  capability_id?: string;
-  capability_name?: string;
-  status: "completed" | "failed_partial" | "cancelled";
-  duration_seconds?: number;
-  narrative?: string;
-  outputs: ResultOutput[];
-  errors?: Array<{ message: string; phase?: string }>;
-}
-
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const KIND_LABELS: Record<ResultOutput["kind"], string> = {
@@ -103,7 +94,7 @@ function generateUUID(): string {
 // ── Component ───────────────────────────────────────────────────────────────
 
 interface ResultCardProps {
-  data: ResultCardFullData;
+  data: ResultCardData;
 }
 
 export function ResultCard({ data }: ResultCardProps) {
@@ -116,7 +107,7 @@ export function ResultCard({ data }: ResultCardProps) {
     outputs: rawOutputs,
   } = data;
 
-  const outputs = Array.isArray(rawOutputs) ? rawOutputs : [];
+  const outputs: ResultOutput[] = Array.isArray(rawOutputs) ? rawOutputs as ResultOutput[] : [];
 
   // Idempotency key: generated once per mount
   const [idempotencyKey] = useState(() => generateUUID());
@@ -157,7 +148,7 @@ export function ResultCard({ data }: ResultCardProps) {
     if (committed || committing) return;
     setCommitting(true);
     try {
-      await fetch(`/api/executions/${execution_id}/commit`, {
+      await authorizedFetch(`/api/executions/${execution_id}/commit`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -166,6 +157,7 @@ export function ResultCard({ data }: ResultCardProps) {
         body: JSON.stringify(body),
       });
       setCommitted(true);
+      window.dispatchEvent(new CustomEvent("wenjin:rooms-refresh"));
     } finally {
       setCommitting(false);
     }

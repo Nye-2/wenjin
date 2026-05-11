@@ -9,6 +9,7 @@ from typing import Any, Callable, TypedDict
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import ResultError, ResultOutput, TaskReport
 from src.agents.lead_agent.v2.compiler import compile_graph
+from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
 from src.services.capability_resolver import CapabilityResolver
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ class LeadAgentRuntime:
         publish_event: Callable | None = None,
         get_workspace_type: Callable | None = None,
         redis: Any | None = None,
+        set_graph_structure: Callable | None = None,
     ) -> None:
         """
         Args:
@@ -57,11 +59,14 @@ class LeadAgentRuntime:
                 Defaults to a stub that returns "thesis".
             redis: Optional async Redis client used to poll abort signals.
                 If None, abort checking is skipped.
+            set_graph_structure: Async callable (graph_structure: dict) → None.
+                Called once after computing the graph structure to persist it.
         """
         self.resolver = resolver
         self.publish_event = publish_event or _noop_publish
         self.get_workspace_type = get_workspace_type or _stub_get_ws_type
         self.redis = redis
+        self.set_graph_structure = set_graph_structure
 
     async def run_session(
         self,
@@ -90,6 +95,13 @@ class LeadAgentRuntime:
             "execution.graph_structure",
             {"graph_structure": graph_structure},
         )
+
+        # Persist graph_structure to ExecutionRecord
+        if self.set_graph_structure is not None:
+            try:
+                await self.set_graph_structure(graph_structure)
+            except Exception:
+                logger.warning("Failed to persist graph_structure", exc_info=True)
 
         # Assemble initial state
         initial_state: ExecutionState = {
@@ -232,13 +244,11 @@ class LeadAgentRuntime:
         return errors
 
     def _collect_outputs(self, state: dict, cap: Any) -> list[ResultOutput]:
-        """V1: return empty list.
-
-        TODO (Phase 2 follow-up): capability YAML will declare 'output_mapping'
-        rules that translate node_results.{task_name}.output into typed
-        ResultOutput objects (library_item, document, memory_fact, etc.).
-        """
-        return []
+        graph_template = cap.graph_template if hasattr(cap, "graph_template") else {}
+        node_results = state.get("node_results", {})
+        if not graph_template or not node_results:
+            return []
+        return OutputMappingResolver().resolve(graph_template, node_results)
 
     def _build_narrative(self, cap: Any, state: dict) -> str:
         n_nodes = len(state.get("node_results", {}))

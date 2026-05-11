@@ -18,7 +18,6 @@ from src.task import celery_app
 from src.task.executor import get_executor
 from src.task.registry import WORKSPACE_FEATURE_TASK, TaskStatus, get_task_config, is_valid_task_type
 from src.task.store import TaskStore
-from src.task.workspace_feature_params import coerce_workspace_feature_params
 from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
@@ -264,7 +263,7 @@ class TaskService:
             payload = record.payload or {}
             if not isinstance(payload, dict):
                 continue
-            payload_params = coerce_workspace_feature_params(payload)
+            payload_params = dict(payload.get("params")) if isinstance(payload.get("params"), Mapping) else {}
             if params is not None:
                 if self._normalize_params(payload_params) == self._normalize_params(params):
                     return record.id

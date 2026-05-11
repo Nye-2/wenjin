@@ -61,7 +61,7 @@ export function getWorkspaceFeatureThreadRoute(
     return null;
   }
 
-  const pathname = `/workspaces/${workspaceId}/chat`;
+  const pathname = `/workspaces/${workspaceId}/v2`;
   const query = new URLSearchParams();
   query.set("feature", featureId);
 

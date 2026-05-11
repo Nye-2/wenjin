@@ -46,7 +46,11 @@ function mockFetch(overrides?: Record<string, unknown>) {
     "/api/workspaces/ws-1/memory": MOCK_MEMORY_FACTS,
     "/api/workspaces/ws-1/decisions": MOCK_DECISIONS,
     "/api/workspaces/ws-1/sandbox/executions": MOCK_EXECUTIONS,
-    "/api/workspaces/ws-1/settings": { ok: true },
+    "/api/workspaces/ws-1/settings": {
+      name: "Test Workspace",
+      auto_compact_threshold: 0.8,
+      default_model: "claude-sonnet-4-6",
+    },
   };
   const responses = { ...defaults, ...overrides };
 
@@ -58,25 +62,23 @@ function mockFetch(overrides?: Record<string, unknown>) {
     // Handle POST to sandbox
     if (
       opts?.method === "POST" &&
-      url.includes("/sandbox/executions")
+      url.includes("/sandbox/exec")
     ) {
       const body = JSON.parse(opts.body as string);
       return Promise.resolve({
         ok: true,
         json: () =>
           Promise.resolve({
-            id: "exec-new",
-            code: body.code,
-            language: body.language,
-            output: "execution result",
-            status: "completed",
-            created_at: "2026-01-16T10:00:00Z",
+            sandbox_id: "exec-new",
+            command: body.command,
+            status: "queued",
+            note: "execution result",
           }),
       });
     }
-    // Handle POST to settings
+    // Handle POST/PUT to settings
     if (
-      opts?.method === "POST" &&
+      (opts?.method === "POST" || opts?.method === "PUT") &&
       url.includes("/settings")
     ) {
       return Promise.resolve({ ok: true });
@@ -153,9 +155,9 @@ describe("SettingsPage", () => {
     fireEvent.click(screen.getByTestId("tab-sandbox"));
     expect(screen.getByTestId("sandbox-console")).toBeInTheDocument();
 
-    // Switch to Settings
+    // Switch to Settings (loads settings data async)
     fireEvent.click(screen.getByTestId("tab-settings"));
-    expect(screen.getByTestId("settings-form")).toBeInTheDocument();
+    expect(await screen.findByTestId("settings-form")).toBeInTheDocument();
   });
 
   it("MemoryViewer fetches and displays facts", async () => {

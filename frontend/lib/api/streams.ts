@@ -336,16 +336,3 @@ export function subscribeWorkspaceEvents(
   });
 }
 
-export function subscribeTaskProgress(
-  taskId: string,
-  onUpdate: (event: TaskProgressEvent) => void,
-  onError?: (error: string) => void
-): () => void {
-  return subscribeJsonEventStream<TaskProgressEvent>({
-    url: `${API_BASE_URL}/tasks/${taskId}/stream`,
-    init: { method: "GET" },
-    onPayload: onUpdate,
-    onError,
-    onClosedMessage: "Task progress stream closed",
-  });
-}

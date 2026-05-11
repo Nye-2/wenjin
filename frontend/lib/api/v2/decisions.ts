@@ -1,3 +1,5 @@
+import { authorizedFetch } from "@/lib/api/client";
+
 const BASE = "/api/workspaces";
 
 export type Decision = {
@@ -15,9 +17,12 @@ export async function listDecisions(
 ): Promise<Decision[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  const res = await fetch(
+  const res = await authorizedFetch(
     `${BASE}/${workspaceId}/decisions${params.toString() ? `?${params}` : ""}`,
   );
   if (!res.ok) throw new Error("Failed to list decisions");
-  return res.json();
+  const json = await res.json();
+  // Backend returns { active: Decision | null } for GET, wrap as array
+  if (json.active !== undefined) return json.active ? [json.active] : [];
+  return json.items ?? json;
 }

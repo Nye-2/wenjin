@@ -5,8 +5,6 @@ from typing import Any
 
 from src.task.registry import WORKSPACE_FEATURE_TASK
 
-FIGURE_GENERATION_GRAPH_MODULE = "src.agents.graphs.thesis.figure_generation"
-
 CANONICAL_WORKSPACE_TYPES = (
     "sci",
     "thesis",
@@ -40,7 +38,6 @@ class WorkspaceFeatureDefinition:
     panel: str | None = None
     stages: tuple[FeatureStageDefinition, ...] = field(default_factory=tuple)
     color: str | None = None
-    graph_module: str | None = None
     follow_up_prompt: str | None = None
 
     def to_api_dict(self) -> dict[str, Any]:
@@ -153,7 +150,6 @@ THESIS_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
-        graph_module=FIGURE_GENERATION_GRAPH_MODULE,
         follow_up_prompt="请基于这次图表结果继续优化图意表达，并给出适合写入正文的说明文字。",
     ),
 )
@@ -264,7 +260,6 @@ SCI_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
-        graph_module=FIGURE_GENERATION_GRAPH_MODULE,
         follow_up_prompt="请基于这次图表结果继续优化图意表达，并给出适合写入正文的说明文字。",
     ),
     WorkspaceFeatureDefinition(
@@ -374,7 +369,6 @@ PROPOSAL_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
-        graph_module=FIGURE_GENERATION_GRAPH_MODULE,
         follow_up_prompt="请基于这次图表结果继续优化图意表达，并给出可直接写入申报书的图注说明。",
     ),
 )
@@ -432,7 +426,6 @@ SOFTWARE_COPYRIGHT_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
-        graph_module=FIGURE_GENERATION_GRAPH_MODULE,
         follow_up_prompt="请基于这次图表结果继续优化结构表达，并给出软著材料可用的图示说明文字。",
     ),
 )
@@ -489,7 +482,6 @@ PATENT_FEATURES = (
             _stage("design", "设计方案"),
             _stage("generate", "生成图表"),
         ),
-        graph_module=FIGURE_GENERATION_GRAPH_MODULE,
         follow_up_prompt="请基于这次图表结果继续优化技术方案表达，并给出专利说明书可用的图示描述。",
     ),
 )

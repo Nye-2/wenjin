@@ -1,12 +1,6 @@
 /**
- * Unified execution store (Phase 1).
- *
- * Consumes `ExecutionStreamEvent` from the execution stream SSE endpoint
- * and maintains a flat map of `ExecutionRecord` objects.
- *
- * During Phase 1-2, this store is used alongside the legacy workflow store.
- * The LiveWorkflowPanel should consume ExecutionRecord directly;
- * no adapter layer.
+ * Execution store — consumes `ExecutionStreamEvent` from SSE and maintains
+ * a flat map of `ExecutionRecord` objects.
  */
 import { create } from "zustand";
 

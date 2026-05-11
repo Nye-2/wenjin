@@ -1,5 +1,5 @@
 import type { ThreadSummary } from "@/lib/api";
-import type { Message } from "@/stores/chat-store-v2";
+import type { Message } from "@/stores/chat-store";
 
 interface ExportableThread extends Partial<ThreadSummary> {
   id: string;

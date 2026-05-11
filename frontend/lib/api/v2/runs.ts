@@ -1,3 +1,5 @@
+import { authorizedFetch } from "@/lib/api/client";
+
 const BASE = "/api/workspaces";
 
 export type RunRecord = {
@@ -16,7 +18,8 @@ export async function listRuns(
 ): Promise<RunRecord[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  const res = await fetch(`${BASE}/${workspaceId}/runs${params.toString() ? `?${params}` : ""}`);
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/runs${params.toString() ? `?${params}` : ""}`);
   if (!res.ok) throw new Error("Failed to list runs");
-  return res.json();
+  const json = await res.json();
+  return json.items ?? json;
 }

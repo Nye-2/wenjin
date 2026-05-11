@@ -62,13 +62,17 @@ class TestResolveValue:
         result = _resolve_value("{{item.name}} — {{item.summary}}", {}, item)
         assert result == "Methods — DL approaches"
 
+    def test_unrecognized_prefix_returns_none(self):
+        result = _resolve_value("{{config.base_url}}", {}, None)
+        assert result is None
+
     def test_interpolated_missing_field_becomes_empty(self):
         output = {"name": "Test"}
         result = _resolve_value("{{output.name}}：{{output.missing}}", output, None)
         assert result == "Test："
 
 
-from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
+from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver  # noqa: E402
 
 
 def _make_graph(phases: list[dict]) -> dict:
@@ -294,8 +298,8 @@ class TestOutputMappingResolverTask:
             "identify_tasks": {
                 "output": {
                     "todos": [
-                        {"title": "补充实验", "detail": "跑 ablation", "priority": "high"},
-                        {"title": "更新图表", "detail": "Figure 3", "priority": "normal"},
+                        {"title": "补充实验", "detail": "跑 ablation", "priority": 1},
+                        {"title": "更新图表", "detail": "Figure 3", "priority": 0},
                     ],
                 },
             },
@@ -305,7 +309,7 @@ class TestOutputMappingResolverTask:
         assert len(result) == 2
         assert result[0].kind == "task"
         assert result[0].data.title == "补充实验"
-        assert result[0].data.priority == "high"
+        assert result[0].data.priority == 1
         assert result[1].data.title == "更新图表"
 
 

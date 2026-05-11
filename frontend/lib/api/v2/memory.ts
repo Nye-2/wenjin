@@ -1,3 +1,5 @@
+import { authorizedFetch } from "@/lib/api/client";
+
 const BASE = "/api/workspaces";
 
 export type MemoryFact = {
@@ -14,18 +16,19 @@ export async function listMemoryFacts(
 ): Promise<MemoryFact[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  const res = await fetch(
+  const res = await authorizedFetch(
     `${BASE}/${workspaceId}/memory${params.toString() ? `?${params}` : ""}`,
   );
   if (!res.ok) throw new Error("Failed to list memory facts");
-  return res.json();
+  const json = await res.json();
+  return json.items ?? json;
 }
 
 export async function deleteMemoryFact(
   workspaceId: string,
   factId: string,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/${workspaceId}/memory/${factId}`, {
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/memory/${factId}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error("Failed to delete memory fact");

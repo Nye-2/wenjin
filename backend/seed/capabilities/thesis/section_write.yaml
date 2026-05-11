@@ -67,7 +67,7 @@ graph_template:
             - kind: memory_fact
               iterate_on: "output.clusters"
               mapping:
-                content: "{{item.name}}：{{item.summary}}"
+                content: "研究聚类：{{item.theme}}（相关文献 {{item.paper_ids}} 篇）"
                 category: "research_cluster"
     - name: draft
       depends_on: [cluster]

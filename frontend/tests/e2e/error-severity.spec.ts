@@ -43,7 +43,7 @@ test("low-severity subagent failure surfaces as warn status_line, run continues"
   ]);
 
   await page.goto(
-    `/workspaces/${workspaceId}/chat?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x`,
+    `/workspaces/${workspaceId}/v2?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x`,
   );
   await expect(page.getByText(/已跳过/)).toBeVisible();
   await expect(page.getByText(/phase 2 完成/)).toBeVisible();
@@ -81,7 +81,7 @@ test("high-severity failure pauses run with question_card asking how to proceed"
   ]);
 
   await page.goto(
-    `/workspaces/${workspaceId}/chat?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x`,
+    `/workspaces/${workspaceId}/v2?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x`,
   );
   await expect(page.getByText(/无法解析/)).toBeVisible();
   await expect(page.getByRole("button", { name: /跳过这篇/ })).toBeVisible();

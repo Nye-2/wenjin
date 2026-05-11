@@ -75,6 +75,31 @@ def make_dispatch_capability(deps):
             feature_id=capability_id,
             params={"brief": task_brief.model_dump(mode="json")},
         )
+
+        # Publish workspace event so frontend knows execution started
+        from src.workspace_events import publish_workspace_event
+
+        await publish_workspace_event(
+            deps.workspace_id,
+            "execution.updated",
+            {
+                "execution_id": str(execution.id),
+                "status": "running",
+                "event_type": "execution.status",
+            },
+        )
+
+        # Dispatch Celery task to actually run the execution
+        from src.config.app_config import celery_settings
+
+        if celery_settings.enabled:
+            from src.task.tasks.execution import execute_execution
+
+            execute_execution.apply_async(
+                args=[str(execution.id)],
+                queue="long_running",
+            )
+
         return {
             "execution_id": execution.id,
             "capability_id": capability_id,

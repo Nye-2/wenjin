@@ -53,7 +53,7 @@ def _resolve_value(expr: str, output: dict, item: dict | None = None) -> Any:
             return _dot_get(output, path[7:])
         if path.startswith("item."):
             return _dot_get(item, path[5:])
-        return expr
+        return None
 
     # Interpolated string — replace all {{...}} segments
     if "{{" in expr:

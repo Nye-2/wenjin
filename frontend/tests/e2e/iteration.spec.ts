@@ -40,7 +40,7 @@ test("clicking a result_card pill triggers new run; previous run folds", async (
   ]);
 
   await page.goto(
-    `/workspaces/${workspaceId}/chat?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x`,
+    `/workspaces/${workspaceId}/v2?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x`,
   );
   await expect(page.getByText(/x/)).toBeVisible();
 

@@ -45,6 +45,12 @@ export function LibraryDrawer({
     if (open) fetchItems();
   }, [open, fetchItems]);
 
+  useEffect(() => {
+    const handler = () => fetchItems();
+    window.addEventListener("wenjin:rooms-refresh", handler);
+    return () => window.removeEventListener("wenjin:rooms-refresh", handler);
+  }, [fetchItems]);
+
   function handleClose() {
     setVisible(false);
     setTimeout(onClose, 200);
@@ -255,7 +261,7 @@ export function LibraryDrawer({
                       marginTop: 4,
                     }}
                   >
-                    {item.source.replace("_", " ")}
+                    {item.added_by}
                   </div>
                 </div>
                 <button

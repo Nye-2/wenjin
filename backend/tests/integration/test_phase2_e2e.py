@@ -156,7 +156,7 @@ async def test_lead_agent_runtime_with_seeded_capability_completes(db_session):
 @pytest.mark.asyncio
 async def test_engine_v2_full_pipeline_with_run_history():
     """ExecutionEngineV2 wraps runtime, marks status + writes run_history."""
-    from src.execution.engine_v2 import ExecutionEngineV2
+    from src.execution.engine import ExecutionEngineV2
 
     runtime = AsyncMock()
     runtime.run_session.return_value = TaskReport(

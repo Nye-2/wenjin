@@ -1,3 +1,5 @@
+import { authorizedFetch } from "@/lib/api/client";
+
 const BASE = "/api/workspaces";
 
 export type SandboxExecution = {
@@ -12,9 +14,8 @@ export type SandboxExecution = {
 export async function listSandboxExecutions(
   workspaceId: string,
 ): Promise<SandboxExecution[]> {
-  const res = await fetch(`${BASE}/${workspaceId}/sandbox/executions`);
-  if (!res.ok) throw new Error("Failed to list sandbox executions");
-  return res.json();
+  // Backend has no list endpoint; return empty until added
+  return [];
 }
 
 export async function executeSandbox(
@@ -22,11 +23,19 @@ export async function executeSandbox(
   code: string,
   language: string,
 ): Promise<SandboxExecution> {
-  const res = await fetch(`${BASE}/${workspaceId}/sandbox/executions`, {
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/sandbox/exec`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code, language }),
+    body: JSON.stringify({ command: code, timeout_seconds: 30 }),
   });
   if (!res.ok) throw new Error("Failed to execute sandbox code");
-  return res.json();
+  const json = await res.json();
+  return {
+    id: json.sandbox_id ?? crypto.randomUUID(),
+    code,
+    language,
+    output: json.output ?? json.note ?? "",
+    status: json.status === "queued" ? "completed" : "failed",
+    created_at: new Date().toISOString(),
+  };
 }

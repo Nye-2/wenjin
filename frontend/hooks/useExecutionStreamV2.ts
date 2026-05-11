@@ -5,7 +5,7 @@ import { useExecutionStream } from "./useExecutionStream";
 
 export interface UseExecutionStreamV2Return {
   /** Current execution's graph nodes with resolved statuses */
-  nodes: Array<{ id: string; label: string; status: string }>;
+  nodes: Array<{ id: string; label: string; status: string; phaseIndex?: number }>;
   /** Current execution's graph edges (mapped to source/target) */
   edges: Array<{ source: string; target: string }>;
   /** Currently selected node ID */
@@ -19,13 +19,6 @@ export interface UseExecutionStreamV2Return {
 /**
  * v2 wrapper that combines the execution stream with the workspace event
  * stream for the LiveWorkflowPanel.
- *
- * Takes a `workspaceId` and optional `executionId`. If `executionId` is
- * provided, subscribes to that execution's SSE stream via `useExecutionStream`.
- * Otherwise falls back to `currentExecutionId` in the execution store.
- *
- * Exposes computed nodes/edges derived from `graph_structure` + `node_states`,
- * plus a `selectedNodeId` for the panel drawer.
  */
 export function useExecutionStreamV2(
   _workspaceId: string,
@@ -33,16 +26,17 @@ export function useExecutionStreamV2(
 ): UseExecutionStreamV2Return {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  // Subscribe to execution stream if ID provided
-  useExecutionStream(executionId ?? null);
-
+  // Resolve execution ID from prop or store
   const currentId =
     executionId ?? useExecutionStore((s) => s.currentExecutionId);
-  const executions = useExecutionStore((s) => s.executions);
 
+  // Subscribe to execution stream using resolved ID
+  useExecutionStream(currentId);
+
+  const executions = useExecutionStore((s) => s.executions);
   const record = currentId ? executions.get(currentId) : undefined;
 
-  // Build nodes from graph_structure + node_states
+  // Build nodes from graph_structure + node_states, extract phaseIndex
   const nodes = useMemo(() => {
     if (!record?.graph_structure) return [];
     return record.graph_structure.nodes.map((n) => {
@@ -51,6 +45,10 @@ export function useExecutionStreamV2(
         id: n.id,
         label: n.label ?? n.id,
         status: state?.status ?? "pending",
+        phaseIndex:
+          (n.metadata?.phase_index as number | undefined) ??
+          (n.metadata?.phaseIndex as number | undefined) ??
+          0,
       };
     });
   }, [record?.graph_structure, record?.node_states]);

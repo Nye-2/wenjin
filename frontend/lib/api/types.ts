@@ -1364,7 +1364,7 @@ export interface ThreadBlockEvent {
 }
 
 // =============================================================================
-// Unified Execution Model Types (Phase 1)
+// Unified Execution Model Types
 // =============================================================================
 
 export type ExecutionType = "chat_turn" | "feature" | "subagent" | "tool" | "advisory";

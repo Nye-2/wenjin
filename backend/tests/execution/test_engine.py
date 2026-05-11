@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 import pytest
 
 from src.agents.contracts.task_report import TaskReport
-from src.execution.engine_v2 import ExecutionEngineV2
+from src.execution.engine import ExecutionEngineV2
 
 
 # ---------------------------------------------------------------------------

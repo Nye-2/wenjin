@@ -7,11 +7,7 @@ import { useExecutionStore } from "@/stores/execution-store";
 
 /**
  * Subscribe to a single execution's SSE stream and feed events into the
- * unified execution store.
- *
- * This hook is the Phase-3 replacement for workspace-event-based task
- * progress.  When a feature execution starts, the caller provides its
- * execution_id and this hook consumes the fine-grained execution stream.
+ * execution store.
  */
 export function useExecutionStream(executionId: string | null) {
   const applyEvent = useExecutionStore((s) => s.applyStreamEvent);

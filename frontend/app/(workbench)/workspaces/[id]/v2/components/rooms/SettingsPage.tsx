@@ -9,6 +9,7 @@ import { SettingsForm } from "./SettingsForm";
 interface SettingsPageProps {
   workspaceId: string;
   open: boolean;
+  defaultTab?: TabKey;
   onClose: () => void;
 }
 
@@ -24,10 +25,15 @@ const TABS: { key: TabKey; label: string }[] = [
 export function SettingsPage({
   workspaceId,
   open,
+  defaultTab,
   onClose,
 }: SettingsPageProps) {
   const [visible, setVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>("memory");
+  const [activeTab, setActiveTab] = useState<TabKey>(defaultTab ?? "memory");
+
+  useEffect(() => {
+    if (defaultTab) setActiveTab(defaultTab);
+  }, [defaultTab]);
 
   useEffect(() => {
     if (open) setVisible(true);

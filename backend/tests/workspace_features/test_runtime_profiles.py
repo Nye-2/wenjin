@@ -1,5 +1,4 @@
 """Tests for workspace feature runtime profiles."""
-
 from __future__ import annotations
 
 from src.workspace_features import (
@@ -8,7 +7,6 @@ from src.workspace_features import (
     iter_feature_runtime_profiles,
     iter_workspace_features,
 )
-from src.workspace_features.registry import FIGURE_GENERATION_GRAPH_MODULE
 
 
 def test_runtime_profiles_cover_every_registered_feature() -> None:
@@ -48,14 +46,12 @@ def test_non_agentic_feature_defaults_to_compute_workflow() -> None:
     assert profile.max_subagents == 0
 
 
-def test_shared_figure_generation_graph_module_lives_in_feature_registry() -> None:
+def test_figure_generation_registered_across_workspace_types() -> None:
     figure_features = [
         feature
         for feature in iter_workspace_features()
         if feature.id == "figure_generation"
     ]
-
-    assert figure_features
-    assert {
-        feature.graph_module for feature in figure_features
-    } == {FIGURE_GENERATION_GRAPH_MODULE}
+    assert len(figure_features) >= 1
+    workspace_types = {f.workspace_type for f in figure_features}
+    assert "thesis" in workspace_types

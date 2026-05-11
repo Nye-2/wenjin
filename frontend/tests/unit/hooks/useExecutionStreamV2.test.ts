@@ -68,11 +68,13 @@ describe("useExecutionStreamV2", () => {
       id: "node-1",
       label: "Search",
       status: "completed",
+      phaseIndex: 0,
     });
     expect(result.current.nodes[1]).toEqual({
       id: "node-2",
       label: "Analyze",
       status: "running",
+      phaseIndex: 0,
     });
     expect(result.current.edges).toHaveLength(1);
     expect(result.current.edges[0]).toEqual({

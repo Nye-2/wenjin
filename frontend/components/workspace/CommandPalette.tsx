@@ -12,7 +12,7 @@ import {
 
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { exportConversationAsJson, exportConversationAsMarkdown } from "@/lib/thread-export";
-import { useChatStoreV2 } from "@/stores/chat-store-v2";
+import { useChatStoreV2 } from "@/stores/chat-store";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,

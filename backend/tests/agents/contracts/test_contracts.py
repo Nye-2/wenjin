@@ -190,7 +190,7 @@ class TestTaskReport:
             id="out-5",
             preview="Review related work",
             kind="task",
-            data=TaskData(title="Review related work", description="Summarise prior art", priority="high"),
+            data=TaskData(title="Review related work", description="Summarise prior art", priority=1),
         )
         report = self._make_report(outputs=[output])
         assert report.outputs[0].kind == "task"

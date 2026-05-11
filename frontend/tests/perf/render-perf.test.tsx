@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
 import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/v2/components/ChatPanel";
-import { useChatStoreV2 } from "@/stores/chat-store-v2";
+import { useChatStoreV2 } from "@/stores/chat-store";
 
 describe("Render performance", () => {
   beforeEach(() => {

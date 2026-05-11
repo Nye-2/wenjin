@@ -76,6 +76,12 @@ export function RunsDrawer({
     if (open) fetchItems();
   }, [open, fetchItems]);
 
+  useEffect(() => {
+    const handler = () => fetchItems();
+    window.addEventListener("wenjin:rooms-refresh", handler);
+    return () => window.removeEventListener("wenjin:rooms-refresh", handler);
+  }, [fetchItems]);
+
   function handleClose() {
     setVisible(false);
     setTimeout(onClose, 200);

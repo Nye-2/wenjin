@@ -28,7 +28,7 @@ class DocumentData(BaseModel):
     name: str
     mime_type: str
     storage_path: str
-    size_bytes: int
+    size_bytes: int = 0
     parent_id: str | None = None
     doc_kind: str = "generic"
 
@@ -54,7 +54,7 @@ class TaskData(BaseModel):
 
     title: str
     description: str | None = None
-    priority: str = "normal"
+    priority: int = 0
 
 
 # ---------------------------------------------------------------------------

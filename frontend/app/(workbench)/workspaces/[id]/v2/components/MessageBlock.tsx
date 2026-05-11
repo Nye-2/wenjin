@@ -1,10 +1,10 @@
 "use client";
 
 import { memo } from "react";
-import type { Block } from "@/stores/chat-store-v2";
+import type { Block, ResultCardData } from "@/stores/chat-store";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { StatusLineBlock } from "./StatusLineBlock";
-import { ResultCard, type ResultCardFullData } from "./ResultCard";
+import { ResultCard } from "./ResultCard";
 
 interface MessageBlockProps {
   block: Block;
@@ -49,7 +49,7 @@ export const MessageBlock = memo(function MessageBlock({ block }: MessageBlockPr
         </div>
       );
     case "result_card":
-      return <ResultCard data={block.data as unknown as ResultCardFullData} />;
+      return <ResultCard data={block.data} />;
     case "question_card":
       return (
         <div

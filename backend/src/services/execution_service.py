@@ -215,6 +215,17 @@ class ExecutionService:
             await self.db.refresh(record)
         return record
 
+    async def set_graph_structure(
+        self,
+        execution_id: str,
+        graph_structure: dict[str, Any],
+    ) -> None:
+        """Persist the computed graph_structure onto the ExecutionRecord."""
+        record = await self.get_by_id(execution_id)
+        if record is not None:
+            record.graph_structure = graph_structure
+            await self.db.commit()
+
     async def cancel_execution(
         self,
         execution_id: str,

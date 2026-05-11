@@ -19,6 +19,24 @@ logger = logging.getLogger(__name__)
 # Allowed template variables in prompt_template / system_prompt
 ALLOWED_VARS = {"topic", "language", "time_range", "decisions", "raw_message", "workspace"}
 
+_VALID_OUTPUT_KINDS = {"library_item", "document", "memory_fact", "decision", "task"}
+
+_REQUIRED_OUTPUT_FIELDS = {
+    "library_item": {"title", "authors"},
+    "document": {"name", "mime_type", "storage_path", "size_bytes"},
+    "memory_fact": {"content"},
+    "decision": {"key", "value"},
+    "task": {"title"},
+}
+
+_VALID_FIELDS_BY_KIND = {
+    "library_item": {"title", "authors", "year", "doi", "url", "abstract", "metadata"},
+    "document": {"name", "mime_type", "storage_path", "size_bytes", "doc_kind", "parent_id"},
+    "memory_fact": {"content", "category", "confidence"},
+    "decision": {"key", "value", "confidence"},
+    "task": {"title", "description", "priority"},
+}
+
 
 class CapabilityNotFound(Exception):
     """Raised when a capability cannot be found by id + workspace_type."""
@@ -133,6 +151,37 @@ def validate_capability(
                         f"Phase '{phase_name}' task[{j}] subagent_type "
                         f"'{sa_type}' not in registry"
                     )
+
+                # Validate outputs declarations
+                for k, out_decl in enumerate(task.get("outputs", [])):
+                    out_kind = out_decl.get("kind", "")
+                    if out_kind not in _VALID_OUTPUT_KINDS:
+                        errors.append(
+                            f"Phase '{phase_name}' task[{j}] outputs[{k}] "
+                            f"has unknown output kind '{out_kind}'"
+                        )
+                        continue
+                    required = _REQUIRED_OUTPUT_FIELDS.get(out_kind, set())
+                    mapping_keys = set(out_decl.get("mapping", {}).keys())
+                    missing = required - mapping_keys
+                    if missing:
+                        errors.append(
+                            f"Phase '{phase_name}' task[{j}] outputs[{k}] "
+                            f"kind '{out_kind}' missing required mapping fields: {sorted(missing)}"
+                        )
+                    iterate_on = out_decl.get("iterate_on", "")
+                    if iterate_on and not iterate_on.startswith("output."):
+                        errors.append(
+                            f"Phase '{phase_name}' task[{j}] outputs[{k}] "
+                            f"iterate_on must start with 'output.'"
+                        )
+                    valid_fields = _VALID_FIELDS_BY_KIND.get(out_kind, set())
+                    task_name = task.get("name", f"task[{j}]")
+                    for field_name in out_decl.get("mapping", {}):
+                        if field_name not in valid_fields:
+                            errors.append(
+                                f"Unknown field '{field_name}' in {out_kind} output mapping for task '{task_name}'"
+                            )
 
     # Collect allowed template variables from brief_schema.properties
     brief_schema = data.get("brief_schema", {})

@@ -4,7 +4,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
 import { useFeaturesStore } from "@/stores/features";
-import { useChatStoreV2 } from "@/stores/chat-store-v2";
+import { useChatStoreV2 } from "@/stores/chat-store";
 import { useComputeStore } from "@/stores/compute";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { CommandPalette } from "@/components/workspace/CommandPalette";

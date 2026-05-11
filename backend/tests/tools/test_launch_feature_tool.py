@@ -1,4 +1,4 @@
-"""Tests for the `launch_feature` builtin tool."""
+"""Tests for the `launch_feature` builtin tool — v2 execution pipeline."""
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -12,16 +12,8 @@ from src.tools.builtins import launch_feature_tool
 
 
 @dataclass
-class _StubFeatureLaunchResult:
-    execution_session_id: str
-    outcome: Any
-
-
-@dataclass
-class _StubFeatureTaskSubmission:
-    task_id: str
-    feature_id: str
-    message: str
+class _StubExecution:
+    id: str
 
 
 @asynccontextmanager
@@ -30,27 +22,23 @@ async def _fake_db_session():
 
 
 @pytest.mark.asyncio
-async def test_launch_feature_invokes_feature_launch_service():
-    """Tool must build a FeatureLaunchCommand and call FeatureLaunchService.launch()."""
-    submission = _StubFeatureTaskSubmission(
-        task_id="task-abc",
-        feature_id="paper_analysis",
-        message="started",
-    )
-    fake_result = _StubFeatureLaunchResult(
-        execution_session_id="es-xyz",
-        outcome=submission,
-    )
-    fake_service = AsyncMock()
-    fake_service.launch = AsyncMock(return_value=fake_result)
+async def test_launch_feature_creates_execution_and_dispatches():
+    """Tool must create an ExecutionRecord and dispatch the v2 Celery task."""
+    fake_execution = _StubExecution(id="exec-1")
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock(return_value=fake_execution)
 
-    with patch(
-        "src.tools.builtins.launch_feature.build_feature_ingress_service",
-        return_value=fake_service,
-    ), patch(
-        "src.tools.builtins.launch_feature.get_db_session",
-        _fake_db_session,
-    ):
+    fake_publish = AsyncMock()
+    fake_celery = MagicMock()
+    fake_celery.enabled = True
+    fake_task = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.workspace_events.publish_workspace_event", fake_publish), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.tasks.execution.execute_execution", fake_task):
         result = await launch_feature_tool.ainvoke(
             {
                 "feature_id": "paper_analysis",
@@ -67,44 +55,33 @@ async def test_launch_feature_invokes_feature_launch_service():
         )
 
     assert result["status"] == "launched"
-    assert result["task_id"] == "task-abc"
+    assert result["execution_id"] == "exec-1"
     assert result["feature_id"] == "paper_analysis"
-    assert result["execution_session_id"] == "es-xyz"
-    fake_service.launch.assert_awaited_once()
-    cmd = fake_service.launch.await_args.args[0]
-    assert cmd.workspace_id == "ws-1"
-    assert cmd.feature_id == "paper_analysis"
-    assert cmd.thread_id == "th-1"
-    assert cmd.skill_id == "paper-analyst"
-    assert cmd.params == {"paper_title": "联邦学习结合大模型微调"}
-    assert cmd.launch_source == "thread"
+    fake_service.create_execution.assert_awaited_once()
+    fake_task.apply_async.assert_called_once_with(
+        args=["exec-1"],
+        queue="long_running",
+    )
 
 
 @pytest.mark.asyncio
-async def test_launch_feature_returns_warning_when_advisory():
-    """If FeatureLaunchService returns an advisory outcome, surface its code."""
-
+async def test_launch_feature_returns_lead_busy_when_active():
+    """If there's an active execution, return advisory lead_busy."""
     @dataclass
-    class _Advisory:
-        code: str
-        message: str
+    class _ActiveExecution:
+        id: str
+        feature_id: str
+        progress: int
 
-    fake_result = _StubFeatureLaunchResult(
-        execution_session_id="es-1",
-        outcome=_Advisory(code="literature_insufficient", message="文献不足"),
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(
+        return_value=[_ActiveExecution(id="exec-0", feature_id="writing", progress=50)]
     )
-    fake_service = AsyncMock()
-    fake_service.launch = AsyncMock(return_value=fake_result)
 
-    with patch(
-        "src.tools.builtins.launch_feature.build_feature_ingress_service",
-        return_value=fake_service,
-    ), patch(
-        "src.tools.builtins.launch_feature.get_db_session",
-        _fake_db_session,
-    ):
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service):
         result = await launch_feature_tool.ainvoke(
-            {"feature_id": "writing", "params": {"topic": "x"}},
+            {"feature_id": "deep_research", "params": {}},
             config={
                 "configurable": {
                     "workspace_id": "ws-1",
@@ -115,8 +92,7 @@ async def test_launch_feature_returns_warning_when_advisory():
         )
 
     assert result["status"] == "advisory"
-    assert result["code"] == "literature_insufficient"
-    assert result["execution_session_id"] == "es-1"
+    assert result["code"] == "lead_busy"
 
 
 @pytest.mark.asyncio
@@ -127,45 +103,3 @@ async def test_launch_feature_requires_workspace_in_config():
             {"feature_id": "paper_analysis", "params": {}},
             config={"configurable": {"thread_id": "th-1", "user_id": "u-1"}},
         )
-
-
-@pytest.mark.asyncio
-async def test_launch_feature_passes_execution_session_id_for_resume():
-    """When the agent provides execution_session_id, it must reach FeatureLaunchCommand."""
-    submission = _StubFeatureTaskSubmission(
-        task_id="task-resumed",
-        feature_id="deep_research",
-        message="resumed",
-    )
-    fake_result = _StubFeatureLaunchResult(
-        execution_session_id="es-existing",
-        outcome=submission,
-    )
-    fake_service = AsyncMock()
-    fake_service.launch = AsyncMock(return_value=fake_result)
-
-    with patch(
-        "src.tools.builtins.launch_feature.build_feature_ingress_service",
-        return_value=fake_service,
-    ), patch(
-        "src.tools.builtins.launch_feature.get_db_session",
-        _fake_db_session,
-    ):
-        result = await launch_feature_tool.ainvoke(
-            {
-                "feature_id": "deep_research",
-                "params": {},
-                "execution_session_id": "es-existing",
-            },
-            config={
-                "configurable": {
-                    "workspace_id": "ws-1",
-                    "thread_id": "th-1",
-                    "user_id": "user-1",
-                }
-            },
-        )
-
-    assert result["status"] == "launched"
-    cmd = fake_service.launch.await_args.args[0]
-    assert cmd.execution_session_id == "es-existing"

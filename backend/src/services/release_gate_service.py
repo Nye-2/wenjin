@@ -89,31 +89,11 @@ class ReleaseGateService:
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
-                check_id="features_router_regression",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/gateway/routers/test_features.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
                 check_id="feature_submission_service_regression",
                 command=self._uv_command(
                     "run",
                     "pytest",
                     "tests/application/services/test_feature_submission_service.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="five_workspace_smoke",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/workspace_features/test_five_workspace_smoke.py",
                     "-q",
                 ),
                 cwd=self.backend_root,
@@ -205,9 +185,7 @@ class ReleaseGateService:
                 command=self._uv_command(
                     "run",
                     "pytest",
-                    "tests/task/test_workspace_feature_handler_matrix.py",
                     "tests/task/test_store.py::TestTaskStorePostgres::test_mark_task_completed_publishes_canonical_task_activity",
-                    "tests/task/test_workspace_feature_frontend_sync.py",
                     "-q",
                 ),
                 cwd=self.backend_root,
@@ -217,21 +195,7 @@ class ReleaseGateService:
                 command=self._uv_command(
                     "run",
                     "pytest",
-                    "tests/services/test_artifact_followup_workflow_gate.py",
-                    "tests/agents/lead_agent/test_thread_feature_flow.py",
                     "tests/services/test_workspace_activity_service.py::test_task_activity_promotes_result_artifact_as_retry_seed",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="failure_recovery_workflow",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/services/test_failure_recovery_workflow_gate.py",
-                    "tests/agents/lead_agent/test_thread_feature_flow.py",
-                    "tests/task/test_workspace_feature_frontend_sync.py",
                     "-q",
                 ),
                 cwd=self.backend_root,

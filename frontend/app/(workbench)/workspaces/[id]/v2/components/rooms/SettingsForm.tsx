@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { authorizedFetch } from "@/lib/api/client";
 
 interface SettingsFormProps {
   workspaceId: string;
@@ -22,9 +23,34 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
   const [name, setName] = useState("");
   const [autoCompactThreshold, setAutoCompactThreshold] = useState(0.8);
   const [defaultModel, setDefaultModel] = useState("claude-sonnet-4-6");
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    authorizedFetch(`/api/workspaces/${workspaceId}/settings`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load settings");
+        return res.json();
+      })
+      .then((data: WorkspaceSettings) => {
+        if (!cancelled) {
+          if (data.name) setName(data.name);
+          if (data.auto_compact_threshold != null)
+            setAutoCompactThreshold(data.auto_compact_threshold);
+          if (data.default_model) setDefaultModel(data.default_model);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
 
   async function handleSave() {
     setSaving(true);
@@ -36,8 +62,8 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
         auto_compact_threshold: autoCompactThreshold,
         default_model: defaultModel,
       };
-      const res = await fetch(`/api/workspaces/${workspaceId}/settings`, {
-        method: "POST",
+      const res = await authorizedFetch(`/api/workspaces/${workspaceId}/settings`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),
       });
@@ -64,6 +90,21 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
     color: "var(--v2-text-primary)",
     outline: "none",
   };
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          padding: 16,
+          color: "var(--v2-text-tertiary)",
+          textAlign: "center",
+          fontSize: 13,
+        }}
+      >
+        Loading settings...
+      </div>
+    );
+  }
 
   return (
     <div data-testid="settings-form" style={{ padding: "16px", overflowY: "auto", flex: 1 }}>

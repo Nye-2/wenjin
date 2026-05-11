@@ -34,9 +34,10 @@ describe("AutoCompactToast", () => {
     mockFetch.mockResolvedValue({ ok: true });
     render(<AutoCompactToast workspaceId="ws-1" visible={true} onDismiss={vi.fn()} />);
     fireEvent.click(screen.getByText("压缩"));
-    expect(mockFetch).toHaveBeenCalledWith("/api/workspaces/ws-1/chat/compact", {
-      method: "POST",
-    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/workspaces/ws-1/chat/compact",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("shows confirmation after successful compact", async () => {

@@ -1,3 +1,5 @@
+import { authorizedFetch } from "@/lib/api/client";
+
 const BASE = "/api/workspaces";
 
 export type WorkspaceTask = {
@@ -15,9 +17,10 @@ export async function listTasks(
 ): Promise<WorkspaceTask[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  const res = await fetch(`${BASE}/${workspaceId}/tasks${params.toString() ? `?${params}` : ""}`);
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/tasks${params.toString() ? `?${params}` : ""}`);
   if (!res.ok) throw new Error("Failed to list tasks");
-  return res.json();
+  const json = await res.json();
+  return json.items ?? json;
 }
 
 export async function createTask(
@@ -25,7 +28,7 @@ export async function createTask(
   title: string,
   description?: string,
 ): Promise<WorkspaceTask> {
-  const res = await fetch(`${BASE}/${workspaceId}/tasks`, {
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/tasks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, description }),
@@ -38,7 +41,7 @@ export async function deleteTask(
   workspaceId: string,
   taskId: string,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/${workspaceId}/tasks/${taskId}`, {
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/tasks/${taskId}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error("Failed to delete task");
@@ -49,8 +52,8 @@ export async function updateTaskStatus(
   taskId: string,
   status: string,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/${workspaceId}/tasks/${taskId}`, {
-    method: "PATCH",
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/tasks/${taskId}`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
   });

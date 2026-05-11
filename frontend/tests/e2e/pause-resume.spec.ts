@@ -40,7 +40,7 @@ test("pause stops at next phase boundary; resume continues", async ({ page }) =>
   ]);
 
   await page.goto(
-    `/workspaces/${workspaceId}/chat?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x`,
+    `/workspaces/${workspaceId}/v2?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x`,
   );
   await expect(page.getByText(/phase 1 启动/)).toBeVisible();
 
@@ -83,7 +83,7 @@ test("cancel mid-run stops execution and returns to idle composer", async ({ pag
   ]);
 
   await page.goto(
-    `/workspaces/${workspaceId}/chat?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x`,
+    `/workspaces/${workspaceId}/v2?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x`,
   );
   await expect(page.getByText(/正在跑/)).toBeVisible();
   await page.getByRole("button", { name: /中断当前任务/ }).click();
