@@ -85,7 +85,15 @@ async def launch_feature_tool(
             user_id=user_id,
             execution_type="capability",
             feature_id=feature_id,
-            params=dict(params or {}),
+            params={
+                "brief": {
+                    "capability_id": feature_id,
+                    "brief": dict(params or {}),
+                    "raw_message": str(params.get("query") or params.get("topic") or feature_id),
+                    "decisions": {},
+                    "workspace_id": workspace_id,
+                },
+            },
         )
 
     # Publish workspace event so frontend knows execution started

@@ -42,7 +42,7 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
 
         # Publish running status to execution stream + workspace events
         if workspace_id:
-            publish_execution_event(
+            await publish_execution_event(
                 execution_id,
                 "execution.status",
                 {"status": "running", "message": "Starting execution"},
@@ -63,7 +63,7 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
             event_name: str,
             payload: dict,
         ) -> None:
-            publish_execution_event(
+            await publish_execution_event(
                 exec_id,
                 event_name,
                 payload,
@@ -90,7 +90,7 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         try:
             await engine.run(execution_id)
         finally:
-            publish_execution_stream_end(execution_id)
+            await publish_execution_stream_end(execution_id)
 
         # Reload to get final status
         final = await execution_service.get_by_id(execution_id)
