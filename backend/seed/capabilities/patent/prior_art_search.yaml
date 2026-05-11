@@ -1,0 +1,37 @@
+id: prior_art_search
+workspace_type: patent
+enabled: true
+display_name: 现有技术检索
+description: 检索现有技术（学术 + 专利数据）
+intent_description: 用户希望检索专利现有技术
+trigger_phrases:
+  - 现有技术
+  - 专利检索
+  - prior art
+required_decisions:
+  - key: topic
+    ask: "技术主题是？"
+    type: string
+brief_schema:
+  type: object
+  required: [topic]
+  properties:
+    topic: { type: string }
+graph_template:
+  phases:
+    - name: discover
+      tasks:
+        - name: search
+          subagent_type: searcher
+          skill_id: prior-art-searcher
+          inputs:
+            query: "{{topic}}"
+          outputs:
+            - kind: library_item
+              iterate_on: "output.papers"
+              mapping:
+                title: "{{item.title}}"
+                authors: "{{item.authors}}"
+                year: "{{item.year}}"
+                doi: "{{item.doi}}"
+result_card_template: library_intake
