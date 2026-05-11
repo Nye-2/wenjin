@@ -172,6 +172,50 @@
   to   { opacity: 1; transform: translateY(0) scale(1) }
 }
 
+/* Chat markdown — minimal v2 styling */
+.prose-chat {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--v2-text-primary);
+  font-family: var(--v2-font-sans);
+}
+.prose-chat p { margin: 0 0 8px; }
+.prose-chat p:last-child { margin-bottom: 0; }
+.prose-chat strong { font-weight: 600; }
+.prose-chat em { font-style: italic; }
+.prose-chat ul, .prose-chat ol { margin: 4px 0 8px 20px; padding: 0; }
+.prose-chat li { margin: 2px 0; }
+.prose-chat code {
+  font-family: var(--v2-font-mono);
+  font-size: 12px;
+  background: var(--v2-surface-soft);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.prose-chat pre {
+  background: var(--v2-surface-soft);
+  border-radius: var(--v2-radius-md);
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.prose-chat pre code { background: none; padding: 0; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3 { font-weight: 600; margin: 12px 0 6px; }
+.prose-chat h1 { font-size: 16px; }
+.prose-chat h2 { font-size: 15px; }
+.prose-chat h3 { font-size: 14px; }
+.prose-chat blockquote {
+  border-left: 3px solid var(--v2-accent-purple-300);
+  margin: 8px 0;
+  padding-left: 10px;
+  color: var(--v2-text-secondary);
+}
+.prose-chat a { color: var(--v2-accent-purple-700); text-decoration: none; }
+.prose-chat a:hover { text-decoration: underline; }
+.prose-chat table { border-collapse: collapse; margin: 8px 0; font-size: 12.5px; }
+.prose-chat th, .prose-chat td { border: 1px solid var(--v2-border-default); padding: 4px 8px; text-align: left; }
+.prose-chat th { background: var(--v2-surface-soft); font-weight: 600; }
+
 * {
   box-sizing: border-box;
   padding: 0;

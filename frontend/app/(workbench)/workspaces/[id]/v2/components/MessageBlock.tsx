@@ -5,6 +5,8 @@ import type { Block, ResultCardData } from "@/stores/chat-store";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { StatusLineBlock } from "./StatusLineBlock";
 import { ResultCard } from "./ResultCard";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface MessageBlockProps {
   block: Block;
@@ -13,7 +15,13 @@ interface MessageBlockProps {
 export const MessageBlock = memo(function MessageBlock({ block }: MessageBlockProps) {
   switch (block.kind) {
     case "text":
-      return <span style={{ whiteSpace: "pre-wrap" }}>{block.content}</span>;
+      return (
+        <div className="prose-chat">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {block.content}
+          </ReactMarkdown>
+        </div>
+      );
     case "thinking":
       return <ThinkingBlock content={block.content} />;
     case "status_line":
