@@ -29,6 +29,7 @@ REQUIRED_FIELDS = {
 
 OPTIONAL_DEFAULTS = {
     "enabled": True,
+    "description": "",
     "trigger_phrases": [],
     "required_decisions": [],
     "notes": None,

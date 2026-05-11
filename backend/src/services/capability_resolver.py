@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Allowed template variables in prompt_template / system_prompt
+# Allowed template variables in prompt_template
 ALLOWED_VARS = {"topic", "language", "time_range", "decisions", "raw_message", "workspace"}
 
 _VALID_OUTPUT_KINDS = {"library_item", "document", "memory_fact", "decision", "task"}
@@ -187,12 +187,6 @@ def validate_capability(
     brief_schema = data.get("brief_schema", {})
     brief_properties = set(brief_schema.get("properties", {}).keys())
     all_allowed = ALLOWED_VARS | brief_properties
-
-    # Check template vars in system_prompt
-    system_prompt = data.get("system_prompt", "")
-    for var in _extract_template_vars(system_prompt):
-        if var not in all_allowed:
-            errors.append(f"system_prompt uses undefined template variable '{{{{{var}}}}}'")
 
     # Check template vars in graph_template tasks' prompt_template
     for i, phase in enumerate(phases):

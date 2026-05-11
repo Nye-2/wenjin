@@ -73,13 +73,20 @@ class SearcherSubagent(SubagentBase):
         config = ctx.skill.config
         source_names: list[str] = config.get("sources", [])
         query: str = ctx.inputs.get("query", "")
+        limit: int = int(config.get("max_results", 30))
+
+        year_range: tuple[int, int] | None = None
+        year_min = config.get("year_min")
+        if year_min:
+            from datetime import datetime
+            year_range = (int(year_min), datetime.now().year)
 
         all_results: list[SearchResult] = []
 
         for src_name in source_names:
             try:
                 source = get_search_source(src_name)
-                results = await source.search(query)
+                results = await source.search(query, year_range=year_range, limit=limit)
                 all_results.extend(results)
             except Exception:
                 logger.warning("Search source %r failed", src_name, exc_info=True)
