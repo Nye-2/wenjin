@@ -39,8 +39,12 @@ export default function V2Page({
   const [features, setFeatures] = useState<WorkspaceFeature[]>([]);
 
   useEffect(() => {
-    getWorkspace(id).then((w) => setWorkspace({ name: w.name, type: w.type }));
-    getWorkspaceFeatures(id).then((res) => setFeatures(res.features));
+    getWorkspace(id)
+      .then((w) => setWorkspace({ name: w.name, type: w.type }))
+      .catch(() => {});
+    getWorkspaceFeatures(id)
+      .then((res) => setFeatures(res.features))
+      .catch(() => {});
   }, [id]);
 
   const typeConfig = workspace
