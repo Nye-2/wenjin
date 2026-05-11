@@ -110,6 +110,17 @@ async def async_main() -> int:
                 name=admin_name,
             )
 
+            # Seed skills before capabilities (capabilities reference skills)
+            try:
+                from src.services.skill_loader import SkillLoader
+
+                skill_loader = SkillLoader(session)
+                loaded_skills = await skill_loader.load_seeds_if_empty()
+                if loaded_skills:
+                    print(f"[bootstrap-admin] Seeded {loaded_skills} skill record(s)")
+            except Exception as skill_exc:
+                print(f"[bootstrap-admin] WARN: skill seed failed: {skill_exc}")
+
             # Also seed capabilities if the table is empty.
             try:
                 from src.services.capability_loader import CapabilityLoader

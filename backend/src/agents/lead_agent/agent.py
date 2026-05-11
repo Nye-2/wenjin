@@ -148,30 +148,135 @@ def _merge_runtime_config(
 
 
 def _render_workspace_available_skills(workspace_type: str | None) -> str:
-    skills = list_workspace_thread_skills(workspace_type)
-    if not skills:
+    """Render capabilities + skills from DB for the lead agent prompt.
+
+    Queries capabilities (for this workspace_type) and skills (global, enabled)
+    to build a dual-listing the agent uses to match user intent to launch_feature calls.
+    """
+    if not workspace_type:
         return ""
 
+    import asyncio
+
+    from sqlalchemy import select
+
+    from src.database.models.capability import Capability
+    from src.database.models.capability_skill import CapabilitySkill
+    from src.database.session import get_db_session
+
+    async def _fetch() -> tuple[list, list]:
+        try:
+            async with get_db_session() as db:
+                cap_rows = (await db.execute(
+                    select(Capability).where(
+                        Capability.workspace_type == workspace_type,
+                        Capability.enabled.is_(True),
+                    )
+                )).scalars().all()
+                skill_rows = (await db.execute(
+                    select(CapabilitySkill).where(CapabilitySkill.enabled.is_(True))
+                )).scalars().all()
+                return list(cap_rows), list(skill_rows)
+        except Exception:
+            return [], []
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            cap_rows, skill_rows = [], []
+        else:
+            cap_rows, skill_rows = loop.run_until_complete(_fetch())
+    except RuntimeError:
+        cap_rows, skill_rows = [], []
+
+    # Fallback: if DB is empty, use the legacy skill list
+    if not cap_rows:
+        skills = list_workspace_thread_skills(workspace_type)
+        if not skills:
+            return ""
+
+        skill_items = []
+        for skill in skills:
+            defaults = dict(skill.defaults)
+            default_text = (
+                ", ".join(f"{key}={value}" for key, value in defaults.items())
+                if defaults
+                else "(none)"
+            )
+            skill_items.append(
+                f"  <skill>\n"
+                f"    <feature_id>{skill.feature_id}</feature_id>\n"
+                f"    <skill_id>{skill.id}</skill_id>\n"
+                f"    <name>{skill.name}</name>\n"
+                f"    <description>{skill.description}</description>\n"
+                f"    <default_params>{default_text}</default_params>\n"
+                f"  </skill>"
+            )
+        skill_list_xml = "\n".join(skill_items)
+        return _build_feature_launch_prompt(skill_list_xml)
+
+    cap_items = []
+    for c in cap_rows:
+        triggers = ", ".join(c.trigger_phrases or [])
+        cap_items.append(
+            f'  <capability id="{c.id}" name="{c.display_name}" '
+            f'triggers="{triggers}" desc="{c.description or c.intent_description}"/>'
+        )
+    cap_block = "<available_capabilities>\n" + "\n".join(cap_items) + "\n</available_capabilities>"
+
     skill_items = []
-    for skill in skills:
-        defaults = dict(skill.defaults)
-        default_text = (
-            ", ".join(f"{key}={value}" for key, value in defaults.items())
-            if defaults
-            else "(none)"
-        )
+    for s in skill_rows:
         skill_items.append(
-            f"  <skill>\n"
-            f"    <feature_id>{skill.feature_id}</feature_id>\n"
-            f"    <skill_id>{skill.id}</skill_id>\n"
-            f"    <name>{skill.name}</name>\n"
-            f"    <description>{skill.description}</description>\n"
-            f"    <default_params>{default_text}</default_params>\n"
-            f"  </skill>"
+            f'  <skill id="{s.id}" subagent_type="{s.subagent_type}" desc="{s.description}"/>'
         )
+    skill_block = "<available_skills>\n" + "\n".join(skill_items) + "\n</available_skills>"
 
-    skill_list_xml = "\n".join(skill_items)
+    return _build_capability_skill_prompt(cap_block, skill_block)
 
+
+def _build_capability_skill_prompt(cap_block: str, skill_block: str) -> str:
+    return f"""
+
+{cap_block}
+
+{skill_block}
+
+<feature_launch_system>
+**WORKFLOW PRIORITY: 识别意图 → 检查参数 → 立刻调用 launch_feature**
+
+You have access to workspace **capabilities** above. Each is a complete workflow
+(graph of subagents). Skills are reference capability packs the subagents can load.
+
+**STRICT RULE: When the user's request matches a capability, you MUST call
+`launch_feature(feature_id=<capability_id>, params={{...}})` — do NOT just describe
+what would happen. Without an actual tool call, NOTHING runs.**
+
+**MANDATORY Launch Scenarios:**
+1. Direct action request matching a capability's triggers → REQUIRED ACTION: call launch_feature
+2. User clicks a suggestion pill or names a skill explicitly → REQUIRED ACTION: launch the matching capability
+3. Sufficient context already in conversation → REQUIRED ACTION: launch immediately
+
+**STRICT ENFORCEMENT:**
+- ❌ DO NOT say "已启动" / "我来帮你启动" without actually calling the tool
+- ❌ DO NOT describe what would happen — call the tool
+- ❌ DO NOT make up status messages — the right panel shows real status
+- ✅ When a capability matches: call `launch_feature` IN THE SAME TURN
+- ✅ Missing minimum params: ask ONE focused question, launch next turn
+- ✅ Truly unclear which capability: ask one clarifying question
+
+**Example (correct):**
+User: "帮我调研 X 主题的文献"
+You: call launch_feature(feature_id="deep_research", params={{"topic": "X"}})
+You: "好的，我已经启动深度调研，进度会在右侧面板更新。"
+
+**Example (WRONG):**
+User: "帮我调研 X"
+You: "已启动深度调研..." [WITHOUT calling launch_feature]
+^ This is the most serious error.
+</feature_launch_system>"""
+
+
+def _build_feature_launch_prompt(skill_list_xml: str) -> str:
     return f"""
 
 <feature_launch_system>
