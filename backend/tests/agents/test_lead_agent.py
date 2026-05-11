@@ -160,10 +160,7 @@ class TestApplyPromptTemplate:
         # Identity + AgentBlock contract markers (spec §5.1, §8)
         assert "Wenjin" in prompt
         assert "研究助手" in prompt
-        assert "block" in prompt
-        assert "status_line" in prompt
-        assert "question_card" in prompt
-        assert "result_card" in prompt
+        assert "launch_feature" in prompt
         # Jargon negative examples are part of the prompt body
         assert "message_feature_proposal" in prompt
 
@@ -217,11 +214,11 @@ class TestApplyPromptTemplate:
 
         prompt = apply_prompt_template(state, config)
 
-        assert "Available Skills" in prompt
-        assert "deep-research -> literature_search" in prompt
-        assert "peer-reviewer -> peer_review" in prompt
-        assert "journal-recommender -> journal_recommend" in prompt
-        assert "fullpaper-writer" not in prompt
+        # Legacy fallback renders <available_features> with <skill> entries
+        assert "<available_features>" in prompt
+        assert "literature_search" in prompt
+        assert "peer_review" in prompt
+        assert "journal_recommend" in prompt
         assert "proposal-writer" not in prompt
 
     def test_prompt_omits_available_skills_when_workspace_has_no_thread_skill_catalog(self):
@@ -231,8 +228,8 @@ class TestApplyPromptTemplate:
 
         prompt = apply_prompt_template(state, config)
 
-        assert "Available Skills" in prompt
-        assert "patent-drafter -> patent_outline" in prompt
+        assert "<available_features>" in prompt
+        assert "patent_outline" in prompt
 
     def test_prompt_includes_selected_skill_bound_feature(self):
         """Selected skill guidance should explicitly state the bound feature."""

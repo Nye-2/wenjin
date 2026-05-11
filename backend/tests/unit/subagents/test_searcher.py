@@ -111,7 +111,9 @@ class TestSingleSource:
             ctx = _make_ctx(inputs={"query": "test query"}, skill=skill)
             result = await sub.run(ctx)
 
-        mock_source.search.assert_awaited_once_with("test query")
+        mock_source.search.assert_awaited_once_with(
+            "test query", year_range=None, limit=30,
+        )
         assert len(result.output["papers"]) == 2
         assert result.output["papers"][0]["title"] == "Paper A"
         assert result.output["papers"][1]["title"] == "Paper B"
