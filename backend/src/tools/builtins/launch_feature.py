@@ -59,9 +59,42 @@ async def launch_feature_tool(
     user_id = _read_required(config, "user_id")
 
     from src.database import get_db_session
+    from src.database.models.capability import Capability
     from src.services.execution_service import ExecutionService
+    from src.services.workspace_skill_labels import get_workspace_type
+    from sqlalchemy import select
 
     async with get_db_session() as db:
+        # Validate the capability exists for this workspace's type.
+        workspace_type = await get_workspace_type(db, workspace_id) or "thesis"
+        cap_query = await db.execute(
+            select(Capability).where(
+                Capability.id == feature_id,
+                Capability.workspace_type == workspace_type,
+                Capability.enabled.is_(True),
+            )
+        )
+        cap = cap_query.scalar_one_or_none()
+        if cap is None:
+            # Return the available list so the model can retry with a valid id.
+            avail_query = await db.execute(
+                select(Capability.id).where(
+                    Capability.workspace_type == workspace_type,
+                    Capability.enabled.is_(True),
+                )
+            )
+            available_ids = [row[0] for row in avail_query.all()]
+            return {
+                "status": "error",
+                "code": "unknown_feature",
+                "feature_id": feature_id,
+                "detail": (
+                    f"Feature '{feature_id}' is not available for workspace_type "
+                    f"'{workspace_type}'. Available feature_ids: {available_ids}. "
+                    f"Pick one of these and call launch_feature again."
+                ),
+            }
+
         execution_service = ExecutionService(db)
 
         # Lead-busy check
