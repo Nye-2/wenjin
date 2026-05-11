@@ -272,39 +272,38 @@ class _WorkspaceTask(_Base):
 
 
 class _Capability(_Base):
-    """SQLite-compatible mirror of Capability (composite PK)."""
+    """SQLite-compatible mirror of Capability (composite PK: id, workspace_type)."""
 
     __tablename__ = "capabilities"
 
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
     workspace_type: Mapped[str] = mapped_column(String(50), primary_key=True)
-    version: Mapped[int] = mapped_column(Integer, primary_key=True)
-    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     intent_description: Mapped[str] = mapped_column(Text, nullable=False)
     trigger_phrases: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     required_decisions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     brief_schema: Mapped[dict] = mapped_column(JSON, nullable=False)
     graph_template: Mapped[dict] = mapped_column(JSON, nullable=False)
-    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     result_card_template: Mapped[str] = mapped_column(String(100), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[str] = mapped_column(
-        String(30), nullable=False, server_default=func.now(),
-    )
-    updated_at: Mapped[str] = mapped_column(
-        String(30), nullable=False, server_default=func.now(), onupdate=func.now(),
-    )
 
 
-class _CapabilityActiveVersion(_Base):
-    """SQLite-compatible mirror of CapabilityActiveVersion (composite PK, no FK constraint for SQLite)."""
+class _CapabilitySkill(_Base):
+    """SQLite-compatible mirror of CapabilitySkill."""
 
-    __tablename__ = "capability_active_versions"
+    __tablename__ = "capability_skills"
 
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
-    workspace_type: Mapped[str] = mapped_column(String(50), primary_key=True)
-    active_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    subagent_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    allowed_tools: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    resources: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class _AuditLog(_Base):
@@ -383,4 +382,4 @@ DbSandbox = _Sandbox
 DbWorkspaceTask = _WorkspaceTask
 DbAuditLog = _AuditLog
 DbCapability = _Capability
-DbCapabilityActiveVersion = _CapabilityActiveVersion
+DbCapabilitySkill = _CapabilitySkill
