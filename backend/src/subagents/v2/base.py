@@ -1,7 +1,13 @@
 """Subagent v2 base classes — SubagentContext, SubagentResult, SubagentBase."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.database.models.capability_skill import CapabilitySkill
 
 
 @dataclass
@@ -23,6 +29,7 @@ class SubagentContext:
     inputs: dict
     tools: list[str]
     workspace_data: dict = field(default_factory=dict)
+    skill: CapabilitySkill | None = None
 
 
 @dataclass

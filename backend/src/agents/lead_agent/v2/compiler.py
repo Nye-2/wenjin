@@ -1,7 +1,7 @@
 """Capability compiler — converts a capability graph_template into a LangGraph StateGraph."""
 
 import asyncio
-from typing import Callable
+from typing import Any, Callable
 
 from langgraph.graph import END, START, StateGraph
 
@@ -17,6 +17,7 @@ def compile_graph(
     state_class: type,
     runner_factory: Callable[[type[SubagentBase], dict], Callable] | None = None,
     abort_check: Callable | None = None,
+    skills: dict[str, Any] | None = None,
 ):
     """Compile capability graph_template → LangGraph StateGraph.
 
@@ -32,6 +33,8 @@ def compile_graph(
             returns an async node function. Defaults to _default_runner_factory.
         abort_check: Optional async callable () → bool. If it returns True inside a node,
             an ExecutionAborted exception is raised to halt the graph.
+        skills: Optional dict mapping skill_id → CapabilitySkill ORM object, pre-loaded
+            by the caller. Tasks with skill_id will have the skill attached.
 
     Returns:
         A compiled LangGraph CompiledStateGraph ready for invocation.
@@ -41,6 +44,7 @@ def compile_graph(
     """
     from src.agents.lead_agent.v2.runtime import ExecutionAborted
 
+    _skills = skills or {}
     builder = StateGraph(state_class)
     factory = runner_factory or _default_runner_factory
 
@@ -51,7 +55,12 @@ def compile_graph(
         for task in phase["tasks"]:
             node_name = f"{phase['name']}__{task['name']}"
             subagent_cls = REGISTRY.get(task["subagent_type"])  # raises KeyError if unknown
-            node_fn = factory(subagent_cls, task)
+            # Attach pre-loaded skill to task spec for the runner
+            task_with_skill = dict(task)
+            skill_id = task.get("skill_id")
+            if skill_id and skill_id in _skills:
+                task_with_skill["_skill"] = _skills[skill_id]
+            node_fn = factory(subagent_cls, task_with_skill)
             if abort_check is not None:
                 node_fn = _wrap_with_abort_check(node_fn, abort_check, ExecutionAborted)
             builder.add_node(node_name, node_fn)
@@ -103,6 +112,7 @@ def _default_runner_factory(subagent_cls: type[SubagentBase], task_spec: dict) -
             inputs=state.get("inputs_for_tasks", {}).get(_task_name, {}),
             tools=task_spec.get("tools", []),
             workspace_data=state.get("workspace_data", {}),
+            skill=task_spec.get("_skill"),
         )
         last_error: Exception | None = None
         for attempt in range(_max_attempts):

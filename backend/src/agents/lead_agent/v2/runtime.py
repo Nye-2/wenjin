@@ -114,6 +114,9 @@ class LeadAgentRuntime:
 
         # Compile + Execute — both are wrapped so unknown subagent_type is also caught
         try:
+            # Pre-load skills referenced by tasks
+            skills = await self._load_skills_for_template(cap.graph_template)
+
             # Check abort before starting (covers cancel-before-run race)
             if await self._check_abort(execution_id):
                 raise ExecutionAborted(f"execution {execution_id} was cancelled before start")
@@ -121,6 +124,7 @@ class LeadAgentRuntime:
                 cap.graph_template,
                 state_class=ExecutionState,
                 abort_check=lambda: self._check_abort(execution_id),
+                skills=skills,
             )
             final_state = await graph.ainvoke(initial_state)
             errors: list[ResultError] = []
@@ -173,6 +177,31 @@ class LeadAgentRuntime:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _load_skills_for_template(self, template: dict) -> dict[str, Any]:
+        """Pre-load all skills referenced by tasks in the template."""
+        from sqlalchemy import select
+
+        from src.database.models.capability_skill import CapabilitySkill
+        from src.database.session import get_db_session
+
+        skill_ids: set[str] = set()
+        for phase in template.get("phases", []):
+            for task in phase.get("tasks", []):
+                sid = task.get("skill_id")
+                if sid:
+                    skill_ids.add(sid)
+        if not skill_ids:
+            return {}
+        try:
+            async with get_db_session() as db:
+                result = await db.execute(
+                    select(CapabilitySkill).where(CapabilitySkill.id.in_(skill_ids))
+                )
+                return {s.id: s for s in result.scalars().all()}
+        except Exception:
+            logger.warning("Failed to pre-load skills", exc_info=True)
+            return {}
 
     async def _check_abort(self, execution_id: str) -> bool:
         """Return True if a Redis abort signal exists for this execution."""
