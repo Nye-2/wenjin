@@ -1,0 +1,35 @@
+id: paper_analysis
+workspace_type: sci
+enabled: true
+display_name: 论文分析
+description: 拆解单篇论文的方法/实验/结论
+intent_description: 用户希望深读分析某篇论文
+trigger_phrases:
+  - 分析论文
+  - 拆解论文
+  - 精读
+required_decisions:
+  - key: paper
+    ask: "粘贴论文摘要/全文或给一个 DOI"
+    type: string
+brief_schema:
+  type: object
+  required: [paper]
+  properties:
+    paper: { type: string }
+graph_template:
+  phases:
+    - name: analyze
+      tasks:
+        - name: parse
+          subagent_type: react
+          skill_id: paper-analyst
+          inputs:
+            paper: "{{paper}}"
+          outputs:
+            - kind: document
+              mapping:
+                name: "论文分析"
+                doc_kind: paper_analysis
+                content: "{{output|json}}"
+result_card_template: paper_analysis

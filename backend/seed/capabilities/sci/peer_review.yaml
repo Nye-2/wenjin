@@ -1,0 +1,37 @@
+id: peer_review
+workspace_type: sci
+enabled: true
+display_name: 同行评审
+description: 从审稿人视角定位 SCI 稿件薄弱点
+intent_description: 用户希望审稿建议
+trigger_phrases:
+  - 审稿
+  - 评审
+  - 修订建议
+required_decisions:
+  - key: manuscript
+    ask: "粘贴稿件内容"
+    type: string
+brief_schema:
+  type: object
+  required: [manuscript]
+  properties:
+    manuscript: { type: string }
+    focus: { type: string, optional: true }
+graph_template:
+  phases:
+    - name: review
+      tasks:
+        - name: critique
+          subagent_type: react
+          skill_id: peer-reviewer
+          inputs:
+            manuscript: "{{manuscript}}"
+            focus: "{{focus|default('整体质量')}}"
+          outputs:
+            - kind: document
+              mapping:
+                name: "审稿意见"
+                doc_kind: peer_review
+                content: "{{output.markdown}}"
+result_card_template: peer_review
