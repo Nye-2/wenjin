@@ -1,17 +1,23 @@
 "use client";
 
 import { useExecutionStreamV2 } from "@/hooks/useExecutionStreamV2";
+import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
+import type { WorkspaceFeature } from "@/lib/api/types";
 import { GraphCanvas } from "./GraphCanvas";
 import { NodeDetailDrawer } from "./NodeDetailDrawer";
 
 interface LiveWorkflowPanelProps {
   workspaceId: string;
+  typeConfig?: WorkspaceTypeConfig;
+  features?: WorkspaceFeature[];
   className?: string;
   "data-testid"?: string;
 }
 
 export function LiveWorkflowPanel({
   workspaceId,
+  typeConfig,
+  features = [],
   className,
   "data-testid": testId,
 }: LiveWorkflowPanelProps) {
@@ -63,20 +69,54 @@ export function LiveWorkflowPanel({
           height: "100%",
         }}
       >
-        {nodes.length > 0 ? (
-          <GraphCanvas
-            nodes={nodes}
-            edges={edges}
-            onNodeClick={selectNode}
-          />
-        ) : (
-          <div
-            className="flex items-center justify-center h-full text-sm"
-            style={{ color: "var(--v2-text-tertiary)" }}
-          >
-            No active execution
-          </div>
-        )}
+        {(() => {
+          const hasExecution = nodes.length > 0 || executionId !== null;
+          return (
+            <>
+              {/* ProductIntro — idle state */}
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  opacity: hasExecution ? 0 : 1,
+                  transition: "opacity 200ms var(--v2-ease-standard)",
+                  pointerEvents: hasExecution ? "none" : "auto",
+                }}
+              >
+                {typeConfig && (
+                  <ProductIntro typeConfig={typeConfig} features={features} />
+                )}
+              </div>
+
+              {/* Graph / loading — active state */}
+              {hasExecution && (
+                <div
+                  style={{
+                    opacity: nodes.length > 0 ? 1 : 0,
+                    transition: "opacity 200ms var(--v2-ease-standard)",
+                    width: "100%",
+                    height: "100%",
+                  }}
+                >
+                  {nodes.length > 0 ? (
+                    <GraphCanvas
+                      nodes={nodes}
+                      edges={edges}
+                      onNodeClick={selectNode}
+                    />
+                  ) : (
+                    <div
+                      className="flex items-center justify-center h-full"
+                      style={{ color: "var(--v2-text-tertiary)", fontSize: 13 }}
+                    >
+                      准备中...
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {/* Node detail drawer */}
@@ -87,6 +127,115 @@ export function LiveWorkflowPanel({
           onClose={() => selectNode(null)}
         />
       )}
+    </div>
+  );
+}
+
+function ProductIntro({
+  typeConfig,
+  features,
+}: {
+  typeConfig: WorkspaceTypeConfig;
+  features: WorkspaceFeature[];
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100%",
+        padding: "32px 24px",
+        animation: "v2-glass-in 500ms var(--v2-ease-standard)",
+      }}
+    >
+      {/* Title */}
+      <div
+        style={{
+          fontSize: 22,
+          fontWeight: 700,
+          color: "var(--v2-text-primary)",
+          marginBottom: 6,
+          fontFamily: "var(--v2-font-sans)",
+        }}
+      >
+        文津{typeConfig.title}
+      </div>
+      <div
+        style={{
+          fontSize: 13,
+          color: "var(--v2-text-tertiary)",
+          marginBottom: 28,
+          fontFamily: "var(--v2-font-sans)",
+        }}
+      >
+        {typeConfig.panelSubtitle}
+      </div>
+
+      {/* Feature cards — 2-column grid */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 10,
+          width: "100%",
+          maxWidth: 420,
+        }}
+      >
+        {features.slice(0, 6).map((f) => (
+          <div
+            key={f.id}
+            style={{
+              padding: "14px 16px",
+              borderRadius: "var(--v2-radius-lg)",
+              background: "var(--v2-glass-bg-elevated)",
+              backdropFilter: "blur(10px)",
+              WebkitBackdropFilter: "blur(10px)",
+              border: "1px solid var(--v2-glass-border)",
+              boxShadow: "var(--v2-glass-shadow)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: "var(--v2-text-primary)",
+                marginBottom: 4,
+                fontFamily: "var(--v2-font-sans)",
+              }}
+            >
+              {f.icon} {f.name}
+            </div>
+            <div
+              style={{
+                fontSize: 11.5,
+                color: "var(--v2-text-tertiary)",
+                lineHeight: 1.4,
+                fontFamily: "var(--v2-font-sans)",
+              }}
+            >
+              {f.description}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Rooms hint */}
+      <div
+        style={{
+          marginTop: 24,
+          fontSize: 11,
+          color: "var(--v2-text-disabled)",
+          textAlign: "center",
+          fontFamily: "var(--v2-font-sans)",
+        }}
+      >
+        顶部工具栏提供 8 个工作房间：
+        <br />
+        Library · Documents · Decisions · Memory · Tasks · Runs · Sandbox ·
+        Settings
+      </div>
     </div>
   );
 }
