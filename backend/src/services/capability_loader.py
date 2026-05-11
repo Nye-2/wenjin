@@ -20,12 +20,10 @@ DEFAULT_SEED_DIR = Path(__file__).resolve().parent.parent.parent / "seed" / "cap
 REQUIRED_FIELDS = {
     "id",
     "workspace_type",
-    "version",
     "display_name",
     "intent_description",
     "brief_schema",
     "graph_template",
-    "system_prompt",
     "result_card_template",
 }
 
