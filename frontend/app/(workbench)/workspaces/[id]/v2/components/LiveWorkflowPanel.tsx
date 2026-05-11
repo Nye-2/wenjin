@@ -24,6 +24,8 @@ export function LiveWorkflowPanel({
   const { nodes, edges, selectedNodeId, selectNode, executionId } =
     useExecutionStreamV2(workspaceId);
 
+  const hasExecution = nodes.length > 0 || executionId !== null;
+
   return (
     <div
       data-testid={testId}
@@ -69,54 +71,49 @@ export function LiveWorkflowPanel({
           height: "100%",
         }}
       >
-        {(() => {
-          const hasExecution = nodes.length > 0 || executionId !== null;
-          return (
-            <>
-              {/* ProductIntro — idle state */}
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  opacity: hasExecution ? 0 : 1,
-                  transition: "opacity 200ms var(--v2-ease-standard)",
-                  pointerEvents: hasExecution ? "none" : "auto",
-                }}
-              >
-                {typeConfig && (
-                  <ProductIntro typeConfig={typeConfig} features={features} />
-                )}
-              </div>
+        <>
+          {/* ProductIntro — idle state */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              opacity: hasExecution ? 0 : 1,
+              transition: "opacity 200ms var(--v2-ease-standard)",
+              pointerEvents: hasExecution ? "none" : "auto",
+            }}
+          >
+            {typeConfig && (
+              <ProductIntro typeConfig={typeConfig} features={features} />
+            )}
+          </div>
 
-              {/* Graph / loading — active state */}
-              {hasExecution && (
+          {/* Graph / loading — active state */}
+          {hasExecution && (
+            <div
+              style={{
+                opacity: nodes.length > 0 ? 1 : 0,
+                transition: "opacity 200ms var(--v2-ease-standard)",
+                width: "100%",
+                height: "100%",
+              }}
+            >
+              {nodes.length > 0 ? (
+                <GraphCanvas
+                  nodes={nodes}
+                  edges={edges}
+                  onNodeClick={selectNode}
+                />
+              ) : (
                 <div
-                  style={{
-                    opacity: nodes.length > 0 ? 1 : 0,
-                    transition: "opacity 200ms var(--v2-ease-standard)",
-                    width: "100%",
-                    height: "100%",
-                  }}
+                  className="flex items-center justify-center h-full"
+                  style={{ color: "var(--v2-text-tertiary)", fontSize: 13 }}
                 >
-                  {nodes.length > 0 ? (
-                    <GraphCanvas
-                      nodes={nodes}
-                      edges={edges}
-                      onNodeClick={selectNode}
-                    />
-                  ) : (
-                    <div
-                      className="flex items-center justify-center h-full"
-                      style={{ color: "var(--v2-text-tertiary)", fontSize: 13 }}
-                    >
-                      准备中...
-                    </div>
-                  )}
+                  准备中...
                 </div>
               )}
-            </>
-          );
-        })()}
+            </div>
+          )}
+        </>
       </div>
 
       {/* Node detail drawer */}
