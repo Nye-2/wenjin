@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState, memo } from "react";
 import { useChatStoreV2, type Message } from "@/stores/chat-store";
 import { MessageBlock } from "./MessageBlock";
+import { FileAttachButton } from "./FileAttachButton";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 
 interface ChatPanelProps {
@@ -24,6 +25,8 @@ export function ChatPanel({
   const isSending = useChatStoreV2((s) => s.isSending);
   const sendMessage = useChatStoreV2((s) => s.sendMessage);
   const [inputValue, setInputValue] = useState("");
+  const [attachments, setAttachments] = useState<Array<{ name: string; path: string }>>([]);
+  const [threadId, setThreadId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -49,7 +52,9 @@ export function ChatPanel({
   useEffect(() => {
     const store = useChatStoreV2.getState();
     if (store.messages.length === 0) {
-      void store.loadHistory(workspaceId);
+      void store.loadHistory(workspaceId).then((tid) => {
+        if (tid) setThreadId(tid);
+      });
     }
   }, [workspaceId]);
 
@@ -57,7 +62,9 @@ export function ChatPanel({
     const trimmed = inputValue.trim();
     if (!trimmed || isSending) return;
     setInputValue("");
-    void sendMessage(workspaceId, trimmed);
+    const currentAttachments = [...attachments];
+    setAttachments([]);
+    void sendMessage(workspaceId, trimmed, currentAttachments);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -194,6 +201,43 @@ export function ChatPanel({
           padding: "12px",
         }}
       >
+        {/* Attachment chips */}
+        {attachments.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+            {attachments.map((a, i) => (
+              <span
+                key={i}
+                style={{
+                  fontSize: 11,
+                  padding: "2px 8px",
+                  borderRadius: "var(--v2-radius-pill)",
+                  background: "var(--v2-accent-purple-100)",
+                  color: "var(--v2-accent-purple-700)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                {a.name}
+                <button
+                  type="button"
+                  onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--v2-text-tertiary)",
+                    fontSize: 13,
+                    padding: 0,
+                    lineHeight: 1,
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <div
           style={{
             display: "flex",
@@ -201,6 +245,12 @@ export function ChatPanel({
             alignItems: "center",
           }}
         >
+          <FileAttachButton
+            threadId={threadId}
+            workspaceId={workspaceId}
+            onAttached={(files) => setAttachments((prev) => [...prev, ...files])}
+            disabled={isSending}
+          />
           <textarea
             ref={textareaRef}
             placeholder={isSending ? "等待回复中..." : "输入消息... Shift+Enter 换行"}

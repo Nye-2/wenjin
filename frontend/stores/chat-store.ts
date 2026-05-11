@@ -92,7 +92,7 @@ interface ChatState {
   isSending: boolean;
   handleEvent(event: ChatEvent): void;
   loadHistory(workspaceId: string): Promise<string | null>;
-  sendMessage(workspaceId: string, content: string): Promise<void>;
+  sendMessage(workspaceId: string, content: string, attachments?: Array<{ name: string; path: string }>): Promise<void>;
   reset(): void;
 }
 
@@ -326,7 +326,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     }
   },
 
-  async sendMessage(workspaceId: string, content: string) {
+  async sendMessage(workspaceId: string, content: string, attachments: Array<{ name: string; path: string }> = []) {
     const { isSending } = get();
     if (isSending || !content.trim()) return;
     set({ isSending: true });
@@ -371,7 +371,15 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: content, workspace_id: workspaceId }),
+          body: JSON.stringify({
+            message: content,
+            workspace_id: workspaceId,
+            attachments: attachments.map((a) => ({
+              name: a.name,
+              path: a.path,
+              kind: "transient",
+            })),
+          }),
         },
       );
 
