@@ -151,24 +151,84 @@ def _render_workspace_available_skills(workspace_type: str | None) -> str:
     skills = list_workspace_thread_skills(workspace_type)
     if not skills:
         return ""
-    lines = [
-        "\n\n## Available Skills",
-        "These skills name the workspace features the user can launch from chat.",
-        "When the user asks for work that matches a skill, call the launch_feature tool directly instead of writing a proposal. Ask only for the minimum missing parameters before launching.",
-    ]
+
+    skill_items = []
     for skill in skills:
         defaults = dict(skill.defaults)
         default_text = (
             ", ".join(f"{key}={value}" for key, value in defaults.items())
             if defaults
-            else "none"
+            else "(none)"
         )
-        follow_ups = ", ".join(skill.follow_up_skills) if skill.follow_up_skills else "none"
-        lines.append(
-            f"- {skill.id} -> {skill.feature_id}: {skill.description} "
-            f"(defaults: {default_text}; next: {follow_ups})"
+        skill_items.append(
+            f"  <skill>\n"
+            f"    <feature_id>{skill.feature_id}</feature_id>\n"
+            f"    <skill_id>{skill.id}</skill_id>\n"
+            f"    <name>{skill.name}</name>\n"
+            f"    <description>{skill.description}</description>\n"
+            f"    <default_params>{default_text}</default_params>\n"
+            f"  </skill>"
         )
-    return "\n".join(lines)
+
+    skill_list_xml = "\n".join(skill_items)
+
+    return f"""
+
+<feature_launch_system>
+**WORKFLOW PRIORITY: 识别意图 → 检查参数 → 立刻调用 launch_feature**
+
+You have access to workspace **features** that perform real work (literature search,
+paper writing, etc.). Each feature is exposed via the `launch_feature` tool.
+
+**STRICT RULE: When the user's request matches a feature, you MUST call the
+`launch_feature` tool — do NOT just describe what would happen. Without an
+actual tool call, NOTHING runs and the user sees nothing on the right panel.**
+
+<available_features>
+{skill_list_xml}
+</available_features>
+
+**MANDATORY Feature Launch Scenarios — You MUST call `launch_feature` when:**
+
+1. **Direct Action Request**: User asks you to DO the work (not just discuss it)
+   - "帮我检索X文献" / "做一个X主题的调研" → REQUIRED ACTION: call `launch_feature(feature_id="literature_search" or matching id, params={{"query": "X"}})`
+   - "写一个X的大纲" → REQUIRED ACTION: call `launch_feature(feature_id="framework_outline", params={{"topic": "X"}})`
+   - "分析这篇论文" → REQUIRED ACTION: call `launch_feature(feature_id="paper_analysis", params={{...}})`
+
+2. **Skill Pill Click**: User clicks a suggestion pill or names a skill explicitly
+   - "深度调研" / "文献检索" / "论文撰写" → REQUIRED ACTION: call the matching `launch_feature` immediately
+
+3. **Sufficient Context Already Present**: User's previous message gave enough info
+   - REQUIRED ACTION: launch immediately; do NOT re-ask for confirmation
+
+**STRICT ENFORCEMENT:**
+- ❌ DO NOT say "已启动" / "我来帮你启动" / "正在为你检索" without actually calling the tool
+- ❌ DO NOT describe what would happen — call the tool and let it happen
+- ❌ DO NOT make up status messages — the right panel shows real status from the tool
+- ❌ DO NOT continue with text-only response when a feature matches; call the tool FIRST
+- ✅ If a feature matches: call `launch_feature` IN THE SAME TURN, then say one short sentence to the user
+- ✅ Missing minimum params: ask ONE focused question, then launch on the next user turn
+- ✅ Truly unclear which feature: ask one clarifying question with feature options
+
+**How to call:**
+```
+launch_feature(
+    feature_id="<one of the feature_id values listed above>",
+    params={{<minimum required params for that feature>}}
+)
+```
+
+**Example (correct behaviour):**
+User: "帮我检索大模型联邦学习的文献"
+You (thinking): User wants literature search. Topic is clear. Launch immediately.
+You (action): call launch_feature(feature_id="literature_search", params={{"query": "大模型联邦学习"}})
+You (text): "好的，我已经启动文献检索，进度会在右侧面板更新。"
+
+**Example (incorrect — DO NOT do this):**
+User: "帮我检索大模型联邦学习的文献"
+You: "已启动深度文献检索..." [WITHOUT calling launch_feature]
+^ This is the most serious error: the user sees text but NOTHING actually runs.
+</feature_launch_system>"""
 
 
 def _extend_unique_tools(
