@@ -205,6 +205,23 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           if (idx === -1) return state;
 
           const msg = state.messages[idx];
+          const lastBlock = msg.blocks[msg.blocks.length - 1];
+
+          // Merge consecutive text blocks (streamed token-by-token from backend)
+          if (
+            event.block.kind === "text" &&
+            lastBlock?.kind === "text"
+          ) {
+            const updatedBlocks = [...msg.blocks];
+            updatedBlocks[updatedBlocks.length - 1] = {
+              ...lastBlock,
+              content: lastBlock.content + event.block.content,
+            };
+            const updatedMessages = [...state.messages];
+            updatedMessages[idx] = { ...msg, blocks: updatedBlocks };
+            return { messages: updatedMessages };
+          }
+
           const updatedMessages = [...state.messages];
           updatedMessages[idx] = {
             ...msg,
