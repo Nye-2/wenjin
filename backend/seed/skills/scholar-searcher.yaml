@@ -1,0 +1,12 @@
+id: scholar-searcher
+enabled: true
+display_name: 学术文献检索员
+description: 调用 Semantic Scholar 检索高质量学术论文
+subagent_type: searcher
+prompt: "(searcher 不调 LLM，保留以保持接口一致)"
+allowed_tools: []
+resources: []
+config:
+  sources: [semantic_scholar]
+  max_results: 30
+  year_min: 2019

@@ -1,0 +1,11 @@
+id: prior-art-searcher
+enabled: true
+display_name: 现有技术检索员
+description: 调专利/学术数据库做现有技术检索（暂用 Semantic Scholar，后续接专利源）
+subagent_type: searcher
+prompt: "(searcher 不调 LLM)"
+allowed_tools: []
+resources: []
+config:
+  sources: [semantic_scholar]
+  max_results: 20

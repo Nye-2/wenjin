@@ -1,0 +1,25 @@
+id: section-writer
+enabled: true
+display_name: 章节撰写员
+description: 基于大纲和证据撰写指定章节
+subagent_type: react
+prompt: |
+  你是学术写作专家。给定章节标题、大纲、和参考文献，写出该章节的草稿。
+
+  要求：
+  - 段落清晰，论证逻辑严密
+  - 引用用 [作者 年份]
+  - 标注待补数据/待核验来源
+  - 不编造引文
+
+  输出 Markdown。
+allowed_tools: []
+resources: []
+config:
+  output_kind: document
+  doc_kind: section_draft
+  user_template: |
+    章节标题：{{section_title}}
+    大纲：{{outline}}
+    可用文献：{{references}}
+    目标字数：{{target_words|default(800)}}
