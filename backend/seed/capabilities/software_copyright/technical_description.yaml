@@ -1,0 +1,39 @@
+id: technical_description
+workspace_type: software_copyright
+enabled: true
+display_name: 技术说明书
+description: 撰写软著技术说明书
+intent_description: 用户希望写软件技术说明
+trigger_phrases:
+  - 技术说明
+  - 写说明书
+  - 软件说明
+required_decisions:
+  - key: software_name
+    ask: "软件名称是？"
+    type: string
+brief_schema:
+  type: object
+  required: [software_name]
+  properties:
+    software_name: { type: string }
+    description: { type: string, optional: true }
+graph_template:
+  phases:
+    - name: write
+      tasks:
+        - name: draft
+          subagent_type: react
+          skill_id: section-writer
+          inputs:
+            section_title: "{{software_name}} 技术说明书"
+            outline: "{{description|default('')}}"
+            references: ""
+            target_words: 1500
+          outputs:
+            - kind: document
+              mapping:
+                name: "{{software_name}} 技术说明书"
+                doc_kind: section_draft
+                content: "{{output.markdown}}"
+result_card_template: section_draft
