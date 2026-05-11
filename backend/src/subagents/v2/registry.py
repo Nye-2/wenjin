@@ -46,8 +46,8 @@ def subagent(name: str):
 
     Usage::
 
-        @subagent("scholar_searcher")
-        class ScholarSearcher(SubagentBase):
+        @subagent("searcher")
+        class Searcher(SubagentBase):
             ...
     """
 

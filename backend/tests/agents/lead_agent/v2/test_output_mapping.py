@@ -85,7 +85,7 @@ class TestOutputMappingResolverLibraryItem:
             {"name": "search", "tasks": [
                 {
                     "name": "lit_search",
-                    "subagent_type": "scholar_searcher",
+                    "subagent_type": "searcher",
                     "outputs": [{
                         "kind": "library_item",
                         "iterate_on": "output.papers",
@@ -126,7 +126,7 @@ class TestOutputMappingResolverLibraryItem:
     def test_no_outputs_declaration_produces_empty(self):
         graph = _make_graph([
             {"name": "search", "tasks": [
-                {"name": "search", "subagent_type": "scholar_searcher"},
+                {"name": "search", "subagent_type": "searcher"},
             ]},
         ])
         node_results = {"search": {"output": {"papers": []}}}
@@ -138,7 +138,7 @@ class TestOutputMappingResolverLibraryItem:
             {"name": "search", "tasks": [
                 {
                     "name": "missing_task",
-                    "subagent_type": "scholar_searcher",
+                    "subagent_type": "searcher",
                     "outputs": [{
                         "kind": "library_item",
                         "iterate_on": "output.papers",
@@ -155,7 +155,7 @@ class TestOutputMappingResolverLibraryItem:
             {"name": "search", "tasks": [
                 {
                     "name": "lit_search",
-                    "subagent_type": "scholar_searcher",
+                    "subagent_type": "searcher",
                     "outputs": [{
                         "kind": "library_item",
                         "iterate_on": "output.papers",
@@ -175,7 +175,7 @@ class TestOutputMappingResolverDocument:
             {"name": "write", "tasks": [
                 {
                     "name": "draft",
-                    "subagent_type": "critical_writer",
+                    "subagent_type": "react",
                     "outputs": [{
                         "kind": "document",
                         "default_checked": False,
@@ -217,7 +217,7 @@ class TestOutputMappingResolverMemoryFact:
             {"name": "analyze", "tasks": [
                 {
                     "name": "extract",
-                    "subagent_type": "clusterer",
+                    "subagent_type": "react",
                     "outputs": [{
                         "kind": "memory_fact",
                         "iterate_on": "output.facts",
@@ -255,7 +255,7 @@ class TestOutputMappingResolverDecision:
             {"name": "decide", "tasks": [
                 {
                     "name": "choose",
-                    "subagent_type": "outliner",
+                    "subagent_type": "react",
                     "outputs": [{
                         "kind": "decision",
                         "mapping": {
@@ -281,7 +281,7 @@ class TestOutputMappingResolverTask:
             {"name": "plan", "tasks": [
                 {
                     "name": "identify_tasks",
-                    "subagent_type": "outliner",
+                    "subagent_type": "react",
                     "outputs": [{
                         "kind": "task",
                         "iterate_on": "output.todos",
@@ -319,7 +319,7 @@ class TestCollectOutputsIntegration:
             {"name": "discover", "tasks": [
                 {
                     "name": "search",
-                    "subagent_type": "scholar_searcher",
+                    "subagent_type": "searcher",
                     "outputs": [{
                         "kind": "library_item",
                         "iterate_on": "output.papers",
@@ -335,7 +335,7 @@ class TestCollectOutputsIntegration:
             {"name": "synthesize", "depends_on": ["discover"], "tasks": [
                 {
                     "name": "write",
-                    "subagent_type": "critical_writer",
+                    "subagent_type": "react",
                     "outputs": [{
                         "kind": "document",
                         "mapping": {

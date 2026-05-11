@@ -1,7 +1,7 @@
 """Tests for output mapping validation in validate_capability."""
 from src.services.capability_resolver import validate_capability
 
-_REGISTRY = ["scholar_searcher"]
+_REGISTRY = ["searcher", "react"]
 
 
 def _base_capability() -> dict:
@@ -13,7 +13,7 @@ def _base_capability() -> dict:
                 {
                     "name": "search",
                     "tasks": [
-                        {"name": "search", "subagent_type": "scholar_searcher"},
+                        {"name": "search", "subagent_type": "searcher"},
                     ],
                 },
             ],

@@ -54,7 +54,7 @@ class CapabilityLoader:
         self.session = session
         self.seed_dir = Path(seed_dir) if seed_dir is not None else DEFAULT_SEED_DIR
         if model is None:
-            from ..database.models.capability import Capability
+            from src.database.models.capability import Capability
             self._model = Capability
         else:
             self._model = model

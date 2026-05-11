@@ -43,14 +43,14 @@ def _seed_capability(session, **overrides):
                 {
                     "name": "discover",
                     "tasks": [
-                        {"name": "search", "subagent_type": "scholar_searcher"}
+                        {"name": "search", "subagent_type": "searcher"}
                     ],
                 },
                 {
                     "name": "synthesize",
                     "depends_on": ["discover"],
                     "tasks": [
-                        {"name": "write", "subagent_type": "critical_writer"}
+                        {"name": "write", "subagent_type": "react"}
                     ],
                 },
             ]
@@ -157,7 +157,7 @@ async def test_validate_capability_good():
                     "tasks": [
                         {
                             "name": "search",
-                            "subagent_type": "scholar_searcher",
+                            "subagent_type": "searcher",
                             "prompt_template": "搜索关于 {{topic}} 的文献",
                         }
                     ],
@@ -168,7 +168,7 @@ async def test_validate_capability_good():
                     "tasks": [
                         {
                             "name": "write",
-                            "subagent_type": "critical_writer",
+                            "subagent_type": "react",
                             "prompt_template": "写综述 {{topic}}",
                         }
                     ],
@@ -178,7 +178,7 @@ async def test_validate_capability_good():
         "system_prompt": "你是学术文献调研专家。关于 {{topic}} 的调研。",
     }
 
-    errors = validate_capability(data, subagent_registry=["scholar_searcher", "critical_writer"])
+    errors = validate_capability(data, subagent_registry=["searcher", "react"])
     assert errors == []
 
 
