@@ -1,120 +1,258 @@
 # Workspace Execution Pipeline
 
-更新时间：2026-04-28
+更新时间：2026-05-11
 
-本文档描述 workspace 当前执行主链，覆盖 chat、features、execution sessions、compute sessions、tasks、subagents、WenjinPrism 和最终 writeback。
+本文档描述 workspace v2 执行主链，覆盖 two-agent 拓扑、capability 驱动执行、LeadAgentRuntime v2、OutputMappingResolver、task contracts、SSE 事件桥接和 commit 流程。
 
-## 1. Canonical Entry Points
+## 1. 架构概览
 
-### 1.1 Chat Control Plane
+v2 采用 Two-Agent 拓扑：
+
+- **Chat Agent**（左面板）：对话入口，负责意图识别、追问澄清、日常问答。通过 `dispatch_capability` tool 触发能力执行。
+- **Lead Agent v2**（右面板）：执行编排面，运行 LangGraph subagent graph，产出结构化 `TaskReport`。
+
+执行主链：
+
+```text
+用户消息 → Chat Agent
+                │
+                ├─ 普通问答 → 直接回复
+                └─ 能力触发 → dispatch_capability tool
+                                      │
+                                      ▼
+                          ExecutionEngineV2
+                          (ExecutionService + Celery execute_execution task)
+                                      │
+                                      ▼
+                          LeadAgentRuntime.run_session()
+                          (CapabilityResolver → compile_graph → v2 subagents)
+                                      │
+                                      ▼
+                          OutputMappingResolver → TaskReport
+                                      │
+                                      ▼
+                          SSE event (execution.completed)
+                                      │
+                                      ▼
+                          前端 ResultCard → 用户 commit
+                                      │
+                                      ▼
+                          POST /api/executions/{id}/commit → room services
+```
+
+## 2. Canonical Entry Points
+
+### 2.1 Chat Control Plane
 
 - `POST /api/threads/{thread_id}/runs/stream`
 - `POST /api/runs/stream`
 - `POST /api/threads/{thread_id}/runs/wait`
 - `POST /api/runs/wait`
 
-chat 统一通过 runs API 入口。所有 chat turns 进入 lead-agent（`create_react_agent`），lead-agent 通过内置 `launch_feature` tool 直接调用 `FeatureIngressService.launch()` 来启动 feature，无需上游 router。
+chat 统一通过 runs API 入口。所有 chat turns 进入 Chat Agent（`backend/src/agents/chat_agent/agent.py`），Chat Agent 通过内置 `launch_feature` tool 创建 ExecutionRecord 并派发到 v2 执行引擎。
 
 补充：
 
 - run 元数据通过 Redis 持久化（`runtime:runs:*`），网关重启后可恢复最近 run 记录。
 - run 流事件通过 Redis Stream（`runtime:runs:stream:{run_id}`）支持 `Last-Event-ID` 回放。
 - 网关启动会自动水合最近 run，并把重启前 `pending/running` run 标记为 `interrupted`。
-- runs 主执行固定在 worker 内通过 `src.task.tasks.execute_run` 执行（`CELERY_ENABLED=true` 且 `REDIS_ENABLED=true` 为硬前置条件），gateway 仅负责 run 创建、SSE 汇聚与状态查询。
+- runs 主执行固定在 worker 内通过 Celery task 执行（`CELERY_ENABLED=true` 且 `REDIS_ENABLED=true` 为硬前置条件），gateway 仅负责 run 创建、SSE 汇聚与状态查询。
 
-### 1.2 Feature API
+### 2.2 Execution API
 
-- `POST /api/workspaces/{workspace_id}/features/{feature_id}/execute`
+- `POST /api/executions/{id}/commit` — 用户确认 commit，按 kind 路由到 room services
 
-这是 workspace feature 的 canonical API 入口。它不直接执行 graph，而是构造 `FeatureLaunchCommand` 并调用 `FeatureIngressService.launch(command)` 创建或恢复 feature 事务。
+commit endpoint 接收用户选中的 ResultOutput 列表，按 `kind` 分发：
 
-### 1.3 Compute Read Surface
+| kind | 目标 room service |
+|------|-------------------|
+| `library_item` | LibraryRoomService |
+| `document` | DocumentsRoomService |
+| `memory_fact` | MemoryRoomService |
+| `decision` | DecisionsRoomService |
+| `task` | TasksRoomService |
+
+### 2.3 Compute Read Surface
 
 - `GET /api/workspaces/{workspace_id}/compute/sessions`
 - `GET /api/compute/sessions/{compute_session_id}`
 - `GET /api/compute/sessions/{compute_session_id}/projection`
 
-Compute 只提供用户可见工作台投影，不成为业务事实源。projection 从 `ExecutionSession`、`TaskRecord`、runtime snapshot、subagent records、artifacts、sandbox file references 和 WenjinPrism metadata 聚合。
+Compute 只提供用户可见工作台投影，不成为业务事实源。
 
-### 1.4 Domain Ingress
-
-- `FeatureLaunchCommand`（launch/resume 输入）
-- `FeatureIngressService.launch(command)`
-
-chat、feature API、activity retry 和 automation 只能作为 adapter 调用 domain ingress，不允许绕过 ingress 直调 `FeatureSubmissionService`、task handler 或 graph。
-
-## 2. Chat -> Feature 协作链
+## 3. Chat → Capability 协作链
 
 1. Runs router 接收消息，解析 thread/workspace/user 运行时上下文。
-2. `ThreadTurnHandler.prepare_turn()` 写入 user message 并设置 thread running。
-3. 所有 chat turns 统一进入 lead-agent（`create_react_agent`）。
-4. lead-agent 处理 pure chat（普通问答、建议、workspace read tools）。
-5. 当用户意在启动 feature 时，lead-agent 调用内置 `launch_feature` tool（`backend/src/tools/builtins/launch_feature.py`），该 tool 直接构造 `FeatureLaunchCommand` 并调用 `FeatureIngressService.launch()`。
+2. Chat Agent 处理 pure chat（普通问答、建议、workspace read tools）。
+3. 当用户意在启动 capability 时，Chat Agent 调用内置 `launch_feature` tool（`backend/src/tools/builtins/launch_feature.py`）。
+4. `launch_feature` tool 执行：
+   - Lead-busy check：查询当前 workspace 是否有 pending/running execution。
+   - 创建 ExecutionRecord（via `ExecutionService.create_execution()`）。
+   - 发布 `execution.updated` workspace event。
+   - 派发 Celery `execute_execution` task 到 `long_running` queue。
+5. Chat Agent 返回 `{"status": "launched", "execution_id": "...", "feature_id": "..."}` 给前端。
 
 约束：
 
-- skill 只作为 feature 入口语义，不是独立执行框架。
-- pure chat 不创建 task、execution session 或 compute session。
-- feature 所需业务输入统一放在 `params`，不再平铺到顶层形成双事实源。
-- thread message 只保存发起、追问、完成摘要和 pointer metadata，不作为 feature 当前状态来源。
+- pure chat 不创建 execution、task 或 compute session。
+- lead-busy 时返回 advisory 状态，不排队。
+- thread message 只保存发起、追问、完成摘要，不作为执行状态来源。
 
-## 3. Feature Execution Chain
+## 4. V2 Execution Chain
 
-1. 入口 adapter 构造 `FeatureLaunchCommand`：
-   - 统一承载 `workspace_id/feature_id/params/thread_id/skill_id/execution_session_id/launch_source`。
-   - launch 与 resume 使用同一命令对象，`execution_session_id` 非空时表示 resume。
-2. `FeatureIngressService.launch(command)`：
-   - 校验 workspace/thread/user 绑定。
-   - 根据 `workspace_type + feature_id` 查 registry。
-   - 创建或恢复 `ExecutionSession`。
-   - 创建或复用唯一 `ComputeSession`。
-   - 缺参时将 session 置为 `awaiting_user_input` 并返回结构化追问。
-3. `FeatureSubmissionService.execute(...)`：
-   - 校验 workspace owner。
-   - 执行 policy / lock / idempotency 检查。
-   - 生成 canonical task payload。
-   - 提交给 `TaskService`。
-4. Celery worker 拉取任务并交给 workspace feature runtime。
-4. `FeatureLeaderRuntime.execute_feature(...)` 根据 runtime profile 选择 deterministic workflow、`feature_leader.graph_registry` 注册的 LangGraph graph 或 AgentHarness。
-5. feature graph/service 产出 runtime blocks、draft/review/file-change packs、artifacts、activity 和 token usage。
-6. worker 根据 `services/billing_policy.py` 的 feature token policy 在成功后结算积分。
-7. 结果统一写回：
-   - `task_records`
-   - `execution_sessions`
-   - `compute_sessions` projection 依赖的源数据
-   - artifacts
-   - workspace activities
-   - subagent records
-   - workspace events
+1. Celery worker 拉取 `execute_execution` task，交给 `ExecutionEngineV2.run(execution_id)`。
+2. `ExecutionEngineV2`：
+   - 通过 `ExecutionService.get_by_id()` 获取 ExecutionRecord。
+   - 调用 `ExecutionService.start_execution()` 标记为 running。
+   - 从 ExecutionRecord.params 中构造 `TaskBrief`。
+   - 调用 `LeadAgentRuntime.run_session(execution_id, brief)`。
+   - 完成后通过 `ExecutionService.complete_execution()` 持久化 `TaskReport`。
+   - 通过 `RunHistoryService.record()` 写入运行历史。
+   - 失败时标记 execution 为 failed 并 re-raise。
+3. `LeadAgentRuntime.run_session()`：
+   - 通过 `CapabilityResolver` 加载 capability 定义（YAML seed + DB）。
+   - 发布 `execution.graph_structure` event（前端 workflow panel 消费）。
+   - 调用 `compile_graph()` 将 capability 的 `graph_template` 编译为 LangGraph `StateGraph`。
+   - 执行 graph（subagents 在各 node 中运行，支持 abort check）。
+   - 通过 `OutputMappingResolver` 将 node_results 映射为 `ResultOutput` 列表（5 种 kind）。
+   - 聚合 token usage、构建 narrative。
+   - 发布 `execution.completed` event（含完整 `TaskReport`）。
+   - 返回 `TaskReport`。
 
 补充：
 
-- feature resume 必须复用同一 execution session 和 compute session。
-- subagent 缺少 `execution_session_id` 时拒绝执行。
-- AgentHarness 只能作为 Compute 内部能力，不能接管 workspace/thread/billing/artifact/task lifecycle。
+- graph 编译由 `compiler.py` 完成，每个 phase task 对应一个 node，node name 格式 `{phase}__{task}`。
+- subagent 通过 `REGISTRY.get(subagent_type)` 查找，支持 retry_on_failure。
+- node 执行失败时写入 `{"error": "..."}` 而非 raise，允许 graph 继续运行（`failed_partial` 状态）。
+- 支持 Redis abort signal，check 在每个 node 执行前进行。
 
-## 4. Compute Projection Chain
+## 5. Task Contracts
+
+### 5.1 TaskBrief（输入）
+
+```python
+class TaskBrief(BaseModel):
+    capability_id: str      # 能力标识
+    brief: dict             # 能力输入数据
+    raw_message: str        # 用户原始消息
+    decisions: dict[str, str]  # 前置决策
+    workspace_id: str       # workspace 标识
+```
+
+### 5.2 TaskReport（输出）
+
+```python
+class TaskReport(BaseModel):
+    execution_id: str
+    capability_id: str
+    status: Literal["completed", "failed_partial", "cancelled"]
+    duration_seconds: int
+    token_usage: dict[str, int] | None
+    narrative: str                          # 人读摘要
+    outputs: list[ResultOutput]             # 结构化输出（5 种 kind）
+    errors: list[ResultError]               # 错误记录
+```
+
+### 5.3 ResultOutput（5 种 kind）
+
+| kind | 数据模型 | 说明 |
+|------|----------|------|
+| `library_item` | LibraryItemData | 文献条目（论文、书籍等） |
+| `document` | DocumentData | 存储文档 |
+| `memory_fact` | MemoryFactData | 记忆事实 |
+| `decision` | DecisionData | 记录的决策 |
+| `task` | TaskData | 跟进任务 |
+
+每个 ResultOutput 携带 `id`、`preview`、`default_checked` 和对应 `data`。前端 ResultCard 使用 `default_checked` 初始化 checkbox 状态。
+
+## 6. OutputMappingResolver
+
+`OutputMappingResolver` 将 capability YAML 中声明的 `outputs` 映射规则应用于 subagent 的 `node_results`，产出类型化的 `ResultOutput` 对象。
+
+工作流程：
+
+1. 遍历 `graph_template.phases[].tasks[].outputs[]` 声明。
+2. 每个声明指定 `kind`（如 `library_item`）和 `mapping`（字段到模板表达式的映射）。
+3. 支持 `iterate_on`：当输出是数组时，为每个元素生成独立 ResultOutput。
+4. 模板表达式支持 `{{output.field}}` 和 `{{item.field}}` 占位符。
+5. 构造对应的 Pydantic data model，生成 preview 文本。
+
+## 7. Capability 数据驱动
+
+### 7.1 Capability YAML Seed
+
+capability 定义通过 YAML seed 文件管理：
+
+- 位置：`backend/seed/capabilities/{workspace_type}/`
+- 包含：display_name、description、graph_template（phases/tasks/subagent_type/outputs）、brief_schema。
+- DB-backed：Admin 可在运行时编辑，无需重新部署。
+
+### 7.2 CapabilityResolver
+
+`CapabilityResolver` 负责加载和验证 capability：
+
+- 根据 `capability_id` 和 `workspace_type` 查找。
+- 验证 graph_template 中引用的 `subagent_type` 是否已在 v2 registry 注册。
+- 返回包含完整执行上下文的 capability 对象。
+
+### 7.3 Workspace Feature Registry
+
+`workspace_features/registry.py` 维护各 workspace type 的 feature 目录：
+
+- 5 种 workspace type：thesis、sci、proposal、software_copyright、patent。
+- 每个 feature 定义包含 id、name、description、icon、agent、handler_key、stages 等。
+- `runtime_profiles.py` 定义每个 feature 的 runtime profile（mode、sandbox policy、subagent policy 等）。
+
+## 8. V2 Subagent Registry
+
+subagent 通过类型化注册表管理（`backend/src/subagents/v2/registry.py`）：
+
+- 使用 `@subagent("name")` 装饰器注册 `SubagentBase` 子类。
+- `REGISTRY.get(name)` 查找，未知 name 抛出 `KeyError`。
+- 已注册 subagent：`scholar_searcher`、`critical_writer`、`outliner`、`clusterer`、`web_searcher` 等。
+- 每个 subagent 接收 `SubagentContext`，返回 `SubagentResult`（output、thinking、tool_calls、token_usage）。
+
+## 9. SSE 事件桥接与前端消费
+
+### 9.1 useChatStream Hook
+
+`frontend/hooks/useChatStream.ts` 订阅 workspace SSE 事件，双路分发：
+
+- `chat.*` 事件 → `chat-store.handleEvent()`（文本/状态更新）。
+- `execution.updated/completed/failed` 事件 → `execution-store`（执行状态）+ 桥接为 ResultCard 事件进入 chat-store。
+
+### 9.2 执行完成桥接
+
+当 `execution.completed` 事件到达：
+
+1. 从 `TaskReport` 提取 `outputs` 列表。
+2. 将每个 output 映射为 `result_card` 事件，推入 chat-store。
+3. 前端 ChatPanel 渲染 ResultCard（带 checkbox），默认全选。
+4. 用户点击"全部接受"或手动选择后，调用 `POST /api/executions/{id}/commit`。
+
+### 9.3 前端 Store
+
+- `chat-store.ts`：管理 chat blocks（7 种 block type），处理 SSE 事件。
+- `execution-store.ts`：管理 execution 记录，支持 upsert 和 currentExecution 跟踪。
+
+## 10. Compute Projection Chain
 
 Compute Stage 是长任务工作面，展示但不拥有业务状态。
 
 projection 来源：
 
-- `ComputeSessionRecord`：工作台 shell、active view、sandbox session 指针。
-- `ExecutionSessionRecord`：feature lifecycle、params、task ids、artifact ids、next actions。
-- `TaskRecord`：worker 状态、progress、runtime_state、result。
-- `SubagentTaskRecord`：子任务状态、metadata、输出摘要。
-- runtime snapshot：phases、blocks、activity。
-- artifacts / file refs：sandbox files、linked files、artifact ids。
+- `ExecutionRecord`：capability lifecycle、params、status、result（TaskReport）。
+- Run History：执行记录、duration、token usage。
 - WenjinPrism metadata：`file_changes`、`applied_file_changes`、compile info、target files。
 
-前端 `ComputeStage` 通过 compute store 和 workspace events 恢复当前任务，不从 thread message 反推状态。
+前端通过 execution-store 和 workspace events 恢复当前执行状态，不从 thread message 反推。
 
-## 5. WenjinPrism Write Gate
+## 11. WenjinPrism Write Gate
 
-写作/LaTeX 类 feature 的关系：
+写作/LaTeX 类 capability 的关系：
 
 ```text
-生成在 Feature
+生成在 Capability Execution
 过程在 Compute
 确认在 Review Gate
 落稿在 WenjinPrism
@@ -125,134 +263,47 @@ projection 来源：
 当前约束：
 
 1. 新建 Prism 项目允许初始化 seed。
-2. 对已有 Prism 文件，feature 生成内容不自动覆盖；变化进入 metadata 的 `file_changes`。
+2. 对已有 Prism 文件，capability 生成内容不自动覆盖；变化进入 metadata 的 `file_changes`。
 3. `POST /api/latex/projects/{project_id}/file-changes/preview` 生成 diff 与 `change_signature`。
 4. `POST /api/latex/projects/{project_id}/file-changes/apply` 必须携带 preview 签名。
 5. apply 后写入 metadata 的 `applied_file_changes`，其中包含 undo hash 和 `revert_signature`。
 6. `POST /api/latex/projects/{project_id}/file-changes/revert` 必须携带 revert 签名，并校验当前文件 hash。
 7. 有待确认写入时，compile 返回 `blocked_by_review`，避免把旧稿 PDF 当作新结果。
 
-ComputeStage 和 WenjinPrism 均可触发 preview / apply / discard / revert；处理后以 Prism metadata 刷新 Compute projection。
+## 12. Key Files
 
-## 6. Feature Graph 和 Service 边界
+### V2 Core
 
-### Graph 层
+- `backend/src/agents/chat_agent/agent.py` — Chat Agent
+- `backend/src/agents/lead_agent/v2/agent.py` — Lead Agent v2 入口
+- `backend/src/agents/lead_agent/v2/runtime.py` — LeadAgentRuntime
+- `backend/src/agents/lead_agent/v2/compiler.py` — capability graph 编译器
+- `backend/src/agents/lead_agent/v2/output_mapping.py` — OutputMappingResolver
+- `backend/src/execution/engine.py` — ExecutionEngineV2
+- `backend/src/subagents/v2/registry.py` — v2 subagent 注册表
+- `backend/src/agents/contracts/task_brief.py` — TaskBrief 输入契约
+- `backend/src/agents/contracts/task_report.py` — TaskReport 输出契约
 
-- 位置：`backend/src/agents/graphs/`
-- 负责：
-  - orchestration
-  - feature runtime progress / blocks
-  - 结果结构整形
-  - 与 task runtime / latex sync 的连接
+### Services & Tools
 
-### Service 层
+- `backend/src/tools/builtins/launch_feature.py` — launch_feature tool
+- `backend/src/services/execution_service.py` — ExecutionService
+- `backend/src/services/capability_resolver.py` — CapabilityResolver
+- `backend/src/workspace_features/registry.py` — workspace feature 目录
+- `backend/src/workspace_features/runtime_profiles.py` — runtime profile 策略
 
-- 位置：`backend/src/workspace_features/services/`
-- 负责：
-  - 模型调用
-  - payload 规范化
-  - schema 化输出
-  - generation mode
+### Gateway
 
-规则：
+- `backend/src/gateway/routers/thread_runs.py` — runs API
+- `backend/src/gateway/routers/runs.py` — runs API
+- `backend/src/runtime/runs/manager.py` — run 管理
+- `backend/src/runtime/stream_bridge/redis.py` — SSE 流桥接
 
-- graph 保持轻量，不吸收大块 LLM 业务逻辑。
-- service 统一通过共享 JSON helper 约束结构化生成。
-- fallback 只允许作为领域内部策略，不允许作为旧主链兼容设施。
+### Frontend
 
-## 7. Runtime Profile Is Source of Truth
-
-文件：
-
-- `backend/src/workspace_features/registry.py`
-- `backend/src/workspace_features/runtime_profiles.py`
-
-registry 决定：
-
-- workspace type 列表
-- feature 元信息（id/name/description/icon/agent/panel/stages）
-- `handler_key`
-- `task_type`
-- `follow_up_prompt`
-
-runtime profile 决定：
-
-- runtime mode
-- 是否需要 Compute
-- sandbox policy
-- subagent policy
-- AgentHarness provider
-- output contract
-- review gate
-
-任何 feature 增删改都必须先更新 registry 和 runtime profile，再更新 graph/service/frontend。
-
-## 8. Subagents in the Pipeline
-
-subagents 当前是 Compute 内部 worker 能力，不是独立 public API 或产品主链。
-
-- 创建入口：feature leader runtime / AgentHarness。
-- 运行时：`backend/src/subagents/`
-- 上下文：通过 execution-bound context snapshot 注入。
-- 状态：写入 `subagent_task_records`，并通过 workspace events / compute projection 展示。
-
-当前策略：
-
-- feature/runtime profile 主导 orchestration。
-- subagent 不抢占 feature 分发语义。
-- subagent prompt 与上下文使用裁剪快照。
-- public subagent router 已移除。
-
-## 9. Result Contract
-
-workspace feature 结果的关键字段：
-
-- `success`
-- `feature_id`
-- `feature_name`
-- `workspace_type`
-- `handler_key`
-- `message`
-- `data`
-- `artifacts`
-- `refresh_targets`
-
-当前 `refresh_targets` 主要包括：
-
-- `artifacts`
-- `references`
-- `workspace`
-
-写作类结果还可能包含：
-
-- `latex_project_id`
-- `prism_url`
-- `file_changes`
-- `applied_file_changes`
-- `compile_status`
-
-## 10. Key Files
-
-- `backend/src/gateway/routers/thread_runs.py`
-- `backend/src/gateway/routers/runs.py`
-- `backend/src/runtime/runs/manager.py`
-- `backend/src/runtime/stream_bridge/redis.py`
-- `backend/src/application/handlers/thread_turn_handler.py`
-- `backend/src/tools/builtins/launch_feature.py`
-- `backend/src/application/commands.py`
-- `backend/src/application/services/feature_launch_service.py`
-- `backend/src/application/services/feature_submission_service.py`
-- `backend/src/compute/session_service.py`
-- `backend/src/compute/projection_service.py`
-- `backend/src/gateway/routers/compute.py`
-- `backend/src/task/tasks/base.py`
-- `backend/src/agents/feature_leader/runtime.py`
-- `backend/src/agents/harness/`
-- `backend/src/workspace_features/registry.py`
-- `backend/src/workspace_features/runtime_profiles.py`
-- `backend/src/workspace_features/latex_sync.py`
-- `frontend/lib/workspace-thread-entry.ts`
-- `frontend/components/compute/ComputeStage.tsx`
-- `frontend/stores/compute.ts`
-- `frontend/stores/latex.ts`
-- `frontend/app/(workbench)/workspaces/[id]/components/ThreadPanel.tsx`
+- `frontend/hooks/useChatStream.ts` — SSE 事件桥接 hook
+- `frontend/stores/chat-store.ts` — chat 状态管理
+- `frontend/stores/execution-store.ts` — execution 状态管理
+- `frontend/app/(workbench)/workspaces/[id]/v2/page.tsx` — v2 workspace 页
+- `frontend/app/(workbench)/workspaces/[id]/v2/components/ChatPanel.tsx` — chat 面板
+- `frontend/app/(workbench)/workspaces/[id]/v2/components/LiveWorkflowPanel.tsx` — workflow 面板

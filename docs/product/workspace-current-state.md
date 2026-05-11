@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-04-28
+更新时间：2026-05-11
 状态：Current
 适用项目：`wenjin`
 
@@ -8,56 +8,60 @@
 
 ## 1. 用户入口
 
-1. canonical thread route（URL 保持 `/chat`）：`/workspaces/{workspace_id}/chat`
-2. feature 入口：`/workspaces/{workspace_id}/chat?feature={feature_id}[&skill={skill_id}...]`
-3. onboarding 入口：`/workspaces/{workspace_id}/chat?onboarding=true`
-4. 旧路由 `/chat/new`、`/chat/[threadId]` 不再作为主入口
+1. canonical workspace route（v2）：`/workspaces/{workspace_id}/v2`
+2. feature 入口：通过 chat 面板对话触发，chat_agent 识别意图后 dispatch_capability
+3. 旧路由 `/chat` 自动重定向到 `/v2`
 
-## 2. 线程模型
+## 2. 双 Agent 拓扑
 
-1. 用户侧维持 single-thread-per-workspace 的主体验模型。
-2. `thread` 仍是服务端持久化单元，用于恢复、历史、状态和 skill 绑定。
-3. 指定 `thread_id` 时必须命中，不再静默回退到其他线程。
+1. **Chat Agent**（左面板）：处理对话、意图识别、调度 capability
+2. **Lead Agent v2**（右面板）：执行 capability graph，运行 subagent，产出结构化结果
+3. 1:1 映射：lead-busy 时阻塞新的 dispatch
 
-## 3. Skills 与 Features
+## 3. Capability 数据驱动
 
-1. skill 是 thread 对话层的 feature 入口语义，不是独立执行框架。
-2. 用户在 chat 中选中的 skill 会绑定当前 turn 的默认 feature / params 倾向。
-3. 真正执行时统一走 lead-agent `launch_feature` tool / feature API -> `FeatureIngressService` -> Compute-centered feature pipeline。
-4. 入口可多样（chat/feature API/activity retry/automation），但 feature 事务执行统一经过 `FeatureIngressService`。
+1. Capability 定义在 YAML seed 文件（`backend/seed/capabilities/{workspace_type}/`），DB-backed
+2. `CapabilityResolver` 加载并校验 capability，包括 `outputs` 声明
+3. 每个 capability 的 `graph_template` 定义执行阶段和任务
+4. `LeadAgentRuntime` 解析 graph → `compile_graph` → 执行 subagent nodes → `_collect_outputs`
+5. `OutputMappingResolver` 将 subagent 输出转换为 5 种 typed `ResultOutput`（library_item, document, memory_fact, decision, task）
 
-## 4. Thread 面板信息架构
+## 4. 8 Workspace Rooms
 
-1. Chat Dock 展示发起、缺参追问、控制指令、完成摘要和下一步建议。
-2. 长任务主展示位于 Compute Stage / Workspace Inspector，而不是在 thread 消息区顶部堆叠巨型卡片。
-3. 输入区保留轻量状态反馈，不承载最终结果正文。
-4. Compute Stage 展示 runtime、sandbox 文件、日志、Review Gate、WenjinPrism 写入状态和已应用变更。
+1. **Library** — 文献条目（library_item outputs commit 到此）
+2. **Documents** — 文档（document outputs）
+3. **Decisions** — 决策记录（decision outputs）
+4. **Memory** — 事实和偏好（memory_fact outputs）
+5. **Run History** — 执行历史记录
+6. **Sandbox** — 代码执行沙箱
+7. **Tasks** — 后续任务（task outputs）
+8. **Settings** — 工作区设置
 
-## 5. Feature 编排契约
+## 5. Result Card 闭环流程
 
-1. 首轮编排消息通过 `metadata.orchestration.feature_id + params` 传递 seed。
-2. feature 卡片、artifact follow-up、activity retry 都回落到 `/chat`，以 `metadata.orchestration.intent=launch|resume` 表达显式命令，并携带显式 artifact seed。
-3. API 发起的长任务执行统一走 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`；chat 发起的显式任务由 lead-agent 通过 `launch_feature` tool 直接进入同一个 ingress。
-4. 缺参时 execution session 状态进入 `awaiting_user_input`，chat 下一轮携带 `metadata.orchestration.execution_session_id` 在同 session 续跑。
-5. feature 完成后，UI 通过 `followUpPrompt` 和 activity detail 提供下一轮建议。
+1. Capability 执行完成 → `TaskReport` 含 `outputs[]`
+2. SSE `execution.completed` 事件 → 前端 execution-store
+3. `useChatStream` 桥接：从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
+4. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取
+5. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到对应 room service
+6. commit 后触发 `wenjin:rooms-refresh` 刷新所有 room drawer
 
-## 6. 结果与刷新
+## 6. 前端信息架构
 
-1. 任务结果通过 task status、workspace event、activity、artifact 同步到前端。
-2. 前端根据 `refresh_targets` 刷新 `artifacts` / `references` / `workspace`。
-3. thread status 通过 chat/run/workspace 事件持续更新。
-4. Compute projection 承载过程态；thread 承载发起、追问与最终总结。
-5. 当前 feature 状态不从 thread message 反推，必须读取 execution/task/compute projection。
+1. **左面板**（Chat）：极简白底对话，7 种 block 类型渲染
+2. **右面板**（Live Workflow）：Glass/visionOS 风格，graph 可视化 + node 详情 + room drawers
+3. Room drawers（顶部 toolbar）：Library / Documents / Tasks / Runs 等
+4. Settings page：Memory / Decisions / Sandbox / Settings 管理
 
-## 7. 文档优先级
+## 7. 线程模型
 
-1. 当前行为以本文件、`frontend-feature-plugin-contract.md`、`workspace-feature-catalog.md` 为准。
+1. single-thread-per-workspace 的主体验模型
+2. thread 仍是服务端持久化单元，用于恢复和历史
+
+## 8. 文档优先级
+
+1. 当前行为以本文件、`workspace-feature-catalog.md`、v2 design language spec 为准。
 2. 历史方案和阶段性过渡文档已清理；追溯请查看 Git 历史。
-
-## 8. WenjinPrism 协作现状
-
-1. 编译/导出不再作为 workspace feature 暴露给用户；写作类结果统一回落到 WenjinPrism（`/latex`）处理工程操作。
-2. 写作类 feature 完成后，前端应优先提供“打开 WenjinPrism”动作，并使用 `latex_project_id` 定位主稿工程。
 3. WenjinPrism 划词改写采用 `preview -> apply -> revert`：
    - `preview` 只生成候选和 diff，不写文件。
    - `apply` 在后端执行签名/哈希校验、结构门禁和编译门禁，通过后写文件。

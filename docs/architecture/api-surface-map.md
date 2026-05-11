@@ -1,6 +1,6 @@
 # API Surface Map
 
-Generated: 2026-04-28
+Generated: 2026-05-11
 Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gateway/routers/`
 
 ## Global Endpoints
@@ -21,10 +21,11 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 | Runs | `/api/threads/{thread_id}/runs*`, `/api/runs*` | Bearer | Run 生命周期、流式对话（SSE）、断线续流 |
 | Workspaces | `/api/workspaces*` | Bearer | workspace CRUD、workspace dashboard |
 | Compute | `/api/workspaces/{workspace_id}/compute/sessions`, `/api/compute/sessions*` | Bearer | Compute session shell 与 projection 读取面 |
-| Features | `/api/workspaces/{workspace_id}/features*` | Bearer | 动态 feature 列表 + feature 执行 |
+| Features | `/api/workspaces/{workspace_id}/features*` | Bearer | 动态 feature 列表（仅读取，执行走 executions） |
+| Executions | `/api/executions*` | Bearer | 统一执行创建、状态查询、流式事件、取消、commit |
 | References | `/api/workspaces/{workspace_id}/references*` | Bearer | workspace-scoped Reference Library、上传、Semantic Scholar 导入、page-index、BibTeX/Prism 同步 |
 | Artifacts | `/api/workspaces/{workspace_id}/artifacts*` | Bearer | Canonical workspace-scoped 成果 CRUD、lineage |
-| Tasks | `/api/tasks*` | Bearer | 任务状态、SSE 进度、取消；不再提供任务创建入口 |
+| Tasks | `/api/tasks*` | Bearer | 任务状态（已移除旧 SSE 入口，任务通过 executions 管理） |
 | Dashboard | `/api/dashboard/*` | Bearer | 用户看板 + 管理员看板/积分/发布门禁 |
 | LaTeX | `/api/latex/*` | Bearer | 主稿项目管理、文件读写、编译、PDF/SyncTeX、反馈修订 |
 
@@ -42,15 +43,12 @@ Source of truth: `backend/src/gateway/app.py` + routers under `backend/src/gatew
 
 ## Notes for API Consumers
 
-- 新能力只应接入 `/api/workspaces/{workspace_id}/features/{feature_id}/execute`。
-- 显式 chat feature launch/resume 只通过 `metadata.orchestration.intent=launch|resume` 进入 `FeatureIngressService`。
+- Capability 执行统一走 `/api/executions`（创建、查询、流式事件、取消、commit）。
+- Capability 结果 commit：`POST /api/executions/{execution_id}/commit`，按 kind 路由到 workspace rooms。
+- 旧 Features 执行入口 (`/api/workspaces/{id}/features/{feature_id}/execute`) 和 Tasks SSE (`/api/tasks/{id}/stream`) 已移除。
 - Compute 当前状态只从 `/api/compute/sessions/{compute_session_id}/projection` 或 workspace events 水合，不从 thread message 推断。
 - artifact 的读写应统一接入 `/api/workspaces/{workspace_id}/artifacts*`。
-- thread skill 属于会话级状态，服务端持久化在 `threads.skill`。
-- `POST /api/tasks` 已删除；新任务必须走 feature execute、Reference Library 上传或 workspace-context 上传等 domain 入口。
-- 对长时任务，前端应使用 `/api/tasks/{task_id}` 或 `/api/tasks/{task_id}/stream` 获取进度。
-- `/api/chat` 与 `/api/chat/stream` 已删除，chat 统一走 runs API（`/api/threads/{thread_id}/runs/stream`、`/api/runs/stream`、`/api/runs/wait`）。
-- `/api/threads/{thread_id}/runs/stream`、`/api/runs/stream`、`/api/runs/{run_id}/stream` 与 `/api/tasks/{task_id}/stream` 均为 SSE，需要反向代理禁用缓冲。
+- `/api/threads/{thread_id}/runs/stream`、`/api/runs/stream`、`/api/runs/{run_id}/stream` 与 `/api/executions/{execution_id}/stream` 均为 SSE，需要反向代理禁用缓冲。
 
 ## Compute API (Current)
 
@@ -66,7 +64,7 @@ Compute 是长任务工作台读取面，不提供业务写入口。
 
 - ComputeSession 与 ExecutionSession 一一绑定。
 - Compute projection 不持有业务状态，只聚合现有事实源。
-- feature launch/resume 仍必须经过 `FeatureIngressService`。
+- Capability launch 通过 `launch_feature` tool → `ExecutionService` → Celery worker → `LeadAgentRuntime`。
 
 ## LaTeX Rewrite API (Current)
 

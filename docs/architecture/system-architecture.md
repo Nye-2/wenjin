@@ -1,7 +1,7 @@
 # 问津 (Wenjin) 系统架构文档
 
-> 版本：2026-05-01  
-> 范围：全栈架构（后端、前端、基础设施）  
+> 版本：2026-05-11
+> 范围：全栈架构（后端、前端、基础设施）
 > 读者：新加入的开发者、架构评审、运维人员
 
 ---
@@ -10,20 +10,19 @@
 
 **问津 (Wenjin)** 是一个面向学术研究的 AI 工作台。它以 "工作区 (Workspace)" 为核心组织单元，支持学位论文、SCI 论文、项目申报书、软件著作权、专利等多种学术工作流。每个工作区包含：
 
-- **Chat 控制面**：以对话方式驱动研究、写作和修改
-- **Compute 工作面**：结构化展示 Agent 执行进度、产物、日志和审查门
-- **文献库 (Reference Library)**：统一管理文献、引用和证据包
-- **LaTeX 编辑器 (WenjinPrism)**：与 Compute 工作面联动的学术写作环境
+- **Chat 控制面**（左面板）：以对话方式驱动研究、写作和修改，Chat Agent 处理意图识别与对话
+- **Lead Agent 工作面**（右面板）：结构化展示能力执行进度、产物和结果，支持 LangGraph 子图实时可视化
+- **8 个工作区房间 (Rooms)**：Library、Documents、Decisions、Memory、Run History、Sandbox、Tasks、Settings
 
 ### 1.1 核心原则
 
 | 原则 | 含义 |
 |------|------|
-| **Chat = 控制面** | 用户通过聊天线程发起意图，不直接操作业务状态 |
-| **Compute = 工作面** | Agent 执行的进度、产物、日志通过 Compute Stage 结构化展示 |
-| **FeatureIngress = 唯一入口** | 所有工作区功能（调研、写作、绘图等）必须经过 `FeatureIngressService` 统一调度 |
-| **ExecutionSession = 事实源 (SSOT)** | 功能执行业务状态的唯一事实源，ComputeSession 只做 UI 投影 |
-| **ReferenceLibrary = 文献 SSOT** | 所有文献以 `WorkspaceReference` 为唯一事实源，BibTeX/引用键均从它派生 |
+| **Two-Agent 拓扑** | Chat Agent（左面板）处理对话意图 + Lead Agent（右面板）运行能力执行，1:1 映射，lead-busy 阻塞新调度 |
+| **Capability 数据驱动** | 能力定义通过 YAML seed + DB 存储，`CapabilityResolver` 加载并缓存，Admin 可运行时编辑 |
+| **Output Mapping 声明式** | 能力 YAML 中的 `outputs` 声明经 `OutputMappingResolver` 解析为 5 种类型化 `ResultOutput`（library_item、document、memory_fact、decision、task） |
+| **Curated result_card 流** | 执行产物先暂存 → 用户通过复选框审阅 → commit 写入房间，默认全选 + 一键"全部接受" |
+| **7 种 Block 协议** | `text`、`thinking`、`status_line`、`question_card`、`result_card`、`tool_invocation`、`tool_result` — 按到达顺序存储 |
 | **不保留旧链路 fallback** | 新主链路落地后，旧代码路径直接删除，不保留兼容层 |
 
 ---
@@ -35,9 +34,9 @@
 │                              用户浏览器                                       │
 │  ┌──────────────────────────────┐  ┌─────────────────────────────────────┐  │
 │  │  Next.js 前端 (Port 3000)    │  │  独立页面：/latex/:projectId         │  │
-│  │  - Chat 线程界面              │  │  - WenjinPrism LaTeX 编辑器          │  │
-│  │  - Compute Stage 工作面       │  │                                      │  │
-│  │  - Workspace 仪表盘           │  │                                      │  │
+│  │  - Chat 面板 (左)             │  │  - WenjinPrism LaTeX 编辑器          │  │
+│  │  - LiveWorkflow 面板 (右)     │  │                                      │  │
+│  │  - 8 个 Rooms 面板            │  │                                      │  │
 │  └──────────────┬───────────────┘  └─────────────────────────────────────┘  │
 │                 │                                                             │
 │                 ▼                                                             │
@@ -57,8 +56,8 @@
 │  ┌──────────────┐   ┌──────────────────┐   ┌──────────────────┐             │
 │  │  PostgreSQL  │   │  Redis (3 DB)    │   │  Celery Worker   │             │
 │  │  pg16+vector │   │  /0 应用运行时    │   │  长任务执行       │             │
-│  │  业务持久化   │   │  /1 Celery Broker │   │  - LangGraph     │             │
-│  │              │   │  /2 Celery Backend│   │  - 子 Agent 并行 │             │
+│  │  业务持久化   │   │  /1 Celery Broker │   │  - ExecutionEngine│             │
+│  │              │   │  /2 Celery Backend│   │  - LeadAgentRuntime│            │
 │  └──────────────┘   └──────────────────┘   └──────────────────┘             │
 │                                │                                              │
 │  ┌─────────────────────────────┴───────────────────────────────────────────┐│
@@ -74,7 +73,7 @@
 | **前端** | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS, Zustand, Framer Motion |
 | **后端 Gateway** | FastAPI, Python 3.13+, SQLAlchemy 2 (async), Alembic |
 | **后台 Worker** | Celery + asyncio.Runner, Redis 队列 |
-| **Agent 运行时** | LangGraph (in-process), 自定义 Subagent 并行执行器 |
+| **Agent 运行时** | LangGraph (in-process), v2 subagent registry + graph compiler |
 | **数据持久化** | PostgreSQL 16 + pgvector |
 | **缓存/消息** | Redis 8 (AOF 持久化)，分 3 个逻辑库 |
 | **编译环境** | Docker 化 TeXLive 2024 (xelatex/pdflatex/biber) |
@@ -91,63 +90,89 @@
 backend/src/
 ├── gateway/              # HTTP 层：FastAPI App、路由、依赖注入、中间件、认证
 │   ├── app.py            # 应用入口：lifespan 管理（启动/关闭 Sentry、DB、Redis、MCP、watchdog）
-│   ├── routers/          # 21 个路由模块
-│   ├── deps/             # 依赖注入（get_db、FeatureIngressService、TaskService 等）
+│   ├── routers/          # 路由模块（含 executions.py、execution_commit.py、capabilities.py、workspace_rooms.py）
+│   ├── deps/             # 依赖注入（get_db、ExecutionService 等）
 │   ├── middleware/       # 关联 ID、错误处理、限流
 │   └── validators/       # 请求体校验
 ├── database/             # SQLAlchemy 异步引擎、会话管理、ORM 模型
 │   ├── session.py        # get_db_session() 上下文管理器、引擎工厂
 │   ├── base.py           # DeclarativeBase + UUIDMixin + TimestampMixin
-│   └── models/           # 23 张表的 ORM 定义
+│   └── models/           # ORM 定义（含 Capability、ExecutionRecord 等）
 ├── services/             # 领域服务层
 │   ├── references/       # 文献库：WorkspaceReferenceService、ReferenceBibTeXService、ReferenceEvidenceService
 │   ├── latex/            # LaTeX：LatexProjectService、LatexCompileService、反馈改写 Diff
-│   ├── execution_session_service.py   # ExecutionSession SSOT 管理
+│   ├── rooms/            # 工作区房间服务（LibraryService、DocumentsService、DecisionsService、MemoryService、RunHistoryService、WorkspaceTasksService、SandboxService、SettingsService）
+│   ├── capability_resolver.py        # CapabilityResolver：DB + 缓存加载能力定义
+│   ├── capability_loader.py          # YAML seed → DB 加载
+│   ├── execution_service.py          # ExecutionRecord 生命周期管理
+│   ├── execution_commit_service.py   # 产物 commit：按 kind 路由到房间服务
+│   ├── execution_event_publisher.py  # 执行事件 → Redis Stream + workspace events
+│   ├── event_bus.py                  # Redis EventBus（发布/订阅）
 │   └── ...               # 认证、计费、仪表盘、用户记忆等
-├── compute/              # Compute Stage：UI 投影层
-│   ├── session_service.py           # ComputeSession CRUD + touch_session
-│   ├── projection_service.py        # ComputeProjectionService：按需构建投影
-│   └── events.py                    # compute.updated 等事件发布
-├── workspace_features/   # 工作区功能系统
+├── workspace_features/   # 工作区功能注册与运行时画像
 │   ├── registry.py       # 功能注册表（按 WorkspaceType 定义所有功能）
 │   ├── runtime_profiles.py          # 功能运行时画像（CHAT_ONLY / DETERMINISTIC / COMPUTE_WORKFLOW / COMPUTE_AGENTIC）
 │   ├── contracts.py      # 功能执行结果标准化合约
 │   ├── latex_sync.py     # LaTeX 桥接：sync_project / compile_thesis_payload
 │   └── services/         # 各工作区类型的 payload builder 和 feature handler
 ├── agents/               # Agent 编排层
-│   ├── feature_leader/   # 功能执行入口：FeatureLeaderRuntime、Workflow Plan、Graph Registry
-│   ├── graphs/           # LangGraph 子图（按 workspace_type/feature_id 组织）
-│   ├── harness/          # AgentHarness 合约（当前仅启用 Native Wenjin provider）
+│   ├── lead_agent/       # Lead Agent v2
+│   │   ├── agent.py      # Chat Agent 入口（create_react_agent）
+│   │   ├── prompts/      # Chat Agent 系统提示词
+│   │   ├── blocks.py     # 结构化 Block 输出（status_line、question_card 等）
+│   │   ├── dynamic_tools.py          # 动态工具注册
+│   │   ├── structured_output.py      # 结构化输出解析
+│   │   └── v2/           # Lead Agent v2 核心运行时
+│   │       ├── runtime.py           # LeadAgentRuntime：resolve → compile → execute → TaskReport
+│   │       ├── compiler.py          # compile_graph()：graph_template → LangGraph StateGraph
+│   │       └── output_mapping.py    # OutputMappingResolver：outputs 声明 → typed ResultOutput
+│   ├── contracts/        # 任务合约
+│   │   ├── task_brief.py            # TaskBrief：能力执行输入
+│   │   └── task_report.py           # TaskReport + ResultOutput discriminated union（5 种 kind）
 │   ├── middlewares/      # 20+ 中间件（沙箱、引用、知识、纠错、澄清等）
 │   ├── memory/           # 记忆捕获与压缩
-│   └── subagents/        # 子 Agent 并行执行器
+│   └── subagents/        # v2 子 Agent
+│       └── v2/
+│           ├── base.py              # SubagentBase 基类（SubagentContext + SubagentResult）
+│           ├── registry.py          # 全局 REGISTRY：name → SubagentBase 子类
+│           └── types/               # 5 个内置子 Agent
+│               ├── scholar_searcher.py
+│               ├── critical_writer.py
+│               ├── outliner.py
+│               ├── clusterer.py
+│               └── web_searcher.py
 ├── task/                 # 任务系统
 │   ├── celery_app.py     # Celery 应用配置（队列、路由、序列化）
 │   ├── worker.py         # Worker 进程生命周期（fork 安全、MCP 启动、Prometheus）
 │   ├── store.py          # TaskStore：Redis + PG 双写
-│   ├── registry.py       # 任务类型注册（workspace_feature / document_preprocess / reference_preprocess）
-│   ├── handlers/         # 任务处理器
-│   └── runtime_blocks.py # 结构化运行时状态块（metrics / list / activity / prism 等）
+│   ├── registry.py       # 任务类型注册
+│   ├── tasks/            # Celery 任务定义
+│   │   ├── execution.py  # execute_execution：v2 执行入口（ExecutionEngineV2 → LeadAgentRuntime）
+│   │   ├── run.py        # run 任务
+│   │   ├── memory.py     # memory 任务
+│   │   └── base.py       # 基础任务
+│   ├── handlers/         # 任务处理器（document_preprocess、reference_preprocess）
+│   └── runtime_blocks.py # 结构化运行时状态块
 ├── execution/            # 执行运行时
+│   ├── engine.py         # ExecutionEngineV2：统一执行引擎（替代旧 ChatExecutionEngine + FeatureExecutionEngine）
+│   ├── service.py        # ExecutionService：DB 层 CRUD
 │   ├── providers/        # Docker / Local 沙箱提供者
 │   ├── security/         # LaTeX / Python 代码安全清洗
-│   └── types.py          # ExecutionType 枚举（PYTHON_PLOT、MERMAID_DIAGRAM、AI_IMAGE 等）
+│   └── types.py          # ExecutionType 枚举
 ├── academic/             # 学术领域服务
 │   ├── literature/       # Semantic Scholar 集成、文献检索
 │   ├── citation/         # BibTeX / APA / MLA / Chicago / IEEE 格式化
 │   └── services/         # ArtifactService、GenerationService
 ├── tools/                # 工具层
-│   ├── builtins/         # 内置工具（文件操作、bash、文献查询、澄清请求等）
-│   └── execution/        # 工具执行器（LaTeX 编译等）
+│   └── builtins/         # 内置工具（文件操作、bash、文献查询、launch_feature 等）
 ├── runtime/              # Run 运行时
 │   ├── runs/manager.py   # RunManager：Redis 支持的运行恢复
 │   └── stream_bridge/    # Redis Stream 桥接（SSE 多路复用）
 ├── application/          # 应用编排层
 │   ├── handlers/         # ThreadTurnHandler
-│   ├── services/         # FeatureIngressService、FeatureSubmissionService、FeatureLaunchService
-│   └── presenters/       # AgentResultCard（结果卡片渲染）
+│   └── services/         # 服务编排
 ├── mcp/                  # Model Context Protocol 运行时和工具注册
-├── models/               # 模型路由（LLM  provider 选择和调用）
+├── models/               # 模型路由（LLM provider 选择和调用）
 ├── config/               # 应用配置加载
 ├── observability/        # Prometheus 指标、Sentry
 ├── quality/              # 发布门控（Release Gate）
@@ -168,9 +193,11 @@ backend/src/
 | `threads.py` | `/api/threads` | 聊天线程管理 |
 | `thread_runs.py` | `/api/threads/{id}/runs` | 线程运行（流式/非流式） |
 | `runs.py` | `/api/runs` | 独立运行接口 |
-| `features.py` | `/api/workspaces/{id}/features` | 功能发现和执行（唯一入口） |
+| `executions.py` | `/api/executions` | 执行记录 CRUD + 状态查询 |
+| `execution_commit.py` | `/api/executions/{id}/commit` | 产物 commit（按 kind 路由到房间） |
+| `capabilities.py` | `/api/capabilities` | 能力 CRUD + 校验 |
+| `workspace_rooms.py` | `/api/workspace_rooms` | 工作区房间数据（Library、Documents 等） |
 | `compute.py` | `/api/compute` | Compute Session 查询和投影 |
-| `tasks.py` | `/api/tasks` | 任务状态轮询 |
 | `references.py` | `/api/workspaces/{id}/references` | 文献库 CRUD、导入、搜索、outline |
 | `latex.py` | `/api/latex` | LaTeX 项目编译/回滚/反馈改写 |
 | `artifacts.py` | `/api/artifacts` | 产物检索 |
@@ -182,7 +209,7 @@ backend/src/
 | `dashboard.py` | `/api/dashboard` | 仪表盘数据 |
 | `uploads.py` | `/api/uploads` | 文件上传签名 |
 
-**依赖注入**：`src/gateway/deps/core.py` 提供 `get_db()`（异步会话上下文管理器）。更高层的依赖（如 `FeatureIngressService`）通过嵌套 `Depends()` 链组装。
+**依赖注入**：`src/gateway/deps/core.py` 提供 `get_db()`（异步会话上下文管理器）。更高层的依赖通过嵌套 `Depends()` 链组装。
 
 ### 3.3 SSOT 核心
 
@@ -195,7 +222,7 @@ backend/src/
 **核心字段**：
 - `id` (UUID), `user_id`, `workspace_id`, `workspace_type`, `feature_id`
 - `status`: `launching` → `running` → `completed` / `failed` / `advisory` / `awaiting_user_input`
-- `params`: 用户传入参数
+- `params`: 用户传入参数（含 `brief` 子对象）
 - `task_ids`, `primary_task_id`: 关联的 Celery 任务
 - `runtime_snapshot`: 结构化运行时快照（`runtime_blocks`）
 - `result_summary`, `artifact_ids`, `next_actions`: 执行结果
@@ -254,7 +281,7 @@ backend/src/
 
 - **Broker**: `redis://redis:6379/1`
 - **Backend**: `redis://redis:6379/2`
-- **队列**: `default`（通用功能）、`long_running`（文档/文献预处理）、`priority`
+- **队列**: `default`（通用功能）、`long_running`（执行引擎、文档/文献预处理）、`priority`
 - **Worker 设置**: `prefetch_multiplier=2`, `acks_late=True`, `reject_on_worker_lost=True`, soft=10min, hard=15min
 
 #### 3.4.2 Worker 生命周期
@@ -283,71 +310,140 @@ backend/src/
 
 | 任务类型 | 队列 | 超时 | 处理器 |
 |----------|------|------|--------|
-| `workspace_feature` | `default` | 300s | `workspace_feature_handler.py` → `FeatureLeaderRuntime` |
+| `execute_execution` | `long_running` | 600s | `execution.py` → `ExecutionEngineV2` → `LeadAgentRuntime` |
 | `document_preprocess` | `long_running` | 900s | `document_preprocess_handler.py` |
 | `reference_preprocess` | `long_running` | 1200s | `reference_preprocess_handler.py` |
 
-### 3.5 Agent / Graph 架构
+### 3.5 Agent / Capability 架构
 
-#### 3.5.1 Feature Leader Runtime
+#### 3.5.1 Two-Agent 拓扑
 
-**文件**：`src/agents/feature_leader/runtime.py`
+系统采用双 Agent 架构，1:1 映射到前端双面板布局：
 
-**`FeatureLeaderRuntime.execute_feature()`** 是**所有工作区功能的规范执行路径**：
+- **Chat Agent**（左面板）：基于 `create_react_agent` 构建，处理所有用户对话。识别到能力意图时调用 `launch_feature` 工具。
+- **Lead Agent v2**（右面板）：`LeadAgentRuntime` 在 Celery Worker 中执行能力。通过 `CapabilityResolver` 加载能力定义 → `compile_graph()` 编译为 LangGraph → 执行子 Agent 图 → 收集结果为 `TaskReport`。
 
-1. 若功能画像为 `COMPUTE_AGENTIC`，先运行动态子 Agent 工作流 (`_run_dynamic_workflow()`)
-2. 将工作流结果注入 payload（`__leader_workflow` / `__leader_workflow_highlights`）
-3. 调用 `execute_feature_graph()`（LangGraph 子图）
-4. 返回结果 + 产物
+**Lead-busy 互斥**：`launch_feature` 工具在调度前检查工作区是否有 `pending/running` 状态的执行，若有则返回 `advisory: lead_busy`，前端展示状态提示。
 
-#### 3.5.2 动态工作流规划
+#### 3.5.2 Capability 数据模型
 
-**文件**：`src/agents/feature_leader/workflow.py`
+**定义来源**：YAML seed 文件（`backend/seed/capabilities/{workspace_type}/`）+ DB 持久化（`capabilities` 表）
 
-`build_dynamic_feature_workflow_plan()` 为 `COMPUTE_AGENTIC` 功能创建确定性多阶段计划：
+**加载与缓存**：`CapabilityResolver`（`src/services/capability_resolver.py`）
+- 按 `(capability_id, workspace_type)` 查询 DB，带内存缓存
+- 通过 `EventBus` 订阅 `capability.invalidated` 事件自动清缓存
+- `validate_capability()` 校验 graph_template 结构、subagent_type 注册、outputs 声明完整性、模板变量合法性
 
-- **调研类**（deep_research、literature_search）：2 阶段 — 发现（scout、trend_spotter、gap_miner）→ 综合（synthesizer）
-- **写作类**（thesis_writing、writing）：2 阶段 — 证据（librarian、reviewer）→ 起草（thesis_writer/writer）
-- **绘图类**（figure_generation）：1 阶段 — 设计（figure_planner、analyst）
-
-计划受 `FeatureRuntimeProfile` 约束（最大子 Agent 数、允许类型）。
-
-#### 3.5.3 LangGraph 子图注册表
-
-**文件**：`src/agents/feature_leader/graph_registry.py`
-
-- 懒加载：按 `workspace_type` 通过 `importlib` 动态导入 `src.agents.graphs.{type}.{feature}`
-- 装饰器：`@register_feature_graph(feature_id, workspace_type)` 绑定子图函数
-- 执行：构建系统提示（含工作区上下文 + 用户记忆注入）→ 调用 `(initial_state, payload) -> result`
-
-**子图目录**：
+**能力结构**（graph_template）：
+```yaml
+graph_template:
+  phases:
+    - name: discovery
+      tasks:
+        - name: scholar_search
+          subagent_type: scholar_searcher
+          prompt_template: "搜索关于 {{topic}} 的文献..."
+          outputs:
+            - kind: library_item
+              iterate_on: output.papers
+              mapping:
+                title: "{{item.title}}"
+                authors: "{{item.authors}}"
+    - name: synthesis
+      depends_on: [discovery]
+      tasks:
+        - name: write_draft
+          subagent_type: critical_writer
+          outputs:
+            - kind: document
+              mapping:
+                name: "综述报告"
+                mime_type: "text/markdown"
 ```
-src/agents/graphs/
-├── thesis/              # deep_research, literature_management, opening_research, thesis_writing, figure_generation
-├── sci/                 # literature_search, paper_analysis, writing, literature_review, framework_outline, figure_generation, peer_review, journal_recommend
-├── proposal/            # background_research, experiment_design, proposal_outline
-├── patent/              # patent_outline, prior_art_search
-└── software_copyright/  # technical_description, copyright_materials
-```
 
-#### 3.5.4 Agent Harness
+#### 3.5.3 Graph Compiler
 
-**文件**：`src/agents/harness/`
+**文件**：`src/agents/lead_agent/v2/compiler.py`
 
-`AgentHarness` 是功能运行时调用 Agent 的合约层。当前启用的 provider 是：
-- `NativeWenjinAgentHarness` → `src.subagents.parallel.ParallelExecutor`
+`compile_graph()` 将能力的 `graph_template` 编译为 LangGraph `CompiledStateGraph`：
 
-非 native provider 不作为当前运行能力；若 runtime profile 配置为 `deerflow`、`claude` 或 `codex`，`FeatureLeaderRuntime` 会拒绝执行，避免未集成 provider 被误用。
+1. 为每个 task 添加 LangGraph 节点，命名为 `{phase}__{task}`
+2. 从 `REGISTRY` 查找 `subagent_type` 对应的 `SubagentBase` 子类
+3. 连线 `START` → 根阶段（无 `depends_on`）→ 依赖阶段（fan-in/fan-out）→ 终端阶段 → `END`
+4. 可选注入 `abort_check`（检查 Redis abort 信号）
+5. 支持重试：`retry_on_failure` 指定额外的重试次数
 
-协议：`AgentHarness` 接口含 `run_subtask()` 和 `run_session()`
+#### 3.5.4 Lead Agent v2 Runtime
 
-#### 3.5.5 子 Agent 并行执行
+**文件**：`src/agents/lead_agent/v2/runtime.py`
 
-**文件**：`src/subagents/parallel.py`
+`LeadAgentRuntime.run_session()` 是**所有能力执行的规范路径**：
 
-`ParallelExecutor` 执行 `PhasedPlan`（带依赖关系的多阶段计划），支持配置 `max_concurrent`。每个子 Agent 类型由 `src.subagents.academic.registry` 解析。
+1. 通过 `CapabilityResolver.resolve()` 加载能力定义
+2. 发布 `execution.graph_structure` 事件（节点 + 边结构，前端可视化用）
+3. 组装 `ExecutionState`（workspace_id、inputs_for_tasks、workspace_data、node_results）
+4. 编译 graph_template → LangGraph，执行 `graph.ainvoke()`
+5. 收集节点错误（`failed_partial` 状态）
+6. 通过 `OutputMappingResolver` 解析 outputs 声明 → `ResultOutput` 列表
+7. 构建 `TaskReport`（status、duration、token_usage、narrative、outputs、errors）
+8. 发布 `execution.completed` 事件
 
-#### 3.5.6 中间件栈
+**状态**：`ExecutionState`（TypedDict）— LangGraph 状态贯穿所有子 Agent 节点
+
+#### 3.5.5 Output Mapping
+
+**文件**：`src/agents/lead_agent/v2/output_mapping.py`
+
+`OutputMappingResolver` 将 YAML 中的 `outputs` 声明解析为类型化的 `ResultOutput` 对象：
+
+| Kind | 数据模型 | 目标房间 |
+|------|----------|----------|
+| `library_item` | `LibraryItemData`（title、authors、year、doi、url、abstract） | Library |
+| `document` | `DocumentData`（name、mime_type、storage_path、size_bytes） | Documents |
+| `memory_fact` | `MemoryFactData`（content、category、confidence） | Memory |
+| `decision` | `DecisionData`（key、value、confidence） | Decisions |
+| `task` | `TaskData`（title、description、priority） | Tasks |
+
+**模板解析**：支持 `{{output.field}}` 和 `{{item.field}}` 表达式（纯模板保留类型，插值模板返回字符串）。`iterate_on` 支持数组展开。
+
+#### 3.5.6 Task Contracts
+
+**文件**：`src/agents/contracts/`
+
+- **TaskBrief**（`task_brief.py`）：能力执行输入 — `capability_id`、`workspace_id`、`brief`（用户参数字典）
+- **TaskReport**（`task_report.py`）：能力执行输出 — `execution_id`、`capability_id`、`status`（completed/failed_partial/cancelled）、`duration_seconds`、`token_usage`、`narrative`、`outputs`（`ResultOutput` discriminated union 列表）、`errors`
+
+#### 3.5.7 Execution Engine
+
+**文件**：`src/execution/engine.py`
+
+`ExecutionEngineV2` 是统一执行引擎，替代旧的 ChatExecutionEngine + FeatureExecutionEngine：
+
+1. 通过 `ExecutionService.get_by_id()` 获取 ExecutionRecord
+2. 调用 `ExecutionService.start_execution()` 标记 running
+3. 从 `execution.params["brief"]` 构造 `TaskBrief`
+4. 调用 `LeadAgentRuntime.run_session()` 执行能力
+5. 通过 `ExecutionService.complete_execution()` 持久化 `TaskReport`
+6. 通过 `RunHistoryService.record()` 记录运行历史
+7. 失败时标记 execution 为 failed 并 re-raise
+
+#### 3.5.8 v2 Subagent Registry
+
+**文件**：`src/subagents/v2/registry.py`、`src/subagents/v2/types/`
+
+全局 `REGISTRY` 单例（`_Registry`），通过 `@subagent("name")` 装饰器注册 `SubagentBase` 子类：
+
+| 注册名 | 文件 | 用途 |
+|--------|------|------|
+| `scholar_searcher` | `types/scholar_searcher.py` | 学术文献检索 |
+| `critical_writer` | `types/critical_writer.py` | 批判性写作 |
+| `outliner` | `types/outliner.py` | 大纲生成 |
+| `clusterer` | `types/clusterer.py` | 文献聚类 |
+| `web_searcher` | `types/web_searcher.py` | 网络搜索 |
+
+每个子 Agent 接收 `SubagentContext`（workspace_id、execution_id、prompt、inputs、tools），返回 `SubagentResult`（output、thinking、tool_calls、token_usage）。
+
+#### 3.5.9 中间件栈
 
 **文件**：`src/agents/middlewares/`
 
@@ -373,11 +469,11 @@ src/agents/graphs/
 |------------|----------|
 | **THESIS** | deep_research, literature_management, opening_research, thesis_writing, figure_generation |
 | **SCI** | literature_search, paper_analysis, writing, literature_review, framework_outline, figure_generation, peer_review, journal_recommend |
-| **PROPOSAL** | background_research, experiment_design, proposal_outline |
-| **SOFTWARE_COPYRIGHT** | technical_description, copyright_materials |
-| **PATENT** | patent_outline, prior_art_search |
+| **PROPOSAL** | background_research, experiment_design, proposal_outline, figure_generation |
+| **SOFTWARE_COPYRIGHT** | technical_description, copyright_materials, figure_generation |
+| **PATENT** | patent_outline, prior_art_search, figure_generation |
 
-每个功能定义包含：`workspace_type`、`id`、`name`、`agent`、`handler_key`、`task_type`、`panel`、`stages`、`graph_module` 等。
+每个功能定义包含：`workspace_type`、`id`、`name`、`agent`、`handler_key`、`task_type`、`panel`、`stages` 等。
 
 #### 3.6.2 运行时画像
 
@@ -390,42 +486,52 @@ src/agents/graphs/
 | `CHAT_ONLY` | 简单聊天响应，无计算工作流 |
 | `DETERMINISTIC` | 确定性 handler，无 Agent |
 | `COMPUTE_WORKFLOW` | 标准计算工作流（默认） |
-| `COMPUTE_AGENTIC` | 进入 FeatureLeaderRuntime，子 Agent 扇出 |
+| `COMPUTE_AGENTIC` | 进入 LeadAgentRuntime，子 Agent 扇出 |
 
 关键覆盖：
 - 调研类功能 → `COMPUTE_AGENTIC`，最多 4 个研究子 Agent
 - `figure_generation`（所有类型）→ `COMPUTE_AGENTIC` + `requires_sandbox=True` + review gate `artifact_preview`
 
-#### 3.6.3 功能执行数据流
+#### 3.6.3 能力执行数据流
 
 ```
-用户请求 (HTTP / Thread)
+用户请求 (Chat 消息)
     ↓
-FeatureIngressService.launch()
+Chat Agent 处理 → 识别能力意图 → 调用 launch_feature 工具
     ↓
-ExecutionSession 创建 (status=launching)          ← SSOT
+launch_feature:
+    1. Lead-busy 检查（工作区 pending/running 执行）
+    2. 创建 ExecutionRecord (status=pending)
+    3. 发布 execution.updated 工作区事件
+    4. 调度 execute_execution Celery 任务 (queue=long_running)
     ↓
-ComputeSession 确保存在 (UI 投影绑定)
+Celery Worker: execute_execution
     ↓
-FeatureSubmissionService.execute() → Celery 入队
+ExecutionEngineV2.run(execution_id)
+    1. ExecutionService.start_execution() → running
+    2. 构造 TaskBrief
     ↓
-Celery Worker: workspace_feature_handler.execute_workspace_feature()
+LeadAgentRuntime.run_session()
+    1. CapabilityResolver.resolve() → 加载 graph_template
+    2. 发布 execution.graph_structure 事件
+    3. compile_graph() → LangGraph StateGraph
+    4. graph.ainvoke() → 子 Agent 并行/串行执行
+    5. OutputMappingResolver.resolve() → ResultOutput 列表
+    6. 构建 TaskReport
+    7. 发布 execution.completed 事件
     ↓
-FeatureLeaderRuntime.execute_feature()
-    ├── 动态工作流 (子 Agent 阶段) [若 COMPUTE_AGENTIC]
-    └── LangGraph 子图 (graph_registry)
-        ↓
-结果 + 产物
+ExecutionEngineV2:
+    1. ExecutionService.complete_execution() → 持久化 TaskReport
+    2. RunHistoryService.record() → 记录运行历史
     ↓
-TaskStore.mark_task_completed()
+前端接收 execution.completed SSE 事件
     ↓
-ExecutionSession 更新 (status=completed, artifact_ids, next_actions)
+ChatPanel: useChatStream 桥接 → 渲染 ResultCard
     ↓
-ComputeSession touch (updated_at 更新 → 前端刷新)
+用户审阅 ResultCard → 复选框选择 → POST /api/executions/{id}/commit
     ↓
-ComputeProjectionService.get_projection() (按需 API)
-    ↓
-前端 Compute Stage 渲染 runtime_blocks、files、logs、prism、review_gate
+ExecutionCommitService.commit_outputs()
+    → 按 kind 路由到对应房间服务（Library、Documents、Decisions、Memory、Tasks）
 ```
 
 ### 3.7 数据库模型
@@ -447,6 +553,7 @@ ComputeProjectionService.get_projection() (按需 API)
 | `TaskRecord` | `task_records` | 任务记录 | 无 ORM 关系 |
 | `SubagentTaskRecord` | `subagent_task_records` | 子 Agent 任务 | → execution_sessions (FK, CASCADE) |
 | `Artifact` | `artifacts` | 产物 | → workspaces (FK), self (parent_artifact_id, SET NULL) |
+| `Capability` | `capabilities` | 能力定义（DB-backed）| 按 workspace_type 索引 |
 | `WorkspaceReference` | `workspace_references` | 文献（文献 SSOT）| → workspaces (FK), artifacts (source_artifact_id) |
 | `ReferenceExternalId` | `reference_external_ids` | 来源原生 ID | → workspaces, workspace_references |
 | `ReferenceAsset` | `reference_assets` | 文献资产 | → workspaces, workspace_references, self (source_asset_id) |
@@ -467,7 +574,6 @@ ComputeProjectionService.get_projection() (按需 API)
 #### 3.7.2 Alembic 迁移
 
 - 配置：`backend/alembic.ini`，`backend/alembic/env.py`
-- 28 个迁移（`001_initial` → `028_reference_library_rebuild`）
 - `init_db()` 仅创建 `vector` 扩展，表创建由迁移驱动
 - `migration_bootstrap.py` 处理 pre-Alembic 数据库的 stamp 兼容
 
@@ -497,7 +603,7 @@ ComputeProjectionService.get_projection() (按需 API)
 |------|------|
 | 框架 | Next.js 16 (App Router), React 19, TypeScript |
 | 状态管理 | Zustand 5 |
-| 样式 | Tailwind CSS 3.4 + CSS Variables 设计系统 |
+| 样式 | Tailwind CSS 3.4 + `--v2-*` CSS Variables 设计系统（Glass/visionOS 风格） |
 | 动画 | Framer Motion 12 |
 | UI 基础 | Radix UI Primitives + 自定义组件 |
 | 图标 | Lucide React |
@@ -511,25 +617,42 @@ ComputeProjectionService.get_projection() (按需 API)
 
 ```
 frontend/
-├── app/                          # Next.js 15 App Router
+├── app/                          # Next.js 16 App Router
 │   ├── layout.tsx                # 根布局：字体、I18nProvider
 │   ├── page.tsx                  # 落地页（Hero、理念、工作区类型）
-│   ├── globals.css               # 全局样式、CSS 变量、自定义动画
+│   ├── globals.css               # 全局样式、--v2-* CSS 变量、自定义动画
 │   ├── (auth)/                   # 认证路由组
 │   │   ├── login/page.tsx
 │   │   └── register/page.tsx
 │   ├── (workbench)/              # 主应用路由组
 │   │   └── workspaces/[id]/
 │   │       ├── layout.tsx        # WorkbenchLayout: 侧边栏 + 事件流 + Store 注水
-│   │       ├── page.tsx          # Workspace 仪表盘（Hero、功能卡片、Inspector）
-│   │       ├── chat/page.tsx     # 聊天界面（ThreadPanel + WorkspaceInspector）
-│   │       └── components/       # 工作区专属组件
-│   │           ├── ThreadPanel.tsx
-│   │           ├── WorkspaceInspector.tsx
-│   │           ├── WorkspaceThreadMessages.tsx
-│   │           ├── WorkspaceThreadComposer.tsx
-│   │           ├── thread-blocks/# 结构化消息块
-│   │           └── ...
+│   │       ├── page.tsx          # Workspace 仪表盘
+│   │       ├── v2/               # v2 工作区页面（双面板布局）
+│   │       │   ├── layout.tsx    # v2 布局：ChatPanel (左) + LiveWorkflowPanel (右)
+│   │       │   ├── page.tsx      # v2 主页面
+│   │       │   └── components/   # v2 专属组件
+│   │       │       ├── ChatPanel.tsx          # 左面板：聊天交互
+│   │       │       ├── LiveWorkflowPanel.tsx  # 右面板：执行可视化
+│   │       │       ├── GraphCanvas.tsx        # LangGraph 节点图可视化
+│   │       │       ├── PhaseNode.tsx          # 阶段节点组件
+│   │       │       ├── NodeDetailDrawer.tsx   # 节点详情抽屉
+│   │       │       ├── ResultCard.tsx         # 产物卡片（含 commit 复选框）
+│   │       │       ├── MessageBlock.tsx       # 消息块渲染器
+│   │       │       ├── ThinkingBlock.tsx      # 思考过程（可折叠）
+│   │       │       ├── StatusLineBlock.tsx    # 状态行
+│   │       │       ├── AutoCompactToast.tsx   # 自动压缩提示
+│   │       │       ├── RoomsTopbar.tsx        # Rooms 顶部导航
+│   │       │       └── rooms/                # 8 个房间组件
+│   │       │           ├── LibraryDrawer.tsx
+│   │       │           ├── DocumentsDrawer.tsx
+│   │       │           ├── DecisionsViewer.tsx
+│   │       │           ├── MemoryViewer.tsx
+│   │       │           ├── RunsDrawer.tsx
+│   │       │           ├── SandboxConsole.tsx
+│   │       │           ├── TasksDrawer.tsx
+│   │       │           └── SettingsForm.tsx / SettingsPage.tsx
+│   │       └── components/       # 旧版组件（兼容过渡）
 │   ├── latex/[projectId]/page.tsx # LaTeX 编辑器
 │   ├── latex/page.tsx            # LaTeX 项目列表
 │   └── workspaces/page.tsx       # 工作区列表
@@ -539,33 +662,29 @@ frontend/
 │   ├── layout/                   # 布局组件（Header 等）
 │   ├── auth/                     # 认证相关
 │   ├── workspace/                # 共享工作区组件
-│   ├── compute/                  # Compute Stage 组件
 │   └── latex/                    # LaTeX 编辑器子组件
 ├── stores/                       # Zustand 状态库
 │   ├── workspace.ts
-│   ├── thread.ts
+│   ├── chat-store.ts             # v2 chat store（handleEvent + sendMessage + Block 协议）
+│   ├── execution-store.ts        # v2 execution store（applyStreamEvent + node_states）
 │   ├── compute.ts
-│   ├── execution.ts
 │   ├── features.ts
 │   ├── auth.ts
 │   ├── latex.ts
 │   ├── dashboard.ts
 │   └── locale.ts
+├── hooks/                        # React Hooks
+│   ├── useChatStream.ts          # 桥接 execution.completed 事件到 chat store（ResultCard 渲染）
+│   ├── useExecutionStream.ts     # 执行流事件处理
+│   ├── useExecutionStreamV2.ts   # v2 执行流
+│   ├── useWorkspaceEventStream.ts # SSE 事件处理
+│   ├── useGlobalShortcuts.ts
+│   └── useModelSelection.ts
 ├── lib/                          # 工具库
 │   ├── api/                      # API 层
 │   │   ├── client.ts             # axios 实例 + authorizedFetch
-│   │   ├── types.ts              # 所有 API TypeScript 类型（~1280 行）
-│   │   ├── workspace.ts          # 工作区 API
-│   │   ├── threads.ts            # 线程 API
-│   │   ├── streams.ts            # 流式 API
-│   │   ├── compute.ts            # Compute API
-│   │   ├── latex.ts              # LaTeX API
-│   │   ├── runs.ts               # Run API
+│   │   ├── types.ts              # 所有 API TypeScript 类型
 │   │   └── ...
-│   ├── workspace-feature-*.ts    # 功能路由、动作解析、阶段逻辑
-│   └── thread-*.ts               # 线程工具（技能状态、Token 用量等）
-├── hooks/                        # React Hooks
-│   ├── useWorkspaceEventStream.ts # SSE 事件处理
 │   └── ...
 ├── locales/                      # i18n JSON（cn.json, en.json）
 └── tests/unit/                   # Vitest 单元测试
@@ -577,10 +696,10 @@ frontend/
 |------|------|
 | `/` | 营销落地页 |
 | `/workspaces` | 工作区列表、搜索、创建 |
-| `/workspaces/:id` | 工作区仪表盘（功能卡片 + Inspector）|
-| `/workspaces/:id/chat` | 聊天线程界面（主要交互面）|
+| `/workspaces/:id` | 工作区仪表盘 |
+| `/workspaces/:id/v2` | v2 双面板工作区（Chat + LiveWorkflow + Rooms） |
 | `/latex` | LaTeX 项目列表 |
-| `/latex/:projectId` | LaTeX 编辑器（Prism）|
+| `/latex/:projectId` | LaTeX 编辑器（Prism） |
 
 **布局层次**：
 ```
@@ -591,15 +710,25 @@ app/layout.tsx (RootLayout: 字体 + I18nProvider)
         └── 卸载时清理（防止跨工作区数据残留）
 ```
 
+**v2 双面板布局**：
+```
+v2/layout.tsx
+  ├── ChatPanel (左) — 最小白底聊天，ChatGPT 风格
+  └── LiveWorkflowPanel (右) — Glass/visionOS 风格面板
+        ├── RoomsTopbar — 8 个房间标签导航
+        ├── GraphCanvas — LangGraph 节点图可视化（@xyflow/react）
+        └── 房间内容面板
+```
+
 ### 4.4 状态管理（Zustand）
 
-10 个独立 Store，每个管理一个领域：
+9 个独立 Store，每个管理一个领域：
 
 | Store | 关键状态 | 用途 |
 |-------|----------|------|
+| `useChatStoreV2` | `messages`, `currentAssistantId`, `isSending` | v2 聊天生命周期：7 种 Block 类型，SSE 事件驱动 |
+| `useExecutionStore` | `executions`, `currentExecutionId`, `node_states` | 执行记录、节点状态、graph_structure 可视化 |
 | `useWorkspaceStore` | `workspace`, `artifacts`, `references`, `activities` | 工作区数据、产物、文献库 |
-| `useThreadStore` | `messages`, `isStreaming`, `threadId`, `currentSkill` | 聊天线程生命周期、流式输出 |
-| `useExecutionStore` | `byWorkspace[workspaceId]`, `activeExecutionIdByWorkspace` | 执行会话、任务摄取、子 Agent 追踪 |
 | `useComputeStore` | `byWorkspace[workspaceId]`, `projectionBySessionId` | Compute Session 及富投影 |
 | `useFeaturesStore` | `features`, `skills`, `featuresByWorkspace` | 工作区功能/技能 |
 | `useAuthStore` | `user`, `accessToken`, `isAuthenticated` | 认证（zustand/persist + cookie 同步）|
@@ -610,65 +739,56 @@ app/layout.tsx (RootLayout: 字体 + I18nProvider)
 **跨 Store 交互模式**：
 - Store 之间**不直接依赖**；跨 Store 读取发生在组件/Hook 中
 - `useWorkspaceEventStream` 作为**事件分发器**，根据 SSE 事件调用多个 Store
-- Thread/Execution/Compute Store 使用**工作区作用域的键控状态**（`byWorkspace[workspaceId]`）支持快速切换不丢数据
+- `useChatStream` 桥接 `execution.completed` SSE 事件到 chat store，自动渲染 ResultCard
 
 ### 4.5 组件架构
 
-#### 4.5.1 聊天页面
+#### 4.5.1 v2 双面板
 
 ```
-ThreadPageInner
-├── ThreadPanel
-│   ├── WorkspaceThreadHeader
-│   ├── WorkspaceProjectStatusStrip
-│   ├── WorkspaceThreadMessages (可滚动)
-│   │   └── MessageBubble (user | assistant)
-│   │       ├── ReasoningPanel (可折叠)
-│   │       ├── MarkdownRenderer
-│   │       └── Structured Blocks (text, status_line, question_card, result_card, ...)
-│   └── WorkspaceThreadComposer
-│       ├── ModelSelector, ReasoningEffortSelector
-│       ├── 附件上传（PDF/图片）
-│       └── 自适应高度文本框
-└── WorkspaceInspector
-    ├── 标签栏: work | outputs | sources | activity
-    ├── TaskRuntimePanel（活跃执行状态）
-    └── 内容面板:
-        ├── ComputeStage（work 标签）
-        ├── ArtifactLibrary（outputs 标签）
-        ├── LiteraturePanel（sources 标签）
-        └── KnowledgePanel（activity 标签）
+v2/page.tsx
+├── ChatPanel (左面板)
+│   ├── 消息列表（可滚动）
+│   │   └── MessageBlock → 根据 kind 渲染：
+│   │       ├── text → MarkdownRenderer
+│   │       ├── thinking → ThinkingBlock（可折叠）
+│   │       ├── status_line → StatusLineBlock
+│   │       ├── question_card → 交互卡片
+│   │       ├── result_card → ResultCard（产物审阅 + commit）
+│   │       ├── tool_invocation → 工具调用展示
+│   │       └── tool_result → 工具结果展示
+│   └── 输入框（自适应高度、附件上传）
+└── LiveWorkflowPanel (右面板)
+    ├── RoomsTopbar（8 个房间标签）
+    ├── GraphCanvas（LangGraph 节点图）
+    │   └── PhaseNode（阶段节点，含状态指示）
+    ├── NodeDetailDrawer（节点详情、thinking、输出预览）
+    └── 房间面板:
+        ├── LibraryDrawer（文献库房间）
+        ├── DocumentsDrawer（文档房间）
+        ├── DecisionsViewer（决策房间）
+        ├── MemoryViewer（记忆房间）
+        ├── RunsDrawer（运行历史房间）
+        ├── SandboxConsole（沙箱房间）
+        ├── TasksDrawer（任务房间）
+        └── SettingsForm（设置房间）
 ```
 
-#### 4.5.2 Compute Stage
+#### 4.5.2 Block 协议
 
-```
-ComputeStage
-├── ComputeHeader（状态、执行信息）
-├── TaskRuntimePanel（运行时块和指标）
-├── SubagentPanel + TaskArtifactPanel（双列网格）
-└── PrismPanel + SandboxFilePanel + LogPanel + ReviewGatePanel（四列网格）
-```
-
-#### 4.5.3 Thread Block 系统
-
-消息可包含类型化的 `blocks`，渲染为专用卡片。AgentBlock 协议定义 4 种核心类型：
+消息可包含类型化的 `blocks`，渲染为专用卡片。7 种核心 block 类型：
 
 | Block 类型 | 用途 |
 |------------|------|
 | `text` | 普通文本内容 |
+| `thinking` | 思考过程（可折叠） |
 | `status_line` | 实时状态/进度指示 |
 | `question_card` | 请求用户输入的交互卡片 |
-| `result_card` | 已完成任务的结果展示 |
+| `result_card` | 执行结果展示（含 commit 复选框） |
+| `tool_invocation` | 工具调用展示（launch_feature 等） |
+| `tool_result` | 工具返回结果 |
 
-其他辅助 block 类型：
-
-| Block 类型 | 用途 |
-|------------|------|
-| `context_brief` | 工作区上下文摘要 |
-| `warning` | 错误/警告横幅 |
-| `artifacts` | 文件下载列表 |
-| `reasoning` | 思考过程（可折叠）|
+**存储约定**：blocks 严格按到达顺序存储，thinking 不做前置插入。
 
 ### 4.6 API 层
 
@@ -676,7 +796,7 @@ ComputeStage
 - `apiClient`（axios）：标准 REST，含拦截器（401 自动刷新、token 注入）
 - `authorizedFetch()`：流式/SSE 专用，手动 token 刷新
 
-**类型中心化**：所有 API TypeScript 类型集中在 `lib/api/types.ts`（~1280 行），作为前后端契约。
+**类型中心化**：所有 API TypeScript 类型集中在 `lib/api/types.ts`，作为前后端契约。
 
 **错误处理**：401 自动刷新使用 `refreshPromise` 单例防止双刷；错误提取检查 `detail`、`message`、`error.message` 字段。
 
@@ -686,18 +806,17 @@ ComputeStage
 
 1. **线程流** (`streamThread`):
    - `POST /threads/:id/runs/stream` 或 `POST /runs/stream`
-   - 事件：`content`, `reasoning`, `assistant_message`, `thread_id`, `error`, `done`
+   - 事件：`content`, `reasoning`, `block`, `done`, `error`
    - 支持**断线续传**：提取 `run_id`，使用 `Last-Event-ID` 重连（最多 3 次）
 
 2. **工作区事件** (`subscribeWorkspaceEvents`):
    - `GET /workspaces/:id/events`
    - 处理事件：
-     - `task.updated` → execution store + activity
-     - `thread.status` → thread status
-     - `thread.updated/deleted` → thread summary 同步
-     - `execution.created/updated/completed/failed` → execution upsert
-     - `compute.created/updated` → compute session upsert + projection fetch
-     - `subagent.updated` → subagent state append
+     - `execution.updated/created/completed/failed` → execution store upsert + applyStreamEvent
+     - `execution.graph_structure` → graph_structure 更新（前端节点图渲染）
+     - `execution.node.started/delta/completed/failed` → node_states 更新
+     - `execution.status` → status + progress + message 更新
+     - `compute.updated` → compute session upsert + projection fetch
      - `workspace.refresh` → 定向 Store 重新获取
    - **自动重连**：指数退避（1.5s → 60s 上限），成功消息后重置
 
@@ -765,6 +884,7 @@ ComputeStage
   - `runtime:runs:stream:{run_id}` — 运行事件 Redis Stream
   - `workspace:{workspace_id}:events` — 工作区事件 pub/sub
   - `lock:workspace:{workspace_id}:write` — 分布式写锁
+  - `abort:exec:{execution_id}` — 执行取消信号
 
 ### 5.3 Nginx 配置
 
@@ -806,104 +926,111 @@ ComputeStage
 
 ## 6. 数据流详解
 
-### 6.1 完整执行链路：用户发送消息 → 执行完成
+### 6.1 完整执行链路：用户发送消息 → 执行完成 → 产物 commit
 
 ```
-[前端] WorkspaceThreadComposer.handleSubmit()
+[前端] ChatPanel 输入 → chatStore.sendMessage()
     │
     ▼
-[前端] threadStore.sendMessage() → streamThread(payload, callbacks)
+[HTTP] POST /api/threads → 确保线程存在
     │
     ▼
-[HTTP] POST /threads/:id/runs/stream
+[HTTP] POST /api/threads/:id/runs/stream
     │
     ▼
-[后端] Gateway → ThreadTurnHandler / RunLifecycle
+[后端] Chat Agent (create_react_agent) 处理 SSE 流
+    │     ├─ 纯聊天 → LLM 直接响应（content / reasoning / block 事件）
+    │     └─ 能力意图 → 调用 launch_feature 工具
     │
     ▼
-[后端] lead_agent (create_react_agent) 处理所有 chat turns
-    │     ├─ 纯聊天 → LLM 直接响应
-    │     └─ 功能意图 → 调用 launch_feature tool → FeatureIngressService.launch()
+[后端] launch_feature 工具
+    │     1. Lead-busy 检查（查询工作区 active executions）
+    │     2. ExecutionService.create_execution() → ExecutionRecord (pending)
+    │     3. 发布 execution.updated 工作区事件
+    │     4. execute_execution.apply_async(queue=long_running)
+    │     5. 返回 { status: "launched", execution_id }
     │
     ▼
-[后端] FeatureIngressService
-    │     1. 解析功能 ID 和参数
-    │     2. 创建 ExecutionSession (status=launching)
-    │     3. 确保 ComputeSession 存在
-    │     4. 调用 FeatureSubmissionService.execute()
+[前端] SSE 流返回 → tool_invocation + tool_result blocks → 聊天界面展示
     │
     ▼
-[后端] Celery 任务入队 (workspace_feature)
+[Worker] execute_execution Celery 任务
+    │     1. Fork 安全：重置 DB 引擎、连接 Redis
+    │     2. 发布 execution.status(running) 事件
+    │     3. 构造 CapabilityResolver + EventBus + LeadAgentRuntime
+    │     4. ExecutionEngineV2.run(execution_id)
     │
     ▼
-[Worker] workspace_feature_handler.execute_workspace_feature()
-    │     1. 更新 ExecutionSession.status = running
-    │     2. 调用 FeatureLeaderRuntime.execute_feature()
-    │        ├─ [若 COMPUTE_AGENTIC] 动态子 Agent 工作流
-    │        └─ LangGraph 子图执行
-    │     3. 收集产物和结果
-    │     4. TaskStore.mark_task_completed()
-    │        ├─ 更新 ExecutionSession (status=completed, artifacts, next_actions)
-    │        ├─ 发布 workspace events
-    │        └─ 计费结算
-    │
-    ▼
-[后端] ExecutionSessionService.update_session_record()
-    │     → 延迟导入 ComputeSessionService
-    │     → touch_session_by_execution()
-    │     → 发布 compute.updated 事件
+[Worker] ExecutionEngineV2.run()
+    │     1. ExecutionService.start_execution() → status=running
+    │     2. 从 execution.params["brief"] 构造 TaskBrief
+    │     3. LeadAgentRuntime.run_session()
+    │        ├─ CapabilityResolver.resolve(capability_id, workspace_type)
+    │        ├─ 发布 execution.graph_structure 事件（节点 + 边）
+    │        ├─ compile_graph(graph_template) → LangGraph StateGraph
+    │        ├─ graph.ainvoke(initial_state)
+    │        │   └─ 子 Agent 节点并行/串行执行
+    │        │       ├─ SubagentBase.run(context) → SubagentResult
+    │        │       └─ node_results[task_name] = { output, thinking, token_usage }
+    │        ├─ OutputMappingResolver.resolve() → ResultOutput 列表
+    │        └─ 构建 TaskReport
+    │     4. ExecutionService.complete_execution() → 持久化 TaskReport
+    │     5. RunHistoryService.record() → 运行历史记录
+    │     6. 发布 execution.completed 事件
     │
     ▼
 [前端] useWorkspaceEventStream 接收事件
-    │     ├─ execution.updated → executionStore.upsertExecution()
-    │     ├─ compute.updated → computeStore.upsertComputeSession() + 拉取投影
-    │     └─ workspace.refresh → 定向 Store 重新获取
+    │     ├─ execution.graph_structure → executionStore (GraphCanvas 渲染)
+    │     ├─ execution.node.started/completed/failed → node_states 更新
+    │     └─ execution.completed → executionStore + useChatStream → ResultCard
     │
     ▼
-[前端] ComputeStage 重新渲染
-    │     → 显示 runtime_blocks、产物、日志、Prism 状态、审查门
+[前端] ChatPanel 渲染 ResultCard
+    │     → 展示 outputs 列表（preview + checkbox）
+    │     → 用户选择要 commit 的产物
     │
     ▼
-[前端] Thread 消息追加 LLM 回复（通过 SSE 流）
+[HTTP] POST /api/executions/{id}/commit
+    │     { accept_all: true } 或 { accepted_ids: [...] }
+    │
+    ▼
+[后端] ExecutionCommitService.commit_outputs()
+    │     → 按 kind 路由到房间服务：
+    │        library_item → LibraryService
+    │        document → DocumentsService
+    │        memory_fact → MemoryService
+    │        decision → DecisionsService
+    │        task → WorkspaceTasksService
+    │     → RunHistoryService 始终记录
+    │     → 发布 workspace.refresh 事件
+    │
+    ▼
+[前端] 对应房间面板刷新
 ```
 
 ### 6.2 SSOT 刷新机制
 
 ```
-ExecutionSession 状态变更
+ExecutionRecord 状态变更（ExecutionService）
     │
     ▼
-ExecutionSessionService.update_session_record()
+publish_execution_event()
+    │     → Redis Stream (execution_id)
+    │     → workspace events (workspace_id)
     │
     ▼
-延迟导入 ComputeSessionService(self.db)
-    │     （避免 execution_session_service → compute → projection_service →
-    │      runtime_profiles → registry → task → store → compute 循环依赖）
-    ▼
-ComputeSessionService.touch_session_by_execution(execution_session_id)
+前端 SSE 事件流接收
     │
     ▼
-get_by_execution_session_id() → 找到对应 ComputeSession
+executionStore.applyStreamEvent(event)
+    │     → 根据 event.type 更新对应字段
+    │        metadata → status/feature_id/progress
+    │        graph_structure → nodes + edges
+    │        node.started/completed/failed → node_states
+    │        completed → result + completed_at
     │
     ▼
-touch_session(compute_session_id)
-    │     1. updated_at = now()
-    │     2. 可选合并 ui_state_delta
-    │     3. commit + refresh
-    │     4. 发布 compute.updated 事件
-    │
-    ▼
-前端事件流接收 compute.updated
-    │
-    ▼
-ComputeStore 更新 → 触发投影重新获取
-    │
-    ▼
-ComputeProjectionService.get_projection() (按需 API)
-    │     从 ExecutionSession.runtime_snapshot 构建投影
-    │
-    ▼
-前端 Compute Stage 刷新
+ChatPanel / LiveWorkflowPanel 重新渲染
 ```
 
 ---
@@ -912,16 +1039,19 @@ ComputeProjectionService.get_projection() (按需 API)
 
 | 决策 | 理由 |
 |------|------|
+| **Two-Agent 拓扑（Chat + Lead）** | Chat Agent 处理对话与意图，Lead Agent 执行结构化能力。1:1 映射确保职责清晰，lead-busy 互斥防止资源竞争 |
+| **Capability 数据驱动（YAML + DB）** | 能力定义不硬编码在 Python 中，YAML seed 可版本控制，DB 支持运行时编辑，EventBus 驱动缓存失效 |
+| **OutputMappingResolver 声明式映射** | YAML 中的 outputs 声明自动解析为 5 种类型化 ResultOutput，无需为每种能力写定制映射代码 |
+| **Curated result_card + commit** | 执行产物先暂存不直接写入，用户审阅后选择性 commit，防止自动写入低质量产物 |
+| **Graph Compiler 动态构建 LangGraph** | graph_template 编译为 LangGraph StateGraph，支持声明式 phase 依赖（fan-in/fan-out），subagent_type 到类的动态解析 |
 | **ExecutionSession / ComputeSession 分离** | 防止前端工作面污染后端业务状态；ComputeSession 只做 UI 投影 |
 | **事件驱动刷新而非实时推送投影** | ComputeProjectionService 按需构建投影，不维护实时副本，降低复杂度 |
 | **Redis + PG 双写任务状态** | Redis 支持前端快速轮询，PG 支持持久化和恢复 |
-| **懒加载 LangGraph 子图** | 按 workspace_type 动态导入，一个领域的导入错误不影响其他领域 |
-| **Agent Harness 合约** | 保留 Agent 执行边界，但当前只启用 Native Wenjin，避免未集成 provider 被误用 |
-| **Runtime Blocks 作为 UI 契约** | 后端输出结构化 `runtime_blocks`，Compute Stage 通用渲染，无需前端为每个功能写定制代码 |
+| **v2 Subagent Registry 装饰器注册** | `@subagent("name")` 装饰器 + 全局 REGISTRY 单例，简单清晰，compile_graph 通过 name 查找 |
+| **Redis abort signal 支持取消** | `abort:exec:{id}` 键在 graph 节点执行前检查，支持用户取消正在运行的能力 |
 | **Reference Library 作为 grounded evidence** | 所有文献检索经 Semantic Scholar 验证；LLM 综合只能引用已验证文献，防止幻觉引用 |
-| **延迟导入打破循环依赖** | `compute → projection_service → runtime_profiles → registry → task → store → compute` 链通过方法内延迟导入打破 |
+| **延迟导入打破循环依赖** | 长依赖链通过方法内延迟导入打破 |
 | **Celery Worker fork 安全** | Worker 进程在 `worker_process_init` 重置 DB 引擎，避免 asyncio 事件循环泄漏 |
-| **FeatureIngress 统一入口** | 所有功能执行必须经过 `FeatureIngressService`，禁止直接调用 handler，确保 SSOT 一致性 |
 
 ---
 
@@ -938,16 +1068,17 @@ ComputeProjectionService.get_projection() (按需 API)
 - **删除策略**: `WorkspaceReference` 使用 `is_deleted` 软删除；其他实体通常使用硬删除 + CASCADE
 - **时间戳**: 统一使用 `datetime.now(UTC)`
 - **命名**: handler key 格式为 `{workspace_type}.{feature_id}`（如 `thesis.deep_research`）
-- **内部参数**: 以 `__` 为前缀的参数（`__thread_context_focus`、`__leader_workflow`）保留用于线程 → 功能 → Agent 的内部上下文传递
+- **内部参数**: 以 `__` 为前缀的参数保留用于内部上下文传递
 
 ### 8.2 前端规范
 
 - **Next.js**: App Router，`"use client"` 仅在需要 hooks/stores/router 时使用
-- **状态**: Store selector 使用内联 lambda：`useThreadStore((s) => s.messages)`
+- **状态**: Store selector 使用内联 lambda：`useChatStoreV2((s) => s.messages)`
 - **类型**: 所有 API 类型集中在 `lib/api/types.ts`
-- ** Barrel 导出**: 每个域使用 `index.ts` 简化导入
+- **Barrel 导出**: 每个域使用 `index.ts` 简化导入
 - **性能**: `useMemo` 用于派生选择，`useRef` 用于滚动目标和初始化守卫
 - **错误**: API 客户端将错误规范化为 `error.message`；组件内联显示错误横幅
+- **v2 设计**: `--v2-*` CSS tokens only in new components。No 古风 tokens
 
 ---
 
@@ -960,5 +1091,7 @@ ComputeProjectionService.get_projection() (按需 API)
 | `docs/infrastructure/` | 部署运行手册、环境变量、故障排查指南 |
 | `docs/product/` | 工作区当前状态、Reference Library、功能插件合约、工作区功能目录、发布门控检查表 |
 | `docs/strategy/` | 长期方向 |
+| `docs/superpowers/specs/2026-05-09-wenjin-workspace-rebuild-design.md` | v2 rebuild spec（source of truth） |
+| `docs/superpowers/specs/2026-05-09-v2-design-language.md` | Glass/visionOS 设计语言 |
 | `backend/docs/` | 后端专属文档 |
 | `frontend/README.md` | 前端专属文档 |

@@ -10,6 +10,8 @@
 
 **Strategy:** 4 phases × 12 weeks. 后端可灰度（W1-6 与现有代码并存），前端 single-cutover（W11 切流量）。新代码大部分写在新文件/新路径，旧代码 W12 才删。
 
+**Status:** Phase 1-4 全部完成 (2026-05-11)。旧架构代码已清理删除，v2 统一上线。额外完成了 output mapping 闭环和前端 execution.completed → ResultCard 桥接。
+
 **Convention 提醒**（来自 CLAUDE.md）：
 - Backend tests: `cd backend && .venv/bin/python -m pytest tests/path -v`
 - Frontend: `cd frontend && npm run typecheck && npm run dev`

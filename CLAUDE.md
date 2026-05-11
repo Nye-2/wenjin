@@ -22,11 +22,14 @@ Wenjin (问津) — AI workbench for academic research and writing. Five workspa
 | Lead agent v2 | `backend/src/agents/lead_agent/v2/agent.py` |
 | Lead compiler | `backend/src/agents/lead_agent/v2/compiler.py` |
 | Lead runtime | `backend/src/agents/lead_agent/v2/runtime.py` |
+| Output mapping | `backend/src/agents/lead_agent/v2/output_mapping.py` |
 | Subagent registry | `backend/src/subagents/v2/registry.py` |
-| Execution engine v2 | `backend/src/execution/engine_v2.py` |
+| Execution engine | `backend/src/execution/engine.py` |
+| Commit service | `backend/src/services/execution_commit_service.py` |
 | Task contracts | `backend/src/agents/contracts/task_brief.py` |
+| Output contracts | `backend/src/agents/contracts/task_report.py` |
 | V2 workspace page | `frontend/app/(workbench)/workspaces/[id]/v2/page.tsx` |
-| Chat store v2 | `frontend/stores/chat-store-v2.ts` |
+| Chat store | `frontend/stores/chat-store.ts` |
 | Execution store | `frontend/stores/execution-store.ts` |
 | Chat panel | `frontend/app/(workbench)/workspaces/[id]/v2/components/ChatPanel.tsx` |
 | Workflow panel | `frontend/app/(workbench)/workspaces/[id]/v2/components/LiveWorkflowPanel.tsx` |
@@ -55,6 +58,7 @@ docker compose up --build         # full stack
 
 - `docs/superpowers/specs/2026-05-09-wenjin-workspace-rebuild-design.md` — v2 rebuild spec (source of truth)
 - `docs/superpowers/specs/2026-05-09-v2-design-language.md` — Glass/visionOS design language
+- `docs/superpowers/specs/2026-05-11-capability-output-mapping-design.md` — output mapping design
 - `docs/superpowers/plans/2026-05-09-wenjin-workspace-rebuild.md` — 12-week implementation plan
 - `docs/architecture/` — legacy architecture docs
 - `docs/product/` — workspace behavior, feature catalog
