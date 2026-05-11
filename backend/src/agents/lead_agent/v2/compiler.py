@@ -7,6 +7,8 @@ from langgraph.graph import END, START, StateGraph
 
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
 from src.subagents.v2.registry import REGISTRY
+# Importing types populates REGISTRY with all v2 subagent classes
+from src.subagents.v2 import types as _types  # noqa: F401
 
 
 def compile_graph(
