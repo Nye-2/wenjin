@@ -3,15 +3,20 @@
 import { useRef, useEffect, useState, memo } from "react";
 import { useChatStoreV2, type Message } from "@/stores/chat-store";
 import { MessageBlock } from "./MessageBlock";
+import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 
 interface ChatPanelProps {
   workspaceId: string;
+  workspaceName?: string;
+  typeConfig?: WorkspaceTypeConfig;
   className?: string;
   "data-testid"?: string;
 }
 
 export function ChatPanel({
   workspaceId,
+  workspaceName,
+  typeConfig,
   className,
   "data-testid": testId,
 }: ChatPanelProps) {
@@ -53,15 +58,98 @@ export function ChatPanel({
         fontFamily: "var(--v2-font-sans)",
       }}
     >
-      {/* Message list */}
+      {/* Message list / idle state */}
       <div
         ref={scrollRef}
         style={{ flex: 1, overflowY: "auto", padding: "16px 12px" }}
       >
-        {messages.map((msg) => (
-          <MessageRow key={msg.id} message={msg} />
-        ))}
+        {messages.length === 0 && workspaceName && typeConfig ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              padding: "0 20px",
+              animation: "v2-glass-in 400ms var(--v2-ease-standard)",
+            }}
+          >
+            <div style={{ fontSize: 36, marginBottom: 12 }}>{typeConfig.icon}</div>
+            <div
+              style={{
+                fontSize: 18,
+                fontWeight: 600,
+                color: "var(--v2-text-primary)",
+                marginBottom: 6,
+                fontFamily: "var(--v2-font-sans)",
+              }}
+            >
+              {workspaceName}
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--v2-text-tertiary)",
+                fontFamily: "var(--v2-font-sans)",
+              }}
+            >
+              {typeConfig.chatSubtitle}
+            </div>
+          </div>
+        ) : (
+          messages.map((msg) => <MessageRow key={msg.id} message={msg} />)
+        )}
       </div>
+
+      {/* Suggestion pills — shown only before first message */}
+      {messages.length === 0 &&
+        typeConfig &&
+        typeConfig.suggestions.length > 0 && (
+          <div
+            style={{
+              padding: "0 12px 8px",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+            }}
+          >
+            {typeConfig.suggestions.map((text) => (
+              <button
+                key={text}
+                onClick={() => void sendMessage(workspaceId, text)}
+                disabled={isSending}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: "var(--v2-radius-pill)",
+                  border: "1px solid var(--v2-border-default)",
+                  background: "var(--v2-accent-purple-100)",
+                  color: "var(--v2-accent-purple-700)",
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  cursor: isSending ? "not-allowed" : "pointer",
+                  fontFamily: "var(--v2-font-sans)",
+                  transition: "background 150ms, border-color 150ms",
+                  opacity: isSending ? 0.5 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSending) {
+                    e.currentTarget.style.background =
+                      "var(--v2-accent-purple-300)";
+                    e.currentTarget.style.borderColor =
+                      "var(--v2-accent-purple-300)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--v2-accent-purple-100)";
+                  e.currentTarget.style.borderColor = "var(--v2-border-default)";
+                }}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+        )}
 
       {/* Input area */}
       <div
