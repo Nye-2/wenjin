@@ -220,7 +220,7 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-complete",
             user_id="user-1",
-            task_type="workspace_feature",
+            task_type="execution",
             priority=5,
             payload={},
         )
@@ -260,7 +260,7 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-event",
             user_id="user-1",
-            task_type="workspace_feature",
+            task_type="execution",
             priority=5,
             payload={
                 "workspace_id": "ws-1",
@@ -300,7 +300,7 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-started",
             user_id="user-1",
-            task_type="workspace_feature",
+            task_type="execution",
             priority=5,
             payload={
                 "workspace_id": "ws-1",
@@ -323,7 +323,7 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-runtime",
             user_id="user-1",
-            task_type="workspace_feature",
+            task_type="execution",
             priority=5,
             payload={},
         )

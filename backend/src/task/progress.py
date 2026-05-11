@@ -238,6 +238,8 @@ class ProgressTracker:
         )
 
         # DB flush (only on stage transitions, and only for non-feature tasks)
+        from src.task.registry import WORKSPACE_FEATURE_TASK
+
         if stage_transition and self._task_type != WORKSPACE_FEATURE_TASK:
             from src.database import get_db_session
             from src.task.store import TaskStore

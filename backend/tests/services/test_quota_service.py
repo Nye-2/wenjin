@@ -74,7 +74,9 @@ async def test_check_over_limit():
     store: dict[str, int] = {}
     redis2 = AsyncMock()
 
-    raw_store = {"quota:user-1:tokens_daily:20260509": "90"}
+    from datetime import datetime, timezone
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    raw_store = {f"quota:user-1:tokens_daily:{day}": "90"}
 
     async def get(key):
         return raw_store.get(key)

@@ -111,6 +111,7 @@ def test_feature_task_submission_to_dict():
         "feature_id": "feature-xyz",
         "message": "Task queued",
         "reused_existing_task": True,
+        "execution_id": None,
     }
 
 

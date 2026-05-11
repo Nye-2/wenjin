@@ -63,7 +63,7 @@ class TestSubmitTaskUsesExecutor:
         ):
             await service.submit_task(
                 user_id="user-1",
-                task_type="workspace_feature",
+                task_type="execution",
                 payload={
                     "workspace_id": "ws-1",
                     "feature_id": "deep_research",

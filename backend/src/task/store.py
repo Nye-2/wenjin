@@ -489,7 +489,7 @@ class TaskStore:
 
         if record.task_type == WORKSPACE_FEATURE_TASK:
             # Phase 5: unified path only — minimal status update for idempotency
-            record.status = TaskStatus.COMPLETED.value if success else TaskStatus.FAILED.value
+            record.status = TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value
             record.completed_at = datetime.now(UTC)
             if error:
                 record.error = error

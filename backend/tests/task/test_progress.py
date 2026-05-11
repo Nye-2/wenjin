@@ -110,7 +110,7 @@ class TestProgressUpdateWriteStrategy:
             "task-1",
             workspace_id="ws-1",
             thread_id="thread-1",
-            task_type="workspace_feature",
+            task_type="execution",
             feature_id="deep_research",
         )
 
