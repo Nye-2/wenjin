@@ -184,11 +184,10 @@ export function ChatPanel({
           }}
         >
           <input
-            placeholder="输入消息..."
+            placeholder={isSending ? "等待回复中..." : "输入消息..."}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isSending}
             style={{
               flex: 1,
               padding: "8px 12px",
@@ -199,6 +198,7 @@ export function ChatPanel({
               outline: "none",
               fontFamily: "var(--v2-font-sans)",
               color: "var(--v2-text-primary)",
+              opacity: isSending ? 0.6 : 1,
             }}
           />
           <button
