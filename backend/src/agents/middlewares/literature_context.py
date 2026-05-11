@@ -61,17 +61,26 @@ class LiteratureContextMiddleware(Middleware):
         if not workspace_id:
             return {}
 
-        # Get TOC summary for workspace
+        # Get TOC summary for workspace (run inside savepoint so failures
+        # don't poison the outer transaction)
         try:
-            toc_summary = await asyncio.wait_for(
-                self.index_service.get_workspace_toc_summary(workspace_id),
-                timeout=self._timeout,
-            )
+            async with self.index_service.db.begin_nested():
+                toc_summary = await asyncio.wait_for(
+                    self.index_service.get_workspace_toc_summary(workspace_id),
+                    timeout=self._timeout,
+                )
         except TimeoutError:
             logger.warning(
                 "LiteratureContextMiddleware: timed out loading TOC for workspace %s (%.1fs)",
                 workspace_id,
                 self._timeout,
+            )
+            return {}
+        except Exception:
+            logger.warning(
+                "LiteratureContextMiddleware: failed to load TOC for workspace %s, skipping",
+                workspace_id,
+                exc_info=True,
             )
             return {}
 

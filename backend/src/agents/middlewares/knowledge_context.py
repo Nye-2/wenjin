@@ -80,17 +80,26 @@ class KnowledgeContextMiddleware(Middleware):
         if not workspace_id:
             return {}
 
-        # Load artifacts
+        # Load artifacts (run inside savepoint so failures
+        # don't poison the outer transaction)
         try:
-            artifacts = await asyncio.wait_for(
-                self.artifact_service.list_by_workspace(workspace_id),
-                timeout=self._timeout,
-            )
+            async with self.artifact_service.db.begin_nested():
+                artifacts = await asyncio.wait_for(
+                    self.artifact_service.list_by_workspace(workspace_id),
+                    timeout=self._timeout,
+                )
         except TimeoutError:
             logger.warning(
                 "KnowledgeContextMiddleware: timed out loading artifacts for workspace %s (%.1fs)",
                 workspace_id,
                 self._timeout,
+            )
+            return {}
+        except Exception:
+            logger.warning(
+                "KnowledgeContextMiddleware: failed to load artifacts for workspace %s, skipping",
+                workspace_id,
+                exc_info=True,
             )
             return {}
 

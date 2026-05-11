@@ -11,7 +11,8 @@ import { RunsDrawer } from "./components/rooms/RunsDrawer";
 import { TasksDrawer } from "./components/rooms/TasksDrawer";
 import { SettingsPage } from "./components/rooms/SettingsPage";
 import { useChatStream } from "@/hooks/useChatStream";
-import { getWorkspace, getWorkspaceFeatures } from "@/lib/api/workspace";
+import { getWorkspace } from "@/lib/api/workspace";
+import { authorizedFetch } from "@/lib/api/client";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
 import type { WorkspaceFeature } from "@/lib/api/types";
 
@@ -42,8 +43,23 @@ export default function V2Page({
     getWorkspace(id)
       .then((w) => setWorkspace({ name: w.name, type: w.type }))
       .catch(() => {});
-    getWorkspaceFeatures(id)
-      .then((res) => setFeatures(res.features))
+    // Use skills endpoint (features endpoint doesn't exist on backend).
+    // Skill shape is compatible enough for ProductIntro display.
+    authorizedFetch(`/api/workspaces/${id}/skills`)
+      .then((res) => (res.ok ? res.json() : { skills: [] }))
+      .then((data: { skills?: Array<Record<string, unknown>> }) => {
+        const mapped: WorkspaceFeature[] = (data.skills ?? []).map((s) => ({
+          id: s.id as string,
+          name: (s.name as string) ?? "",
+          description: (s.description as string) ?? "",
+          icon: (s.icon as string) ?? "",
+          agent: "",
+          agentLabel: "",
+          stages: [],
+          color: s.color as string | undefined,
+        }));
+        setFeatures(mapped);
+      })
       .catch(() => {});
   }, [id]);
 

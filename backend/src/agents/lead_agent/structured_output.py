@@ -47,7 +47,7 @@ async def parse_with_fallback(llm: Any, prompt: str, *, run_id: str) -> AgentMes
     except Exception as exc:  # noqa: BLE001 — fallback for ANY model parse failure
         record_parse_failure()
         logger.exception("structured_output_failed run_id=%s err=%s", run_id, exc)
-        # Salvage raw text from a plain (non-structured) call.
-        plain = await llm.ainvoke(prompt)
-        raw = getattr(plain, "content", None) or str(plain)
+        # prompt already contains the text from the first LLM call — wrap it
+        # directly instead of making another LLM call that generates new content.
+        raw = str(prompt) if prompt else ""
         return AgentMessage(blocks=[TextBlock(content=raw)])

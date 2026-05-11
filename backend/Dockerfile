@@ -62,6 +62,7 @@ COPY config.yaml ./
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY skills/public/ ./skills/public/
+COPY seed/ ./seed/
 
 # Create uploads directory
 RUN mkdir -p /app/uploads
@@ -97,6 +98,7 @@ COPY src/ ./src/
 COPY config.yaml ./
 COPY langgraph.json ./
 COPY skills/public/ ./skills/public/
+COPY seed/ ./seed/
 
 # Create uploads directory
 RUN mkdir -p /app/uploads

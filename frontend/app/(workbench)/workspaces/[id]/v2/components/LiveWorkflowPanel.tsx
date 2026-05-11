@@ -128,6 +128,26 @@ export function LiveWorkflowPanel({
   );
 }
 
+function iconToEmoji(icon: string | undefined): string {
+  const map: Record<string, string> = {
+    search: "🔍",
+    microscope: "🔬",
+    pen: "✍️",
+    "book-open": "📚",
+    list: "📋",
+    image: "📊",
+    "shield-check": "👀",
+    compass: "🧭",
+    layout: "🗂️",
+    edit: "✏️",
+    code: "💻",
+    package: "📦",
+    file: "📄",
+  };
+  if (!icon) return "✨";
+  return map[icon] ?? "✨";
+}
+
 function ProductIntro({
   typeConfig,
   features,
@@ -202,7 +222,7 @@ function ProductIntro({
                 fontFamily: "var(--v2-font-sans)",
               }}
             >
-              {f.icon} {f.name}
+              {iconToEmoji(f.icon)} {f.name}
             </div>
             <div
               style={{

@@ -109,6 +109,17 @@ async def async_main() -> int:
                 password=admin_password,
                 name=admin_name,
             )
+
+            # Also seed capabilities if the table is empty.
+            try:
+                from src.services.capability_loader import CapabilityLoader
+
+                loader = CapabilityLoader(session)
+                loaded = await loader.load_seeds_if_empty()
+                if loaded:
+                    print(f"[bootstrap-admin] Seeded {loaded} capability records")
+            except Exception as cap_exc:
+                print(f"[bootstrap-admin] WARN: capability seed failed: {cap_exc}")
         return 0
     except Exception as e:
         print(f"[bootstrap-admin] ERROR: {e}")
