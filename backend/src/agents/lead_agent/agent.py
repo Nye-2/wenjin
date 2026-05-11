@@ -147,91 +147,66 @@ def _merge_runtime_config(
     return cast(RunnableConfig, merged)
 
 
-def _render_workspace_available_skills(workspace_type: str | None) -> str:
-    """Render capabilities + skills from DB for the lead agent prompt.
+def _render_workspace_available_skills(
+    workspace_type: str | None,
+    *,
+    pre_loaded: tuple[list, list] | None = None,
+) -> str:
+    """Render capabilities + skills for the lead agent prompt.
 
-    Queries capabilities (for this workspace_type) and skills (global, enabled)
-    to build a dual-listing the agent uses to match user intent to launch_feature calls.
+    If *pre_loaded* is ``(caps, skills)`` (from ``_load_capabilities_skills``),
+    uses that data directly — no async needed.  Otherwise falls back to the
+    legacy ``list_workspace_thread_skills`` helper (synchronous, in-memory).
     """
     if not workspace_type:
         return ""
 
-    import asyncio
+    cap_rows, skill_rows = pre_loaded or ([], [])
 
-    from sqlalchemy import select
-
-    from src.database.models.capability import Capability
-    from src.database.models.capability_skill import CapabilitySkill
-    from src.database.session import get_db_session
-
-    async def _fetch() -> tuple[list, list]:
-        try:
-            async with get_db_session() as db:
-                cap_rows = (await db.execute(
-                    select(Capability).where(
-                        Capability.workspace_type == workspace_type,
-                        Capability.enabled.is_(True),
-                    )
-                )).scalars().all()
-                skill_rows = (await db.execute(
-                    select(CapabilitySkill).where(CapabilitySkill.enabled.is_(True))
-                )).scalars().all()
-                return list(cap_rows), list(skill_rows)
-        except Exception:
-            return [], []
-
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            cap_rows, skill_rows = [], []
-        else:
-            cap_rows, skill_rows = loop.run_until_complete(_fetch())
-    except RuntimeError:
-        cap_rows, skill_rows = [], []
-
-    # Fallback: if DB is empty, use the legacy skill list
-    if not cap_rows:
-        skills = list_workspace_thread_skills(workspace_type)
-        if not skills:
-            return ""
+    # New data-driven path
+    if cap_rows:
+        cap_items = []
+        for c in cap_rows:
+            triggers = ", ".join(c.trigger_phrases or [])
+            cap_items.append(
+                f'  <capability id="{c.id}" name="{c.display_name}" '
+                f'triggers="{triggers}" desc="{c.description or c.intent_description}"/>'
+            )
+        cap_block = "<available_capabilities>\n" + "\n".join(cap_items) + "\n</available_capabilities>"
 
         skill_items = []
-        for skill in skills:
-            defaults = dict(skill.defaults)
-            default_text = (
-                ", ".join(f"{key}={value}" for key, value in defaults.items())
-                if defaults
-                else "(none)"
-            )
+        for s in skill_rows:
             skill_items.append(
-                f"  <skill>\n"
-                f"    <feature_id>{skill.feature_id}</feature_id>\n"
-                f"    <skill_id>{skill.id}</skill_id>\n"
-                f"    <name>{skill.name}</name>\n"
-                f"    <description>{skill.description}</description>\n"
-                f"    <default_params>{default_text}</default_params>\n"
-                f"  </skill>"
+                f'  <skill id="{s.id}" subagent_type="{s.subagent_type}" desc="{s.description}"/>'
             )
-        skill_list_xml = "\n".join(skill_items)
-        return _build_feature_launch_prompt(skill_list_xml)
+        skill_block = "<available_skills>\n" + "\n".join(skill_items) + "\n</available_skills>"
 
-    cap_items = []
-    for c in cap_rows:
-        triggers = ", ".join(c.trigger_phrases or [])
-        cap_items.append(
-            f'  <capability id="{c.id}" name="{c.display_name}" '
-            f'triggers="{triggers}" desc="{c.description or c.intent_description}"/>'
-        )
-    cap_block = "<available_capabilities>\n" + "\n".join(cap_items) + "\n</available_capabilities>"
+        return _build_capability_skill_prompt(cap_block, skill_block)
+
+    # Legacy fallback (synchronous, in-memory)
+    skills = list_workspace_thread_skills(workspace_type)
+    if not skills:
+        return ""
 
     skill_items = []
-    for s in skill_rows:
-        skill_items.append(
-            f'  <skill id="{s.id}" subagent_type="{s.subagent_type}" desc="{s.description}"/>'
+    for skill in skills:
+        defaults = dict(skill.defaults)
+        default_text = (
+            ", ".join(f"{key}={value}" for key, value in defaults.items())
+            if defaults
+            else "(none)"
         )
-    skill_block = "<available_skills>\n" + "\n".join(skill_items) + "\n</available_skills>"
-
-    return _build_capability_skill_prompt(cap_block, skill_block)
+        skill_items.append(
+            f"  <skill>\n"
+            f"    <feature_id>{skill.feature_id}</feature_id>\n"
+            f"    <skill_id>{skill.id}</skill_id>\n"
+            f"    <name>{skill.name}</name>\n"
+            f"    <description>{skill.description}</description>\n"
+            f"    <default_params>{default_text}</default_params>\n"
+            f"  </skill>"
+        )
+    skill_list_xml = "\n".join(skill_items)
+    return _build_feature_launch_prompt(skill_list_xml)
 
 
 def _build_capability_skill_prompt(cap_block: str, skill_block: str) -> str:
@@ -504,6 +479,8 @@ def _render_template_context(template_context: dict[str, Any]) -> str:
 def apply_prompt_template(
     state: ThreadState,
     config: RunnableConfig,
+    *,
+    _preloaded_cap_skill: tuple[list, list] | None = None,
 ) -> str:
     """Apply prompt template with academic context.
 
@@ -620,7 +597,9 @@ def apply_prompt_template(
             "\nUse the launch_feature tool to start workspace features when the user's request matches a skill."
         )
 
-    base_prompt += _render_workspace_available_skills(workspace_type)
+    base_prompt += _render_workspace_available_skills(
+        workspace_type, pre_loaded=_preloaded_cap_skill,
+    )
 
     return base_prompt
 
@@ -1078,11 +1057,19 @@ def make_lead_agent(
             return base_model
         return base_model.bind_tools(current_tools)
 
+    # Shared mutable dict for async→sync data hand-off.
+    # _MiddlewareWrappedAgent.ainvoke populates this before each agent call;
+    # prompt_fn reads it synchronously during the LangGraph run.
+    _async_data: dict[str, Any] = {"cap_skill": None}
+
     # Build system prompt for the agent
     def prompt_fn(state: JsonObject) -> list[Any]:
         """Generate the full chat prompt payload for the model."""
         thread_state = create_thread_state(state)
-        system_prompt = apply_prompt_template(thread_state, config)
+        system_prompt = apply_prompt_template(
+            thread_state, config,
+            _preloaded_cap_skill=_async_data.get("cap_skill"),
+        )
         return [
             SystemMessage(content=system_prompt),
             *list(thread_state.get("messages", [])),
@@ -1113,6 +1100,7 @@ def make_lead_agent(
         middlewares=middlewares,
         default_config=config,
         base_model=base_model,
+        async_data=_async_data,
     )
 
 
@@ -1126,11 +1114,13 @@ class _MiddlewareWrappedAgent:
         middlewares: Sequence[Middleware] | None,
         default_config: RunnableConfig,
         base_model: Any = None,
+        async_data: dict[str, Any] | None = None,
     ) -> None:
         self._agent = agent
         self._middlewares = middlewares or []
         self._default_config = default_config
         self._base_model = base_model
+        self._async_data = async_data
 
     async def ainvoke(
         self,
@@ -1146,6 +1136,11 @@ class _MiddlewareWrappedAgent:
             state = await middleware_before_model(state, runtime_config, self._middlewares)
         if self._should_skip_model_call(state):
             return await self._apply_after_model(state, runtime_config)
+
+        # Pre-load capabilities + skills from DB so prompt_fn can use them synchronously
+        if self._async_data is not None:
+            ws_type = state.get("workspace_type")
+            self._async_data["cap_skill"] = await self._load_capabilities_skills(ws_type)
 
         result = await self._ainvoke_with_retry(state, runtime_config, **kwargs)
         return await self._apply_after_model(result, runtime_config)
@@ -1314,6 +1309,35 @@ class _MiddlewareWrappedAgent:
     @staticmethod
     def _should_skip_model_call(state: ThreadState) -> bool:
         return bool(state.get("_skip_model_call"))
+
+    @staticmethod
+    async def _load_capabilities_skills(
+        workspace_type: str | None,
+    ) -> tuple[list, list]:
+        """Pre-load capabilities + skills from DB for prompt rendering."""
+        if not workspace_type:
+            return [], []
+        try:
+            from sqlalchemy import select
+
+            from src.database.models.capability import Capability
+            from src.database.models.capability_skill import CapabilitySkill
+            from src.database.session import get_db_session
+
+            async with get_db_session() as db:
+                cap_rows = (await db.execute(
+                    select(Capability).where(
+                        Capability.workspace_type == workspace_type,
+                        Capability.enabled.is_(True),
+                    )
+                )).scalars().all()
+                skill_rows = (await db.execute(
+                    select(CapabilitySkill).where(CapabilitySkill.enabled.is_(True))
+                )).scalars().all()
+                return list(cap_rows), list(skill_rows)
+        except Exception:
+            logger.debug("Failed to pre-load capabilities/skills", exc_info=True)
+            return [], []
 
     def _find_llm_error_middleware(self) -> Any | None:
         for middleware in self._middlewares:
