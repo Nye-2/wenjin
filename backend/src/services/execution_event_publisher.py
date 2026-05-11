@@ -88,10 +88,13 @@ async def publish_execution_event(
     # 2. Publish lightweight notification to Workspace Events
     if publish_to_workspace and workspace_id:
         try:
-            # Notify frontend on lifecycle boundaries so it can start/stop
-            # the execution stream subscription.
+            # Notify frontend on lifecycle boundaries and graph init so it can
+            # start/stop the execution stream subscription. graph_structure is
+            # included so the frontend can subscribe early enough to catch
+            # node-level events (start race is otherwise possible).
             if event_type in (
                 "execution.status",
+                "execution.graph_structure",
                 "execution.completed",
                 "execution.error",
             ):
