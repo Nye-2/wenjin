@@ -1,0 +1,38 @@
+id: literature_management
+workspace_type: thesis
+enabled: true
+display_name: 文献管理
+description: 围绕主题抓元数据进文献库（不写综述）
+intent_description: 用户希望补充工作区的文献库
+trigger_phrases:
+  - 找文献
+  - 补文献
+  - 文献入库
+required_decisions:
+  - key: topic
+    ask: "要检索什么主题？"
+    type: string
+brief_schema:
+  type: object
+  required: [topic]
+  properties:
+    topic: { type: string }
+graph_template:
+  phases:
+    - name: discover
+      tasks:
+        - name: search
+          subagent_type: searcher
+          skill_id: scholar-searcher
+          inputs:
+            query: "{{topic}}"
+          outputs:
+            - kind: library_item
+              iterate_on: "output.papers"
+              mapping:
+                title: "{{item.title}}"
+                authors: "{{item.authors}}"
+                year: "{{item.year}}"
+                doi: "{{item.doi}}"
+                abstract: "{{item.abstract}}"
+result_card_template: library_intake

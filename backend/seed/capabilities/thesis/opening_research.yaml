@@ -1,24 +1,22 @@
-id: deep_research
+id: opening_research
 workspace_type: thesis
 enabled: true
-display_name: 深度文献调研
-description: 围绕主题做系统化文献检索和综述材料生成
-intent_description: 用户希望对某个主题做学术性的深度文献调研
+display_name: 开题调研
+description: 把选题背景整理为开题报告材料
+intent_description: 用户希望准备开题材料
 trigger_phrases:
-  - 调研
-  - 找综述
-  - 文献综述
-  - literature review
+  - 开题
+  - 开题报告
+  - 开题调研
 required_decisions:
-  - key: topic_scope
-    ask: "主题边界是？"
+  - key: topic
+    ask: "开题主题是？"
     type: string
 brief_schema:
   type: object
   required: [topic]
   properties:
-    topic: { type: string, description: 调研主题 }
-    year_min: { type: integer, optional: true }
+    topic: { type: string }
 graph_template:
   phases:
     - name: discover
@@ -28,7 +26,6 @@ graph_template:
           skill_id: scholar-searcher
           inputs:
             query: "{{topic}}"
-            year_min: "{{year_min|default(2019)}}"
           outputs:
             - kind: library_item
               iterate_on: "output.papers"
@@ -37,11 +34,10 @@ graph_template:
                 authors: "{{item.authors}}"
                 year: "{{item.year}}"
                 doi: "{{item.doi}}"
-                abstract: "{{item.abstract}}"
     - name: synthesize
       depends_on: [discover]
       tasks:
-        - name: write
+        - name: review
           subagent_type: react
           skill_id: literature-reviewer
           inputs:
@@ -50,8 +46,7 @@ graph_template:
           outputs:
             - kind: document
               mapping:
-                name: "{{topic}} 文献综述"
+                name: "{{topic}} 开题综述"
                 doc_kind: literature_review
                 content: "{{output.markdown}}"
 result_card_template: literature_review
-notes: 适合开题阶段或选题探索

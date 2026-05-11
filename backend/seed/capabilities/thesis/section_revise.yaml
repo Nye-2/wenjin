@@ -1,90 +1,37 @@
 id: section_revise
 workspace_type: thesis
-version: 1
-display_name: 修改论文章节
 enabled: true
-
-intent_description: 用户希望根据反馈意见或新证据修改已有的论文章节
-
+display_name: 章节修订
+description: 同行评审视角给章节草稿提修订建议
+intent_description: 用户希望修订已有章节
 trigger_phrases:
-  - 帮我修改这一章
-  - 根据反馈修改章节
-  - 改进这段内容
-
+  - 修订
+  - 改章节
+  - 审稿意见
 required_decisions:
-  - key: section_title
-    ask: "要修改哪个章节？"
+  - key: manuscript
+    ask: "粘贴要修订的章节内容"
     type: string
-  - key: revision_focus
-    ask: "修改的重点是什么？（如：论证不足、结构混乱、文献过时等）"
-    type: string
-
 brief_schema:
   type: object
-  required: [topic, section_title]
+  required: [manuscript]
   properties:
-    topic:
-      type: string
-      description: 论文主题
-    section_title:
-      type: string
-      description: 要修改的章节标题
-    revision_focus:
-      type: string
-      description: 修改重点或具体反馈意见
-    existing_content:
-      type: string
-      description: 现有章节内容（可选，用于对比修改）
-
+    manuscript: { type: string }
+    focus: { type: string, optional: true }
 graph_template:
   phases:
-    - name: discover
+    - name: review
       tasks:
-        - name: find_new_evidence
-          subagent_type: scholar_searcher
-          prompt_template: |
-            为修改论文章节"{{section_title}}"（论文主题：{{topic}}），
-            搜索最新的相关文献（近 3 年内优先），特别关注：
-            1. 与修改重点相关的新证据：{{revision_focus}}
-            2. 可以弥补现有论证不足的文献
-            3. 方法论或理论框架方面的最新进展
-          tools: [scholar_search]
-          outputs:
-            - kind: library_item
-              iterate_on: "output.papers"
-              mapping:
-                title: "{{item.title}}"
-                authors: "{{item.authors}}"
-                year: "{{item.year}}"
-                doi: "{{item.doi}}"
-                abstract: "{{item.abstract}}"
-    - name: revise
-      depends_on: [discover]
-      tasks:
-        - name: produce_revision
-          subagent_type: critical_writer
-          prompt_template: |
-            基于新检索到的文献，对论文章节"{{section_title}}"进行修改。
-            论文主题：{{topic}}
-            修改重点：{{revision_focus}}
-            要求：
-            1. 针对修改重点进行有针对性的改进
-            2. 整合新文献，加强论证力度
-            3. 保持学术语言风格，逻辑连贯
-            4. 在修改后的文本中标注主要变动之处
-            5. 以 Markdown 格式输出修改后的完整章节
+        - name: critique
+          subagent_type: react
+          skill_id: peer-reviewer
+          inputs:
+            manuscript: "{{manuscript}}"
+            focus: "{{focus|default('整体质量')}}"
           outputs:
             - kind: document
               mapping:
-                name: "论文章节修改稿"
-                mime_type: "text/markdown"
-                storage_path: "{{output.storage_path}}"
-                size_bytes: 0
-                doc_kind: "section_revision"
-
-system_prompt: |
-  你是一位经验丰富的论文修改专家，熟悉学术同行评审的标准和要求。
-  你的任务是基于反馈意见和最新文献，对论文章节进行有针对性的改进，
-  使论文在学术严谨性、论证充分性和表达清晰度上有显著提升。
-
-result_card_template: section_draft
+                name: "章节修订建议"
+                doc_kind: peer_review
+                content: "{{output.markdown}}"
+result_card_template: peer_review
