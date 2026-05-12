@@ -21,12 +21,59 @@ The current implementation uses `@xyflow/react` (ReactFlow) to render execution 
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Panel layout | Vertical card feed | Supports multiple executions, scrollable, information-dense |
+| Panel layout | Vertical card feed | Information-dense, scrollable history |
 | Graph visualization | Phase timeline (B-enhanced) | Zero auto-layout, no edge-routing, deterministic CSS flex layout |
 | Node detail interaction | Inline expand within card | No drawer, stays in context |
-| Thinking delivery | Real-time SSE delta stream | Frontend store already handles `execution.node.delta` events |
+| Thinking delivery | Real-time SSE delta stream (append mode) | Frontend store already handles `execution.node.delta` events |
 | Completed card | Summary + collapsible full result | Progressive disclosure |
 | ReactFlow dependency | Remove entirely | Replaced by pure HTML/CSS phase timeline |
+| Concurrency model | Single execution at a time | `launch_feature` tool already blocks concurrent triggers with `lead_busy` advisory |
+| Card title source | Denormalized on ExecutionRecord | Write `display_name` + `workspace_type` at creation time |
+
+## Code Review Findings (pre-implementation audit)
+
+### Finding 1: Thinking delta is replaced, not appended (CRITICAL)
+
+**Current store behavior** (`execution-store.ts:146`):
+```typescript
+nodeState.thinking = event.payload.thinking;  // full replacement
+```
+
+**Decision**: Change store to **append mode**. Backend sends incremental chunks, store concatenates:
+```typescript
+nodeState.thinking = (nodeState.thinking || "") + event.payload.thinking;
+```
+
+This means:
+- Backend sends incremental text fragments (cheaper payload)
+- Store accumulates on each delta
+- No need for backend to maintain accumulated state
+
+### Finding 2: Card title data missing (CRITICAL)
+
+`ExecutionRecord` stores `feature_id` but not the capability `display_name`. `GET /executions/{id}` does not return `workspace_type` either (field exists on model but omitted from endpoint).
+
+**Decision**: Denormalize at creation time. In `execution_service.create_execution()`, add `display_name` and `workspace_type` parameters. Write them onto the record. The `launch_feature` tool has access to the resolved Capability object at dispatch time.
+
+### Finding 3: Single execution architecture is sufficient
+
+The chat agent's `launch_feature` tool (`backend/src/tools/builtins/launch_feature.py:100-114`) already queries for active executions per workspace and returns `lead_busy` advisory if one exists. No concurrent executions are possible through the normal chat flow.
+
+**Decision**: Keep `currentExecutionId: string | null` as-is. The card list shows completed history + one active execution. No multi-subscription needed.
+
+### Finding 4: Phase info mapping gap
+
+Backend `_to_panel_graph` sends nodes with `{id, phase, task, subagent_type, label}` — `phase` is a string field. But the frontend type `ExecutionGraphNode` only declares `{id, type, label?, metadata?}`. The `phase` field is extra data not captured by the type.
+
+Current `useExecutionStreamV2` reads `n.metadata?.phase_index` (a number), but backend never puts phase info in metadata — it's a top-level field.
+
+**Decision**: When processing `execution.graph_structure` in the store, map `node.phase` → `node.metadata.phase` and compute `metadata.phase_index` from the phase order. The new components read directly from the raw node data (TypeScript can use the actual shape without relying on the narrow type).
+
+### Finding 5: Redis Stream maxlen=512
+
+`publish_execution_event` caps streams at 512 entries. High-frequency delta events could trim older events for slow consumers.
+
+**Decision**: Increase `maxlen` to 2048 for execution streams. Low priority, defer to Phase 3 implementation.
 
 ## Section 1: Panel Architecture
 
@@ -51,7 +98,7 @@ The `LiveWorkflowPanel` renders three zones:
 - Only one card's detail view is expanded at a time (click another to collapse)
 - Idle state (ProductIntro) and active cards coexist
 - New execution auto-expands its card and collapses any previously expanded card
-- Delete ReactFlow dependency (`@xyflow/react`)
+- Delete ReactFlow dependency (`@xyflow/react`) — only used in 3 files (GraphCanvas, PhaseNode, 1 test)
 
 ## Section 2: Execution Card Component
 
@@ -65,8 +112,8 @@ The `LiveWorkflowPanel` renders three zones:
 ```
 
 - **Icon**: 32×32 rounded square. Completed = green gradient ✓. In-progress = purple gradient with pulse.
-- **Title**: `capability.display_name`
-- **Subtitle**: `workspace_type · node_count · duration_seconds`
+- **Title**: `record.display_name` (denormalized onto ExecutionRecord at creation)
+- **Subtitle**: `record.workspace_type · node_count · duration_seconds`
 - **Status badge**: pill tag — 已完成 (green) / 进行中 (purple) / 失败 (red)
 - **Expand arrow**: rotates on toggle
 
@@ -150,7 +197,7 @@ Clicking a node pill expands detail **below that phase row**:
     └────────────────────────────────────┘
 ```
 
-- **Animation**: `max-height` 0→auto, 200ms spring ease (`--v2-ease-standard`)
+- **Animation**: CSS Grid `grid-template-rows: 0fr → 1fr`, 200ms spring ease (`--v2-ease-standard`). (Not `max-height: auto` which doesn't animate.)
 - **Tabs**: Input / Output / Thinking (3 tabs; Tools merged into Output sub-section)
 - **Data source**: `node_states[nodeId]` from store — no REST fetch needed
 - **Only one expanded at a time**: clicking another pill collapses previous
@@ -161,7 +208,7 @@ Clicking a node pill expands detail **below that phase row**:
 
 ### Current behavior
 
-React subagent runs full LLM loop, returns `SubagentResult` only on completion. No intermediate data during execution.
+React subagent runs full LLM loop via `ainvoke()` (not streaming). Returns `SubagentResult` only on completion. `SubagentContext` is a pure data container with no callback fields. No intermediate data during execution.
 
 ### New data flow
 
@@ -170,10 +217,10 @@ React Subagent (MiMo LLM loop)
   │
   │  every thinking token chunk
   ▼
-SubagentContext.emit_delta(thinking="...")
+SubagentContext.emit_delta(thinking="...chunk...")
   │
   ▼
-LeadAgentRuntime._emit(node_id, "delta", {thinking, output_preview})
+LeadAgentRuntime._emit(node_id, "delta", {thinking: "chunk"})
   │
   ▼
 publish_execution_event(exec_id, "execution.node.delta", payload)
@@ -183,23 +230,35 @@ Redis Stream → SSE → Frontend
                               ↓
          execution-store.applyStreamEvent("execution.node.delta")
                               ↓
-         node_states[nodeId].thinking += delta (append)
+         node_states[nodeId].thinking += delta  (APPEND mode)
 ```
 
-### Files to modify
+### Backend changes
 
 | Layer | File | Change |
 |-------|------|--------|
-| Subagent | `subagents/v2/base.py` | Add `emit_delta` callback to `SubagentContext` |
-| Subagent | `subagents/v2/types/react.py` | Hook LLM streaming, call `emit_delta` every N tokens |
-| Runtime | `agents/lead_agent/v2/runtime.py` | Wire `emit_delta` from runner factory to SubagentContext |
-| Publisher | `services/execution_event_publisher.py` | No change — already supports arbitrary event_name |
-| FE Store | `stores/execution-store.ts` | Verify `execution.node.delta` appends thinking |
-| FE Hook | `hooks/useExecutionStreamV2.ts` | Reflect thinking delta to card component |
+| **Subagent** | `subagents/v2/base.py` | Add `emit_delta: Callable[[str, str], Awaitable[None]] \| None = None` to `SubagentContext` dataclass |
+| **Subagent** | `subagents/v2/types/react.py` | Switch `ainvoke()` → `astream()`. Pass `thinking_enabled=True` to `create_chat_model`. Extract thinking chunks from stream, call `ctx.emit_delta("thinking", chunk)` |
+| **Runtime** | `agents/lead_agent/v2/runtime.py` | In `_build_persisting_runner_factory`, create `emit_delta` closure that calls `_emit(node_id, "delta", {thinking: chunk})`. Pass it to `SubagentContext` in `_default_runner_factory` |
+| **Compiler** | `agents/lead_agent/v2/compiler.py` | Accept optional `emit_delta` param in `_default_runner_factory` and forward to `SubagentContext` |
+| **Publisher** | `services/execution_event_publisher.py` | No change — supports arbitrary event_name |
+| **Model** | `models/factory.py` | No change — already supports `thinking_enabled=True` parameter |
+
+### Frontend store change
+
+In `execution-store.ts`, change `execution.node.delta` handler from replacement to append:
+```typescript
+// Before (replacement):
+nodeState.thinking = event.payload.thinking;
+
+// After (append):
+nodeState.thinking = (nodeState.thinking || "") + (event.payload.thinking || "");
+```
 
 ### Throttling
 
 - Thinking delta emitted every **500ms** (batch accumulate, not per-token)
+- Runtime accumulates chunks in a buffer, flushes every 500ms via `asyncio` timer
 - `output_preview` sent once on node completion (not streamed)
 - If LLM produces no thinking (e.g. searcher = pure API call), no delta events
 
@@ -238,39 +297,63 @@ LiveWorkflowPanel
 
 ### State management
 
-Reuse existing `execution-store` (Zustand). Changes:
+Reuse existing `execution-store` (Zustand). Keep `currentExecutionId: string | null` as single-ID (no multi-concurrent). Changes:
 
-- `activeExecutionId: string | null` → `activeExecutionIds: string[]` (support multiple concurrent executions)
-- `selectedNodeId` scopes to card context (only one node detail expanded across all cards)
-- SSE hooks handle multiple execution streams via workspace SSE multiplexing
+- Add `executionRecords: Map<string, ExecutionRecord>` to store completed execution history for card list
+- `selectedNodeId` remains local state in `ExecutionCardList` (only one node detail expanded across all cards)
+- SSE hooks unchanged — single subscription to active execution
+
+### Phase mapping in store
+
+When processing `execution.graph_structure` event, map backend node shape to frontend-usable form:
+
+```typescript
+// Backend sends: { id, phase: "outline_phase", task: "search", subagent_type: "searcher", label: "检索" }
+// Store maps to: { id, label, phase: "outline_phase", phaseIndex: <computed from order>, subagentType: "searcher" }
+```
+
+Phase index is computed by iterating `graph_structure.nodes` in order, assigning sequential indices per unique `phase` value.
 
 ### Data source mapping
 
 | Data | Source | Event |
 |------|--------|-------|
-| Phase structure | `graph_structure.nodes[].phase` | `execution.graph_structure` |
+| Phase structure | `graph_structure.nodes[].phase` (string) | `execution.graph_structure` |
 | Node status | `node_states[nodeId].status` | `execution.node` |
 | Node input/output | `node_states[nodeId].input/output` | DB write → SSE push |
-| Thinking (real-time) | `node_states[nodeId].thinking` | `execution.node.delta` (Phase 3) |
+| Thinking (real-time) | `node_states[nodeId].thinking` (append) | `execution.node.delta` (Phase 3) |
 | Summary/tags | `result_summary` + `outputs` | `execution.completed` |
+| Card title | `record.display_name` (denormalized) | `GET /executions/{id}` |
+| Card subtitle | `record.workspace_type` (denormalized) | `GET /executions/{id}` |
 
 ## Scope
 
-### Phase 2 (FE redesign — this implementation)
+### Phase 2 (FE redesign + backend metadata fix)
 
+**Backend:**
+- Denormalize `display_name` + `workspace_type` onto `ExecutionRecord` at creation time
+- Add both fields to `GET /executions/{id}` response
+- Add `GET /executions?workspace_id=X&limit=20` list endpoint support for card history
+
+**Frontend:**
 - Replace ReactFlow with card feed + phase timeline
 - Full-width cards, vertical stacking
 - In-progress card: progress bar + phase timeline + node pills + inline detail
 - Completed card: summary + tags + collapsible full result
+- Fix phase mapping: read `node.phase` from backend data, compute `phaseIndex`
 - Remove `@xyflow/react` dependency
 - Remove `GraphCanvas.tsx`, `PhaseNode.tsx`, `NodeDetailDrawer.tsx`
-- Update `execution-store` to support `activeExecutionIds: string[]`
 - All styling via existing `--v2-*` CSS tokens
 
-### Phase 3 (Streaming thinking — next implementation)
+### Phase 3 (Streaming thinking)
 
-- Add `emit_delta` to `SubagentContext`
-- Hook LLM streaming in react subagent
+**Backend:**
+- Add `emit_delta` callback to `SubagentContext`
+- Switch react subagent from `ainvoke()` to `astream()`
+- Pass `thinking_enabled=True` to model factory
+- 500ms throttled thinking batch via asyncio timer
 - Wire delta events through runtime → Redis → SSE
-- 500ms throttled thinking batch
-- FE: wire `execution.node.delta` to node inline detail + thinking preview
+
+**Frontend:**
+- Change `execution.node.delta` handler to append mode
+- Wire thinking delta to NodeInlineDetail + ThinkingPreview components
