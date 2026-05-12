@@ -323,7 +323,7 @@ export function streamThread(
 export function subscribeWorkspaceEvents(
   workspaceId: string,
   onEvent: (event: WorkspaceEvent) => void,
-  onError?: (error: string) => void,
+  onError?: (error: string, status?: number) => void,
   onOpen?: () => void
 ): () => void {
   return subscribeJsonEventStream<WorkspaceEvent>({

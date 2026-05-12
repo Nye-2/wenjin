@@ -59,6 +59,7 @@ interface WorkspaceState {
   isActivityLoading: boolean;
   isWorkspaceMutating: boolean;
   error: string | null;
+  workspaceNotFound: boolean;
   _lastLoadRequestId: string | null;
 
   // Actions
@@ -92,6 +93,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   isArtifactsLoading: false,
   isActivityLoading: false,
   isWorkspaceMutating: false,
+  workspaceNotFound: false,
   _lastLoadRequestId: null as string | null,
   error: null,
 
@@ -113,10 +115,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   loadWorkspace: async (id: string) => {
     const requestId = crypto.randomUUID();
-    set({ isWorkspaceLoading: true, error: null, _lastLoadRequestId: requestId });
+    set({
+      isWorkspaceLoading: true,
+      error: null,
+      workspaceNotFound: false,
+      _lastLoadRequestId: requestId,
+    });
     try {
       const workspace = await getWorkspace(id);
-      // Only apply if this is still the latest request
       const current = get()._lastLoadRequestId;
       if (current !== requestId) return;
       set({
@@ -126,7 +132,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     } catch (error) {
       const current = get()._lastLoadRequestId;
       if (current !== requestId) return;
-      set({ error: (error as Error).message, isWorkspaceLoading: false });
+      // Distinguish "workspace does not exist" (4xx) from transient errors so
+      // the layout can redirect away instead of hammering retry endpoints
+      // for a non-existent id (e.g. a stale ``/workspaces/v2`` tab).
+      const status =
+        typeof error === "object" && error !== null && "response" in error
+          ? ((error as { response?: { status?: number } }).response?.status ?? 0)
+          : 0;
+      const notFound = status === 404 || status === 403 || status === 410;
+      set({
+        error: (error as Error).message,
+        isWorkspaceLoading: false,
+        workspaceNotFound: notFound,
+      });
     }
   },
 
@@ -192,6 +210,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       isReferencesLoading: false,
       isArtifactsLoading: false,
       isActivityLoading: false,
+      workspaceNotFound: false,
     });
   },
 

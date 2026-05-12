@@ -168,9 +168,16 @@ type JsonEventStreamOptions<T> = {
   init?: RequestInit;
   onPayload: (payload: T) => void;
   onOpen?: () => void;
-  onError?: (error: string) => void;
+  onError?: (error: string, status?: number) => void;
   onClosedMessage?: string;
 };
+
+class HttpStreamError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "HttpStreamError";
+  }
+}
 
 export function subscribeJsonEventStream<T>({
   url,
@@ -188,7 +195,10 @@ export function subscribeJsonEventStream<T>({
   })
     .then(async (response) => {
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response));
+        throw new HttpStreamError(
+          await readErrorMessage(response),
+          response.status,
+        );
       }
 
       const reader = response.body?.getReader();
@@ -255,9 +265,13 @@ export function subscribeJsonEventStream<T>({
           : typeof error === "object" && error && "name" in error
             ? String(error.name)
             : "";
-      if (errorName !== "AbortError") {
-        onError?.(error instanceof Error ? error.message : "Unknown stream error");
+      if (errorName === "AbortError") {
+        return;
       }
+      const message =
+        error instanceof Error ? error.message : "Unknown stream error";
+      const status = error instanceof HttpStreamError ? error.status : undefined;
+      onError?.(message, status);
     });
 
   return () => controller.abort();

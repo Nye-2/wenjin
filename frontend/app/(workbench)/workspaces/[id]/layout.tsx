@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
 import { useFeaturesStore } from "@/stores/features";
 import { useChatStoreV2 } from "@/stores/chat-store";
@@ -17,9 +17,16 @@ interface WorkbenchLayoutProps {
 
 export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const workspaceId = params?.id ?? "";
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  useWorkspaceEventStream(workspaceId || null);
+  const workspaceNotFound = useWorkspaceStore(
+    (state) => state.workspaceNotFound,
+  );
+  // Hold the SSE subscription until we've confirmed the workspace exists —
+  // otherwise a stale tab pointing at a non-existent id (e.g. ``/workspaces/v2``)
+  // hammers the gateway with reconnect attempts before the redirect fires.
+  useWorkspaceEventStream(workspaceNotFound ? null : workspaceId || null);
   const loadWorkspace = useWorkspaceStore((state) => state.loadWorkspace);
   const fetchArtifacts = useWorkspaceStore((state) => state.fetchArtifacts);
   const fetchActivity = useWorkspaceStore((state) => state.fetchActivity);
@@ -33,6 +40,12 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
 
   useEffect(() => {
     if (!workspaceId) {
+      return;
+    }
+    if (workspaceNotFound) {
+      // Workspace does not exist (or no longer accessible). Bounce back to
+      // the picker instead of polling its endpoints in a loop.
+      router.replace("/workspaces");
       return;
     }
 
@@ -51,6 +64,8 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     };
   }, [
     workspaceId,
+    workspaceNotFound,
+    router,
     setActiveWorkspace,
     loadWorkspace,
     fetchFeatures,

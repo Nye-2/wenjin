@@ -166,11 +166,20 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
             scheduleComputeHydrate,
           });
         },
-        () => {
+        (_message, status) => {
           if (disposed) {
             return;
           }
-          // Keep reconnecting indefinitely with bounded exponential backoff.
+          // Terminal HTTP errors (workspace gone / not authorized) — stop the
+          // retry loop. Without this, a stale tab pointing at a non-existent
+          // workspace id (e.g. ``/workspaces/v2``) hammers the gateway
+          // indefinitely and exhausts the per-IP rate-limit bucket for the
+          // whole tab.
+          if (status === 404 || status === 403 || status === 410) {
+            disposed = true;
+            return;
+          }
+          // Keep reconnecting otherwise with bounded exponential backoff.
           // 1.5s, 3s, 6s, ... then capped at the MAX_RECONNECT_ATTEMPTS tier.
           const boundedAttempts = Math.min(
             reconnectAttempts,
