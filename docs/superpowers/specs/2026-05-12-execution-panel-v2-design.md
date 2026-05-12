@@ -50,6 +50,7 @@ The `LiveWorkflowPanel` renders three zones:
 - Cards are full-width, stacked vertically, scrollable
 - Only one card's detail view is expanded at a time (click another to collapse)
 - Idle state (ProductIntro) and active cards coexist
+- New execution auto-expands its card and collapses any previously expanded card
 - Delete ReactFlow dependency (`@xyflow/react`)
 
 ## Section 2: Execution Card Component
@@ -103,6 +104,10 @@ The `LiveWorkflowPanel` renders three zones:
 **Loop label**: yellow `↺ 循环 N/M` tag next to phase title. No curved lines.
 
 **Thinking preview**: below the currently running node pill, monospace font, max 3 lines, purple-tinted background with left border.
+
+### Failed Card (expanded)
+
+Same layout as in-progress card but all phases/nodes show final state. Error node highlighted in red with error message displayed inline. No thinking preview.
 
 ### Completed Card (expanded)
 
