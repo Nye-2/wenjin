@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,12 @@ class SubagentContext:
     tools: list[str]
     workspace_data: dict = field(default_factory=dict)
     skill: CapabilitySkill | None = None
+    emit_delta: Callable[[str, str], Awaitable[None]] | None = None
+
+    async def emit(self, event_type: str, content: str) -> None:
+        """Emit an incremental delta event. No-op when emit_delta is not set."""
+        if self.emit_delta is not None:
+            await self.emit_delta(event_type, content)
 
 
 @dataclass
