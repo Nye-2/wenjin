@@ -85,13 +85,26 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
             return (await _resolve_ws_type(db, ws_id)) or "thesis"
 
         async def _record_node_event(**kw: Any) -> None:
-            # Persist per-node lifecycle (running / completed / failed) so the
-            # FE node-detail endpoint sees real input/output instead of an
-            # empty row.  Best-effort: a DB hiccup must not abort the run.
+            # Persist per-node lifecycle into ``executions.node_states`` so the
+            # FE ``GET /executions/{id}/nodes/{node_id}`` endpoint returns real
+            # input/output/thinking.  (That endpoint reads the JSONB blob on
+            # the executions row, not the ``execution_nodes`` table.)
+            # Best-effort: a DB hiccup must not abort the run.
             try:
-                await execution_service.upsert_node_event(**kw)
+                await execution_service.update_node_state(
+                    execution_id=kw["execution_id"],
+                    node_id=kw["node_id"],
+                    status=kw.get("status"),
+                    input_data=kw.get("input_data"),
+                    output_data=kw.get("output_data"),
+                    thinking=kw.get("thinking"),
+                    tool_calls=kw.get("tool_calls"),
+                    token_usage=kw.get("token_usage"),
+                    started_at=kw.get("started_at"),
+                    completed_at=kw.get("completed_at"),
+                )
             except Exception:
-                logger.warning("upsert_node_event failed", exc_info=True)
+                logger.warning("update_node_state failed", exc_info=True)
 
         runtime = LeadAgentRuntime(
             resolver=resolver,

@@ -149,6 +149,8 @@ class ExecutionService:
         node_id: str,
         *,
         status: str | None = None,
+        input_data: dict[str, Any] | None = None,
+        output_data: dict[str, Any] | None = None,
         output_preview: str | None = None,
         token_usage: dict[str, Any] | None = None,
         thinking: str | None = None,
@@ -166,6 +168,12 @@ class ExecutionService:
 
         if status is not None:
             node_state["status"] = status
+        # Full input / output payloads — keys mirror what the
+        # ``GET /executions/{id}/nodes/{node_id}`` endpoint returns to the FE.
+        if input_data is not None:
+            node_state["input"] = input_data
+        if output_data is not None:
+            node_state["output"] = output_data
         if output_preview is not None:
             node_state["output_preview"] = output_preview
         if token_usage is not None:
