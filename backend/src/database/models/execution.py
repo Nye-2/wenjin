@@ -38,6 +38,7 @@ class ExecutionRecord(Base):
     feature_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     entry_skill_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     workspace_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     # Unified status
     status: Mapped[str] = mapped_column(

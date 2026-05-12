@@ -118,6 +118,8 @@ async def launch_feature_tool(
             user_id=user_id,
             execution_type="capability",
             feature_id=feature_id,
+            display_name=getattr(cap, "display_name", None),
+            workspace_type=workspace_type,
             params={
                 "brief": {
                     "capability_id": feature_id,
