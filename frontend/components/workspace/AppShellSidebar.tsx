@@ -1,16 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
   Clock3,
-  LayoutDashboard,
   Loader2,
-  MessageSquare,
 } from "lucide-react";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -138,7 +136,6 @@ export function AppShellSidebar({
   onToggleCollapse,
 }: AppShellSidebarProps) {
   const router = useRouter();
-  const pathname = usePathname() ?? "";
   const { t } = useI18n();
 
   const workspace = useWorkspaceStore((state) => state.workspace);
@@ -184,9 +181,6 @@ export function AppShellSidebar({
       ) ?? displaySessions[0]
     : displaySessions[0];
 
-  const isOnV2 = pathname.startsWith(`/workspaces/${workspaceId}/v2`);
-  const isOnDashboard = pathname === `/workspaces/${workspaceId}`;
-
   const workspaceSnapshot =
     workspace ?? workspaces.find((c) => c.id === workspaceId) ?? null;
   const workspaceName = workspaceSnapshot?.name ?? "Workspace";
@@ -197,10 +191,8 @@ export function AppShellSidebar({
     ? workspaceSnapshot.discipline.replace(/_/g, " ")
     : null;
 
-  const goToDashboard = () => router.push(`/workspaces/${workspaceId}`);
-  const goToV2 = () => router.push(`/workspaces/${workspaceId}/v2`);
   const handleOpenSession = () => {
-    router.push(`/workspaces/${workspaceId}/v2`);
+    router.push(`/workspaces/${workspaceId}`);
   };
 
   if (collapsed) {
@@ -212,30 +204,6 @@ export function AppShellSidebar({
           title="Expand sidebar"
         >
           <ChevronRight className="h-4 w-4" />
-        </button>
-        <button
-          onClick={goToDashboard}
-          className={cn(
-            "rounded-xl p-2 transition-colors",
-            isOnDashboard
-              ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
-              : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
-          )}
-          title="工作总览"
-        >
-          <LayoutDashboard className="h-4 w-4" />
-        </button>
-        <button
-          onClick={goToV2}
-          className={cn(
-            "rounded-xl p-2 transition-colors",
-            isOnV2
-              ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
-              : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
-          )}
-          title="对话"
-        >
-          <MessageSquare className="h-4 w-4" />
         </button>
         <button
           onClick={() => router.push("/workspaces")}
@@ -316,35 +284,6 @@ export function AppShellSidebar({
       </div>
 
       {/* Navigation */}
-      <div className="border-b border-[var(--border-default)] px-4 py-3">
-        <div className="flex gap-2">
-          <button
-            onClick={goToV2}
-            className={cn(
-              "flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
-              isOnV2
-                ? "border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
-                : "border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
-            )}
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            对话
-          </button>
-          <button
-            onClick={goToDashboard}
-            className={cn(
-              "flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
-              isOnDashboard
-                ? "border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]"
-                : "border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
-            )}
-          >
-            <LayoutDashboard className="h-3.5 w-3.5" />
-            总览
-          </button>
-        </div>
-      </div>
-
       <div className="border-b border-[var(--border-default)] px-4 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)]">
           主线状态

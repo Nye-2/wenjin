@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { describe, expect, it } from "vitest";
 import { render, screen, act } from "@testing-library/react";
-import V2Page from "@/app/(workbench)/workspaces/[id]/v2/page";
+import V2Page from "@/app/(workbench)/workspaces/[id]/page";
 
 describe("V2 Workspace page", () => {
   it("renders chat / panel / topbar zones", async () => {

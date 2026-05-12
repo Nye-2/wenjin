@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { LiveWorkflowPanel } from "@/app/(workbench)/workspaces/[id]/v2/components/LiveWorkflowPanel";
+import { LiveWorkflowPanel } from "@/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel";
 import { useExecutionStore } from "@/stores/execution-store";
 
 // Mock @xyflow/react since it requires a real DOM with getBoundingClientRect

@@ -33,7 +33,7 @@ describe("workspace-feature-action-context", () => {
     });
 
     expect(context.route).toBe(
-      "/workspaces/workspace-1/v2?feature=feature-1&skill=explicit-skill&topic=proposal+topic"
+      "/workspaces/workspace-1?feature=feature-1&skill=explicit-skill&topic=proposal+topic"
     );
   });
 
@@ -64,7 +64,7 @@ describe("workspace-feature-action-context", () => {
     });
 
     expect(context.route).toBe(
-      "/workspaces/workspace-1/v2?feature=framework_outline&skill=framework-designer&topic=proposal+topic&source_artifact_id=artifact-2&context_artifact_ids=artifact-2"
+      "/workspaces/workspace-1?feature=framework_outline&skill=framework-designer&topic=proposal+topic&source_artifact_id=artifact-2&context_artifact_ids=artifact-2"
     );
     expect(context.routeParams).toEqual({
       topic: "proposal topic",

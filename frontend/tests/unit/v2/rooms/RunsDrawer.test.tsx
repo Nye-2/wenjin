@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { RunsDrawer } from "@/app/(workbench)/workspaces/[id]/v2/components/rooms/RunsDrawer";
+import { RunsDrawer } from "@/app/(workbench)/workspaces/[id]/components/rooms/RunsDrawer";
 
 const MOCK_ITEMS = [
   {

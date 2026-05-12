@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { SettingsPage } from "@/app/(workbench)/workspaces/[id]/v2/components/rooms/SettingsPage";
+import { SettingsPage } from "@/app/(workbench)/workspaces/[id]/components/rooms/SettingsPage";
 
 const MOCK_MEMORY_FACTS = [
   {

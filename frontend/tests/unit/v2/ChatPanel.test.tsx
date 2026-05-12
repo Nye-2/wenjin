@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, beforeEach } from "vitest";
-import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/v2/components/ChatPanel";
+import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/components/ChatPanel";
 import { useChatStoreV2 } from "@/stores/chat-store";
 
 beforeEach(() => {

@@ -322,7 +322,7 @@ export default function WorkspacesPage() {
         discipline: "",
         description: "",
       });
-      router.push(`/workspaces/${created.id}/v2?onboarding=true`);
+      router.push(`/workspaces/${created.id}?onboarding=true`);
     } catch {
       // Store already surfaces the error.
     }

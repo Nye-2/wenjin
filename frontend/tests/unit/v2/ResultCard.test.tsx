@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { ResultCard } from "@/app/(workbench)/workspaces/[id]/v2/components/ResultCard";
+import { ResultCard } from "@/app/(workbench)/workspaces/[id]/components/ResultCard";
 
 // Mock fetch
 const mockFetch = vi.fn();

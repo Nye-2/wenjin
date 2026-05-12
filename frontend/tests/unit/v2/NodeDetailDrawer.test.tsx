@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { NodeDetailDrawer } from "@/app/(workbench)/workspaces/[id]/v2/components/NodeDetailDrawer";
+import { NodeDetailDrawer } from "@/app/(workbench)/workspaces/[id]/components/NodeDetailDrawer";
 
 const NODE_DETAIL = {
   id: "node-1",

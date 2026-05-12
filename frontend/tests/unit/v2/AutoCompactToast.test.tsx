@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { AutoCompactToast } from "@/app/(workbench)/workspaces/[id]/v2/components/AutoCompactToast";
+import { AutoCompactToast } from "@/app/(workbench)/workspaces/[id]/components/AutoCompactToast";
 
 // Mock fetch
 const mockFetch = vi.fn();
