@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import AIMessage
 
-from src.agents.lead_agent.agent import _MiddlewareWrappedAgent
+from src.agents.chat_agent.agent import _MiddlewareWrappedAgent
 from src.agents.middlewares.llm_error_handling import LLMErrorHandlingMiddleware
 
 

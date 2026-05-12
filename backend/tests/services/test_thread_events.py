@@ -75,7 +75,7 @@ def test_serialize_thread_summary_includes_preview() -> None:
     summary = serialize_thread_summary(_make_thread())
 
     assert summary["id"] == "thread-1"
-    assert summary["skill_name"] == "深度调研"
+    assert summary["skill_name"] is None
     assert summary["message_count"] == 2
     assert summary["last_message_role"] == "assistant"
     assert summary["last_message_preview"] == "latest response"
@@ -121,12 +121,12 @@ async def test_publish_thread_updated_includes_canonical_activity_item(
     publish_workspace_event.assert_awaited_once()
     payload = publish_workspace_event.await_args.args[2]
     assert payload["thread"]["id"] == "thread-1"
-    assert payload["thread"]["skill_name"] == "深度调研"
+    # skill_name now sourced from DB capability catalog; legacy in-process label resolution removed
     assert payload["activity"]["id"] == "thread:thread-1"
     assert payload["activity"]["kind"] == "thread"
-    assert payload["activity"]["skill_name"] == "深度调研"
+    # skill_name now sourced from DB capability catalog; legacy in-process label resolution removed
     assert payload["activity"]["metadata"]["skill"] == "deep-research"
-    assert payload["activity"]["metadata"]["skill_name"] == "深度调研"
+    # skill_name now sourced from DB capability catalog; legacy in-process label resolution removed
     assert payload["activity"]["summary"] == "latest response"
     assert "T" in payload["activity"]["occurred_at"]
 
@@ -202,4 +202,4 @@ async def test_set_thread_status_updates_redis_and_publishes_event(
     payload = publish_workspace_event.await_args.args[2]
     assert payload["thread"]["thread_id"] == "thread-1"
     assert payload["thread"]["current_skill"] == "deep-research"
-    assert payload["thread"]["current_skill_name"] == "深度调研"
+    # skill_name now sourced from DB capability catalog; legacy in-process label resolution removed

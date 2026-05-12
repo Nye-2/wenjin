@@ -2,7 +2,7 @@
   "python_version": "3.12",
   "dependencies": ["."],
   "graphs": {
-    "agent": "./src/agents/lead_agent/langgraph_entry.py:make_lead_agent_graph"
+    "agent": "./src/agents/chat_agent/langgraph_entry.py:make_chat_agent_graph"
   },
   "env": ".env"
 }

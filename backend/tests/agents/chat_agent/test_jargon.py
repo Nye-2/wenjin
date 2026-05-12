@@ -1,8 +1,8 @@
 """Spec §1.1 — these tokens MUST NOT appear in agent output."""
 import pytest
 
-from src.agents.lead_agent.blocks import AgentMessage, TextBlock
-from src.agents.lead_agent.prompts.jargon import (
+from src.agents.chat_agent.blocks import AgentMessage, TextBlock
+from src.agents.chat_agent.prompts.jargon import (
     BLACKLIST,
     assert_no_jargon,
 )

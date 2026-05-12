@@ -1,4 +1,4 @@
-import type { WorkspaceThreadSkill, WorkspaceFeature } from "@/lib/api";
+import type { WorkspaceFeature } from "@/lib/api";
 
 type SearchParamsLike = {
   get(name: string): string | null;
@@ -12,21 +12,16 @@ export interface WorkspaceThreadEntrySeed {
   params: Record<string, unknown>;
 }
 
+/**
+ * Return the optional skill id encoded in the URL seed.  The legacy resolver
+ * that mapped featureId → default skill via the in-process registry is gone;
+ * capability/skill routing now happens server-side in the chat agent based on
+ * the DB-backed capability catalog.
+ */
 export function resolveWorkspaceThreadEntrySkill(options: {
   seed: WorkspaceThreadEntrySeed | null | undefined;
-  skills: WorkspaceThreadSkill[];
 }): string | null {
-  const seed = options.seed;
-  if (!seed) {
-    return null;
-  }
-  if (seed.skillId) {
-    return seed.skillId;
-  }
-  const matchedSkill = options.skills.find(
-    (skill) => skill.featureId === seed.featureId
-  );
-  return matchedSkill?.id ?? null;
+  return options.seed?.skillId ?? null;
 }
 
 function coerceScalarParamValue(value: string): string | number | boolean {
@@ -85,8 +80,8 @@ export function parseWorkspaceThreadEntrySeed(
 
 /**
  * Build a brief, user-visible message for the thread.
- * Detailed LLM instructions are handled by the backend's guidance_prompt
- * in the system prompt — NOT sent as user message content.
+ * Detailed LLM instructions are produced server-side via the DB-backed
+ * capability catalog rendered into the chat system prompt.
  */
 export function buildWorkspaceThreadEntryPrompt(options: {
   seed: WorkspaceThreadEntrySeed;
@@ -110,7 +105,7 @@ export function buildWorkspaceThreadEntryPrompt(options: {
         ? seed.params.execution_session_id.trim()
         : "";
     if (executionSessionId) {
-      // Embed the session id so lead_agent can pass it through to launch_feature
+      // Embed the session id so chat_agent can pass it through to launch_feature
       // (which routes to FeatureLaunchService.launch's resume path).
       return `请继续「${featureLabel}」的执行 (execution_session_id: ${executionSessionId})。`;
     }
@@ -118,8 +113,3 @@ export function buildWorkspaceThreadEntryPrompt(options: {
   }
   return `请帮我开始「${featureLabel}」。`;
 }
-
-// Onboarding prompts have been moved to the backend system prompt.
-// The workspace-type-specific guidance is now in:
-// 1. _WORKSPACE_TYPE_PROMPTS in agent.py (system prompt per workspace type)
-// 2. guidance_prompt in workspace_features/skills.py (per-skill LLM instructions)

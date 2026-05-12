@@ -256,7 +256,12 @@ async def test_get_dashboard_raises_when_workspace_type_missing():
 
 
 @pytest.mark.asyncio
-async def test_opening_research_status_filters_by_opening_handler():
+async def test_opening_research_status_runs_without_legacy_skill_filter():
+    """The legacy skill → feature mapping is gone, so the dashboard query no
+    longer narrows by ``created_by_skill``.  This test ensures the query still
+    completes (broadened artifact scan) — refining per-feature attribution is
+    deferred until artifacts carry a capability_id reference.
+    """
     db = AsyncMock()
     db.execute = AsyncMock(
         side_effect=[
@@ -271,7 +276,7 @@ async def test_opening_research_status_filters_by_opening_handler():
 
     statement = db.execute.call_args_list[0].args[0]
     params = statement.compile().params
-    assert any(
+    assert not any(
         value == "literature-reviewer"
         or (isinstance(value, list) and "literature-reviewer" in value)
         for value in params.values()

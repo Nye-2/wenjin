@@ -51,10 +51,7 @@ from src.gateway.validators.artifact import (
 from src.services import ThreadService
 from src.services.asset_url_signing import get_asset_url_signer
 from src.services.execution_session_service import ExecutionSessionService
-from src.services.workspace_skill_labels import (
-    normalize_workspace_type,
-    resolve_workspace_skill_name,
-)
+from src.services.workspace_skill_labels import normalize_workspace_type
 from src.services.workspace_uploads import resolve_workspace_upload_relative_path
 
 router = APIRouter(tags=["artifacts"])
@@ -152,11 +149,8 @@ async def _create_workspace_artifact(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Workspace type is not configured",
             )
-        if resolve_workspace_skill_name(workspace_type, request.created_by_skill) is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid created_by_skill for workspace",
-            )
+        # Legacy skill catalog is gone — accept any caller-supplied skill id.
+        # Capability/skill validity is enforced by launch_feature against the DB.
 
     artifact = await artifact_service.create(
         workspace_id=workspace_id,

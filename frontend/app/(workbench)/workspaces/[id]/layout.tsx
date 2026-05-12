@@ -26,9 +26,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const clearWorkspace = useWorkspaceStore((state) => state.clearWorkspace);
   const setActiveWorkspace = useFeaturesStore((state) => state.setActiveWorkspace);
   const fetchFeatures = useFeaturesStore((state) => state.fetchFeatures);
-  const fetchSkills = useFeaturesStore((state) => state.fetchSkills);
   const clearFeatures = useFeaturesStore((state) => state.clearFeatures);
-  const clearSkills = useFeaturesStore((state) => state.clearSkills);
   const resetChat = useChatStoreV2((state) => state.reset);
   const hydrateCompute = useComputeStore((state) => state.hydrateWorkspace);
   const clearCompute = useComputeStore((state) => state.clearWorkspace);
@@ -41,7 +39,6 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     setActiveWorkspace(workspaceId);
     void loadWorkspace(workspaceId);
     void fetchFeatures(workspaceId);
-    void fetchSkills(workspaceId);
     void fetchArtifacts(workspaceId);
     void fetchActivity(workspaceId);
     void hydrateCompute(workspaceId);
@@ -49,7 +46,6 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
       setActiveWorkspace(null);
       clearWorkspace();
       clearFeatures();
-      clearSkills();
       clearCompute(workspaceId);
       resetChat();
     };
@@ -58,13 +54,11 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     setActiveWorkspace,
     loadWorkspace,
     fetchFeatures,
-    fetchSkills,
     fetchArtifacts,
     fetchActivity,
     hydrateCompute,
     clearWorkspace,
     clearFeatures,
-    clearSkills,
     clearCompute,
     resetChat,
   ]);

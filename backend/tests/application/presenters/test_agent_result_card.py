@@ -86,7 +86,7 @@ def test_failure_card_emits_result_card_block_with_error_tldr():
 
 def test_blocks_validate_against_agent_message_schema():
     """The output must validate against AgentMessage(blocks=[...])."""
-    from src.agents.lead_agent.blocks import AgentMessage
+    from src.agents.chat_agent.blocks import AgentMessage
 
     reply = build_completion_result_card(
         feature_id="paper_analysis",

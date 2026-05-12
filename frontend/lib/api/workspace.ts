@@ -17,7 +17,6 @@ import type {
   WorkspaceCreate,
   WorkspaceExecutionSessionsResponse,
   WorkspacePrismEnsureResponse,
-  WorkspaceThreadSkill,
   WorkspaceFeature,
   WorkspaceSummaryData,
   WorkspaceTemplate,
@@ -364,13 +363,6 @@ export async function getWorkspaceFeatures(
   workspaceId: string
 ): Promise<{ features: WorkspaceFeature[] }> {
   const response = await apiClient.get(`/workspaces/${workspaceId}/features`);
-  return response.data;
-}
-
-export async function getWorkspaceSkills(
-  workspaceId: string
-): Promise<{ skills: WorkspaceThreadSkill[] }> {
-  const response = await apiClient.get(`/workspaces/${workspaceId}/skills`);
   return response.data;
 }
 

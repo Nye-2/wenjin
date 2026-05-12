@@ -29,28 +29,28 @@ describe("workspace-thread-entry", () => {
     });
   });
 
-  it("resolves skill from matching feature when seed skill is missing", () => {
-    const selected = resolveWorkspaceThreadEntrySkill({
-      seed: {
-        featureId: "paper_outline",
-        skillId: null,
-        params: {},
-      },
-      skills: [
-        {
-          id: "outline-skill",
+  it("returns the URL-encoded skill id when present, null otherwise", () => {
+    expect(
+      resolveWorkspaceThreadEntrySkill({
+        seed: {
           featureId: "paper_outline",
-          name: "Outline",
-          description: "Build an outline",
-          icon: "pen-tool",
-          color: "blue",
-          guidancePrompt: "prompt",
-          followUpSkills: [],
+          skillId: "outline-skill",
+          params: {},
         },
-      ],
-    });
+      }),
+    ).toBe("outline-skill");
 
-    expect(selected).toBe("outline-skill");
+    expect(
+      resolveWorkspaceThreadEntrySkill({
+        seed: {
+          featureId: "paper_outline",
+          skillId: null,
+          params: {},
+        },
+      }),
+    ).toBeNull();
+
+    expect(resolveWorkspaceThreadEntrySkill({ seed: null })).toBeNull();
   });
 
   it("builds onboarding and feature prompts", () => {

@@ -12,7 +12,7 @@ def test_chat_turn_routes_to_lead_agent_only():
 
 def test_lead_agent_can_call_launch_feature_tool():
     """Tool registry exposes launch_feature; agent can resolve it."""
-    from src.agents.lead_agent.agent import get_available_tools
+    from src.agents.chat_agent.agent import get_available_tools
 
     tools = get_available_tools()
     by_name = {getattr(t, "name", ""): t for t in tools}

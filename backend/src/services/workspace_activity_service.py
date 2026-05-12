@@ -23,7 +23,6 @@ from src.services.workspace_activity_contracts import (
 )
 from src.services.workspace_skill_labels import (
     get_workspace_type,
-    resolve_workspace_skill_name,
 )
 
 
@@ -219,7 +218,7 @@ class WorkspaceActivityService:
                     ),
                     title=thread.title,
                     skill=thread.skill,
-                    skill_name=resolve_workspace_skill_name(workspace_type, thread.skill),
+                    skill_name=None,
                     message_count=len(messages),
                     last_message_preview=truncate_activity_preview(last_message_content),
                     last_message_role=last_message_role,
@@ -261,10 +260,7 @@ class WorkspaceActivityService:
     ) -> dict[str, Any]:
         artifact_type = getattr(artifact, "type", "artifact")
         created_by_skill = getattr(artifact, "created_by_skill", None)
-        created_by_skill_name = resolve_workspace_skill_name(
-            workspace_type,
-            created_by_skill,
-        )
+        created_by_skill_name = None
         artifact_title = getattr(artifact, "title", None)
         return {
             "id": f"artifact:{artifact.id}",

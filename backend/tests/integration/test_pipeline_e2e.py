@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.agents.lead_agent.agent import build_pipeline
+from src.agents.chat_agent.agent import build_pipeline
 from src.config.config_loader import MemoryConfig, MiddlewaresConfig, SummarizationConfig
 
 

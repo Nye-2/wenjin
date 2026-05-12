@@ -1,5 +1,12 @@
-"""Lead agent package initialization."""
+"""Lead agent — right-side execution engine.
 
-from .agent import apply_prompt_template, get_available_tools, make_lead_agent
+The lead agent runs LangGraph subagents for a capability invocation.  Entry
+point: :class:`src.agents.lead_agent.v2.runtime.LeadAgentRuntime`.
 
-__all__ = ["make_lead_agent", "apply_prompt_template", "get_available_tools"]
+The *left-side* conversational agent (the one the user types at) lives in
+:mod:`src.agents.chat_agent`.
+"""
+
+from .v2.runtime import LeadAgentRuntime
+
+__all__ = ["LeadAgentRuntime"]

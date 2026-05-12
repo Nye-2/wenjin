@@ -30,7 +30,6 @@ from src.runtime.runs import RunManager, RunStatus
 from src.runtime.serialization import serialize_channel_values
 from src.services.thread_events import publish_thread_deleted, publish_thread_updated
 from src.services.thread_service import ThreadService
-from src.services.workspace_skill_labels import resolve_thread_skill_name
 
 router = APIRouter(tags=["threads"])
 
@@ -120,7 +119,7 @@ def _thread_metadata(thread: Any) -> dict[str, Any]:
     return {
         "workspace_id": thread.workspace_id,
         "skill": thread.skill,
-        "skill_name": resolve_thread_skill_name(thread),
+        "skill_name": None,
         "model": thread.model,
     }
 
@@ -165,7 +164,7 @@ def _state_values(thread: Any) -> dict[str, Any]:
             "title": thread.title,
             "model": thread.model,
             "skill": thread.skill,
-            "skill_name": resolve_thread_skill_name(thread),
+            "skill_name": None,
             "messages": thread.messages or [],
         }
     )

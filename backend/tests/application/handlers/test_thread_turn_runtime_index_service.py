@@ -39,7 +39,7 @@ def test_build_thread_agent_runtime_passes_index_service_to_pipeline() -> None:
             return_value={},
         ),
         patch(
-            "src.agents.lead_agent.agent.build_pipeline",
+            "src.agents.chat_agent.agent.build_pipeline",
             return_value=[],
         ) as build_pipeline,
     ):

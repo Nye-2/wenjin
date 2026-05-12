@@ -38,7 +38,7 @@ class _PassthroughMiddleware(Middleware):
 class TestMiddlewareErrorIsolation:
     @pytest.mark.asyncio
     async def test_crashing_before_model_does_not_block_chain(self):
-        from src.agents.lead_agent.agent import middleware_before_model
+        from src.agents.chat_agent.agent import middleware_before_model
 
         passthrough = _PassthroughMiddleware()
         middlewares = [_CrashingMiddleware(), passthrough]
@@ -52,7 +52,7 @@ class TestMiddlewareErrorIsolation:
 
     @pytest.mark.asyncio
     async def test_crashing_after_model_does_not_block_chain(self):
-        from src.agents.lead_agent.agent import middleware_after_model
+        from src.agents.chat_agent.agent import middleware_after_model
 
         passthrough = _PassthroughMiddleware()
         middlewares = [_CrashingMiddleware(), passthrough]
@@ -66,7 +66,7 @@ class TestMiddlewareErrorIsolation:
 
     @pytest.mark.asyncio
     async def test_all_middlewares_crash_returns_original_state(self):
-        from src.agents.lead_agent.agent import middleware_before_model
+        from src.agents.chat_agent.agent import middleware_before_model
 
         state = {"messages": ["hello"]}
         config = {"configurable": {}}

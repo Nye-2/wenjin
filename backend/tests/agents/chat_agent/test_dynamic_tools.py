@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.types import Command
 
-from src.agents.lead_agent.dynamic_tools import DynamicToolNode
+from src.agents.chat_agent.dynamic_tools import DynamicToolNode
 from src.agents.middlewares.base import Middleware
 from src.agents.middlewares.sandbox_audit import SandboxAuditMiddleware
 from src.agents.middlewares.tool_error_handling import ToolErrorHandlingMiddleware
@@ -342,7 +342,7 @@ def test_run_coroutine_sync_warns_when_loop_is_running(caplog):
         async def noop():
             return 42
 
-        with caplog.at_level(logging.WARNING, logger="src.agents.lead_agent.dynamic_tools"):
+        with caplog.at_level(logging.WARNING, logger="src.agents.chat_agent.dynamic_tools"):
             # We're inside an event loop here; this should trigger the warning
             result = DynamicToolNode._run_coroutine_sync(noop())
         return result
@@ -359,7 +359,7 @@ def test_run_coroutine_sync_raises_on_thread_timeout(monkeypatch):
     """_run_coroutine_sync must raise TimeoutError if thread does not finish within 30s."""
     import threading
 
-    import src.agents.lead_agent.dynamic_tools as dt_module
+    import src.agents.chat_agent.dynamic_tools as dt_module
 
     def patched_join(self, timeout=None):
         # Simulate a join that returns immediately (as if timeout expired)

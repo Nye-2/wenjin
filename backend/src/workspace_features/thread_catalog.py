@@ -8,10 +8,6 @@ from src.academic.services import ArtifactService
 from src.academic.services.workspace_service import WorkspaceService
 from src.application.workspace_resolvers import resolve_workspace_type
 from src.database import get_db_session
-from src.workspace_features.skills import (
-    get_default_skill_for_feature,
-    list_feature_skill_ids,
-)
 
 
 async def build_workspace_artifact_overview(
@@ -67,11 +63,6 @@ async def build_workspace_feature_overview(
             "workspace_id": str(workspace.id),
             "workspace_type": workspace_type,
             "features": [
-                feature.to_api_dict()
-                | {
-                    "defaultSkillId": get_default_skill_for_feature(workspace_type, feature.id),
-                    "entrySkillIds": list(list_feature_skill_ids(workspace_type, feature.id)),
-                }
-                for feature in list_workspace_features(workspace_type)
+                feature.to_api_dict() for feature in list_workspace_features(workspace_type)
             ],
         }

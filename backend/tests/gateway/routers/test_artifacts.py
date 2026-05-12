@@ -471,7 +471,12 @@ class TestCreateArtifact:
         assert data["status"] == "draft"
         assert data["version"] == 1
 
-    def test_create_artifact_rejects_noncanonical_skill(self, client):
+    def test_create_artifact_accepts_arbitrary_skill_id(self, client):
+        """Legacy skill-catalog validation is gone; any non-empty id is accepted.
+
+        Capability/skill validity is enforced at launch_feature time against
+        the DB capability catalog, not at artifact creation.
+        """
         response = client.post(
             f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
@@ -482,8 +487,8 @@ class TestCreateArtifact:
             },
         )
 
-        assert response.status_code == 400
-        assert response.json()["detail"] == "Invalid created_by_skill for workspace"
+        assert response.status_code == 201
+        assert response.json()["created_by_skill"] == "brainstorm"
 
     def test_create_artifact_minimal(self, client):
         """Test artifact creation with minimal fields."""

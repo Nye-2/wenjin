@@ -677,10 +677,10 @@ class TestThreadMessages:
             "src.application.handlers.thread_turn_handler.route_chat_model",
             return_value="gpt-4o",
         ), patch(
-            "src.agents.lead_agent.agent.build_pipeline",
+            "src.agents.chat_agent.agent.build_pipeline",
             return_value=[],
         ), patch(
-            "src.agents.lead_agent.agent.make_lead_agent",
+            "src.agents.chat_agent.agent.make_chat_agent",
             return_value=fake_agent,
         ):
             reply = await generate_thread_response(request, thread, actor_id="user-1")
@@ -721,10 +721,10 @@ class TestThreadMessages:
             "src.application.handlers.thread_turn_handler.route_chat_model",
             return_value="gpt-4o",
         ), patch(
-            "src.agents.lead_agent.agent.build_pipeline",
+            "src.agents.chat_agent.agent.build_pipeline",
             return_value=[],
         ), patch(
-            "src.agents.lead_agent.agent.make_lead_agent",
+            "src.agents.chat_agent.agent.make_chat_agent",
             return_value=fake_agent,
         ):
             reply = await generate_thread_response(request, thread, actor_id="user-1")
@@ -758,7 +758,7 @@ class TestThreadMessages:
             "src.application.handlers.thread_turn_handler.route_chat_model",
             return_value="gpt-4o",
         ), patch(
-            "src.agents.lead_agent.agent.build_pipeline",
+            "src.agents.chat_agent.agent.build_pipeline",
             return_value=[],
         ):
             with pytest.raises(HTTPException, match="余额不足") as exc_info:
@@ -794,10 +794,10 @@ class TestThreadMessages:
             "src.application.handlers.thread_turn_handler.route_chat_model",
             return_value="gpt-4o",
         ), patch(
-            "src.agents.lead_agent.agent.build_pipeline",
+            "src.agents.chat_agent.agent.build_pipeline",
             build_pipeline,
         ), patch(
-            "src.agents.lead_agent.agent.make_lead_agent",
+            "src.agents.chat_agent.agent.make_chat_agent",
             return_value=fake_agent,
         ):
             await generate_thread_response(request, thread, actor_id="user-1")
@@ -829,7 +829,7 @@ class TestThreadMessages:
             "src.application.handlers.thread_turn_handler.route_chat_model",
             return_value="glm-5",
         ), patch(
-            "src.agents.lead_agent.agent.make_lead_agent",
+            "src.agents.chat_agent.agent.make_chat_agent",
             side_effect=RuntimeError("boom"),
         ), patch(
             "src.models.factory.create_chat_model",

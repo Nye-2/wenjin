@@ -114,11 +114,11 @@ class TestAgentTimeout:
 
             with (
                 patch(
-                    "src.agents.lead_agent.agent.make_lead_agent",
+                    "src.agents.chat_agent.agent.make_chat_agent",
                     return_value=mock_agent,
                 ),
                 patch(
-                    "src.agents.lead_agent.agent.build_pipeline",
+                    "src.agents.chat_agent.agent.build_pipeline",
                     return_value=[],
                 ),
                 patch(
@@ -174,11 +174,11 @@ class TestAgentTimeout:
 
         with (
             patch(
-                "src.agents.lead_agent.agent.make_lead_agent",
+                "src.agents.chat_agent.agent.make_chat_agent",
                 return_value=mock_agent,
             ),
             patch(
-                "src.agents.lead_agent.agent.build_pipeline",
+                "src.agents.chat_agent.agent.build_pipeline",
                 return_value=[],
             ),
             patch(
@@ -296,7 +296,6 @@ class TestThreadTurnHandlerCancellation:
             ),
             patch("src.application.handlers.thread_turn_handler.publish_thread_updated", new=AsyncMock()),
             patch("src.application.handlers.thread_turn_handler.set_thread_status", new=AsyncMock()),
-            patch("src.application.handlers.thread_turn_handler.resolve_thread_skill_name", return_value=None),
         ):
             await handler._persist_thread_reply(
                 thread=thread,
@@ -377,7 +376,6 @@ class TestThreadTurnHandlerCancellation:
 
         with (
             patch("src.application.handlers.thread_turn_handler.publish_thread_updated", new=AsyncMock()) as publish_thread_updated,
-            patch("src.application.handlers.thread_turn_handler.resolve_thread_skill_name", return_value="框架撰写"),
         ):
             await handler.handle_run_interruption(prepared, rollback=True)
 
@@ -445,11 +443,11 @@ class TestThreadTurnHandlerCancellation:
 
         with (
             patch(
-                "src.agents.lead_agent.agent.make_lead_agent",
+                "src.agents.chat_agent.agent.make_chat_agent",
                 return_value=_FakeStreamingAgent(),
             ),
             patch(
-                "src.agents.lead_agent.agent.build_pipeline",
+                "src.agents.chat_agent.agent.build_pipeline",
                 return_value=[],
             ),
             patch(
@@ -537,11 +535,11 @@ class TestThreadTurnHandlerCancellation:
 
         with (
             patch(
-                "src.agents.lead_agent.agent.make_lead_agent",
+                "src.agents.chat_agent.agent.make_chat_agent",
                 return_value=fake_agent,
             ),
             patch(
-                "src.agents.lead_agent.agent.build_pipeline",
+                "src.agents.chat_agent.agent.build_pipeline",
                 return_value=[],
             ),
             patch(
@@ -609,11 +607,11 @@ class TestThreadTurnHandlerCancellation:
 
         with (
             patch(
-                "src.agents.lead_agent.agent.build_pipeline",
+                "src.agents.chat_agent.agent.build_pipeline",
                 return_value=[],
             ),
             patch(
-                "src.agents.lead_agent.agent.make_lead_agent",
+                "src.agents.chat_agent.agent.make_chat_agent",
                 return_value=fake_agent,
             ),
             patch(
@@ -691,11 +689,11 @@ class TestThreadTurnHandlerCancellation:
         try:
             with (
                 patch(
-                    "src.agents.lead_agent.agent.make_lead_agent",
+                    "src.agents.chat_agent.agent.make_chat_agent",
                     return_value=_SlowStreamingAgent(),
                 ),
                 patch(
-                    "src.agents.lead_agent.agent.build_pipeline",
+                    "src.agents.chat_agent.agent.build_pipeline",
                     return_value=[],
                 ),
                 patch(
@@ -765,11 +763,11 @@ class TestThreadTurnHandlerCancellation:
 
             with (
                 patch(
-                    "src.agents.lead_agent.agent.make_lead_agent",
+                    "src.agents.chat_agent.agent.make_chat_agent",
                     return_value=mock_agent,
                 ),
                 patch(
-                    "src.agents.lead_agent.agent.build_pipeline",
+                    "src.agents.chat_agent.agent.build_pipeline",
                     return_value=[],
                 ),
                 patch(

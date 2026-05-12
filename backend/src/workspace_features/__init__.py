@@ -24,15 +24,6 @@ from .runtime_profiles import (
     get_feature_runtime_profile,
     iter_feature_runtime_profiles,
 )
-from .skills import (
-    WorkspaceThreadSkillDefinition,
-    get_default_skill_for_feature,
-    get_skill_by_id,
-    list_feature_skill_ids,
-    list_feature_skills,
-    list_workspace_thread_skills,
-    resolve_skill_for_feature,
-)
 
 __all__ = [
     "CANONICAL_WORKSPACE_TYPES",
@@ -40,20 +31,13 @@ __all__ = [
     "FeatureArtifactReference",
     "FeatureStageDefinition",
     "WorkspaceFeatureDefinition",
-    "WorkspaceThreadSkillDefinition",
     "WorkspaceFeatureExecutionResult",
     "FeatureRuntimeMode",
     "FeatureRuntimeProfile",
-    "get_default_skill_for_feature",
-    "get_skill_by_id",
     "get_workspace_feature",
     "get_workspace_feature_by_handler",
     "get_feature_runtime_profile",
     "iter_feature_runtime_profiles",
     "iter_workspace_features",
-    "list_feature_skill_ids",
-    "list_feature_skills",
     "list_workspace_features",
-    "list_workspace_thread_skills",
-    "resolve_skill_for_feature",
 ]

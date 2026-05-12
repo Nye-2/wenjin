@@ -9,10 +9,10 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import PrivateAttr
 
-from src.agents.lead_agent.agent import (
+from src.agents.chat_agent.agent import (
     apply_prompt_template,
     build_middlewares,
-    make_lead_agent,
+    make_chat_agent,
 )
 from src.agents.middlewares import (
     CitationContextMiddleware,
@@ -42,10 +42,14 @@ class TestBuildMiddlewares:
             reference_service=reference_service,
         )
 
-        assert len(middlewares) == 5
+        assert len(middlewares) == 6
 
     def test_build_middlewares_order_is_correct(self):
         """Test that middleware order is correct."""
+        from src.agents.middlewares.capability_skill_preload import (
+            CapabilitySkillPreloadMiddleware,
+        )
+
         workspace_service = MagicMock()
         index_service = MagicMock()
         artifact_service = MagicMock()
@@ -60,34 +64,48 @@ class TestBuildMiddlewares:
 
         # Verify order:
         # 1. WorkspaceContextMiddleware
-        # 2. LiteratureContextMiddleware
-        # 3. KnowledgeContextMiddleware
-        # 4. DisciplineContextMiddleware
-        # 5. CitationContextMiddleware
+        # 2. CapabilitySkillPreloadMiddleware (after workspace_type is set)
+        # 3. LiteratureContextMiddleware
+        # 4. KnowledgeContextMiddleware
+        # 5. DisciplineContextMiddleware
+        # 6. CitationContextMiddleware
         assert isinstance(middlewares[0], WorkspaceContextMiddleware)
-        assert isinstance(middlewares[1], LiteratureContextMiddleware)
-        assert isinstance(middlewares[2], KnowledgeContextMiddleware)
-        assert isinstance(middlewares[3], DisciplineContextMiddleware)
-        assert isinstance(middlewares[4], CitationContextMiddleware)
+        assert isinstance(middlewares[1], CapabilitySkillPreloadMiddleware)
+        assert isinstance(middlewares[2], LiteratureContextMiddleware)
+        assert isinstance(middlewares[3], KnowledgeContextMiddleware)
+        assert isinstance(middlewares[4], DisciplineContextMiddleware)
+        assert isinstance(middlewares[5], CitationContextMiddleware)
 
     def test_build_middlewares_only_with_services(self):
         """Test that middlewares are only created when services are provided."""
+        from src.agents.middlewares.capability_skill_preload import (
+            CapabilitySkillPreloadMiddleware,
+        )
+
         # No services
         middlewares = build_middlewares()
-        # DisciplineContextMiddleware is always created (no service required)
-        assert len(middlewares) == 1
-        assert isinstance(middlewares[0], DisciplineContextMiddleware)
+        # CapabilitySkillPreloadMiddleware + DisciplineContextMiddleware
+        # are always created (no service required).
+        assert len(middlewares) == 2
+        assert isinstance(middlewares[0], CapabilitySkillPreloadMiddleware)
+        assert isinstance(middlewares[1], DisciplineContextMiddleware)
 
     def test_build_middlewares_partial_services(self):
         """Test that middlewares are created for provided services only."""
+        from src.agents.middlewares.capability_skill_preload import (
+            CapabilitySkillPreloadMiddleware,
+        )
+
         workspace_service = MagicMock()
 
         middlewares = build_middlewares(workspace_service=workspace_service)
 
-        # Should have WorkspaceContextMiddleware and DisciplineContextMiddleware
-        assert len(middlewares) == 2
+        # Should have WorkspaceContextMiddleware, CapabilitySkillPreloadMiddleware
+        # and DisciplineContextMiddleware.
+        assert len(middlewares) == 3
         assert isinstance(middlewares[0], WorkspaceContextMiddleware)
-        assert isinstance(middlewares[1], DisciplineContextMiddleware)
+        assert isinstance(middlewares[1], CapabilitySkillPreloadMiddleware)
+        assert isinstance(middlewares[2], DisciplineContextMiddleware)
 
 
 class TestApplyPromptTemplate:
@@ -207,39 +225,67 @@ class TestApplyPromptTemplate:
         assert "...[truncated]" in prompt
         assert len(prompt) < 12000
 
-    def test_prompt_scopes_available_skills_to_workspace(self):
-        """Test that available skills are rendered from the workspace chat catalog."""
-        state = ThreadState(messages=[], workspace_type="sci")
+    def test_prompt_renders_available_capabilities_from_state(self):
+        """Capabilities/skills are pulled from state (populated by middleware)."""
+        state = ThreadState(
+            messages=[],
+            workspace_type="sci",
+            available_capabilities=[
+                {
+                    "id": "literature_search",
+                    "display_name": "文献检索",
+                    "description": "搜索相关文献",
+                    "intent_description": "",
+                    "trigger_phrases": ["检索文献", "找文献"],
+                },
+                {
+                    "id": "peer_review",
+                    "display_name": "审稿",
+                    "description": "审稿模拟",
+                    "intent_description": "",
+                    "trigger_phrases": [],
+                },
+            ],
+            available_skills=[
+                {
+                    "id": "scholar-searcher",
+                    "display_name": "学术检索器",
+                    "description": "Searcher subagent",
+                    "subagent_type": "searcher",
+                },
+            ],
+        )
         config = {"configurable": {}}
 
         prompt = apply_prompt_template(state, config)
 
-        # Legacy fallback renders <available_features> with <skill> entries
-        assert "<available_features>" in prompt
-        assert "literature_search" in prompt
-        assert "peer_review" in prompt
-        assert "journal_recommend" in prompt
-        assert "proposal-writer" not in prompt
+        assert "<available_capabilities>" in prompt
+        assert "<available_skills>" in prompt
+        assert 'id="literature_search"' in prompt
+        assert 'id="peer_review"' in prompt
+        assert 'id="scholar-searcher"' in prompt
 
-    def test_prompt_omits_available_skills_when_workspace_has_no_thread_skill_catalog(self):
-        """Test that prompt renders the current workspace chat skill catalog."""
+    def test_prompt_omits_capability_block_when_state_is_empty(self):
+        """No capabilities in state (e.g. DB unreachable) → block is skipped."""
         state = ThreadState(messages=[], workspace_type="patent")
         config = {"configurable": {}}
 
         prompt = apply_prompt_template(state, config)
 
-        assert "<available_features>" in prompt
-        assert "patent_outline" in prompt
+        assert "<available_capabilities>" not in prompt
+        assert "<available_skills>" not in prompt
 
-    def test_prompt_includes_selected_skill_bound_feature(self):
-        """Selected skill guidance should explicitly state the bound feature."""
+    def test_prompt_surfaces_selected_skill_to_model(self):
+        """Selected skill id from configurable is surfaced for routing context."""
         state = ThreadState(messages=[], workspace_type="sci")
         config = {"configurable": {"selected_skill": "framework-designer"}}
 
         prompt = apply_prompt_template(state, config)
 
+        # Legacy guidance/bound-feature blob is gone — only the selection itself
+        # is surfaced now; the chat agent routes via DB capability catalog.
         assert "The user selected `framework-designer`" in prompt
-        assert "Bound feature: `framework_outline`." in prompt
+        assert "Bound feature" not in prompt
         assert "run_workspace_feature" not in prompt
         # After chat-bypass removal: skills are launched directly, not via proposals.
         assert "launch_feature" in prompt
@@ -248,7 +294,7 @@ class TestApplyPromptTemplate:
 
 
 class TestMakeLeadAgent:
-    """Tests for make_lead_agent function."""
+    """Tests for make_chat_agent function."""
 
     class _InjectMemoryMiddleware(Middleware):
         async def before_model(self, state, config):
@@ -295,11 +341,11 @@ class TestMakeLeadAgent:
                 generations=[ChatGeneration(message=AIMessage(content="ok"))]
             )
 
-    def test_make_lead_agent_accepts_middlewares(self):
-        """Test that make_lead_agent accepts middleware chain."""
+    def test_make_chat_agent_accepts_middlewares(self):
+        """Test that make_chat_agent accepts middleware chain."""
         from unittest.mock import MagicMock, patch
 
-        from src.agents.lead_agent.dynamic_tools import DynamicToolNode
+        from src.agents.chat_agent.dynamic_tools import DynamicToolNode
 
         workspace_service = MagicMock()
         index_service = MagicMock()
@@ -317,14 +363,14 @@ class TestMakeLeadAgent:
 
         # Mock all the external dependencies
         with patch("src.models.factory.create_chat_model") as mock_model, \
-             patch("src.agents.lead_agent.agent.get_available_tools") as mock_tools, \
-             patch("src.agents.lead_agent.agent.create_react_agent") as mock_create_agent:
+             patch("src.agents.chat_agent.agent.get_available_tools") as mock_tools, \
+             patch("src.agents.chat_agent.agent.create_react_agent") as mock_create_agent:
 
             mock_model.return_value = MagicMock()
             mock_tools.return_value = []
             mock_create_agent.return_value = MagicMock()
 
-            agent = make_lead_agent(config, middlewares=middlewares)
+            agent = make_chat_agent(config, middlewares=middlewares)
 
             assert agent is not None
             mock_create_agent.assert_called_once()
@@ -334,8 +380,8 @@ class TestMakeLeadAgent:
             assert kwargs["state_schema"] is ThreadState
             assert "checkpointer" in kwargs
 
-    def test_make_lead_agent_without_middlewares(self):
-        """Test that make_lead_agent works without middlewares."""
+    def test_make_chat_agent_without_middlewares(self):
+        """Test that make_chat_agent works without middlewares."""
         from src.config.config_loader import MiddlewaresConfig, SummarizationConfig
 
         config = {"configurable": {"model_name": "gpt-4o"}}
@@ -347,20 +393,20 @@ class TestMakeLeadAgent:
         )
 
         with patch("src.models.factory.create_chat_model") as mock_model, \
-             patch("src.agents.lead_agent.agent.get_available_tools") as mock_tools, \
-             patch("src.agents.lead_agent.agent.create_react_agent") as mock_create_agent, \
+             patch("src.agents.chat_agent.agent.get_available_tools") as mock_tools, \
+             patch("src.agents.chat_agent.agent.create_react_agent") as mock_create_agent, \
              patch("src.config.config_loader.get_app_config", return_value=mock_app_config):
 
             mock_model.return_value = MagicMock()
             mock_tools.return_value = []
             mock_create_agent.return_value = MagicMock()
 
-            agent = make_lead_agent(config)
+            agent = make_chat_agent(config)
 
             assert agent is not None
             mock_create_agent.assert_called_once()
 
-    def test_make_lead_agent_prompt_callable_preserves_thread_messages(self):
+    def test_make_chat_agent_prompt_callable_preserves_thread_messages(self):
         """Prompt callable must prepend a system message instead of replacing history."""
         fake_agent = MagicMock()
 
@@ -368,13 +414,13 @@ class TestMakeLeadAgent:
             "src.models.factory.create_chat_model",
             return_value=MagicMock(),
         ), patch(
-            "src.agents.lead_agent.agent.get_available_tools",
+            "src.agents.chat_agent.agent.get_available_tools",
             return_value=[],
         ), patch(
-            "src.agents.lead_agent.agent.create_react_agent",
+            "src.agents.chat_agent.agent.create_react_agent",
             return_value=fake_agent,
         ) as mock_create_agent:
-            make_lead_agent({"configurable": {"model_name": "gpt-4o"}}, middlewares=[])
+            make_chat_agent({"configurable": {"model_name": "gpt-4o"}}, middlewares=[])
 
         prompt_fn = mock_create_agent.call_args.kwargs["prompt"]
         rendered = prompt_fn({"messages": [HumanMessage(content="如何做实验设计？")]})
@@ -387,7 +433,7 @@ class TestMakeLeadAgent:
         assert rendered[1].content == "如何做实验设计？"
 
     @pytest.mark.asyncio
-    async def test_make_lead_agent_runtime_prompt_includes_thread_state_context(self):
+    async def test_make_chat_agent_runtime_prompt_includes_thread_state_context(self):
         """Runtime-injected ThreadState context should survive into the final model prompt."""
         capture_model = self._CaptureChatModel()
 
@@ -395,10 +441,10 @@ class TestMakeLeadAgent:
             "src.models.factory.create_chat_model",
             return_value=capture_model,
         ), patch(
-            "src.agents.lead_agent.agent.get_available_tools",
+            "src.agents.chat_agent.agent.get_available_tools",
             return_value=[],
         ):
-            agent = make_lead_agent(
+            agent = make_chat_agent(
                 {"configurable": {"model_name": "gpt-4o"}},
                 middlewares=[
                     self._InjectMemoryMiddleware(),
@@ -420,54 +466,54 @@ class TestMakeLeadAgent:
         assert "Citation Style: IEEE" in system_prompt
         assert capture_model._captured_messages[1].content == "如何做实验设计？"
 
-    def test_make_lead_agent_defaults_vision_from_default_model(self):
+    def test_make_chat_agent_defaults_vision_from_default_model(self):
         """Default model resolution should happen before inferring vision support."""
         fake_agent = MagicMock()
 
         with patch(
-            "src.agents.lead_agent.agent.get_default_model_id",
+            "src.agents.chat_agent.agent.get_default_model_id",
             return_value="gpt-4o",
         ), patch(
-            "src.agents.lead_agent.agent.model_supports_vision",
+            "src.agents.chat_agent.agent.model_supports_vision",
             side_effect=lambda model_name: str(model_name).startswith("gpt-4o"),
         ), patch(
             "src.models.factory.create_chat_model"
         ) as mock_model, patch(
-            "src.agents.lead_agent.agent.get_available_tools",
+            "src.agents.chat_agent.agent.get_available_tools",
             return_value=[],
         ), patch(
-            "src.agents.lead_agent.agent.create_react_agent",
+            "src.agents.chat_agent.agent.create_react_agent",
             return_value=fake_agent,
         ):
             mock_model.return_value = MagicMock()
 
-            agent = make_lead_agent({"configurable": {}}, middlewares=[])
+            agent = make_chat_agent({"configurable": {}}, middlewares=[])
 
         configurable = agent._default_config["configurable"]
         assert configurable["model_name"] == "gpt-4o"
         assert configurable["supports_vision"] is True
 
     @pytest.mark.asyncio
-    async def test_make_lead_agent_recomputes_vision_for_runtime_model_override(self):
+    async def test_make_chat_agent_recomputes_vision_for_runtime_model_override(self):
         """Runtime model overrides should not inherit stale vision flags."""
         fake_agent = MagicMock()
         fake_agent.ainvoke = AsyncMock(return_value={"messages": []})
 
         with patch(
-            "src.agents.lead_agent.agent.model_supports_vision",
+            "src.agents.chat_agent.agent.model_supports_vision",
             side_effect=lambda model_name: str(model_name).startswith("gpt-4o"),
         ), patch(
             "src.models.factory.create_chat_model"
         ) as mock_model, patch(
-            "src.agents.lead_agent.agent.get_available_tools",
+            "src.agents.chat_agent.agent.get_available_tools",
             return_value=[],
         ), patch(
-            "src.agents.lead_agent.agent.create_react_agent",
+            "src.agents.chat_agent.agent.create_react_agent",
             return_value=fake_agent,
         ):
             mock_model.return_value = MagicMock()
 
-            agent = make_lead_agent(
+            agent = make_chat_agent(
                 {"configurable": {"model_name": "gpt-4o"}},
                 middlewares=[],
             )
@@ -481,18 +527,18 @@ class TestMakeLeadAgent:
         assert runtime_config["configurable"]["supports_vision"] is False
 
     @pytest.mark.asyncio
-    async def test_make_lead_agent_applies_before_model_middlewares_on_invoke(self):
+    async def test_make_chat_agent_applies_before_model_middlewares_on_invoke(self):
         """Runtime middleware chain should modify the state before agent execution."""
         config = {"configurable": {"model_name": "gpt-4o"}}
         fake_agent = MagicMock()
         fake_agent.ainvoke = AsyncMock(return_value={"messages": []})
 
         with patch("src.models.factory.create_chat_model") as mock_model, \
-             patch("src.agents.lead_agent.agent.get_available_tools", return_value=[]), \
-             patch("src.agents.lead_agent.agent.create_react_agent", return_value=fake_agent):
+             patch("src.agents.chat_agent.agent.get_available_tools", return_value=[]), \
+             patch("src.agents.chat_agent.agent.create_react_agent", return_value=fake_agent):
             mock_model.return_value = MagicMock()
 
-            agent = make_lead_agent(
+            agent = make_chat_agent(
                 config,
                 middlewares=[self._InjectMemoryMiddleware()],
             )
@@ -502,7 +548,7 @@ class TestMakeLeadAgent:
         assert invoked_state["memory_context"] == "<academic_memory>偏好 IEEE</academic_memory>"
 
     @pytest.mark.asyncio
-    async def test_make_lead_agent_astream_with_result_yields_tokens_and_final_state(self):
+    async def test_make_chat_agent_astream_with_result_yields_tokens_and_final_state(self):
         """Streaming wrapper should preserve middleware application and final result capture."""
         config = {"configurable": {"model_name": "gpt-4o"}}
 
@@ -525,11 +571,11 @@ class TestMakeLeadAgent:
                 yield ("values", {"messages": [SimpleNamespace(content="hello world")]})
 
         with patch("src.models.factory.create_chat_model") as mock_model, \
-             patch("src.agents.lead_agent.agent.get_available_tools", return_value=[]), \
-             patch("src.agents.lead_agent.agent.create_react_agent", return_value=_FakeCompiledAgent()):
+             patch("src.agents.chat_agent.agent.get_available_tools", return_value=[]), \
+             patch("src.agents.chat_agent.agent.create_react_agent", return_value=_FakeCompiledAgent()):
             mock_model.return_value = MagicMock()
 
-            agent = make_lead_agent(
+            agent = make_chat_agent(
                 config,
                 middlewares=[self._InjectMemoryMiddleware()],
             )
@@ -548,7 +594,7 @@ class TestMakeLeadAgent:
 
 def test_get_available_tools_includes_launch_feature():
     """lead_agent must expose launch_feature so it can start workspace features."""
-    from src.agents.lead_agent.agent import get_available_tools
+    from src.agents.chat_agent.agent import get_available_tools
 
     tools = get_available_tools()
     tool_names = {getattr(t, "name", "") for t in tools}

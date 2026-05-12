@@ -4,7 +4,7 @@ Sourced from real bug reports (spec §1.1). Used both to:
 1. Lint LLM responses post-parse (enforced in tests).
 2. Negative examples in the system prompt itself.
 """
-from src.agents.lead_agent.blocks import (
+from src.agents.chat_agent.blocks import (
     AgentMessage,
     QuestionCardBlock,
     ResultCardBlock,

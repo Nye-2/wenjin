@@ -6,7 +6,7 @@ import pytest
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
-from src.agents.lead_agent.dynamic_tools import DynamicToolNode
+from src.agents.chat_agent.dynamic_tools import DynamicToolNode
 from src.config.llm_config import LLMSettings
 
 

@@ -15,7 +15,6 @@ from src.database import Thread
 from src.models.router import route_model, validate_requested_model
 from src.services.workspace_skill_labels import (
     list_workspace_types,
-    resolve_workspace_skill_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,7 +59,7 @@ class ThreadService:
         """Attach resolved workspace skill metadata to a thread object."""
         cast_thread: Any = thread
         cast_thread.workspace_type = workspace_type
-        cast_thread.skill_name = resolve_workspace_skill_name(workspace_type, thread.skill)
+        cast_thread.skill_name = None
         return thread
 
     async def _attach_workspace_skill_metadata(

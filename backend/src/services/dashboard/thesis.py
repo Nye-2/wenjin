@@ -9,7 +9,6 @@ from sqlalchemy import func, select
 from src.artifacts.types import ArtifactType
 from src.database import Artifact, ReferenceLibraryStatus, WorkspaceReference
 from src.services.dashboard.shared import DashboardStatusSharedMixin
-from src.services.workspace_skill_labels import list_workspace_feature_creator_ids
 
 
 class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
@@ -19,7 +18,7 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
 
     @staticmethod
     def _creator_ids(feature_id: str) -> tuple[str, ...]:
-        return list_workspace_feature_creator_ids("thesis", feature_id)
+        return ()
 
     async def _get_deep_research_status(self, workspace_id: str) -> dict[str, Any]:
         running_count = await self._count_running_workspace_feature_tasks(

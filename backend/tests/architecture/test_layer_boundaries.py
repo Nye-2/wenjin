@@ -69,7 +69,6 @@ class TestRouterRegistration:
             "models",
             "references",
             "runs",
-            "skills",
             "templates",
             "thread_runs",
             "threads",

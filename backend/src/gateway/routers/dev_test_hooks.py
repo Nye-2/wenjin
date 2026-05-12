@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.agents.lead_agent.blocks import AgentMessage
+from src.agents.chat_agent.blocks import AgentMessage
 from src.database import User
 from src.gateway.deps.academic import get_workspace_service
 from src.gateway.deps.core import get_db
@@ -60,7 +60,7 @@ async def clear_llm() -> None:
 def pop_next() -> AgentMessage | None:
     """Pop the next scripted AgentMessage, or return None if empty.
 
-    Called from src.agents.lead_agent.structured_output.parse_with_fallback
+    Called from src.agents.chat_agent.structured_output.parse_with_fallback
     when settings.environment != "production".
     """
     return _queue.popleft() if _queue else None

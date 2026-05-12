@@ -7,7 +7,6 @@ from typing import Any
 
 from src.runtime.runs import RunManager, RunRecord
 from src.runtime.serialization import serialize_channel_values
-from src.services.workspace_skill_labels import resolve_thread_skill_name
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +51,7 @@ async def build_wait_payload(
             "title": thread.title,
             "model": thread.model,
             "skill": thread.skill,
-            "skill_name": resolve_thread_skill_name(thread),
+            "skill_name": None,
             "messages": thread.messages or [],
         }
     )

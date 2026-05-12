@@ -42,7 +42,6 @@ from src.services.thread_billing import (
     usage_to_metadata,
 )
 from src.services.thread_events import publish_thread_updated, set_thread_status
-from src.services.workspace_skill_labels import resolve_thread_skill_name
 from src.tools.builtins.artifacts import (
     build_presented_artifact_items,
     build_presented_artifacts_block,
@@ -731,7 +730,7 @@ class ThreadTurnHandler:
             thread.id,
             status="running",
             skill=thread.skill,
-            skill_name=resolve_thread_skill_name(thread),
+            skill_name=None,
         )
         return PreparedThreadTurn(request=request, thread=thread)
 
@@ -1063,7 +1062,7 @@ class ThreadTurnHandler:
             thread.id,
             status="completed",
             skill=thread.skill,
-            skill_name=resolve_thread_skill_name(thread),
+            skill_name=None,
         )
         return assistant_message
 
@@ -1097,7 +1096,7 @@ class ThreadTurnHandler:
             thread.id,
             status="failed",
             skill=thread.skill,
-            skill_name=resolve_thread_skill_name(thread),
+            skill_name=None,
         )
 
     async def _generate_prepared_reply(
@@ -1175,7 +1174,7 @@ def _build_thread_agent_runtime(
     artifact_service: ArtifactService | None = None,
     reference_service: Any | None = None,
 ) -> _ThreadAgentRuntime:
-    from src.agents.lead_agent.agent import build_pipeline
+    from src.agents.chat_agent.agent import build_pipeline
 
     workspace_id = _resolve_workspace_id(request, thread)
     effective_skill = thread.skill
@@ -1230,7 +1229,7 @@ async def generate_thread_response(
     budget_checked: bool = False,
 ) -> GeneratedThreadReply:
     """Generate a thread response through the unified lead-agent pipeline."""
-    from src.agents.lead_agent.agent import make_lead_agent
+    from src.agents.chat_agent.agent import make_chat_agent
 
     # Handler.prepare_turn performs the production pre-persist budget gate.
     # Keep this fallback for direct unit-level calls into generate_thread_response.
@@ -1247,7 +1246,7 @@ async def generate_thread_response(
         reference_service=reference_service,
     )
 
-    agent = cast(Any, make_lead_agent(runtime.config, middlewares=runtime.middlewares))
+    agent = cast(Any, make_chat_agent(runtime.config, middlewares=runtime.middlewares))
     try:
         result = await asyncio.wait_for(
             agent.ainvoke(runtime.initial_state, config=runtime.config),
@@ -1288,7 +1287,7 @@ def stream_thread_response(
     budget_checked: bool = False,
 ) -> _ReplyStreamRun:
     """Stream a thread response while still returning the final structured reply."""
-    from src.agents.lead_agent.agent import make_lead_agent
+    from src.agents.chat_agent.agent import make_chat_agent
 
     reply_future: asyncio.Future[GeneratedThreadReply] = asyncio.get_running_loop().create_future()
 
@@ -1309,7 +1308,7 @@ def stream_thread_response(
             )
             agent = cast(
                 Any,
-                make_lead_agent(runtime.config, middlewares=runtime.middlewares),
+                make_chat_agent(runtime.config, middlewares=runtime.middlewares),
             )
 
             if not _model_supports_streaming(runtime.effective_model):

@@ -2,7 +2,7 @@
 import pytest
 from pydantic import ValidationError
 
-from src.agents.lead_agent.blocks import (
+from src.agents.chat_agent.blocks import (
     AgentMessage,
     QuestionCardBlock,
     ResultCardBlock,

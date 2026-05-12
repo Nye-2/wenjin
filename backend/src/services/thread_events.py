@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from src.database import get_db_session
 from src.runtime.serialization import serialize_lc_object
 from src.services.thread_billing import (
     extract_persisted_message_usage,
@@ -14,11 +13,6 @@ from src.services.thread_billing import (
 from src.services.workspace_activity_contracts import (
     build_thread_activity_item,
     serialize_activity_item,
-)
-from src.services.workspace_skill_labels import (
-    get_workspace_type,
-    resolve_thread_skill_name,
-    resolve_workspace_skill_name,
 )
 from src.workspace_events import publish_workspace_event
 
@@ -93,7 +87,7 @@ def serialize_thread_summary(thread: Thread) -> dict[str, Any]:
         "title": thread.title,
         "model": thread.model,
         "skill": thread.skill,
-        "skill_name": resolve_thread_skill_name(thread),
+        "skill_name": None,
         "message_count": message_count,
         "last_message_preview": resolved_last_preview,
         "last_message_role": resolved_last_message_role,
@@ -189,18 +183,10 @@ async def set_thread_status(
     subagent_count: int = 0,
 ) -> None:
     """Best-effort thread status update for Redis and workspace SSE."""
+    # Legacy in-process skill name lookup is gone; capability/skill catalog
+    # now lives in the DB.  Callers may pass an explicit ``skill_name`` for
+    # display, but we no longer resolve it from a thread.skill foreign key.
     resolved_skill_name = skill_name
-    if resolved_skill_name is None and skill:
-        try:
-            async with get_db_session() as db:
-                workspace_type = await get_workspace_type(db, workspace_id)
-            resolved_skill_name = resolve_workspace_skill_name(workspace_type, skill)
-        except Exception:
-            logger.debug(
-                "Failed to resolve workspace skill label for thread %s",
-                thread_id,
-                exc_info=True,
-            )
 
     try:
         from src.academic.cache.redis_client import redis_client

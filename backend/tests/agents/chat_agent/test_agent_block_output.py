@@ -9,12 +9,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.agents.lead_agent.agent import (
+from src.agents.chat_agent.agent import (
     _concat_text_blocks,
     _MiddlewareWrappedAgent,
 )
-from src.agents.lead_agent.blocks import AgentMessage, StatusLineBlock, TextBlock
-from src.agents.lead_agent.prompts.jargon import assert_no_jargon
+from src.agents.chat_agent.blocks import AgentMessage, StatusLineBlock, TextBlock
+from src.agents.chat_agent.prompts.jargon import assert_no_jargon
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -67,7 +67,7 @@ async def test_lead_agent_reply_carries_blocks(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "src.agents.lead_agent.agent.parse_with_fallback",
+        "src.agents.chat_agent.structured_output.parse_with_fallback",
         AsyncMock(return_value=expected_msg),
     )
 
@@ -97,7 +97,7 @@ async def test_lead_agent_reply_content_concatenates_text_blocks(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "src.agents.lead_agent.agent.parse_with_fallback",
+        "src.agents.chat_agent.structured_output.parse_with_fallback",
         AsyncMock(return_value=msg),
     )
 
@@ -128,7 +128,7 @@ async def test_lead_agent_reply_no_jargon_in_output(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "src.agents.lead_agent.agent.parse_with_fallback",
+        "src.agents.chat_agent.structured_output.parse_with_fallback",
         AsyncMock(return_value=msg),
     )
 
@@ -185,7 +185,7 @@ async def test_lead_agent_preserves_existing_response_blocks(monkeypatch):
     fake_parse = AsyncMock(
         return_value=AgentMessage(blocks=[TextBlock(content="should not appear")])
     )
-    monkeypatch.setattr("src.agents.lead_agent.agent.parse_with_fallback", fake_parse)
+    monkeypatch.setattr("src.agents.chat_agent.structured_output.parse_with_fallback", fake_parse)
 
     base_model = MagicMock()
     wrapped = _MiddlewareWrappedAgent(

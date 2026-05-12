@@ -12,7 +12,6 @@ from src.application.errors import ApplicationError
 from src.application.handlers.thread_turn_handler import ThreadTurnHandler
 from src.application.results import ThreadTurnRequest
 from src.services.thread_events import set_thread_status
-from src.services.workspace_skill_labels import resolve_thread_skill_name
 
 from ..stream_bridge import StreamBridge
 from .manager import RunManager, RunRecord
@@ -108,7 +107,7 @@ async def _set_idle_status_if_no_other_active_runs(
             prepared.thread.id,
             status="idle",
             skill=prepared.thread.skill,
-            skill_name=resolve_thread_skill_name(prepared.thread),
+            skill_name=None,
         )
     except Exception:
         logger.debug(
@@ -157,7 +156,7 @@ async def run_thread_turn(
                 "type": "thread_id",
                 "thread_id": resolved_thread_id,
                 "skill": prepared.thread.skill,
-                "skill_name": resolve_thread_skill_name(prepared.thread),
+                "skill_name": None,
             },
         )
 

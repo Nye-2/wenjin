@@ -1,6 +1,6 @@
 """Agents module initialization."""
 
-from .lead_agent.agent import make_lead_agent
+from .chat_agent.agent import make_chat_agent
 from .thread_state import (
     AgentState,
     SandboxState,
@@ -21,5 +21,5 @@ __all__ = [
     "merge_artifacts",
     "merge_cited_references",
     "merge_viewed_images",
-    "make_lead_agent",
+    "make_chat_agent",
 ]

@@ -28,10 +28,6 @@ from src.application.results import (
 from src.application.workspace_resolvers import resolve_workspace_type
 from src.services.credit_service import CreditService
 from src.services.references import WorkspaceReferenceService
-from src.services.workspace_skill_labels import (
-    resolve_workspace_feature_skill_id,
-    resolve_workspace_feature_skill_name,
-)
 from src.task.service import ConcurrencyLimitError, TaskService
 from src.workspace_features import get_workspace_feature
 
@@ -70,20 +66,13 @@ def build_task_payload(
     execution_session_id: str | None = None,
     execution_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build the canonical task payload for workspace feature execution."""
+    """Build the canonical task payload for workspace feature execution.
+
+    The legacy ``skill_id`` / ``skill_name`` fields are retained in the payload
+    schema for backward compatibility with downstream consumers, but they now
+    pass through only the caller-provided ``skill_id`` (no DB resolution).
+    """
     sanitized_params = dict(params)
-    resolved_skill_id = resolve_workspace_feature_skill_id(
-        workspace_type,
-        feature.id,
-        sanitized_params,
-        preferred_skill_id=skill_id,
-    )
-    resolved_skill_name = resolve_workspace_feature_skill_name(
-        workspace_type,
-        feature.id,
-        sanitized_params,
-        preferred_skill_id=skill_id,
-    )
     workspace_description = _merge_workspace_description_with_thread_context(
         workspace_description=getattr(workspace, "description", ""),
         params=sanitized_params,
@@ -103,8 +92,8 @@ def build_task_payload(
         "thread_id": thread_id,
         "execution_session_id": execution_session_id,
         "execution_id": execution_id,
-        "skill_id": resolved_skill_id,
-        "skill_name": resolved_skill_name,
+        "skill_id": skill_id,
+        "skill_name": None,
         "params": sanitized_params,
     }
 

@@ -40,27 +40,39 @@ export default function V2Page({
   const [features, setFeatures] = useState<WorkspaceFeature[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
     getWorkspace(id)
-      .then((w) => setWorkspace({ name: w.name, type: w.type }))
-      .catch(() => {});
-    // Use skills endpoint (features endpoint doesn't exist on backend).
-    // Skill shape is compatible enough for ProductIntro display.
-    authorizedFetch(`/api/workspaces/${id}/skills`)
-      .then((res) => (res.ok ? res.json() : { skills: [] }))
-      .then((data: { skills?: Array<Record<string, unknown>> }) => {
-        const mapped: WorkspaceFeature[] = (data.skills ?? []).map((s) => ({
-          id: s.id as string,
-          name: (s.name as string) ?? "",
-          description: (s.description as string) ?? "",
-          icon: (s.icon as string) ?? "",
+      .then(async (w) => {
+        if (cancelled) return;
+        setWorkspace({ name: w.name, type: w.type });
+        const res = await authorizedFetch(
+          `/api/capabilities?workspace_type=${encodeURIComponent(w.type)}`
+        );
+        if (!res.ok) {
+          return;
+        }
+        const data = (await res.json()) as {
+          items?: Array<Record<string, unknown>>;
+        };
+        if (cancelled) return;
+        const mapped: WorkspaceFeature[] = (data.items ?? []).map((c) => ({
+          id: c.id as string,
+          name: (c.display_name as string) ?? (c.id as string) ?? "",
+          description:
+            (c.description as string) ||
+            (c.intent_description as string) ||
+            "",
+          icon: "",
           agent: "",
           agentLabel: "",
           stages: [],
-          color: s.color as string | undefined,
         }));
         setFeatures(mapped);
       })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const typeConfig = workspace

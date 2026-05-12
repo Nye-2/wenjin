@@ -1,4 +1,11 @@
-"""Workspace-aware skill label helpers for API and SSE contracts."""
+"""Workspace metadata helpers (workspace type lookup).
+
+Historically this module exposed a ``skill name`` resolver layer over the
+legacy :mod:`src.workspace_features.skills` registry.  That registry is gone —
+capabilities and skills now live in the DB (see ``capabilities`` and
+``capability_skills`` tables).  Only the workspace-type lookup helpers
+survive, since they read directly from the ``workspaces`` table.
+"""
 
 from __future__ import annotations
 
@@ -10,11 +17,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Workspace
-from src.workspace_features.skills import (
-    get_skill_by_id,
-    list_feature_skill_ids,
-    resolve_skill_for_feature,
-)
 
 
 def normalize_workspace_type(workspace_type: Any) -> str | None:
@@ -26,64 +28,6 @@ def normalize_workspace_type(workspace_type: Any) -> str | None:
     return normalized or None
 
 
-def resolve_workspace_skill_name(
-    workspace_type: Any,
-    skill_id: str | None,
-) -> str | None:
-    """Resolve a thread skill label from canonical workspace metadata."""
-    normalized_skill_id = (skill_id or "").strip()
-    if not normalized_skill_id:
-        return None
-    skill = get_skill_by_id(normalize_workspace_type(workspace_type), normalized_skill_id)
-    return skill.name if skill is not None else None
-
-
-def resolve_workspace_feature_skill_id(
-    workspace_type: Any,
-    feature_id: str | None,
-    params: dict[str, Any] | None = None,
-    *,
-    preferred_skill_id: str | None = None,
-) -> str | None:
-    """Resolve the canonical thread skill ID for a feature execution."""
-    skill = resolve_skill_for_feature(
-        normalize_workspace_type(workspace_type),
-        str(feature_id or "").strip(),
-        params=params,
-        preferred_skill_id=preferred_skill_id,
-    )
-    return skill.id if skill is not None else None
-
-
-def resolve_workspace_feature_skill_name(
-    workspace_type: Any,
-    feature_id: str | None,
-    params: dict[str, Any] | None = None,
-    *,
-    preferred_skill_id: str | None = None,
-) -> str | None:
-    """Resolve the canonical thread skill label for a feature execution."""
-    skill = resolve_skill_for_feature(
-        normalize_workspace_type(workspace_type),
-        str(feature_id or "").strip(),
-        params=params,
-        preferred_skill_id=preferred_skill_id,
-    )
-    return skill.name if skill is not None else None
-
-
-def list_workspace_feature_creator_ids(
-    workspace_type: Any,
-    feature_id: str | None,
-) -> tuple[str, ...]:
-    """Return canonical creator skill IDs for a feature's artifacts."""
-    normalized_workspace_type = normalize_workspace_type(workspace_type)
-    normalized_feature_id = str(feature_id or "").strip()
-    if not normalized_workspace_type or not normalized_feature_id:
-        return ()
-    return list_feature_skill_ids(normalized_workspace_type, normalized_feature_id)
-
-
 def resolve_thread_workspace_type(thread: Any) -> str | None:
     """Best-effort workspace type lookup for thread-like objects."""
     explicit_workspace_type = normalize_workspace_type(
@@ -93,17 +37,6 @@ def resolve_thread_workspace_type(thread: Any) -> str | None:
         return explicit_workspace_type
     workspace = getattr(thread, "workspace", None)
     return normalize_workspace_type(getattr(workspace, "type", None))
-
-
-def resolve_thread_skill_name(thread: Any) -> str | None:
-    """Best-effort skill label lookup for thread-like objects."""
-    explicit_skill_name = getattr(thread, "skill_name", None)
-    if isinstance(explicit_skill_name, str) and explicit_skill_name.strip():
-        return explicit_skill_name.strip()
-    return resolve_workspace_skill_name(
-        resolve_thread_workspace_type(thread),
-        getattr(thread, "skill", None),
-    )
 
 
 async def list_workspace_types(

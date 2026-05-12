@@ -6,7 +6,7 @@ Spec mandates this exists.
 import logging
 from typing import Any
 
-from src.agents.lead_agent.blocks import AgentMessage, TextBlock
+from src.agents.chat_agent.blocks import AgentMessage, TextBlock
 from src.config.app_config import get_settings
 
 logger = logging.getLogger(__name__)

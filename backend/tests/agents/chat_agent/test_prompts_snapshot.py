@@ -3,7 +3,7 @@
 Updates require explicit reviewer approval of snapshot diff:
   uv run pytest tests/agents/lead_agent/test_prompts_snapshot.py --snapshot-update
 """
-from src.agents.lead_agent.prompts import system as system_prompts
+from src.agents.chat_agent.prompts import system as system_prompts
 
 
 def test_lead_agent_system_prompt_sci(snapshot):
@@ -23,7 +23,7 @@ def test_system_prompt_mentions_block_kinds():
 
 
 def test_system_prompt_mentions_no_blacklist_tokens():
-    from src.agents.lead_agent.prompts.jargon import BLACKLIST
+    from src.agents.chat_agent.prompts.jargon import BLACKLIST
     rendered = system_prompts.render("sci")
     # The prompt may mention blacklist tokens *as negative examples* explicitly
     # framed as "do not say". Forbid raw appearance in the body otherwise.
@@ -31,7 +31,7 @@ def test_system_prompt_mentions_no_blacklist_tokens():
     for token in BLACKLIST:
         assert token not in body, f"token {token!r} appears in prompt body"
 
-from src.agents.lead_agent.prompts import skills as skill_prompts
+from src.agents.chat_agent.prompts import skills as skill_prompts
 
 
 def test_skill_paper_analyst_prompt(snapshot):

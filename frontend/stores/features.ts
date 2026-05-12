@@ -1,16 +1,13 @@
 // frontend/stores/features.ts
 
 import { create } from 'zustand';
-import { getWorkspaceFeatures, getWorkspaceSkills, WorkspaceThreadSkill, WorkspaceFeature } from '@/lib/api';
+import { getWorkspaceFeatures, WorkspaceFeature } from '@/lib/api';
 
 interface FeaturesState {
   activeWorkspaceId: string | null;
   featuresByWorkspace: Record<string, WorkspaceFeature[]>;
-  skillsByWorkspace: Record<string, WorkspaceThreadSkill[]>;
   featureRequestIdByWorkspace: Record<string, string>;
-  skillRequestIdByWorkspace: Record<string, string>;
   features: WorkspaceFeature[];
-  skills: WorkspaceThreadSkill[];
   isLoading: boolean;
   error: string | null;
 
@@ -19,9 +16,6 @@ interface FeaturesState {
   fetchFeatures: (workspaceId: string) => Promise<void>;
   getFeatureById: (featureId: string) => WorkspaceFeature | undefined;
   clearFeatures: () => void;
-  fetchSkills: (workspaceId: string) => Promise<void>;
-  getSkillById: (skillId: string) => WorkspaceThreadSkill | undefined;
-  clearSkills: () => void;
 }
 
 function normalizeWorkspaceId(value: string | null | undefined): string | null {
@@ -36,11 +30,8 @@ function createRequestId(): string {
 export const useFeaturesStore = create<FeaturesState>((set, get) => ({
   activeWorkspaceId: null,
   featuresByWorkspace: {},
-  skillsByWorkspace: {},
   featureRequestIdByWorkspace: {},
-  skillRequestIdByWorkspace: {},
   features: [],
-  skills: [],
   isLoading: false,
   error: null,
 
@@ -50,9 +41,6 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
       activeWorkspaceId: normalizedWorkspaceId,
       features: normalizedWorkspaceId
         ? state.featuresByWorkspace[normalizedWorkspaceId] ?? []
-        : [],
-      skills: normalizedWorkspaceId
-        ? state.skillsByWorkspace[normalizedWorkspaceId] ?? []
         : [],
       error: null,
     }));
@@ -125,68 +113,6 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
       isLoading: false,
     });
   },
-
-  fetchSkills: async (workspaceId: string) => {
-    const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
-    if (!normalizedWorkspaceId) {
-      set({ skills: [] });
-      return;
-    }
-
-    const requestId = createRequestId();
-    set((state) => ({
-      activeWorkspaceId: normalizedWorkspaceId,
-      skills: state.skillsByWorkspace[normalizedWorkspaceId] ?? [],
-      skillRequestIdByWorkspace: {
-        ...state.skillRequestIdByWorkspace,
-        [normalizedWorkspaceId]: requestId,
-      },
-    }));
-
-    try {
-      const data = await getWorkspaceSkills(normalizedWorkspaceId);
-      set((state) => {
-        if (state.skillRequestIdByWorkspace[normalizedWorkspaceId] !== requestId) {
-          return state;
-        }
-        const skillsByWorkspace = {
-          ...state.skillsByWorkspace,
-          [normalizedWorkspaceId]: data.skills,
-        };
-        return {
-          skillsByWorkspace,
-          skills:
-            state.activeWorkspaceId === normalizedWorkspaceId
-              ? data.skills
-              : state.skills,
-        };
-      });
-    } catch (error) {
-      set((state) => {
-        if (state.skillRequestIdByWorkspace[normalizedWorkspaceId] !== requestId) {
-          return state;
-        }
-        if (state.activeWorkspaceId !== normalizedWorkspaceId) {
-          return state;
-        }
-        return {
-          skills: state.skillsByWorkspace[normalizedWorkspaceId] ?? [],
-          error: (error as Error).message,
-        };
-      });
-    }
-  },
-
-  getSkillById: (skillId: string) => {
-    return get().skills.find((s) => s.id === skillId);
-  },
-
-  clearSkills: () =>
-    set({
-      skills: [],
-      skillsByWorkspace: {},
-      skillRequestIdByWorkspace: {},
-    }),
 }));
 
 export default useFeaturesStore;

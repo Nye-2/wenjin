@@ -40,12 +40,12 @@ def _pipeline_config(*, workspace_id: str | None = None) -> dict:
 class TestPipelineAssembly:
     def test_builds_16_layer_pipeline(self):
         """Full pipeline should have 16 layers when all features enabled."""
-        from src.agents.lead_agent.agent import build_pipeline
+        from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config(workspace_id="ws-123")
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+        with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -63,12 +63,12 @@ class TestPipelineAssembly:
 
     def test_pipeline_order(self):
         """Infrastructure middlewares should come before academic middlewares."""
-        from src.agents.lead_agent.agent import build_pipeline
+        from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config()
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+        with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -85,12 +85,12 @@ class TestPipelineAssembly:
         assert type_names[-1] == "ClarificationMiddleware"
 
     def test_lead_agent_pipeline_has_no_subagent_control_middleware(self):
-        from src.agents.lead_agent.agent import build_pipeline
+        from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config()
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+        with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -103,12 +103,12 @@ class TestPipelineAssembly:
 
     def test_summarization_included_when_enabled(self):
         """SummarizationMiddleware should be included when enabled."""
-        from src.agents.lead_agent.agent import build_pipeline
+        from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config()
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=True)), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+        with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=True)), patch(
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -120,18 +120,18 @@ class TestPipelineAssembly:
         assert "SummarizationMiddleware" in type_names
 
     def test_summarization_model_name_is_passed_from_config(self):
-        from src.agents.lead_agent.agent import build_pipeline
+        from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config()
 
         with patch(
-            "src.agents.lead_agent.agent.get_app_config",
+            "src.agents.chat_agent.agent.get_app_config",
             return_value=_mock_app_config(
                 summarization_enabled=True,
                 summarization_model_name="utility-primary",
             ),
         ), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -148,12 +148,12 @@ class TestPipelineAssembly:
 
     def test_summarization_excluded_when_disabled(self):
         """SummarizationMiddleware should be excluded when disabled."""
-        from src.agents.lead_agent.agent import build_pipeline
+        from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config()
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=False)), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+        with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=False)), patch(
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -165,13 +165,13 @@ class TestPipelineAssembly:
         assert "SummarizationMiddleware" not in type_names
 
     def test_sandbox_middleware_is_auto_included_when_provider_available(self):
-        from src.agents.lead_agent.agent import build_pipeline
+        from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config()
         mock_provider = object()
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+        with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=mock_provider,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -183,12 +183,12 @@ class TestPipelineAssembly:
         assert "SandboxMiddleware" in type_names
 
     def test_execution_middleware_is_included_when_execution_service_available(self):
-        from src.agents.lead_agent.agent import build_pipeline
+        from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config()
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+        with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -200,12 +200,12 @@ class TestPipelineAssembly:
         assert "ExecutionMiddleware" in type_names
 
     def test_tool_error_handling_middleware_is_included(self):
-        from src.agents.lead_agent.agent import build_pipeline
+        from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config()
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+        with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -217,15 +217,15 @@ class TestPipelineAssembly:
         assert "ToolErrorHandlingMiddleware" in type_names
 
     def test_memory_capture_is_enabled_without_explicit_queue(self):
-        from src.agents.lead_agent.agent import build_pipeline
+        from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config()
 
         with patch(
-            "src.agents.lead_agent.agent.get_app_config",
+            "src.agents.chat_agent.agent.get_app_config",
             return_value=_mock_app_config(memory_enabled=True),
         ), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -242,12 +242,12 @@ class TestPipelineAssembly:
 
     def test_pipeline_validates_ordering_constraints(self):
         """validate_pipeline should accept a correctly ordered pipeline."""
-        from src.agents.lead_agent.agent import build_pipeline, validate_pipeline
+        from src.agents.chat_agent.agent import build_pipeline, validate_pipeline
 
         config = _pipeline_config()
 
-        with patch("src.agents.lead_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.lead_agent.agent.get_sandbox_provider",
+        with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
+            "src.agents.chat_agent.agent.get_sandbox_provider",
             return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
@@ -260,7 +260,7 @@ class TestPipelineAssembly:
 
     def test_pipeline_validation_rejects_wrong_clarification_position(self):
         """ClarificationMiddleware not last should raise ValueError."""
-        from src.agents.lead_agent.agent import validate_pipeline
+        from src.agents.chat_agent.agent import validate_pipeline
         from src.agents.middlewares import ClarificationMiddleware, ThreadDataMiddleware
         from src.agents.middlewares.base import Middleware
 
@@ -276,7 +276,7 @@ class TestPipelineAssembly:
 
     def test_pipeline_validation_rejects_wrong_thread_data_position(self):
         """ThreadDataMiddleware not first should raise ValueError."""
-        from src.agents.lead_agent.agent import validate_pipeline
+        from src.agents.chat_agent.agent import validate_pipeline
         from src.agents.middlewares import ClarificationMiddleware, ThreadDataMiddleware
         from src.agents.middlewares.base import Middleware
 

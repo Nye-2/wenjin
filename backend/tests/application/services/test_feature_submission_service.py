@@ -169,11 +169,13 @@ class TestBuildTaskPayload:
         assert payload["skill_name"] is None
         assert payload["params"] == {}
 
-    def test_resolves_canonical_skill_for_known_feature(self):
+    def test_skill_fields_passthrough_caller_value(self):
+        """Legacy in-process skill catalog is gone; skill_id is whatever the
+        caller passed (or None) and skill_name is always None."""
         ws = _make_workspace()
         feature = _make_feature("deep_research", "深度调研")
 
-        payload = build_task_payload(
+        payload_no_skill = build_task_payload(
             workspace=ws,
             workspace_id="ws-1",
             workspace_type="thesis",
@@ -181,9 +183,20 @@ class TestBuildTaskPayload:
             params={"query": "agent"},
             thread_id="t-1",
         )
+        assert payload_no_skill["skill_id"] is None
+        assert payload_no_skill["skill_name"] is None
 
-        assert payload["skill_id"] == "deep-research"
-        assert payload["skill_name"] == "深度调研"
+        payload_with_skill = build_task_payload(
+            workspace=ws,
+            workspace_id="ws-1",
+            workspace_type="thesis",
+            feature=feature,
+            params={"query": "agent"},
+            thread_id="t-1",
+            skill_id="custom-skill",
+        )
+        assert payload_with_skill["skill_id"] == "custom-skill"
+        assert payload_with_skill["skill_name"] is None
 
 
 # ============ Unit Tests: FeatureSubmissionService ============
@@ -329,8 +342,8 @@ class TestFeatureSubmissionService:
         lit_service.count_references.assert_not_called()
 
         submit_payload = task_service.submit_task.await_args.kwargs["payload"]
-        assert submit_payload["skill_id"] == "framework-designer"
-        assert submit_payload["skill_name"] == "大纲设计"
+        assert submit_payload["skill_id"] is None
+        assert submit_payload["skill_name"] is None
 
     @pytest.mark.asyncio
     @patch("src.application.services.feature_submission_service.get_workspace_feature")
@@ -367,8 +380,8 @@ class TestFeatureSubmissionService:
 
         submit_payload = task_service.submit_task.await_args.kwargs["payload"]
         assert submit_payload["params"]["action"] == "write_all"
-        assert submit_payload["skill_id"] == "fullpaper-writer"
-        assert submit_payload["skill_name"] == "论文撰写"
+        assert submit_payload["skill_id"] is None
+        assert submit_payload["skill_name"] is None
         assert "action" not in submit_payload
 
     @pytest.mark.asyncio
@@ -432,8 +445,8 @@ class TestFeatureSubmissionService:
         task_service.submit_task.assert_called_once()
 
         submit_payload = task_service.submit_task.await_args.kwargs["payload"]
-        assert submit_payload["skill_id"] == "deep-research"
-        assert submit_payload["skill_name"] == "深度调研"
+        assert submit_payload["skill_id"] is None
+        assert submit_payload["skill_name"] is None
         credit_service.can_start_feature_task.assert_awaited_once_with("user-1")
         credit_service.consume_for_feature.assert_not_called()
 

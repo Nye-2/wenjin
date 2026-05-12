@@ -924,17 +924,6 @@ export interface FeatureStage {
   label: string;
 }
 
-export interface WorkspaceThreadSkill {
-  id: string;
-  name: string;
-  description: string;
-  featureId: string;
-  icon: string;
-  color: string;
-  guidancePrompt: string;
-  followUpSkills: string[];
-}
-
 export interface WorkspaceFeature {
   id: string;
   name: string;

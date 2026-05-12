@@ -119,9 +119,9 @@ async def test_build_thread_activity_uses_latest_message_preview_and_skill():
     assert items[0]["title"] == "Literature review thread"
     assert items[0]["summary"] == "I found three themes across the literature."
     assert items[0]["skill"] == "deep-research"
-    assert items[0]["skill_name"] == "深度调研"
+    assert items[0]["skill_name"] is None
     assert items[0]["metadata"]["skill"] == "deep-research"
-    assert items[0]["metadata"]["skill_name"] == "深度调研"
+    assert items[0]["metadata"]["skill_name"] is None
 
 
 @pytest.mark.asyncio
@@ -385,9 +385,10 @@ def test_artifact_activity_uses_canonical_creator_skill_name() -> None:
     item = service._artifact_to_activity(artifact, workspace_type="thesis")
 
     assert item["created_by_skill"] == "figure-designer"
-    assert item["created_by_skill_name"] == "图表设计"
-    assert item["metadata"]["created_by_skill_name"] == "图表设计"
-    assert item["summary"] == "图表设计"
+    assert item["created_by_skill_name"] is None
+    assert item["metadata"]["created_by_skill_name"] is None
+    # Summary falls back to the raw created_by_skill id when no display name is available.
+    assert item["summary"] == "figure-designer"
 
 
 @pytest.mark.asyncio

@@ -199,6 +199,10 @@ class ThreadState(AgentState):
     template_context: NotRequired[dict[str, Any] | None]
     current_skill: NotRequired[str | None]
 
+    # Capability/skill catalog preloaded by CapabilitySkillPreloadMiddleware
+    available_capabilities: NotRequired[list[dict[str, Any]] | None]
+    available_skills: NotRequired[list[dict[str, Any]] | None]
+
     # Citation tracking with deduplication reducer
     cited_references: Annotated[list[str], merge_cited_references]
 

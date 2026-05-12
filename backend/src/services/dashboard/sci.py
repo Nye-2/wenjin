@@ -6,7 +6,6 @@ from typing import Any
 
 from src.artifacts.types import ArtifactType
 from src.services.dashboard.shared import DashboardStatusSharedMixin
-from src.services.workspace_skill_labels import list_workspace_feature_creator_ids
 
 
 class DashboardSciStatusMixin(DashboardStatusSharedMixin):
@@ -16,7 +15,7 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
 
     @staticmethod
     def _creator_ids(feature_id: str) -> tuple[str, ...]:
-        return list_workspace_feature_creator_ids("sci", feature_id)
+        return ()
 
     async def _get_literature_search_status(self, workspace_id: str) -> dict[str, Any]:
         results_count = await self._count_artifacts(
