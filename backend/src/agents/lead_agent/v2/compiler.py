@@ -107,12 +107,22 @@ def compile_graph(
     return builder.compile()
 
 
-def _default_runner_factory(subagent_cls: type[SubagentBase], task_spec: dict) -> Callable:
+def _default_runner_factory(
+    subagent_cls: type[SubagentBase],
+    task_spec: dict,
+    emit_delta: Callable | None = None,
+) -> Callable:
     """Build a default async node function that runs the subagent and stores results.
 
     Supports retry via ``retry_on_failure`` in task_spec (default 0 extra retries).
     On final failure, stores ``{"error": "<message>"}`` in node_results instead of
     raising — this allows downstream nodes to continue running (failed_partial status).
+
+    Args:
+        subagent_cls: The subagent class to instantiate and run.
+        task_spec: Task specification dict from the capability template.
+        emit_delta: Optional async callback ``(event_type, content)`` forwarded
+            to SubagentContext for streaming thinking deltas.
     """
     import asyncio
 
@@ -152,6 +162,7 @@ def _default_runner_factory(subagent_cls: type[SubagentBase], task_spec: dict) -
             tools=task_spec.get("tools", []),
             workspace_data=state.get("workspace_data", {}),
             skill=task_spec.get("_skill"),
+            emit_delta=emit_delta,
         )
         last_error: Exception | None = None
         for attempt in range(_max_attempts):

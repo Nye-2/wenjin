@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable, TypedDict
 
@@ -277,14 +278,37 @@ class LeadAgentRuntime:
                 {"node_id": node_id, "status": status, **fields},
             )
 
+        # Throttled thinking-delta emitter (flushes every 500 ms per node)
+        _thinking_buffers: dict[str, str] = {}
+        _last_flush: dict[str, float] = {}
+
+        async def _emit_delta(node_id: str, content: str) -> None:
+            buf = _thinking_buffers.get(node_id, "") + content
+            _thinking_buffers[node_id] = buf
+            now = time.monotonic()
+            last = _last_flush.get(node_id, 0.0)
+            if now - last >= 0.5:
+                await publish(
+                    execution_id,
+                    "execution.node.delta",
+                    {"node_id": node_id, "thinking": buf},
+                )
+                _last_flush[node_id] = now
+                _thinking_buffers[node_id] = ""
+
         def factory(subagent_cls: Any, task_spec: dict) -> Callable:
-            inner = _default_runner_factory(subagent_cls, task_spec)
             task_name = task_spec["name"]
             meta = node_meta.get(task_name, {
                 "node_id": task_name,
                 "node_type": task_spec.get("subagent_type", "subagent"),
                 "label": task_name,
             })
+
+            async def _node_emit_delta(event_type: str, content: str) -> None:
+                if event_type == "thinking":
+                    await _emit_delta(meta["node_id"], content)
+
+            inner = _default_runner_factory(subagent_cls, task_spec, emit_delta=_node_emit_delta)
             raw_inputs_template = task_spec.get("inputs") or {}
 
             async def persisting_run(state: dict) -> dict:

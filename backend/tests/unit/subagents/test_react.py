@@ -147,13 +147,17 @@ class TestNoSkill:
 class TestMockLLM:
     @pytest.mark.asyncio
     async def test_skill_with_mock_model(self):
-        """Verify ReactSubagent calls the model and parses document output."""
-        # Build a fake response object (LangChain AIMessage-like)
-        fake_response = MagicMock()
-        fake_response.content = "# 综述报告\n\n这是一篇关于量子计算的综述。"
+        """Verify ReactSubagent calls the model via astream and parses document output."""
+        # Build fake stream chunks (LangChain AIMessageChunk-like)
+        fake_chunk = MagicMock()
+        fake_chunk.content = "# 综述报告\n\n这是一篇关于量子计算的综述。"
+        fake_chunk.additional_kwargs = {}
+
+        async def _fake_astream(messages):
+            yield fake_chunk
 
         fake_model = MagicMock()
-        fake_model.ainvoke = AsyncMock(return_value=fake_response)
+        fake_model.astream = MagicMock(return_value=_fake_astream([]))
 
         with patch(
             "src.subagents.v2.types.react.create_chat_model",
@@ -170,9 +174,9 @@ class TestMockLLM:
             ctx = _make_ctx(inputs={"topic": "量子计算"}, skill=skill)
             result = await sub.run(ctx)
 
-        # Verify model was called with system + user messages
-        fake_model.ainvoke.assert_awaited_once()
-        call_args = fake_model.ainvoke.call_args[0][0]  # positional arg: messages list
+        # Verify model.astream was called with system + user messages
+        fake_model.astream.assert_called_once()
+        call_args = fake_model.astream.call_args[0][0]  # positional arg: messages list
         assert len(call_args) == 2
         assert call_args[0].content == "你是综述写手"
         assert call_args[1].content == "主题: 量子计算"

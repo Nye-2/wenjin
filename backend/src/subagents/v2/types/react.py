@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -101,6 +104,7 @@ class ReactSubagent(SubagentBase):
             system_prompt=system_prompt,
             user_message=user_message,
             tools=ctx.tools,
+            emit_delta=ctx.emit_delta,
         )
 
         output = _parse_output(final_text, config)
@@ -116,12 +120,16 @@ async def _run_react_loop(
     system_prompt: str,
     user_message: str,
     tools: list[str] | None = None,
+    emit_delta: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> str:
     """Run the MiMo ReAct loop (or plain model invoke if no tools).
 
+    When no tools are available, streams the response using ``model.astream()``
+    and emits thinking deltas through *emit_delta* (throttled to 500 ms).
+
     Returns the final text content of the assistant's last message.
     """
-    model = create_chat_model("mimo-v2.5-pro")
+    model = create_chat_model("mimo-v2.5-pro", thinking_enabled=True)
 
     messages = [
         SystemMessage(content=system_prompt),
@@ -149,9 +157,56 @@ async def _run_react_loop(
                     return msg.content
             return ""
 
-    # No tools -- plain model invoke
-    response = await model.ainvoke(messages)
-    return response.content if hasattr(response, "content") else str(response)
+    # No tools -- stream the response and emit thinking deltas
+    collected_content: list[str] = []
+    thinking_buf = ""
+    last_flush = 0.0
+
+    async for chunk in model.astream(messages):
+        # --- Thinking chunk detection ---
+        is_thinking = False
+        thinking_text = ""
+
+        # Anthropic thinking content blocks
+        if hasattr(chunk, "additional_kwargs"):
+            if chunk.additional_kwargs.get("type") == "thinking":
+                is_thinking = True
+                thinking_text = chunk.additional_kwargs.get("thinking", "")
+                if not thinking_text and isinstance(chunk.content, str):
+                    thinking_text = chunk.content
+
+        # Handle list-style content blocks (Anthropic extended thinking)
+        if not is_thinking and isinstance(chunk.content, list):
+            for block in chunk.content:
+                if isinstance(block, dict) and block.get("type") == "thinking":
+                    is_thinking = True
+                    thinking_text += block.get("thinking", "")
+            # Collect regular text blocks too
+            if not is_thinking:
+                for block in chunk.content:
+                    if isinstance(block, str):
+                        collected_content.append(block)
+                    elif isinstance(block, dict) and block.get("type") == "text":
+                        collected_content.append(block.get("text", ""))
+
+        if is_thinking:
+            thinking_buf += thinking_text
+            if emit_delta is not None:
+                now = time.monotonic()
+                if now - last_flush >= 0.5:
+                    await emit_delta("thinking", thinking_buf)
+                    last_flush = now
+                    thinking_buf = ""
+        else:
+            # Regular content chunk
+            if isinstance(chunk.content, str) and chunk.content:
+                collected_content.append(chunk.content)
+
+    # Final flush of remaining thinking buffer
+    if thinking_buf and emit_delta is not None:
+        await emit_delta("thinking", thinking_buf)
+
+    return "".join(collected_content)
 
 
 def _resolve_tools(tool_names: list[str]) -> list:
