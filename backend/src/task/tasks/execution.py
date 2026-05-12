@@ -75,10 +75,16 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         from src.execution.engine import ExecutionEngineV2
         from src.services.workspace_skill_labels import get_workspace_type as _resolve_ws_type
 
+        async def _resolve_ws_type_with_fallback(ws_id: str) -> str:
+            # ``get_workspace_type`` is async; wrap so the ``or "thesis"``
+            # fallback actually evaluates against the awaited result instead
+            # of against a (truthy) coroutine object.
+            return (await _resolve_ws_type(db, ws_id)) or "thesis"
+
         runtime = LeadAgentRuntime(
             resolver=resolver,
             publish_event=_publish_fn,
-            get_workspace_type=lambda ws_id: _resolve_ws_type(db, ws_id) or "thesis",
+            get_workspace_type=_resolve_ws_type_with_fallback,
             redis=redis_client.client,
         )
         engine = ExecutionEngineV2(

@@ -183,7 +183,11 @@ def _render_workspace_available_skills(
         for s in (skills or [])
     ]
     skill_block = (
-        "<available_skills>\n" + "\n".join(skill_items) + "\n</available_skills>"
+        "<available_skills>\n"
+        + "\n".join(skill_items)
+        + "\n</available_skills>"
+        if skill_items
+        else ""
     )
 
     return _build_capability_skill_prompt(cap_block, skill_block)
