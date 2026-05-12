@@ -81,7 +81,7 @@ _KIND_TO_DATA_MODEL = {
 
 _KIND_PREVIEW_TEMPLATE = {
     "library_item": lambda d: f"{d.title} — {', '.join(d.authors[:3])}" + (f", {d.year}" if d.year else ""),
-    "document": lambda d: f"{d.name} ({d.mime_type})",
+    "document": lambda d: f"{d.name} ({d.mime_type or 'text/markdown'})",
     "memory_fact": lambda d: (d.content[:80] + "...") if len(d.content) > 80 else d.content,
     "decision": lambda d: f"{d.key}: {d.value}",
     "task": lambda d: d.title,

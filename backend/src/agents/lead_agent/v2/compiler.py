@@ -1,14 +1,21 @@
 """Capability compiler — converts a capability graph_template into a LangGraph StateGraph."""
 
 import asyncio
+import logging
 from typing import Any, Callable
 
 from langgraph.graph import END, START, StateGraph
 
+from src.agents.lead_agent.v2.template import (
+    build_task_render_context,
+    render_template,
+)
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
 from src.subagents.v2.registry import REGISTRY
 # Importing types populates REGISTRY with all v2 subagent classes
 from src.subagents.v2 import types as _types  # noqa: F401
+
+logger = logging.getLogger(__name__)
 
 
 def compile_graph(
@@ -48,6 +55,13 @@ def compile_graph(
     builder = StateGraph(state_class)
     factory = runner_factory or _default_runner_factory
 
+    # Phase → task index used at run time by the renderer to resolve
+    # ``{{phases.<phase>.<task>.output.X}}`` references against node_results.
+    phase_index: dict[str, list[str]] = {
+        phase["name"]: [t["name"] for t in phase["tasks"]]
+        for phase in template["phases"]
+    }
+
     # 1. Add a node per task, named "{phase}__{task}"
     nodes_by_phase: dict[str, list[str]] = {}
     for phase in template["phases"]:
@@ -55,11 +69,12 @@ def compile_graph(
         for task in phase["tasks"]:
             node_name = f"{phase['name']}__{task['name']}"
             subagent_cls = REGISTRY.get(task["subagent_type"])  # raises KeyError if unknown
-            # Attach pre-loaded skill to task spec for the runner
+            # Attach pre-loaded skill + phase index to task spec for the runner
             task_with_skill = dict(task)
             skill_id = task.get("skill_id")
             if skill_id and skill_id in _skills:
                 task_with_skill["_skill"] = _skills[skill_id]
+            task_with_skill["_phase_index"] = phase_index
             node_fn = factory(subagent_cls, task_with_skill)
             if abort_check is not None:
                 node_fn = _wrap_with_abort_check(node_fn, abort_check, ExecutionAborted)
@@ -103,13 +118,37 @@ def _default_runner_factory(subagent_cls: type[SubagentBase], task_spec: dict) -
 
     _max_attempts = (task_spec.get("retry_on_failure") or 0) + 1
     _task_name = task_spec["name"]
+    _raw_inputs_template = task_spec.get("inputs") or {}
+    _phase_index = task_spec.get("_phase_index") or {}
 
     async def run_node(state: dict) -> dict:
+        # Render the task's ``inputs:`` YAML template against the current brief
+        # and any upstream task outputs.  Falls back to the raw brief if the
+        # capability seed didn't declare an inputs block.
+        brief = state.get("inputs_for_tasks", {}).get(_task_name, {})
+        if _raw_inputs_template:
+            render_ctx = build_task_render_context(
+                brief=brief,
+                node_results=state.get("node_results", {}),
+                phase_index=_phase_index,
+            )
+            try:
+                rendered_inputs = render_template(_raw_inputs_template, render_ctx)
+            except Exception:  # pragma: no cover — defensive
+                logger.warning(
+                    "Input template render failed for task '%s'; falling back to raw brief",
+                    _task_name,
+                    exc_info=True,
+                )
+                rendered_inputs = dict(brief)
+        else:
+            rendered_inputs = dict(brief)
+
         ctx = SubagentContext(
             workspace_id=state.get("workspace_id", ""),
             execution_id=state.get("execution_id", ""),
             prompt=task_spec.get("prompt_template", ""),
-            inputs=state.get("inputs_for_tasks", {}).get(_task_name, {}),
+            inputs=rendered_inputs,
             tools=task_spec.get("tools", []),
             workspace_data=state.get("workspace_data", {}),
             skill=task_spec.get("_skill"),

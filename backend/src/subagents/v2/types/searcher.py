@@ -66,14 +66,26 @@ class SearcherSubagent(SubagentBase):
     allowed_tools: list[str] = []
 
     async def run(self, ctx: SubagentContext) -> SubagentResult:
-        """Execute search across configured sources and deduplicate."""
+        """Execute search across configured sources and deduplicate.
+
+        Raises on missing query or when *every* configured source fails so the
+        runner records a real error in ``node_results`` instead of silently
+        returning an empty paper list (which the user would see as
+        "completed, but no results" with no actionable signal).
+        """
         if ctx.skill is None:
             return SubagentResult(output={"papers": []})
 
         config = ctx.skill.config
         source_names: list[str] = config.get("sources", [])
-        query: str = ctx.inputs.get("query", "")
+        query: str = (ctx.inputs.get("query") or "").strip()
         limit: int = int(config.get("max_results", 30))
+
+        if not query:
+            raise ValueError(
+                "searcher subagent invoked with empty query — check the "
+                "capability YAML 'inputs.query' template renders against the brief"
+            )
 
         year_range: tuple[int, int] | None = None
         year_min = config.get("year_min")
@@ -82,14 +94,22 @@ class SearcherSubagent(SubagentBase):
             year_range = (int(year_min), datetime.now().year)
 
         all_results: list[SearchResult] = []
+        source_errors: list[tuple[str, str]] = []
 
         for src_name in source_names:
             try:
                 source = get_search_source(src_name)
                 results = await source.search(query, year_range=year_range, limit=limit)
                 all_results.extend(results)
-            except Exception:
+            except Exception as exc:
                 logger.warning("Search source %r failed", src_name, exc_info=True)
+                source_errors.append((src_name, str(exc)))
+
+        # All configured sources failed → propagate so the run shows failed_partial
+        # instead of "completed with 0 papers".
+        if source_names and len(source_errors) == len(source_names):
+            joined = "; ".join(f"{n}: {e}" for n, e in source_errors)
+            raise RuntimeError(f"all search sources failed ({joined})")
 
         deduped = _deduplicate(all_results)
 

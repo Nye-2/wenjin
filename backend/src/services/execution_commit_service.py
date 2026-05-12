@@ -22,6 +22,11 @@ from src.services.rooms.run_history_service import RunHistoryService
 
 logger = logging.getLogger(__name__)
 
+# Synthetic storage path used for inline (DB-backed) documents.  The real
+# content lives in ``DocumentV2.metadata_json['content']`` so both gateway
+# and worker can serve the document without sharing a filesystem.
+_INLINE_DOC_PATH_PREFIX = "inline://"
+
 
 class ExecutionCommitService:
     """Commits accepted ResultOutputs to corresponding rooms.
@@ -135,18 +140,43 @@ class ExecutionCommitService:
                 counts["library"] += 1
 
             elif kind == "document":
-                await self.documents.add(
-                    execution.workspace_id,
-                    {
-                        "name": data["name"],
-                        "kind": data.get("doc_kind", "draft"),
-                        "mime_type": data["mime_type"],
-                        "storage_path": data["storage_path"],
-                        "size_bytes": data.get("size_bytes", 0),
-                        "parent_id": data.get("parent_id"),
-                        "added_by": f"execution:{execution_id}",
-                    },
-                )
+                # Agent-generated documents carry their content inline; we
+                # persist that content into DocumentV2.metadata_json so it
+                # round-trips through the DB without needing a shared
+                # filesystem between gateway and worker.  File-backed
+                # documents (uploads etc.) keep their existing storage_path.
+                inline_content = data.get("content")
+                existing_path = data.get("storage_path")
+                if not existing_path and not inline_content:
+                    logger.warning(
+                        "Skipping document commit '%s' for execution %s: no "
+                        "storage_path and no inline content provided",
+                        data.get("name"),
+                        execution_id,
+                    )
+                    continue
+
+                if existing_path:
+                    storage_path = existing_path
+                    size_bytes = int(data.get("size_bytes", 0))
+                    metadata_extra: dict[str, Any] = {}
+                else:
+                    storage_path = f"{_INLINE_DOC_PATH_PREFIX}{output.id}"
+                    size_bytes = len(inline_content.encode("utf-8"))
+                    metadata_extra = {"content": inline_content}
+
+                payload = {
+                    "name": data["name"],
+                    "kind": data.get("doc_kind", "draft"),
+                    "mime_type": data.get("mime_type") or "text/markdown",
+                    "storage_path": storage_path,
+                    "size_bytes": size_bytes,
+                    "parent_id": data.get("parent_id"),
+                    "added_by": f"execution:{execution_id}",
+                }
+                if metadata_extra:
+                    payload["metadata_json"] = metadata_extra
+                await self.documents.add(execution.workspace_id, payload)
                 counts["documents"] += 1
 
             elif kind == "memory_fact":

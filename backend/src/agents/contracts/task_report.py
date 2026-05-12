@@ -23,14 +23,27 @@ class LibraryItemData(BaseModel):
 
 
 class DocumentData(BaseModel):
-    """Data for a stored document."""
+    """Data for a stored or agent-generated document.
+
+    Two flavours are supported:
+
+    * **File-backed** — caller provides ``storage_path`` (and ideally
+      ``mime_type`` and ``size_bytes``).  This is the upload / artefact case.
+    * **Inline** — caller provides ``content`` (e.g. an agent-produced
+      markdown report).  ``mime_type`` defaults to ``text/markdown`` and the
+      commit service materialises the content to managed workspace storage
+      before writing the DB row.
+
+    Either ``storage_path`` or ``content`` must be present at commit time.
+    """
 
     name: str
-    mime_type: str
-    storage_path: str
+    doc_kind: str = "generic"
+    content: str | None = None
+    mime_type: str = "text/markdown"
+    storage_path: str | None = None
     size_bytes: int = 0
     parent_id: str | None = None
-    doc_kind: str = "generic"
 
 
 class MemoryFactData(BaseModel):
