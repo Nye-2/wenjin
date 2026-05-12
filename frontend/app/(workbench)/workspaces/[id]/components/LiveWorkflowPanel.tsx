@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+
 import { useExecutionStreamV2 } from "@/hooks/useExecutionStreamV2";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 import type { WorkspaceFeature } from "@/lib/api/types";
@@ -21,8 +23,30 @@ export function LiveWorkflowPanel({
   className,
   "data-testid": testId,
 }: LiveWorkflowPanelProps) {
-  const { nodes, edges, selectedNodeId, selectNode, executionId } =
+  const { record, phases, selectedNodeId, selectNode, executionId } =
     useExecutionStreamV2(workspaceId);
+
+  // Bridge new phases API back to old GraphCanvas nodes/edges format
+  const nodes = useMemo(() => {
+    if (!record?.graph_structure) return [];
+    return record.graph_structure.nodes.map((n) => {
+      const state = record.node_states[n.id];
+      return {
+        id: n.id,
+        label: n.label ?? n.id,
+        status: state?.status ?? "pending",
+        phaseIndex: n.phase ? phases.findIndex((p) => p.name === n.phase) : 0,
+      };
+    });
+  }, [record?.graph_structure, record?.node_states, phases]);
+
+  const edges = useMemo(() => {
+    if (!record?.graph_structure) return [];
+    return record.graph_structure.edges.map((e) => ({
+      source: e.from,
+      target: e.to,
+    }));
+  }, [record?.graph_structure]);
 
   const hasExecution = nodes.length > 0 || executionId !== null;
 

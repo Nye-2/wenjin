@@ -144,10 +144,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
               nodeState.output_preview = event.payload.output_preview;
             }
             if (typeof event.payload.thinking === "string") {
-              nodeState.thinking = event.payload.thinking;
+              nodeState.thinking = (nodeState.thinking || "") + event.payload.thinking;
             }
             if (event.payload.token_usage) {
               nodeState.token_usage = event.payload.token_usage as Record<string, number>;
+            }
+            if (event.payload.input_data) {
+              nodeState.input = event.payload.input_data as Record<string, unknown>;
+            }
+            if (event.payload.output_data) {
+              nodeState.output = event.payload.output_data as Record<string, unknown>;
             }
             updated.node_states[nodeId] = nodeState;
           }

@@ -34,14 +34,14 @@ beforeEach(() => {
 });
 
 describe("useExecutionStreamV2", () => {
-  it("returns empty nodes/edges when no execution", () => {
+  it("returns empty phases when no execution", () => {
     const { result } = renderHook(() => useExecutionStreamV2("ws-1"));
-    expect(result.current.nodes).toEqual([]);
-    expect(result.current.edges).toEqual([]);
+    expect(result.current.phases).toEqual([]);
     expect(result.current.executionId).toBeNull();
+    expect(result.current.record).toBeNull();
   });
 
-  it("returns nodes from execution graph_structure", () => {
+  it("returns phases grouped by node.phase", () => {
     useExecutionStore.getState().upsertExecution(
       makeRecord({
         id: "exec-1",
@@ -51,8 +51,9 @@ describe("useExecutionStreamV2", () => {
         },
         graph_structure: {
           nodes: [
-            { id: "node-1", type: "skill", label: "Search" },
-            { id: "node-2", type: "skill", label: "Analyze" },
+            { id: "node-1", type: "skill", label: "Search", phase: "research" },
+            { id: "node-2", type: "skill", label: "Analyze", phase: "research" },
+            { id: "node-3", type: "skill", label: "Write", phase: "drafting" },
           ],
           edges: [{ from: "node-1", to: "node-2" }],
         },
@@ -63,27 +64,25 @@ describe("useExecutionStreamV2", () => {
       useExecutionStreamV2("ws-1", "exec-1"),
     );
 
-    expect(result.current.nodes).toHaveLength(2);
-    expect(result.current.nodes[0]).toEqual({
-      id: "node-1",
-      label: "Search",
-      status: "completed",
-      phaseIndex: 0,
+    expect(result.current.phases).toHaveLength(2);
+    expect(result.current.phases[0]).toEqual({
+      name: "research",
+      index: 0,
+      nodes: [
+        { id: "node-1", type: "skill", label: "Search", phase: "research" },
+        { id: "node-2", type: "skill", label: "Analyze", phase: "research" },
+      ],
     });
-    expect(result.current.nodes[1]).toEqual({
-      id: "node-2",
-      label: "Analyze",
-      status: "running",
-      phaseIndex: 0,
-    });
-    expect(result.current.edges).toHaveLength(1);
-    expect(result.current.edges[0]).toEqual({
-      source: "node-1",
-      target: "node-2",
+    expect(result.current.phases[1]).toEqual({
+      name: "drafting",
+      index: 1,
+      nodes: [
+        { id: "node-3", type: "skill", label: "Write", phase: "drafting" },
+      ],
     });
   });
 
-  it("defaults node status to pending when not in node_states", () => {
+  it("groups nodes without phase into 'default'", () => {
     useExecutionStore.getState().upsertExecution(
       makeRecord({
         id: "exec-1",
@@ -99,8 +98,9 @@ describe("useExecutionStreamV2", () => {
       useExecutionStreamV2("ws-1", "exec-1"),
     );
 
-    expect(result.current.nodes).toHaveLength(1);
-    expect(result.current.nodes[0]!.status).toBe("pending");
+    expect(result.current.phases).toHaveLength(1);
+    expect(result.current.phases[0]!.name).toBe("default");
+    expect(result.current.phases[0]!.nodes).toHaveLength(1);
   });
 
   it("manages selectedNodeId state", () => {
@@ -146,7 +146,7 @@ describe("useExecutionStreamV2", () => {
     );
 
     expect(result.current.executionId).toBe("exec-explicit");
-    expect(result.current.nodes).toHaveLength(1);
-    expect(result.current.nodes[0]!.id).toBe("n-1");
+    expect(result.current.phases).toHaveLength(1);
+    expect(result.current.phases[0]!.nodes[0]!.id).toBe("n-1");
   });
 });

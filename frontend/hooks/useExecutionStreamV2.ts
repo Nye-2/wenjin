@@ -1,72 +1,61 @@
-import { useMemo, useState } from "react";
+"use client";
 
+import { useMemo, useState } from "react";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useExecutionStream } from "./useExecutionStream";
+import type { ExecutionGraphNode, ExecutionRecord } from "@/lib/api/types";
 
-export interface UseExecutionStreamV2Return {
-  /** Current execution's graph nodes with resolved statuses */
-  nodes: Array<{ id: string; label: string; status: string; phaseIndex?: number }>;
-  /** Current execution's graph edges (mapped to source/target) */
-  edges: Array<{ source: string; target: string }>;
-  /** Currently selected node ID */
-  selectedNodeId: string | null;
-  /** Select a node (opens drawer) */
-  selectNode: (id: string | null) => void;
-  /** Current execution record ID, if any */
-  executionId: string | null;
+export interface PhaseGroup {
+  name: string;
+  index: number;
+  nodes: ExecutionGraphNode[];
 }
 
-/**
- * v2 wrapper that combines the execution stream with the workspace event
- * stream for the LiveWorkflowPanel.
- */
+export interface UseExecutionStreamV2Return {
+  record: ExecutionRecord | null;
+  phases: PhaseGroup[];
+  executionId: string | null;
+  selectedNodeId: string | null;
+  selectNode: (id: string | null) => void;
+}
+
 export function useExecutionStreamV2(
   _workspaceId: string,
   executionId?: string | null,
 ): UseExecutionStreamV2Return {
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-
-  // Resolve execution ID from prop or store
   const currentId =
-    executionId ?? useExecutionStore((s) => s.currentExecutionId);
-
-  // Subscribe to execution stream using resolved ID
+    executionId ?? useExecutionStore((s) => s.currentExecutionId) ?? null;
   useExecutionStream(currentId);
 
-  const executions = useExecutionStore((s) => s.executions);
-  const record = currentId ? executions.get(currentId) : undefined;
+  const record = useExecutionStore((s) =>
+    currentId ? s.executions.get(currentId) ?? null : null,
+  );
 
-  // Build nodes from graph_structure + node_states, extract phaseIndex
-  const nodes = useMemo(() => {
-    if (!record?.graph_structure) return [];
-    return record.graph_structure.nodes.map((n) => {
-      const state = record.node_states[n.id];
-      return {
-        id: n.id,
-        label: n.label ?? n.id,
-        status: state?.status ?? "pending",
-        phaseIndex:
-          (n.metadata?.phase_index as number | undefined) ??
-          (n.metadata?.phaseIndex as number | undefined) ??
-          0,
-      };
-    });
-  }, [record?.graph_structure, record?.node_states]);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  // Map edges from ExecutionGraphEdge (from/to) to source/target
-  const edges = useMemo(() => {
-    if (!record?.graph_structure) return [];
-    return record.graph_structure.edges.map((e) => ({
-      source: e.from,
-      target: e.to,
+  const phases = useMemo<PhaseGroup[]>(() => {
+    if (!record?.graph_structure?.nodes) return [];
+    const phaseMap = new Map<string, { index: number; nodes: ExecutionGraphNode[] }>();
+    let idx = 0;
+    for (const node of record.graph_structure.nodes) {
+      const phaseName = node.phase || "default";
+      if (!phaseMap.has(phaseName)) {
+        phaseMap.set(phaseName, { index: idx++, nodes: [] });
+      }
+      phaseMap.get(phaseName)!.nodes.push(node);
+    }
+    return Array.from(phaseMap.entries()).map(([name, data]) => ({
+      name,
+      index: data.index,
+      nodes: data.nodes,
     }));
-  }, [record?.graph_structure]);
+  }, [record?.graph_structure?.nodes]);
 
   return {
-    nodes,
-    edges,
+    record,
+    phases,
+    executionId: currentId,
     selectedNodeId,
     selectNode: setSelectedNodeId,
-    executionId: currentId ?? null,
   };
 }

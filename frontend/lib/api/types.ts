@@ -1375,6 +1375,7 @@ export interface ExecutionRecord {
   feature_id?: string | null;
   entry_skill_id?: string | null;
   workspace_type?: string | null;
+  display_name?: string | null;
   status: ExecutionStatus;
   params: Record<string, unknown>;
   result?: Record<string, unknown> | null;
@@ -1408,6 +1409,9 @@ export interface ExecutionGraphNode {
   id: string;
   type: string;
   label?: string;
+  phase?: string;
+  task?: string;
+  subagent_type?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -1425,6 +1429,8 @@ export interface ExecutionNodeState {
   tool_calls?: Record<string, unknown>[] | null;
   started_at?: string | null;
   completed_at?: string | null;
+  input?: Record<string, unknown> | null;
+  output?: Record<string, unknown> | null;
 }
 
 export interface ExecutionNodeRecord {
