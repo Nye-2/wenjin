@@ -49,6 +49,7 @@ class LeadAgentRuntime:
         get_workspace_type: Callable | None = None,
         redis: Any | None = None,
         set_graph_structure: Callable | None = None,
+        record_node_event: Callable | None = None,
     ) -> None:
         """
         Args:
@@ -61,12 +62,28 @@ class LeadAgentRuntime:
                 If None, abort checking is skipped.
             set_graph_structure: Async callable (graph_structure: dict) → None.
                 Called once after computing the graph structure to persist it.
+            record_node_event: Async callable used to persist per-node lifecycle
+                events (running / completed / failed) so the frontend node
+                detail endpoint can render real input/output/thinking instead
+                of an empty row.  Signature::
+
+                    async def record(
+                        *, execution_id: str, node_id: str, node_type: str,
+                        label: str | None, status: str,
+                        input_data: dict | None = None,
+                        output_data: dict | None = None,
+                        thinking: str | None = None,
+                        tool_calls: list | None = None,
+                        token_usage: dict | None = None,
+                        error: str | None = None,
+                    ) -> None
         """
         self.resolver = resolver
         self.publish_event = publish_event or _noop_publish
         self.get_workspace_type = get_workspace_type or _stub_get_ws_type
         self.redis = redis
         self.set_graph_structure = set_graph_structure
+        self.record_node_event = record_node_event or _noop_record_node
 
     async def run_session(
         self,
@@ -123,6 +140,9 @@ class LeadAgentRuntime:
             graph = compile_graph(
                 cap.graph_template,
                 state_class=ExecutionState,
+                runner_factory=self._build_persisting_runner_factory(
+                    execution_id, cap.graph_template,
+                ),
                 abort_check=lambda: self._check_abort(execution_id),
                 skills=skills,
             )
@@ -212,6 +232,142 @@ class LeadAgentRuntime:
             return val is not None
         except Exception:
             return False
+
+    def _build_persisting_runner_factory(
+        self,
+        execution_id: str,
+        graph_template: dict,
+    ) -> Callable:
+        """Wrap ``_default_runner_factory`` so each node lifecycle event is
+        persisted via ``self.record_node_event`` and published via
+        ``self.publish_event``.
+
+        Frontend's node-detail polling expects the ``execution_nodes`` table to
+        contain a row per ``{phase}__{task}`` with the rendered ``input_data``
+        and the subagent's ``output_data`` / ``thinking`` / error.  Without
+        this, nodes sit at "pending" forever even after the run finishes.
+        """
+        from src.agents.lead_agent.v2.compiler import _default_runner_factory
+        from src.agents.lead_agent.v2.template import (
+            build_task_render_context,
+            render_template,
+        )
+
+        # Build (task_name → node_id, label, node_type) lookup so we don't
+        # have to walk phases inside every node call.
+        node_meta: dict[str, dict[str, str]] = {}
+        phase_index: dict[str, list[str]] = {}
+        for phase in graph_template["phases"]:
+            phase_index[phase["name"]] = [t["name"] for t in phase["tasks"]]
+            for task in phase["tasks"]:
+                node_id = f"{phase['name']}__{task['name']}"
+                node_meta[task["name"]] = {
+                    "node_id": node_id,
+                    "node_type": task.get("subagent_type", "subagent"),
+                    "label": task.get("label", task["name"]),
+                }
+
+        recorder = self.record_node_event
+        publish = self.publish_event
+
+        async def _emit(node_id: str, status: str, **fields: Any) -> None:
+            await publish(
+                execution_id,
+                "execution.node",
+                {"node_id": node_id, "status": status, **fields},
+            )
+
+        def factory(subagent_cls: Any, task_spec: dict) -> Callable:
+            inner = _default_runner_factory(subagent_cls, task_spec)
+            task_name = task_spec["name"]
+            meta = node_meta.get(task_name, {
+                "node_id": task_name,
+                "node_type": task_spec.get("subagent_type", "subagent"),
+                "label": task_name,
+            })
+            raw_inputs_template = task_spec.get("inputs") or {}
+
+            async def persisting_run(state: dict) -> dict:
+                # Recompute the rendered inputs for the node-state record so
+                # the FE sees the actual inputs the subagent ran with — not the
+                # raw template strings.  The inner runner will compute and use
+                # its own rendered copy too; we just need them for the DB row.
+                brief = state.get("inputs_for_tasks", {}).get(task_name, {})
+                try:
+                    if raw_inputs_template:
+                        render_ctx = build_task_render_context(
+                            brief=brief,
+                            node_results=state.get("node_results", {}),
+                            phase_index=phase_index,
+                        )
+                        rendered_inputs: Any = render_template(
+                            raw_inputs_template, render_ctx,
+                        )
+                    else:
+                        rendered_inputs = dict(brief)
+                except Exception:
+                    rendered_inputs = dict(brief)
+
+                started_at = datetime.now(timezone.utc)
+                try:
+                    await recorder(
+                        execution_id=execution_id,
+                        node_id=meta["node_id"],
+                        node_type=meta["node_type"],
+                        label=meta.get("label"),
+                        status="running",
+                        input_data=rendered_inputs if isinstance(rendered_inputs, dict) else {"value": rendered_inputs},
+                        started_at=started_at,
+                    )
+                    await _emit(meta["node_id"], "running")
+                except Exception:
+                    logger.warning(
+                        "Failed to record node 'running' for %s", meta["node_id"],
+                        exc_info=True,
+                    )
+
+                result_state = await inner(state)
+
+                # Resolve the per-node payload from the latest node_results.
+                node_result = (result_state or {}).get("node_results", {}).get(task_name, {})
+                completed_at = datetime.now(timezone.utc)
+                try:
+                    if isinstance(node_result, dict) and "error" in node_result:
+                        await recorder(
+                            execution_id=execution_id,
+                            node_id=meta["node_id"],
+                            node_type=meta["node_type"],
+                            label=meta.get("label"),
+                            status="failed",
+                            output_data={"error": node_result["error"]},
+                            completed_at=completed_at,
+                        )
+                        await _emit(meta["node_id"], "failed", error=node_result["error"])
+                    else:
+                        await recorder(
+                            execution_id=execution_id,
+                            node_id=meta["node_id"],
+                            node_type=meta["node_type"],
+                            label=meta.get("label"),
+                            status="completed",
+                            output_data=node_result.get("output") if isinstance(node_result, dict) else None,
+                            thinking=node_result.get("thinking") if isinstance(node_result, dict) else None,
+                            tool_calls=node_result.get("tool_calls") if isinstance(node_result, dict) else None,
+                            token_usage=node_result.get("token_usage") if isinstance(node_result, dict) else None,
+                            completed_at=completed_at,
+                        )
+                        await _emit(meta["node_id"], "completed")
+                except Exception:
+                    logger.warning(
+                        "Failed to record node final state for %s", meta["node_id"],
+                        exc_info=True,
+                    )
+
+                return result_state
+
+            return persisting_run
+
+        return factory
 
     def _to_panel_graph(self, template: dict) -> dict:
         """Translate capability template into Panel-friendly nodes + edges structure."""
@@ -304,3 +460,7 @@ async def _noop_publish(*args: Any, **kwargs: Any) -> None:
 async def _stub_get_ws_type(workspace_id: str) -> str:
     """Stub workspace-type resolver that always returns 'thesis'."""
     return "thesis"
+
+
+async def _noop_record_node(*args: Any, **kwargs: Any) -> None:
+    """No-op node-event recorder used when no record_node_event is provided."""

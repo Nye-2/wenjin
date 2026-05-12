@@ -331,3 +331,80 @@ class ExecutionService:
             await self.db.commit()
             await self.db.refresh(record)
         return record
+
+    async def find_node_by_node_id(
+        self,
+        execution_id: str,
+        node_id: str,
+    ) -> ExecutionNodeRecord | None:
+        """Look up an ExecutionNodeRecord by (execution_id, node_id) tuple."""
+        result = await self.db.execute(
+            select(ExecutionNodeRecord).where(
+                ExecutionNodeRecord.execution_id == execution_id,
+                ExecutionNodeRecord.node_id == node_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert_node_event(
+        self,
+        *,
+        execution_id: str,
+        node_id: str,
+        node_type: str,
+        label: str | None = None,
+        status: str,
+        input_data: dict[str, Any] | None = None,
+        output_data: dict[str, Any] | None = None,
+        thinking: str | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
+        token_usage: dict[str, Any] | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ) -> ExecutionNodeRecord:
+        """Upsert an ExecutionNodeRecord for one lifecycle event.
+
+        Used by ``LeadAgentRuntime``'s runner to record running/completed/failed
+        transitions so the FE node-detail endpoint returns real state.
+        """
+        existing = await self.find_node_by_node_id(execution_id, node_id)
+        if existing is None:
+            record = ExecutionNodeRecord(
+                id=generate_uuid(),
+                execution_id=execution_id,
+                node_id=node_id,
+                node_type=node_type,
+                label=label,
+                input_data=input_data,
+                status=status,
+                output_data=output_data,
+                thinking=thinking,
+                tool_calls=tool_calls,
+                token_usage=token_usage,
+                started_at=started_at,
+                completed_at=completed_at,
+            )
+            self.db.add(record)
+            await self.db.commit()
+            await self.db.refresh(record)
+            return record
+
+        if status:
+            existing.status = status
+        if input_data is not None:
+            existing.input_data = input_data
+        if output_data is not None:
+            existing.output_data = output_data
+        if thinking is not None:
+            existing.thinking = thinking
+        if tool_calls is not None:
+            existing.tool_calls = tool_calls
+        if token_usage is not None:
+            existing.token_usage = token_usage
+        if started_at is not None and existing.started_at is None:
+            existing.started_at = started_at
+        if completed_at is not None:
+            existing.completed_at = completed_at
+        await self.db.commit()
+        await self.db.refresh(existing)
+        return existing

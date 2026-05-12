@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
@@ -9,6 +10,8 @@ from celery import shared_task
 
 from src.config import settings
 from src.config.app_config import redis_settings
+
+logger = logging.getLogger(__name__)
 
 
 async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
@@ -81,11 +84,21 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
             # of against a (truthy) coroutine object.
             return (await _resolve_ws_type(db, ws_id)) or "thesis"
 
+        async def _record_node_event(**kw: Any) -> None:
+            # Persist per-node lifecycle (running / completed / failed) so the
+            # FE node-detail endpoint sees real input/output instead of an
+            # empty row.  Best-effort: a DB hiccup must not abort the run.
+            try:
+                await execution_service.upsert_node_event(**kw)
+            except Exception:
+                logger.warning("upsert_node_event failed", exc_info=True)
+
         runtime = LeadAgentRuntime(
             resolver=resolver,
             publish_event=_publish_fn,
             get_workspace_type=_resolve_ws_type_with_fallback,
             redis=redis_client.client,
+            record_node_event=_record_node_event,
         )
         engine = ExecutionEngineV2(
             runtime=runtime,

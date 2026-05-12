@@ -165,16 +165,21 @@ async def test_run_status_failed_partial_when_some_nodes_failed():
         get_workspace_type=AsyncMock(return_value="thesis"),
     )
 
-    # Patch compile_graph to use our error factory
-    with patch(
-        "src.agents.lead_agent.v2.runtime.compile_graph",
-        wraps=lambda template, state_class, abort_check=None, skills=None: compile_graph(
+    # Patch compile_graph to swap in our always-error factory.  The runtime
+    # passes a ``runner_factory`` kwarg now (for node persistence) — we override
+    # that and accept any other kwargs the runtime might add later.
+    def _patched_compile(template, *, state_class, **kwargs):
+        kwargs.pop("runner_factory", None)
+        return compile_graph(
             template,
             state_class=state_class,
             runner_factory=always_error_factory,
-            abort_check=abort_check,
-            skills=skills,
-        ),
+            **kwargs,
+        )
+
+    with patch(
+        "src.agents.lead_agent.v2.runtime.compile_graph",
+        wraps=_patched_compile,
     ):
         brief = _make_brief()
         report = await runtime.run_session(execution_id="exec-fail-partial", brief=brief)

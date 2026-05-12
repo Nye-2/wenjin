@@ -85,21 +85,21 @@ async def test_run_session_publishes_graph_structure_then_completed():
     brief = _make_brief()
     await runtime.run_session(execution_id="exec-123", brief=brief)
 
-    assert len(published) == 2
+    # Runtime now emits per-node lifecycle events too (running → completed).
+    # Filter for the two structural events the FE relies on.
+    event_names = [name for _, name, _ in published]
+    assert event_names[0] == "execution.graph_structure"
+    assert event_names[-1] == "execution.completed"
+    assert "execution.node" in event_names
 
-    # First event: graph_structure
-    exec_id_0, name_0, payload_0 = published[0]
-    assert exec_id_0 == "exec-123"
-    assert name_0 == "execution.graph_structure"
-    assert "graph_structure" in payload_0
-    gs = payload_0["graph_structure"]
+    # First event: graph_structure payload shape
+    _, _, gs_payload = published[0]
+    gs = gs_payload["graph_structure"]
     assert "nodes" in gs and "edges" in gs
 
-    # Second event: completed
-    exec_id_1, name_1, payload_1 = published[1]
-    assert exec_id_1 == "exec-123"
-    assert name_1 == "execution.completed"
-    assert payload_1["status"] == "completed"
+    # Last event: completed with proper status
+    _, _, completed_payload = published[-1]
+    assert completed_payload["status"] == "completed"
 
 
 # ---------------------------------------------------------------------------
