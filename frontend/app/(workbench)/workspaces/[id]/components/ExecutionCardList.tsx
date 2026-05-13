@@ -23,7 +23,7 @@ interface ExecutionCardListProps {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function isTerminalStatus(status: string): boolean {
-  return ["completed", "failed", "cancelled"].includes(status);
+  return ["completed", "failed_partial", "failed", "cancelled"].includes(status);
 }
 
 // ── Component ──────────────────────────────────────────────────────────────

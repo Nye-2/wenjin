@@ -2,21 +2,34 @@
 
 import { useState } from "react";
 
+type TaskReportLike = {
+  narrative?: unknown;
+  result_summary?: unknown;
+  outputs?: unknown;
+  errors?: unknown;
+};
+
 export interface CompletedViewProps {
   resultSummary?: string | null;
   result?: Record<string, unknown> | null;
-  outputs?: unknown[];
 }
 
 export function CompletedView({
   resultSummary,
   result,
-  outputs,
 }: CompletedViewProps) {
   const [showFullResult, setShowFullResult] = useState(false);
 
-  const summary = resultSummary || "Execution completed.";
-  const outputItems = Array.isArray(outputs) ? outputs.slice(0, 5) : [];
+  const taskReport = getTaskReport(result);
+  const summary =
+    resultSummary ||
+    readString(taskReport?.result_summary) ||
+    readString(taskReport?.narrative) ||
+    "Execution completed.";
+  const taskOutputs = taskReport?.outputs;
+  const outputItems = Array.isArray(taskOutputs) ? taskOutputs.slice(0, 5) : [];
+  const taskErrors = taskReport?.errors;
+  const errorItems = Array.isArray(taskErrors) ? taskErrors.slice(0, 3) : [];
 
   return (
     <div
@@ -50,9 +63,12 @@ export function CompletedView({
           {outputItems.map((output, i) => {
             const item = output as Record<string, unknown>;
             const label =
-              (item.title as string) ||
-              (item.name as string) ||
-              (item.id as string) ||
+              readString(item.preview) ||
+              readString(item.title) ||
+              readString(item.name) ||
+              readString((item.data as Record<string, unknown> | undefined)?.title) ||
+              readString((item.data as Record<string, unknown> | undefined)?.name) ||
+              readString(item.id) ||
               `Output ${i + 1}`;
             return (
               <span
@@ -71,6 +87,41 @@ export function CompletedView({
               >
                 {label}
               </span>
+            );
+          })}
+        </div>
+      )}
+
+      {errorItems.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            marginBottom: 12,
+          }}
+        >
+          {errorItems.map((error, i) => {
+            const item = error as Record<string, unknown>;
+            const label =
+              readString(item.error) ||
+              readString(item.message) ||
+              `Error ${i + 1}`;
+            return (
+              <div
+                key={i}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: "var(--v2-radius-md)",
+                  background: "rgba(220, 38, 38, 0.06)",
+                  border: "1px solid rgba(220, 38, 38, 0.12)",
+                  color: "var(--v2-status-error)",
+                  fontSize: 11.5,
+                  lineHeight: 1.45,
+                }}
+              >
+                {label}
+              </div>
             );
           })}
         </div>
@@ -121,4 +172,19 @@ export function CompletedView({
       )}
     </div>
   );
+}
+
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function getTaskReport(result?: Record<string, unknown> | null): TaskReportLike | null {
+  if (!result || typeof result !== "object") return null;
+  const nested = result.task_report;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    return nested as TaskReportLike;
+  }
+  return result as TaskReportLike;
 }

@@ -8,7 +8,15 @@ import type {
   ExecutionRecord,
   ExecutionStreamEvent,
   ExecutionNodeState,
+  ExecutionStatus,
 } from "@/lib/api/types";
+
+const TERMINAL_EXECUTION_STATUSES = new Set<ExecutionStatus>([
+  "completed",
+  "failed_partial",
+  "failed",
+  "cancelled",
+]);
 
 interface ExecutionState {
   /** Flat map of all known executions keyed by execution_id */
@@ -174,12 +182,17 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         }
 
         case "execution.completed": {
-          updated.status = "completed";
+          updated.status =
+            (event.payload.status as ExecutionStatus | undefined) || "completed";
           if (event.payload.result) {
             updated.result = event.payload.result as Record<string, unknown>;
+          } else {
+            updated.result = event.payload;
           }
           if (typeof event.payload.result_summary === "string") {
             updated.result_summary = event.payload.result_summary;
+          } else if (typeof event.payload.narrative === "string") {
+            updated.result_summary = event.payload.narrative;
           }
           updated.completed_at = event.timestamp;
           break;
@@ -197,7 +210,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         case "execution.end": {
           // Terminal sentinel — ensure status is terminal
-          if (!["completed", "failed", "cancelled"].includes(updated.status)) {
+          if (!TERMINAL_EXECUTION_STATUSES.has(updated.status)) {
             updated.status = "completed";
           }
           if (!updated.completed_at) {

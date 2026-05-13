@@ -77,7 +77,12 @@ export function useChatStream(workspaceId: string) {
           });
 
         const status = (event as { status?: string }).status;
-        if (status === "completed" || status === "failed") {
+        if (
+          status === "completed" ||
+          status === "failed_partial" ||
+          status === "failed" ||
+          status === "cancelled"
+        ) {
           setTimeout(() => {
             if (useExecutionStore.getState().currentExecutionId === eid) {
               execStore.setCurrentExecution(null);

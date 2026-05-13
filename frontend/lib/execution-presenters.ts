@@ -77,6 +77,7 @@ export function normalizeExecutionTaskStatus(
 ): ExecutionCurrentTask["status"] {
   switch (status) {
     case "completed":
+    case "failed_partial":
       return "completed";
     case "failed":
     case "advisory":
@@ -320,7 +321,7 @@ export function adaptExecutionToPanelSession(
       "执行会话已启动。",
     panelKey: feature?.panel ?? null,
     status:
-      execution.status === "completed"
+      execution.status === "completed" || execution.status === "failed_partial"
         ? "success"
         : execution.status === "failed" || execution.status === "advisory"
           ? "failed"

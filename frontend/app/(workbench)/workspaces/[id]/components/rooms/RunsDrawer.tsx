@@ -11,6 +11,7 @@ interface RunsDrawerProps {
 
 const STATUS_COLORS: Record<RunRecord["status"], string> = {
   completed: "var(--v2-status-success-deep)",
+  failed_partial: "var(--semantic-warning)",
   failed: "var(--v2-status-error)",
   cancelled: "var(--v2-text-tertiary)",
   running: "var(--v2-status-running-deep)",
@@ -18,9 +19,18 @@ const STATUS_COLORS: Record<RunRecord["status"], string> = {
 
 const STATUS_BG: Record<RunRecord["status"], string> = {
   completed: "rgba(34, 197, 94, 0.1)",
+  failed_partial: "rgba(198, 138, 26, 0.12)",
   failed: "rgba(239, 68, 68, 0.1)",
   cancelled: "rgba(100, 100, 120, 0.08)",
   running: "rgba(139, 92, 246, 0.1)",
+};
+
+const STATUS_LABELS: Record<RunRecord["status"], string> = {
+  completed: "completed",
+  failed_partial: "partial",
+  failed: "failed",
+  cancelled: "cancelled",
+  running: "running",
 };
 
 function formatTime(iso: string): string {
@@ -267,7 +277,7 @@ export function RunsDrawer({
                     background: STATUS_BG[item.status],
                   }}
                 >
-                  {item.status}
+                  {STATUS_LABELS[item.status]}
                 </span>
               </div>
               <div

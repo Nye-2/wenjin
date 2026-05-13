@@ -1362,6 +1362,7 @@ export type ExecutionStatus =
   | "pending"
   | "running"
   | "completed"
+  | "failed_partial"
   | "failed"
   | "cancelled"
   | "awaiting_user_input";
@@ -1472,5 +1473,4 @@ export interface ExecutionStreamEvent {
   timestamp: string;
   payload: Record<string, unknown>;
 }
-
 

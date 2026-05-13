@@ -5,7 +5,7 @@ const BASE = "/api/workspaces";
 export type RunRecord = {
   id: string;
   capability_name: string;
-  status: "completed" | "failed" | "cancelled" | "running";
+  status: "completed" | "failed_partial" | "failed" | "cancelled" | "running";
   started_at: string;
   completed_at?: string;
   summary: string;

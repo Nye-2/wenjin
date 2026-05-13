@@ -34,13 +34,15 @@ function computeDuration(record: ExecutionRecord): string {
 }
 
 function isTerminalStatus(status: string): boolean {
-  return ["completed", "failed", "cancelled"].includes(status);
+  return ["completed", "failed_partial", "failed", "cancelled"].includes(status);
 }
 
-type CardStatus = "completed" | "running" | "failed";
+type CardStatus = "completed" | "partial" | "running" | "failed" | "cancelled";
 
 function deriveCardStatus(record: ExecutionRecord): CardStatus {
   if (record.status === "completed") return "completed";
+  if (record.status === "failed_partial") return "partial";
+  if (record.status === "cancelled") return "cancelled";
   if (record.status === "failed") return "failed";
   return "running";
 }
@@ -50,8 +52,10 @@ function deriveCardStatus(record: ExecutionRecord): CardStatus {
 function StatusIcon({ status }: { status: CardStatus }) {
   const config: Record<CardStatus, { symbol: string; color: string; animate: boolean }> = {
     completed: { symbol: "✓", color: "var(--v2-status-success-deep)", animate: false },
+    partial: { symbol: "!", color: "var(--semantic-warning)", animate: false },
     running: { symbol: "⟳", color: "var(--v2-accent-purple-700)", animate: true },
     failed: { symbol: "✕", color: "var(--v2-status-error)", animate: false },
+    cancelled: { symbol: "×", color: "var(--v2-text-tertiary)", animate: false },
   };
   const { symbol, color, animate } = config[status];
 
@@ -67,9 +71,13 @@ function StatusIcon({ status }: { status: CardStatus }) {
         background:
           status === "completed"
             ? "rgba(74, 222, 128, 0.12)"
+            : status === "partial"
+              ? "rgba(198, 138, 26, 0.12)"
             : status === "running"
               ? "var(--v2-accent-purple-100)"
-              : "rgba(220, 38, 38, 0.1)",
+              : status === "failed"
+                ? "rgba(220, 38, 38, 0.1)"
+                : "rgba(20, 20, 30, 0.06)",
         color,
         fontSize: status === "running" ? 18 : 16,
         fontWeight: 700,
@@ -92,6 +100,11 @@ function StatusBadge({ status }: { status: CardStatus }) {
       bg: "rgba(74, 222, 128, 0.12)",
       color: "var(--v2-status-success-deep)",
     },
+    partial: {
+      label: "Partial",
+      bg: "rgba(198, 138, 26, 0.12)",
+      color: "var(--semantic-warning)",
+    },
     running: {
       label: "Running",
       bg: "var(--v2-accent-purple-100)",
@@ -101,6 +114,11 @@ function StatusBadge({ status }: { status: CardStatus }) {
       label: "Failed",
       bg: "rgba(220, 38, 38, 0.1)",
       color: "var(--v2-status-error)",
+    },
+    cancelled: {
+      label: "Cancelled",
+      bg: "rgba(20, 20, 30, 0.06)",
+      color: "var(--v2-text-tertiary)",
     },
   };
   const { label, bg, color } = config[status];
@@ -234,15 +252,10 @@ export function ExecutionCard({
             animation: "v2-glass-in 250ms var(--v2-ease-standard)",
           }}
         >
-          {cardStatus === "completed" ? (
+          {isTerminalStatus(record.status) ? (
             <CompletedView
               resultSummary={record.result_summary}
               result={record.result}
-              outputs={
-                record.result?.outputs
-                  ? (record.result.outputs as unknown[])
-                  : undefined
-              }
             />
           ) : (
             <InProgressView

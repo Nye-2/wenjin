@@ -15,7 +15,7 @@ const MOCK_ITEMS = [
   {
     id: "run-2",
     capability_name: "Deep Research",
-    status: "failed" as const,
+    status: "failed_partial" as const,
     started_at: "2026-01-16T08:00:00Z",
     completed_at: "2026-01-16T08:01:00Z",
     summary: "Error: rate limit exceeded",
@@ -85,7 +85,7 @@ describe("RunsDrawer", () => {
     await screen.findByText("Literature Search");
     const statuses = screen.getAllByTestId("run-status");
     expect(statuses[0]).toHaveTextContent("completed");
-    expect(statuses[1]).toHaveTextContent("failed");
+    expect(statuses[1]).toHaveTextContent("partial");
     expect(statuses[2]).toHaveTextContent("running");
   });
 
