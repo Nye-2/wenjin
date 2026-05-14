@@ -2,6 +2,13 @@
 and merge into corresponding capability seed YAMLs (matched by id).
 
 Run once during Phase 1 of admin dashboard rebuild. Idempotent.
+
+NOTE: This script ran once during P1.1 (commit ee4fa7f). The `order` field
+computation here was buggy (used a global index instead of per-workspace).
+The actual order values were later corrected per-workspace in a follow-up commit.
+Do NOT re-run this script — the YAML files are now the source of truth for ui_meta.
+This script remains only as historical record and will be deleted alongside
+registry.py in P1.6.
 """
 
 from __future__ import annotations

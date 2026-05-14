@@ -41,7 +41,7 @@ result_card_template: section_draft
 ui_meta:
   icon: pen
   color: amber
-  order: 0
+  order: 4
   stages:
   - id: plan
     label: 规划结构

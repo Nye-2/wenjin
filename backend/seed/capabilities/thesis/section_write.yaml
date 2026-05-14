@@ -42,7 +42,7 @@ result_card_template: section_draft
 ui_meta:
   icon: pen
   color: blue
-  order: 0
+  order: 4
   stages:
   - id: write
     label: 撰写内容

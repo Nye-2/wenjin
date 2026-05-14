@@ -42,7 +42,7 @@ result_card_template: peer_review
 ui_meta:
   icon: shield-check
   color: rose
-  order: 11
+  order: 5
   stages:
   - id: inspect
     label: 审阅稿件

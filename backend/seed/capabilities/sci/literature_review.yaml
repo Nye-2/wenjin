@@ -51,7 +51,7 @@ result_card_template: literature_review
 ui_meta:
   icon: book-open
   color: cyan
-  order: 8
+  order: 1
   stages:
   - id: collect
     label: 整理文献

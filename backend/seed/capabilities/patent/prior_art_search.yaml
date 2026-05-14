@@ -40,7 +40,7 @@ result_card_template: library_intake
 ui_meta:
   icon: search
   color: amber
-  order: 21
+  order: 0
   stages:
   - id: search
     label: 检索材料

@@ -44,7 +44,7 @@ result_card_template: section_draft
 ui_meta:
   icon: code
   color: indigo
-  order: 18
+  order: 0
   stages:
   - id: analyze
     label: 分析软件

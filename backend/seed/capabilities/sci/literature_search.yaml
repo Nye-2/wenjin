@@ -61,7 +61,7 @@ result_card_template: literature_review
 ui_meta:
   icon: search
   color: emerald
-  order: 5
+  order: 0
   stages:
   - id: search
     label: 检索文献

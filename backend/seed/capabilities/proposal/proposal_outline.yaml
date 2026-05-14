@@ -42,7 +42,7 @@ result_card_template: framework_outline
 ui_meta:
   icon: file-text
   color: purple
-  order: 13
+  order: 1
   stages:
   - id: analyze
     label: 分析要求

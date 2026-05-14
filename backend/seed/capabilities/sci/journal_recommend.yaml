@@ -46,7 +46,7 @@ result_card_template: journal_recommend
 ui_meta:
   icon: compass
   color: amber
-  order: 12
+  order: 7
   stages:
   - id: profile
     label: 提炼论文画像

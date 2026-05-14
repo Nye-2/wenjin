@@ -42,7 +42,7 @@ result_card_template: framework_outline
 ui_meta:
   icon: list
   color: blue
-  order: 9
+  order: 3
   stages:
   - id: position
     label: 定位研究

@@ -38,7 +38,7 @@ result_card_template: paper_analysis
 ui_meta:
   icon: microscope
   color: purple
-  order: 6
+  order: 2
   stages:
   - id: parse
     label: 解析论文

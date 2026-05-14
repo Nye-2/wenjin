@@ -38,7 +38,7 @@ result_card_template: peer_review
 ui_meta:
   icon: pen
   color: blue
-  order: 0
+  order: 5
   stages:
   - id: revise
     label: 修订完善
