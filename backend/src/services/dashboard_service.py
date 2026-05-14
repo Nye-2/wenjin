@@ -6,13 +6,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Artifact, Workspace
+from src.database.models.capability import Capability
 from src.services.dashboard import (
     DashboardInnovationStatusMixin,
     DashboardProposalStatusMixin,
     DashboardSciStatusMixin,
     DashboardThesisStatusMixin,
 )
-from src.workspace_features import list_workspace_features
 
 
 class DashboardService(
@@ -23,8 +23,9 @@ class DashboardService(
 ):
     """Service for workspace dashboard overview."""
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, *, capability_model: type = Capability):
         self.db = db
+        self._capability_model = capability_model
 
     async def get_dashboard(
         self,
@@ -66,13 +67,31 @@ class DashboardService(
         workspace_id: str,
         workspace_type: str,
     ) -> list[dict[str, Any]]:
-        """Build workspace dashboard modules in canonical registry order."""
+        """Build workspace dashboard modules from the capabilities DB table.
+
+        Capabilities are ordered by ``ui_meta.order`` (ascending), with capability
+        ``id`` as a stable tie-breaker. Dispatch uses ``dashboard_meta.status_kind``
+        when present, falling back to ``capability.id``.
+        """
+        capability_model = self._capability_model
+        result = await self.db.execute(
+            select(capability_model)
+            .where(capability_model.workspace_type == workspace_type)
+            .where(capability_model.enabled == True)  # noqa: E712
+        )
+        capabilities = sorted(
+            result.scalars().all(),
+            key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id),
+        )
+
         modules: list[dict[str, Any]] = []
-        for feature in list_workspace_features(workspace_type):
-            method_name = f"_get_{feature.id}_status"
+        for cap in capabilities:
+            status_kind = (cap.dashboard_meta or {}).get("status_kind", cap.id)
+            method_name = f"_get_{status_kind}_status"
             if not hasattr(self, method_name):
                 raise RuntimeError(
-                    f"No dashboard status builder registered for feature '{feature.id}'"
+                    f"No dashboard status builder for status_kind '{status_kind}' "
+                    f"(capability {cap.id})"
                 )
             modules.append(await getattr(self, method_name)(workspace_id))
         return modules

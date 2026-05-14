@@ -7,6 +7,33 @@ import pytest
 
 from src.services.dashboard_service import DashboardService
 from src.workspace_features import CANONICAL_WORKSPACE_TYPES, list_workspace_features
+from tests.database.conftest import _Capability as DbCapability
+
+
+def _make_capability(
+    capability_id: str,
+    workspace_type: str,
+    *,
+    order: int = 0,
+    status_kind: str | None = None,
+) -> DbCapability:
+    """Build a minimal DbCapability row for dashboard module ordering tests."""
+    return DbCapability(
+        id=capability_id,
+        workspace_type=workspace_type,
+        enabled=True,
+        display_name=capability_id,
+        description="",
+        intent_description="test",
+        trigger_phrases=[],
+        required_decisions=[],
+        brief_schema={},
+        graph_template={},
+        ui_meta={"order": order, "icon": "x", "color": "x"},
+        runtime={"mode": "chat_only"},
+        dashboard_meta={"status_kind": status_kind or capability_id},
+        notes=None,
+    )
 
 
 class _ScalarsResult:
@@ -44,9 +71,22 @@ def test_dashboard_status_builders_cover_workspace_registry() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_dashboard_sci_uses_workspace_specific_modules():
-    db = AsyncMock()
-    service = DashboardService(db)
+async def test_get_dashboard_sci_uses_workspace_specific_modules(test_session):
+    test_session.add_all(
+        [
+            _make_capability("literature_search", "sci", order=0),
+            _make_capability("paper_analysis", "sci", order=1),
+            _make_capability("writing", "sci", order=2),
+            _make_capability("literature_review", "sci", order=3),
+            _make_capability("framework_outline", "sci", order=4),
+            _make_capability("figure_generation", "sci", order=5),
+            _make_capability("peer_review", "sci", order=6),
+            _make_capability("journal_recommend", "sci", order=7),
+        ]
+    )
+    await test_session.commit()
+
+    service = DashboardService(test_session, capability_model=DbCapability)
 
     service._get_literature_search_status = AsyncMock(
         return_value={
@@ -127,9 +167,18 @@ async def test_get_dashboard_sci_uses_workspace_specific_modules():
 
 
 @pytest.mark.asyncio
-async def test_get_dashboard_proposal_uses_workspace_specific_modules():
-    db = AsyncMock()
-    service = DashboardService(db)
+async def test_get_dashboard_proposal_uses_workspace_specific_modules(test_session):
+    test_session.add_all(
+        [
+            _make_capability("proposal_outline", "proposal", order=0),
+            _make_capability("background_research", "proposal", order=1),
+            _make_capability("experiment_design", "proposal", order=2),
+            _make_capability("figure_generation", "proposal", order=3),
+        ]
+    )
+    await test_session.commit()
+
+    service = DashboardService(test_session, capability_model=DbCapability)
 
     service._get_proposal_outline_status = AsyncMock(
         return_value={
@@ -172,9 +221,17 @@ async def test_get_dashboard_proposal_uses_workspace_specific_modules():
 
 
 @pytest.mark.asyncio
-async def test_get_dashboard_software_copyright_uses_workspace_specific_modules():
-    db = AsyncMock()
-    service = DashboardService(db)
+async def test_get_dashboard_software_copyright_uses_workspace_specific_modules(test_session):
+    test_session.add_all(
+        [
+            _make_capability("copyright_materials", "software_copyright", order=0),
+            _make_capability("technical_description", "software_copyright", order=1),
+            _make_capability("figure_generation", "software_copyright", order=2),
+        ]
+    )
+    await test_session.commit()
+
+    service = DashboardService(test_session, capability_model=DbCapability)
 
     service._get_copyright_materials_status = AsyncMock(
         return_value={
@@ -209,9 +266,17 @@ async def test_get_dashboard_software_copyright_uses_workspace_specific_modules(
 
 
 @pytest.mark.asyncio
-async def test_get_dashboard_patent_uses_workspace_specific_modules():
-    db = AsyncMock()
-    service = DashboardService(db)
+async def test_get_dashboard_patent_uses_workspace_specific_modules(test_session):
+    test_session.add_all(
+        [
+            _make_capability("patent_outline", "patent", order=0),
+            _make_capability("prior_art_search", "patent", order=1),
+            _make_capability("figure_generation", "patent", order=2),
+        ]
+    )
+    await test_session.commit()
+
+    service = DashboardService(test_session, capability_model=DbCapability)
 
     service._get_patent_outline_status = AsyncMock(
         return_value={
@@ -445,3 +510,130 @@ async def test_experiment_design_status_includes_hypotheses_and_variables():
     assert result["status"] == "completed"
     assert result["summary"]["hypotheses_count"] == 2
     assert result["summary"]["variables_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_modules_built_from_capability_table(test_session):
+    """DashboardService reads modules from capabilities table, not workspace_features registry."""
+    test_session.add_all(
+        [
+            _make_capability("deep_research", "thesis", order=0),
+            _make_capability("literature_management", "thesis", order=1),
+        ]
+    )
+    await test_session.commit()
+
+    service = DashboardService(test_session, capability_model=DbCapability)
+    service._get_deep_research_status = AsyncMock(
+        return_value={
+            "id": "deep_research",
+            "status": "not_started",
+            "summary": {},
+        }
+    )
+    service._get_literature_management_status = AsyncMock(
+        return_value={
+            "id": "literature_management",
+            "status": "not_started",
+            "summary": {},
+        }
+    )
+
+    modules = await service._get_modules_for_workspace("ws-uuid", "thesis")
+
+    assert len(modules) == 2
+    assert [m["id"] for m in modules] == ["deep_research", "literature_management"]
+
+
+@pytest.mark.asyncio
+async def test_modules_respect_ui_meta_order(test_session):
+    """Capabilities are returned in ascending ui_meta.order (then id) regardless of insert order."""
+    test_session.add_all(
+        [
+            _make_capability("literature_management", "thesis", order=5),
+            _make_capability("deep_research", "thesis", order=1),
+        ]
+    )
+    await test_session.commit()
+
+    service = DashboardService(test_session, capability_model=DbCapability)
+    service._get_deep_research_status = AsyncMock(
+        return_value={"id": "deep_research", "status": "not_started", "summary": {}}
+    )
+    service._get_literature_management_status = AsyncMock(
+        return_value={
+            "id": "literature_management",
+            "status": "not_started",
+            "summary": {},
+        }
+    )
+
+    modules = await service._get_modules_for_workspace("ws-uuid", "thesis")
+
+    assert [m["id"] for m in modules] == ["deep_research", "literature_management"]
+
+
+@pytest.mark.asyncio
+async def test_modules_skip_disabled_capabilities(test_session):
+    """Capabilities with enabled=False must not produce modules."""
+    enabled = _make_capability("deep_research", "thesis", order=0)
+    disabled = _make_capability("literature_management", "thesis", order=1)
+    disabled.enabled = False
+    test_session.add_all([enabled, disabled])
+    await test_session.commit()
+
+    service = DashboardService(test_session, capability_model=DbCapability)
+    service._get_deep_research_status = AsyncMock(
+        return_value={"id": "deep_research", "status": "not_started", "summary": {}}
+    )
+
+    modules = await service._get_modules_for_workspace("ws-uuid", "thesis")
+
+    assert [m["id"] for m in modules] == ["deep_research"]
+
+
+@pytest.mark.asyncio
+async def test_modules_use_dashboard_meta_status_kind(test_session):
+    """status_kind from dashboard_meta drives method dispatch when it differs from capability.id."""
+    test_session.add_all(
+        [
+            _make_capability(
+                "alias_capability",
+                "thesis",
+                order=0,
+                status_kind="deep_research",
+            ),
+        ]
+    )
+    await test_session.commit()
+
+    service = DashboardService(test_session, capability_model=DbCapability)
+    service._get_deep_research_status = AsyncMock(
+        return_value={"id": "deep_research", "status": "not_started", "summary": {}}
+    )
+
+    modules = await service._get_modules_for_workspace("ws-uuid", "thesis")
+
+    assert [m["id"] for m in modules] == ["deep_research"]
+    service._get_deep_research_status.assert_awaited_once_with("ws-uuid")
+
+
+@pytest.mark.asyncio
+async def test_modules_raise_when_status_kind_missing_method(test_session):
+    """If a capability's status_kind has no _get_<status_kind>_status method, raise RuntimeError."""
+    test_session.add_all(
+        [
+            _make_capability(
+                "future_capability",
+                "thesis",
+                order=0,
+                status_kind="not_implemented_kind",
+            ),
+        ]
+    )
+    await test_session.commit()
+
+    service = DashboardService(test_session, capability_model=DbCapability)
+
+    with pytest.raises(RuntimeError, match="not_implemented_kind"):
+        await service._get_modules_for_workspace("ws-uuid", "thesis")
