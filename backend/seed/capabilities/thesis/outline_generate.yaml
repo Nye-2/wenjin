@@ -34,7 +34,6 @@ graph_template:
                 name: "{{topic}} 框架"
                 doc_kind: framework_outline
                 content: "{{output.markdown}}"
-result_card_template: framework_outline
 ui_meta:
   icon: pen
   color: blue

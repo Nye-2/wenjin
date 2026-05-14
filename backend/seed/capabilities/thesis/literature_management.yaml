@@ -37,7 +37,6 @@ graph_template:
           year: '{{item.year}}'
           doi: '{{item.doi}}'
           abstract: '{{item.abstract}}'
-result_card_template: library_intake
 ui_meta:
   icon: book-open
   color: emerald

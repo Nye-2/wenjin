@@ -40,7 +40,6 @@ graph_template:
           name: '{{software_name}} 技术说明书'
           doc_kind: section_draft
           content: '{{output.markdown}}'
-result_card_template: section_draft
 ui_meta:
   icon: code
   color: indigo

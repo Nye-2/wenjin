@@ -52,7 +52,6 @@ graph_template:
           name: '{{topic}} 开题综述'
           doc_kind: literature_review
           content: '{{output.markdown}}'
-result_card_template: literature_review
 ui_meta:
   icon: file-text
   color: amber

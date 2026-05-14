@@ -38,7 +38,6 @@ graph_template:
           name: '{{software_name}} 软著材料'
           doc_kind: framework_outline
           content: '{{output.markdown}}'
-result_card_template: framework_outline
 ui_meta:
   icon: file-text
   color: violet

@@ -42,7 +42,6 @@ graph_template:
           name: 期刊推荐
           doc_kind: journal_recommend
           content: '{{output.markdown}}'
-result_card_template: journal_recommend
 ui_meta:
   icon: compass
   color: amber

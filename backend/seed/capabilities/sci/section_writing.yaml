@@ -37,7 +37,6 @@ graph_template:
                 name: "{{section_title}} 草稿"
                 doc_kind: section_draft
                 content: "{{output.markdown}}"
-result_card_template: section_draft
 ui_meta:
   icon: pen
   color: amber

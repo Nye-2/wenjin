@@ -44,7 +44,6 @@ graph_template:
           name: '{{topic}} 项目背景'
           doc_kind: literature_review
           content: '{{output.markdown}}'
-result_card_template: literature_review
 ui_meta:
   icon: search
   color: emerald

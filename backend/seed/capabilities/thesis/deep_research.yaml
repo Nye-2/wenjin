@@ -59,7 +59,6 @@ graph_template:
           name: '{{topic}} 文献综述'
           doc_kind: literature_review
           content: '{{output.markdown}}'
-result_card_template: literature_review
 notes: 适合开题阶段或选题探索
 ui_meta:
   icon: search

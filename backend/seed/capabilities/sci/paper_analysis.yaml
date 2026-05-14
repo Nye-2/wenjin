@@ -34,7 +34,6 @@ graph_template:
           name: 论文分析
           doc_kind: paper_analysis
           content: '{{output|json}}'
-result_card_template: paper_analysis
 ui_meta:
   icon: microscope
   color: purple

@@ -47,7 +47,6 @@ graph_template:
           name: '{{topic}} 文献综述'
           doc_kind: literature_review
           content: '{{output.markdown}}'
-result_card_template: literature_review
 ui_meta:
   icon: book-open
   color: cyan

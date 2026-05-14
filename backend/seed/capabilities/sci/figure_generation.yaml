@@ -38,7 +38,6 @@ graph_template:
           name: 图表 - {{concept}}
           doc_kind: figure_spec
           content: '{{output.markdown}}'
-result_card_template: figure_spec
 ui_meta:
   icon: image
   color: rose

@@ -34,7 +34,6 @@ graph_template:
                 name: "章节修订建议"
                 doc_kind: peer_review
                 content: "{{output.markdown}}"
-result_card_template: peer_review
 ui_meta:
   icon: pen
   color: blue

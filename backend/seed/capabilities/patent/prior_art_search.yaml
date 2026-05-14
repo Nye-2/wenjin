@@ -36,7 +36,6 @@ graph_template:
           authors: '{{item.authors}}'
           year: '{{item.year}}'
           doi: '{{item.doi}}'
-result_card_template: library_intake
 ui_meta:
   icon: search
   color: amber
