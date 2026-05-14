@@ -287,6 +287,8 @@ class _Capability(_Base):
     brief_schema: Mapped[dict] = mapped_column(JSON, nullable=False)
     graph_template: Mapped[dict] = mapped_column(JSON, nullable=False)
     ui_meta: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    runtime: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    dashboard_meta: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

@@ -27,6 +27,8 @@ class Capability(Base):
     brief_schema: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     graph_template: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     ui_meta: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    runtime: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    dashboard_meta: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
