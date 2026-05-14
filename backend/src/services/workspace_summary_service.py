@@ -5,12 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, cast
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.database.models.capability import Capability
 from src.services.dashboard_service import DashboardService
 from src.services.execution_service import ExecutionService
 from src.services.workspace_activity_service import WorkspaceActivityService
-from src.workspace_features import list_workspace_features
 
 _WORKSPACE_LABELS = {
     "thesis": "学位论文",
@@ -41,11 +42,13 @@ class WorkspaceSummaryService:
         dashboard_service: DashboardService | None = None,
         activity_service: WorkspaceActivityService | None = None,
         execution_service: ExecutionService | None = None,
+        capability_model: type = Capability,
     ) -> None:
         self.db = db
         self._dashboard_service = dashboard_service or DashboardService(db)
         self._activity_service = activity_service or WorkspaceActivityService(db)
         self._execution_service = execution_service
+        self._capability_model = capability_model
 
     async def get_summary(
         self,
@@ -63,7 +66,7 @@ class WorkspaceSummaryService:
             workspace_id,
             user_id=user_id,
         )
-        modules = self._normalize_modules(
+        modules = await self._normalize_modules(
             workspace_type,
             dashboard.get("modules") if isinstance(dashboard, dict) else [],
             executions,
@@ -95,7 +98,7 @@ class WorkspaceSummaryService:
             "recent_activity": recent_activity,
         }
 
-    def _normalize_modules(
+    async def _normalize_modules(
         self,
         workspace_type: str,
         raw_modules: list[dict[str, Any]] | Any,
@@ -123,10 +126,23 @@ class WorkspaceSummaryService:
                 continue
             latest_execution_by_feature[feature_id] = execution
 
+        capability_model = self._capability_model
+        result = await self.db.execute(
+            select(capability_model)
+            .where(capability_model.workspace_type == workspace_type)
+            .where(capability_model.enabled == True)  # noqa: E712
+        )
+        capabilities = sorted(
+            result.scalars().all(),
+            key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id),
+        )
+
         normalized: list[dict[str, Any]] = []
-        for feature in list_workspace_features(workspace_type):
-            module = module_by_id.get(feature.id, {})
-            latest_execution: dict[str, Any] | None = latest_execution_by_feature.get(feature.id)
+        for cap in capabilities:
+            if (cap.dashboard_meta or {}).get("hidden") is True:
+                continue
+            module = module_by_id.get(cap.id, {})
+            latest_execution: dict[str, Any] | None = latest_execution_by_feature.get(cap.id)
             if latest_execution:
                 module_status = self._module_status_from_execution(latest_execution)
                 module_summary = {
@@ -140,9 +156,9 @@ class WorkspaceSummaryService:
                 module_summary = module.get("summary") or {}
             normalized.append(
                 {
-                    "id": feature.id,
-                    "title": feature.name,
-                    "description": feature.description,
+                    "id": cap.id,
+                    "title": cap.display_name,
+                    "description": cap.description,
                     "status": module_status,
                     "summary": module_summary,
                 }

@@ -5,10 +5,57 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.services.workspace_summary_service import WorkspaceSummaryService
+from tests.database.conftest import _Capability as DbCapability
+
+
+def _make_capability(
+    capability_id: str,
+    workspace_type: str,
+    *,
+    order: int = 0,
+    display_name: str | None = None,
+    description: str = "",
+    dashboard_meta: dict | None = None,
+) -> DbCapability:
+    """Build a minimal DbCapability row for summary tests."""
+    if dashboard_meta is None:
+        dashboard_meta = {"status_kind": capability_id}
+    return DbCapability(
+        id=capability_id,
+        workspace_type=workspace_type,
+        enabled=True,
+        display_name=display_name or capability_id,
+        description=description,
+        intent_description="test",
+        trigger_phrases=[],
+        required_decisions=[],
+        brief_schema={},
+        graph_template={},
+        ui_meta={"order": order, "icon": "x", "color": "x"},
+        runtime={"mode": "chat_only"},
+        dashboard_meta=dashboard_meta,
+        notes=None,
+    )
 
 
 @pytest.mark.asyncio
-async def test_summary_prioritizes_failed_module_and_generates_risk():
+async def test_summary_prioritizes_failed_module_and_generates_risk(test_session):
+    test_session.add_all(
+        [
+            _make_capability("deep_research", "thesis", order=0, display_name="深度调研"),
+            _make_capability(
+                "literature_management",
+                "thesis",
+                order=1,
+                display_name="文献管理",
+            ),
+            _make_capability("opening_research", "thesis", order=2, display_name="开题调研"),
+            _make_capability("thesis_writing", "thesis", order=3, display_name="论文写作"),
+            _make_capability("figure_generation", "thesis", order=4, display_name="图表生成"),
+        ]
+    )
+    await test_session.commit()
+
     dashboard_service = AsyncMock()
     dashboard_service.get_dashboard = AsyncMock(
         return_value={
@@ -36,9 +83,10 @@ async def test_summary_prioritizes_failed_module_and_generates_risk():
         }
     )
     service = WorkspaceSummaryService(
-        AsyncMock(),
+        test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
+        capability_model=DbCapability,
     )
 
     result = await service.get_summary(
@@ -54,7 +102,23 @@ async def test_summary_prioritizes_failed_module_and_generates_risk():
 
 
 @pytest.mark.asyncio
-async def test_summary_builds_progress_and_recommended_actions_for_in_progress_module():
+async def test_summary_builds_progress_and_recommended_actions_for_in_progress_module(
+    test_session,
+):
+    test_session.add_all(
+        [
+            _make_capability("literature_search", "sci", order=0, display_name="文献检索"),
+            _make_capability("paper_analysis", "sci", order=1, display_name="论文分析"),
+            _make_capability("writing", "sci", order=2, display_name="论文写作"),
+            _make_capability("literature_review", "sci", order=3, display_name="文献综述"),
+            _make_capability("framework_outline", "sci", order=4, display_name="框架与摘要"),
+            _make_capability("figure_generation", "sci", order=5, display_name="图表生成"),
+            _make_capability("peer_review", "sci", order=6, display_name="同行评审"),
+            _make_capability("journal_recommend", "sci", order=7, display_name="期刊推荐"),
+        ]
+    )
+    await test_session.commit()
+
     dashboard_service = AsyncMock()
     dashboard_service.get_dashboard = AsyncMock(
         return_value={
@@ -69,9 +133,10 @@ async def test_summary_builds_progress_and_recommended_actions_for_in_progress_m
     activity_service = AsyncMock()
     activity_service.get_activity = AsyncMock(return_value={"items": []})
     service = WorkspaceSummaryService(
-        AsyncMock(),
+        test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
+        capability_model=DbCapability,
     )
 
     result = await service.get_summary(
@@ -90,7 +155,23 @@ async def test_summary_builds_progress_and_recommended_actions_for_in_progress_m
 
 
 @pytest.mark.asyncio
-async def test_summary_warns_when_thesis_literature_is_thin():
+async def test_summary_warns_when_thesis_literature_is_thin(test_session):
+    test_session.add_all(
+        [
+            _make_capability("deep_research", "thesis", order=0, display_name="深度调研"),
+            _make_capability(
+                "literature_management",
+                "thesis",
+                order=1,
+                display_name="文献管理",
+            ),
+            _make_capability("opening_research", "thesis", order=2, display_name="开题调研"),
+            _make_capability("thesis_writing", "thesis", order=3, display_name="论文写作"),
+            _make_capability("figure_generation", "thesis", order=4, display_name="图表生成"),
+        ]
+    )
+    await test_session.commit()
+
     dashboard_service = AsyncMock()
     dashboard_service.get_dashboard = AsyncMock(
         return_value={
@@ -107,9 +188,10 @@ async def test_summary_warns_when_thesis_literature_is_thin():
     activity_service = AsyncMock()
     activity_service.get_activity = AsyncMock(return_value={"items": []})
     service = WorkspaceSummaryService(
-        AsyncMock(),
+        test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
+        capability_model=DbCapability,
     )
 
     result = await service.get_summary(
@@ -124,7 +206,17 @@ async def test_summary_warns_when_thesis_literature_is_thin():
 
 
 @pytest.mark.asyncio
-async def test_summary_prefers_active_execution_session_for_current_phase_and_next_step():
+async def test_summary_prefers_active_execution_session_for_current_phase_and_next_step(
+    test_session,
+):
+    test_session.add_all(
+        [
+            _make_capability("literature_search", "sci", order=0, display_name="文献检索"),
+            _make_capability("framework_outline", "sci", order=1, display_name="框架与摘要"),
+        ]
+    )
+    await test_session.commit()
+
     dashboard_service = AsyncMock()
     dashboard_service.get_dashboard = AsyncMock(
         return_value={
@@ -159,10 +251,11 @@ async def test_summary_prefers_active_execution_session_for_current_phase_and_ne
         ]
     )
     service = WorkspaceSummaryService(
-        AsyncMock(),
+        test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
         execution_service=execution_service,
+        capability_model=DbCapability,
     )
 
     result = await service.get_summary(
@@ -179,10 +272,15 @@ async def test_summary_prefers_active_execution_session_for_current_phase_and_ne
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("workspace_type", "modules", "expected_risk_id"),
+    ("workspace_type", "capabilities", "modules", "expected_risk_id"),
     [
         (
             "proposal",
+            [
+                ("proposal_outline", 0, "申报书大纲"),
+                ("background_research", 1, "背景调研"),
+                ("experiment_design", 2, "实验设计"),
+            ],
             [
                 {"id": "proposal_outline", "status": "completed", "summary": {"count": 1}},
                 {"id": "background_research", "status": "not_started", "summary": {"count": 0}},
@@ -193,6 +291,10 @@ async def test_summary_prefers_active_execution_session_for_current_phase_and_ne
         (
             "patent",
             [
+                ("patent_outline", 0, "专利框架"),
+                ("prior_art_search", 1, "现有技术检索"),
+            ],
+            [
                 {"id": "patent_outline", "status": "completed", "summary": {"has_outline": True}},
                 {"id": "prior_art_search", "status": "not_started", "summary": {"reports_count": 0}},
             ],
@@ -200,6 +302,10 @@ async def test_summary_prefers_active_execution_session_for_current_phase_and_ne
         ),
         (
             "software_copyright",
+            [
+                ("copyright_materials", 0, "材料准备"),
+                ("technical_description", 1, "技术说明"),
+            ],
             [
                 {"id": "copyright_materials", "status": "completed", "summary": {"has_materials": True}},
                 {"id": "technical_description", "status": "not_started", "summary": {"has_description": False}},
@@ -209,10 +315,20 @@ async def test_summary_prefers_active_execution_session_for_current_phase_and_ne
     ],
 )
 async def test_summary_adds_workspace_specific_warning_risks(
+    test_session,
     workspace_type: str,
+    capabilities: list[tuple[str, int, str]],
     modules: list[dict[str, object]],
     expected_risk_id: str,
 ):
+    test_session.add_all(
+        [
+            _make_capability(cap_id, workspace_type, order=order, display_name=name)
+            for cap_id, order, name in capabilities
+        ]
+    )
+    await test_session.commit()
+
     dashboard_service = AsyncMock()
     dashboard_service.get_dashboard = AsyncMock(
         return_value={"modules": modules, "recent_artifacts": []}
@@ -220,9 +336,10 @@ async def test_summary_adds_workspace_specific_warning_risks(
     activity_service = AsyncMock()
     activity_service.get_activity = AsyncMock(return_value={"items": []})
     service = WorkspaceSummaryService(
-        AsyncMock(),
+        test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
+        capability_model=DbCapability,
     )
 
     result = await service.get_summary(
