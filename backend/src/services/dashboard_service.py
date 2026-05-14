@@ -87,6 +87,9 @@ class DashboardService(
         modules: list[dict[str, Any]] = []
         for cap in capabilities:
             status_kind = (cap.dashboard_meta or {}).get("status_kind", cap.id)
+            # Skip capabilities marked hidden or with no status_kind
+            if not status_kind or (cap.dashboard_meta or {}).get("hidden") is True:
+                continue
             method_name = f"_get_{status_kind}_status"
             if not hasattr(self, method_name):
                 raise RuntimeError(

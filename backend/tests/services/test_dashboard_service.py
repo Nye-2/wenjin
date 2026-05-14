@@ -16,8 +16,11 @@ def _make_capability(
     *,
     order: int = 0,
     status_kind: str | None = None,
+    dashboard_meta: dict | None = None,
 ) -> DbCapability:
     """Build a minimal DbCapability row for dashboard module ordering tests."""
+    if dashboard_meta is None:
+        dashboard_meta = {"status_kind": status_kind or capability_id}
     return DbCapability(
         id=capability_id,
         workspace_type=workspace_type,
@@ -31,7 +34,7 @@ def _make_capability(
         graph_template={},
         ui_meta={"order": order, "icon": "x", "color": "x"},
         runtime={"mode": "chat_only"},
-        dashboard_meta={"status_kind": status_kind or capability_id},
+        dashboard_meta=dashboard_meta,
         notes=None,
     )
 
@@ -637,3 +640,18 @@ async def test_modules_raise_when_status_kind_missing_method(test_session):
 
     with pytest.raises(RuntimeError, match="not_implemented_kind"):
         await service._get_modules_for_workspace("ws-uuid", "thesis")
+
+
+@pytest.mark.asyncio
+async def test_hidden_capabilities_skipped(test_session):
+    """Capabilities marked dashboard_meta.hidden=true do not appear as dashboard modules."""
+    test_session.add_all([
+        _make_capability("deep_research", "thesis", order=0),
+        _make_capability("outline_generate", "thesis", order=1, dashboard_meta={"status_kind": "outline_generate", "hidden": True}),
+    ])
+    await test_session.commit()
+    service = DashboardService(test_session, capability_model=DbCapability)
+    service._get_deep_research_status = AsyncMock(return_value={"id": "deep_research", "status": "not_started", "summary": {}})
+    modules = await service._get_modules_for_workspace("ws", "thesis")
+    assert len(modules) == 1
+    assert modules[0]["id"] == "deep_research"

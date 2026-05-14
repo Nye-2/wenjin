@@ -59,4 +59,5 @@ runtime:
   requires_sandbox: false
 dashboard_meta:
   panel: null
+  hidden: true
   status_kind: section_write
