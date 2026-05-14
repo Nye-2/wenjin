@@ -1,55 +1,32 @@
 # Wenjin Docs
 
-更新时间：2026-05-08
+更新时间：2026-05-14
+状态：Current
 
-本目录主要保留当前实现的事实源文档，覆盖架构、产品契约、基础设施与文档治理入口；`strategy/` 仅保存明确标注为 Seed 的长期方向文档，不作为当前实现契约。
+`docs/` 现在只保留两类内容：
+
+1. `current/`：当前实现的唯一事实源与开发指导文档
+2. `superpowers/`：历史计划/设计稿，保留原样，不作为当前实现依据
 
 ## 快速入口
 
-- `documentation-map.md`：全量文档导航（推荐先读）
-- `architecture/README.md`：系统分层、execution-first 主链、API 面与文档治理
-- `product/README.md`：workspace/thread/feature 当前行为与前后端契约
-- `strategy/wenjin-long-term-direction-seed.md`：长期产品方向与数据产品路径种子
-- `infrastructure/README.md`：部署、环境变量、运行与排障
+- `current/documentation-map.md`：当前文档总导航
+- `current/architecture.md`：唯一当前架构总览
+- `current/workspace-current-state.md`：workspace / thread / execution / compute 当前行为
+- `current/frontend-feature-plugin-contract.md`：前后端 feature / thread / execution 契约
+- `current/troubleshooting.md`：运行与联调查错入口
 
-## 文档分层（Current）
+## 阅读建议
 
-- `architecture/`：Chat/Compute/Feature 执行平面、线程/运行链路、API 面
-- `product/`：workspace/thread/Compute/WenjinPrism 行为、前后端契约、发布门禁
-- `infrastructure/`：部署、环境变量、排障与压测
+1. `docs/README.md`
+2. `docs/current/documentation-map.md`
+3. `docs/current/architecture.md`
+4. `docs/current/workspace-current-state.md`
+5. 需要时再看 `docs/current/` 下对应专题
 
-## 战略种子（Seed）
+## 治理规则
 
-- `strategy/`：长期产品方向、数据产品路径和 AI Scientist 路线种子；不作为当前实现事实源。
-
-## 推荐阅读顺序
-
-1. `README.md`
-2. `docs/documentation-map.md`
-3. `docs/architecture/README.md`
-4. `docs/product/README.md`
-5. `docs/infrastructure/README.md`
-
-## 已清理历史文档
-
-2026-05-08 清理：chat redesign plans（plan 1/2/3）、bypass removal plan、handoff 文档、flat-flow design spec 已删除，当前实现已同步到架构文档。ChatTurnRouter/FeatureCommandHandler/ThreadIntentRouter 相关过时引用已从全部架构文档中移除。
-
-2026-05-06 清理：历史规划、归档和执行计划已删除，当前事实已合并到 `docs/architecture/`、`docs/product/`、README 与 release gate 文档。
-
-2026-04-15 清理：
-
-- `docs/architecture/deer-flow-upstream-migration-playbook.md`
-- `docs/architecture/feature-catalog-v2-plan.md`
-- `docs/architecture/feature-domain-implementation-plan.md`
-- `docs/architecture/wenjinprism-integration-plan.md`
-- `docs/thesis/generate_word_draft.py`
-
-以上文档均为阶段性规划/实施材料，当前主链路已落地，继续保留会造成事实源混淆；追溯请使用 Git 历史。
-
-## 治理规则（必须执行）
-
-- 文档仅保留 `Current` 事实源；阶段性执行稿完成后应清理，而不是长期并存。
-- `strategy/` 例外：只允许保留明确标注为 `Seed` 的方向性文档，且不得作为实现验收依据。
-- 任何影响架构、接口、运行方式、前端交互的变更，都必须同步更新对应文档。
-- 文档与实现冲突时，以实现为准，并在同一改动中回补文档。
-- 提交前至少完成一次文档入口检查：`README.md`、`docs/README.md`、`docs/documentation-map.md`、`backend/README.md`、`frontend/README.md`。
+- 当前实现、当前契约、当前运维说明，只允许保留在 `docs/current/`
+- `docs/superpowers/` 只保留历史设计/计划，不参与当前实现判定
+- 历史事实若仍有追溯价值，只保留一份极简历史文档，不保留多份并行版本
+- 文档与实现冲突时，以实现为准，并在同一改动中回补 `docs/current/`

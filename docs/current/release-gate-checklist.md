@@ -8,8 +8,8 @@
 
 ## 1. Core Gate (必须全绿)
 
-1. workspace feature 执行主链路可用（提交、轮询、终态可见）。
-2. `thread-route(/chat)` feature 入口可用（feature 卡片 / artifact follow-up / activity retry 均能落到 `/chat` 并保留 orchestration seed）。
+1. capability 执行主链路可用（提交、轮询、终态可见）。
+2. `thread-route(/chat)` capability 入口可用（入口卡片 / artifact follow-up / activity retry 均能落到 `/chat` 并保留 orchestration seed）。
 3. Chat structured block action 契约全绿：所有 AgentBlock（`text`、`status_line`、`question_card`、`result_card`）的 action 都在前端白名单中，并有真实处理或显式兜底。
 4. 文献检索只以 Semantic Scholar `verified_papers` 作为可导入事实来源，`model_synthesis` 和 `unverified_leads` 不进入文献库。
 5. 大文件上传预处理状态可见：pending/running 时 Chat 明确提示 Agent 暂不能引用全文，succeeded 后可引用 Markdown 摘要。
@@ -74,7 +74,7 @@ npm test
 3. 失败态 recovery action 不输出内部 `resume`，只输出官方 action。
 4. 文献检索完成态展示 Semantic Scholar verified trust，并明确显示已自动同步到参考库。
 5. Reference artifact 导入只读取 `verified_papers` 等已核验候选，不读取 LLM 合成的 `seminal_works/recent_works`。
-6. feature 产物持久化后，任务结果带 `refresh_targets=["artifacts"]`，TaskStore 发布 workspace refresh，前端事件流调用 `fetchArtifacts`。
+6. capability 产物持久化后，任务结果带 `refresh_targets=["artifacts"]`，TaskStore 发布 workspace refresh，前端事件流调用 `fetchArtifacts`。
 7. 完成态 artifact destination 对应 `open_artifact`，rerun action 和 activity retry 都带 `source_artifact_id/context_artifact_ids`，前端 route 保留这些 seed。
 8. 失败态 recovery action 只有在存在 `execution_id` 时输出 `resume_execution`，rerun action 保留失败任务的参数种子。
 9. Prism pending change 优先展示 `preview_prism_changes`。
@@ -97,8 +97,8 @@ npm test
 ## 5. Launch Checklist
 
 - [x] 五个 workspace 页面路由可达，无 404
-- [x] feature 卡片、artifact follow-up、activity retry 均进入 `/chat` 且首条消息保留 seed 上下文
-- [x] feature 可提交并返回 task_id
+- [x] capability 入口卡片、artifact follow-up、activity retry 均进入 `/chat` 且首条消息保留 seed 上下文
+- [x] capability 可提交并返回 task_id
 - [x] 任务状态可从 pending/running 进入 success 或 failed
 - [x] 失败态有明确错误提示且可重试
 - [x] artifact 列表可反映最新产出

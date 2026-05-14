@@ -1,7 +1,7 @@
 """LangGraph CLI / Studio entry point for the chat agent.
 
 Used only by the optional ``langgraph`` compose profile (see
-``docker-compose.yml`` and ``docs/infrastructure/deployment-runbook.md``).
+``docker-compose.yml`` and ``docs/current/deployment-runbook.md``).
 The production gateway process imports :func:`make_chat_agent` directly via
 ``thread_turn_handler``; this module is *not* on the hot path.
 

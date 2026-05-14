@@ -4,12 +4,12 @@
 状态：Current
 适用项目：`wenjin`
 
-本文件是 workspace/thread/feature 协作行为的当前事实源。
+本文件是 workspace/thread/capability 执行协作行为的当前事实源。
 
 ## 1. 用户入口
 
 1. canonical workspace route：`/workspaces/{workspace_id}/v2`
-2. feature 入口：通过 chat 面板对话触发，lead-agent 识别意图后调用 `launch_feature`
+2. capability 入口：通过 chat 面板对话触发，lead-agent 识别意图后调用 `launch_feature`
 3. 旧 `/chat` 语义已收敛到当前 workspace chat / execution 体系，不再作为独立 feature 流程事实源
 
 ## 2. 双 Agent 拓扑
@@ -39,7 +39,7 @@
 
 ## 5. Result Card 闭环流程
 
-1. Capability 执行完成 → `TaskReport` 含 `outputs[]`
+1. capability 执行完成 → `TaskReport` 含 `outputs[]`
 2. SSE `execution.completed` 事件 → 前端 execution-store
 3. `useWorkspaceEventStream` 统一拥有 execution 发现和 execution stream 订阅，从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
 4. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取
@@ -61,7 +61,7 @@
 
 ## 8. 文档优先级
 
-1. 当前行为以本文件、`workspace-feature-catalog.md`、`docs/architecture/README.md` 为准。
+1. 当前行为以本文件、`workspace-feature-catalog.md`、`docs/current/architecture.md` 为准。
 2. 历史方案和阶段性过渡文档已清理；追溯请查看 Git 历史。
 3. WenjinPrism 划词改写采用 `preview -> apply -> revert`：
    - `preview` 只生成候选和 diff，不写文件。

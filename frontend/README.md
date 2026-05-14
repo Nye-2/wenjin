@@ -2,7 +2,7 @@
 
 更新时间：2026-04-28
 
-前端是问津 workbench 的统一交互层，负责 workspace、thread（路由为 `/chat`）、Compute、feature、artifact、activity 与 LaTeX 主稿台的界面编排。
+前端是问津 workbench 的统一交互层，负责 workspace、thread（路由为 `/chat`）、Compute、capability entry、artifact、activity 与 LaTeX 主稿台的界面编排。
 
 ## 技术栈
 
@@ -20,7 +20,7 @@
 - thread 主链路：主对话、skill 入口、streaming、任务状态、线程恢复
 - Compute Stage：runtime blocks、sandbox 文件、日志、Review Gate、WenjinPrism 写入状态
 - knowledge/activity 面板：artifact、activity、follow-up、任务详情
-- feature 入口：按后端 registry 动态渲染 feature/skill 元数据并回落到 chat
+- capability 入口：按后端 capability entry catalog 动态渲染 capability/skill 元数据并回落到 chat
 - LaTeX 主稿台：文件树、PDF 预览、反馈改写、file-change preview/apply/revert、导出
 
 ## 目录结构
@@ -41,7 +41,7 @@ frontend/
 ### Thread Route (`/chat`)
 
 - canonical route: `/workspaces/[id]/chat`
-- feature/skill 通过 query seed 和首轮 `metadata.orchestration.intent=launch` 进入 chat 主链
+- capability/skill 通过 query seed 和首轮 `metadata.orchestration.intent=launch` 进入 chat 主链
 - streaming 响应、任务事件、thread 刷新都在 workspace stores 中统一处理
 
 ### Compute Stage
@@ -51,11 +51,11 @@ frontend/
 - 当前任务状态不从 thread message 推断
 - Prism 待确认写入和已应用写入可在 Compute Stage 内处理
 
-### Feature
+### Capability Entry
 
-- feature 列表与元数据来自后端 registry
+- capability entry 列表与元数据来自后端兼容 catalog
 - 前端不再硬编码旧的 feature slug 页面跳转链
-- feature 执行后统一依赖 compute projection、task 状态与 `refresh_targets` 刷新资源
+- capability 执行后统一依赖 compute projection、task 状态与 `refresh_targets` 刷新资源
 
 ### Activity / Follow-up
 
@@ -85,7 +85,7 @@ npm run test
 ## 相关文档
 
 - `../README.md`
-- `../docs/documentation-map.md`
-- `../docs/product/workspace-current-state.md`
-- `../docs/product/frontend-feature-plugin-contract.md`
-- `../docs/infrastructure/troubleshooting.md`
+- `../docs/current/documentation-map.md`
+- `../docs/current/workspace-current-state.md`
+- `../docs/current/frontend-feature-plugin-contract.md`
+- `../docs/current/troubleshooting.md`

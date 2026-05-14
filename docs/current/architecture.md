@@ -63,7 +63,8 @@
 | Execution | `backend/src/services/execution_service.py` `backend/src/execution/` | execution lifecycle、统一执行引擎、runtime provider |
 | Task | `backend/src/task/` | Celery dispatch、runtime state、durable task history |
 | Compute | `backend/src/compute/` | workbench projection、files/logs/review gate |
-| Feature Domain | `backend/src/workspace_features/` | feature registry、runtime profiles、domain service |
+| Capability Domain | `backend/seed/capabilities/` `backend/src/database/models/capability.py` `backend/src/services/capability_resolver.py` | capability schema、graph_template、brief_schema、trigger_phrases、缓存失效 |
+| Capability Skill Domain | `backend/seed/skills/` `backend/src/database/models/capability_skill.py` `backend/src/agents/middlewares/capability_skill_preload.py` | reusable subagent instruction packs、skill preload、subagent prompt/runtime config |
 | Agent Runtime | `backend/src/agents/lead_agent/` | graph compile、subagent orchestration、TaskReport |
 
 ### 2.3 前端主分层
@@ -82,7 +83,7 @@
 1. Router 不编排业务流程
 2. Compute 不拥有业务执行状态
 3. Task 不替代产品 execution 事实源
-4. feature metadata 以 registry 为唯一事实源
+4. capability / capability skill 才是执行定义事实源；feature 只允许作为工作台入口与兼容 UI 目录
 5. execution payload 优先复用 canonical serializer
 6. 前端 execution 状态不能再维护第二套并行运行态
 7. workspace event hook 必须继续是 execution 发现与订阅单入口
@@ -94,7 +95,7 @@
 ```text
 User action
   -> chat / tool intent
-  -> launch_feature
+  -> launch capability intent
   -> FeatureIngressService / FeatureLaunchService
   -> ExecutionRecord create
   -> ComputeSession ensure
@@ -254,20 +255,29 @@ User action
 
 - capability seed + DB-backed
 - `CapabilityResolver` 校验能力定义
-- `runtime_profiles.py` 是运行时策略事实源
+- capability skills 由 `CapabilitySkillPreloadMiddleware` 注入 task spec / prompt 上下文
 - `OutputMappingResolver` 是结构化输出映射事实源
 
-#### 新增 feature 的标准路径
+当前工作台里仍保留 `feature_id` / feature catalog 等兼容 UI 语义，但执行事实源应视为：
 
-新增 feature 时，按这个顺序改：
+1. `Capability`
+2. `CapabilitySkill`
+3. `ExecutionRecord`
 
-1. `backend/src/workspace_features/registry.py`
-2. `backend/src/workspace_features/runtime_profiles.py`
-3. 对应 graph / service / handler
-4. output mapping / result contract
-5. 前端 feature catalog / presenter / UI
+而不是 `workspace_features/*`。
 
-不要从前端按钮或临时 tool 参数反推 feature 定义。
+#### 新增 capability 的标准路径
+
+新增 capability 时，按这个顺序改：
+
+1. `backend/seed/capabilities/{workspace_type}/*.yaml`
+2. `backend/src/database/models/capability.py`
+3. `backend/src/services/capability_resolver.py`
+4. 如涉及 skill pack，同步更新 `backend/seed/skills/*.yaml`
+5. `capability_skill_preload` / subagent runtime / output mapping
+6. 前端 capability entry / catalog / UI 兼容层
+
+不要从前端按钮、兼容 feature catalog 或临时 tool 参数反推 capability 定义。
 
 ### 6.2 Rooms
 
@@ -304,11 +314,11 @@ User action
 
 改这些地方：
 
-1. `workspace_features/registry.py`
-2. `runtime_profiles.py`
-3. 对应 graph / domain service
+1. capability YAML seed
+2. 必要的 capability ORM / loader / resolver 契约
+3. 相关 capability skill YAML
 4. 如有结构化产物，补 output mapping
-5. 前端 feature 展示和结果面
+5. 前端 capability entry 展示与结果面
 
 检查：
 
