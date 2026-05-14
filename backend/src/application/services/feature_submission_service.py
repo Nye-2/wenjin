@@ -63,7 +63,6 @@ def build_task_payload(
     params: dict[str, Any],
     thread_id: str | None,
     skill_id: str | None = None,
-    execution_session_id: str | None = None,
     execution_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the canonical task payload for workspace feature execution.
@@ -90,7 +89,6 @@ def build_task_payload(
         "agent_label": feature.agent_label,
         "handler_key": feature.handler_key,
         "thread_id": thread_id,
-        "execution_session_id": execution_session_id,
         "execution_id": execution_id,
         "skill_id": skill_id,
         "skill_name": None,
@@ -126,7 +124,6 @@ class FeatureSubmissionService:
         *,
         idempotency_key: str | None = None,
         redis_client: Any | None = None,
-        execution_session_id: str | None = None,
         execution_id: str | None = None,
     ) -> FeatureExecutionOutcome:
         """Submit a workspace feature task.
@@ -239,7 +236,6 @@ class FeatureSubmissionService:
             skill_id=skill_id,
             idempotency_key=idempotency_key,
             redis_client=redis_client,
-            execution_session_id=execution_session_id,
             execution_id=execution_id,
         )
 
@@ -256,7 +252,6 @@ class FeatureSubmissionService:
         skill_id: str | None,
         idempotency_key: str | None,
         redis_client: Any | None,
-        execution_session_id: str | None,
         execution_id: str | None = None,
     ) -> FeatureExecutionOutcome:
         """Submit task, optionally guarded by distributed workspace lock.
@@ -295,7 +290,6 @@ class FeatureSubmissionService:
                 params=params,
                 thread_id=thread_id,
                 skill_id=skill_id,
-                execution_session_id=execution_session_id,
                 execution_id=execution_id,
             )
 

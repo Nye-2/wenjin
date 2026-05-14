@@ -94,28 +94,28 @@ class WorkspaceActivityService:
             .limit(limit)
         )
         records = list(result.scalars().all())
-        execution_session_ids = {
-            str(record.execution_session_id).strip()
+        execution_ids = {
+            str(record.execution_id).strip()
             for record in records
-            if getattr(record, "execution_session_id", None)
-            and str(record.execution_session_id).strip()
+            if getattr(record, "execution_id", None)
+            and str(record.execution_id).strip()
         }
         task_usage_by_execution, subagent_count_by_execution = (
-            await self._load_subagent_usage_by_execution(execution_session_ids)
+            await self._load_subagent_usage_by_execution(execution_ids)
         )
         return [
             self._task_record_to_activity(
                 record,
                 workspace_id,
                 token_usage=task_usage_by_execution.get(
-                    str(record.execution_session_id).strip()
+                    str(record.execution_id).strip()
                 )
-                if getattr(record, "execution_session_id", None)
+                if getattr(record, "execution_id", None)
                 else None,
                 subagent_count=subagent_count_by_execution.get(
-                    str(record.execution_session_id).strip(),
+                    str(record.execution_id).strip(),
                 )
-                if getattr(record, "execution_session_id", None)
+                if getattr(record, "execution_id", None)
                 else None,
             )
             for record in records
@@ -123,39 +123,39 @@ class WorkspaceActivityService:
 
     async def _load_subagent_usage_by_execution(
         self,
-        execution_session_ids: set[str],
+        execution_ids: set[str],
     ) -> tuple[dict[str, dict[str, int]], dict[str, int]]:
-        """Aggregate persisted subagent usage grouped by execution session."""
-        if not execution_session_ids:
+        """Aggregate persisted subagent usage grouped by execution."""
+        if not execution_ids:
             return {}, {}
 
         result = await self.db.execute(
             select(SubagentTaskRecord).where(
-                SubagentTaskRecord.execution_session_id.in_(sorted(execution_session_ids))
+                SubagentTaskRecord.execution_id.in_(sorted(execution_ids))
             )
         )
         records = list(result.scalars().all())
         usage_buckets: dict[str, list[Any]] = {}
         subagent_count_by_execution: dict[str, int] = {}
         for record in records:
-            execution_session_id = str(record.execution_session_id or "").strip()
-            if not execution_session_id:
+            execution_id = str(record.execution_id or "").strip()
+            if not execution_id:
                 continue
-            subagent_count_by_execution[execution_session_id] = (
-                subagent_count_by_execution.get(execution_session_id, 0) + 1
+            subagent_count_by_execution[execution_id] = (
+                subagent_count_by_execution.get(execution_id, 0) + 1
             )
             metadata = (
                 record.task_metadata if isinstance(record.task_metadata, dict) else {}
             )
             usage = extract_persisted_metadata_usage(metadata)
             if usage is not None:
-                usage_buckets.setdefault(execution_session_id, []).append(usage)
+                usage_buckets.setdefault(execution_id, []).append(usage)
 
         usage_by_execution: dict[str, dict[str, int]] = {}
-        for execution_session_id, usages in usage_buckets.items():
+        for execution_id, usages in usage_buckets.items():
             combined = combine_token_usage(usages)
             if combined is not None:
-                usage_by_execution[execution_session_id] = combined.as_dict()
+                usage_by_execution[execution_id] = combined.as_dict()
 
         return usage_by_execution, subagent_count_by_execution
 

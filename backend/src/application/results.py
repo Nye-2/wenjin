@@ -32,9 +32,8 @@ FeatureExecutionOutcome = FeatureTaskSubmission | FeatureExecutionAdvisory
 
 @dataclass(frozen=True, slots=True)
 class FeatureLaunchResult:
-    execution_session_id: str
+    execution_id: str
     outcome: FeatureExecutionOutcome
-    execution_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

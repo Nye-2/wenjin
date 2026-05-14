@@ -111,7 +111,7 @@ async def _record_reference_access(
             reference_ids=[reference_id],
             outline_node_id=str(section.get("node_id") or "").strip() or None,
             text_unit_id=str(first_unit.get("id") or "").strip() or None,
-            execution_session_id=_runtime_value(config, "execution_session_id"),
+            execution_id=_runtime_value(config, "execution_id"),
             task_id=_runtime_value(config, "task_id"),
             artifact_id=_runtime_value(config, "artifact_id"),
             target_section=_runtime_value(config, "skill_id"),

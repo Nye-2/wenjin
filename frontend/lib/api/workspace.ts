@@ -15,8 +15,9 @@ import type {
   Workspace,
   WorkspaceActivityResponse,
   WorkspaceCreate,
-  WorkspaceExecutionSessionsResponse,
+  ExecutionRecord,
   WorkspacePrismEnsureResponse,
+  WorkspaceExecutionsResponse,
   WorkspaceFeature,
   WorkspaceSummaryData,
   WorkspaceTemplate,
@@ -420,10 +421,10 @@ export async function getWorkspaceActivity(
   return response.data;
 }
 
-export async function getWorkspaceExecutionSessions(
+export async function getWorkspaceExecutions(
   workspaceId: string,
   limit: number = 20
-): Promise<WorkspaceExecutionSessionsResponse> {
+): Promise<WorkspaceExecutionsResponse> {
   const response = await apiClient.get(`/workspaces/${workspaceId}/executions`, {
     params: { limit },
   });

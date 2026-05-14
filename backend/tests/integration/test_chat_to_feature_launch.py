@@ -120,7 +120,11 @@ async def test_launch_feature_dispatches_execution_for_known_capability():
     """
     from src.tools.builtins.launch_feature import launch_feature_tool
 
-    fake_capability = SimpleNamespace(id="framework_outline", workspace_type="sci")
+    fake_capability = SimpleNamespace(
+        id="framework_outline",
+        workspace_type="sci",
+        display_name="框架大纲",
+    )
 
     @dataclass
     class _StubExecution:
@@ -178,6 +182,10 @@ async def test_launch_feature_dispatches_execution_for_known_capability():
     assert result["execution_id"] == "exec-42"
     assert result["feature_id"] == "framework_outline"
     fake_execution_service.create_execution.assert_awaited_once()
+    create_kwargs = fake_execution_service.create_execution.await_args.kwargs
+    assert create_kwargs["thread_id"] == "t-1"
+    assert create_kwargs["display_name"] == "框架大纲"
+    assert create_kwargs["commit"] is False
     fake_task.apply_async.assert_called_once_with(
         args=["exec-42"], queue="long_running"
     )

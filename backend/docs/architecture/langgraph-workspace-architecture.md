@@ -10,7 +10,7 @@ Wenjin executes workspace features through the Compute-centered pipeline:
 1. Chat receives user intent and stays the control plane.
 2. All chat turns enter lead-agent (`create_react_agent`), which handles pure chat and decides when to launch features.
 3. lead-agent calls the builtin `launch_feature` tool, which directly invokes `FeatureIngressService.launch()` for feature lifecycle creation.
-4. Feature ingress creates `ExecutionSession` and `ComputeSession` records as the source of truth.
+4. Feature ingress creates `Execution` and `ComputeSession` records as the source of truth.
 5. `TaskService` dispatches execution into the registered feature runtime.
 6. The feature runtime uses `FeatureLeaderRuntime` / AgentHarness / LangGraph modules to run the work.
 7. Runtime progress and artifacts are projected into Compute; manuscript file changes are proposed to WenjinPrism through the file-change review gate.
@@ -122,7 +122,7 @@ The service layer owns:
 
 Feature runs are normalized before persistence. The important result surfaces are:
 
-- `ExecutionSession` lifecycle state
+- `Execution` lifecycle state
 - `ComputeSession` projection state
 - task status and progress
 - artifact creation / update

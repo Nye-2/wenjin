@@ -524,7 +524,7 @@ class ReferenceUsageEvent(Base, UUIDMixin, TimestampMixin):
         ForeignKey("reference_text_units.id", ondelete="SET NULL"),
         nullable=True,
     )
-    execution_session_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     task_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     artifact_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     latex_project_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

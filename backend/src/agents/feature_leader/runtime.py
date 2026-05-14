@@ -66,18 +66,17 @@ class FeatureLeaderRuntime:
     ) -> dict[str, Any]:
         params = payload.get("params")
         params = params if isinstance(params, dict) else {}
-        execution_session_id = _normalize_text(
-            payload.get("execution_session_id")
+        execution_id = _normalize_text(
+            payload.get("execution_id")
         )
         context: dict[str, Any] = {
             "workspace_id": _normalize_text(payload.get("workspace_id")),
             "thread_id": _normalize_text(payload.get("thread_id")),
             "user_id": _normalize_text(payload.get("user_id") or payload.get("created_by")),
-            "execution_session_id": execution_session_id,
-            "execution_id": _normalize_text(payload.get("execution_id")),
+            "execution_id": execution_id,
             "model_name": _normalize_text(params.get("model_id") or payload.get("model_id")),
             "trace_id": _normalize_text(
-                payload.get("trace_id") or execution_session_id or payload.get("task_id")
+                payload.get("trace_id") or execution_id or payload.get("task_id")
             ),
         }
         return {key: value for key, value in context.items() if value}
@@ -253,9 +252,9 @@ class FeatureLeaderRuntime:
         validate_workflow_plan_against_profile(plan, profile)
 
         context = self._build_workflow_context(payload)
-        if not context.get("execution_session_id"):
+        if not context.get("execution_id"):
             raise RuntimeError(
-                "feature_leader_workflow_missing_execution_session_id: "
+                "feature_leader_workflow_missing_execution_id: "
                 f"{workspace_type}.{feature_id}"
             )
 

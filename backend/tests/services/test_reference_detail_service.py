@@ -102,7 +102,7 @@ def _usage_event() -> SimpleNamespace:
         reference_id="ref-1",
         outline_node_id="node-1",
         text_unit_id="unit-1",
-        execution_session_id="exec-1",
+        execution_id="exec-1",
         task_id="task-2",
         artifact_id="artifact-2",
         latex_project_id="latex-1",

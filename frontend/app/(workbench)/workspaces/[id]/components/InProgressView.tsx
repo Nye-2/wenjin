@@ -1,7 +1,7 @@
 "use client";
 
 import type { ExecutionNodeState } from "@/lib/api/types";
-import type { PhaseGroup } from "@/hooks/useExecutionStreamV2";
+import type { PhaseGroup } from "@/lib/execution-phases";
 import { PhaseRow } from "./PhaseRow";
 
 export interface InProgressViewProps {

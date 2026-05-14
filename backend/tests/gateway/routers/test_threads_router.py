@@ -436,7 +436,7 @@ class TestChatRuntimeConfig:
         assert "subagent_enabled" not in config["configurable"]
         assert "max_concurrent_subagents" not in config["configurable"]
 
-    def test_runtime_config_enables_subagent_with_execution_session(self):
+    def test_runtime_config_enables_subagent_with_execution(self):
         request = ThreadTurnRequest(
             message="Hello",
             workspace_id="ws-1",
@@ -461,11 +461,11 @@ class TestChatRuntimeConfig:
                 workspace_id="ws-1",
                 effective_skill=None,
                 effective_model="gpt-4o",
-                execution_session_id="exec-1",
+                execution_id="exec-1",
             )
 
         assert "subagent_enabled" not in config["configurable"]
-        assert config["configurable"]["execution_session_id"] == "exec-1"
+        assert config["configurable"]["execution_id"] == "exec-1"
 
     def test_initial_state_includes_uploaded_files_and_viewed_images(self, tmp_path):
         from src.application.results import ThreadTurnAttachment

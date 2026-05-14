@@ -18,6 +18,8 @@ const TERMINAL_EXECUTION_STATUSES = new Set<ExecutionStatus>([
   "cancelled",
 ]);
 
+const NODE_STATUSES = new Set(["pending", "running", "completed", "failed"]);
+
 interface ExecutionState {
   /** Flat map of all known executions keyed by execution_id */
   executions: Map<string, ExecutionRecord>;
@@ -132,21 +134,19 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           break;
         }
 
-        case "execution.node.started":
+        case "execution.node":
         case "execution.node.delta":
-        case "execution.node.completed":
-        case "execution.node.failed": {
+        {
           const nodeId = event.payload.node_id as string | undefined;
           if (nodeId) {
+            const payloadStatus =
+              typeof event.payload.status === "string" &&
+              NODE_STATUSES.has(event.payload.status)
+                ? event.payload.status
+                : undefined;
             const nodeState: ExecutionNodeState = {
               ...(updated.node_states[nodeId] || {}),
-              status: event.type === "execution.node.started"
-                ? "running"
-                : event.type === "execution.node.completed"
-                  ? "completed"
-                  : event.type === "execution.node.failed"
-                    ? "failed"
-                    : updated.node_states[nodeId]?.status || "running",
+              status: payloadStatus || updated.node_states[nodeId]?.status || "running",
             };
             if (typeof event.payload.output_preview === "string") {
               nodeState.output_preview = event.payload.output_preview;

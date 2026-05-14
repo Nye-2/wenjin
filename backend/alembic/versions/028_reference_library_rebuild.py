@@ -218,7 +218,7 @@ def upgrade() -> None:
         sa.Column("reference_id", sa.String(length=36), nullable=False),
         sa.Column("outline_node_id", sa.String(length=36), nullable=True),
         sa.Column("text_unit_id", sa.String(length=36), nullable=True),
-        sa.Column("execution_session_id", sa.String(length=36), nullable=True),
+        sa.Column("execution_id", sa.String(length=36), nullable=True),
         sa.Column("task_id", sa.String(length=36), nullable=True),
         sa.Column("artifact_id", sa.String(length=36), nullable=True),
         sa.Column("latex_project_id", sa.String(length=36), nullable=True),

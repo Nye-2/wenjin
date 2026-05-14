@@ -47,7 +47,7 @@ class ProgressTracker:
         *,
         workspace_id: str | None = None,
         thread_id: str | None = None,
-        execution_session_id: str | None = None,
+        execution_id: str | None = None,
         task_type: str | None = None,
         feature_id: str | None = None,
         worker_id: str | None = None,
@@ -56,7 +56,7 @@ class ProgressTracker:
         self._task_id = task_id
         self._workspace_id = workspace_id
         self._thread_id = thread_id
-        self._execution_session_id = execution_session_id
+        self._execution_id = execution_id
         self._task_type = task_type
         self._feature_id = feature_id
         self._worker_id = worker_id
@@ -172,7 +172,7 @@ class ProgressTracker:
             {
                 "task": {
                     "task_id": self._task_id,
-                    "execution_session_id": self._execution_session_id,
+                    "execution_id": self._execution_id,
                     "task_type": self._task_type,
                     "status": status,
                     "progress": progress,

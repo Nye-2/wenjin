@@ -170,7 +170,7 @@ def build_thread_runtime_config(
     workspace_id: str | None,
     effective_skill: str | None,
     effective_model: str,
-    execution_session_id: str | None = None,
+    execution_id: str | None = None,
 ) -> RunnableConfig:
     configurable: dict[str, Any] = {
         "thread_id": thread.id,
@@ -182,8 +182,8 @@ def build_thread_runtime_config(
         "thinking_enabled": request.thinking_enabled,
         "reasoning_effort": request.reasoning_effort,
     }
-    if execution_session_id is not None:
-        configurable["execution_session_id"] = execution_session_id
+    if execution_id is not None:
+        configurable["execution_id"] = execution_id
     return {"configurable": configurable}
 
 
@@ -1168,7 +1168,7 @@ def _build_thread_agent_runtime(
     thread: Thread,
     *,
     actor_id: str,
-    execution_session_id: str | None = None,
+    execution_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
@@ -1190,7 +1190,7 @@ def _build_thread_agent_runtime(
         workspace_id=workspace_id,
         effective_skill=effective_skill,
         effective_model=effective_model,
-        execution_session_id=execution_session_id,
+        execution_id=execution_id,
     )
     initial_state = build_thread_initial_state(
         thread,

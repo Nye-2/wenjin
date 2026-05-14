@@ -2,9 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { subscribeWorkspaceEvents, type WorkspaceEvent } from "@/lib/api";
+import { getExecution } from "@/lib/api/executions";
 import { useDashboardStore } from "@/stores/dashboard";
 import { useComputeStore } from "@/stores/compute";
+import { useChatStoreV2 } from "@/stores/chat-store";
+import type { ResultCardData } from "@/stores/chat-store";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useExecutionStream } from "@/hooks/useExecutionStream";
 
 function normalizePreview(value: string | null | undefined): string | null {
@@ -35,6 +39,56 @@ function refreshWorkspaceTargets(workspaceId: string, targets: string[]) {
   if (targetSet.has("dashboard")) {
     void dashboardStore.fetchDashboard(workspaceId);
   }
+}
+
+function isExecutionNotification(event: WorkspaceEvent): event is Extract<
+  WorkspaceEvent,
+  { type: "execution.updated" | "execution.completed" | "execution.failed" }
+> {
+  return (
+    event.type === "execution.updated" ||
+    event.type === "execution.completed" ||
+    event.type === "execution.failed"
+  );
+}
+
+function isTerminalExecutionStatus(status: string | null | undefined): boolean {
+  return (
+    status === "completed" ||
+    status === "failed_partial" ||
+    status === "failed" ||
+    status === "cancelled"
+  );
+}
+
+function resultCardFromTaskReport(
+  executionId: string,
+  taskReport: Record<string, unknown>,
+): ResultCardData {
+  return {
+    execution_id: (taskReport.execution_id as string) || executionId,
+    capability_name: taskReport.capability_id as string | undefined,
+    status:
+      (taskReport.status as ResultCardData["status"] | undefined) || "completed",
+    outputs: ((taskReport.outputs as Record<string, unknown>[] | undefined) ?? []).map(
+      (output) => ({
+        id: output.id as string,
+        kind: output.kind as string,
+        preview: output.preview as string,
+        default_checked: output.default_checked as boolean,
+        data: output.data as Record<string, unknown>,
+      }),
+    ),
+    narrative: taskReport.narrative as string | undefined,
+    duration_seconds: taskReport.duration_seconds as number | undefined,
+    errors: ((taskReport.errors as Record<string, unknown>[] | undefined) ?? []).map(
+      (error) => ({
+        message: error.error as string,
+        phase: error.phase as string | undefined,
+        task: error.task as string | undefined,
+      }),
+    ),
+  };
 }
 
 function handleWorkspaceEvent(
@@ -97,6 +151,7 @@ function handleWorkspaceEvent(
 
 export function useWorkspaceEventStream(workspaceId: string | null) {
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
+  const deliveredResultCardsRef = useRef<Set<string>>(new Set());
 
   // Subscribe to the unified execution stream when an execution is active.
   useExecutionStream(activeExecutionId);
@@ -142,21 +197,41 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
         (event) => {
           reconnectAttempts = 0;
 
-          // Phase 6: When a unified execution notification arrives, start
-          // (or stop) the execution stream subscription.
-          if (
-            event.type === "execution.updated" ||
-            event.type === "execution.completed" ||
-            event.type === "execution.failed"
-          ) {
+          // This hook is the single owner of execution stream subscriptions.
+          if (isExecutionNotification(event)) {
             if (event.execution_id) {
-              if (event.status === "running") {
+              const execStore = useExecutionStore.getState();
+              execStore.setCurrentExecution(event.execution_id);
+
+              void getExecution(event.execution_id)
+                .then((record) => {
+                  execStore.upsertExecution(record);
+
+                  const taskReport = record.result?.task_report;
+                  const shouldDeliverResultCard =
+                    isTerminalExecutionStatus(record.status) &&
+                    taskReport &&
+                    typeof taskReport === "object" &&
+                    !Array.isArray(taskReport) &&
+                    !deliveredResultCardsRef.current.has(record.id);
+                  if (shouldDeliverResultCard) {
+                    useChatStoreV2.getState().handleEvent({
+                      type: "execution.completed",
+                      data: resultCardFromTaskReport(
+                        record.id,
+                        taskReport as Record<string, unknown>,
+                      ),
+                    });
+                    deliveredResultCardsRef.current.add(record.id);
+                  }
+                })
+                .catch((err) => {
+                  console.error("[useWorkspaceEventStream] Failed to fetch execution record:", err);
+                });
+
+              if (!isTerminalExecutionStatus(event.status)) {
                 setActiveExecutionId(event.execution_id);
-              } else if (
-                event.event_type === "execution.completed" ||
-                event.event_type === "execution.error"
-              ) {
-                // Terminal — give the stream a few seconds to drain
+              } else {
                 window.setTimeout(() => setActiveExecutionId(null), 3000);
               }
             }
@@ -205,6 +280,7 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
     return () => {
       disposed = true;
       disconnect();
+      setActiveExecutionId(null);
       inFlightComputeHydrateRef.current = false;
       if (reconnectTimer !== null) {
         window.clearTimeout(reconnectTimer);

@@ -17,7 +17,7 @@ class WorkspaceRunService:
     ) -> str:
         """Create a workspace_run row with an *externally-supplied* run_id.
 
-        The caller MUST pass `subagent.execution_session_id` as run_id so the
+        The caller MUST pass `subagent.execution_id` as run_id so the
         persisted row matches the id used by the SSE event stream and the
         frontend `Run.id`. (Cross-plan invariant — see Plan 2 Task 3.)
         """

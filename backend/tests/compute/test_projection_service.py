@@ -38,12 +38,49 @@ class _FakeDb:
         return self._results.pop(0)
 
 
+def _execution_namespace(**overrides):
+    now = overrides.get("created_at") or datetime.now(UTC)
+    return SimpleNamespace(
+        id=overrides.get("id", "exec-1"),
+        user_id=overrides.get("user_id", "user-1"),
+        workspace_id=overrides.get("workspace_id", "ws-1"),
+        thread_id=overrides.get("thread_id", "thread-1"),
+        execution_type=overrides.get("execution_type", "feature"),
+        feature_id=overrides.get("feature_id", "framework_outline"),
+        entry_skill_id=overrides.get("entry_skill_id"),
+        workspace_type=overrides.get("workspace_type", "sci"),
+        display_name=overrides.get("display_name"),
+        status=overrides.get("status", "pending"),
+        params=overrides.get("params", {}),
+        result=overrides.get("result"),
+        error=overrides.get("error"),
+        result_summary=overrides.get("result_summary"),
+        graph_structure=overrides.get("graph_structure"),
+        node_states=overrides.get("node_states", {}),
+        runtime_state=overrides.get("runtime_state"),
+        progress=overrides.get("progress", 0),
+        message=overrides.get("message"),
+        artifact_ids=overrides.get("artifact_ids", []),
+        next_actions=overrides.get("next_actions", []),
+        advisory_code=overrides.get("advisory_code"),
+        last_error=overrides.get("last_error"),
+        parent_execution_id=overrides.get("parent_execution_id"),
+        child_execution_ids=overrides.get("child_execution_ids", []),
+        dispatch_mode=overrides.get("dispatch_mode"),
+        worker_task_id=overrides.get("worker_task_id"),
+        created_at=overrides.get("created_at", now),
+        updated_at=overrides.get("updated_at", now),
+        started_at=overrides.get("started_at"),
+        completed_at=overrides.get("completed_at"),
+    )
+
+
 @pytest.mark.asyncio
 async def test_compute_projection_aggregates_execution_task_and_subagents() -> None:
     now = datetime.now(UTC)
     compute_session = SimpleNamespace(
         id="compute-1",
-        execution_session_id="exec-1",
+        execution_id="exec-1",
         workspace_id="ws-1",
         user_id="user-1",
         sandbox_session_id="sandbox-1",
@@ -52,7 +89,7 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
         created_at=now,
         updated_at=now,
     )
-    execution = SimpleNamespace(
+    execution = _execution_namespace(
         id="exec-1",
         user_id="user-1",
         workspace_id="ws-1",
@@ -60,13 +97,10 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
         workspace_type="sci",
         feature_id="framework_outline",
         entry_skill_id="framework-designer",
-        launch_source="thread",
-        launch_message="开始",
         status="pending",
         params={"topic": "agents"},
-        task_ids=["task-1"],
-        primary_task_id="task-1",
-        runtime_snapshot={
+        message=None,
+        runtime_state={
             "blocks": [
                 {"id": "phase-1", "type": "phase"},
                 {
@@ -95,7 +129,7 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
     )
     task = SimpleNamespace(
         id="task-1",
-        execution_session_id="exec-1",
+        execution_id="exec-1",
         task_type="workspace_feature",
         workspace_id="ws-1",
         feature_id="framework_outline",
@@ -146,7 +180,7 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
         id="subagent-1",
         workspace_id="ws-1",
         thread_id="thread-1",
-        execution_session_id="exec-1",
+        execution_id="exec-1",
         user_id="user-1",
         subagent_type="scout",
         status="completed",
@@ -257,7 +291,7 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
     now = datetime.now(UTC)
     compute_session = SimpleNamespace(
         id="compute-2",
-        execution_session_id="exec-2",
+        execution_id="exec-2",
         workspace_id="ws-1",
         user_id="user-1",
         sandbox_session_id=None,
@@ -266,7 +300,7 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
         created_at=now,
         updated_at=now,
     )
-    execution = SimpleNamespace(
+    execution = _execution_namespace(
         id="exec-2",
         user_id="user-1",
         workspace_id="ws-1",
@@ -274,13 +308,10 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
         workspace_type="thesis",
         feature_id="thesis_writing",
         entry_skill_id="thesis-writer",
-        launch_source="thread",
-        launch_message="写第二章",
         status="completed",
         params={},
-        task_ids=[],
-        primary_task_id=None,
-        runtime_snapshot=None,
+        message=None,
+        runtime_state=None,
         result_summary="已同步到 Prism",
         artifact_ids=[],
         next_actions=[
@@ -323,7 +354,7 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
     now = datetime.now(UTC)
     compute_session = SimpleNamespace(
         id="compute-figure",
-        execution_session_id="exec-figure",
+        execution_id="exec-figure",
         workspace_id="ws-1",
         user_id="user-1",
         sandbox_session_id=None,
@@ -332,7 +363,7 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
         created_at=now,
         updated_at=now,
     )
-    execution = SimpleNamespace(
+    execution = _execution_namespace(
         id="exec-figure",
         user_id="user-1",
         workspace_id="ws-1",
@@ -340,13 +371,10 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
         workspace_type="proposal",
         feature_id="figure_generation",
         entry_skill_id="figure-designer",
-        launch_source="thread",
-        launch_message="生成技术路线图",
         status="running",
         params={},
-        task_ids=[],
-        primary_task_id=None,
-        runtime_snapshot=None,
+        message=None,
+        runtime_state=None,
         result_summary=None,
         artifact_ids=[],
         next_actions=[],
@@ -387,7 +415,7 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_pro
     now = datetime.now(UTC)
     compute_session = SimpleNamespace(
         id="compute-3",
-        execution_session_id="exec-3",
+        execution_id="exec-3",
         workspace_id="ws-1",
         user_id="user-1",
         sandbox_session_id=None,
@@ -396,7 +424,7 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_pro
         created_at=now,
         updated_at=now,
     )
-    execution = SimpleNamespace(
+    execution = _execution_namespace(
         id="exec-3",
         user_id="user-1",
         workspace_id="ws-1",
@@ -404,13 +432,9 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_pro
         workspace_type="sci",
         feature_id="writing",
         entry_skill_id="sci-writer",
-        launch_source="thread",
-        launch_message="写 introduction",
         status="completed",
         params={},
-        task_ids=["task-3"],
-        primary_task_id="task-3",
-        runtime_snapshot=None,
+        message=None,
         result_summary=None,
         artifact_ids=[],
         next_actions=[],
@@ -423,7 +447,7 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_pro
     )
     task = SimpleNamespace(
         id="task-3",
-        execution_session_id="exec-3",
+        execution_id="exec-3",
         task_type="workspace_feature",
         workspace_id="ws-1",
         feature_id="writing",

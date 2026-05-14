@@ -80,6 +80,12 @@ describe("execution-store", () => {
 
     useExecutionStore.getState().applyStreamEvent(
       makeEvent({
+        type: "execution.node",
+        payload: { node_id: "node-1", status: "running" },
+      }),
+    );
+    useExecutionStore.getState().applyStreamEvent(
+      makeEvent({
         type: "execution.node.delta",
         payload: { node_id: "node-1", thinking: "hello " },
       }),
@@ -92,6 +98,21 @@ describe("execution-store", () => {
     );
 
     const record = useExecutionStore.getState().executions.get("exec-1");
+    expect(record?.node_states["node-1"]?.status).toBe("running");
     expect(record?.node_states["node-1"]?.thinking).toBe("hello world");
+  });
+
+  it("applies canonical execution.node status updates", () => {
+    useExecutionStore.getState().upsertExecution(makeRecord());
+
+    useExecutionStore.getState().applyStreamEvent(
+      makeEvent({
+        type: "execution.node",
+        payload: { node_id: "node-1", status: "completed" },
+      }),
+    );
+
+    const record = useExecutionStore.getState().executions.get("exec-1");
+    expect(record?.node_states["node-1"]?.status).toBe("completed");
   });
 });

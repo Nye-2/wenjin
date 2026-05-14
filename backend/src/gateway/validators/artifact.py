@@ -33,7 +33,7 @@ class ArtifactCreatePayloadValidator(BaseModel):
     content: dict[str, Any]
     created_by_skill: Annotated[str, Field(max_length=100)] | None = None
     parent_artifact_id: str | None = None
-    execution_session_id: str | None = None
+    execution_id: str | None = None
 
     @field_validator("title")
     @classmethod
@@ -73,6 +73,14 @@ class ArtifactCreatePayloadValidator(BaseModel):
     @classmethod
     def validate_parent_id(cls, v: str | None) -> str | None:
         """Validate parent artifact ID if provided."""
+        if v is None:
+            return None
+        return validate_uuid(v)
+
+    @field_validator("execution_id")
+    @classmethod
+    def validate_execution_link_id(cls, v: str | None) -> str | None:
+        """Validate execution linkage IDs if provided."""
         if v is None:
             return None
         return validate_uuid(v)

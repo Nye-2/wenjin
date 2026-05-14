@@ -359,7 +359,7 @@ class TestTaskService:
 
         record = MagicMock()
         record.id = "task-x"
-        record.execution_session_id = "exec-x"
+        record.execution_id = "exec-x"
         record.task_type = "workspace_feature"
         record.status = "running"
         record.progress = 17

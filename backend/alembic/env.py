@@ -20,7 +20,6 @@ from src.database.models import (  # noqa: F401
     DocumentV2,
     ExecutionNodeRecord,
     ExecutionRecord,
-    ExecutionSessionRecord,
     GenerationRecord,
     LatexCompileHistory,
     LatexProject,

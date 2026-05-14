@@ -48,7 +48,7 @@ class FixtureTaskRecord(TestBase):
     workspace_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     feature_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     thread_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    execution_session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     action: Mapped[str | None] = mapped_column(String, nullable=True)
 
     status: Mapped[str] = mapped_column(

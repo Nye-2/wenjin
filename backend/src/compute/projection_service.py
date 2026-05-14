@@ -9,14 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.compute.events import serialize_compute_session
 from src.database.models.compute_session import ComputeSessionRecord
-from src.database.models.execution_session import (
-    ExecutionSessionRecord,
-    ExecutionSessionStatus,
-)
+from src.database.models.execution import ExecutionRecord
 from src.database.models.subagent_task import SubagentTaskRecord
 from src.database.models.task import TaskRecord
 from src.execution.public_paths import sandbox_path_to_public_url
-from src.services.execution_session_events import serialize_execution_session
+from src.services.execution_service import serialize_execution_record
 from src.workspace_features.runtime_profiles import get_feature_runtime_profile
 
 _FILE_PATH_KEYS = {
@@ -72,7 +69,7 @@ _PRISM_OPTIONAL_ACTIONS = {
 def _task_payload(record: TaskRecord) -> dict[str, Any]:
     return {
         "task_id": record.id,
-        "execution_session_id": record.execution_session_id,
+        "execution_id": record.execution_id,
         "task_type": record.task_type,
         "workspace_id": record.workspace_id,
         "feature_id": record.feature_id,
@@ -95,7 +92,7 @@ def _subagent_payload(record: SubagentTaskRecord) -> dict[str, Any]:
         "task_id": record.id,
         "workspace_id": record.workspace_id,
         "thread_id": record.thread_id,
-        "execution_session_id": record.execution_session_id,
+        "execution_id": record.execution_id,
         "subagent_type": record.subagent_type,
         "status": record.status,
         "input_prompt": record.prompt,
@@ -108,8 +105,8 @@ def _subagent_payload(record: SubagentTaskRecord) -> dict[str, Any]:
     }
 
 
-def _runtime_blocks(execution: ExecutionSessionRecord) -> list[dict[str, Any]]:
-    snapshot = execution.runtime_snapshot if isinstance(execution.runtime_snapshot, dict) else {}
+def _runtime_blocks(execution: ExecutionRecord) -> list[dict[str, Any]]:
+    snapshot = execution.runtime_state if isinstance(execution.runtime_state, dict) else {}
     blocks = snapshot.get("blocks")
     if not isinstance(blocks, list):
         return []
@@ -273,7 +270,7 @@ def _extract_files_from_value(
 
 def _collect_files(
     *,
-    execution: ExecutionSessionRecord,
+    execution: ExecutionRecord,
     tasks: list[TaskRecord],
     runtime_blocks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -295,7 +292,7 @@ def _collect_files(
             )
 
     _extract_files_from_value(
-        execution.runtime_snapshot,
+        execution.runtime_state,
         source="runtime",
         thread_id=thread_id,
         files=files,
@@ -444,13 +441,13 @@ def _collect_prism_items_from_value(
 
 def _build_prism_projection(
     *,
-    execution: ExecutionSessionRecord,
+    execution: ExecutionRecord,
     tasks: list[TaskRecord],
 ) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     seen: set[tuple[str, str, tuple[str, ...]]] = set()
     _collect_prism_items_from_value(
-        execution.runtime_snapshot,
+        execution.runtime_state,
         source="runtime",
         items=items,
         seen=seen,
@@ -640,7 +637,7 @@ def _collect_runtime_activity_logs(
 
 def _collect_logs(
     *,
-    execution: ExecutionSessionRecord,
+    execution: ExecutionRecord,
     tasks: list[TaskRecord],
     runtime_blocks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -706,7 +703,7 @@ def _review_item_required(item: dict[str, Any]) -> bool:
     return False
 
 
-def _build_review_gate(execution: ExecutionSessionRecord) -> dict[str, Any]:
+def _build_review_gate(execution: ExecutionRecord) -> dict[str, Any]:
     next_actions = [dict(item) for item in execution.next_actions or [] if isinstance(item, dict)]
     items = [
         {
@@ -722,7 +719,7 @@ def _build_review_gate(execution: ExecutionSessionRecord) -> dict[str, Any]:
     status = "clear"
     if execution.advisory_code or has_required_item:
         status = "awaiting_user"
-    elif execution.status == ExecutionSessionStatus.FAILED:
+    elif execution.status == "failed":
         status = "failed"
     elif items:
         status = "advisory"
@@ -737,7 +734,7 @@ def _build_review_gate(execution: ExecutionSessionRecord) -> dict[str, Any]:
     }
 
 
-def _build_runtime_profile_projection(execution: ExecutionSessionRecord) -> dict[str, Any]:
+def _build_runtime_profile_projection(execution: ExecutionRecord) -> dict[str, Any]:
     profile = get_feature_runtime_profile(
         str(execution.workspace_type or ""),
         str(execution.feature_id or ""),
@@ -809,9 +806,9 @@ class ComputeProjectionService:
             return None
 
         execution_result = await self.db.execute(
-            select(ExecutionSessionRecord).where(
-                ExecutionSessionRecord.id == compute_session.execution_session_id,
-                ExecutionSessionRecord.user_id == user_id,
+            select(ExecutionRecord).where(
+                ExecutionRecord.id == compute_session.execution_id,
+                ExecutionRecord.user_id == user_id,
             )
         )
         execution = execution_result.scalar_one_or_none()
@@ -821,8 +818,7 @@ class ComputeProjectionService:
         task_ids = {
             str(task_id).strip()
             for task_id in [
-                execution.primary_task_id,
-                *list(execution.task_ids or []),
+                execution.id,
             ]
             if str(task_id or "").strip()
         }
@@ -841,7 +837,7 @@ class ComputeProjectionService:
         subagent_result = await self.db.execute(
             select(SubagentTaskRecord)
             .where(
-                SubagentTaskRecord.execution_session_id == execution.id,
+                SubagentTaskRecord.execution_id == execution.id,
                 SubagentTaskRecord.user_id == user_id,
             )
             .order_by(SubagentTaskRecord.created_at.desc())
@@ -849,7 +845,7 @@ class ComputeProjectionService:
         subagents = list(subagent_result.scalars().all())
 
         primary_task = next(
-            (task for task in tasks if task.id == execution.primary_task_id),
+            (task for task in tasks if task.execution_id == execution.id),
             tasks[0] if tasks else None,
         )
         runtime_blocks = _runtime_blocks(execution)
@@ -878,7 +874,7 @@ class ComputeProjectionService:
         review_gate = _build_review_gate(execution)
         return {
             "compute_session": serialize_compute_session(compute_session),
-            "execution": serialize_execution_session(execution),
+            "execution": serialize_execution_record(execution),
             "runtime_profile": runtime_profile,
             "primary_task": _task_payload(primary_task) if primary_task is not None else None,
             "tasks": [_task_payload(task) for task in tasks],

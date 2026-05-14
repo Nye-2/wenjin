@@ -43,7 +43,7 @@ function upsertSessionList(
   if (
     existing &&
     existing.updated_at === nextSession.updated_at &&
-    existing.execution_session_id === nextSession.execution_session_id &&
+    existing.execution_id === nextSession.execution_id &&
     existing.active_view === nextSession.active_view &&
     existing.sandbox_session_id === nextSession.sandbox_session_id &&
     existing.ui_state === nextSession.ui_state
@@ -200,4 +200,3 @@ export const useComputeStore = create<ComputeStoreState>((set, get) => ({
     });
   },
 }));
-

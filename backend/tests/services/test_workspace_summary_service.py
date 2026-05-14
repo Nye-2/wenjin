@@ -138,17 +138,21 @@ async def test_summary_prefers_active_execution_session_for_current_phase_and_ne
     activity_service = AsyncMock()
     activity_service.get_activity = AsyncMock(return_value={"items": []})
     execution_service = AsyncMock()
-    execution_service.list_workspace_sessions = AsyncMock(
+    execution_service.list_executions = AsyncMock(
         return_value=[
             AsyncMock(
                 id="exec-1",
                 feature_id="framework_outline",
                 status="running",
-                primary_task_id="task-1",
                 result_summary="正在生成论文框架",
                 next_actions=[{"label": "补充摘要约束", "feature_id": "framework_outline"}],
-                runtime_snapshot={
-                    "current_phase": "outline",
+                graph_structure={
+                    "nodes": [
+                        {"id": "outline__draft", "phase": "outline"},
+                    ],
+                },
+                node_states={
+                    "outline__draft": {"status": "running"},
                 },
                 updated_at="2026-04-10T12:00:00+00:00",
             )
@@ -158,7 +162,7 @@ async def test_summary_prefers_active_execution_session_for_current_phase_and_ne
         AsyncMock(),
         dashboard_service=dashboard_service,
         activity_service=activity_service,
-        execution_session_service=execution_service,
+        execution_service=execution_service,
     )
 
     result = await service.get_summary(

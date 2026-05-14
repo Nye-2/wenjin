@@ -114,7 +114,7 @@ class TestCancelTaskInCeleryMode:
         record.task_type = "workspace_feature"
         record.id = "task-1"
         record.progress = 42
-        record.execution_session_id = "exec-1"
+        record.execution_id = "exec-1"
         record.payload = {
             "workspace_id": "ws-1",
             "feature_id": "deep_research",
@@ -139,9 +139,9 @@ class TestCancelTaskInCeleryMode:
             patch("src.task.service.celery_app.control.revoke") as mock_revoke,
             patch("src.task.service.publish_workspace_event", new=AsyncMock()) as publish_workspace_event,
             patch(
-                "src.task.service.ExecutionSessionService.update_session",
+                "src.task.service.ExecutionService.apply_task_transition",
                 new=AsyncMock(),
-            ) as update_execution_session,
+            ) as update_execution,
         ):
             mock_celery_settings.enabled = True
             cancelled = await service.cancel_task("task-1", "user-1")
@@ -161,10 +161,10 @@ class TestCancelTaskInCeleryMode:
         assert first_payload["task"]["progress"] == 73
         assert first_payload["task"]["metadata"] == {"runtime": {"current_phase": "drafting"}}
         assert first_payload["activity"]["metadata"]["progress"] == 73
-        update_execution_session.assert_awaited_once()
-        assert update_execution_session.await_args.args[0] == "exec-1"
-        assert update_execution_session.await_args.kwargs["status"] == "cancelled"
-        assert update_execution_session.await_args.kwargs["runtime_snapshot"] == {
+        update_execution.assert_awaited_once()
+        assert update_execution.await_args.args[0] == "exec-1"
+        assert update_execution.await_args.kwargs["status"] == "cancelled"
+        assert update_execution.await_args.kwargs["runtime_state"] == {
             "current_phase": "drafting"
         }
 
@@ -178,7 +178,7 @@ class TestCancelTaskInCeleryMode:
         record.task_type = "workspace_feature"
         record.id = "task-2"
         record.progress = 58
-        record.execution_session_id = "exec-2"
+        record.execution_id = "exec-2"
         record.payload = {
             "workspace_id": "ws-1",
             "feature_id": "deep_research",
@@ -196,9 +196,9 @@ class TestCancelTaskInCeleryMode:
             patch("src.task.service.celery_app.control.revoke") as mock_revoke,
             patch("src.task.service.publish_workspace_event", new=AsyncMock()) as publish_workspace_event,
             patch(
-                "src.task.service.ExecutionSessionService.update_session",
+                "src.task.service.ExecutionService.apply_task_transition",
                 new=AsyncMock(),
-            ) as update_execution_session,
+            ) as update_execution,
         ):
             mock_celery_settings.enabled = True
             cancelled = await service.cancel_task("task-2", "user-1")
@@ -216,7 +216,7 @@ class TestCancelTaskInCeleryMode:
         assert first_payload["task"]["progress"] == 58
         assert first_payload["task"]["metadata"] is None
         assert first_payload["activity"]["metadata"]["progress"] == 58
-        assert update_execution_session.await_args.kwargs["runtime_snapshot"] is None
+        assert update_execution.await_args.kwargs["runtime_state"] is None
 
     @pytest.mark.asyncio
     async def test_cancel_raises_when_celery_disabled(self, mock_store):
@@ -228,7 +228,7 @@ class TestCancelTaskInCeleryMode:
         record.task_type = "workspace_feature"
         record.id = "task-3"
         record.progress = 0
-        record.execution_session_id = None
+        record.execution_id = None
         record.payload = {"workspace_id": "ws-1"}
         record.created_at = datetime.now(UTC)
         record.started_at = datetime.now(UTC)

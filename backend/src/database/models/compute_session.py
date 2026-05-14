@@ -11,16 +11,16 @@ from ..base import Base, generate_uuid
 
 
 class ComputeSessionRecord(Base):
-    """Persistent UI/work-plane binding for an execution session.
+    """Persistent UI/work-plane binding for an execution.
 
     This record is intentionally not a business-state source of truth. Feature
-    lifecycle lives in ExecutionSessionRecord and TaskRecord; compute_sessions
+    lifecycle lives in ExecutionRecord and TaskRecord; compute_sessions
     stores the user-facing workbench shell state needed to restore the stage.
     """
 
     __tablename__ = "compute_sessions"
     __table_args__ = (
-        Index("ix_compute_sessions_execution_session", "execution_session_id", unique=True),
+        Index("ix_compute_sessions_execution", "execution_id", unique=True),
         Index("ix_compute_sessions_workspace_updated", "workspace_id", "updated_at"),
         Index(
             "ix_compute_sessions_user_workspace_updated",
@@ -35,9 +35,9 @@ class ComputeSessionRecord(Base):
         primary_key=True,
         default=generate_uuid,
     )
-    execution_session_id: Mapped[str] = mapped_column(
+    execution_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("execution_sessions.id", ondelete="CASCADE"),
+        ForeignKey("executions.id", ondelete="CASCADE"),
         nullable=False,
     )
     workspace_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
@@ -64,6 +64,5 @@ class ComputeSessionRecord(Base):
     def __repr__(self) -> str:
         return (
             f"<ComputeSessionRecord(id={self.id}, "
-            f"execution_session_id={self.execution_session_id})>"
+            f"execution_id={self.execution_id})>"
         )
-

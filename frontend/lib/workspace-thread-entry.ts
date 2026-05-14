@@ -100,14 +100,12 @@ export function buildWorkspaceThreadEntryPrompt(options: {
     typeof seed.params?.entry === "string" &&
     seed.params.entry.trim().toLowerCase() === "resume"
   ) {
-    const executionSessionId =
-      typeof seed.params?.execution_session_id === "string"
-        ? seed.params.execution_session_id.trim()
+    const executionId =
+      typeof seed.params?.execution_id === "string"
+        ? seed.params.execution_id.trim()
         : "";
-    if (executionSessionId) {
-      // Embed the session id so chat_agent can pass it through to launch_feature
-      // (which routes to FeatureLaunchService.launch's resume path).
-      return `请继续「${featureLabel}」的执行 (execution_session_id: ${executionSessionId})。`;
+    if (executionId) {
+      return `请继续「${featureLabel}」的执行 (execution_id: ${executionId})。`;
     }
     return `请继续「${featureLabel}」的执行。`;
   }

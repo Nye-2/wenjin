@@ -1,10 +1,10 @@
 import type {
-  ExecutionSession,
+  ExecutionNodeState,
+  ExecutionRecord,
   TokenUsageCounter,
   WorkspaceFeature,
 } from "@/lib/api";
 import { ACTIVE_EXECUTION_STATUSES } from "@/lib/execution-status";
-import type { TaskRuntimeState } from "@/lib/task-runtime";
 
 export interface ExecutionTaskStage {
   id: string;
@@ -54,7 +54,7 @@ export interface ExecutionPanelSession {
   progress: number;
   message: string | null;
   currentStep: string | null;
-  runtime: TaskRuntimeState | null;
+  runtime: Record<string, unknown> | null;
   result: Record<string, unknown> | null;
   error: string | null;
   action: string | null;
@@ -66,21 +66,20 @@ export interface ExecutionPanelSession {
   subagents: ExecutionPanelSubagent[];
 }
 
-export interface GroupedExecutionSessions {
+export interface GroupedExecutionPanels {
   active: ExecutionPanelSession[];
   recent: ExecutionPanelSession[];
   completed: ExecutionPanelSession[];
 }
 
 export function normalizeExecutionTaskStatus(
-  status: string
+  status: string,
 ): ExecutionCurrentTask["status"] {
   switch (status) {
     case "completed":
     case "failed_partial":
       return "completed";
     case "failed":
-    case "advisory":
       return "failed";
     case "cancelled":
       return "cancelled";
@@ -89,106 +88,36 @@ export function normalizeExecutionTaskStatus(
   }
 }
 
-export function selectPreferredExecution(
-  sessions: ExecutionSession[]
-): ExecutionSession | null {
-  if (sessions.length === 0) {
-    return null;
-  }
-  const active = sessions.find(
-    (session) =>
-      ACTIVE_EXECUTION_STATUSES.has(session.status as never)
-  );
-  return active ?? sessions[0] ?? null;
+function nodeStateStatus(state: ExecutionNodeState | undefined): ExecutionTaskStage["status"] {
+  if (state?.status === "completed") return "completed";
+  if (state?.status === "running" || state?.status === "failed") return "running";
+  return "pending";
 }
 
-export function buildExecutionCurrentTask(
-  execution: ExecutionSession,
+function buildStages(
+  execution: ExecutionRecord,
   feature:
-    | Pick<WorkspaceFeature, "id" | "name" | "agent" | "agentLabel" | "stages">
-    | undefined
-): ExecutionCurrentTask {
-  const rawRuntime =
-    execution.runtime_snapshot && typeof execution.runtime_snapshot === "object"
-      ? execution.runtime_snapshot
-      : null;
-  const runtime = rawRuntime as
-    | {
-        current_phase?: string;
-        phases?: { id: string; label: string; status?: string }[];
-      }
-    | null;
-  const normalizedStatus = normalizeExecutionTaskStatus(execution.status);
-  const phases =
-    Array.isArray(runtime?.phases) && runtime?.phases.length
-      ? runtime.phases.map((phase) => ({
-          id: phase.id,
-          label: phase.label,
-          status:
-            phase.status === "completed"
-              ? ("completed" as const)
-              : phase.status === "running"
-                ? ("running" as const)
-                : ("pending" as const),
-        }))
-      : (feature?.stages ?? [{ id: "run", label: "执行" }]).map((phase, index) => ({
-          ...phase,
-          status:
-            normalizedStatus === "completed"
-              ? ("completed" as const)
-              : normalizedStatus === "failed"
-                ? index === 0
-                  ? ("running" as const)
-                  : ("pending" as const)
-                : index === 0
-                  ? ("running" as const)
-                  : ("pending" as const),
-        }));
-
-  const currentPhaseId =
-    execution.current_step ??
-    runtime?.current_phase ??
-    null;
-  const currentStageIndex = currentPhaseId
-    ? Math.max(
-        phases.findIndex((phase) => phase.id === currentPhaseId),
-        0
-      )
-    : Math.max(
-        phases.findIndex((phase) => phase.status === "running"),
-        0
-      );
-
-  return {
-    id: execution.primary_task_id || execution.id,
-    featureId: execution.feature_id,
-    status: normalizedStatus,
-    agent: feature?.agent || execution.feature_id,
-    agentLabel: feature?.agentLabel || feature?.name || execution.feature_id,
-    thinking:
-      execution.last_error ||
-      execution.task_message ||
-      execution.result_summary ||
-      execution.launch_message ||
-      "",
-    stages: phases,
-    currentStageIndex,
-    startedAt: execution.started_at || execution.created_at || new Date().toISOString(),
-    completedAt: execution.completed_at || undefined,
-  };
-}
-
-function normalizeWorkflowIndex(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(0, Math.trunc(value));
+    | Pick<WorkspaceFeature, "stages">
+    | undefined,
+): ExecutionTaskStage[] {
+  const graphNodes = execution.graph_structure?.nodes ?? [];
+  if (graphNodes.length > 0) {
+    return graphNodes.map((node) => ({
+      id: node.id,
+      label: node.label || node.task || node.id,
+      status: nodeStateStatus(execution.node_states[node.id]),
+    }));
   }
-  if (typeof value === "string") {
-    const parsed = Number.parseInt(value.trim(), 10);
-    if (Number.isFinite(parsed)) {
-      return Math.max(0, parsed);
-    }
-  }
-  return null;
+
+  return (feature?.stages ?? [{ id: "run", label: "执行" }]).map((stage, index) => ({
+    ...stage,
+    status:
+      execution.status === "completed" || execution.status === "failed_partial"
+        ? "completed"
+        : index === 0 && ACTIVE_EXECUTION_STATUSES.has(execution.status)
+          ? "running"
+          : "pending",
+  }));
 }
 
 function readTokenCounter(value: unknown): number {
@@ -223,22 +152,18 @@ function normalizeTokenUsage(value: unknown): TokenUsageCounter | null {
   };
 }
 
-function aggregateSubagentTokenUsage(
-  subagents: ExecutionPanelSubagent[]
+function aggregateNodeTokenUsage(
+  nodeStates: Record<string, ExecutionNodeState>,
 ): TokenUsageCounter | null {
-  if (subagents.length === 0) {
-    return null;
-  }
   let input = 0;
   let output = 0;
   let total = 0;
-  for (const subagent of subagents) {
-    if (!subagent.tokenUsage) {
-      continue;
-    }
-    input += subagent.tokenUsage.input_tokens;
-    output += subagent.tokenUsage.output_tokens;
-    total += subagent.tokenUsage.total_tokens;
+  for (const state of Object.values(nodeStates)) {
+    const usage = normalizeTokenUsage(state.token_usage);
+    if (!usage) continue;
+    input += usage.input_tokens;
+    output += usage.output_tokens;
+    total += usage.total_tokens;
   }
   if (input <= 0 && output <= 0 && total <= 0) {
     return null;
@@ -250,123 +175,138 @@ function aggregateSubagentTokenUsage(
   };
 }
 
+function buildPanelSubagents(execution: ExecutionRecord): ExecutionPanelSubagent[] {
+  const graphNodes = execution.graph_structure?.nodes ?? [];
+  return graphNodes.map((node, index) => {
+    const nodeState = execution.node_states[node.id] ?? {};
+    return {
+      id: node.id,
+      threadId: execution.thread_id ?? "",
+      subagentType: node.subagent_type ?? null,
+      workflowPhase: node.phase ?? null,
+      workflowPhaseIndex: typeof node.metadata?.phase_index === "number"
+        ? node.metadata.phase_index
+        : index,
+      workflowTaskIndex: index,
+      workflowStrategy: null,
+      status: nodeState.status ?? "pending",
+      outputPreview: nodeState.output_preview ?? null,
+      error:
+        typeof nodeState.output?.error === "string"
+          ? nodeState.output.error
+          : null,
+      tokenUsage: normalizeTokenUsage(nodeState.token_usage),
+      modelName: null,
+      updatedAt: nodeState.completed_at || nodeState.started_at || execution.updated_at,
+    };
+  });
+}
+
+export function selectPreferredExecution(
+  executions: ExecutionRecord[],
+): ExecutionRecord | null {
+  if (executions.length === 0) {
+    return null;
+  }
+  const active = executions.find((execution) =>
+    ACTIVE_EXECUTION_STATUSES.has(execution.status),
+  );
+  return active ?? executions[0] ?? null;
+}
+
+export function buildExecutionCurrentTask(
+  execution: ExecutionRecord,
+  feature:
+    | Pick<WorkspaceFeature, "id" | "name" | "agent" | "agentLabel" | "stages">
+    | undefined,
+): ExecutionCurrentTask {
+  const stages = buildStages(execution, feature);
+  const currentStageIndex = Math.max(
+    stages.findIndex((stage) => stage.status === "running"),
+    0,
+  );
+
+  return {
+    id: execution.id,
+    featureId: execution.feature_id || "",
+    status: normalizeExecutionTaskStatus(execution.status),
+    agent: feature?.agent || execution.feature_id || execution.display_name || execution.id,
+    agentLabel:
+      feature?.agentLabel || feature?.name || execution.display_name || execution.feature_id || execution.id,
+    thinking:
+      execution.last_error ||
+      execution.message ||
+      execution.result_summary ||
+      "",
+    stages,
+    currentStageIndex,
+    startedAt: execution.started_at || execution.created_at || new Date().toISOString(),
+    completedAt: execution.completed_at || undefined,
+  };
+}
+
 export function adaptExecutionToPanelSession(
-  execution: ExecutionSession,
-  feature?: Pick<WorkspaceFeature, "name" | "description" | "panel"> | null
+  execution: ExecutionRecord,
+  feature?: Pick<WorkspaceFeature, "name" | "description" | "panel"> | null,
 ): ExecutionPanelSession {
-  const runtime =
-    execution.runtime_snapshot && typeof execution.runtime_snapshot === "object"
-      ? (execution.runtime_snapshot as TaskRuntimeState)
-      : null;
-  const currentPhase =
-    execution.current_step ||
-    (runtime &&
-    typeof runtime === "object" &&
-    typeof (runtime as Record<string, unknown>).current_phase === "string"
-      ? String((runtime as Record<string, unknown>).current_phase)
-      : null);
-  const normalizedSubagents: ExecutionPanelSubagent[] = Array.isArray(execution.subagents)
-    ? execution.subagents.map((subagent) => ({
-        id: subagent.task_id,
-        threadId: subagent.thread_id,
-        subagentType:
-          typeof subagent.subagent_type === "string"
-            ? subagent.subagent_type
-            : null,
-        workflowPhase:
-          typeof subagent.workflow_phase === "string"
-            ? subagent.workflow_phase
-            : null,
-        workflowPhaseIndex: normalizeWorkflowIndex(
-          subagent.workflow_phase_index
-        ),
-        workflowTaskIndex: normalizeWorkflowIndex(
-          subagent.workflow_task_index
-        ),
-        workflowStrategy:
-          typeof subagent.workflow_strategy === "string"
-            ? subagent.workflow_strategy
-            : null,
-        status: subagent.status,
-        outputPreview:
-          typeof subagent.output_preview === "string"
-            ? subagent.output_preview
-            : null,
-        error:
-          typeof subagent.error === "string" ? subagent.error : null,
-        tokenUsage: normalizeTokenUsage(subagent.token_usage),
-        modelName:
-          typeof subagent.model_name === "string" && subagent.model_name.trim()
-            ? subagent.model_name.trim()
-            : null,
-        updatedAt: subagent.updated_at || new Date().toISOString(),
-      }))
-    : [];
   const tokenUsage =
-    normalizeTokenUsage(execution.token_usage) ??
-    aggregateSubagentTokenUsage(normalizedSubagents);
+    normalizeTokenUsage(execution.result?.task_report && typeof execution.result.task_report === "object"
+      ? (execution.result.task_report as Record<string, unknown>).token_usage
+      : null) ?? aggregateNodeTokenUsage(execution.node_states);
 
   return {
     executionId: execution.id,
-    taskId: execution.primary_task_id || execution.id,
-    workspaceId: execution.workspace_id,
+    taskId: execution.id,
+    workspaceId: execution.workspace_id || "",
     threadId: execution.thread_id ?? null,
-    featureId: execution.feature_id,
-    title: feature?.name || execution.feature_id,
+    featureId: execution.feature_id || "",
+    title: feature?.name || execution.display_name || execution.feature_id || execution.id,
     description:
       execution.result_summary ||
-      execution.task_message ||
-      execution.launch_message ||
+      execution.message ||
       feature?.description ||
-      "执行会话已启动。",
+      "执行已启动。",
     panelKey: feature?.panel ?? null,
     status:
       execution.status === "completed" || execution.status === "failed_partial"
         ? "success"
-        : execution.status === "failed" || execution.status === "advisory"
+        : execution.status === "failed"
           ? "failed"
           : execution.status === "cancelled"
             ? "cancelled"
-          : ACTIVE_EXECUTION_STATUSES.has(execution.status as never)
-            ? "running"
-            : "pending",
+            : ACTIVE_EXECUTION_STATUSES.has(execution.status)
+              ? "running"
+              : "pending",
     progress: execution.progress ?? 0,
-    message:
-      execution.task_message ||
-      execution.result_summary ||
-      execution.launch_message ||
-      null,
-    currentStep: currentPhase,
-    runtime,
-    result:
-      execution.result_payload && typeof execution.result_payload === "object"
-        ? execution.result_payload
-        : null,
-    error: execution.last_error || null,
+    message: execution.message || execution.result_summary || null,
+    currentStep: null,
+    runtime: execution.runtime_state ?? null,
+    result: execution.result ?? null,
+    error: execution.last_error || execution.error || null,
     action: null,
     tokenUsage,
     createdAt: execution.created_at || new Date().toISOString(),
     startedAt: execution.started_at || null,
     completedAt: execution.completed_at || null,
     updatedAt: execution.updated_at || execution.created_at || new Date().toISOString(),
-    subagents: normalizedSubagents,
+    subagents: buildPanelSubagents(execution),
   };
 }
 
-export function groupExecutionSessions(
-  sessions: ExecutionPanelSession[]
-): GroupedExecutionSessions {
-  const active = sessions.filter(
-    (session) => ACTIVE_EXECUTION_STATUSES.has(session.status as never)
+export function groupExecutionPanels(
+  sessions: ExecutionPanelSession[],
+): GroupedExecutionPanels {
+  const active = sessions.filter((session) =>
+    session.status === "running" || session.status === "pending",
   );
   const completed = sessions.filter(
     (session) =>
       session.status === "success" ||
       session.status === "failed" ||
-      session.status === "cancelled"
+      session.status === "cancelled",
   );
   const completedSorted = [...completed].sort((left, right) =>
-    right.updatedAt.localeCompare(left.updatedAt)
+    right.updatedAt.localeCompare(left.updatedAt),
   );
 
   return {

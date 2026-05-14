@@ -16,9 +16,21 @@ class _StubExecution:
     id: str
 
 
+def _capability(capability_id: str = "paper_analysis") -> MagicMock:
+    cap = MagicMock()
+    cap.id = capability_id
+    cap.workspace_type = "thesis"
+    cap.display_name = "Paper Analysis"
+    return cap
+
+
 @asynccontextmanager
 async def _fake_db_session():
-    yield MagicMock()
+    db = MagicMock()
+    result = MagicMock()
+    result.scalar_one_or_none = MagicMock(return_value=_capability())
+    db.execute = AsyncMock(return_value=result)
+    yield db
 
 
 @pytest.mark.asyncio
@@ -58,6 +70,10 @@ async def test_launch_feature_creates_execution_and_dispatches():
     assert result["execution_id"] == "exec-1"
     assert result["feature_id"] == "paper_analysis"
     fake_service.create_execution.assert_awaited_once()
+    create_kwargs = fake_service.create_execution.await_args.kwargs
+    assert create_kwargs["thread_id"] == "th-1"
+    assert create_kwargs["display_name"] == "Paper Analysis"
+    assert create_kwargs["commit"] is False
     fake_task.apply_async.assert_called_once_with(
         args=["exec-1"],
         queue="long_running",
@@ -93,6 +109,64 @@ async def test_launch_feature_returns_lead_busy_when_active():
 
     assert result["status"] == "advisory"
     assert result["code"] == "lead_busy"
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_returns_error_when_celery_disabled():
+    """Tool must not create a fake running execution if workers are unavailable."""
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock()
+    fake_celery = MagicMock(enabled=False)
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service):
+        result = await launch_feature_tool.ainvoke(
+            {"feature_id": "paper_analysis", "params": {}},
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "error"
+    assert result["code"] == "execution_backend_unavailable"
+    fake_service.create_execution.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_returns_error_when_queue_dispatch_fails():
+    """Queue submission failures should not leave a fake launched execution."""
+    fake_execution = _StubExecution(id="exec-1")
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock(return_value=fake_execution)
+    fake_service.complete_execution = AsyncMock()
+    fake_celery = MagicMock(enabled=True)
+    fake_task = MagicMock()
+    fake_task.apply_async.side_effect = RuntimeError("queue down")
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.tasks.execution.execute_execution", fake_task):
+        result = await launch_feature_tool.ainvoke(
+            {"feature_id": "paper_analysis", "params": {}},
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "error"
+    assert result["code"] == "execution_queue_unavailable"
 
 
 @pytest.mark.asyncio

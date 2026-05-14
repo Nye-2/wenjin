@@ -110,9 +110,9 @@ class CitationContextMiddleware(Middleware):
             await recorder(
                 workspace_id=workspace_id,
                 reference_ids=reference_ids,
-                execution_session_id=(
-                    state.get("execution_session_id")
-                    or configurable.get("execution_session_id")
+                execution_id=(
+                    state.get("execution_id")
+                    or configurable.get("execution_id")
                     or None
                 ),
                 task_id=state.get("task_id") or configurable.get("task_id") or None,

@@ -10,7 +10,6 @@ import { DocumentsDrawer } from "./components/rooms/DocumentsDrawer";
 import { RunsDrawer } from "./components/rooms/RunsDrawer";
 import { TasksDrawer } from "./components/rooms/TasksDrawer";
 import { SettingsPage } from "./components/rooms/SettingsPage";
-import { useChatStream } from "@/hooks/useChatStream";
 import { getWorkspace } from "@/lib/api/workspace";
 import { authorizedFetch } from "@/lib/api/client";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
@@ -78,9 +77,6 @@ export default function V2Page({
   const typeConfig = workspace
     ? WORKSPACE_TYPE_CONFIG[workspace.type as keyof typeof WORKSPACE_TYPE_CONFIG]
     : null;
-
-  // Subscribe to workspace SSE events
-  useChatStream(id);
 
   // Map topbar room selection to panels
   const settingsOpen = activeRoom != null && SETTINGS_ROOMS.has(activeRoom);

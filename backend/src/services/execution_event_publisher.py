@@ -57,7 +57,7 @@ async def publish_execution_event(
 
     Args:
         execution_id: The execution ID (used as stream key)
-        event_type: Event type (e.g., "execution.metadata", "execution.node.started")
+        event_type: Event type (e.g., "execution.metadata", "execution.node")
         payload: Event-specific payload
         workspace_id: Optional workspace ID for Workspace Events
         publish_to_workspace: Whether to also publish a lightweight notification

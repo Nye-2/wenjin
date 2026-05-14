@@ -11,11 +11,9 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.task_config import task_settings
-from src.database.models.execution_session import ExecutionSessionStatus
 from src.database.models.task import TaskRecord
 from src.runtime.serialization import dumps_json
-from src.services.execution_session_events import publish_execution_session_event
-from src.services.execution_session_service import ExecutionSessionService
+from src.services.execution_service import ExecutionService
 from src.services.workspace_activity_contracts import (
     build_task_activity_item,
     serialize_activity_item,
@@ -125,13 +123,13 @@ class TaskStore:
             id=task_id,
             user_id=user_id,
             task_type=task_type,
-            status=ExecutionSessionStatus.PENDING,
+            status=TaskStatus.PENDING.value,
             priority=priority,
             payload=payload,
             workspace_id=_payload.get("workspace_id") or _params.get("workspace_id"),
             feature_id=_payload.get("feature_id"),
             thread_id=_payload.get("thread_id"),
-            execution_session_id=_payload.get("execution_session_id"),
+            execution_id=_payload.get("execution_id"),
             action=_payload.get("action") or _params.get("action"),
         )
         self._db.add(record)
@@ -189,7 +187,7 @@ class TaskStore:
                 workspace_id=_payload.get("workspace_id") or _params.get("workspace_id"),
                 feature_id=_payload.get("feature_id"),
                 thread_id=_payload.get("thread_id"),
-                execution_session_id=_payload.get("execution_session_id"),
+                execution_id=_payload.get("execution_id"),
                 action=_payload.get("action") or _params.get("action"),
             )
             self._db.add(record)
@@ -284,7 +282,7 @@ class TaskStore:
     async def mark_task_started(self, task_id: str, worker_id: str | None = None) -> None:
         """Mark task as started.
 
-        Updates both TaskRecord and ExecutionSession in a single DB transaction
+        Updates both TaskRecord and ExecutionRecord in a single DB transaction
         so that the two sources cannot diverge if one commit fails.
 
         Phase 5: When unified execution is active for feature tasks, this
@@ -310,45 +308,32 @@ class TaskStore:
         record.status = TaskStatus.RUNNING.value
         record.started_at = started_at
 
-        # Modify ExecutionSession in the same transaction
-        if record.execution_session_id:
-            session = await ExecutionSessionService(self._db).get_by_id(
-                record.execution_session_id
+        # Modify the canonical ExecutionRecord in the same transaction
+        if record.execution_id:
+            await ExecutionService(self._db).apply_task_transition(
+                record.execution_id,
+                commit=False,
+                status=TaskStatus.RUNNING.value,
+                started_at=started_at,
+                next_actions=[],
+                advisory_code=None,
+                last_error=None,
             )
-            if session:
-                await ExecutionSessionService(self._db).update_session_record(
-                    session,
-                    commit=False,
-                    status=TaskStatus.RUNNING.value,
-                    started_at=started_at,
-                    primary_task_id=record.id,
-                    append_task_id=record.id,
-                    next_actions=[],
-                    advisory_code=None,
-                    last_error=None,
-                )
 
-        # Single atomic commit for both TaskRecord and ExecutionSession
+        # Single atomic commit for both TaskRecord and ExecutionRecord
         await self._db.commit()
         await self._db.refresh(record)
 
         # Redis runtime cache (always derived from committed DB state)
         await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
 
-        # Post-commit: publish execution events and touch compute projection
-        if record.execution_session_id:
-            session = await ExecutionSessionService(self._db).get_by_id(
-                record.execution_session_id
-            )
-            if session:
-                await publish_execution_session_event(
-                    session, event_type="execution.updated"
-                )
-                from src.compute.session_service import ComputeSessionService
+        # Post-commit: touch compute projection
+        if record.execution_id:
+            from src.compute.session_service import ComputeSessionService
 
-                await ComputeSessionService(self._db).touch_session_by_execution(
-                    record.execution_session_id
-                )
+            await ComputeSessionService(self._db).touch_session_by_execution(
+                record.execution_id
+            )
 
         payload = record.payload if isinstance(record.payload, dict) else {}
         workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
@@ -359,7 +344,7 @@ class TaskStore:
                 {
                     "task": {
                         "task_id": task_id,
-                        "execution_session_id": record.execution_session_id,
+                        "execution_id": record.execution_id,
                         "task_type": record.task_type,
                         "status": TaskStatus.RUNNING.value,
                         "progress": record.progress,
@@ -389,7 +374,7 @@ class TaskStore:
     async def persist_runtime_state(self, task_id: str, metadata: dict[str, Any] | None) -> None:
         """Persist task runtime metadata to PostgreSQL for refresh/reconnect recovery.
 
-        Updates both TaskRecord and ExecutionSession in a single DB transaction.
+        Updates both TaskRecord and ExecutionRecord in a single DB transaction.
 
         Phase 5: When unified execution is active for feature tasks, this
         method is a no-op — runtime state is carried by the execution stream.
@@ -413,36 +398,26 @@ class TaskStore:
         if runtime_state is not None:
             record.runtime_state = runtime_state
 
-        # Modify ExecutionSession in the same transaction
-        session = None
-        if record.execution_session_id and runtime_state is not None:
-            session = await ExecutionSessionService(self._db).get_by_id(
-                record.execution_session_id
+        # Modify the canonical ExecutionRecord in the same transaction
+        if record.execution_id and runtime_state is not None:
+            await ExecutionService(self._db).apply_task_transition(
+                record.execution_id,
+                commit=False,
+                status=record.status,
+                runtime_state=runtime_state,
+                started_at=record.started_at,
             )
-            if session:
-                await ExecutionSessionService(self._db).update_session_record(
-                    session,
-                    commit=False,
-                    status=record.status,
-                    runtime_snapshot=runtime_state,
-                    started_at=record.started_at,
-                )
 
-        # Single atomic commit for both TaskRecord and ExecutionSession
+        # Single atomic commit for both TaskRecord and ExecutionRecord
         await self._db.commit()
         await self._db.refresh(record)
 
-        # Post-commit: publish execution event, touch compute projection,
-        # and broadcast task.updated so the frontend event stream stays complete.
-        if record.execution_session_id and runtime_state is not None:
-            if session is not None:
-                await publish_execution_session_event(
-                    session, event_type="execution.updated"
-                )
+        # Post-commit: touch compute projection and broadcast task.updated.
+        if record.execution_id and runtime_state is not None:
             from src.compute.session_service import ComputeSessionService
 
             await ComputeSessionService(self._db).touch_session_by_execution(
-                record.execution_session_id
+                record.execution_id
             )
 
         payload = record.payload if isinstance(record.payload, dict) else {}
@@ -454,7 +429,7 @@ class TaskStore:
                 {
                     "task": {
                         "task_id": task_id,
-                        "execution_session_id": record.execution_session_id,
+                        "execution_id": record.execution_id,
                         "task_type": record.task_type,
                         "status": record.status,
                         "progress": record.progress,
@@ -475,7 +450,7 @@ class TaskStore:
     ) -> None:
         """Mark task as completed (success or failed).
 
-        Updates both TaskRecord and ExecutionSession in a single DB transaction
+        Updates both TaskRecord and ExecutionRecord in a single DB transaction
         so that the two sources cannot diverge if one commit fails.
 
         Phase 5: When unified execution is active for feature tasks, this
@@ -533,33 +508,25 @@ class TaskStore:
         record.message = final_message
         record.runtime_state = runtime_snapshot
 
-        # Modify ExecutionSession in the same transaction
-        if record.execution_session_id:
-            session = await ExecutionSessionService(self._db).get_by_id(
-                record.execution_session_id
+        # Modify the canonical ExecutionRecord in the same transaction
+        if record.execution_id:
+            await ExecutionService(self._db).apply_task_transition(
+                record.execution_id,
+                commit=False,
+                status=(TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value),
+                runtime_state=runtime_snapshot,
+                result_summary=result_summary,
+                artifact_ids=artifact_ids,
+                next_actions=next_actions,
+                advisory_code=None,
+                last_error=error,
+                started_at=record.started_at,
+                completed_at=completed_at,
+                message=final_message,
+                progress=final_progress,
             )
-            if session:
-                await ExecutionSessionService(self._db).update_session_record(
-                    session,
-                    commit=False,
-                    status=(
-                        ExecutionSessionStatus.COMPLETED
-                        if success
-                        else ExecutionSessionStatus.FAILED
-                    ),
-                    runtime_snapshot=runtime_snapshot,
-                    result_summary=result_summary,
-                    artifact_ids=artifact_ids,
-                    next_actions=next_actions,
-                    advisory_code=None,
-                    last_error=error,
-                    started_at=record.started_at,
-                    completed_at=completed_at,
-                    primary_task_id=record.id,
-                    append_task_id=record.id,
-                )
 
-        # Single atomic commit for both TaskRecord and ExecutionSession
+        # Single atomic commit for both TaskRecord and ExecutionRecord
         await self._db.commit()
         await self._db.refresh(record)
 
@@ -572,26 +539,13 @@ class TaskStore:
             metadata=runtime_state.get("metadata") if runtime_state else None,
         )
 
-        # Post-commit: publish execution events and touch compute projection
-        if record.execution_session_id:
-            session = await ExecutionSessionService(self._db).get_by_id(
-                record.execution_session_id
-            )
-            if session:
-                event_type = "execution.updated"
-                if session.status == ExecutionSessionStatus.COMPLETED:
-                    event_type = "execution.completed"
-                elif session.status in {
-                    ExecutionSessionStatus.FAILED,
-                    ExecutionSessionStatus.ADVISORY,
-                }:
-                    event_type = "execution.failed"
-                await publish_execution_session_event(session, event_type=event_type)
-                from src.compute.session_service import ComputeSessionService
+        # Post-commit: touch compute projection
+        if record.execution_id:
+            from src.compute.session_service import ComputeSessionService
 
-                await ComputeSessionService(self._db).touch_session_by_execution(
-                    record.execution_session_id
-                )
+            await ComputeSessionService(self._db).touch_session_by_execution(
+                record.execution_id
+            )
 
         payload = record.payload if isinstance(record.payload, dict) else {}
         workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
@@ -602,7 +556,7 @@ class TaskStore:
                 {
                     "task": {
                         "task_id": task_id,
-                        "execution_session_id": record.execution_session_id,
+                        "execution_id": record.execution_id,
                         "task_type": record.task_type,
                         "status": status,
                         "progress": final_progress,

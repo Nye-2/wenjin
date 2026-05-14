@@ -9,13 +9,13 @@ vi.mock("@/lib/api", () => ({
   getComputeProjection: (...args: unknown[]) => mockGetComputeProjection(...args),
 }));
 
-import type { ComputeProjection, ComputeSession, ExecutionSession } from "@/lib/api";
+import type { ComputeProjection, ComputeSession, ExecutionRecord } from "@/lib/api";
 import { useComputeStore } from "@/stores/compute";
 
 function session(overrides: Partial<ComputeSession> = {}): ComputeSession {
   return {
     id: overrides.id ?? "compute-1",
-    execution_session_id: overrides.execution_session_id ?? "execution-1",
+    execution_id: overrides.execution_id ?? "execution-1",
     workspace_id: overrides.workspace_id ?? "workspace-1",
     user_id: overrides.user_id ?? "user-1",
     sandbox_session_id: overrides.sandbox_session_id ?? null,
@@ -26,19 +26,23 @@ function session(overrides: Partial<ComputeSession> = {}): ComputeSession {
   };
 }
 
-function execution(overrides: Partial<ExecutionSession> = {}): ExecutionSession {
+function execution(overrides: Partial<ExecutionRecord> = {}): ExecutionRecord {
   return {
     id: overrides.id ?? "execution-1",
     user_id: overrides.user_id ?? "user-1",
     workspace_id: overrides.workspace_id ?? "workspace-1",
+    execution_type: overrides.execution_type ?? "feature",
     workspace_type: overrides.workspace_type ?? "thesis",
     feature_id: overrides.feature_id ?? "thesis.deep_research",
-    launch_source: overrides.launch_source ?? "chat",
     status: overrides.status ?? "running",
     params: overrides.params ?? {},
-    task_ids: overrides.task_ids ?? [],
+    node_states: overrides.node_states ?? {},
     artifact_ids: overrides.artifact_ids ?? [],
     next_actions: overrides.next_actions ?? [],
+    child_execution_ids: overrides.child_execution_ids ?? [],
+    progress: overrides.progress ?? 0,
+    created_at: overrides.created_at ?? "2026-04-28T00:00:00Z",
+    updated_at: overrides.updated_at ?? "2026-04-28T00:00:00Z",
     ...overrides,
   };
 }
@@ -50,7 +54,7 @@ function projection(
   return {
     compute_session: computeSession,
     execution: overrides.execution ?? execution({
-      id: computeSession.execution_session_id,
+      id: computeSession.execution_id,
       workspace_id: computeSession.workspace_id,
     }),
     primary_task: overrides.primary_task ?? null,
@@ -127,7 +131,7 @@ describe("compute store", () => {
 
   it("hydrates workspace sessions and selects the first returned session", async () => {
     const first = session({ id: "compute-1" });
-    const second = session({ id: "compute-2", execution_session_id: "execution-2" });
+    const second = session({ id: "compute-2", execution_id: "execution-2" });
     mockGetWorkspaceComputeSessions.mockResolvedValueOnce({
       items: [first, second],
       count: 2,
@@ -155,7 +159,7 @@ describe("compute store", () => {
     });
     const newer = session({
       id: "compute-2",
-      execution_session_id: "execution-2",
+      execution_id: "execution-2",
       updated_at: "2026-04-28T01:00:00Z",
     });
 

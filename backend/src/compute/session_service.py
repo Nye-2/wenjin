@@ -19,16 +19,16 @@ class ComputeSessionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def ensure_for_execution_session(
+    async def ensure_for_execution(
         self,
         *,
-        execution_session_id: str,
+        execution_id: str,
         workspace_id: str,
         user_id: str,
         sandbox_session_id: str | None = None,
     ) -> ComputeSessionRecord:
-        """Return the compute session bound to an execution session, creating it if needed."""
-        existing = await self.get_by_execution_session_id(execution_session_id)
+        """Return the compute session bound to an execution, creating it if needed."""
+        existing = await self.get_by_execution_id(execution_id)
         if existing is not None:
             if sandbox_session_id and existing.sandbox_session_id != sandbox_session_id:
                 existing.sandbox_session_id = sandbox_session_id
@@ -41,7 +41,7 @@ class ComputeSessionService:
         now = datetime.now(UTC)
         session = ComputeSessionRecord(
             id=generate_uuid(),
-            execution_session_id=execution_session_id,
+            execution_id=execution_id,
             workspace_id=workspace_id,
             user_id=user_id,
             sandbox_session_id=sandbox_session_id,
@@ -62,13 +62,13 @@ class ComputeSessionService:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_execution_session_id(
+    async def get_by_execution_id(
         self,
-        execution_session_id: str,
+        execution_id: str,
     ) -> ComputeSessionRecord | None:
         result = await self.db.execute(
             select(ComputeSessionRecord).where(
-                ComputeSessionRecord.execution_session_id == execution_session_id
+                ComputeSessionRecord.execution_id == execution_id
             )
         )
         return result.scalar_one_or_none()
@@ -99,7 +99,7 @@ class ComputeSessionService:
     ) -> ComputeSessionRecord | None:
         """Bump updated_at and optionally merge ui_state_delta.
 
-        Used when the bound execution session changes (task progress,
+        Used when the bound execution changes (task progress,
         runtime blocks, etc.) so that the Compute Stage projection is
         refreshed without mutating ComputeSession business state.
         """
@@ -120,12 +120,12 @@ class ComputeSessionService:
 
     async def touch_session_by_execution(
         self,
-        execution_session_id: str,
+        execution_id: str,
         *,
         ui_state_delta: dict[str, Any] | None = None,
     ) -> ComputeSessionRecord | None:
-        """Bump updated_at for the compute session bound to an execution session."""
-        session = await self.get_by_execution_session_id(execution_session_id)
+        """Bump updated_at for the compute session bound to an execution."""
+        session = await self.get_by_execution_id(execution_id)
         # Defensive: in mock test environments db.execute returns AsyncMock,
         # so scalar_one_or_none() may yield a coroutine instead of a record.
         if session is None or not isinstance(session, ComputeSessionRecord):
@@ -161,4 +161,3 @@ class ComputeSessionService:
         await self.db.refresh(session)
         await publish_compute_session_event(session, event_type="compute.updated")
         return session
-

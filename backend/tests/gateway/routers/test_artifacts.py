@@ -11,7 +11,7 @@ This module tests the artifact endpoints including:
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -40,6 +40,7 @@ class MockArtifactService:
     def __init__(self):
         self.artifacts = {}
         self._id_counter = 0
+        self.db = MagicMock()
 
     def _generate_id(self):
         self._id_counter += 1
@@ -506,6 +507,37 @@ class TestCreateArtifact:
         assert data["type"] == "methodology"
         assert data["title"] is None
         assert data["created_by_skill"] is None
+
+    def test_create_artifact_links_execution_record_when_execution_id_present(self, client):
+        fake_execution = MagicMock()
+        fake_execution.id = "550e8400-e29b-41d4-a716-446655440099"
+
+        with patch(
+            "src.gateway.routers.artifacts.ExecutionService"
+        ) as execution_service_cls:
+            execution_service = execution_service_cls.return_value
+            execution_service.get_by_id = MagicMock(return_value=None)
+            execution_service.get_by_id = AsyncMock(return_value=fake_execution)
+            execution_service.append_artifact_id = AsyncMock()
+
+            response = client.post(
+                f"/workspaces/{WORKSPACE_ID}/artifacts",
+                json={
+                    "type": "research_idea",
+                    "title": "Linked Artifact",
+                    "content": {"idea": "linked"},
+                    "execution_id": "550e8400-e29b-41d4-a716-446655440099",
+                },
+            )
+
+        assert response.status_code == 201
+        artifact_id = response.json()["id"]
+        execution_service.append_artifact_id.assert_awaited_once_with(
+            "550e8400-e29b-41d4-a716-446655440099",
+            artifact_id,
+            commit=False,
+        )
+
 
     def test_create_artifact_with_parent(self, client):
         """Test artifact creation with parent artifact."""

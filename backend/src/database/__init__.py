@@ -18,7 +18,6 @@ from .models import (
     CreditTransaction,
     CreditTransactionType,
     # Generation
-    ExecutionSessionRecord,
     GenerationRecord,
     KnowledgeCategory,
     LatexCompileHistory,
@@ -125,7 +124,6 @@ __all__ = [
     "LatexCompileHistory",
     # Models - Generation
     "GenerationRecord",
-    "ExecutionSessionRecord",
     # Models - Task
     "TaskRecord",
     "SubagentTaskRecord",

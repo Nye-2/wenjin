@@ -19,7 +19,7 @@ from src.application.results import (
 from src.application.services.feature_submission_service import FeatureSubmissionService
 from src.application.workspace_resolvers import resolve_workspace_type
 from src.compute.session_service import ComputeSessionService
-from src.services.execution_session_service import ExecutionSessionService
+from src.services.execution_service import ExecutionService
 from src.workspace_features import get_workspace_feature
 
 _THREAD_ENTRY_SOURCES = {"thread", "tool", "automation"}
@@ -163,13 +163,13 @@ class FeatureIngressService:
         *,
         actor_id: str,
         feature_submission_service: FeatureSubmissionService,
-        execution_session_service: ExecutionSessionService,
+        execution_service: ExecutionService,
         compute_session_service: ComputeSessionService,
         workspace_service: Any,
     ) -> None:
         self.actor_id = actor_id
         self.feature_submission_service = feature_submission_service
-        self.execution_session_service = execution_session_service
+        self.execution_service = execution_service
         self.compute_session_service = compute_session_service
         self.workspace_service = workspace_service
 
@@ -196,78 +196,77 @@ class FeatureIngressService:
     async def _persist_missing_context(
         self,
         *,
-        session: Any,
+        execution_id: str | None,
         params: dict[str, Any],
         advisory: FeatureExecutionAdvisory,
         thread_id: str | None,
         skill_id: str | None,
     ) -> None:
-        await self.execution_session_service.update_session_record(
-            session,
-            status="awaiting_user_input",
-            thread_id=thread_id,
-            entry_skill_id=skill_id,
-            params=params,
-            advisory_code=advisory.code,
-            result_summary=advisory.message,
-            last_error=None,
-            next_actions=[
-                {
-                    "kind": "user_input_required",
-                    "feature_id": advisory.feature_id,
-                    "missing_fields": advisory.context.get("missing_fields")
-                    if isinstance(advisory.context, dict)
-                    else [],
-                    "prompt": advisory.context.get("prompt")
-                    if isinstance(advisory.context, dict)
-                    else advisory.message,
-                }
-            ],
-        )
+        if execution_id:
+            await self.execution_service.update_execution(
+                execution_id,
+                status="awaiting_user_input",
+                thread_id=thread_id,
+                entry_skill_id=skill_id,
+                params=params,
+                advisory_code=advisory.code,
+                result_summary=advisory.message,
+                last_error=None,
+                next_actions=[
+                    {
+                        "kind": "user_input_required",
+                        "feature_id": advisory.feature_id,
+                        "missing_fields": advisory.context.get("missing_fields")
+                        if isinstance(advisory.context, dict)
+                        else [],
+                        "prompt": advisory.context.get("prompt")
+                        if isinstance(advisory.context, dict)
+                        else advisory.message,
+                    }
+                ],
+            )
 
     async def _finalize_submission(
         self,
         *,
-        session: Any,
         outcome: FeatureTaskSubmission,
-        allow_repoint_to_existing_session: bool,
+        allow_repoint_to_existing_execution: bool,
         workspace_id: str,
         user_id: str,
+        execution_id: str | None,
     ) -> str:
         if outcome.reused_existing_task:
             existing_task = await self.feature_submission_service.task_service.get_task_status(
                 outcome.task_id,
                 self.actor_id,
             )
-            existing_execution_session_id = (
-                str(existing_task.get("execution_session_id") or "").strip()
+            existing_execution_id = (
+                str(existing_task.get("execution_id") or "").strip()
                 if isinstance(existing_task, dict)
                 else ""
             )
             if (
-                allow_repoint_to_existing_session
-                and existing_execution_session_id
-                and existing_execution_session_id != str(session.id)
+                allow_repoint_to_existing_execution
+                and existing_execution_id
+                and existing_execution_id != str(execution_id or "")
             ):
-                await self.execution_session_service.delete_session(str(session.id))
-                await self.compute_session_service.ensure_for_execution_session(
-                    execution_session_id=existing_execution_session_id,
+                await self.compute_session_service.ensure_for_execution(
+                    execution_id=existing_execution_id,
                     workspace_id=workspace_id,
                     user_id=user_id,
                 )
-                return existing_execution_session_id
+                return existing_execution_id
 
-        await self.execution_session_service.update_session_record(
-            session,
-            status="pending",
-            primary_task_id=outcome.task_id,
-            append_task_id=outcome.task_id,
-            result_summary=outcome.message,
-            next_actions=[],
-            advisory_code=None,
-            last_error=None,
-        )
-        return str(session.id)
+        if execution_id:
+            await self.execution_service.update_execution(
+                execution_id,
+                status="pending",
+                result_summary=outcome.message,
+                next_actions=[],
+                advisory_code=None,
+                last_error=None,
+            )
+        return str(execution_id or "")
 
     async def _resolve_existing_execution_id(self, task_id: str) -> str | None:
         """Get execution_id from an existing task's payload."""
@@ -284,12 +283,11 @@ class FeatureIngressService:
     async def _handle_execution_outcome(
         self,
         *,
-        session: Any,
         outcome: FeatureTaskSubmission | FeatureExecutionAdvisory,
         params: dict[str, Any],
         thread_id: str | None,
         skill_id: str | None,
-        allow_repoint_to_existing_session: bool,
+        allow_repoint_to_existing_execution: bool,
         workspace_id: str,
         user_id: str,
         execution_id: str | None = None,
@@ -298,34 +296,30 @@ class FeatureIngressService:
             if outcome.reused_existing_task and execution_id:
                 # Cancel the pre-created ExecutionRecord; it won't be started.
                 try:
-                    from src.services.execution_service import ExecutionService
-                    await ExecutionService(self.execution_session_service.db).cancel_execution(execution_id)
+                    await self.execution_service.cancel_execution(execution_id)
                 except Exception:
                     pass
                 # Return the existing task's execution_id so the frontend
                 # can subscribe to the correct stream.
                 execution_id = await self._resolve_existing_execution_id(outcome.task_id)
 
-            execution_session_id = await self._finalize_submission(
-                session=session,
+            execution_id = await self._finalize_submission(
                 outcome=outcome,
-                allow_repoint_to_existing_session=allow_repoint_to_existing_session,
+                allow_repoint_to_existing_execution=allow_repoint_to_existing_execution,
                 workspace_id=workspace_id,
                 user_id=user_id,
+                execution_id=execution_id,
             )
             return FeatureLaunchResult(
-                execution_session_id=execution_session_id,
-                outcome=outcome,
                 execution_id=execution_id,
+                outcome=outcome,
             )
 
         # Task was not submitted (advisory).  Complete the ExecutionRecord
         # so it does not stay in ``pending`` forever.
         if execution_id:
             try:
-                from src.services.execution_service import ExecutionService
-
-                await ExecutionService(self.execution_session_service.db).complete_execution(
+                await self.execution_service.complete_execution(
                     execution_id,
                     status="failed",
                     error=f"Launch advisory: {outcome.code} — {outcome.message}",
@@ -335,29 +329,28 @@ class FeatureIngressService:
 
         if outcome.code == "missing_params":
             await self._persist_missing_context(
-                session=session,
+                execution_id=execution_id,
                 params=params,
                 advisory=outcome,
                 thread_id=thread_id,
                 skill_id=skill_id,
             )
             return FeatureLaunchResult(
-                execution_session_id=str(session.id),
+                execution_id=str(execution_id or ""),
                 outcome=outcome,
-                execution_id=execution_id,
             )
 
-        await self.execution_session_service.update_session_record(
-            session,
-            status="advisory",
-            advisory_code=outcome.code,
-            result_summary=outcome.message,
-            last_error=outcome.message,
-        )
+        if execution_id:
+            await self.execution_service.update_execution(
+                execution_id,
+                status="awaiting_user_input",
+                advisory_code=outcome.code,
+                result_summary=outcome.message,
+                last_error=outcome.message,
+            )
         return FeatureLaunchResult(
-            execution_session_id=str(session.id),
+            execution_id=str(execution_id or ""),
             outcome=outcome,
-            execution_id=execution_id,
         )
 
     async def launch(
@@ -368,28 +361,28 @@ class FeatureIngressService:
         resolved_feature_id = command.normalized_feature_id()
         resolved_params = command.params_dict()
 
-        if command.execution_session_id:
-            session = await self.execution_session_service.get_by_id(command.execution_session_id)
-            if session is None:
-                raise NotFoundError("Execution session not found")
-            if str(session.user_id) != self.actor_id:
+        if command.execution_id:
+            execution = await self.execution_service.get_by_id(command.execution_id)
+            if execution is None:
+                raise NotFoundError("Execution not found")
+            if str(execution.user_id) != self.actor_id:
                 raise AccessDeniedError("Access denied")
-            if str(session.workspace_id) != workspace_id:
+            if str(execution.workspace_id) != workspace_id:
                 raise AccessDeniedError("Access denied")
 
-            if command.thread_id and session.thread_id and str(session.thread_id) != str(command.thread_id):
-                raise AccessDeniedError("Execution session does not belong to this thread")
-            await self.compute_session_service.ensure_for_execution_session(
-                execution_session_id=str(session.id),
+            if command.thread_id and execution.thread_id and str(execution.thread_id) != str(command.thread_id):
+                raise AccessDeniedError("Execution does not belong to this thread")
+            await self.compute_session_service.ensure_for_execution(
+                execution_id=str(execution.id),
                 workspace_id=workspace_id,
                 user_id=self.actor_id,
             )
 
             if not resolved_feature_id:
-                resolved_feature_id = str(session.feature_id)
-            elif resolved_feature_id != str(session.feature_id):
+                resolved_feature_id = str(execution.feature_id)
+            elif resolved_feature_id != str(execution.feature_id):
                 raise NotFoundError(
-                    "Execution session feature does not match requested feature"
+                    "Execution feature does not match requested feature"
                 )
 
             _, _, feature = await self._load_workspace_and_feature(
@@ -399,7 +392,7 @@ class FeatureIngressService:
 
             merged_params = _hydrate_missing_context_params_from_resume_message(
                 feature_id=feature.id,
-                params={**dict(session.params or {}), **resolved_params},
+                params={**dict(execution.params or {}), **resolved_params},
                 launch_source=command.launch_source,
                 launch_message=command.launch_message,
             )
@@ -409,12 +402,12 @@ class FeatureIngressService:
                 launch_source=command.launch_source,
             )
 
-            await self.execution_session_service.update_session_record(
-                session,
-                thread_id=command.thread_id if command.thread_id else session.thread_id,
-                entry_skill_id=command.skill_id if command.skill_id else session.entry_skill_id,
+            await self.execution_service.update_execution(
+                str(execution.id),
+                thread_id=command.thread_id if command.thread_id else execution.thread_id,
+                entry_skill_id=command.skill_id if command.skill_id else execution.entry_skill_id,
                 params=merged_params,
-                status="launching",
+                status="running",
             )
 
             if missing_fields:
@@ -423,87 +416,73 @@ class FeatureIngressService:
                     missing_fields=missing_fields,
                 )
                 await self._persist_missing_context(
-                    session=session,
+                    execution_id=str(execution.id),
                     params=merged_params,
                     advisory=advisory,
-                    thread_id=command.thread_id if command.thread_id else session.thread_id,
-                    skill_id=command.skill_id if command.skill_id else session.entry_skill_id,
+                    thread_id=command.thread_id if command.thread_id else execution.thread_id,
+                    skill_id=command.skill_id if command.skill_id else execution.entry_skill_id,
                 )
                 return FeatureLaunchResult(
-                    execution_session_id=str(session.id),
+                    execution_id=str(execution.id),
                     outcome=advisory,
                 )
 
-            # Create ExecutionRecord before task submission so the gateway
-            # can return execution_id to the frontend immediately.
-            from src.services.execution_service import ExecutionService
-
-            execution_service = ExecutionService(self.execution_session_service.db)
-            execution_record = await execution_service.create_execution(
-                execution_type="feature",
-                user_id=self.actor_id,
-                workspace_id=workspace_id,
-                thread_id=command.thread_id or session.thread_id,
-                feature_id=feature.id,
-                entry_skill_id=command.skill_id or session.entry_skill_id,
-                workspace_type=str(session.workspace_type) if session.workspace_type else None,
-                params=dict(merged_params),
-            )
-            execution_id = execution_record.id
+            execution_id = execution.id
 
             try:
                 outcome = await self.feature_submission_service.execute(
                     workspace_id,
                     feature.id,
                     merged_params,
-                    command.thread_id or session.thread_id,
-                    command.skill_id or session.entry_skill_id,
+                    command.thread_id or execution.thread_id,
+                    command.skill_id or execution.entry_skill_id,
                     idempotency_key=command.idempotency_key,
                     redis_client=command.redis_client,
-                    execution_session_id=str(session.id),
                     execution_id=execution_id,
                 )
             except Exception as exc:
-                await self.execution_session_service.update_session(
-                    str(session.id),
+                await self.execution_service.update_execution(
+                    execution_id,
                     status="failed",
                     last_error=str(exc),
+                    result_summary=str(exc),
                 )
                 raise
 
             return await self._handle_execution_outcome(
-                session=session,
                 outcome=outcome,
                 params=merged_params,
-                thread_id=command.thread_id if command.thread_id else session.thread_id,
-                skill_id=command.skill_id if command.skill_id else session.entry_skill_id,
-                allow_repoint_to_existing_session=False,
+                thread_id=command.thread_id if command.thread_id else execution.thread_id,
+                skill_id=command.skill_id if command.skill_id else execution.entry_skill_id,
+                allow_repoint_to_existing_execution=False,
                 workspace_id=workspace_id,
                 user_id=self.actor_id,
                 execution_id=execution_id,
             )
 
         if not resolved_feature_id:
-            raise NotFoundError("feature_id is required when execution_session_id is not provided")
+            raise NotFoundError("feature_id is required when execution_id is not provided")
 
         _, workspace_type, feature = await self._load_workspace_and_feature(
             workspace_id=workspace_id,
             feature_id=resolved_feature_id,
         )
 
-        session = await self.execution_session_service.create_session(
+        # Create ExecutionRecord before task submission so the gateway
+        # can return execution_id to the frontend immediately.
+        execution_record = await self.execution_service.create_execution(
+            execution_type="feature",
             user_id=self.actor_id,
             workspace_id=workspace_id,
-            workspace_type=workspace_type,
-            feature_id=feature.id,
             thread_id=command.thread_id,
+            feature_id=feature.id,
             entry_skill_id=command.skill_id,
-            launch_source=command.launch_source,
-            launch_message=command.launch_message,
-            params=resolved_params,
+            workspace_type=workspace_type,
+            params=dict(resolved_params),
         )
-        await self.compute_session_service.ensure_for_execution_session(
-            execution_session_id=str(session.id),
+        execution_id = execution_record.id
+        await self.compute_session_service.ensure_for_execution(
+            execution_id=execution_id,
             workspace_id=workspace_id,
             user_id=self.actor_id,
         )
@@ -519,33 +498,16 @@ class FeatureIngressService:
                 missing_fields=missing_fields,
             )
             await self._persist_missing_context(
-                session=session,
+                execution_id=execution_id,
                 params=resolved_params,
                 advisory=advisory,
                 thread_id=command.thread_id,
                 skill_id=command.skill_id,
             )
             return FeatureLaunchResult(
-                execution_session_id=str(session.id),
+                execution_id=execution_id,
                 outcome=advisory,
             )
-
-        # Create ExecutionRecord before task submission so the gateway
-        # can return execution_id to the frontend immediately.
-        from src.services.execution_service import ExecutionService
-
-        execution_service = ExecutionService(self.execution_session_service.db)
-        execution_record = await execution_service.create_execution(
-            execution_type="feature",
-            user_id=self.actor_id,
-            workspace_id=workspace_id,
-            thread_id=command.thread_id,
-            feature_id=feature.id,
-            entry_skill_id=command.skill_id,
-            workspace_type=workspace_type,
-            params=dict(resolved_params),
-        )
-        execution_id = execution_record.id
 
         try:
             outcome = await self.feature_submission_service.execute(
@@ -556,24 +518,23 @@ class FeatureIngressService:
                 command.skill_id,
                 idempotency_key=command.idempotency_key,
                 redis_client=command.redis_client,
-                execution_session_id=str(session.id),
                 execution_id=execution_id,
             )
         except Exception as exc:
-            await self.execution_session_service.update_session(
-                str(session.id),
+            await self.execution_service.update_execution(
+                execution_id,
                 status="failed",
                 last_error=str(exc),
+                result_summary=str(exc),
             )
             raise
 
         return await self._handle_execution_outcome(
-            session=session,
             outcome=outcome,
             params=resolved_params,
             thread_id=command.thread_id,
             skill_id=command.skill_id,
-            allow_repoint_to_existing_session=True,
+            allow_repoint_to_existing_execution=True,
             workspace_id=workspace_id,
             user_id=self.actor_id,
             execution_id=execution_id,

@@ -11,7 +11,7 @@ class ComputeSessionResponse(BaseModel):
     """Compute session shell state."""
 
     id: str
-    execution_session_id: str
+    execution_id: str
     workspace_id: str
     user_id: str
     sandbox_session_id: str | None = None

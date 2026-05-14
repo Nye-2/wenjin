@@ -20,7 +20,7 @@ class FeatureLaunchCommand:
     launch_message: str | None = None
     idempotency_key: str | None = None
     redis_client: Any | None = None
-    execution_session_id: str | None = None
+    execution_id: str | None = None
 
     def normalized_feature_id(self) -> str:
         return str(self.feature_id or "").strip()

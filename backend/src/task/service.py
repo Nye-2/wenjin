@@ -9,7 +9,7 @@ from uuid import uuid4
 from src.config.app_config import celery_settings
 from src.config.task_config import task_settings
 from src.runtime.serialization import serialize_lc_object
-from src.services.execution_session_service import ExecutionSessionService
+from src.services.execution_service import ExecutionService
 from src.services.workspace_activity_contracts import (
     build_task_activity_item,
     serialize_activity_item,
@@ -62,7 +62,7 @@ class TaskService:
 
         return {
             "task_id": record.id,
-            "execution_session_id": record.execution_session_id,
+            "execution_id": record.execution_id,
             "task_type": record.task_type,
             "status": str(status),
             "progress": self._coerce_progress(progress),
@@ -195,8 +195,8 @@ class TaskService:
                 {
                     "task": {
                         "task_id": task_id,
-                        "execution_session_id": (
-                            payload.get("execution_session_id") if isinstance(payload, dict) else None
+                        "execution_id": (
+                            payload.get("execution_id") if isinstance(payload, dict) else None
                         ),
                         "task_type": task_type,
                         "status": TaskStatus.PENDING.value,
@@ -408,19 +408,20 @@ class TaskService:
             message="Cancelled by user",
             metadata=runtime_metadata,
         )
-        if record.execution_session_id:
-            await ExecutionSessionService(self._store.db).update_session(
-                str(record.execution_session_id),
+        if record.execution_id:
+            await ExecutionService(self._store.db).apply_task_transition(
+                str(record.execution_id),
+                commit=True,
                 status=TaskStatus.CANCELLED.value,
-                runtime_snapshot=runtime_snapshot,
+                runtime_state=runtime_snapshot,
                 result_summary="Cancelled by user",
                 next_actions=[],
                 advisory_code=None,
                 last_error=None,
                 started_at=record.started_at,
                 completed_at=cancelled_at,
-                primary_task_id=record.id,
-                append_task_id=record.id,
+                message="Cancelled by user",
+                progress=final_progress,
             )
 
         # Attempt credit refund if credits were consumed for this task
@@ -434,7 +435,7 @@ class TaskService:
             {
                 "task": {
                     "task_id": task_id,
-                    "execution_session_id": record.execution_session_id,
+                    "execution_id": record.execution_id,
                     "task_type": record.task_type,
                     "status": TaskStatus.CANCELLED.value,
                     "progress": final_progress,

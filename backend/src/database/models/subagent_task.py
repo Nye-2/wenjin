@@ -25,12 +25,6 @@ class SubagentTaskRecord(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    execution_session_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("execution_sessions.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     thread_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     subagent_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
@@ -60,10 +54,10 @@ class SubagentTaskRecord(Base):
     )
     criticality: Mapped[str] = mapped_column(String(8), default="low", nullable=False)
     run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("workspace_run.id"), nullable=True)
-    execution_id: Mapped[str | None] = mapped_column(
+    execution_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("executions.id"),
-        nullable=True,
+        ForeignKey("executions.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
 

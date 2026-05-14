@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,7 +13,7 @@ from ..base import Base, generate_uuid
 class ExecutionRecord(Base):
     """Unified execution record — SSOT for all execution types.
 
-    Replaces: TaskRecord, ExecutionSessionRecord, WorkspaceRunRow
+    Replaces: legacy execution/session tracking rows and WorkspaceRunRow
     """
 
     __tablename__ = "executions"
@@ -113,4 +113,13 @@ class ExecutionRecord(Base):
         Index("ix_executions_thread_created", "thread_id", "created_at"),
         Index("ix_executions_parent", "parent_execution_id"),
         Index("ix_executions_type_status", "execution_type", "status"),
+        Index(
+            "uq_executions_one_active_per_workspace",
+            "workspace_id",
+            unique=True,
+            postgresql_where=text(
+                "(workspace_id IS NOT NULL) AND "
+                "(status IN ('pending', 'running', 'cancelling'))"
+            ),
+        ),
     )

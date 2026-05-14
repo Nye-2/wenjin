@@ -4,7 +4,7 @@
 
 后端当前采用 Compute-centered 分层执行架构：
 
-`gateway -> ChatTurnRouter / FeatureIngressService -> ExecutionSession + ComputeSession -> task runtime -> workspace feature graphs/services -> persistence/writeback`
+`gateway -> ChatTurnRouter / FeatureIngressService -> Execution + ComputeSession -> task runtime -> workspace feature graphs/services -> persistence/writeback`
 
 thread（路由仍为 `/chat`）是用户入口；显式 feature launch/resume 不进入 lead-agent tool loop，而是通过 `FeatureCommandHandler` 直接进入 `FeatureIngressService`。Compute projection 是长任务工作台读取面，不成为第二套业务事实源。
 
@@ -101,15 +101,15 @@ graph 负责 orchestration 与结果整形，service 负责模型调用、payloa
 - skills 目录：`src/workspace_features/skills.py`
 - workspace read tools：`src/tools/builtins/workspace.py`
 
-当前 skill 是 chat 层的 feature 入口语义，不再是独立执行框架。真正执行始终走 `FeatureIngressService`；pure chat 不创建 execution session、compute session 或 task record。
+当前 skill 是 chat 层的 feature 入口语义，不再是独立执行框架。真正执行始终走 `FeatureIngressService`；pure chat 不创建 execution、compute session 或 task record。
 
 ### 6. Compute
 
 - 位置：`src/compute/`
 - API：`src/gateway/routers/compute.py`
-- 角色：execution session 的用户可见工作台 shell 与 projection
+- 角色：execution 的用户可见工作台 shell 与 projection
 - 来源：execution、task、subagent、runtime blocks、sandbox files、logs、artifacts、WenjinPrism metadata
-- 约束：Compute 不做业务状态决策，不替代 ExecutionSession
+- 约束：Compute 不做业务状态决策，不替代 Execution
 
 ### 7. Subagents
 

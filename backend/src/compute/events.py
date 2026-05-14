@@ -12,7 +12,7 @@ def serialize_compute_session(session: ComputeSessionRecord) -> dict[str, Any]:
     """Convert a compute session ORM object into an event/API payload."""
     return {
         "id": session.id,
-        "execution_session_id": session.execution_session_id,
+        "execution_id": session.execution_id,
         "workspace_id": session.workspace_id,
         "user_id": session.user_id,
         "sandbox_session_id": session.sandbox_session_id,
@@ -34,4 +34,3 @@ async def publish_compute_session_event(
         event_type,
         {"compute_session": serialize_compute_session(session)},
     )
-

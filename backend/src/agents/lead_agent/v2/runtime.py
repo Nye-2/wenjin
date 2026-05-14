@@ -296,6 +296,18 @@ class LeadAgentRuntime:
                 _last_flush[node_id] = now
                 _thinking_buffers[node_id] = ""
 
+        async def _flush_delta(node_id: str) -> None:
+            buf = _thinking_buffers.get(node_id, "")
+            if not buf:
+                return
+            await publish(
+                execution_id,
+                "execution.node.delta",
+                {"node_id": node_id, "thinking": buf},
+            )
+            _last_flush[node_id] = time.monotonic()
+            _thinking_buffers[node_id] = ""
+
         def factory(subagent_cls: Any, task_spec: dict) -> Callable:
             task_name = task_spec["name"]
             meta = node_meta.get(task_name, {
@@ -356,6 +368,7 @@ class LeadAgentRuntime:
                 node_result = (result_state or {}).get("node_results", {}).get(task_name, {})
                 completed_at = datetime.now(timezone.utc)
                 try:
+                    await _flush_delta(meta["node_id"])
                     if isinstance(node_result, dict) and "error" in node_result:
                         await recorder(
                             execution_id=execution_id,

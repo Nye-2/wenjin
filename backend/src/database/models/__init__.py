@@ -11,7 +11,6 @@ from .decision import Decision
 from .document_v2 import DocumentV2
 from .execution import ExecutionRecord
 from .execution_node import ExecutionNodeRecord
-from .execution_session import ExecutionSessionRecord
 from .generation import GenerationRecord
 from .knowledge import KnowledgeCategory, UserKnowledge
 from .latex_compile_history import LatexCompileHistory
@@ -102,7 +101,6 @@ __all__ = [
     "LatexCompileHistory",
     # Generation
     "GenerationRecord",
-    "ExecutionSessionRecord",
     # Task
     "TaskRecord",
     "SubagentTaskRecord",

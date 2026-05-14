@@ -337,7 +337,7 @@ export interface ReferenceUsageEvent {
   reference_id: string;
   outline_node_id?: string | null;
   text_unit_id?: string | null;
-  execution_session_id?: string | null;
+  execution_id?: string | null;
   task_id?: string | null;
   artifact_id?: string | null;
   latex_project_id?: string | null;
@@ -566,7 +566,7 @@ export interface WorkspaceTaskEvent {
   workspace_id: string;
   task: {
     task_id: string;
-    execution_session_id?: string | null;
+    execution_id?: string | null;
     task_type?: string | null;
     status: string;
     progress: number;
@@ -605,56 +605,9 @@ export interface WorkspaceThreadDeletedEvent {
   timestamp?: string;
 }
 
-export interface ExecutionSession {
-  id: string;
-  user_id: string;
-  workspace_id: string;
-  thread_id?: string | null;
-  workspace_type: string;
-  feature_id: string;
-  entry_skill_id?: string | null;
-  launch_source: string;
-  launch_message?: string | null;
-  status: string;
-  params: Record<string, unknown>;
-  task_ids: string[];
-  primary_task_id?: string | null;
-  runtime_snapshot?: Record<string, unknown> | null;
-  progress?: number | null;
-  task_message?: string | null;
-  current_step?: string | null;
-  result_payload?: Record<string, unknown> | null;
-  token_usage?: TokenUsageCounter | null;
-  subagents?: Array<{
-    task_id: string;
-    thread_id: string;
-    execution_session_id: string;
-    status: string;
-    subagent_type?: string | null;
-    workflow_phase?: string | null;
-    workflow_phase_index?: string | number | null;
-    workflow_task_index?: string | number | null;
-    workflow_strategy?: string | null;
-    output_preview?: string | null;
-    error?: string | null;
-    token_usage?: TokenUsageCounter | null;
-    model_name?: string | null;
-    updated_at?: string | null;
-  }>;
-  result_summary?: string | null;
-  artifact_ids: string[];
-  next_actions: Array<Record<string, unknown>>;
-  advisory_code?: string | null;
-  last_error?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-}
-
 export interface ComputeSession {
   id: string;
-  execution_session_id: string;
+  execution_id: string;
   workspace_id: string;
   user_id: string;
   sandbox_session_id?: string | null;
@@ -769,7 +722,7 @@ export interface ComputePrismProjection {
 
 export interface ComputeProjection {
   compute_session: ComputeSession;
-  execution: ExecutionSession;
+  execution: ExecutionRecord;
   primary_task?: Record<string, unknown> | null;
   tasks: Array<Record<string, unknown>>;
   runtime_blocks: Array<Record<string, unknown>>;
@@ -798,7 +751,7 @@ export interface WorkspaceSubagentUpdatedEvent {
   subagent: {
     task_id: string;
     thread_id: string;
-    execution_session_id: string;
+    execution_id: string;
     status: string;
     subagent_type?: string | null;
     workflow_phase?: string | null;
@@ -948,7 +901,7 @@ export interface WorkspacePrismEnsureResponse {
 
 export interface TaskStatus {
   task_id: string;
-  execution_session_id?: string | null;
+  execution_id?: string | null;
   task_type: string;
   status: string;
   progress: number;
@@ -1046,8 +999,8 @@ export interface WorkspaceActivityResponse {
   count: number;
 }
 
-export interface WorkspaceExecutionSessionsResponse {
-  items: ExecutionSession[];
+export interface WorkspaceExecutionsResponse {
+  items: ExecutionRecord[];
   count: number;
 }
 
@@ -1361,6 +1314,7 @@ export type ExecutionType = "chat_turn" | "feature" | "subagent" | "tool" | "adv
 export type ExecutionStatus =
   | "pending"
   | "running"
+  | "cancelling"
   | "completed"
   | "failed_partial"
   | "failed"
@@ -1458,10 +1412,8 @@ export interface ExecutionNodeRecord {
 export type ExecutionStreamEventType =
   | "execution.metadata"
   | "execution.graph_structure"
-  | "execution.node.started"
+  | "execution.node"
   | "execution.node.delta"
-  | "execution.node.completed"
-  | "execution.node.failed"
   | "execution.status"
   | "execution.completed"
   | "execution.error"
@@ -1473,4 +1425,3 @@ export interface ExecutionStreamEvent {
   timestamp: string;
   payload: Record<string, unknown>;
 }
-

@@ -8,7 +8,7 @@ beforeEach(() => {
 });
 
 describe("chat store", () => {
-  it("appends content blocks in arrival order", () => {
+  it("merges consecutive text blocks into one rendered block", () => {
     const { handleEvent } = useChatStoreV2.getState();
     handleEvent({
       type: "chat.assistant.start",
@@ -24,10 +24,7 @@ describe("chat store", () => {
     });
 
     const msg = useChatStoreV2.getState().messages.at(-1)!;
-    expect(msg.blocks).toEqual([
-      { kind: "text", content: "hi " },
-      { kind: "text", content: "world" },
-    ]);
+    expect(msg.blocks).toEqual([{ kind: "text", content: "hi world" }]);
   });
 
   it("preserves thinking in arrival order, NOT prepended", () => {

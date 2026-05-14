@@ -8,7 +8,7 @@ from src.academic.services.workspace_service import WorkspaceService
 from src.application.services.feature_submission_service import FeatureSubmissionService
 from src.compute.session_service import ComputeSessionService
 from src.services.credit_service import CreditService
-from src.services.execution_session_service import ExecutionSessionService
+from src.services.execution_service import ExecutionService
 from src.services.references import WorkspaceReferenceService
 from src.task.service import TaskService
 
@@ -35,7 +35,7 @@ def build_feature_ingress_service(
     return FeatureIngressService(
         actor_id=str(actor_id),
         feature_submission_service=feature_submission_service,
-        execution_session_service=ExecutionSessionService(db),
+        execution_service=ExecutionService(db),
         compute_session_service=ComputeSessionService(db),
         workspace_service=workspace_service,
     )

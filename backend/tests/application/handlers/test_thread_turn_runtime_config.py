@@ -32,14 +32,14 @@ def test_build_thread_runtime_config_does_not_propagate_feature_orchestration() 
         workspace_id="ws-1",
         effective_skill=None,
         effective_model="gpt-5.2",
-        execution_session_id="exec-1",
+        execution_id="exec-1",
     )
 
     configurable = runtime["configurable"]
     assert configurable["thread_id"] == "thread-1"
     assert configurable["workspace_id"] == "ws-1"
     assert configurable["user_id"] == "user-1"
-    assert configurable["execution_session_id"] == "exec-1"
+    assert configurable["execution_id"] == "exec-1"
     assert "orchestration_intent" not in configurable
     assert "orchestration_feature_id" not in configurable
     assert "orchestration_params" not in configurable

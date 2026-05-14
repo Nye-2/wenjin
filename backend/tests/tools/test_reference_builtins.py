@@ -145,7 +145,7 @@ async def test_read_reference_outline_node_records_access_usage() -> None:
             config={
                 "configurable": {
                     "workspace_id": "ws-1",
-                    "execution_session_id": "exec-1",
+                    "execution_id": "exec-1",
                     "task_id": "task-1",
                 }
             },

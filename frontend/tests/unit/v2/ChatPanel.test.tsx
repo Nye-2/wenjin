@@ -11,7 +11,9 @@ describe("ChatPanel v2", () => {
   it("renders empty state with input placeholder", () => {
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("输入消息...")).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("输入消息... Shift+Enter 换行"),
+    ).toBeInTheDocument();
   });
 
   it("renders user messages with gray bubble", () => {
@@ -41,9 +43,7 @@ describe("ChatPanel v2", () => {
     });
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
-    expect(screen.getByText("first")).toBeInTheDocument();
-    // The second text block has a leading space which is preserved in the DOM
-    expect(screen.getByText(/second/)).toBeInTheDocument();
+    expect(screen.getByText("first second")).toBeInTheDocument();
   });
 
   it("renders thinking blocks with collapsible toggle", () => {
