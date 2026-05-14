@@ -8,13 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.compute.events import serialize_compute_session
+from src.database.models.capability import Capability
 from src.database.models.compute_session import ComputeSessionRecord
 from src.database.models.execution import ExecutionRecord
 from src.database.models.subagent_task import SubagentTaskRecord
 from src.database.models.task import TaskRecord
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.services.execution_service import serialize_execution_record
-from src.workspace_features.runtime_profiles import get_feature_runtime_profile
 
 _FILE_PATH_KEYS = {
     "sandbox_path",
@@ -703,7 +703,10 @@ def _review_item_required(item: dict[str, Any]) -> bool:
     return False
 
 
-def _build_review_gate(execution: ExecutionRecord) -> dict[str, Any]:
+def _build_review_gate(
+    execution: ExecutionRecord,
+    runtime_profile: dict[str, Any],
+) -> dict[str, Any]:
     next_actions = [dict(item) for item in execution.next_actions or [] if isinstance(item, dict)]
     items = [
         {
@@ -727,31 +730,53 @@ def _build_review_gate(execution: ExecutionRecord) -> dict[str, Any]:
     return {
         "status": status,
         "required": status == "awaiting_user",
-        "policy": _build_runtime_profile_projection(execution).get("review_gate"),
+        "policy": runtime_profile.get("review_gate"),
         "next_actions": next_actions,
         "items": items,
         "advisory_code": execution.advisory_code,
     }
 
 
-def _build_runtime_profile_projection(execution: ExecutionRecord) -> dict[str, Any]:
-    profile = get_feature_runtime_profile(
-        str(execution.workspace_type or ""),
-        str(execution.feature_id or ""),
-    )
-    if profile is None:
+async def _build_runtime_profile_projection(
+    db: AsyncSession,
+    execution: ExecutionRecord,
+) -> dict[str, Any]:
+    workspace_type = str(execution.workspace_type or "").strip()
+    feature_id = str(execution.feature_id or "").strip()
+    if not workspace_type or not feature_id:
         return {}
+    result = await db.execute(
+        select(Capability.runtime).where(
+            Capability.id == feature_id,
+            Capability.workspace_type == workspace_type,
+        )
+    )
+    raw = result.scalar()
+    if not isinstance(raw, dict):
+        return {}
+
+    review_gate_value = raw.get("review_gate")
+    if isinstance(review_gate_value, dict) and review_gate_value:
+        review_gate = _read_text(review_gate_value.get("kind"))
+    elif isinstance(review_gate_value, str) and review_gate_value.strip():
+        review_gate = review_gate_value.strip()
+    else:
+        review_gate = None
+
+    allowed_paths_value = raw.get("allowed_paths")
+    allowed_paths = (
+        [str(item) for item in allowed_paths_value if isinstance(item, str)]
+        if isinstance(allowed_paths_value, list)
+        else []
+    )
+
     return {
-        "workspace_type": profile.workspace_type,
-        "feature_id": profile.feature_id,
-        "runtime_mode": str(profile.runtime_mode),
-        "requires_compute": profile.requires_compute,
-        "requires_sandbox": profile.requires_sandbox,
-        "allowed_subagents": list(profile.allowed_subagents),
-        "max_subagents": profile.max_subagents,
-        "agent_harness_provider": profile.agent_harness_provider,
-        "output_contract": profile.output_contract,
-        "review_gate": profile.review_gate,
+        "workspace_type": workspace_type,
+        "feature_id": feature_id,
+        "runtime_mode": str(raw.get("mode") or ""),
+        "requires_sandbox": bool(raw.get("requires_sandbox")),
+        "review_gate": review_gate,
+        "allowed_paths": allowed_paths,
     }
 
 
@@ -870,8 +895,8 @@ class ComputeProjectionService:
             tasks=tasks,
             runtime_blocks=runtime_blocks,
         )
-        runtime_profile = _build_runtime_profile_projection(execution)
-        review_gate = _build_review_gate(execution)
+        runtime_profile = await _build_runtime_profile_projection(self.db, execution)
+        review_gate = _build_review_gate(execution, runtime_profile)
         return {
             "compute_session": serialize_compute_session(compute_session),
             "execution": serialize_execution_record(execution),

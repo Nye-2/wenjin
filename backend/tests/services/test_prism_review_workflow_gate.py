@@ -38,6 +38,9 @@ class _Result:
     def scalar_one_or_none(self):
         return self._scalar
 
+    def scalar(self):
+        return self._scalar
+
     def scalars(self):
         return _ScalarResult(self._scalars)
 
@@ -226,6 +229,14 @@ async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]
             _Result(scalars=[_task(now)]),
             _Result(scalars=[]),
             _Result(scalar=project),
+            _Result(
+                scalar={
+                    "mode": "compute_workflow",
+                    "requires_sandbox": False,
+                    "review_gate": {},
+                    "allowed_paths": [],
+                }
+            ),
         ]
     )
     projection = await ComputeProjectionService(db).get_projection(

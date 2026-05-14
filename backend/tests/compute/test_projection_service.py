@@ -26,6 +26,9 @@ class _Result:
     def scalar_one_or_none(self):
         return self._scalar
 
+    def scalar(self):
+        return self._scalar
+
     def scalars(self):
         return _ScalarResult(self._scalars)
 
@@ -216,6 +219,14 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             _Result(scalars=[task]),
             _Result(scalars=[subagent]),
             _Result(scalar=latex_project),
+            _Result(
+                scalar={
+                    "mode": "compute_workflow",
+                    "requires_sandbox": False,
+                    "review_gate": {},
+                    "allowed_paths": [],
+                }
+            ),
         ]
     )
 
@@ -233,7 +244,8 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
     assert projection["artifacts"]["ids"] == ["artifact-1"]
     assert projection["artifacts"]["count"] == 1
     assert projection["runtime_profile"]["runtime_mode"] == "compute_workflow"
-    assert projection["runtime_profile"]["output_contract"] == "feature_result"
+    assert projection["runtime_profile"]["requires_sandbox"] is False
+    assert projection["runtime_profile"]["review_gate"] is None
     assert projection["sandbox"]["session_id"] == "sandbox-1"
     assert projection["sandbox"]["status"] == "bound"
     assert projection["sandbox"]["required"] is False
@@ -334,6 +346,14 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
             _Result(scalar=execution),
             _Result(scalars=[]),
             _Result(scalars=[]),
+            _Result(
+                scalar={
+                    "mode": "compute_workflow",
+                    "requires_sandbox": False,
+                    "review_gate": {},
+                    "allowed_paths": [],
+                }
+            ),
         ]
     )
 
@@ -391,6 +411,14 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
             _Result(scalar=execution),
             _Result(scalars=[]),
             _Result(scalars=[]),
+            _Result(
+                scalar={
+                    "mode": "compute_agentic",
+                    "requires_sandbox": True,
+                    "review_gate": {"kind": "artifact_preview"},
+                    "allowed_paths": [],
+                }
+            ),
         ]
     )
 
@@ -402,7 +430,6 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
     assert projection is not None
     assert projection["runtime_profile"]["runtime_mode"] == "compute_agentic"
     assert projection["runtime_profile"]["requires_sandbox"] is True
-    assert projection["runtime_profile"]["output_contract"] == "draft_pack"
     assert projection["runtime_profile"]["review_gate"] == "artifact_preview"
     assert projection["sandbox"]["status"] == "required"
     assert projection["sandbox"]["required"] is True
@@ -502,6 +529,14 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_pro
             _Result(scalars=[task]),
             _Result(scalars=[]),
             _Result(scalar=latex_project),
+            _Result(
+                scalar={
+                    "mode": "compute_workflow",
+                    "requires_sandbox": False,
+                    "review_gate": {},
+                    "allowed_paths": [],
+                }
+            ),
         ]
     )
 
