@@ -35,3 +35,11 @@ graph_template:
                 doc_kind: peer_review
                 content: "{{output.markdown}}"
 result_card_template: peer_review
+ui_meta:
+  icon: pen
+  color: blue
+  order: 0
+  stages:
+  - id: revise
+    label: 修订完善
+  follow_up_prompt: 请基于这次写作结果继续指出结构缺口、逻辑断点和下一步最该补写的部分。

@@ -35,3 +35,11 @@ graph_template:
                 doc_kind: framework_outline
                 content: "{{output.markdown}}"
 result_card_template: framework_outline
+ui_meta:
+  icon: pen
+  color: blue
+  order: 0
+  stages:
+  - id: outline
+    label: 生成大纲
+  follow_up_prompt: 请基于这次写作结果继续指出结构缺口、逻辑断点和下一步最该补写的部分。

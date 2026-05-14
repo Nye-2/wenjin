@@ -38,3 +38,15 @@ graph_template:
                 doc_kind: section_draft
                 content: "{{output.markdown}}"
 result_card_template: section_draft
+ui_meta:
+  icon: pen
+  color: amber
+  order: 0
+  stages:
+  - id: plan
+    label: 规划结构
+  - id: write
+    label: 撰写内容
+  - id: revise
+    label: 修订完善
+  follow_up_prompt: 请基于这次章节草稿继续指出证据缺口、论证薄弱点和下一步最该补写的内容。
