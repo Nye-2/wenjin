@@ -5,33 +5,49 @@ display_name: 图表设计
 description: 把概念/流程/数据转成图表说明 + Mermaid
 intent_description: 用户希望生成论文图表
 trigger_phrases:
-  - 画图
-  - 生成图表
-  - 设计图
+- 画图
+- 生成图表
+- 设计图
 required_decisions:
-  - key: concept
-    ask: "图要表达什么？"
-    type: string
+- key: concept
+  ask: 图要表达什么？
+  type: string
 brief_schema:
   type: object
-  required: [concept]
+  required:
+  - concept
   properties:
-    concept: { type: string }
-    section: { type: string, optional: true }
+    concept:
+      type: string
+    section:
+      type: string
+      optional: true
 graph_template:
   phases:
-    - name: design
-      tasks:
-        - name: figure
-          subagent_type: react
-          skill_id: figure-designer
-          inputs:
-            concept: "{{concept}}"
-            section: "{{section|default('Method')}}"
-          outputs:
-            - kind: document
-              mapping:
-                name: "图表 - {{concept}}"
-                doc_kind: figure_spec
-                content: "{{output.markdown}}"
+  - name: design
+    tasks:
+    - name: figure
+      subagent_type: react
+      skill_id: figure-designer
+      inputs:
+        concept: '{{concept}}'
+        section: '{{section|default(''Method'')}}'
+      outputs:
+      - kind: document
+        mapping:
+          name: 图表 - {{concept}}
+          doc_kind: figure_spec
+          content: '{{output.markdown}}'
 result_card_template: figure_spec
+ui_meta:
+  icon: image
+  color: rose
+  order: 22
+  stages:
+  - id: analyze
+    label: 分析需求
+  - id: design
+    label: 设计方案
+  - id: generate
+    label: 生成图表
+  follow_up_prompt: 请基于这次图表结果继续优化技术方案表达，并给出专利说明书可用的图示描述。

@@ -5,40 +5,53 @@ display_name: 背景调研
 description: 项目背景的文献检索 + 综述
 intent_description: 用户希望做申报书的背景调研
 trigger_phrases:
-  - 背景调研
-  - 项目背景
-  - 调研项目
+- 背景调研
+- 项目背景
+- 调研项目
 required_decisions:
-  - key: topic
-    ask: "调研主题是？"
-    type: string
+- key: topic
+  ask: 调研主题是？
+  type: string
 brief_schema:
   type: object
-  required: [topic]
+  required:
+  - topic
   properties:
-    topic: { type: string }
+    topic:
+      type: string
 graph_template:
   phases:
-    - name: discover
-      tasks:
-        - name: search
-          subagent_type: searcher
-          skill_id: scholar-searcher
-          inputs:
-            query: "{{topic}}"
-    - name: synthesize
-      depends_on: [discover]
-      tasks:
-        - name: write
-          subagent_type: react
-          skill_id: literature-reviewer
-          inputs:
-            topic: "{{topic}}"
-            papers: "{{phases.discover.search.output.papers}}"
-          outputs:
-            - kind: document
-              mapping:
-                name: "{{topic}} 项目背景"
-                doc_kind: literature_review
-                content: "{{output.markdown}}"
+  - name: discover
+    tasks:
+    - name: search
+      subagent_type: searcher
+      skill_id: scholar-searcher
+      inputs:
+        query: '{{topic}}'
+  - name: synthesize
+    depends_on:
+    - discover
+    tasks:
+    - name: write
+      subagent_type: react
+      skill_id: literature-reviewer
+      inputs:
+        topic: '{{topic}}'
+        papers: '{{phases.discover.search.output.papers}}'
+      outputs:
+      - kind: document
+        mapping:
+          name: '{{topic}} 项目背景'
+          doc_kind: literature_review
+          content: '{{output.markdown}}'
 result_card_template: literature_review
+ui_meta:
+  icon: search
+  color: emerald
+  order: 14
+  stages:
+  - id: search
+    label: 搜索资料
+  - id: summarize
+    label: 整理归纳
+  follow_up_prompt: 请基于这次背景调研继续收敛关键问题，并输出可直接写进申报书的现状综述。

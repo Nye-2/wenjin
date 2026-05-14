@@ -5,33 +5,49 @@ display_name: 框架大纲
 description: 收敛选题为 SCI 摘要 + 关键词 + 章节框架
 intent_description: 用户希望生成 SCI 论文框架
 trigger_phrases:
-  - 生成框架
-  - 论文框架
-  - 大纲
+- 生成框架
+- 论文框架
+- 大纲
 required_decisions:
-  - key: topic
-    ask: "论文主题是？"
-    type: string
+- key: topic
+  ask: 论文主题是？
+  type: string
 brief_schema:
   type: object
-  required: [topic]
+  required:
+  - topic
   properties:
-    topic: { type: string }
-    contributions: { type: string, optional: true }
+    topic:
+      type: string
+    contributions:
+      type: string
+      optional: true
 graph_template:
   phases:
-    - name: design
-      tasks:
-        - name: outline
-          subagent_type: react
-          skill_id: framework-designer
-          inputs:
-            topic: "{{topic}}"
-            contributions: "{{contributions|default('')}}"
-          outputs:
-            - kind: document
-              mapping:
-                name: "{{topic}} 论文框架"
-                doc_kind: framework_outline
-                content: "{{output.markdown}}"
+  - name: design
+    tasks:
+    - name: outline
+      subagent_type: react
+      skill_id: framework-designer
+      inputs:
+        topic: '{{topic}}'
+        contributions: '{{contributions|default('''')}}'
+      outputs:
+      - kind: document
+        mapping:
+          name: '{{topic}} 论文框架'
+          doc_kind: framework_outline
+          content: '{{output.markdown}}'
 result_card_template: framework_outline
+ui_meta:
+  icon: list
+  color: blue
+  order: 9
+  stages:
+  - id: position
+    label: 定位研究
+  - id: outline
+    label: 生成框架
+  - id: abstract
+    label: 补摘要
+  follow_up_prompt: 请基于这次框架结果继续细化摘要、关键词和章节 focus，并指出下一步最适合先写哪一章。
