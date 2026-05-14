@@ -48,3 +48,11 @@ ui_meta:
   - id: generate
     label: 生成大纲
   follow_up_prompt: 请基于这次申报书大纲继续细化研究目标、技术路线和里程碑安排。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: outline_editor
+  status_kind: proposal_outline

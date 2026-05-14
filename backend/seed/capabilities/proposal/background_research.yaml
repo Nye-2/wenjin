@@ -54,3 +54,11 @@ ui_meta:
   - id: summarize
     label: 整理归纳
   follow_up_prompt: 请基于这次背景调研继续收敛关键问题，并输出可直接写进申报书的现状综述。
+runtime:
+  mode: compute_agentic
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: literature_panel
+  status_kind: background_research

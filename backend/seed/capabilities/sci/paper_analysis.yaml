@@ -46,3 +46,11 @@ ui_meta:
   - id: summarize
     label: 生成摘要
   follow_up_prompt: 请基于这次论文分析继续拆解方法亮点、实验弱点和最值得复用的写法。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: analysis_panel
+  status_kind: paper_analysis

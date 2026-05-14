@@ -47,3 +47,11 @@ ui_meta:
   - id: refine
     label: 完善结构
   follow_up_prompt: 请基于这次专利框架继续收敛权利要求边界，并指出说明书还需要补哪些实施细节。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: outline_editor
+  status_kind: patent_outline

@@ -52,3 +52,11 @@ ui_meta:
   - id: revise
     label: 优化内容
   follow_up_prompt: 请基于这次技术说明书继续补齐章节细节，并指出最需要补充的技术实现信息。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: editor_panel
+  status_kind: technical_description

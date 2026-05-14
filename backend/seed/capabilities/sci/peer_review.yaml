@@ -50,3 +50,11 @@ ui_meta:
   - id: advise
     label: 生成建议
   follow_up_prompt: 请基于这次同行评审把修改建议按优先级排序，并给出可直接落稿的改写方案。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: analysis_panel
+  status_kind: peer_review

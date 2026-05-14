@@ -5,35 +5,39 @@ display_name: 章节修订
 description: 同行评审视角给章节草稿提修订建议
 intent_description: 用户希望修订已有章节
 trigger_phrases:
-  - 修订
-  - 改章节
-  - 审稿意见
+- 修订
+- 改章节
+- 审稿意见
 required_decisions:
-  - key: manuscript
-    ask: "粘贴要修订的章节内容"
-    type: string
+- key: manuscript
+  ask: 粘贴要修订的章节内容
+  type: string
 brief_schema:
   type: object
-  required: [manuscript]
+  required:
+  - manuscript
   properties:
-    manuscript: { type: string }
-    focus: { type: string, optional: true }
+    manuscript:
+      type: string
+    focus:
+      type: string
+      optional: true
 graph_template:
   phases:
-    - name: review
-      tasks:
-        - name: critique
-          subagent_type: react
-          skill_id: peer-reviewer
-          inputs:
-            manuscript: "{{manuscript}}"
-            focus: "{{focus|default('整体质量')}}"
-          outputs:
-            - kind: document
-              mapping:
-                name: "章节修订建议"
-                doc_kind: peer_review
-                content: "{{output.markdown}}"
+  - name: review
+    tasks:
+    - name: critique
+      subagent_type: react
+      skill_id: peer-reviewer
+      inputs:
+        manuscript: '{{manuscript}}'
+        focus: '{{focus|default(''整体质量'')}}'
+      outputs:
+      - kind: document
+        mapping:
+          name: 章节修订建议
+          doc_kind: peer_review
+          content: '{{output.markdown}}'
 ui_meta:
   icon: pen
   color: blue
@@ -42,3 +46,11 @@ ui_meta:
   - id: revise
     label: 修订完善
   follow_up_prompt: 请基于这次写作结果继续指出结构缺口、逻辑断点和下一步最该补写的部分。
+runtime:
+  mode: compute_agentic
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: null
+  status_kind: section_revise

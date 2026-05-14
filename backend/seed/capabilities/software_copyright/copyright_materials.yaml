@@ -50,3 +50,11 @@ ui_meta:
   - id: review
     label: 核对格式
   follow_up_prompt: 请基于这次软著材料清单继续指出还缺哪些证明材料、代码页和截图要求。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: outline_editor
+  status_kind: copyright_materials

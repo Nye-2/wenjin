@@ -43,3 +43,11 @@ ui_meta:
   order: 1
   stages: []
   follow_up_prompt: 请基于这次文献盘点继续指出还缺哪些关键文献，并给出下一轮补充与筛选建议。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: null
+  status_kind: literature_management

@@ -59,3 +59,11 @@ ui_meta:
   - id: draft
     label: 生成综述
   follow_up_prompt: 请基于这次文献综述继续细化研究空白，并给出 3 个可写成 SCI 的问题陈述。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: analysis_panel
+  status_kind: literature_review

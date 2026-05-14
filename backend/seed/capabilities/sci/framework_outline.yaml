@@ -50,3 +50,11 @@ ui_meta:
   - id: abstract
     label: 补摘要
   follow_up_prompt: 请基于这次框架结果继续细化摘要、关键词和章节 focus，并指出下一步最适合先写哪一章。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: editor_panel
+  status_kind: framework_outline

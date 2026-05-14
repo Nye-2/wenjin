@@ -64,3 +64,11 @@ ui_meta:
   - id: refine
     label: 完善内容
   follow_up_prompt: 请基于这次研究报告继续补齐研究意义、可行性和技术路线中的薄弱环节。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: opening_research_panel
+  status_kind: opening_research

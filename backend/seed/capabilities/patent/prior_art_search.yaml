@@ -46,3 +46,11 @@ ui_meta:
   - id: compare
     label: 对比分析
   follow_up_prompt: 请基于这次现有技术检索继续评估新颖性风险，并给出可执行的规避改写建议。
+runtime:
+  mode: compute_agentic
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: literature_panel
+  status_kind: prior_art_search

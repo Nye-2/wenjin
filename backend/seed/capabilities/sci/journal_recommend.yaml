@@ -54,3 +54,11 @@ ui_meta:
   - id: rank
     label: 输出建议
   follow_up_prompt: 请基于这次期刊推荐比较前 3 个候选期刊的适配度、风险和投稿策略。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: analysis_panel
+  status_kind: journal_recommend

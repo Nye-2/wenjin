@@ -50,3 +50,12 @@ ui_meta:
   - id: generate
     label: 生成图表
   follow_up_prompt: 请基于这次图表结果继续优化图意表达，并给出可直接写入申报书的图注说明。
+runtime:
+  mode: compute_agentic
+  review_gate:
+    kind: artifact_preview
+  allowed_paths: []
+  requires_sandbox: true
+dashboard_meta:
+  panel: figure_panel
+  status_kind: figure_generation

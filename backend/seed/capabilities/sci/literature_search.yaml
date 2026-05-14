@@ -67,3 +67,11 @@ ui_meta:
   - id: filter
     label: 筛选结果
   follow_up_prompt: 请基于这次检索结果筛出最值得精读的文献，并说明各自对后续写作的价值。
+runtime:
+  mode: compute_agentic
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: literature_panel
+  status_kind: literature_search

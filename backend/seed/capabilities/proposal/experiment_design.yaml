@@ -50,3 +50,11 @@ ui_meta:
   - id: evaluation
     label: 规划评估
   follow_up_prompt: 请基于这次实验设计继续细化变量定义、样本方案、实验步骤和评估指标。
+runtime:
+  mode: compute_workflow
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: outline_editor
+  status_kind: experiment_design

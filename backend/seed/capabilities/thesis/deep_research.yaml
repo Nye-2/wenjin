@@ -72,3 +72,11 @@ ui_meta:
   - id: synthesize
     label: 综合整理
   follow_up_prompt: 请基于这次深度调研继续收敛研究问题，并给出更具体的创新点与验证路径。
+runtime:
+  mode: compute_agentic
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: deep_research_panel
+  status_kind: deep_research

@@ -5,38 +5,44 @@ display_name: 章节写作
 description: 撰写 SCI 章节草稿
 intent_description: 用户希望写 SCI 论文章节
 trigger_phrases:
-  - 写章节
-  - 写 introduction
-  - 写 method
+- 写章节
+- 写 introduction
+- 写 method
 required_decisions:
-  - key: section_title
-    ask: "要写哪个章节？"
-    type: string
+- key: section_title
+  ask: 要写哪个章节？
+  type: string
 brief_schema:
   type: object
-  required: [section_title]
+  required:
+  - section_title
   properties:
-    section_title: { type: string }
-    outline: { type: string, optional: true }
-    target_words: { type: integer, optional: true }
+    section_title:
+      type: string
+    outline:
+      type: string
+      optional: true
+    target_words:
+      type: integer
+      optional: true
 graph_template:
   phases:
-    - name: write
-      tasks:
-        - name: draft
-          subagent_type: react
-          skill_id: section-writer
-          inputs:
-            section_title: "{{section_title}}"
-            outline: "{{outline|default('')}}"
-            references: ""
-            target_words: "{{target_words|default(1000)}}"
-          outputs:
-            - kind: document
-              mapping:
-                name: "{{section_title}} 草稿"
-                doc_kind: section_draft
-                content: "{{output.markdown}}"
+  - name: write
+    tasks:
+    - name: draft
+      subagent_type: react
+      skill_id: section-writer
+      inputs:
+        section_title: '{{section_title}}'
+        outline: '{{outline|default('''')}}'
+        references: ''
+        target_words: '{{target_words|default(1000)}}'
+      outputs:
+      - kind: document
+        mapping:
+          name: '{{section_title}} 草稿'
+          doc_kind: section_draft
+          content: '{{output.markdown}}'
 ui_meta:
   icon: pen
   color: amber
@@ -49,3 +55,11 @@ ui_meta:
   - id: revise
     label: 修订完善
   follow_up_prompt: 请基于这次章节草稿继续指出证据缺口、论证薄弱点和下一步最该补写的内容。
+runtime:
+  mode: compute_agentic
+  review_gate: {}
+  allowed_paths: []
+  requires_sandbox: false
+dashboard_meta:
+  panel: null
+  status_kind: section_writing
