@@ -100,7 +100,10 @@ _SEED_YAML = textwrap.dedent("""\
           tasks:
             - name: search
               subagent_type: searcher
-    result_card_template: literature_review
+    ui_meta:
+      icon: search
+      color: purple
+      order: 0
 """)
 
 

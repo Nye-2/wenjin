@@ -49,7 +49,7 @@ def test_every_capability_subagent_type_is_searcher_or_react():
 
 def test_every_capability_required_fields_present():
     required = {"id", "workspace_type", "display_name", "intent_description",
-                "brief_schema", "graph_template", "result_card_template"}
+                "brief_schema", "graph_template", "ui_meta"}
     for cap_path in _collect_capability_files():
         data = yaml.safe_load(cap_path.read_text())
         missing = required - set(data.keys())

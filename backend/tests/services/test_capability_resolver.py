@@ -55,7 +55,7 @@ def _seed_capability(session, **overrides):
                 },
             ]
         },
-        "result_card_template": "literature_review",
+        "ui_meta": {"icon": "search", "color": "purple", "order": 0},
     }
     defaults.update(overrides)
     cap = DbCapability(**defaults)
