@@ -19,7 +19,7 @@ async def test_capability_create_and_query(test_session):
         required_decisions=[{"key": "topic_scope", "ask": "主题边界是？", "type": "string"}],
         brief_schema={"type": "object", "required": ["topic"], "properties": {"topic": {"type": "string"}}},
         graph_template={"phases": [{"name": "discover", "tasks": [{"name": "search", "subagent_type": "searcher", "skill_id": "scholar-searcher"}]}]},
-        result_card_template="literature_review",
+        ui_meta={"icon": "search", "color": "purple", "order": 0},
     )
     test_session.add(cap)
     await test_session.commit()
@@ -39,7 +39,7 @@ async def test_capability_create_and_query(test_session):
     assert result.enabled is True
     assert result.trigger_phrases == ["调研一下", "找综述"]
     assert result.graph_template["phases"][0]["name"] == "discover"
-    assert result.result_card_template == "literature_review"
+    assert result.ui_meta == {"icon": "search", "color": "purple", "order": 0}
 
 
 @pytest.mark.asyncio

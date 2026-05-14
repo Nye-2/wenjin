@@ -286,7 +286,7 @@ class _Capability(_Base):
     required_decisions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     brief_schema: Mapped[dict] = mapped_column(JSON, nullable=False)
     graph_template: Mapped[dict] = mapped_column(JSON, nullable=False)
-    result_card_template: Mapped[str] = mapped_column(String(100), nullable=False)
+    ui_meta: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

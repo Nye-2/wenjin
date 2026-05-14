@@ -24,7 +24,7 @@ REQUIRED_FIELDS = {
     "intent_description",
     "brief_schema",
     "graph_template",
-    "result_card_template",
+    "ui_meta",
 }
 
 OPTIONAL_DEFAULTS = {
