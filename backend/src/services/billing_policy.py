@@ -7,9 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.config.config_loader import get_app_config
-from src.task.registry import WORKSPACE_FEATURE_TASK
-
-BILLABLE_FEATURE_TASK_TYPES: frozenset[str] = frozenset({WORKSPACE_FEATURE_TASK})
+BILLABLE_FEATURE_TASK_TYPES: frozenset[str] = frozenset({"execution"})
 
 
 @dataclass(frozen=True, slots=True)

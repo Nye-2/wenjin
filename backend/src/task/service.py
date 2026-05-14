@@ -16,7 +16,7 @@ from src.services.workspace_activity_contracts import (
 )
 from src.task import celery_app
 from src.task.executor import get_executor
-from src.task.registry import WORKSPACE_FEATURE_TASK, TaskStatus, get_task_config, is_valid_task_type
+from src.task.registry import TaskStatus, get_task_config, is_valid_task_type
 from src.task.store import TaskStore
 from src.workspace_events import publish_workspace_event
 
@@ -188,46 +188,45 @@ class TaskService:
         logger.info(f"Task submitted: {task_id} type={task_type} user={user_id}")
 
         workspace_id = self._workspace_id_from_payload(payload)
-        if task_type != WORKSPACE_FEATURE_TASK:
-            await publish_workspace_event(
-                workspace_id,
-                "task.updated",
-                {
-                    "task": {
-                        "task_id": task_id,
-                        "execution_id": (
-                            payload.get("execution_id") if isinstance(payload, dict) else None
-                        ),
-                        "task_type": task_type,
-                        "status": TaskStatus.PENDING.value,
-                        "progress": 0,
-                        "message": None,
-                        "feature_id": payload.get("feature_id") if isinstance(payload, dict) else None,
-                        "thread_id": payload.get("thread_id") if isinstance(payload, dict) else None,
-                        "metadata": None,
-                    }
+        await publish_workspace_event(
+            workspace_id,
+            "task.updated",
+            {
+                "task": {
+                    "task_id": task_id,
+                    "execution_id": (
+                        payload.get("execution_id") if isinstance(payload, dict) else None
+                    ),
+                    "task_type": task_type,
+                    "status": TaskStatus.PENDING.value,
+                    "progress": 0,
+                    "message": None,
+                    "feature_id": payload.get("feature_id") if isinstance(payload, dict) else None,
+                    "thread_id": payload.get("thread_id") if isinstance(payload, dict) else None,
+                    "metadata": None,
                 }
-                | (
-                    {
-                        "activity": serialize_activity_item(
-                            build_task_activity_item(
-                                task_id=task_id,
-                                workspace_id=workspace_id,
-                                task_type=task_type,
-                                payload=payload if isinstance(payload, dict) else None,
-                                status=TaskStatus.PENDING.value,
-                                progress=0,
-                                message=None,
-                                error=None,
-                                occurred_at=record.created_at,
-                                created_at=record.created_at,
-                            )
+            }
+            | (
+                {
+                    "activity": serialize_activity_item(
+                        build_task_activity_item(
+                            task_id=task_id,
+                            workspace_id=workspace_id,
+                            task_type=task_type,
+                            payload=payload if isinstance(payload, dict) else None,
+                            status=TaskStatus.PENDING.value,
+                            progress=0,
+                            message=None,
+                            error=None,
+                            occurred_at=record.created_at,
+                            created_at=record.created_at,
                         )
-                    }
-                    if workspace_id
-                    else {}
-                ),
-            )
+                    )
+                }
+                if workspace_id
+                else {}
+            ),
+        )
         await publish_workspace_event(
             workspace_id,
             "workspace.refresh",

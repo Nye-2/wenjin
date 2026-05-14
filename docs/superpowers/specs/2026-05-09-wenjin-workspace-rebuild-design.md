@@ -6,7 +6,7 @@
 > **关联文档**:
 > - [2026-05-08-execution-unification-convergence.md](../../architecture/2026-05-08-execution-unification-convergence.md) — 上一轮 execution 层重构的基线，本设计在其之上扩展
 > - [2026-05-08-workflow-panel-redesign.md](./2026-05-08-workflow-panel-redesign.md)
-> - [system-architecture.md](../../architecture/system-architecture.md)
+> - 历史架构总览已收敛到 [architecture/README.md](../../architecture/README.md)
 
 ---
 

@@ -22,11 +22,11 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
             workspace_id,
             ArtifactType.LITERATURE_SEARCH_RESULTS.value,
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "literature_search",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "literature_search",
         )
@@ -51,11 +51,11 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
             workspace_id,
             ArtifactType.PAPER_ANALYSIS.value,
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "paper_analysis",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "paper_analysis",
         )
@@ -80,11 +80,11 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
             ArtifactType.PAPER_DRAFT.value,
             created_by_skills=self._creator_ids("writing"),
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "writing",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "writing",
         )
@@ -113,11 +113,11 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
             ArtifactType.LITERATURE_REVIEW.value,
             created_by_skills=self._creator_ids("literature_review"),
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "literature_review",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "literature_review",
         )
@@ -156,11 +156,11 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
             ArtifactType.FRAMEWORK_OUTLINE.value,
             created_by_skills=self._creator_ids("framework_outline"),
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "framework_outline",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "framework_outline",
         )
@@ -197,11 +197,11 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
             ArtifactType.REVIEW.value,
             created_by_skills=self._creator_ids("peer_review"),
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "peer_review",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "peer_review",
         )
@@ -240,11 +240,11 @@ class DashboardSciStatusMixin(DashboardStatusSharedMixin):
             ArtifactType.SUMMARY.value,
             created_by_skills=self._creator_ids("journal_recommend"),
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "journal_recommend",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "journal_recommend",
         )

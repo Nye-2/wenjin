@@ -1,14 +1,4 @@
-"""Feature submission service — application-layer orchestration.
-
-Extracts business orchestration from the features router into a dedicated
-service, keeping the router as a thin HTTP adapter.
-
-Responsibilities:
-- Workspace ownership verification
-- Literature threshold checks (thesis_writing)
-- Idempotent task deduplication
-- Task submission and payload construction
-"""
+"""Feature execution dispatch service — preflight + execution dispatch."""
 
 import logging
 from typing import Any
@@ -27,132 +17,58 @@ from src.application.results import (
 )
 from src.application.workspace_resolvers import resolve_workspace_type
 from src.services.credit_service import CreditService
+from src.services.execution_service import ExecutionService
 from src.services.references import WorkspaceReferenceService
-from src.task.service import ConcurrencyLimitError, TaskService
 from src.workspace_features import get_workspace_feature
 
 logger = logging.getLogger(__name__)
 
 # Recommended minimum literature count for thesis writing
 LITERATURE_THRESHOLD = 15
-
 # Idempotency key TTL in seconds (24 hours)
 IDEMPOTENCY_KEY_TTL = 86400
 
 
-def _merge_workspace_description_with_thread_context(
-    *,
-    workspace_description: Any,
-    params: dict[str, Any],
-) -> str:
-    base_description = str(workspace_description or "").strip()
-    thread_context_digest = str(params.get("__thread_context_digest") or "").strip()
-    if not thread_context_digest:
-        return base_description
-    if base_description:
-        return f"{base_description}\n\n[线程上下文摘要]\n{thread_context_digest}"
-    return f"[线程上下文摘要]\n{thread_context_digest}"
-
-
-def build_task_payload(
-    *,
-    workspace: Any,
-    workspace_id: str,
-    workspace_type: str,
-    feature: Any,
-    params: dict[str, Any],
-    thread_id: str | None,
-    skill_id: str | None = None,
-    execution_id: str | None = None,
-) -> dict[str, Any]:
-    """Build the canonical task payload for workspace feature execution.
-
-    The legacy ``skill_id`` / ``skill_name`` fields are retained in the payload
-    schema for backward compatibility with downstream consumers, but they now
-    pass through only the caller-provided ``skill_id`` (no DB resolution).
-    """
-    sanitized_params = dict(params)
-    workspace_description = _merge_workspace_description_with_thread_context(
-        workspace_description=getattr(workspace, "description", ""),
-        params=sanitized_params,
-    )
-    return {
-        "workspace_id": workspace_id,
-        "workspace_type": workspace_type,
-        "workspace_name": getattr(workspace, "name", ""),
-        "workspace_description": workspace_description,
-        "workspace_discipline": getattr(workspace, "discipline", ""),
-        "workspace_config": getattr(workspace, "config", {}) or {},
-        "feature_id": feature.id,
-        "feature_name": feature.name,
-        "agent": feature.agent,
-        "agent_label": feature.agent_label,
-        "handler_key": feature.handler_key,
-        "thread_id": thread_id,
-        "execution_id": execution_id,
-        "skill_id": skill_id,
-        "skill_name": None,
-        "params": sanitized_params,
-    }
-
-
 class FeatureSubmissionService:
-    """Orchestrates feature submission: ownership, billing, task enqueue."""
+    """Run feature preflight checks and dispatch canonical executions."""
 
     def __init__(
         self,
         *,
         actor_id: str,
         workspace_service: WorkspaceService,
-        task_service: TaskService,
         reference_service: WorkspaceReferenceService,
         credit_service: CreditService,
+        execution_service: ExecutionService | None = None,
     ) -> None:
         self.actor_id = actor_id
         self.workspace_service = workspace_service
-        self.task_service = task_service
         self.reference_service = reference_service
         self.credit_service = credit_service
+        self.execution_service = execution_service
 
     async def execute(
         self,
         workspace_id: str,
         feature_id: str,
         params: dict[str, Any] | None = None,
-        thread_id: str | None = None,
-        skill_id: str | None = None,
         *,
         idempotency_key: str | None = None,
         redis_client: Any | None = None,
-        execution_id: str | None = None,
+        execution_id: str,
     ) -> FeatureExecutionOutcome:
-        """Submit a workspace feature task.
+        """Validate feature launch prerequisites and dispatch execution.
 
         Args:
-            idempotency_key: Optional client-supplied key for request dedup.
-            redis_client: Redis client for idempotency lookups.
+            idempotency_key: Optional client-supplied key for request deduplication.
+            redis_client: Redis client for optional dedupe / workspace lock.
 
         Returns:
-            A task submission or advisory result for the ingress layer.
+            A dispatch/advisory result for the ingress layer.
         """
+        if not str(execution_id or "").strip():
+            raise InternalServiceError("execution_id is required for feature dispatch")
         params = dict(params or {})
-
-        # 0. Idempotency-Key check (before any side effects)
-        if idempotency_key and redis_client:
-            idem_redis_key = f"idempotency:{self.actor_id}:{idempotency_key}"
-            cached_task_id = await redis_client.client.get(idem_redis_key)
-            if cached_task_id:
-                logger.info(
-                    "[Features] Idempotency-Key hit: %s → task %s",
-                    idempotency_key,
-                    cached_task_id,
-                )
-                return FeatureTaskSubmission(
-                    task_id=cached_task_id,
-                    feature_id=feature_id,
-                    message="请求已处理（幂等重放）",
-                    reused_existing_task=True,
-                )
 
         # 1. Verify workspace exists and user owns it
         workspace = await self.workspace_service.get(workspace_id)
@@ -191,30 +107,6 @@ class FeatureSubmissionService:
                         },
                     )
 
-        # 4. Idempotency: reuse existing active task
-        action = params.get("action")
-        existing_task_id = await self.task_service.find_active_task(
-            user_id=self.actor_id,
-            task_type=feature.task_type,
-            workspace_id=workspace_id,
-            feature_id=feature_id,
-            action=str(action) if action is not None else None,
-            params=params,
-        )
-        if existing_task_id:
-            logger.info(
-                "[Features] Idempotent hit: returning existing task %s for %s/%s",
-                existing_task_id,
-                workspace_id,
-                feature_id,
-            )
-            return FeatureTaskSubmission(
-                task_id=existing_task_id,
-                feature_id=feature_id,
-                message=f"已有进行中的 {feature.name} 任务",
-                reused_existing_task=True,
-            )
-
         allowed = await self.credit_service.can_start_feature_task(self.actor_id)
         if not allowed:
             policy = self.credit_service.get_feature_billing_policy()
@@ -223,142 +115,104 @@ class FeatureSubmissionService:
                 "后续按 token 扣积分，请先补充积分。"
             )
 
-        # 5. Submit task (with distributed lock if Redis available).
-        # Feature billing is settled after execution from measured token usage.
-        return await self._submit_with_lock(
+        # 4. Idempotency: reuse existing execution when the caller repeats the request.
+        if idempotency_key and redis_client:
+            idem_redis_key = f"idempotency:{self.actor_id}:{idempotency_key}"
+            cached_execution_id = await redis_client.client.get(idem_redis_key)
+            if cached_execution_id:
+                logger.info(
+                    "[Features] Idempotency-Key hit: %s → execution %s",
+                    idempotency_key,
+                    cached_execution_id,
+                )
+                return FeatureTaskSubmission(
+                    task_id=str(cached_execution_id),
+                    feature_id=feature_id,
+                    message="请求已处理（幂等重放）",
+                    reused_existing_task=True,
+                    execution_id=str(cached_execution_id),
+                )
+
+        # 5. Dispatch execution (with distributed lock if Redis available).
+        return await self._dispatch_with_lock(
             workspace_id=workspace_id,
-            workspace_type=workspace_type,
-            workspace=workspace,
             feature=feature,
             feature_id=feature_id,
-            params=params,
-            thread_id=thread_id,
-            skill_id=skill_id,
             idempotency_key=idempotency_key,
             redis_client=redis_client,
             execution_id=execution_id,
         )
 
-    async def _submit_with_lock(
+    async def _dispatch_with_lock(
         self,
         *,
         workspace_id: str,
-        workspace_type: str,
-        workspace: Any,
         feature: Any,
         feature_id: str,
-        params: dict[str, Any],
-        thread_id: str | None,
-        skill_id: str | None,
         idempotency_key: str | None,
         redis_client: Any | None,
-        execution_id: str | None = None,
+        execution_id: str,
     ) -> FeatureExecutionOutcome:
-        """Submit task, optionally guarded by distributed workspace lock.
+        """Dispatch execution, optionally guarded by distributed workspace lock."""
 
-        Re-checks for active tasks inside the lock to prevent the race
-        condition where two concurrent requests both pass the optimistic
-        dedup check (step 4) and both submit tasks.
-        """
-        action = params.get("action")
-
-        async def _do_submit() -> FeatureExecutionOutcome:
-            # Re-check for active task inside lock (atomic dedup)
-            existing_task_id = await self.task_service.find_active_task(
-                user_id=self.actor_id,
-                task_type=feature.task_type,
-                workspace_id=workspace_id,
-                feature_id=feature_id,
-                action=str(action) if action is not None else None,
-                params=params,
-            )
-            if existing_task_id:
-                return FeatureTaskSubmission(
-                    task_id=existing_task_id,
-                    feature_id=feature_id,
-                    message=f"已有进行中的 {feature.name} 任务",
-                    reused_existing_task=True,
-                    execution_id=execution_id,
-                )
-
-            # Build task payload
-            task_payload = build_task_payload(
-                workspace=workspace,
-                workspace_id=workspace_id,
-                workspace_type=workspace_type,
-                feature=feature,
-                params=params,
-                thread_id=thread_id,
-                skill_id=skill_id,
-                execution_id=execution_id,
-            )
-
-            # Submit task
+        async def _do_dispatch() -> FeatureExecutionOutcome:
             try:
-                task_id = await self.task_service.submit_task(
-                    user_id=self.actor_id,
-                    task_type=feature.task_type,
-                    payload=task_payload,
-                )
-            except ConcurrencyLimitError as exc:
-                logger.warning(
-                    "[Features] Concurrency limit for user %s: %s",
-                    self.actor_id,
-                    exc,
-                )
-                return FeatureExecutionAdvisory(
-                    feature_id=feature_id,
-                    message=f"并发任务数已达上限（{exc.limit}），请等待现有任务完成",
-                    code="concurrency_limit",
-                    context={
-                        "current": exc.current,
-                        "limit": exc.limit,
-                    },
+                from src.task.tasks.execution import execute_execution
+
+                worker = execute_execution.apply_async(
+                    args=[str(execution_id)],
+                    queue="long_running",
                 )
             except Exception as exc:
                 logger.exception(
-                    "[Features] Failed to queue task for feature %s in workspace %s",
+                    "[Features] Failed to dispatch execution for feature %s in workspace %s",
                     feature_id,
                     workspace_id,
                 )
-                raise InternalServiceError("Failed to queue feature task") from exc
+                raise InternalServiceError("Failed to dispatch feature execution") from exc
 
-            # Store idempotency key → task_id mapping
+            worker_task_id = str(getattr(worker, "id", "") or execution_id)
+            if self.execution_service is not None:
+                await self.execution_service.update_execution(
+                    execution_id,
+                    dispatch_mode="celery_worker",
+                    worker_task_id=worker_task_id,
+                )
             if idempotency_key and redis_client:
                 idem_redis_key = f"idempotency:{self.actor_id}:{idempotency_key}"
                 await redis_client.client.set(
-                    idem_redis_key, task_id, nx=True, ex=IDEMPOTENCY_KEY_TTL
+                    idem_redis_key, execution_id, nx=True, ex=IDEMPOTENCY_KEY_TTL
                 )
 
             logger.info(
-                "[Features] Started %s task %s for workspace %s",
+                "[Features] Dispatched execution %s for feature %s in workspace %s",
+                execution_id,
                 feature_id,
-                task_id,
                 workspace_id,
             )
 
             return FeatureTaskSubmission(
-                task_id=task_id,
+                task_id=worker_task_id,
                 feature_id=feature_id,
-                message=f"Queued {feature.name}",
-                execution_id=execution_id,
+                message=f"Dispatched {feature.name}",
+                execution_id=str(execution_id),
             )
 
         # Try to use distributed lock; fall back to unlocked if Redis unavailable
         if redis_client:
             try:
                 async with redis_client.workspace_lock(workspace_id, timeout=30):
-                    return await _do_submit()
+                    return await _do_dispatch()
             except RuntimeError as exc:
                 if "Could not acquire lock" in str(exc):
                     logger.warning(
                         "[Features] Could not acquire workspace lock for %s, "
-                        "another submission in progress",
+                        "another execution dispatch in progress",
                         workspace_id,
                     )
                     return FeatureExecutionAdvisory(
                         feature_id=feature_id,
-                        message="该工作区正在处理另一个提交，请稍后重试",
+                        message="该工作区正在处理另一个执行派发，请稍后重试",
                         code="workspace_locked",
                     )
 
@@ -367,6 +221,6 @@ class FeatureSubmissionService:
                     workspace_id,
                     exc,
                 )
-                return await _do_submit()
+                return await _do_dispatch()
         else:
-            return await _do_submit()
+            return await _do_dispatch()

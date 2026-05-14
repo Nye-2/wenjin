@@ -9,6 +9,11 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 
+from src.application.services.feature_launch_context import (
+    build_missing_context_advisory,
+    resolve_missing_context_fields,
+)
+
 
 class LaunchFeatureInput(BaseModel):
     feature_id: str = Field(
@@ -45,7 +50,7 @@ async def launch_feature_tool(
     """Launch a workspace capability by id with the given params.
 
     Creates an ExecutionRecord and dispatches the v2 execution engine.
-    Returns a dict with `status` ('dispatched'), `execution_id`, and `feature_id`.
+    Returns a dict with `status`, `execution_id`, and `feature_id`.
     """
     workspace_id = _read_required(config, "workspace_id")
     thread_id = _read_required(config, "thread_id")
@@ -103,6 +108,7 @@ async def launch_feature_tool(
                 "status": "advisory",
                 "code": "lead_busy",
                 "feature_id": feature_id,
+                "execution_id": getattr(active, "id", None),
                 "detail": f"正在执行「{feature_label}」({progress}%)，请稍候。",
             }
 
@@ -116,12 +122,30 @@ async def launch_feature_tool(
                 "detail": "后台执行服务未启用，请联系管理员。",
             }
 
+        missing_fields = resolve_missing_context_fields(
+            feature_id=feature_id,
+            params=params or {},
+            launch_source="tool",
+        )
+        if missing_fields:
+            advisory = build_missing_context_advisory(
+                feature_id=feature_id,
+                missing_fields=missing_fields,
+            )
+            return {
+                "status": "advisory",
+                "code": advisory.code,
+                "feature_id": feature_id,
+                "detail": advisory.message,
+                "context": advisory.context or {},
+            }
+
         try:
             execution = await execution_service.create_execution(
                 workspace_id=workspace_id,
                 thread_id=thread_id,
                 user_id=user_id,
-                execution_type="capability",
+                execution_type="feature",
                 feature_id=feature_id,
                 display_name=getattr(cap, "display_name", None),
                 workspace_type=workspace_type,
@@ -142,6 +166,7 @@ async def launch_feature_tool(
                 "status": "advisory",
                 "code": "lead_busy",
                 "feature_id": feature_id,
+                "execution_id": None,
                 "detail": "已有执行正在运行，请稍候。",
             }
 

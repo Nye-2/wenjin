@@ -161,6 +161,34 @@ async def test_engine_marks_failed_on_runtime_exception():
     history_svc.record.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_engine_persists_cancelled_status_from_runtime_report():
+    """A cancelled runtime report must be written back as execution.status='cancelled'."""
+    record = _make_execution_record()
+    report = _make_task_report(status="cancelled")
+
+    execution_svc = _make_execution_service(record=record)
+    history_svc = _make_run_history_service()
+    runtime = _make_runtime(report=report)
+
+    engine = ExecutionEngineV2(
+        runtime=runtime,
+        execution_service=execution_svc,
+        run_history_service=history_svc,
+    )
+
+    await engine.run("exec-001")
+
+    execution_svc.complete_execution.assert_called_once()
+    complete_kwargs = execution_svc.complete_execution.call_args.kwargs
+    assert complete_kwargs["status"] == "cancelled"
+    assert "task_report" in complete_kwargs["result"]
+
+    history_svc.record.assert_called_once()
+    record_args = history_svc.record.call_args.args
+    assert record_args[5] == "cancelled"
+
+
 # ---------------------------------------------------------------------------
 # test_engine_raises_for_missing_execution
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ from src.services.workspace_activity_contracts import (
     build_task_activity_item,
     serialize_activity_item,
 )
-from src.task.registry import WORKSPACE_FEATURE_TASK, TaskStatus
+from src.task.registry import TaskStatus
 from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
@@ -285,21 +285,10 @@ class TaskStore:
         Updates both TaskRecord and ExecutionRecord in a single DB transaction
         so that the two sources cannot diverge if one commit fails.
 
-        Phase 5: When unified execution is active for feature tasks, this
-        method is a no-op — the ExecutionRecord lifecycle is managed by
-        ``ExecutionService`` in ``task/tasks/base.py``.
+        Unified path: execution lifecycle is managed by ``ExecutionService``.
         """
         record = await self.get_task_record(task_id)
         if not record:
-            return
-
-        from src.task.registry import WORKSPACE_FEATURE_TASK
-
-        if record.task_type == WORKSPACE_FEATURE_TASK:
-            # Phase 5: unified path only — minimal status update for idempotency
-            record.status = TaskStatus.RUNNING.value
-            record.started_at = datetime.now(UTC)
-            await self._db.commit()
             return
 
         started_at = datetime.now(UTC)
@@ -376,16 +365,10 @@ class TaskStore:
 
         Updates both TaskRecord and ExecutionRecord in a single DB transaction.
 
-        Phase 5: When unified execution is active for feature tasks, this
-        method is a no-op — runtime state is carried by the execution stream.
+        Runtime state is carried by the execution stream for canonical executions.
         """
         record = await self.get_task_record(task_id)
         if not record:
-            return
-
-        from src.task.registry import WORKSPACE_FEATURE_TASK
-
-        if record.task_type == WORKSPACE_FEATURE_TASK:
             return
 
         runtime_state: dict[str, Any] | None = None
@@ -453,22 +436,10 @@ class TaskStore:
         Updates both TaskRecord and ExecutionRecord in a single DB transaction
         so that the two sources cannot diverge if one commit fails.
 
-        Phase 5: When unified execution is active for feature tasks, this
-        method is a no-op — completion is handled by ``ExecutionService``.
+        Completion is mirrored into the canonical execution record.
         """
         record = await self.get_task_record(task_id)
         if not record:
-            return
-
-        from src.task.registry import WORKSPACE_FEATURE_TASK
-
-        if record.task_type == WORKSPACE_FEATURE_TASK:
-            # Phase 5: unified path only — minimal status update for idempotency
-            record.status = TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value
-            record.completed_at = datetime.now(UTC)
-            if error:
-                record.error = error
-            await self._db.commit()
             return
 
         status = TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value

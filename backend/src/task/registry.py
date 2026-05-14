@@ -1,4 +1,4 @@
-"""Task type registry for configuration and validation."""
+"""Task type registry for infrastructure-level task dispatch."""
 
 from dataclasses import dataclass
 from enum import StrEnum
@@ -29,7 +29,7 @@ class TaskQueue(StrEnum):
 
 DOCUMENT_PREPROCESS_TASK = "document_preprocess"
 REFERENCE_PREPROCESS_TASK = "reference_preprocess"
-WORKSPACE_FEATURE_TASK = "workspace_feature"
+EXECUTION_TASK = "execution"
 
 
 @dataclass
@@ -57,11 +57,11 @@ TASK_REGISTRY: dict[str, TaskTypeConfig] = {
         retry=1,
         description="Async preprocessing and page-indexing for reference-library assets",
     ),
-    WORKSPACE_FEATURE_TASK: TaskTypeConfig(
+    EXECUTION_TASK: TaskTypeConfig(
         queue=TaskQueue.DEFAULT,
         timeout=300,
         retry=1,
-        description="Generic workspace feature execution bridge",
+        description="Canonical execution task metadata bridge",
     ),
 }
 

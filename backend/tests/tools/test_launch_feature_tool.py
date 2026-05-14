@@ -71,6 +71,7 @@ async def test_launch_feature_creates_execution_and_dispatches():
     assert result["feature_id"] == "paper_analysis"
     fake_service.create_execution.assert_awaited_once()
     create_kwargs = fake_service.create_execution.await_args.kwargs
+    assert create_kwargs["execution_type"] == "feature"
     assert create_kwargs["thread_id"] == "th-1"
     assert create_kwargs["display_name"] == "Paper Analysis"
     assert create_kwargs["commit"] is False
@@ -109,6 +110,7 @@ async def test_launch_feature_returns_lead_busy_when_active():
 
     assert result["status"] == "advisory"
     assert result["code"] == "lead_busy"
+    assert result["execution_id"] == "exec-0"
 
 
 @pytest.mark.asyncio
@@ -135,6 +137,33 @@ async def test_launch_feature_returns_error_when_celery_disabled():
 
     assert result["status"] == "error"
     assert result["code"] == "execution_backend_unavailable"
+    fake_service.create_execution.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_returns_missing_params_advisory_before_execution_creation():
+    """Shared launch context rules should prevent empty thread/tool launches."""
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock()
+    fake_celery = MagicMock(enabled=True)
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service):
+        result = await launch_feature_tool.ainvoke(
+            {"feature_id": "deep_research", "params": {}},
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "advisory"
+    assert result["code"] == "missing_params"
     fake_service.create_execution.assert_not_called()
 
 

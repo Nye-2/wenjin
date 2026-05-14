@@ -131,6 +131,31 @@ class WorkspaceExecutionsResponse(BaseModel):
     count: int
 
 
+class WorkspaceFeaturesResponse(BaseModel):
+    """Canonical feature catalog for the current workspace."""
+
+    workspace_id: str
+    workspace_type: str
+    features: list[dict[str, Any]]
+
+
+class ResolveFeatureActionRequest(BaseModel):
+    """Resolve canonical follow-up / rerun routing for a workspace feature."""
+
+    orchestration_params: dict[str, Any] | None = None
+    source_artifact_id: str | None = None
+
+
+class ResolveFeatureActionResponse(BaseModel):
+    """Resolved feature action state returned to the frontend."""
+
+    source_artifact_id: str | None = None
+    follow_up_prompt: str
+    route_params: dict[str, Any] = Field(default_factory=dict)
+    rerun_params: dict[str, Any] | None = None
+    rerun_unavailable_reason: str | None = None
+
+
 class WorkspacePrismEnsureResponse(BaseModel):
     """Workspace Prism linkage payload."""
 

@@ -7,14 +7,17 @@ from typing import Any
 
 from src.application.commands import FeatureLaunchCommand
 from src.application.errors import AccessDeniedError, NotFoundError
-from src.application.intents.launch_text import (
-    is_generic_feature_launch_text,
-    normalize_inline_text,
-)
 from src.application.results import (
     FeatureExecutionAdvisory,
     FeatureLaunchResult,
     FeatureTaskSubmission,
+)
+from src.application.services.feature_launch_context import (
+    build_execution_launch_params,
+    build_missing_context_advisory,
+    extract_feature_params,
+    hydrate_missing_context_params_from_resume_message,
+    resolve_missing_context_fields,
 )
 from src.application.services.feature_submission_service import FeatureSubmissionService
 from src.application.workspace_resolvers import resolve_workspace_type
@@ -22,137 +25,9 @@ from src.compute.session_service import ComputeSessionService
 from src.services.execution_service import ExecutionService
 from src.workspace_features import get_workspace_feature
 
-_THREAD_ENTRY_SOURCES = {"thread", "tool", "automation"}
-
-# feature_id -> requirement groups (each group means "at least one must be present")
-_FEATURE_CONTEXT_REQUIREMENTS: dict[str, tuple[tuple[str, ...], ...]] = {
-    "deep_research": (("topic", "query"),),
-    "literature_search": (("query", "topic", "keywords"),),
-    "background_research": (("keywords", "topic", "query"),),
-    "prior_art_search": (("keywords", "query", "topic"),),
-    "opening_research": (("topic", "query"),),
-}
-_FEATURE_CONTEXT_FIELD_LABELS: dict[str, str] = {
-    "topic": "研究主题",
-    "query": "检索问题",
-    "keywords": "关键词",
-}
-
 
 def _normalize_str(value: Any) -> str:
     return str(value or "").strip()
-
-
-def _is_value_present(value: Any) -> bool:
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, list):
-        return any(_is_value_present(item) for item in value)
-    if isinstance(value, Mapping):
-        return bool(value)
-    return value is not None
-
-
-def _resolve_missing_context_fields(
-    *,
-    feature_id: str,
-    params: Mapping[str, Any],
-    launch_source: str,
-) -> list[str]:
-    if launch_source not in _THREAD_ENTRY_SOURCES:
-        return []
-    requirements = _FEATURE_CONTEXT_REQUIREMENTS.get(feature_id)
-    if not requirements:
-        return []
-
-    missing: list[str] = []
-    for group in requirements:
-        if any(_is_value_present(params.get(field)) for field in group):
-            continue
-        missing.append(group[0])
-    return missing
-
-
-def _build_missing_context_advisory(
-    *,
-    feature_id: str,
-    missing_fields: list[str],
-) -> FeatureExecutionAdvisory:
-    missing_fields_str = "、".join(
-        _FEATURE_CONTEXT_FIELD_LABELS.get(field, field)
-        for field in missing_fields
-    )
-    prompt = (
-        f"继续执行「{feature_id}」前，还需要你补充：{missing_fields_str}。"
-        " 请直接回复补充信息，我会在当前执行会话继续。"
-    )
-    return FeatureExecutionAdvisory(
-        feature_id=feature_id,
-        code="missing_params",
-        message=prompt,
-        context={
-            "missing_fields": list(missing_fields),
-            "prompt": prompt,
-        },
-    )
-
-
-def _resolve_resume_context_seed(
-    *,
-    params: Mapping[str, Any],
-    launch_message: str | None,
-) -> str:
-    """Pick the best user-provided text snippet for missing context hydration."""
-    candidates: list[tuple[Any, bool]] = [
-        (launch_message, False),
-        (params.get("__thread_context_focus"), False),
-        (params.get("__thread_context_digest"), True),
-    ]
-    for candidate, is_digest in candidates:
-        normalized = normalize_inline_text(candidate)
-        if not normalized or is_generic_feature_launch_text(normalized):
-            continue
-        if is_digest:
-            for line in reversed(str(candidate).splitlines()):
-                line_text = normalize_inline_text(line)
-                if line_text.startswith("用户:"):
-                    recovered = normalize_inline_text(line_text.removeprefix("用户:"))
-                    if recovered and not is_generic_feature_launch_text(recovered):
-                        normalized = recovered
-                        break
-        if len(normalized) > 280:
-            return normalized[:279].rstrip() + "…"
-        return normalized
-    return ""
-
-
-def _hydrate_missing_context_params_from_resume_message(
-    *,
-    feature_id: str,
-    params: Mapping[str, Any],
-    launch_source: str,
-    launch_message: str | None,
-) -> dict[str, Any]:
-    """Backfill required fields from resume user input to avoid missing-param loops."""
-    hydrated = dict(params)
-    if launch_source not in _THREAD_ENTRY_SOURCES:
-        return hydrated
-    requirements = _FEATURE_CONTEXT_REQUIREMENTS.get(feature_id)
-    if not requirements:
-        return hydrated
-
-    seed_text = _resolve_resume_context_seed(
-        params=hydrated,
-        launch_message=launch_message,
-    )
-    if not seed_text:
-        return hydrated
-
-    for group in requirements:
-        if any(_is_value_present(hydrated.get(field)) for field in group):
-            continue
-        hydrated[group[0]] = seed_text
-    return hydrated
 
 
 class FeatureIngressService:
@@ -236,15 +111,7 @@ class FeatureIngressService:
         execution_id: str | None,
     ) -> str:
         if outcome.reused_existing_task:
-            existing_task = await self.feature_submission_service.task_service.get_task_status(
-                outcome.task_id,
-                self.actor_id,
-            )
-            existing_execution_id = (
-                str(existing_task.get("execution_id") or "").strip()
-                if isinstance(existing_task, dict)
-                else ""
-            )
+            existing_execution_id = str(outcome.execution_id or "").strip()
             if (
                 allow_repoint_to_existing_execution
                 and existing_execution_id
@@ -268,18 +135,6 @@ class FeatureIngressService:
             )
         return str(execution_id or "")
 
-    async def _resolve_existing_execution_id(self, task_id: str) -> str | None:
-        """Get execution_id from an existing task's payload."""
-        try:
-            from src.task.store import TaskStore
-            store = TaskStore(None, self.execution_session_service.db)
-            record = await store.get_task_record(task_id)
-            if record and isinstance(record.payload, dict):
-                return str(record.payload.get("execution_id") or "").strip() or None
-        except Exception:
-            pass
-        return None
-
     async def _handle_execution_outcome(
         self,
         *,
@@ -299,9 +154,9 @@ class FeatureIngressService:
                     await self.execution_service.cancel_execution(execution_id)
                 except Exception:
                     pass
-                # Return the existing task's execution_id so the frontend
-                # can subscribe to the correct stream.
-                execution_id = await self._resolve_existing_execution_id(outcome.task_id)
+                # Return the existing execution_id so the frontend can
+                # subscribe to the correct stream.
+                execution_id = str(outcome.execution_id or "").strip() or execution_id
 
             execution_id = await self._finalize_submission(
                 outcome=outcome,
@@ -390,13 +245,13 @@ class FeatureIngressService:
                 feature_id=resolved_feature_id,
             )
 
-            merged_params = _hydrate_missing_context_params_from_resume_message(
+            merged_params = hydrate_missing_context_params_from_resume_message(
                 feature_id=feature.id,
-                params={**dict(execution.params or {}), **resolved_params},
+                params={**extract_feature_params(execution.params), **resolved_params},
                 launch_source=command.launch_source,
                 launch_message=command.launch_message,
             )
-            missing_fields = _resolve_missing_context_fields(
+            missing_fields = resolve_missing_context_fields(
                 feature_id=feature.id,
                 params=merged_params,
                 launch_source=command.launch_source,
@@ -406,12 +261,17 @@ class FeatureIngressService:
                 str(execution.id),
                 thread_id=command.thread_id if command.thread_id else execution.thread_id,
                 entry_skill_id=command.skill_id if command.skill_id else execution.entry_skill_id,
-                params=merged_params,
+                params=build_execution_launch_params(
+                    feature_id=feature.id,
+                    params=merged_params,
+                    workspace_id=workspace_id,
+                    launch_message=command.launch_message,
+                ),
                 status="running",
             )
 
             if missing_fields:
-                advisory = _build_missing_context_advisory(
+                advisory = build_missing_context_advisory(
                     feature_id=feature.id,
                     missing_fields=missing_fields,
                 )
@@ -434,8 +294,6 @@ class FeatureIngressService:
                     workspace_id,
                     feature.id,
                     merged_params,
-                    command.thread_id or execution.thread_id,
-                    command.skill_id or execution.entry_skill_id,
                     idempotency_key=command.idempotency_key,
                     redis_client=command.redis_client,
                     execution_id=execution_id,
@@ -468,7 +326,7 @@ class FeatureIngressService:
             feature_id=resolved_feature_id,
         )
 
-        # Create ExecutionRecord before task submission so the gateway
+        # Create ExecutionRecord before dispatch so the gateway
         # can return execution_id to the frontend immediately.
         execution_record = await self.execution_service.create_execution(
             execution_type="feature",
@@ -478,7 +336,12 @@ class FeatureIngressService:
             feature_id=feature.id,
             entry_skill_id=command.skill_id,
             workspace_type=workspace_type,
-            params=dict(resolved_params),
+            params=build_execution_launch_params(
+                feature_id=feature.id,
+                params=resolved_params,
+                workspace_id=workspace_id,
+                launch_message=command.launch_message,
+            ),
         )
         execution_id = execution_record.id
         await self.compute_session_service.ensure_for_execution(
@@ -487,13 +350,13 @@ class FeatureIngressService:
             user_id=self.actor_id,
         )
 
-        missing_fields = _resolve_missing_context_fields(
+        missing_fields = resolve_missing_context_fields(
             feature_id=feature.id,
             params=resolved_params,
             launch_source=command.launch_source,
         )
         if missing_fields:
-            advisory = _build_missing_context_advisory(
+            advisory = build_missing_context_advisory(
                 feature_id=feature.id,
                 missing_fields=missing_fields,
             )
@@ -514,8 +377,6 @@ class FeatureIngressService:
                 workspace_id,
                 feature.id,
                 resolved_params,
-                command.thread_id,
-                command.skill_id,
                 idempotency_key=command.idempotency_key,
                 redis_client=command.redis_client,
                 execution_id=execution_id,

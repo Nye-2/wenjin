@@ -8,8 +8,8 @@ from src.services.billing_policy import (
 )
 
 
-def test_billable_feature_task_types_contains_canonical_workspace_feature_task() -> None:
-    assert BILLABLE_FEATURE_TASK_TYPES == frozenset({"workspace_feature"})
+def test_billable_feature_task_types_contains_canonical_execution_task() -> None:
+    assert BILLABLE_FEATURE_TASK_TYPES == frozenset({"execution"})
 
 
 def test_legacy_feature_ids_are_not_billable_task_types() -> None:

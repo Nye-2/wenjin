@@ -118,6 +118,47 @@ describe("chat store", () => {
     expect(msg.blocks.at(-1)!.kind).toBe("result_card");
   });
 
+  it("anchors result_card to the assistant message that owns the execution_id", () => {
+    useChatStoreV2.setState({
+      messages: [
+        {
+          id: "m-old",
+          role: "assistant",
+          blocks: [{ kind: "text", content: "earlier" }],
+          createdAt: "2026-01-01",
+          metadata: {
+            orchestration: {
+              execution_id: "exec-1",
+            },
+          },
+        },
+        {
+          id: "m-new",
+          role: "assistant",
+          blocks: [{ kind: "text", content: "later" }],
+          createdAt: "2026-01-02",
+        },
+      ],
+      currentAssistantId: null,
+      isSending: false,
+      finalizedMessageIds: new Set<string>(),
+    });
+
+    useChatStoreV2.getState().handleEvent({
+      type: "execution.completed",
+      data: {
+        execution_id: "exec-1",
+        capability_name: "literature_search",
+        status: "completed",
+        outputs: [],
+      },
+    });
+
+    const messages = useChatStoreV2.getState().messages;
+    expect(messages[0].blocks.at(-1)!.kind).toBe("result_card");
+    expect(messages[1].blocks.at(-1)!.kind).toBe("text");
+  });
+
   it("handles completion event", () => {
     const { handleEvent } = useChatStoreV2.getState();
     handleEvent({

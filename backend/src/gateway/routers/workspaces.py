@@ -18,9 +18,12 @@ from src.gateway.deps import (
 )
 from src.gateway.routers.workspaces_contracts import (
     CreateWorkspaceRequest,
+    ResolveFeatureActionRequest,
+    ResolveFeatureActionResponse,
     UpdateWorkspaceRequest,
     WorkspaceActivityResponse,
     WorkspaceExecutionsResponse,
+    WorkspaceFeaturesResponse,
     WorkspacePrismEnsureResponse,
     WorkspaceResponse,
     WorkspacesListResponse,
@@ -37,9 +40,11 @@ from src.gateway.routers.workspaces_serializers import (
 )
 from src.services.dashboard_service import DashboardService
 from src.services.execution_service import ExecutionService
+from src.services.feature_action_resolution_service import resolve_feature_action_state
 from src.services.workspace_activity_service import WorkspaceActivityService
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.services.workspace_summary_service import WorkspaceSummaryService
+from src.workspace_features import get_workspace_feature, list_workspace_features
 from src.workspace_events import stream_workspace_events
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
@@ -259,6 +264,81 @@ async def get_workspace_dashboard(
     )
 
 
+@router.get("/{workspace_id}/features", response_model=WorkspaceFeaturesResponse)
+async def list_workspace_features_catalog(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+) -> WorkspaceFeaturesResponse:
+    """Return the canonical feature catalog for the workspace type."""
+    workspace = await get_owned_workspace(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+    try:
+        workspace_type = workspace_type_value(workspace)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return WorkspaceFeaturesResponse(
+        workspace_id=workspace_id,
+        workspace_type=workspace_type,
+        features=[
+            feature.to_api_dict()
+            for feature in list_workspace_features(workspace_type)
+        ],
+    )
+
+
+@router.post(
+    "/{workspace_id}/features/{feature_id}/resolve-action",
+    response_model=ResolveFeatureActionResponse,
+)
+async def resolve_workspace_feature_action(
+    workspace_id: str,
+    feature_id: str,
+    request: ResolveFeatureActionRequest,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    db: Any = Depends(get_db),
+) -> ResolveFeatureActionResponse:
+    """Resolve canonical follow-up / rerun action state for a feature card."""
+    workspace = await get_owned_workspace(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+    try:
+        workspace_type = workspace_type_value(workspace)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    feature = get_workspace_feature(workspace_type, feature_id)
+    if feature is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Feature '{feature_id}' not found for workspace type '{workspace_type}'",
+        )
+
+    from src.academic.services.artifact_service import ArtifactService
+
+    artifacts = await ArtifactService(db).list_by_workspace(
+        workspace_id=workspace_id,
+        limit=200,
+        offset=0,
+    )
+    payload = resolve_feature_action_state(
+        feature_id=feature_id,
+        workspace=workspace,
+        artifacts=artifacts,
+        orchestration_params=request.orchestration_params,
+        explicit_source_artifact_id=request.source_artifact_id,
+        follow_up_prompt=feature.follow_up_prompt or "",
+    )
+    return ResolveFeatureActionResponse(**payload)
+
+
 @router.get("/{workspace_id}/summary", response_model=WorkspaceSummaryResponse)
 async def get_workspace_summary(
     workspace_id: str,
@@ -330,48 +410,15 @@ async def list_workspace_executions(
     from src.database import get_db_session
 
     async with get_db_session() as db:
+        from src.services.execution_service import serialize_execution_record
+
         service = ExecutionService(db)
         items = await service.list_executions(
             workspace_id=workspace_id,
             user_id=str(current_user.id),
             limit=limit,
         )
-        serialized_items = [
-            {
-                "id": item.id,
-                "user_id": item.user_id,
-                "workspace_id": item.workspace_id,
-                "thread_id": item.thread_id,
-                "execution_type": item.execution_type,
-                "feature_id": item.feature_id,
-                "entry_skill_id": item.entry_skill_id,
-                "workspace_type": item.workspace_type,
-                "display_name": item.display_name,
-                "status": item.status,
-                "params": item.params,
-                "result": item.result,
-                "error": item.error,
-                "result_summary": item.result_summary,
-                "graph_structure": item.graph_structure,
-                "node_states": item.node_states,
-                "runtime_state": item.runtime_state,
-                "progress": item.progress,
-                "message": item.message,
-                "artifact_ids": item.artifact_ids,
-                "next_actions": item.next_actions,
-                "advisory_code": item.advisory_code,
-                "last_error": item.last_error,
-                "parent_execution_id": item.parent_execution_id,
-                "child_execution_ids": item.child_execution_ids,
-                "dispatch_mode": item.dispatch_mode,
-                "worker_task_id": item.worker_task_id,
-                "created_at": item.created_at.isoformat() if item.created_at else None,
-                "started_at": item.started_at.isoformat() if item.started_at else None,
-                "completed_at": item.completed_at.isoformat() if item.completed_at else None,
-                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-            }
-            for item in items
-        ]
+        serialized_items = [serialize_execution_record(item) for item in items]
     return WorkspaceExecutionsResponse(
         items=serialized_items,
         count=len(items),

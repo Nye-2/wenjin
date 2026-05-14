@@ -1,6 +1,6 @@
 # Documentation Map
 
-更新时间：2026-05-11
+更新时间：2026-05-14
 状态：Current
 
 本文档是问津项目的文档总导航，用于统一入口、减少重复事实源，并明确每类变更应更新哪些文档。
@@ -20,12 +20,7 @@
 | 文档 | 作用 |
 |---|---|
 | `README.md` | 架构文档入口与原则 |
-| `adr-platform-boundaries.md` | 分层边界与非协商规则 |
-| `api-surface-map.md` | 网关 API 分组与兼容面变更 |
-| `system-architecture.md` | 全栈系统架构、数据模型、技术栈与开发规范 |
-| `workspace-execution-pipeline.md` | capability 执行主链：chat_agent → LeadAgentRuntime v2 → subagents → output mapping → commit |
-| `feature-domain-architecture.md` | Capability 数据驱动架构、output mapping、rooms 闭环与守卫 |
-| `tech-stack-and-main-chain.md` | 技术栈、拓扑、状态模型、主链索引 |
+| `README.md` | 唯一当前架构总览，含 execution / task / compute / feature / routes / 文档治理规则 |
 
 ### 2.2 产品文档（`docs/product/`）
 
@@ -63,10 +58,11 @@
 
 ## 4. 文档维护清单（提交前）
 
-1. 变更 API/路由：更新 `docs/architecture/api-surface-map.md` 与相关 README。
-2. 变更执行链路：更新 `docs/architecture/workspace-execution-pipeline.md`。
+1. 变更 API/路由：更新 `docs/architecture/README.md` 与相关 README。
+2. 变更执行链路：更新 `docs/architecture/README.md`。
 3. 变更 feature/skill 目录：更新 `docs/product/workspace-feature-catalog.md`。
 4. 变更部署或环境变量：更新 `docs/infrastructure/deployment-runbook.md` 与 `docs/infrastructure/environment-variables.md`。
 5. 变更线程/前端/Compute 交互契约：更新 `docs/product/workspace-current-state.md` 与 `docs/product/frontend-feature-plugin-contract.md`。
-6. 完成后同步检查入口：`README.md`、`docs/README.md`、`backend/README.md`、`frontend/README.md`。
-7. 变更长期产品战略或数据产品判断：更新 `docs/strategy/wenjin-long-term-direction-seed.md`，并保持其 Seed 状态，避免混入 Current 事实源。
+6. 变更 execution / task / compute 边界：优先更新 `docs/architecture/README.md`。
+7. 完成后同步检查入口：`README.md`、`docs/README.md`、`backend/README.md`、`frontend/README.md`。
+8. 变更长期产品战略或数据产品判断：更新 `docs/strategy/wenjin-long-term-direction-seed.md`，并保持其 Seed 状态，避免混入 Current 事实源。

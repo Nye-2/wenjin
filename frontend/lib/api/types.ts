@@ -884,8 +884,6 @@ export interface WorkspaceFeature {
   icon: string;
   agent: string;
   agentLabel: string;
-  taskType?: string;
-  handlerKey?: string | null;
   panel?: string | null;
   stages: FeatureStage[];
   color?: string;
@@ -1309,7 +1307,19 @@ export interface ThreadBlockEvent {
 // Unified Execution Model Types
 // =============================================================================
 
-export type ExecutionType = "chat_turn" | "feature" | "subagent" | "tool" | "advisory";
+export type KnownExecutionType =
+  | "chat_turn"
+  | "feature"
+  | "subagent"
+  | "tool"
+  | "advisory"
+  | "capability"
+  | "latex_compile"
+  | "python_plot"
+  | "mermaid_diagram"
+  | "ai_image";
+
+export type ExecutionType = KnownExecutionType | (string & {});
 
 export type ExecutionStatus =
   | "pending"

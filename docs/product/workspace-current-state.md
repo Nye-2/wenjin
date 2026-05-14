@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-05-11
+更新时间：2026-05-14
 状态：Current
 适用项目：`wenjin`
 
@@ -8,9 +8,9 @@
 
 ## 1. 用户入口
 
-1. canonical workspace route（v2）：`/workspaces/{workspace_id}/v2`
-2. feature 入口：通过 chat 面板对话触发，chat_agent 识别意图后 dispatch_capability
-3. 旧路由 `/chat` 自动重定向到 `/v2`
+1. canonical workspace route：`/workspaces/{workspace_id}/v2`
+2. feature 入口：通过 chat 面板对话触发，lead-agent 识别意图后调用 `launch_feature`
+3. 旧 `/chat` 语义已收敛到当前 workspace chat / execution 体系，不再作为独立 feature 流程事实源
 
 ## 2. 双 Agent 拓扑
 
@@ -41,15 +41,15 @@
 
 1. Capability 执行完成 → `TaskReport` 含 `outputs[]`
 2. SSE `execution.completed` 事件 → 前端 execution-store
-3. `useChatStream` 桥接：从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
+3. `useWorkspaceEventStream` 统一拥有 execution 发现和 execution stream 订阅，从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
 4. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取
 5. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到对应 room service
-6. commit 后触发 `wenjin:rooms-refresh` 刷新所有 room drawer
+6. commit 后通过 canonical `workspace.refresh` 事件刷新 room drawers
 
 ## 6. 前端信息架构
 
-1. **左面板**（Chat）：极简白底对话，7 种 block 类型渲染
-2. **右面板**（Live Workflow）：Glass/visionOS 风格，graph 可视化 + node 详情 + room drawers
+1. **左面板**（Chat）：对话与结果卡片入口
+2. **右面板**（Execution / Compute）：execution graph、node 详情、room drawers、Compute Stage
 3. Room drawers（顶部 toolbar）：Library / Documents / Tasks / Runs 等
 4. Settings page：Memory / Decisions / Sandbox / Settings 管理
 
@@ -57,10 +57,11 @@
 
 1. single-thread-per-workspace 的主体验模型
 2. thread 仍是服务端持久化单元，用于恢复和历史
+3. assistant thread message 的 `metadata.orchestration.execution_id` 会持久化，用于 result card 归属与刷新后恢复
 
 ## 8. 文档优先级
 
-1. 当前行为以本文件、`workspace-feature-catalog.md`、v2 design language spec 为准。
+1. 当前行为以本文件、`workspace-feature-catalog.md`、`docs/architecture/README.md` 为准。
 2. 历史方案和阶段性过渡文档已清理；追溯请查看 Git 历史。
 3. WenjinPrism 划词改写采用 `preview -> apply -> revert`：
    - `preview` 只生成候选和 diff，不写文件。

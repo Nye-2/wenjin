@@ -476,6 +476,25 @@ def _attach_usage_metadata(
     return reply
 
 
+def _normalize_reply_orchestration_metadata(
+    reply: GeneratedThreadReply,
+    *,
+    execution_id: str | None = None,
+) -> GeneratedThreadReply:
+    """Ensure assistant replies persist canonical execution linkage."""
+    if not execution_id:
+        return reply
+
+    reply.metadata = dict(reply.metadata or {})
+    existing = reply.metadata.get("orchestration")
+    orchestration = dict(existing) if isinstance(existing, Mapping) else {}
+    if not orchestration.get("execution_id"):
+        orchestration["execution_id"] = execution_id
+    if orchestration:
+        reply.metadata["orchestration"] = orchestration
+    return reply
+
+
 def _build_incremental_memory_capture_messages(
     *,
     user_message: str,
@@ -850,6 +869,9 @@ class ThreadTurnHandler:
                     prepared.request,
                     prepared.thread,
                     actor_id=actor_id,
+                    execution_id=prepared.request.metadata.get("orchestration", {}).get("execution_id")
+                    if isinstance(prepared.request.metadata, dict)
+                    else None,
                 )
                 async for delta in reply_stream:
                     if delta.text:
@@ -1109,6 +1131,9 @@ class ThreadTurnHandler:
             prepared.request,
             prepared.thread,
             actor_id=actor_id,
+            execution_id=prepared.request.metadata.get("orchestration", {}).get("execution_id")
+            if isinstance(prepared.request.metadata, dict)
+            else None,
         )
 
     async def _generate_thread_response(
@@ -1117,12 +1142,14 @@ class ThreadTurnHandler:
         thread: Thread,
         *,
         actor_id: str,
+        execution_id: str | None = None,
     ) -> GeneratedThreadReply:
         await self._maybe_compact_thread_history(thread)
         return await generate_thread_response(
             request,
             thread,
             actor_id=actor_id,
+            execution_id=execution_id,
             workspace_service=self.workspace_service,
             index_service=self.index_service,
             artifact_service=self.artifact_service,
@@ -1136,11 +1163,13 @@ class ThreadTurnHandler:
         thread: Thread,
         *,
         actor_id: str,
+        execution_id: str | None = None,
     ) -> _ReplyStreamRun:
         return stream_thread_response(
             request,
             thread,
             actor_id=actor_id,
+            execution_id=execution_id,
             workspace_service=self.workspace_service,
             index_service=self.index_service,
             artifact_service=self.artifact_service,
@@ -1222,6 +1251,7 @@ async def generate_thread_response(
     thread: Thread,
     *,
     actor_id: str,
+    execution_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
@@ -1267,11 +1297,15 @@ async def generate_thread_response(
         raise ApplicationError("AI 响应超时，请稍后重试或简化您的问题。") from exc
 
     reply = _reply_from_agent_result(result, thread_id=thread.id)
-    return _attach_usage_metadata(
+    reply = _attach_usage_metadata(
         reply,
         extract_usage_from_agent_result(result),
         model_name=runtime.effective_model,
         source="thread_agent",
+    )
+    return _normalize_reply_orchestration_metadata(
+        reply,
+        execution_id=execution_id,
     )
 
 
@@ -1280,6 +1314,7 @@ def stream_thread_response(
     thread: Thread,
     *,
     actor_id: str,
+    execution_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
@@ -1337,6 +1372,10 @@ def stream_thread_response(
                     model_name=runtime.effective_model,
                     source="thread_agent",
                 )
+                reply = _normalize_reply_orchestration_metadata(
+                    reply,
+                    execution_id=execution_id,
+                )
                 reasoning_text = _reply_reasoning_text(reply)
                 if reasoning_text:
                     yield ThreadStreamDelta(kind="reasoning", text=reasoning_text)
@@ -1393,6 +1432,10 @@ def stream_thread_response(
                 extract_usage_from_agent_result(result),
                 model_name=runtime.effective_model,
                 source="thread_agent",
+            )
+            reply = _normalize_reply_orchestration_metadata(
+                reply,
+                execution_id=execution_id,
             )
             if not reply_future.done():
                 reply_future.set_result(reply)

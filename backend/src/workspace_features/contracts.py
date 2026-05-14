@@ -42,7 +42,6 @@ class WorkspaceFeatureExecutionResult:
         feature_name: str,
         workspace_type: str,
         agent: str | None,
-        handler_key: str,
     ) -> dict[str, Any]:
         """Serialize the normalized result to the task result payload."""
         return {
@@ -51,7 +50,6 @@ class WorkspaceFeatureExecutionResult:
             "feature_name": feature_name,
             "workspace_type": workspace_type,
             "agent": agent,
-            "handler_key": handler_key,
             "message": self.message,
             "artifacts": [
                 {

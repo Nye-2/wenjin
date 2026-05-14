@@ -11,7 +11,6 @@ import logging
 from typing import Any
 
 from src.agents.contracts.task_report import TaskReport
-from src.services.event_bus import EventBus
 from src.services.execution_service import ExecutionService
 from src.services.rooms.library_service import LibraryService
 from src.services.rooms.documents_service import DocumentsService
@@ -19,6 +18,7 @@ from src.services.rooms.decisions_service import DecisionsService
 from src.services.rooms.memory_service import MemoryService, FactCreate
 from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 from src.services.rooms.run_history_service import RunHistoryService
+from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,6 @@ class ExecutionCommitService:
         memory_service: MemoryService,
         workspace_tasks_service: WorkspaceTasksService,
         run_history_service: RunHistoryService,
-        event_bus: EventBus,
         audit_service: Any | None = None,
         redis: Any = None,  # for idempotency cache; if None, no idempotency
     ) -> None:
@@ -58,7 +57,6 @@ class ExecutionCommitService:
         self.memory = memory_service
         self.tasks = workspace_tasks_service
         self.run_history = run_history_service
-        self.bus = event_bus
         self.audit = audit_service
         self.redis = redis
 
@@ -236,11 +234,19 @@ class ExecutionCommitService:
             cache_key = f"commit:cache:{execution_id}:{idempotency_key}"
             await self.redis.set(cache_key, json.dumps(result), ex=86400)  # 24h
 
-        # 7. Publish workspace.refresh
+        # 7. Publish canonical workspace refresh event
         try:
-            await self.bus.publish(
+            await publish_workspace_event(
+                execution.workspace_id,
                 "workspace.refresh",
-                {"workspace_id": execution.workspace_id},
+                {
+                    "refresh_targets": [
+                        "activity",
+                        "artifacts",
+                        "dashboard",
+                        "references",
+                    ]
+                },
             )
         except Exception:
             logger.exception("workspace.refresh publish failed")

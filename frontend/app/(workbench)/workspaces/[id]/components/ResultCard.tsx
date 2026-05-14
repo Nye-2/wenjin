@@ -157,7 +157,6 @@ export function ResultCard({ data }: ResultCardProps) {
         body: JSON.stringify(body),
       });
       setCommitted(true);
-      window.dispatchEvent(new CustomEvent("wenjin:rooms-refresh"));
     } finally {
       setCommitting(false);
     }

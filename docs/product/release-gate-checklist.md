@@ -17,7 +17,7 @@
 7. Reference Library 写作闭环可回归：Evidence Pack、usage event、`refs.bib` sync、citation validation 保持同一 workspace SSOT。
 8. Artifact refresh 闭环可回归：feature 产物持久化后必须发布 `workspace.refresh(["artifacts"])`，前端必须重新拉取 artifact 列表。
 9. Artifact follow-up 闭环可回归：任务完成卡片必须显式输出 `open_artifact` 与带 `source_artifact_id/context_artifact_ids` 的 rerun seed，activity retry 必须复用任务结果 artifact。
-10. Failure recovery 闭环可回归：失败卡片必须显示明确错误；有 `execution_session_id` 时才暴露 resume；重试必须保留原始参数和 artifact seed。
+10. Failure recovery 闭环可回归：失败卡片必须显示明确错误；有 `execution_id` 时才暴露 resume；重试必须保留原始参数和 artifact seed。
 11. Prism Review 闭环可回归：主稿待确认写入必须进入 Compute projection / Review Gate，preview/apply/discard/revert 后状态回流。
 12. Auth Email 闭环可回归：SMTP 开启时注册必须验证 code；验证码只能一次性消费；前端注册页必须先请求验证码并提交 `verification_code`。
 13. 关键回归通过，统一门禁当前全绿：
@@ -76,7 +76,7 @@ npm test
 5. Reference artifact 导入只读取 `verified_papers` 等已核验候选，不读取 LLM 合成的 `seminal_works/recent_works`。
 6. feature 产物持久化后，任务结果带 `refresh_targets=["artifacts"]`，TaskStore 发布 workspace refresh，前端事件流调用 `fetchArtifacts`。
 7. 完成态 artifact destination 对应 `open_artifact`，rerun action 和 activity retry 都带 `source_artifact_id/context_artifact_ids`，前端 route 保留这些 seed。
-8. 失败态 recovery action 只有在存在 `execution_session_id` 时输出 `resume_execution`，rerun action 保留失败任务的参数种子。
+8. 失败态 recovery action 只有在存在 `execution_id` 时输出 `resume_execution`，rerun action 保留失败任务的参数种子。
 9. Prism pending change 优先展示 `preview_prism_changes`。
 10. 上传附件 pending/running 时 UI 和 prompt 都明确不可引用全文。
 11. SMTP enabled 时注册必须验证 6 位邮箱验证码，验证码校验成功后立即失效。

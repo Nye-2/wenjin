@@ -138,12 +138,8 @@ class ProgressTracker:
     ) -> None:
         """Publish progress event to Pub/Sub subscribers.
 
-        Phase 4: When unified execution is active for feature tasks, the
-        execution stream replaces ``task.updated`` workspace events.
         Redis pub/sub and the execution stream remain the primary channels.
         """
-        from src.task.registry import WORKSPACE_FEATURE_TASK
-
         ts = now or datetime.now(UTC).isoformat()
         event_payload = {
             "task_id": self._task_id,
@@ -158,10 +154,6 @@ class ProgressTracker:
         await self._redis.client.publish(self._channel_name(), event_data)
 
         if not self._workspace_id or status != TaskStatus.RUNNING.value:
-            return
-
-        # Phase 4: Feature tasks use the execution stream; skip legacy workspace event.
-        if self._task_type == WORKSPACE_FEATURE_TASK:
             return
 
         from src.workspace_events import publish_workspace_event
@@ -237,10 +229,8 @@ class ProgressTracker:
             now=ts,
         )
 
-        # DB flush (only on stage transitions, and only for non-feature tasks)
-        from src.task.registry import WORKSPACE_FEATURE_TASK
-
-        if stage_transition and self._task_type != WORKSPACE_FEATURE_TASK:
+        # DB flush on stage transitions for tasks that still persist runtime state.
+        if stage_transition:
             from src.database import get_db_session
             from src.task.store import TaskStore
 

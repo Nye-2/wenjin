@@ -206,3 +206,81 @@ def test_workspace_executions_returns_items():
     assert payload["items"][0]["execution_type"] == "capability"
     assert payload["items"][0]["node_states"] == {}
     assert payload["items"][0]["result"] is None
+
+
+def test_workspace_features_returns_catalog():
+    workspace_service = AsyncMock()
+    workspace_service.get = AsyncMock(return_value=_mock_workspace())
+
+    activity_service = AsyncMock()
+    client = _create_client(_mock_user(), workspace_service, activity_service)
+
+    response = client.get("/workspaces/ws-1/features")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workspace_id"] == "ws-1"
+    assert payload["workspace_type"] == "thesis"
+    assert any(feature["id"] == "deep_research" for feature in payload["features"])
+
+
+def test_workspace_feature_action_resolution_returns_backend_state():
+    workspace_service = AsyncMock()
+    workspace_service.get = AsyncMock(return_value=_mock_workspace())
+
+    activity_service = AsyncMock()
+    client = _create_client(_mock_user(), workspace_service, activity_service)
+
+    artifact = MagicMock()
+    artifact.id = "artifact-2"
+    artifact.type = "framework_outline"
+    artifact.title = "LLM Framework"
+    artifact.content = {"paper_title": "LLM Planning"}
+    artifact.created_at = datetime.now(UTC)
+
+    with patch(
+        "src.gateway.routers.workspaces.resolve_feature_action_state",
+        return_value={
+            "source_artifact_id": "artifact-2",
+            "follow_up_prompt": "继续深化框架",
+            "route_params": {
+                "topic": "LLM planning",
+                "source_artifact_id": "artifact-2",
+            },
+            "rerun_params": {
+                "topic": "LLM planning",
+            },
+            "rerun_unavailable_reason": None,
+        },
+    ):
+        response = client.post(
+            "/workspaces/ws-1/features/deep_research/resolve-action",
+            json={
+                "orchestration_params": {
+                    "topic": "LLM planning",
+                    "source_artifact_id": "artifact-2",
+                },
+                "source_artifact_id": None,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_artifact_id"] == "artifact-2"
+    assert payload["route_params"]["source_artifact_id"] == "artifact-2"
+    assert isinstance(payload["follow_up_prompt"], str)
+
+
+def test_workspace_feature_action_resolution_returns_404_for_unknown_feature():
+    workspace_service = AsyncMock()
+    workspace_service.get = AsyncMock(return_value=_mock_workspace())
+
+    activity_service = AsyncMock()
+    client = _create_client(_mock_user(), workspace_service, activity_service)
+
+    response = client.post(
+        "/workspaces/ws-1/features/unknown_feature/resolve-action",
+        json={},
+    )
+
+    assert response.status_code == 404

@@ -92,7 +92,6 @@ def _make_service(
         memory_service=memory_svc,
         workspace_tasks_service=tasks_svc,
         run_history_service=run_history_svc,
-        event_bus=event_bus,
         redis=redis,
     )
 
@@ -104,7 +103,6 @@ def _make_service(
         "memory": memory_svc,
         "tasks": tasks_svc,
         "run_history": run_history_svc,
-        "event_bus": event_bus,
     }
     return svc, mocks
 
@@ -295,14 +293,23 @@ async def test_commit_raises_on_no_task_report():
 
 @pytest.mark.asyncio
 async def test_commit_publishes_refresh_event():
-    """After successful commit, event_bus.publish called with 'workspace.refresh'."""
+    """After successful commit, canonical workspace.refresh is published."""
     report = _make_report([])
     execution = _make_execution(report)
     svc, mocks = _make_service(execution)
 
-    await svc.commit_outputs(EXECUTION_ID, accept_all=True)
+    with patch("src.services.execution_commit_service.publish_workspace_event", new=AsyncMock()) as publish_refresh:
+        await svc.commit_outputs(EXECUTION_ID, accept_all=True)
 
-    mocks["event_bus"].publish.assert_called_once_with(
+    publish_refresh.assert_awaited_once_with(
+        WORKSPACE_ID,
         "workspace.refresh",
-        {"workspace_id": WORKSPACE_ID},
+        {
+            "refresh_targets": [
+                "activity",
+                "artifacts",
+                "dashboard",
+                "references",
+            ]
+        },
     )

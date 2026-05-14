@@ -1,6 +1,6 @@
 # Async Task System
 
-Last Updated: 2026-04-08
+Last Updated: 2026-05-14
 Status: Current
 
 ## Overview
@@ -60,9 +60,9 @@ The task system is internal infrastructure. Public APIs do not create generic ta
 
 ## Canonical Public APIs
 
-Tasks are normally created through domain-specific endpoints such as:
+Tasks are normally created through domain-specific runtime entrypoints such as:
 
-- `POST /api/workspaces/{workspace_id}/features/{feature_id}/execute`
+- thread / orchestration flows that dispatch canonical `ExecutionRecord` runs
 - paper extraction and similar domain routes
 
 Task read APIs:
@@ -81,9 +81,9 @@ Canonical handlers live under:
 
 Typical flow:
 
-1. application layer submits task
-2. Celery worker executes canonical handler
-3. handler calls feature graph or domain service
+1. application layer performs preflight / orchestration
+2. execution or domain task is dispatched to Celery
+3. worker executes canonical handler
 4. progress tracker emits runtime updates
 5. final state is persisted and exposed to SSE/API consumers
 
@@ -104,4 +104,5 @@ Frontend code should treat terminal states as immutable snapshots unless a new t
 - Redis availability affects live progress and SSE responsiveness.
 - PostgreSQL remains the durable source for completed task history.
 - Timeout and retry settings should be adjusted in the registry, not duplicated in handlers.
-- New long-running features must integrate with the existing task pipeline instead of spawning ad hoc background mechanisms.
+- Generic long-running background work must integrate with the existing task pipeline.
+- Workspace feature execution itself is execution-first and should not reintroduce a parallel task-bridge orchestrator.

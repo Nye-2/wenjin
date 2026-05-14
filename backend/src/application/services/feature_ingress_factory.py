@@ -10,7 +10,6 @@ from src.compute.session_service import ComputeSessionService
 from src.services.credit_service import CreditService
 from src.services.execution_service import ExecutionService
 from src.services.references import WorkspaceReferenceService
-from src.task.service import TaskService
 
 from .feature_launch_service import FeatureIngressService
 
@@ -20,7 +19,6 @@ def build_feature_ingress_service(
     actor_id: str,
     db: Any,
     workspace_service: WorkspaceService,
-    task_service: TaskService,
     reference_service: WorkspaceReferenceService,
     credit_service: CreditService,
 ) -> FeatureIngressService:
@@ -28,9 +26,9 @@ def build_feature_ingress_service(
     feature_submission_service = FeatureSubmissionService(
         actor_id=str(actor_id),
         workspace_service=workspace_service,
-        task_service=task_service,
         reference_service=reference_service,
         credit_service=credit_service,
+        execution_service=ExecutionService(db),
     )
     return FeatureIngressService(
         actor_id=str(actor_id),

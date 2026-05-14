@@ -7,7 +7,7 @@
 ## 快速入口
 
 - `documentation-map.md`：全量文档导航（推荐先读）
-- `architecture/README.md`：系统分层、主链路、API surface
+- `architecture/README.md`：系统分层、execution-first 主链、API 面与文档治理
 - `product/README.md`：workspace/thread/feature 当前行为与前后端契约
 - `strategy/wenjin-long-term-direction-seed.md`：长期产品方向与数据产品路径种子
 - `infrastructure/README.md`：部署、环境变量、运行与排障

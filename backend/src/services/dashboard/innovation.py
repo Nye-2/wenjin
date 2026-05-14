@@ -21,11 +21,11 @@ class DashboardInnovationStatusMixin(DashboardStatusSharedMixin):
             workspace_id,
             ArtifactType.COPYRIGHT_MATERIALS.value,
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "copyright_materials",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "copyright_materials",
         )
@@ -52,11 +52,11 @@ class DashboardInnovationStatusMixin(DashboardStatusSharedMixin):
             workspace_id,
             ArtifactType.TECHNICAL_DESCRIPTION.value,
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "technical_description",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "technical_description",
         )
@@ -80,11 +80,11 @@ class DashboardInnovationStatusMixin(DashboardStatusSharedMixin):
             workspace_id,
             ArtifactType.PATENT_OUTLINE.value,
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "patent_outline",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "patent_outline",
         )
@@ -108,11 +108,11 @@ class DashboardInnovationStatusMixin(DashboardStatusSharedMixin):
             workspace_id,
             ArtifactType.PRIOR_ART_REPORT.value,
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "prior_art_search",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "prior_art_search",
         )

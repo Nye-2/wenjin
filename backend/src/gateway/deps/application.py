@@ -15,7 +15,6 @@ from src.gateway.deps.academic import (
 )
 from src.gateway.deps.core import get_db
 from src.gateway.deps.dashboard import get_credit_service
-from src.gateway.deps.tasks import get_task_service
 from src.gateway.deps.threads import get_thread_service
 
 
@@ -40,7 +39,6 @@ async def get_feature_launch_service(
     current_user: Any = Depends(get_current_user),
     db: Any = Depends(get_db),
     workspace_service: Any = Depends(get_workspace_service),
-    task_service: Any = Depends(get_task_service),
     reference_service: Any = Depends(get_reference_service),
     credit_service: Any = Depends(get_credit_service),
 ) -> FeatureIngressService:
@@ -49,7 +47,6 @@ async def get_feature_launch_service(
         actor_id=str(current_user.id),
         db=db,
         workspace_service=workspace_service,
-        task_service=task_service,
         reference_service=reference_service,
         credit_service=credit_service,
     )

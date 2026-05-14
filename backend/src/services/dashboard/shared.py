@@ -7,8 +7,7 @@ from typing import Any, cast
 
 from sqlalchemy import func, select
 
-from src.database import Artifact, TaskRecord
-from src.task.registry import WORKSPACE_FEATURE_TASK
+from src.database import Artifact, ExecutionRecord
 
 
 class DashboardStatusSharedMixin:
@@ -68,31 +67,31 @@ class DashboardStatusSharedMixin:
         result = await self.db.execute(stmt)
         return cast(Artifact | None, result.scalar_one_or_none())
 
-    async def _count_running_workspace_feature_tasks(
+    async def _count_running_feature_executions(
         self,
         workspace_id: str,
         feature_id: str,
     ) -> int:
         result = await self.db.execute(
             select(func.count())
-            .where(TaskRecord.workspace_id == workspace_id)
-            .where(TaskRecord.task_type == WORKSPACE_FEATURE_TASK)
-            .where(TaskRecord.feature_id == feature_id)
-            .where(TaskRecord.status.in_(["pending", "running"]))
+            .where(ExecutionRecord.workspace_id == workspace_id)
+            .where(ExecutionRecord.feature_id == feature_id)
+            .where(ExecutionRecord.execution_type == "feature")
+            .where(ExecutionRecord.status.in_(["pending", "running", "awaiting_user_input"]))
         )
         return int(result.scalar() or 0)
 
-    async def _get_latest_workspace_feature_task_status(
+    async def _get_latest_feature_execution_status(
         self,
         workspace_id: str,
         feature_id: str,
     ) -> str | None:
         result = await self.db.execute(
-            select(TaskRecord.status)
-            .where(TaskRecord.workspace_id == workspace_id)
-            .where(TaskRecord.task_type == WORKSPACE_FEATURE_TASK)
-            .where(TaskRecord.feature_id == feature_id)
-            .order_by(TaskRecord.created_at.desc())
+            select(ExecutionRecord.status)
+            .where(ExecutionRecord.workspace_id == workspace_id)
+            .where(ExecutionRecord.feature_id == feature_id)
+            .where(ExecutionRecord.execution_type == "feature")
+            .order_by(ExecutionRecord.created_at.desc())
             .limit(1)
         )
         return cast(str | None, result.scalar_one_or_none())

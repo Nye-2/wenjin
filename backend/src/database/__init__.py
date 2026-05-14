@@ -17,6 +17,7 @@ from .models import (
     ComputeSessionRecord,
     CreditTransaction,
     CreditTransactionType,
+    ExecutionRecord,
     # Generation
     GenerationRecord,
     KnowledgeCategory,
@@ -112,6 +113,7 @@ __all__ = [
     "CreditTransaction",
     "CreditTransactionType",
     "ComputeSessionRecord",
+    "ExecutionRecord",
     # Models - Admin audit
     "AdminLog",
     "AdminActionType",

@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.gateway.deps import get_db
-from src.services.event_bus import EventBus
 from src.services.execution_commit_service import ExecutionCommitService
 from src.services.execution_service import ExecutionService
 from src.services.rooms.decisions_service import DecisionsService
@@ -39,20 +38,11 @@ class CommitRequest(BaseModel):
 
 def _get_commit_service(db: AsyncSession = Depends(get_db)) -> ExecutionCommitService:
     """Construct ExecutionCommitService from per-request DB session."""
-    # EventBus requires a Redis client. For requests we use a lightweight
-    # stub so the service can still publish (fails silently if Redis unavailable).
     try:
         from src.academic.cache.redis_client import redis_client as _rc
         _redis = _rc.client
     except Exception:
         _redis = None
-
-    bus: EventBus
-    if _redis is not None:
-        bus = EventBus(_redis)
-    else:
-        # No-op bus — publish will never be called
-        bus = _NoopBus()  # type: ignore[assignment]
 
     return ExecutionCommitService(
         execution_service=ExecutionService(db),
@@ -62,16 +52,8 @@ def _get_commit_service(db: AsyncSession = Depends(get_db)) -> ExecutionCommitSe
         memory_service=MemoryService(db),
         workspace_tasks_service=WorkspaceTasksService(db),
         run_history_service=RunHistoryService(db),
-        event_bus=bus,
         redis=_redis,
     )
-
-
-class _NoopBus:
-    """Minimal stand-in used when Redis is unavailable at request time."""
-
-    async def publish(self, channel: str, event: dict) -> int:  # noqa: D401
-        return 0
 
 
 # ---------------------------------------------------------------------------

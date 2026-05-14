@@ -164,6 +164,46 @@ class ExecutionService:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def reconcile_interrupted_executions(self) -> int:
+        """Mark stale in-flight executions terminal after process restart.
+
+        Current execution workers do not support ownership-based resume, so any
+        execution left in a non-terminal state after restart is treated as
+        interrupted and closed out conservatively.
+        """
+        result = await self.db.execute(
+            select(ExecutionRecord).where(
+                ExecutionRecord.status.in_(["pending", "running", "cancelling"])
+            )
+        )
+        records = list(result.scalars().all())
+        if not records:
+            return 0
+
+        now = datetime.now(UTC)
+        reconciled = 0
+        for record in records:
+            interrupted_summary = "Execution interrupted by process restart"
+            if record.status == "cancelling":
+                record.status = "cancelled"
+                if not record.result_summary:
+                    record.result_summary = interrupted_summary
+                if not record.error:
+                    record.error = interrupted_summary
+                if not record.last_error:
+                    record.last_error = interrupted_summary
+            else:
+                record.status = "failed"
+                record.error = interrupted_summary
+                record.last_error = interrupted_summary
+                record.result_summary = interrupted_summary
+            record.completed_at = record.completed_at or now
+            record.updated_at = now
+            reconciled += 1
+
+        await self.db.commit()
+        return reconciled
+
     async def get_execution_graph(self, execution_id: str) -> dict[str, Any]:
         record = await self.get_by_id(execution_id)
         if record is None:
@@ -209,6 +249,8 @@ class ExecutionService:
         next_actions: list[dict[str, Any]] | None = None,
         advisory_code: str | None | object = _UNSET,
         last_error: str | None | object = _UNSET,
+        dispatch_mode: str | None | object = _UNSET,
+        worker_task_id: str | None | object = _UNSET,
         started_at: datetime | None | object = _UNSET,
         completed_at: datetime | None | object = _UNSET,
     ) -> ExecutionRecord | None:
@@ -274,6 +316,12 @@ class ExecutionService:
             changed = True
         if last_error is not _UNSET and record.last_error != last_error:
             record.last_error = last_error
+            changed = True
+        if dispatch_mode is not _UNSET and record.dispatch_mode != dispatch_mode:
+            record.dispatch_mode = dispatch_mode
+            changed = True
+        if worker_task_id is not _UNSET and record.worker_task_id != worker_task_id:
+            record.worker_task_id = worker_task_id
             changed = True
         if started_at is not _UNSET and record.started_at != started_at:
             record.started_at = started_at

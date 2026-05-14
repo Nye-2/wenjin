@@ -18,14 +18,14 @@ class TestCeleryExecutor:
 
         await executor.execute(
             task_id="test-task-1",
-            task_type="workspace_feature",
+            task_type="execution",
             payload={"workspace_id": "ws-1"},
             queue="default",
         )
 
         mock_celery.send_task.assert_called_once_with(
             "src.task.tasks.execute_task",
-            args=["test-task-1", "workspace_feature", {"workspace_id": "ws-1"}],
+            args=["test-task-1", "execution", {"workspace_id": "ws-1"}],
             queue="default",
             priority=5,
             task_id="test-task-1",

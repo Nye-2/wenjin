@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceEvent } from "@/lib/api/types";
 import { useChatStoreV2 } from "@/stores/chat-store";
+import { useComputeStore } from "@/stores/compute";
 import { useExecutionStore } from "@/stores/execution-store";
 
 const mockSubscribeWorkspaceEvents = vi.fn();
@@ -60,6 +61,13 @@ const makeExecutionRecord = () => ({
 beforeEach(() => {
   useChatStoreV2.getState().reset();
   useExecutionStore.getState().clear();
+  useComputeStore.setState({
+    byWorkspace: {},
+    projectionBySessionId: {},
+    activeComputeSessionIdByWorkspace: {},
+    isLoadingByWorkspace: {},
+    isProjectionLoadingBySessionId: {},
+  });
   mockSubscribeWorkspaceEvents.mockReset();
   mockUseExecutionStream.mockReset();
   mockGetExecution.mockReset();
@@ -143,5 +151,53 @@ describe("useWorkspaceEventStream", () => {
         message.blocks.filter((block) => block.kind === "result_card"),
       );
     expect(resultCards).toHaveLength(1);
+  });
+
+  it("refreshes the active compute projection when its execution updates", async () => {
+    let onEvent: ((event: WorkspaceEvent) => void) | undefined;
+    mockSubscribeWorkspaceEvents.mockImplementation((_workspaceId, handler) => {
+      onEvent = handler as (event: WorkspaceEvent) => void;
+      return vi.fn();
+    });
+    mockGetExecution.mockResolvedValue(makeExecutionRecord());
+
+    const fetchProjection = vi.fn().mockResolvedValue(null);
+    useComputeStore.setState({
+      byWorkspace: {
+        "ws-1": [
+          {
+            id: "compute-1",
+            execution_id: "exec-1",
+            workspace_id: "ws-1",
+            user_id: "u1",
+            sandbox_session_id: null,
+            active_view: "overview",
+            ui_state: {},
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+      },
+      activeComputeSessionIdByWorkspace: {
+        "ws-1": "compute-1",
+      },
+      fetchProjection,
+    } as never);
+
+    renderHook(() => useWorkspaceEventStream("ws-1"));
+
+    act(() => {
+      onEvent?.({
+        type: "execution.updated",
+        workspace_id: "ws-1",
+        execution_id: "exec-1",
+        event_type: "execution.status",
+        status: "running",
+      });
+    });
+
+    await waitFor(() => {
+      expect(fetchProjection).toHaveBeenCalledWith("compute-1");
+    });
   });
 });

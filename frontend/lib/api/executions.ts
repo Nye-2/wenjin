@@ -29,7 +29,11 @@ export async function listExecutions(params?: {
   if (params?.workspace_id) query.set("workspace_id", params.workspace_id);
   if (params?.thread_id) query.set("thread_id", params.thread_id);
   if (params?.execution_type) query.set("execution_type", params.execution_type);
-  if (params?.status?.length) query.set("status", params.status.join(","));
+  if (params?.status?.length) {
+    for (const value of params.status) {
+      query.append("status", value);
+    }
+  }
   if (params?.limit) query.set("limit", String(params.limit));
 
   const qs = query.toString();

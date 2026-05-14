@@ -1,0 +1,177 @@
+"""Shared feature launch context rules for launch / resume flows."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from src.application.intents.launch_text import (
+    is_generic_feature_launch_text,
+    normalize_inline_text,
+)
+from src.application.results import FeatureExecutionAdvisory
+
+THREAD_ENTRY_SOURCES = {"thread", "tool", "automation"}
+
+FEATURE_CONTEXT_REQUIREMENTS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "deep_research": (("topic", "query"),),
+    "literature_search": (("query", "topic", "keywords"),),
+    "background_research": (("keywords", "topic", "query"),),
+    "prior_art_search": (("keywords", "query", "topic"),),
+    "opening_research": (("topic", "query"),),
+}
+
+FEATURE_CONTEXT_FIELD_LABELS: dict[str, str] = {
+    "topic": "研究主题",
+    "query": "检索问题",
+    "keywords": "关键词",
+}
+
+
+def is_value_present(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return any(is_value_present(item) for item in value)
+    if isinstance(value, Mapping):
+        return bool(value)
+    return value is not None
+
+
+def resolve_missing_context_fields(
+    *,
+    feature_id: str,
+    params: Mapping[str, Any],
+    launch_source: str,
+) -> list[str]:
+    if launch_source not in THREAD_ENTRY_SOURCES:
+        return []
+    requirements = FEATURE_CONTEXT_REQUIREMENTS.get(feature_id)
+    if not requirements:
+        return []
+
+    missing: list[str] = []
+    for group in requirements:
+        if any(is_value_present(params.get(field)) for field in group):
+            continue
+        missing.append(group[0])
+    return missing
+
+
+def build_missing_context_advisory(
+    *,
+    feature_id: str,
+    missing_fields: list[str],
+) -> FeatureExecutionAdvisory:
+    missing_fields_str = "、".join(
+        FEATURE_CONTEXT_FIELD_LABELS.get(field, field)
+        for field in missing_fields
+    )
+    prompt = (
+        f"继续执行「{feature_id}」前，还需要你补充：{missing_fields_str}。"
+        " 请直接回复补充信息，我会在当前执行会话继续。"
+    )
+    return FeatureExecutionAdvisory(
+        feature_id=feature_id,
+        code="missing_params",
+        message=prompt,
+        context={
+            "missing_fields": list(missing_fields),
+            "prompt": prompt,
+        },
+    )
+
+
+def resolve_resume_context_seed(
+    *,
+    params: Mapping[str, Any],
+    launch_message: str | None,
+) -> str:
+    candidates: list[tuple[Any, bool]] = [
+        (launch_message, False),
+        (params.get("__thread_context_focus"), False),
+        (params.get("__thread_context_digest"), True),
+    ]
+    for candidate, is_digest in candidates:
+        normalized = normalize_inline_text(candidate)
+        if not normalized or is_generic_feature_launch_text(normalized):
+            continue
+        if is_digest:
+            for line in reversed(str(candidate).splitlines()):
+                line_text = normalize_inline_text(line)
+                if line_text.startswith("用户:"):
+                    recovered = normalize_inline_text(line_text.removeprefix("用户:"))
+                    if recovered and not is_generic_feature_launch_text(recovered):
+                        normalized = recovered
+                        break
+        if len(normalized) > 280:
+            return normalized[:279].rstrip() + "…"
+        return normalized
+    return ""
+
+
+def hydrate_missing_context_params_from_resume_message(
+    *,
+    feature_id: str,
+    params: Mapping[str, Any],
+    launch_source: str,
+    launch_message: str | None,
+) -> dict[str, Any]:
+    hydrated = dict(params)
+    if launch_source not in THREAD_ENTRY_SOURCES:
+        return hydrated
+    requirements = FEATURE_CONTEXT_REQUIREMENTS.get(feature_id)
+    if not requirements:
+        return hydrated
+
+    seed_text = resolve_resume_context_seed(
+        params=hydrated,
+        launch_message=launch_message,
+    )
+    if not seed_text:
+        return hydrated
+
+    for group in requirements:
+        if any(is_value_present(hydrated.get(field)) for field in group):
+            continue
+        hydrated[group[0]] = seed_text
+    return hydrated
+
+
+def build_execution_launch_params(
+    *,
+    feature_id: str,
+    params: Mapping[str, Any],
+    workspace_id: str,
+    launch_message: str | None = None,
+) -> dict[str, Any]:
+    """Build canonical ExecutionRecord.params for feature execution."""
+    normalized_params = dict(params or {})
+    raw_message = (
+        str(launch_message or "").strip()
+        or str(normalized_params.get("query") or normalized_params.get("topic") or feature_id)
+    )
+    return {
+        "brief": {
+            "capability_id": feature_id,
+            "brief": normalized_params,
+            "raw_message": raw_message,
+            "decisions": {},
+            "workspace_id": workspace_id,
+        }
+    }
+
+
+def extract_feature_params(execution_params: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Extract raw feature params from ExecutionRecord.params.
+
+    Accepts both the canonical wrapped ``{"brief": {...}}`` form and legacy
+    plain-param dicts produced during earlier migration steps.
+    """
+    params = dict(execution_params or {})
+    brief_payload = params.get("brief")
+    if isinstance(brief_payload, Mapping):
+        nested = brief_payload.get("brief")
+        if isinstance(nested, Mapping):
+            return dict(nested)
+    return params

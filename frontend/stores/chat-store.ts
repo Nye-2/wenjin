@@ -55,6 +55,7 @@ export type Message = {
   role: "user" | "assistant" | "system";
   blocks: Block[];
   createdAt: string;
+  metadata?: Record<string, unknown>;
 };
 
 // ── Event type (discriminated union) ────────────────────────────────────────
@@ -117,6 +118,27 @@ function findAssistantMessageIndex(
   return -1;
 }
 
+function findExecutionMessageIndex(
+  messages: Message[],
+  executionId: string,
+): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const metadata = messages[i].metadata;
+    if (!metadata || typeof metadata !== "object") {
+      continue;
+    }
+    const orchestration = (metadata as Record<string, unknown>).orchestration;
+    if (!orchestration || typeof orchestration !== "object") {
+      continue;
+    }
+    const candidateExecutionId = (orchestration as Record<string, unknown>).execution_id;
+    if (candidateExecutionId === executionId) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 // ── Store implementation ────────────────────────────────────────────────────
 
 export const useChatStoreV2 = create<ChatState>((set, get) => ({
@@ -138,6 +160,10 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           role: "user",
           blocks,
           createdAt: event.data.timestamp ?? new Date().toISOString(),
+          metadata:
+            typeof event.data.metadata === "object" && event.data.metadata
+              ? (event.data.metadata as Record<string, unknown>)
+              : undefined,
         };
 
         set((state) => ({ messages: [...state.messages, message] }));
@@ -331,10 +357,17 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       case "execution.completed": {
         const { currentAssistantId } = get();
         set((state) => {
-          const idx = findAssistantMessageIndex(
+          const idxByExecution = findExecutionMessageIndex(
             state.messages,
-            currentAssistantId,
+            event.data.execution_id,
           );
+          const idx =
+            idxByExecution !== -1
+              ? idxByExecution
+              : findAssistantMessageIndex(
+                  state.messages,
+                  currentAssistantId,
+                );
           if (idx === -1) return state;
 
           const msg = state.messages[idx];
@@ -382,6 +415,10 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           role: (m.role as "user" | "assistant" | "system") || "assistant",
           blocks: Array.isArray(m.blocks) ? (m.blocks as Block[]) : [{ kind: "text" as const, content: String(m.content || "") }],
           createdAt: (m.created_at as string) || new Date().toISOString(),
+          metadata:
+            typeof m.metadata === "object" && m.metadata
+              ? (m.metadata as Record<string, unknown>)
+              : undefined,
         }));
         set({ messages: loaded });
       }
@@ -419,6 +456,10 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           role: (m.role as "user" | "assistant" | "system") || "assistant",
           blocks: Array.isArray(m.blocks) ? (m.blocks as Block[]) : [{ kind: "text" as const, content: String(m.content || "") }],
           createdAt: (m.created_at as string) || new Date().toISOString(),
+          metadata:
+            typeof m.metadata === "object" && m.metadata
+              ? (m.metadata as Record<string, unknown>)
+              : undefined,
         }));
         set({ messages: loaded });
       }

@@ -1,13 +1,13 @@
 # Product Docs
 
-更新时间：2026-05-06
+更新时间：2026-05-14
 
-本目录记录 workspace、thread（路由为 `/chat`）、feature、Compute、WenjinPrism 和前后端集成的当前事实源。
+本目录记录 workspace、thread、feature、execution / compute、WenjinPrism 和前后端集成的当前事实源。
 
 ## 文档索引
 
 - `workspace-current-state.md`：workspace/thread 当前行为事实源
-- `workspace-feature-catalog.md`：workspace type、feature、skill 的 canonical 目录
+- `workspace-feature-catalog.md`：workspace type、feature、skill 与 execution-first launch 事实源
 - `workspace-reference-library.md`：workspace 文献中心、证据、BibTeX 和 usage trace 当前事实源
 - `frontend-feature-plugin-contract.md`：前后端 feature 协议与交互约束
 - `release-gate-checklist.md`：发布门禁与上线检查

@@ -21,7 +21,7 @@ type TaskCardStatus = "pending" | "running" | "success" | "failed" | "cancelled"
 
 interface TaskCardProps {
   taskId: string;
-  taskType: string;
+  taskKind: string;
   status: TaskCardStatus;
   progress: number;
   message: string | null;
@@ -86,8 +86,8 @@ const STATUS_MAP: Record<TaskCardStatus, StatusVisual> = {
 /*  Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
-/** Convert a snake_case / kebab-case taskType to a readable display name. */
-function formatTaskType(raw: string): string {
+/** Convert a snake_case / kebab-case task kind to a readable display name. */
+function formatTaskKind(raw: string): string {
   return raw
     .replace(/[-_]/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
@@ -104,7 +104,7 @@ function isTerminal(status: TaskCardStatus): boolean {
 
 export function TaskCard({
   taskId,
-  taskType,
+  taskKind,
   status,
   progress,
   message,
@@ -118,7 +118,7 @@ export function TaskCard({
 
   const visual = STATUS_MAP[status];
   const StatusIcon = visual.icon;
-  const displayName = featureName || formatTaskType(taskType);
+  const displayName = featureName || formatTaskKind(taskKind);
   const hasExpandableContent =
     isTerminal(status) && (!!error || (!!result && Object.keys(result).length > 0));
 

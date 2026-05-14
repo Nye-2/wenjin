@@ -270,7 +270,7 @@ async def test_opening_research_status_runs_without_legacy_skill_filter():
         ]
     )
     service = DashboardService(db)
-    service._count_running_workspace_feature_tasks = AsyncMock(return_value=0)
+    service._count_running_feature_executions = AsyncMock(return_value=0)
 
     await service._get_opening_research_status("ws-1")
 
@@ -283,12 +283,12 @@ async def test_opening_research_status_runs_without_legacy_skill_filter():
     )
 
 @pytest.mark.asyncio
-async def test_deep_research_status_uses_workspace_feature_task_history():
-    """Deep research status should resolve from canonical workspace_feature tasks."""
+async def test_deep_research_status_uses_feature_execution_history():
+    """Deep research status should resolve from canonical feature executions."""
     db = AsyncMock()
     service = DashboardService(db)
-    service._count_running_workspace_feature_tasks = AsyncMock(return_value=1)
-    service._get_latest_workspace_feature_task_status = AsyncMock(return_value="running")
+    service._count_running_feature_executions = AsyncMock(return_value=1)
+    service._get_latest_feature_execution_status = AsyncMock(return_value="running")
     service._get_latest_artifact = AsyncMock(
         return_value=SimpleNamespace(
             content={
@@ -305,11 +305,11 @@ async def test_deep_research_status_uses_workspace_feature_task_history():
     assert result["summary"]["reports_count"] == 1
     assert result["summary"]["ideas_count"] == 2
     assert result["summary"]["last_task_status"] == "running"
-    service._count_running_workspace_feature_tasks.assert_awaited_once_with(
+    service._count_running_feature_executions.assert_awaited_once_with(
         "ws-1",
         "deep_research",
     )
-    service._get_latest_workspace_feature_task_status.assert_awaited_once_with(
+    service._get_latest_feature_execution_status.assert_awaited_once_with(
         "ws-1",
         "deep_research",
     )
@@ -363,8 +363,8 @@ async def test_sci_literature_search_shows_failed_when_latest_task_failed():
     db = AsyncMock()
     service = DashboardService(db)
     service._count_artifacts = AsyncMock(return_value=0)
-    service._count_running_workspace_feature_tasks = AsyncMock(return_value=0)
-    service._get_latest_workspace_feature_task_status = AsyncMock(return_value="failed")
+    service._count_running_feature_executions = AsyncMock(return_value=0)
+    service._get_latest_feature_execution_status = AsyncMock(return_value="failed")
 
     result = await service._get_literature_search_status("ws-1")
 
@@ -377,8 +377,8 @@ async def test_sci_sidecar_statuses_include_latest_artifact_metrics():
     db = AsyncMock()
     service = DashboardService(db)
     service._count_artifacts = AsyncMock(return_value=1)
-    service._count_running_workspace_feature_tasks = AsyncMock(return_value=0)
-    service._get_latest_workspace_feature_task_status = AsyncMock(return_value="success")
+    service._count_running_feature_executions = AsyncMock(return_value=0)
+    service._get_latest_feature_execution_status = AsyncMock(return_value="success")
 
     latest_artifacts = [
         SimpleNamespace(
@@ -429,8 +429,8 @@ async def test_experiment_design_status_includes_hypotheses_and_variables():
     db = AsyncMock()
     service = DashboardService(db)
     service._count_artifacts = AsyncMock(return_value=1)
-    service._count_running_workspace_feature_tasks = AsyncMock(return_value=0)
-    service._get_latest_workspace_feature_task_status = AsyncMock(return_value="success")
+    service._count_running_feature_executions = AsyncMock(return_value=0)
+    service._get_latest_feature_execution_status = AsyncMock(return_value="success")
     service._get_latest_artifact = AsyncMock(
         return_value=SimpleNamespace(
             content={

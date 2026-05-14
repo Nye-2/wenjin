@@ -96,6 +96,7 @@ function handleWorkspaceEvent(
   event: WorkspaceEvent,
   options?: {
     scheduleComputeHydrate?: () => void;
+    refreshActiveComputeProjection?: (executionId: string) => void;
   }
 ) {
   const computeStore = useComputeStore.getState();
@@ -138,8 +139,9 @@ function handleWorkspaceEvent(
     case "execution.updated":
     case "execution.completed":
     case "execution.failed": {
-      // Phase 6: Unified execution notifications — route to execution store
-      // via the execution stream subscriber managed by useWorkspaceEventStream.
+      if (event.execution_id) {
+        options?.refreshActiveComputeProjection?.(event.execution_id);
+      }
       break;
     }
     case "workspace.ready":
@@ -184,6 +186,18 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
       void computeState.hydrateWorkspace(workspaceId).finally(() => {
         inFlightComputeHydrateRef.current = false;
       });
+    };
+
+    const refreshActiveComputeProjection = (executionId: string) => {
+      const computeState = useComputeStore.getState();
+      const sessions = computeState.byWorkspace[workspaceId] ?? [];
+      const activeComputeSessionId =
+        computeState.activeComputeSessionIdByWorkspace[workspaceId] ?? null;
+      const activeSession = sessions.find((item) => item.id === activeComputeSessionId);
+
+      if (activeSession?.execution_id === executionId && activeComputeSessionId) {
+        void computeState.fetchProjection(activeComputeSessionId);
+      }
     };
 
     const connect = () => {
@@ -239,6 +253,7 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
 
           handleWorkspaceEvent(workspaceId, event, {
             scheduleComputeHydrate,
+            refreshActiveComputeProjection,
           });
         },
         (_message, status) => {

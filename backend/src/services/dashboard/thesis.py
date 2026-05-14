@@ -21,7 +21,7 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
         return ()
 
     async def _get_deep_research_status(self, workspace_id: str) -> dict[str, Any]:
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "deep_research",
         )
@@ -42,7 +42,7 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
         )
         ideas_count = len(latest_ideas) if isinstance(latest_ideas, list) else 0
 
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "deep_research",
         )
@@ -81,11 +81,11 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
         )
         core = core_result.scalar() or 0
 
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "literature_management",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "literature_management",
         )
@@ -130,11 +130,11 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
         if artifacts:
             status = "completed"
         else:
-            running_count = await self._count_running_workspace_feature_tasks(
+            running_count = await self._count_running_feature_executions(
                 workspace_id,
                 "opening_research",
             )
-            latest_task_status = await self._get_latest_workspace_feature_task_status(
+            latest_task_status = await self._get_latest_feature_execution_status(
                 workspace_id,
                 "opening_research",
             )
@@ -167,11 +167,11 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
         )
         chapters_count = int(chapters_result.scalar() or 0)
 
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "thesis_writing",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "thesis_writing",
         )
@@ -202,11 +202,11 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
             workspace_id,
             ArtifactType.FIGURE.value,
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "figure_generation",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "figure_generation",
         )

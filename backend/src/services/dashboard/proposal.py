@@ -22,11 +22,11 @@ class DashboardProposalStatusMixin(DashboardStatusSharedMixin):
             workspace_id,
             ArtifactType.PROPOSAL.value,
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "proposal_outline",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "proposal_outline",
         )
@@ -50,11 +50,11 @@ class DashboardProposalStatusMixin(DashboardStatusSharedMixin):
             workspace_id,
             ArtifactType.BACKGROUND_RESEARCH.value,
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "background_research",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "background_research",
         )
@@ -83,11 +83,11 @@ class DashboardProposalStatusMixin(DashboardStatusSharedMixin):
             ArtifactType.METHODOLOGY.value,
             created_by_skills=self._creator_ids("experiment_design"),
         )
-        running_count = await self._count_running_workspace_feature_tasks(
+        running_count = await self._count_running_feature_executions(
             workspace_id,
             "experiment_design",
         )
-        latest_task_status = await self._get_latest_workspace_feature_task_status(
+        latest_task_status = await self._get_latest_feature_execution_status(
             workspace_id,
             "experiment_design",
         )

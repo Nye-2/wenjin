@@ -16,7 +16,7 @@ def mock_store():
             MagicMock(
                 created_at=datetime.now(UTC),
                 started_at=None,
-                task_type="workspace_feature",
+                task_type="execution",
             ),
             0,
         )
@@ -40,7 +40,7 @@ class TestSubmitTaskUsesExecutor:
         ):
             await service.submit_task(
                 user_id="user-1",
-                task_type="workspace_feature",
+                task_type="execution",
                 payload={"workspace_id": "ws-1"},
                 priority=5,
             )
@@ -94,7 +94,7 @@ class TestSubmitTaskUsesExecutor:
             with pytest.raises(ConnectionError):
                 await service.submit_task(
                     user_id="user-1",
-                    task_type="workspace_feature",
+                    task_type="execution",
                     payload={},
                 )
 
@@ -111,7 +111,7 @@ class TestCancelTaskInCeleryMode:
         record = MagicMock()
         record.user_id = "user-1"
         record.status = "running"
-        record.task_type = "workspace_feature"
+        record.task_type = "execution"
         record.id = "task-1"
         record.progress = 42
         record.execution_id = "exec-1"
@@ -175,7 +175,7 @@ class TestCancelTaskInCeleryMode:
         record = MagicMock()
         record.user_id = "user-1"
         record.status = "running"
-        record.task_type = "workspace_feature"
+        record.task_type = "execution"
         record.id = "task-2"
         record.progress = 58
         record.execution_id = "exec-2"
@@ -225,7 +225,7 @@ class TestCancelTaskInCeleryMode:
         record = MagicMock()
         record.user_id = "user-1"
         record.status = "running"
-        record.task_type = "workspace_feature"
+        record.task_type = "execution"
         record.id = "task-3"
         record.progress = 0
         record.execution_id = None

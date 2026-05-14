@@ -160,10 +160,8 @@ async def test_launch_reuses_existing_execution_when_task_is_reused():
             feature_id="framework_outline",
             message="已有进行中的 框架与摘要 任务",
             reused_existing_task=True,
+            execution_id="exec-existing",
         )
-    )
-    handler.task_service.get_task_status = AsyncMock(
-        return_value={"task_id": "task-1", "execution_id": "exec-existing"}
     )
     compute_sessions = _compute_sessions()
     execution_service = AsyncMock()
@@ -192,12 +190,12 @@ async def test_launch_reuses_existing_execution_when_task_is_reused():
                 params={},
                 launch_source="thread",
             )
-        )
+    )
 
     assert result.execution_id == "exec-existing"
     execution_service.cancel_execution.assert_awaited_once_with("execution-new")
-    assert compute_sessions.ensure_for_execution.await_count == 2
-    assert compute_sessions.ensure_for_execution.await_args.kwargs["execution_id"] == "exec-existing"
+    assert compute_sessions.ensure_for_execution.await_count == 1
+    assert compute_sessions.ensure_for_execution.await_args.kwargs["execution_id"] == "execution-new"
 
 
 @pytest.mark.asyncio

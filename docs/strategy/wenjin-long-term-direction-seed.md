@@ -31,7 +31,7 @@ Wenjin 不应长期定位为普通 AI 写作工具。
 1. Workspace 已经覆盖 thesis、sci、proposal、software_copyright、patent 五类科研交付场景。
 2. Chat 作为控制入口，Feature 作为执行事务，Compute 作为长任务工作面，WenjinPrism 作为最终稿件承载，边界比较清晰。
 3. WenjinPrism 已经支持 LaTeX 项目文件树、编译、PDF 预览、点评改写、SyncTeX、file-change preview/apply/revert。
-4. ExecutionSession、Task、Artifact、GenerationRecord、Paper、PaperSection、UserKnowledge 等模型已经提供了过程数据与产物数据基础。
+4. ExecutionRecord、Task、Artifact、GenerationRecord、Paper、PaperSection、UserKnowledge 等模型已经提供了过程数据与产物数据基础。
 5. Prism 的 apply/revert 是天然的高质量人工反馈信号，比普通聊天点赞更适合构建数据飞轮。
 
 这些基础说明，Wenjin 的优势不在“能不能调用模型写一段文字”，而在能不能把调研、证据、写作、审阅、落稿、修改、编译、交付串成可复现的系统。

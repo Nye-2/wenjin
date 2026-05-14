@@ -683,11 +683,17 @@ class TestThreadMessages:
             "src.agents.chat_agent.agent.make_chat_agent",
             return_value=fake_agent,
         ):
-            reply = await generate_thread_response(request, thread, actor_id="user-1")
+            reply = await generate_thread_response(
+                request,
+                thread,
+                actor_id="user-1",
+                execution_id="exec-1",
+            )
 
         assert reply.content == "模块已启动"
         assert reply.blocks[0]["type"] == "task"
         assert reply.metadata["orchestration"]["task_id"] == "task-1"
+        assert reply.metadata["orchestration"]["execution_id"] == "exec-1"
         assert reply.metadata["usage"]["total_tokens"] == 150
         assert reply.metadata["usage"]["source"] == "thread_agent"
 

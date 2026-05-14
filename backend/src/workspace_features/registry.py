@@ -3,8 +3,6 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.task.registry import WORKSPACE_FEATURE_TASK
-
 CANONICAL_WORKSPACE_TYPES = (
     "sci",
     "thesis",
@@ -24,7 +22,7 @@ class FeatureStageDefinition:
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceFeatureDefinition:
-    """Canonical feature definition shared across router and task dispatch."""
+    """Canonical feature definition shared across backend and frontend."""
 
     workspace_type: str
     id: str
@@ -33,8 +31,6 @@ class WorkspaceFeatureDefinition:
     icon: str
     agent: str
     agent_label: str
-    handler_key: str
-    task_type: str = WORKSPACE_FEATURE_TASK
     panel: str | None = None
     stages: tuple[FeatureStageDefinition, ...] = field(default_factory=tuple)
     color: str | None = None
@@ -49,8 +45,6 @@ class WorkspaceFeatureDefinition:
             "icon": self.icon,
             "agent": self.agent,
             "agentLabel": self.agent_label,
-            "taskType": self.task_type,
-            "handlerKey": self.handler_key,
             "panel": self.panel,
             "stages": [
                 {"id": stage.id, "label": stage.label}
@@ -74,7 +68,6 @@ THESIS_FEATURES = (
         icon="search",
         agent="scout",
         agent_label="Scout",
-        handler_key="thesis.deep_research",
         panel="deep_research_panel",
         color="purple",
         stages=(
@@ -92,7 +85,6 @@ THESIS_FEATURES = (
         icon="book-open",
         agent="librarian",
         agent_label="Librarian",
-        handler_key="thesis.literature_management",
         panel=None,
         stages=(),
         color="emerald",
@@ -106,7 +98,6 @@ THESIS_FEATURES = (
         icon="file-text",
         agent="scout",
         agent_label="Scout",
-        handler_key="thesis.opening_research",
         panel="opening_research_panel",
         color="amber",
         stages=(
@@ -124,7 +115,6 @@ THESIS_FEATURES = (
         icon="pen",
         agent="thesis_writer",
         agent_label="ThesisWriter",
-        handler_key="thesis.thesis_writing",
         panel="thesis_editor",
         color="blue",
         stages=(
@@ -142,7 +132,6 @@ THESIS_FEATURES = (
         icon="image",
         agent="figure_planner",
         agent_label="FigurePlanner",
-        handler_key="thesis.figure_generation",
         panel="figure_panel",
         color="rose",
         stages=(
@@ -163,7 +152,6 @@ SCI_FEATURES = (
         icon="search",
         agent="scout",
         agent_label="Scout",
-        handler_key="sci.literature_search",
         panel="literature_panel",
         color="emerald",
         stages=(
@@ -180,7 +168,6 @@ SCI_FEATURES = (
         icon="microscope",
         agent="analyst",
         agent_label="Analyst",
-        handler_key="sci.paper_analysis",
         panel="analysis_panel",
         color="purple",
         stages=(
@@ -198,7 +185,6 @@ SCI_FEATURES = (
         icon="pen",
         agent="writer",
         agent_label="Writer",
-        handler_key="sci.writing",
         panel="editor_panel",
         color="amber",
         stages=(
@@ -216,7 +202,6 @@ SCI_FEATURES = (
         icon="book-open",
         agent="reviewer",
         agent_label="Reviewer",
-        handler_key="sci.literature_review",
         panel="analysis_panel",
         color="cyan",
         stages=(
@@ -234,7 +219,6 @@ SCI_FEATURES = (
         icon="list",
         agent="planner",
         agent_label="Planner",
-        handler_key="sci.framework_outline",
         panel="editor_panel",
         color="blue",
         stages=(
@@ -252,7 +236,6 @@ SCI_FEATURES = (
         icon="image",
         agent="figure_planner",
         agent_label="FigurePlanner",
-        handler_key="sci.figure_generation",
         panel="figure_panel",
         color="rose",
         stages=(
@@ -270,7 +253,6 @@ SCI_FEATURES = (
         icon="shield-check",
         agent="reviewer",
         agent_label="Reviewer",
-        handler_key="sci.peer_review",
         panel="analysis_panel",
         color="rose",
         stages=(
@@ -288,7 +270,6 @@ SCI_FEATURES = (
         icon="compass",
         agent="advisor",
         agent_label="Advisor",
-        handler_key="sci.journal_recommend",
         panel="analysis_panel",
         color="amber",
         stages=(
@@ -309,7 +290,6 @@ PROPOSAL_FEATURES = (
         icon="file-text",
         agent="writer",
         agent_label="Writer",
-        handler_key="proposal.proposal_outline",
         panel="outline_editor",
         color="purple",
         stages=(
@@ -326,7 +306,6 @@ PROPOSAL_FEATURES = (
         icon="search",
         agent="scout",
         agent_label="Scout",
-        handler_key="proposal.background_research",
         panel="literature_panel",
         color="emerald",
         stages=(
@@ -343,7 +322,6 @@ PROPOSAL_FEATURES = (
         icon="flask-conical",
         agent="designer",
         agent_label="Designer",
-        handler_key="proposal.experiment_design",
         panel="outline_editor",
         color="indigo",
         stages=(
@@ -361,7 +339,6 @@ PROPOSAL_FEATURES = (
         icon="image",
         agent="figure_planner",
         agent_label="FigurePlanner",
-        handler_key="proposal.figure_generation",
         panel="figure_panel",
         color="rose",
         stages=(
@@ -382,7 +359,6 @@ SOFTWARE_COPYRIGHT_FEATURES = (
         icon="file-text",
         agent="writer",
         agent_label="Writer",
-        handler_key="software_copyright.copyright_materials",
         panel="outline_editor",
         color="violet",
         stages=(
@@ -400,7 +376,6 @@ SOFTWARE_COPYRIGHT_FEATURES = (
         icon="code",
         agent="writer",
         agent_label="Writer",
-        handler_key="software_copyright.technical_description",
         panel="editor_panel",
         color="indigo",
         stages=(
@@ -418,7 +393,6 @@ SOFTWARE_COPYRIGHT_FEATURES = (
         icon="image",
         agent="figure_planner",
         agent_label="FigurePlanner",
-        handler_key="software_copyright.figure_generation",
         panel="figure_panel",
         color="rose",
         stages=(
@@ -439,7 +413,6 @@ PATENT_FEATURES = (
         icon="lightbulb",
         agent="writer",
         agent_label="Writer",
-        handler_key="patent.patent_outline",
         panel="outline_editor",
         color="rose",
         stages=(
@@ -457,7 +430,6 @@ PATENT_FEATURES = (
         icon="search",
         agent="scout",
         agent_label="Scout",
-        handler_key="patent.prior_art_search",
         panel="literature_panel",
         color="amber",
         stages=(
@@ -474,7 +446,6 @@ PATENT_FEATURES = (
         icon="image",
         agent="figure_planner",
         agent_label="FigurePlanner",
-        handler_key="patent.figure_generation",
         panel="figure_panel",
         color="rose",
         stages=(
@@ -494,18 +465,6 @@ FEATURES_BY_WORKSPACE_TYPE: dict[str, tuple[WorkspaceFeatureDefinition, ...]] = 
     "patent": PATENT_FEATURES,
 }
 
-FEATURES_BY_HANDLER_KEY: dict[str, WorkspaceFeatureDefinition] = {
-    feature.handler_key: feature
-    for feature in (
-        *THESIS_FEATURES,
-        *SCI_FEATURES,
-        *PROPOSAL_FEATURES,
-        *SOFTWARE_COPYRIGHT_FEATURES,
-        *PATENT_FEATURES,
-    )
-}
-
-
 def list_workspace_features(workspace_type: str) -> list[WorkspaceFeatureDefinition]:
     """Return features for a canonical workspace type."""
     return list(FEATURES_BY_WORKSPACE_TYPE.get(workspace_type, ()))
@@ -520,15 +479,10 @@ def get_workspace_feature(
         if feature.id == feature_id:
             return feature
     return None
-
-
-def get_workspace_feature_by_handler(
-    handler_key: str,
-) -> WorkspaceFeatureDefinition | None:
-    """Look up a feature definition by handler key."""
-    return FEATURES_BY_HANDLER_KEY.get(handler_key)
-
-
 def iter_workspace_features() -> tuple[WorkspaceFeatureDefinition, ...]:
     """Iterate over all registered workspace features."""
-    return tuple(FEATURES_BY_HANDLER_KEY.values())
+    return tuple(
+        feature
+        for group in FEATURES_BY_WORKSPACE_TYPE.values()
+        for feature in group
+    )

@@ -16,7 +16,7 @@ from src.gateway.auth_dependencies import get_current_user
 from src.gateway.services.run_lifecycle import format_sse
 from src.runtime.stream_bridge import END_SENTINEL, HEARTBEAT_SENTINEL
 from src.services.execution_event_publisher import _get_stream_bridge
-from src.services.execution_service import ExecutionService
+from src.services.execution_service import ExecutionService, serialize_execution_record
 
 router = APIRouter(prefix="/executions", tags=["executions"])
 
@@ -108,28 +108,7 @@ async def get_execution(
             raise HTTPException(status_code=404, detail="Execution not found")
         if record.user_id != str(current_user.id):
             raise HTTPException(status_code=404, detail="Execution not found")
-        return {
-            "id": record.id,
-            "status": record.status,
-            "execution_type": record.execution_type,
-            "feature_id": record.feature_id,
-            "display_name": record.display_name,
-            "workspace_type": record.workspace_type,
-            "workspace_id": record.workspace_id,
-            "thread_id": record.thread_id,
-            "params": record.params,
-            "result": record.result,
-            "error": record.error,
-            "progress": record.progress,
-            "message": record.message,
-            "artifact_ids": record.artifact_ids,
-            "next_actions": record.next_actions,
-            "graph_structure": record.graph_structure,
-            "node_states": record.node_states,
-            "created_at": record.created_at.isoformat() if record.created_at else None,
-            "started_at": record.started_at.isoformat() if record.started_at else None,
-            "completed_at": record.completed_at.isoformat() if record.completed_at else None,
-        }
+        return serialize_execution_record(record)
 
 
 @router.get("/{execution_id}/nodes/{node_id}")
@@ -175,6 +154,34 @@ async def get_node_detail(
         }
 
 
+@router.post("/{execution_id}/cancel")
+async def cancel_execution(
+    execution_id: str,
+    action: str = Query(default="interrupt"),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Cancel an active execution.
+
+    The current implementation uses the canonical execution abort signal and
+    does not distinguish interrupt vs rollback behavior yet.
+    """
+    _ = action
+    async with get_db_session() as db:
+        svc = ExecutionService(db)
+        record = await svc.get_by_id(execution_id)
+        if record is None or record.user_id != str(current_user.id):
+            raise HTTPException(status_code=404, detail="Execution not found")
+
+        updated = await svc.cancel_execution(execution_id)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Execution not found")
+
+        return {
+            "execution_id": execution_id,
+            "status": updated.status,
+        }
+
+
 @router.get("")
 async def list_executions(
     workspace_id: str | None = Query(default=None),
@@ -196,23 +203,6 @@ async def list_executions(
             limit=limit,
         )
         return {
-            "items": [
-                {
-                    "id": r.id,
-                    "status": r.status,
-                    "execution_type": r.execution_type,
-                    "feature_id": r.feature_id,
-                    "display_name": r.display_name,
-                    "workspace_type": r.workspace_type,
-                    "workspace_id": r.workspace_id,
-                    "thread_id": r.thread_id,
-                    "progress": r.progress,
-                    "message": r.message,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
-                    "started_at": r.started_at.isoformat() if r.started_at else None,
-                    "completed_at": r.completed_at.isoformat() if r.completed_at else None,
-                }
-                for r in items
-            ],
+            "items": [serialize_execution_record(r) for r in items],
             "count": len(items),
         }

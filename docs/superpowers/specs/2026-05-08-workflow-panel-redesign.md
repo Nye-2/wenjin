@@ -69,7 +69,7 @@ interface GraphEdge {
 }
 
 interface TaskRun {
-  id: string;                 // execution_session_id
+  id: string;                 // historical draft field, current runtime uses execution_id
   thread_id: string;
   title: string;              // feature_name or task_type
   meta: TaskMeta;

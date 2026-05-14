@@ -14,7 +14,6 @@ from .registry import (
     FeatureStageDefinition,
     WorkspaceFeatureDefinition,
     get_workspace_feature,
-    get_workspace_feature_by_handler,
     iter_workspace_features,
     list_workspace_features,
 )
@@ -35,7 +34,6 @@ __all__ = [
     "FeatureRuntimeMode",
     "FeatureRuntimeProfile",
     "get_workspace_feature",
-    "get_workspace_feature_by_handler",
     "get_feature_runtime_profile",
     "iter_feature_runtime_profiles",
     "iter_workspace_features",

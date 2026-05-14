@@ -77,14 +77,14 @@ class TestTaskStorePostgres:
         record = await task_store.create_task_record(
             task_id="test-task-pg-1",
             user_id="user-1",
-            task_type="workspace_feature",
+            task_type="execution",
             priority=5,
             payload={"feature_id": "deep_research", "query": "test"},
         )
 
         assert record.id == "test-task-pg-1"
         assert record.user_id == "user-1"
-        assert record.task_type == "workspace_feature"
+        assert record.task_type == "execution"
         assert record.status == "pending"
 
     @pytest.mark.asyncio
@@ -94,7 +94,7 @@ class TestTaskStorePostgres:
             record, active_count = await task_store.create_task_record_guarded(
                 task_id=f"guarded-task-{index}",
                 user_id="guarded-user",
-                task_type="workspace_feature",
+                task_type="execution",
                 priority=5,
                 payload={"feature_id": "deep_research", "index": index},
                 concurrency_limit=2,
@@ -105,7 +105,7 @@ class TestTaskStorePostgres:
         blocked_record, blocked_count = await task_store.create_task_record_guarded(
             task_id="guarded-task-blocked",
             user_id="guarded-user",
-            task_type="workspace_feature",
+            task_type="execution",
             priority=5,
             payload={"feature_id": "deep_research", "index": 2},
             concurrency_limit=2,
@@ -120,14 +120,14 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-pg-2",
             user_id="user-1",
-            task_type="workspace_feature",
+            task_type="execution",
             priority=5,
             payload={"workspace_id": "ws-1", "feature_id": "literature_search"},
         )
 
         record = await task_store.get_task_record("test-task-pg-2")
         assert record is not None
-        assert record.task_type == "workspace_feature"
+        assert record.task_type == "execution"
 
     @pytest.mark.asyncio
     async def test_update_task_record(self, task_store):
@@ -135,7 +135,7 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-pg-3",
             user_id="user-1",
-            task_type="workspace_feature",
+            task_type="execution",
             priority=5,
             payload={"feature_id": "deep_research"},
         )
@@ -156,7 +156,7 @@ class TestTaskStorePostgres:
             await task_store.create_task_record(
                 task_id=f"test-task-list-{i}",
                 user_id="user-list",
-                task_type="workspace_feature",
+                task_type="execution",
                 priority=5,
                 payload={"feature_id": "deep_research"},
             )
@@ -170,14 +170,14 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-status-1",
             user_id="user-status-list",
-            task_type="workspace_feature",
+            task_type="execution",
             priority=5,
             payload={"feature_id": "deep_research"},
         )
         await task_store.create_task_record(
             task_id="test-task-status-2",
             user_id="user-status-list",
-            task_type="workspace_feature",
+            task_type="execution",
             priority=5,
             payload={"feature_id": "deep_research"},
         )
@@ -198,7 +198,7 @@ class TestTaskStorePostgres:
             await task_store.create_task_record(
                 task_id=f"test-active-{i}",
                 user_id="user-active",
-                task_type="workspace_feature",
+                task_type="execution",
                 priority=5,
                 payload={"feature_id": "deep_research"},
             )
