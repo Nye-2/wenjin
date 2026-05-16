@@ -66,3 +66,12 @@ celery_app.conf.update(
 celery_app.autodiscover_tasks([
     "src.task.tasks",
 ])
+
+# Beat schedule for periodic credit grant rules
+celery_app.conf.beat_schedule = {
+    **getattr(celery_app.conf, "beat_schedule", {}),
+    "process-credit-grant-rules": {
+        "task": "credit_periodic.process_credit_grant_rules",
+        "schedule": 300.0,  # every 5 minutes
+    },
+}

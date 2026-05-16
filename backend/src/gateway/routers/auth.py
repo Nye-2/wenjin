@@ -23,7 +23,6 @@ from src.services.auth import (
     create_and_persist_tokens,
     verify_refresh_token_recorded,
 )
-from src.services.credit_service import CreditService
 from src.services.user_service import UserService
 
 router = APIRouter()
@@ -44,6 +43,7 @@ class RegisterRequest(BaseModel):
     password: str
     name: str | None = None
     verification_code: str | None = Field(default=None, description="Email verification code")
+    invite_code: str | None = Field(default=None, description="Referral invite code")
 
 
 class LoginRequest(BaseModel):
@@ -196,9 +196,27 @@ async def register(
             auto_commit=False,
         )
 
-        # Grant registration bonus with ledger record
-        credit_service = CreditService(db)
-        await credit_service.grant_registration_bonus(user_id=str(user.id))
+        # Grant registration bonus with ledger record (rule-based)
+        from src.services.credit_grant_rule_service import CreditGrantRuleService
+        rule_svc = CreditGrantRuleService(db)
+        await rule_svc.apply_registration_bonus(str(user.id))
+
+        # Handle referral invite code if provided
+        if request.invite_code:
+            referrer = await _resolve_invite_code(db, request.invite_code)
+            if referrer:
+                from src.services.referral_service import ReferralService
+                referral_svc = ReferralService(db)
+                try:
+                    await referral_svc.record(
+                        referrer_user_id=str(referrer.id),
+                        referee_user_id=str(user.id),
+                    )
+                    await referral_svc.fire_referee_on_signup(str(user.id))
+                except ValueError:
+                    pass  # referee already has referrer or other expected error
+
+        await db.commit()
         await db.refresh(user)
 
         # Generate tokens
@@ -351,3 +369,14 @@ async def get_me(
         total_credits_earned=int(current_user.total_credits_earned),
         total_credits_spent=int(current_user.total_credits_spent),
     )
+
+
+async def _resolve_invite_code(db: AsyncSession, code: str) -> User | None:
+    """Stub for user-side invite code system.
+
+    Out of scope for this Phase. Returns None for now;
+    user-side UI / invite-code system will be wired in a follow-up.
+    """
+    _ = db
+    _ = code
+    return None

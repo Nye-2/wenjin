@@ -269,4 +269,14 @@ class ExecutionCommitService:
             except Exception:
                 logger.exception("audit log failed for execution.commit")
 
+        # Fire referral first-task trigger (idempotent — no-ops if no referral or already fired)
+        try:
+            from src.database import get_db_session
+            async with get_db_session() as db:
+                from src.services.referral_service import ReferralService
+                referral_svc = ReferralService(db)
+                await referral_svc.fire_first_task_for_referrer(execution.user_id)
+        except Exception:
+            logger.exception("referral first-task trigger failed for user %s", execution.user_id)
+
         return result

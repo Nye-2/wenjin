@@ -45,6 +45,7 @@ dependencies = [
     "docker>=7.0.0",
     "sentry-sdk[fastapi]>=2.0.0",
     "prometheus-client>=0.21.0",
+    "croniter>=2.0.0",
 ]
 
 [project.optional-dependencies]

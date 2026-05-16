@@ -190,6 +190,7 @@ async def readiness_check() -> Any:
 # Include routers (imported after app creation to avoid circular imports)
 from .routers import artifacts, auth, capabilities, compute, dashboard, execution_commit, executions, latex, mcp, memory, models, references, runs, templates, thread_runs, threads, uploads, workspace_rooms, workspaces  # noqa: E402
 from .routers import admin_analytics, admin_capabilities, admin_skills  # noqa: E402
+from .routers import admin_credit_rules, admin_redeem_codes, credits_redeem  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(threads.router, prefix="/api", tags=["threads"])
@@ -213,6 +214,9 @@ app.include_router(capabilities.router, prefix="/api", tags=["capabilities"])
 app.include_router(admin_capabilities.router, prefix="/api", tags=["admin", "capabilities"])
 app.include_router(admin_skills.router, prefix="/api", tags=["admin", "skills"])
 app.include_router(admin_analytics.router, prefix="/api", tags=["admin", "analytics"])
+app.include_router(admin_credit_rules.router, prefix="/api", tags=["admin", "credits"])
+app.include_router(admin_redeem_codes.router, prefix="/api", tags=["admin", "credits"])
+app.include_router(credits_redeem.router, prefix="/api", tags=["credits"])
 
 # Dev-only test hooks for Playwright e2e (Plan 3 T2). Disabled in production.
 if settings.environment.lower() != "production":

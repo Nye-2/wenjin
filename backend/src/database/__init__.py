@@ -17,6 +17,10 @@ from .models import (
     ComputeSessionRecord,
     CreditTransaction,
     CreditTransactionType,
+    CreditGrantRule,
+    CreditGrantRuleType,
+    CreditRedeemCode,
+    CreditRedemption,
     ExecutionRecord,
     # Generation
     GenerationRecord,
@@ -49,6 +53,8 @@ from .models import (
     User,
     # Knowledge
     UserKnowledge,
+    # Referral
+    Referral,
     # Workspace
     Workspace,
     WorkspaceReference,
@@ -120,6 +126,13 @@ __all__ = [
     # Models - Knowledge
     "UserKnowledge",
     "KnowledgeCategory",
+    # Models - Credit Grant Rules
+    "CreditGrantRule",
+    "CreditGrantRuleType",
+    "CreditRedeemCode",
+    "CreditRedemption",
+    # Models - Referral
+    "Referral",
     # Models - Latex
     "LatexProject",
     "LatexTemplate",

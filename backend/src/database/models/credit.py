@@ -34,6 +34,8 @@ class CreditTransactionType(StrEnum):
     THREAD_TOKEN_CONSUME = "thread_token_consume"
     REGISTRATION_BONUS = "registration_bonus"
     REFUND = "refund"
+    REFERRAL_BONUS = "referral_bonus"
+    REDEEM_CODE = "redeem_code"
 
 
 class CreditTransaction(Base, UUIDMixin):

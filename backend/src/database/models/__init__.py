@@ -7,6 +7,9 @@ from .capability import Capability
 from .capability_skill import CapabilitySkill
 from .compute_session import ComputeSessionRecord
 from .credit import CreditTransaction, CreditTransactionType
+from .credit_grant_rule import CreditGrantRule, CreditGrantRuleType
+from .credit_redeem_code import CreditRedeemCode
+from .credit_redemption import CreditRedemption
 from .decision import Decision
 from .document_v2 import DocumentV2
 from .execution import ExecutionRecord
@@ -18,6 +21,7 @@ from .latex_project import LatexProject
 from .latex_template import LatexTemplate
 from .library_item import LibraryItem
 from .memory_fact import MemoryFact
+from .referral import Referral
 from .reference import (
     ReferenceAcceptedStatus,
     ReferenceAsset,
@@ -81,6 +85,10 @@ __all__ = [
     # Credit
     "CreditTransaction",
     "CreditTransactionType",
+    "CreditGrantRule",
+    "CreditGrantRuleType",
+    "CreditRedeemCode",
+    "CreditRedemption",
     "ComputeSessionRecord",
     # Admin Audit
     "AdminLog",
@@ -117,6 +125,8 @@ __all__ = [
     "Decision",
     # Room: Memory
     "MemoryFact",
+    # Referral
+    "Referral",
     # Room: Run History
     "RunHistory",
     # Room: Sandbox
