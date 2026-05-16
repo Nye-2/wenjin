@@ -79,26 +79,6 @@ class ReleaseGateService:
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
-                check_id="workspace_e2e_matrix",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/workspace_features/test_workspace_e2e_matrix.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="feature_submission_service_regression",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/application/services/test_feature_submission_service.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
                 check_id="executor_dual_mode",
                 command=self._uv_command(
                     "run",
@@ -135,16 +115,6 @@ class ReleaseGateService:
                     "run",
                     "pytest",
                     "tests/task/test_agent_status.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="workspace_lock",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/application/services/test_feature_submission_workspace_lock.py",
                     "-q",
                 ),
                 cwd=self.backend_root,
@@ -217,16 +187,6 @@ class ReleaseGateService:
                     "pytest",
                     "tests/services/test_prism_review_workflow_gate.py",
                     "tests/compute/test_projection_service.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="sci_reference_search",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/workspace_features/services/test_sci_feature_service.py",
                     "-q",
                 ),
                 cwd=self.backend_root,

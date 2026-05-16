@@ -13,7 +13,6 @@ _EXPORT_MODULES = {
     "get_credit_service": "src.gateway.deps.dashboard",
     "get_dashboard_service": "src.gateway.deps.dashboard",
     "get_db": "src.gateway.deps.core",
-    "get_feature_launch_service": "src.gateway.deps.application",
     "get_reference_index_service": "src.gateway.deps.academic",
     "get_reference_service": "src.gateway.deps.academic",
     "get_release_gate_service": "src.gateway.deps.dashboard",
