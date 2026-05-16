@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User
+from src.database import User, get_db_session
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_dashboard_service,
@@ -44,7 +44,7 @@ from src.services.feature_action_resolution_service import resolve_feature_actio
 from src.services.workspace_activity_service import WorkspaceActivityService
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.services.workspace_summary_service import WorkspaceSummaryService
-from src.workspace_features import get_workspace_feature, list_workspace_features
+from src.database.models.capability import Capability
 from src.workspace_events import stream_workspace_events
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
@@ -281,13 +281,37 @@ async def list_workspace_features_catalog(
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(Capability)
+            .where(Capability.workspace_type == workspace_type)
+            .where(Capability.enabled == True)  # noqa: E712
+        )
+        capabilities = sorted(
+            result.scalars().all(),
+            key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id),
+        )
+        features = [
+            {
+                "id": c.id,
+                "name": c.display_name,
+                "description": c.description,
+                "icon": (c.ui_meta or {}).get("icon"),
+                "stages": [
+                    {"id": s.get("id"), "label": s.get("label")}
+                    for s in ((c.ui_meta or {}).get("stages") or [])
+                    if isinstance(s, dict)
+                ],
+                "color": (c.ui_meta or {}).get("color"),
+                "followUpPrompt": (c.ui_meta or {}).get("follow_up_prompt"),
+            }
+            for c in capabilities
+        ]
+
     return WorkspaceFeaturesResponse(
         workspace_id=workspace_id,
         workspace_type=workspace_type,
-        features=[
-            feature.to_api_dict()
-            for feature in list_workspace_features(workspace_type)
-        ],
+        features=features,
     )
 
 
@@ -314,8 +338,15 @@ async def resolve_workspace_feature_action(
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    feature = get_workspace_feature(workspace_type, feature_id)
-    if feature is None:
+    async with get_db_session() as cap_db:
+        cap_result = await cap_db.execute(
+            select(Capability).where(
+                Capability.id == feature_id,
+                Capability.workspace_type == workspace_type,
+            )
+        )
+        capability = cap_result.scalars().first()
+    if capability is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Feature '{feature_id}' not found for workspace type '{workspace_type}'",
@@ -334,7 +365,7 @@ async def resolve_workspace_feature_action(
         artifacts=artifacts,
         orchestration_params=request.orchestration_params,
         explicit_source_artifact_id=request.source_artifact_id,
-        follow_up_prompt=feature.follow_up_prompt or "",
+        follow_up_prompt=(capability.ui_meta or {}).get("follow_up_prompt") or "",
     )
     return ResolveFeatureActionResponse(**payload)
 

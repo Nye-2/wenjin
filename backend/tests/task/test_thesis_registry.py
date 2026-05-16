@@ -1,42 +1,44 @@
-"""Tests for thesis workspace feature registry updates."""
+"""Tests for thesis workspace capability data in the capabilities table."""
 
-from src.workspace_features.registry import get_workspace_feature, list_workspace_features
+import pytest
+from sqlalchemy import select
+
+from src.database.models.capability import Capability
+from src.database import get_db_session
 
 
-class TestThesisRegistryUpdate:
-    """Tests verifying thesis feature registry design."""
+@pytest.mark.asyncio
+async def test_thesis_has_core_capabilities():
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(Capability).where(
+                Capability.workspace_type == "thesis",
+                Capability.enabled == True,  # noqa: E712
+            )
+        )
+        ids = sorted(c.id for c in result.scalars().all())
+    expected = [
+        "deep_research",
+        "figure_generation",
+        "literature_management",
+        "opening_research",
+        "outline_generate",
+        "section_revise",
+        "section_write",
+    ]
+    assert ids == expected
 
-    def test_thesis_has_five_features(self):
-        features = list_workspace_features("thesis")
-        assert len(features) == 5
 
-    def test_thesis_feature_ids(self):
-        features = list_workspace_features("thesis")
-        ids = [f.id for f in features]
-        assert ids == [
-            "deep_research",
-            "literature_management",
-            "opening_research",
-            "thesis_writing",
-            "figure_generation",
-        ]
-
-    def test_deep_research_feature_exists(self):
-        f = get_workspace_feature("thesis", "deep_research")
-        assert f is not None
-        assert f.id == "deep_research"
-
-    def test_thesis_writing_feature_exists(self):
-        f = get_workspace_feature("thesis", "thesis_writing")
-        assert f is not None
-        assert f.id == "thesis_writing"
-
-    def test_literature_management_has_no_panel(self):
-        f = get_workspace_feature("thesis", "literature_management")
-        assert f is not None
-        assert f.panel is None
-
-    def test_old_thesis_features_removed(self):
-        """Old feature IDs should no longer exist."""
-        for old_id in ("outline", "literature", "chapter", "figure", "compile", "export"):
-            assert get_workspace_feature("thesis", old_id) is None
+@pytest.mark.asyncio
+async def test_thesis_capability_fields_populated():
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(Capability).where(
+                Capability.workspace_type == "thesis",
+                Capability.id == "deep_research",
+            )
+        )
+        cap = result.scalars().first()
+    assert cap is not None
+    assert cap.display_name
+    assert cap.description

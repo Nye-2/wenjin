@@ -6,8 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.services.dashboard_service import DashboardService
-from src.workspace_features import CANONICAL_WORKSPACE_TYPES, list_workspace_features
 from tests.database.conftest import _Capability as DbCapability
+
+CANONICAL_WORKSPACE_TYPES = ("sci", "thesis", "proposal", "software_copyright", "patent")
 
 
 def _make_capability(
@@ -58,19 +59,24 @@ class _ScalarOneOrNoneResult:
         return self._item
 
 
-def test_dashboard_status_builders_cover_workspace_registry() -> None:
+@pytest.mark.asyncio
+async def test_dashboard_status_builders_cover_capabilities(test_session) -> None:
+    """Every capability with a dashboard_meta.status_kind must have a matching mixin method."""
+    from sqlalchemy import select
+    from src.database.models.capability import Capability
+
     service = DashboardService(AsyncMock())
-    expected_method_names = {
-        f"_get_{feature.id}_status"
-        for workspace_type in CANONICAL_WORKSPACE_TYPES
-        for feature in list_workspace_features(workspace_type)
-    }
-    missing_methods = [
-        method_name
-        for method_name in sorted(expected_method_names)
-        if not hasattr(service, method_name)
-    ]
-    assert missing_methods == []
+    result = await test_session.execute(
+        select(Capability).where(Capability.enabled == True)  # noqa: E712
+    )
+    capabilities = result.scalars().all()
+    missing = []
+    for cap in capabilities:
+        status_kind = (cap.dashboard_meta or {}).get("status_kind", cap.id)
+        method_name = f"_get_{status_kind}_status"
+        if not hasattr(service, method_name):
+            missing.append(method_name)
+    assert missing == [], f"Missing mixin methods: {missing}"
 
 
 @pytest.mark.asyncio

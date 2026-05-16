@@ -1,6 +1,7 @@
 """Tests for workspace activity router surface."""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -26,7 +27,7 @@ def _mock_workspace(user_id: str = "user-1"):
     return workspace
 
 
-def _create_client(user, workspace_service, activity_service):
+def _create_client(user, workspace_service, activity_service, *, patch_db_session=False, db_capabilities=None):
     app = FastAPI()
 
     async def override_get_current_user():
@@ -43,6 +44,35 @@ def _create_client(user, workspace_service, activity_service):
     app.dependency_overrides[workspaces.get_workspace_activity_service] = (
         override_get_workspace_activity_service
     )
+
+    if patch_db_session:
+        _patcher = patch("src.gateway.routers.workspaces.get_db_session")
+        _mock_session_ctx = _patcher.start()
+
+        class _MockResult:
+            def scalars(self):
+                return self
+            def all(self):
+                return self._items
+            def first(self):
+                return self._items[0] if self._items else None
+
+        _deep_research = SimpleNamespace(
+            id="deep_research",
+            display_name="深度调研",
+            description="深度调研论文主题",
+            ui_meta={"icon": "search", "order": 0, "follow_up_prompt": "继续调研"},
+            dashboard_meta={"status_kind": "deep_research"},
+        )
+
+        _items = db_capabilities if db_capabilities is not None else [_deep_research]
+        _mock_db = AsyncMock()
+        _mock_db.execute = AsyncMock(return_value=_MockResult())
+        _mock_db.execute.return_value._items = _items
+        _mock_db.commit = AsyncMock()
+        _mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=_mock_db)
+        _mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
     app.include_router(workspaces.router)
     return TestClient(app)
 
@@ -213,7 +243,7 @@ def test_workspace_features_returns_catalog():
     workspace_service.get = AsyncMock(return_value=_mock_workspace())
 
     activity_service = AsyncMock()
-    client = _create_client(_mock_user(), workspace_service, activity_service)
+    client = _create_client(_mock_user(), workspace_service, activity_service, patch_db_session=True)
 
     response = client.get("/workspaces/ws-1/features")
 
@@ -229,7 +259,7 @@ def test_workspace_feature_action_resolution_returns_backend_state():
     workspace_service.get = AsyncMock(return_value=_mock_workspace())
 
     activity_service = AsyncMock()
-    client = _create_client(_mock_user(), workspace_service, activity_service)
+    client = _create_client(_mock_user(), workspace_service, activity_service, patch_db_session=True)
 
     artifact = MagicMock()
     artifact.id = "artifact-2"
@@ -276,7 +306,7 @@ def test_workspace_feature_action_resolution_returns_404_for_unknown_feature():
     workspace_service.get = AsyncMock(return_value=_mock_workspace())
 
     activity_service = AsyncMock()
-    client = _create_client(_mock_user(), workspace_service, activity_service)
+    client = _create_client(_mock_user(), workspace_service, activity_service, patch_db_session=True, db_capabilities=[])
 
     response = client.post(
         "/workspaces/ws-1/features/unknown_feature/resolve-action",
