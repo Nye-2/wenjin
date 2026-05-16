@@ -32,23 +32,21 @@ async def _get_resolver(request: Request) -> "CapabilityResolver":
     """Return the per-app CapabilityResolver singleton.
 
     Created lazily on first call and cached on ``app.state``.
-    Uses a minimal no-op EventBus stub so the resolver can be instantiated
-    without a live Redis connection in the gateway process.
+    Wires the real Redis-backed EventBus for cache invalidation.
     """
     from src.services.capability_resolver import CapabilityResolver
 
     if not hasattr(request.app.state, "capability_resolver"):
+        from src.academic.cache.redis_client import redis_client
         from src.database import get_db_session
+        from src.services.event_bus import EventBus
 
-        class _NoOpEventBus:
-            """Minimal EventBus stub — real bus wired in Phase 2."""
-
-            def subscribe(self, channel: str, handler: Any) -> None:  # noqa: ANN401
-                pass  # no-op
+        if redis_client._client is None:
+            await redis_client.connect()
 
         resolver = CapabilityResolver(
             session_factory=get_db_session,
-            event_bus=_NoOpEventBus(),  # type: ignore[arg-type]
+            event_bus=EventBus(redis_client.client),
         )
         request.app.state.capability_resolver = resolver
 
@@ -61,10 +59,23 @@ async def _get_resolver(request: Request) -> "CapabilityResolver":
 
 
 def _capability_to_dict(cap: Any) -> dict[str, Any]:
-    """Convert a Capability ORM row to a plain dict."""
-    if hasattr(cap, "__dict__"):
-        return {k: v for k, v in cap.__dict__.items() if not k.startswith("_")}
-    return dict(cap)
+    """Convert a Capability ORM row to a plain dict with explicit field mapping."""
+    return {
+        "id": cap.id,
+        "workspace_type": cap.workspace_type,
+        "enabled": cap.enabled,
+        "display_name": cap.display_name,
+        "description": cap.description,
+        "intent_description": cap.intent_description,
+        "trigger_phrases": cap.trigger_phrases,
+        "required_decisions": cap.required_decisions,
+        "brief_schema": cap.brief_schema,
+        "graph_template": cap.graph_template,
+        "ui_meta": cap.ui_meta,
+        "runtime": cap.runtime,
+        "dashboard_meta": cap.dashboard_meta,
+        "notes": cap.notes,
+    }
 
 
 # ---------------------------------------------------------------------------
