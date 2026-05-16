@@ -54,10 +54,8 @@ def _runtime_context(config: RunnableConfig | None) -> _RuntimeContext:
 def _capability_to_feature_dict(cap: Any) -> dict[str, Any]:
     """Build the per-feature payload from a Capability row.
 
-    Mirrors the v1 ``WorkspaceFeatureDefinition.to_api_dict`` shape minus the
-    retired ``agent``/``agentLabel``/``panel`` fields (chat_agent prompts never
-    referenced them in v2). Pulls icon/color/stages/follow_up_prompt from
-    ``ui_meta`` so capability authors can tune the catalog without touching code.
+    Returns id, name, description, icon, stages, color, followUpPrompt.
+    Display metadata (icon/color/stages/follow_up_prompt) comes from ui_meta.
     """
     ui_meta = cap.ui_meta or {}
     stages_raw = ui_meta.get("stages") or []

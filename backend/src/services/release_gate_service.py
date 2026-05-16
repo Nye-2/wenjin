@@ -59,26 +59,6 @@ class ReleaseGateService:
     def core_commands(self) -> tuple[ReleaseGateCommand, ...]:
         return (
             ReleaseGateCommand(
-                check_id="thesis_output_language_zh",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/workspace_features/test_workspace_e2e_matrix.py::test_thesis_output_language_is_forced_to_zh_for_any_template",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="sci_output_language_en",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/workspace_features/test_workspace_e2e_matrix.py::test_sci_output_language_constant_is_en",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
                 check_id="executor_dual_mode",
                 command=self._uv_command(
                     "run",

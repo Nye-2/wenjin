@@ -59,7 +59,7 @@ async def test_run_without_extended_keeps_extended_gate_pending():
         service,
         "_execute_checks",
         return_value=(
-            {"thesis_output_language_zh": True, "sci_output_language_en": True},
+            {"executor_dual_mode": True, "observability_sentry": True},
             {},
         ),
     ) as mock_execute:

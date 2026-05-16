@@ -1,9 +1,4 @@
-"""Pydantic schema models for capability YAMLs.
-
-Built up incrementally:
-- P6 introduces: RuntimeProfileModel, DashboardMetaModel, FeatureRuntimeMode
-- P3 will add: CapabilityYamlModel, CapabilitySkillYamlModel, CrossRefValidator
-"""
+"""Pydantic schema models for capability YAMLs."""
 
 from __future__ import annotations
 
@@ -14,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class FeatureRuntimeMode(StrEnum):
-    """Execution mode for a capability. Mirrors v1 enum from workspace_features.runtime_profiles."""
+    """Execution mode for a capability."""
     CHAT_ONLY = "chat_only"
     DETERMINISTIC = "deterministic"
     COMPUTE_WORKFLOW = "compute_workflow"
@@ -31,5 +26,6 @@ class RuntimeProfileModel(BaseModel):
 
 class DashboardMetaModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    status_kind: str = "default"      # which DashboardService mixin to call
-    panel: str | None = None          # legacy panel name (kept for compatibility)
+    status_kind: str = "default"
+    hidden: bool = False
+    panel: str | None = None

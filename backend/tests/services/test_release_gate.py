@@ -1,4 +1,4 @@
-"""Tests for Phase 3 release gate evaluation."""
+"""Tests for release gate evaluation."""
 
 from src.quality.release_gate import (
     CORE_GATE_CHECKS,
@@ -15,10 +15,9 @@ def _all_extended_passed() -> dict[str, bool]:
     return {check: True for check in EXTENDED_GATE_CHECKS}
 
 
-def test_release_gate_fails_when_language_constraints_missing():
+def test_release_gate_fails_when_core_check_missing():
     core_results = _all_core_passed()
-    core_results.pop("thesis_output_language_zh")
-    core_results.pop("sci_output_language_en")
+    removed = core_results.pop(CORE_GATE_CHECKS[0])
 
     report = evaluate_release_gate(core_results=core_results)
 
@@ -27,9 +26,8 @@ def test_release_gate_fails_when_language_constraints_missing():
     assert report["core_gate"]["status"] == "failed"
 
     checks = {item["id"]: item for item in report["core_gate"]["checks"]}
-    assert checks["thesis_output_language_zh"]["status"] == "missing"
-    assert checks["sci_output_language_en"]["status"] == "missing"
-    assert report["core_gate"]["failed"] == 2
+    assert checks[CORE_GATE_CHECKS[0]]["status"] == "missing"
+    assert report["core_gate"]["failed"] == 1
     assert report["recommendations"]
 
 

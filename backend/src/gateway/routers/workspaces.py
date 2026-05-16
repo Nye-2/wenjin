@@ -306,6 +306,7 @@ async def list_workspace_features_catalog(
                 "followUpPrompt": (c.ui_meta or {}).get("follow_up_prompt"),
             }
             for c in capabilities
+            if not (c.dashboard_meta or {}).get("hidden")
         ]
 
     return WorkspaceFeaturesResponse(

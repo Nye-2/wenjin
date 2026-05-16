@@ -6,16 +6,13 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DOC_ROOTS = [
-    REPO_ROOT / "docs" / "architecture",
-    REPO_ROOT / "docs" / "product",
+    REPO_ROOT / "docs" / "current",
     REPO_ROOT / "backend" / "docs",
 ]
 DOC_FILES = [
     REPO_ROOT / "README.md",
     REPO_ROOT / "backend" / "README.md",
     REPO_ROOT / "frontend" / "README.md",
-    REPO_ROOT / "docs" / "README.md",
-    REPO_ROOT / "docs" / "documentation-map.md",
 ]
 
 FORBIDDEN_CURRENT_DOC_PHRASES = (
@@ -35,8 +32,7 @@ FORBIDDEN_CURRENT_DOC_PHRASES = (
 )
 
 REQUIRED_CURRENT_DOC_PHRASES = (
-    "FeatureIngressService",
-    "SSOT",
+    "Capability",
     "Compute",
     "WenjinPrism",
 )

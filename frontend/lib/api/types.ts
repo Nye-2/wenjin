@@ -882,8 +882,8 @@ export interface WorkspaceFeature {
   name: string;
   description: string;
   icon: string;
-  agent: string;
-  agentLabel: string;
+  agent?: string;
+  agentLabel?: string;
   panel?: string | null;
   stages: FeatureStage[];
   color?: string;

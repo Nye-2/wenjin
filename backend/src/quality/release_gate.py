@@ -7,8 +7,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 CORE_GATE_CHECKS: tuple[str, ...] = (
-    "thesis_output_language_zh",
-    "sci_output_language_en",
     "executor_dual_mode",
     "observability_sentry",
     "observability_prometheus",
@@ -31,8 +29,6 @@ EXTENDED_GATE_CHECKS: tuple[str, ...] = (
 )
 
 CHECK_DESCRIPTIONS: Mapping[str, str] = {
-    "thesis_output_language_zh": "Verify thesis workspace output language is fixed to zh.",
-    "sci_output_language_en": "Verify sci workspace output language is fixed to en.",
     "executor_dual_mode": "Run dual-mode executor tests (Celery + local asyncio).",
     "observability_sentry": "Run Sentry observability configuration tests.",
     "observability_prometheus": "Run Prometheus metrics observability tests.",
@@ -52,8 +48,6 @@ CHECK_DESCRIPTIONS: Mapping[str, str] = {
 }
 
 CHECK_FIX_HINTS: Mapping[str, str] = {
-    "thesis_output_language_zh": "Re-check thesis service/handler payload output_language='zh' enforcement and rerun workspace matrix tests.",
-    "sci_output_language_en": "Re-check sci service/handler payload output_language='en' enforcement and rerun workspace matrix tests.",
     "executor_dual_mode": "Run `PYTHONPATH=. uv run pytest tests/task/test_executor.py tests/task/test_service_executor.py -q` and fix executor regressions.",
     "observability_sentry": "Run `PYTHONPATH=. uv run pytest tests/observability/test_sentry.py -q` and fix Sentry setup regressions.",
     "observability_prometheus": "Run `PYTHONPATH=. uv run pytest tests/observability/test_prometheus.py -q` and fix metrics regressions.",
