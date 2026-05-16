@@ -20,7 +20,6 @@ CORE_GATE_CHECKS: tuple[str, ...] = (
     "artifact_followup_workflow",
     "reference_writing_workflow",
     "prism_review_workflow",
-    "sci_reference_search",
     "auth_email_workflow",
     "frontend_typescript_check",
 )
@@ -45,7 +44,6 @@ CHECK_DESCRIPTIONS: Mapping[str, str] = {
     "artifact_followup_workflow": "Run artifact open, follow-up, and rerun seed workflow gate tests.",
     "reference_writing_workflow": "Run Reference Library evidence, usage, BibTeX, and Prism workflow gate tests.",
     "prism_review_workflow": "Run Prism pending-review, file-change, and compute projection workflow gate tests.",
-    "sci_reference_search": "Run SCI reference search feature service tests.",
     "auth_email_workflow": "Run auth registration, email verification code, and frontend auth flow contract tests.",
     "frontend_typescript_check": "Run frontend TypeScript compile check.",
     "integration_tool_chain": "Run integration test for tool chain.",
@@ -67,7 +65,6 @@ CHECK_FIX_HINTS: Mapping[str, str] = {
     "artifact_followup_workflow": "Run `PYTHONPATH=. uv run pytest tests/services/test_workspace_activity_service.py::test_task_activity_promotes_result_artifact_as_retry_seed -q` and fix artifact follow-up route seed regressions.",
     "reference_writing_workflow": "Run `PYTHONPATH=. uv run pytest tests/services/test_reference_writing_workflow_gate.py -q` and fix Reference Library writing workflow regressions.",
     "prism_review_workflow": "Run `PYTHONPATH=. uv run pytest tests/services/test_prism_review_workflow_gate.py tests/compute/test_projection_service.py -q` and fix Prism review workflow regressions.",
-    "sci_reference_search": "Run SCI reference search integration tests and fix regressions.",
     "auth_email_workflow": "Run `PYTHONPATH=. uv run pytest tests/services/test_auth_email_workflow_gate.py tests/gateway/routers/test_auth.py tests/services/test_email_service.py -q` and fix login/register verification regressions.",
     "frontend_typescript_check": "Run `cd frontend && npx tsc --noEmit` and resolve TypeScript errors.",
     "integration_tool_chain": "Run `PYTHONPATH=. uv run pytest tests/integration/test_tool_chain.py -q` and fix external chain regressions.",
