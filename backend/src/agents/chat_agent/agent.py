@@ -539,9 +539,9 @@ def get_available_tools(
         glob_tool,
         grep_tool,
         launch_feature_tool,
+        list_capabilities_tool,
         list_reference_library_tool,
         list_workspace_artifacts_tool,
-        list_workspace_features_tool,
         ls_tool,
         present_files_tool,
         read_file_tool,
@@ -568,7 +568,7 @@ def get_available_tools(
     tools.append(ask_clarification_tool)
     tools.append(launch_feature_tool)
     tools.extend([
-        list_workspace_features_tool,
+        list_capabilities_tool,
         list_workspace_artifacts_tool,
         list_reference_library_tool,
         search_reference_text_units_tool,

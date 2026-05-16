@@ -12,8 +12,8 @@ from .references import (
 )
 from .view_image import view_image_tool
 from .workspace import (
+    list_capabilities_tool,
     list_workspace_artifacts_tool,
-    list_workspace_features_tool,
 )
 
 __all__ = [
@@ -28,7 +28,7 @@ __all__ = [
     "ask_clarification_tool",
     "launch_feature_tool",
     "present_files_tool",
-    "list_workspace_features_tool",
+    "list_capabilities_tool",
     "list_workspace_artifacts_tool",
     "list_reference_library_tool",
     "search_reference_text_units_tool",

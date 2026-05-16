@@ -17,8 +17,8 @@ from src.database import Artifact, Workspace, get_db_session
 from src.database.models.capability import Capability
 
 
-class ListWorkspaceFeaturesInput(BaseModel):
-    """Input for list_workspace_features."""
+class ListCapabilitiesInput(BaseModel):
+    """Input for list_capabilities."""
 
 
 class ListWorkspaceArtifactsInput(BaseModel):
@@ -79,11 +79,11 @@ def _capability_to_feature_dict(cap: Any) -> dict[str, Any]:
     }
 
 
-@tool("list_workspace_features", args_schema=ListWorkspaceFeaturesInput)
-async def list_workspace_features_tool(
+@tool("list_capabilities", args_schema=ListCapabilitiesInput)
+async def list_capabilities_tool(
     config: RunnableConfig | None = None,
 ) -> str:
-    """List available workspace features for the current workspace."""
+    """List available workspace capabilities for the current workspace."""
     runtime = _runtime_context(config)
     if runtime.workspace_id is None or runtime.user_id is None:
         return json.dumps({"error": "runtime_context_missing"}, ensure_ascii=False)

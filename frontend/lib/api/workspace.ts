@@ -18,7 +18,6 @@ import type {
   ExecutionRecord,
   WorkspacePrismEnsureResponse,
   WorkspaceExecutionsResponse,
-  WorkspaceFeature,
   WorkspaceSummaryData,
   WorkspaceTemplate,
 } from "@/lib/api/types";
@@ -357,13 +356,6 @@ export async function listArtifacts(
   const response = await apiClient.get(`/workspaces/${workspaceId}/artifacts`, {
     params,
   });
-  return response.data;
-}
-
-export async function getWorkspaceFeatures(
-  workspaceId: string
-): Promise<{ features: WorkspaceFeature[] }> {
-  const response = await apiClient.get(`/workspaces/${workspaceId}/features`);
   return response.data;
 }
 

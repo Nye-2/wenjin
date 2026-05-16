@@ -131,14 +131,6 @@ class WorkspaceExecutionsResponse(BaseModel):
     count: int
 
 
-class WorkspaceFeaturesResponse(BaseModel):
-    """Canonical feature catalog for the current workspace."""
-
-    workspace_id: str
-    workspace_type: str
-    features: list[dict[str, Any]]
-
-
 class ResolveFeatureActionRequest(BaseModel):
     """Resolve canonical follow-up / rerun routing for a workspace feature."""
 

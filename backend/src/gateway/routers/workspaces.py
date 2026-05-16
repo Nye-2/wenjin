@@ -23,7 +23,6 @@ from src.gateway.routers.workspaces_contracts import (
     UpdateWorkspaceRequest,
     WorkspaceActivityResponse,
     WorkspaceExecutionsResponse,
-    WorkspaceFeaturesResponse,
     WorkspacePrismEnsureResponse,
     WorkspaceResponse,
     WorkspacesListResponse,
@@ -261,58 +260,6 @@ async def get_workspace_dashboard(
     return await dashboard_service.get_dashboard(
         workspace_id,
         workspace_type=workspace_type,
-    )
-
-
-@router.get("/{workspace_id}/features", response_model=WorkspaceFeaturesResponse)
-async def list_workspace_features_catalog(
-    workspace_id: str,
-    current_user: User = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-) -> WorkspaceFeaturesResponse:
-    """Return the canonical feature catalog for the workspace type."""
-    workspace = await get_owned_workspace(
-        workspace_id=workspace_id,
-        current_user=current_user,
-        workspace_service=workspace_service,
-    )
-    try:
-        workspace_type = workspace_type_value(workspace)
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    async with get_db_session() as db:
-        result = await db.execute(
-            select(Capability)
-            .where(Capability.workspace_type == workspace_type)
-            .where(Capability.enabled == True)  # noqa: E712
-        )
-        capabilities = sorted(
-            result.scalars().all(),
-            key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id),
-        )
-        features = [
-            {
-                "id": c.id,
-                "name": c.display_name,
-                "description": c.description,
-                "icon": (c.ui_meta or {}).get("icon"),
-                "stages": [
-                    {"id": s.get("id"), "label": s.get("label")}
-                    for s in ((c.ui_meta or {}).get("stages") or [])
-                    if isinstance(s, dict)
-                ],
-                "color": (c.ui_meta or {}).get("color"),
-                "followUpPrompt": (c.ui_meta or {}).get("follow_up_prompt"),
-            }
-            for c in capabilities
-            if not (c.dashboard_meta or {}).get("hidden")
-        ]
-
-    return WorkspaceFeaturesResponse(
-        workspace_id=workspace_id,
-        workspace_type=workspace_type,
-        features=features,
     )
 
 

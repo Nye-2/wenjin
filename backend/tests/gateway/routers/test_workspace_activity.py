@@ -238,22 +238,6 @@ def test_workspace_executions_returns_items():
     assert payload["items"][0]["result"] is None
 
 
-def test_workspace_features_returns_catalog():
-    workspace_service = AsyncMock()
-    workspace_service.get = AsyncMock(return_value=_mock_workspace())
-
-    activity_service = AsyncMock()
-    client = _create_client(_mock_user(), workspace_service, activity_service, patch_db_session=True)
-
-    response = client.get("/workspaces/ws-1/features")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["workspace_id"] == "ws-1"
-    assert payload["workspace_type"] == "thesis"
-    assert any(feature["id"] == "deep_research" for feature in payload["features"])
-
-
 def test_workspace_feature_action_resolution_returns_backend_state():
     workspace_service = AsyncMock()
     workspace_service.get = AsyncMock(return_value=_mock_workspace())
