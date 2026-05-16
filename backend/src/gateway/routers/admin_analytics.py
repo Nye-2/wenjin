@@ -1,0 +1,92 @@
+"""Admin analytics endpoints."""
+
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from fastapi import APIRouter, Depends, Query
+
+from src.database import User
+from src.gateway.auth_dependencies import get_current_admin
+from src.gateway.deps.core import get_db
+from src.services.admin_analytics_cache import cached
+from src.services.admin_analytics_service import AdminAnalyticsService
+
+router = APIRouter(tags=["dashboard"])
+
+Granularity = Literal["day", "week"]
+
+
+def _get_service(db=Depends(get_db)) -> AdminAnalyticsService:
+    return AdminAnalyticsService(db)
+
+
+def _parse_range(range_str: str) -> int:
+    if range_str.endswith("d"):
+        return int(range_str[:-1])
+    return int(range_str)
+
+
+@router.get("/dashboard/admin/analytics/user-growth")
+async def user_growth(
+    range: str = Query("30d"),
+    granularity: Granularity = Query("day"),
+    cache_bust: bool = Query(False),
+    service: AdminAnalyticsService = Depends(_get_service),
+    _admin: User = Depends(get_current_admin),
+) -> dict[str, Any]:
+    days = _parse_range(range)
+    return await cached(
+        cache_key=f"analytics:user-growth:{days}:{granularity}",
+        fetcher=lambda: service.user_growth(range_days=days, granularity=granularity),
+        cache_bust=cache_bust,
+    )
+
+
+@router.get("/dashboard/admin/analytics/execution-stats")
+async def execution_stats(
+    range: str = Query("30d"),
+    granularity: Granularity = Query("day"),
+    cache_bust: bool = Query(False),
+    service: AdminAnalyticsService = Depends(_get_service),
+    _admin: User = Depends(get_current_admin),
+) -> dict[str, Any]:
+    days = _parse_range(range)
+    return await cached(
+        cache_key=f"analytics:execution-stats:{days}:{granularity}",
+        fetcher=lambda: service.execution_stats(
+            range_days=days, granularity=granularity
+        ),
+        cache_bust=cache_bust,
+    )
+
+
+@router.get("/dashboard/admin/analytics/credit-consumption")
+async def credit_consumption(
+    range: str = Query("30d"),
+    granularity: Granularity = Query("day"),
+    cache_bust: bool = Query(False),
+    service: AdminAnalyticsService = Depends(_get_service),
+    _admin: User = Depends(get_current_admin),
+) -> dict[str, Any]:
+    days = _parse_range(range)
+    return await cached(
+        cache_key=f"analytics:credit-consumption:{days}:{granularity}",
+        fetcher=lambda: service.credit_consumption_stats(
+            range_days=days, granularity=granularity
+        ),
+        cache_bust=cache_bust,
+    )
+
+
+@router.get("/dashboard/admin/analytics/workspace-adoption")
+async def workspace_adoption(
+    cache_bust: bool = Query(False),
+    service: AdminAnalyticsService = Depends(_get_service),
+    _admin: User = Depends(get_current_admin),
+) -> dict[str, Any]:
+    return await cached(
+        cache_key="analytics:workspace-adoption",
+        fetcher=lambda: service.workspace_adoption_stats(),
+        cache_bust=cache_bust,
+    )
