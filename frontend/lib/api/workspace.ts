@@ -14,6 +14,7 @@ import type {
   TaskStatus,
   Workspace,
   WorkspaceActivityResponse,
+  WorkspaceCapability,
   WorkspaceCreate,
   ExecutionRecord,
   WorkspacePrismEnsureResponse,
@@ -487,6 +488,15 @@ export async function resolveFeatureAction(
   const response = await apiClient.post(
     `/workspaces/${workspaceId}/features/${featureId}/resolve-action`,
     data
+  );
+  return response.data;
+}
+
+export async function getWorkspaceFeatures(
+  workspaceId: string
+): Promise<{ features: WorkspaceCapability[] }> {
+  const response = await apiClient.get(
+    `/workspaces/${workspaceId}/capabilities`
   );
   return response.data;
 }

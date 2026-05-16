@@ -13,7 +13,7 @@ import { SettingsPage } from "./components/rooms/SettingsPage";
 import { getWorkspace } from "@/lib/api/workspace";
 import { authorizedFetch } from "@/lib/api/client";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
-import type { WorkspaceFeature } from "@/lib/api/types";
+import type { WorkspaceCapability } from "@/lib/api/types";
 
 const SETTINGS_ROOMS = new Set<string>([
   "decisions",
@@ -36,7 +36,7 @@ export default function V2Page({
     name: string;
     type: string;
   } | null>(null);
-  const [features, setFeatures] = useState<WorkspaceFeature[]>([]);
+  const [features, setFeatures] = useState<WorkspaceCapability[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,16 +54,14 @@ export default function V2Page({
           items?: Array<Record<string, unknown>>;
         };
         if (cancelled) return;
-        const mapped: WorkspaceFeature[] = (data.items ?? []).map((c) => ({
+        const mapped: WorkspaceCapability[] = (data.items ?? []).map((c) => ({
           id: c.id as string,
           name: (c.display_name as string) ?? (c.id as string) ?? "",
           description:
             (c.description as string) ||
             (c.intent_description as string) ||
             "",
-          icon: "",
-          agent: "",
-          agentLabel: "",
+          icon: ((c.ui_meta as Record<string, unknown> | undefined)?.icon as string) ?? "",
           stages: [],
         }));
         setFeatures(mapped);

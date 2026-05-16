@@ -1,4 +1,4 @@
-import type { WorkspaceFeature } from "@/lib/api";
+import type { WorkspaceCapability } from "@/lib/api";
 
 type SearchParamsLike = {
   get(name: string): string | null;
@@ -85,7 +85,7 @@ export function parseWorkspaceThreadEntrySeed(
  */
 export function buildWorkspaceThreadEntryPrompt(options: {
   seed: WorkspaceThreadEntrySeed;
-  feature?: Pick<WorkspaceFeature, "name" | "description"> | null;
+  feature?: Pick<WorkspaceCapability, "name" | "description"> | null;
 }): string {
   const { seed, feature } = options;
 

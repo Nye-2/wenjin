@@ -1,20 +1,21 @@
 // frontend/stores/features.ts
 
 import { create } from 'zustand';
-import { getWorkspaceFeatures, WorkspaceFeature } from '@/lib/api';
+import { getWorkspaceFeatures } from '@/lib/api/workspace';
+import type { WorkspaceCapability } from '@/lib/api/types';
 
 interface FeaturesState {
   activeWorkspaceId: string | null;
-  featuresByWorkspace: Record<string, WorkspaceFeature[]>;
+  featuresByWorkspace: Record<string, WorkspaceCapability[]>;
   featureRequestIdByWorkspace: Record<string, string>;
-  features: WorkspaceFeature[];
+  features: WorkspaceCapability[];
   isLoading: boolean;
   error: string | null;
 
   // Actions
   setActiveWorkspace: (workspaceId: string | null) => void;
   fetchFeatures: (workspaceId: string) => Promise<void>;
-  getFeatureById: (featureId: string) => WorkspaceFeature | undefined;
+  getFeatureById: (featureId: string) => WorkspaceCapability | undefined;
   clearFeatures: () => void;
 }
 

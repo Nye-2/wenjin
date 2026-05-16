@@ -877,14 +877,11 @@ export interface FeatureStage {
   label: string;
 }
 
-export interface WorkspaceFeature {
+export interface WorkspaceCapability {
   id: string;
   name: string;
   description: string;
   icon: string;
-  agent?: string;
-  agentLabel?: string;
-  panel?: string | null;
   stages: FeatureStage[];
   color?: string;
   followUpPrompt?: string | null;

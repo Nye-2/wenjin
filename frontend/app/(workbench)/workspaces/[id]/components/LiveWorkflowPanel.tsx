@@ -1,13 +1,13 @@
 "use client";
 
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
-import type { WorkspaceFeature } from "@/lib/api/types";
+import type { WorkspaceCapability } from "@/lib/api/types";
 import { ExecutionCardList } from "./ExecutionCardList";
 
 interface LiveWorkflowPanelProps {
   workspaceId: string;
   typeConfig?: WorkspaceTypeConfig;
-  features?: WorkspaceFeature[];
+  features?: WorkspaceCapability[];
   className?: string;
   "data-testid"?: string;
 }
@@ -104,7 +104,7 @@ function ProductIntro({
   features,
 }: {
   typeConfig: WorkspaceTypeConfig;
-  features: WorkspaceFeature[];
+  features: WorkspaceCapability[];
 }) {
   return (
     <div
