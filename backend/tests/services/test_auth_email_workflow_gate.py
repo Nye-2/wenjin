@@ -102,6 +102,14 @@ def test_smtp_enabled_registration_requires_and_verifies_code(
     )
     monkeypatch.setattr(email_service_module, "email_service", fake_email_service)
 
+    from src.services import credit_grant_rule_service as _cgr_module
+
+    monkeypatch.setattr(
+        _cgr_module.CreditGrantRuleService,
+        "apply_registration_bonus",
+        AsyncMock(),
+    )
+
     missing_code_response = client.post(
         "/auth/register",
         json={
