@@ -33,16 +33,17 @@ def _make_capability(cap_id: str = "deep_research", ws_type: str = "thesis") -> 
     return SimpleNamespace(
         id=cap_id,
         workspace_type=ws_type,
-        version=1,
-        display_name="Deep Research",
         enabled=True,
+        display_name="Deep Research",
+        description="Deep research capability",
         intent_description="Do deep research",
         trigger_phrases=["research this"],
         required_decisions=[],
         brief_schema={"type": "object"},
         graph_template={"phases": []},
-        system_prompt="You are a researcher.",
-        result_card_template="research_result",
+        ui_meta={"icon": "search", "order": 0},
+        runtime={"mode": "compute_agentic"},
+        dashboard_meta={"status_kind": "deep_research"},
         notes=None,
     )
 
