@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildWorkspaceThreadEntryMetadata,
   buildWorkspaceThreadEntryPrompt,
   parseWorkspaceThreadEntrySeed,
   resolveWorkspaceThreadEntrySkill,
@@ -122,6 +123,43 @@ describe("workspace-thread-entry", () => {
     );
     expect(seed?.params.entry).toBe("open");
     expect(seed?.params.onboarding).toBe(true);
+  });
+
+  it("surfaces execution_id into orchestration metadata for resume entries", () => {
+    const metadata = buildWorkspaceThreadEntryMetadata({
+      seed: {
+        featureId: "paper_analysis",
+        skillId: "paper-analyst",
+        params: {
+          entry: "resume",
+          execution_id: "exec-123",
+          paper_title: "联邦学习+大模型",
+        },
+      },
+    });
+
+    expect(metadata).toEqual({
+      entry_seed: {
+        feature_id: "paper_analysis",
+        skill_id: "paper-analyst",
+        params: {
+          entry: "resume",
+          execution_id: "exec-123",
+          paper_title: "联邦学习+大模型",
+        },
+      },
+      orchestration: {
+        feature_id: "paper_analysis",
+        source: "workspace_entry",
+        entry: "resume",
+        execution_id: "exec-123",
+        params: {
+          entry: "resume",
+          execution_id: "exec-123",
+          paper_title: "联邦学习+大模型",
+        },
+      },
+    });
   });
 
   it("never includes the reserved feature/skill keys inside params", () => {

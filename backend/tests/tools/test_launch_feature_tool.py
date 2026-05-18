@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -79,6 +78,135 @@ async def test_launch_feature_creates_execution_and_dispatches():
         args=["exec-1"],
         queue="long_running",
     )
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_uses_selected_skill_from_runtime_config_when_tool_args_omit_it():
+    """Chat-selected skill should survive into the launched execution."""
+    fake_execution = _StubExecution(id="exec-2")
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock(return_value=fake_execution)
+    fake_celery = MagicMock()
+    fake_celery.enabled = True
+    fake_task = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.tasks.execution.execute_execution", fake_task):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "paper_analysis",
+                "params": {"paper_title": "联邦学习结合大模型微调"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                    "selected_skill": "paper-analyst",
+                }
+            },
+        )
+
+    assert result["status"] == "launched"
+    fake_service.create_execution.assert_awaited_once()
+    create_kwargs = fake_service.create_execution.await_args.kwargs
+    assert create_kwargs["entry_skill_id"] == "paper-analyst"
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume():
+    """Resume flows should dispatch the existing execution instead of creating a new one."""
+    fake_execution = _StubExecution(id="exec-9")
+    fake_execution.workspace_id = "ws-1"  # type: ignore[attr-defined]
+    fake_execution.user_id = "user-1"  # type: ignore[attr-defined]
+    fake_execution.feature_id = "paper_analysis"  # type: ignore[attr-defined]
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.get_by_id = AsyncMock(return_value=fake_execution)
+    fake_service.update_execution = AsyncMock(return_value=fake_execution)
+    fake_service.create_execution = AsyncMock()
+    fake_celery = MagicMock()
+    fake_celery.enabled = True
+    fake_task = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.tasks.execution.execute_execution", fake_task):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "paper_analysis",
+                "params": {"paper_title": "联邦学习结合大模型微调"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                    "selected_skill": "paper-analyst",
+                    "execution_id": "exec-9",
+                }
+            },
+        )
+
+    assert result["status"] == "launched"
+    assert result["execution_id"] == "exec-9"
+    fake_service.create_execution.assert_not_called()
+    fake_service.update_execution.assert_awaited_once()
+    update_kwargs = fake_service.update_execution.await_args.kwargs
+    assert update_kwargs["status"] == "pending"
+    assert update_kwargs["thread_id"] == "th-1"
+    assert update_kwargs["entry_skill_id"] == "paper-analyst"
+    assert update_kwargs["params"]["brief"]["capability_id"] == "paper_analysis"
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_rejects_resume_execution_id_from_another_workspace():
+    """Resume must not mutate executions outside the current workspace/user scope."""
+    foreign_execution = MagicMock()
+    foreign_execution.id = "exec-foreign"
+    foreign_execution.workspace_id = "ws-2"
+    foreign_execution.user_id = "user-2"
+    foreign_execution.feature_id = "paper_analysis"
+
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.get_by_id = AsyncMock(return_value=foreign_execution)
+    fake_service.update_execution = AsyncMock()
+    fake_service.create_execution = AsyncMock()
+    fake_celery = MagicMock()
+    fake_celery.enabled = True
+    fake_task = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.tasks.execution.execute_execution", fake_task):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "paper_analysis",
+                "params": {"paper_title": "联邦学习结合大模型微调"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                    "selected_skill": "paper-analyst",
+                    "execution_id": "exec-foreign",
+                }
+            },
+        )
+
+    assert result["status"] == "error"
+    assert result["code"] == "unknown_execution"
+    assert result["execution_id"] == "exec-foreign"
+    fake_service.update_execution.assert_not_called()
+    fake_service.create_execution.assert_not_called()
+    fake_task.apply_async.assert_not_called()
 
 
 @pytest.mark.asyncio

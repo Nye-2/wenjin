@@ -150,6 +150,10 @@ export function buildWorkspaceThreadEntryMetadata(options: {
 }): Record<string, unknown> {
   const { seed } = options;
   const params = { ...seed.params };
+  const executionId =
+    typeof params.execution_id === "string" && params.execution_id.trim()
+      ? params.execution_id.trim()
+      : null;
 
   return {
     entry_seed: {
@@ -164,6 +168,7 @@ export function buildWorkspaceThreadEntryMetadata(options: {
         typeof params.entry === "string" && params.entry.trim()
           ? params.entry.trim()
           : "open",
+      execution_id: executionId,
       params,
     },
   };

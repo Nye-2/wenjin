@@ -46,6 +46,17 @@ export function ChatPanel({
     () => parseWorkspaceThreadEntrySeed(searchParams),
     [searchParams],
   );
+  const entrySeedSignature = useMemo(() => {
+    if (!entrySeed) {
+      return null;
+    }
+    return JSON.stringify({
+      workspaceId,
+      featureId: entrySeed.featureId,
+      skillId: entrySeed.skillId,
+      params: entrySeed.params,
+    });
+  }, [entrySeed, workspaceId]);
   const entryFeature = useMemo(() => {
     if (!entrySeed) {
       return null;
@@ -105,17 +116,11 @@ export function ChatPanel({
       return;
     }
 
-    const seedSignature = JSON.stringify({
-      workspaceId,
-      featureId: entrySeed.featureId,
-      skillId: entrySeed.skillId,
-      params: entrySeed.params,
-    });
-    if (autoLaunchedSeedRef.current === seedSignature) {
+    if (!entrySeedSignature || autoLaunchedSeedRef.current === entrySeedSignature) {
       return;
     }
 
-    autoLaunchedSeedRef.current = seedSignature;
+    autoLaunchedSeedRef.current = entrySeedSignature;
     void sendMessage(
       workspaceId,
       buildWorkspaceThreadEntryPrompt({
@@ -131,6 +136,7 @@ export function ChatPanel({
   }, [
     entryFeature,
     entrySeed,
+    entrySeedSignature,
     historyHydrated,
     isSending,
     messages.length,
@@ -144,7 +150,32 @@ export function ChatPanel({
     setInputValue("");
     const currentAttachments = [...attachments];
     setAttachments([]);
-    void sendMessage(workspaceId, trimmed, currentAttachments);
+
+    const entryMode =
+      typeof entrySeed?.params.entry === "string"
+        ? entrySeed.params.entry.trim().toLowerCase()
+        : "";
+    const shouldForwardResumeSeed =
+      entryMode === "resume" &&
+      !!entrySeed &&
+      !!entrySeedSignature &&
+      autoLaunchedSeedRef.current !== entrySeedSignature;
+
+    if (shouldForwardResumeSeed && entrySeedSignature) {
+      autoLaunchedSeedRef.current = entrySeedSignature;
+    }
+
+    void sendMessage(
+      workspaceId,
+      trimmed,
+      currentAttachments,
+      shouldForwardResumeSeed && entrySeed
+        ? {
+            skill: resolveWorkspaceThreadEntrySkill({ seed: entrySeed }),
+            metadata: buildWorkspaceThreadEntryMetadata({ seed: entrySeed }),
+          }
+        : undefined,
+    );
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {

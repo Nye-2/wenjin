@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 
 from src.application.services.feature_launch_context import (
+    build_execution_launch_params,
     build_missing_context_advisory,
     resolve_missing_context_fields,
 )
@@ -40,6 +41,14 @@ def _read_required(config: RunnableConfig | None, key: str) -> str:
     return value
 
 
+def _read_optional(config: RunnableConfig | None, key: str) -> str | None:
+    configurable = (config or {}).get("configurable") if isinstance(config, Mapping) else None
+    if not isinstance(configurable, Mapping):
+        return None
+    value = str(configurable.get(key) or "").strip()
+    return value or None
+
+
 @tool("launch_feature", args_schema=LaunchFeatureInput)
 async def launch_feature_tool(
     feature_id: str,
@@ -55,12 +64,15 @@ async def launch_feature_tool(
     workspace_id = _read_required(config, "workspace_id")
     thread_id = _read_required(config, "thread_id")
     user_id = _read_required(config, "user_id")
+    entry_skill_id = (skill_id or _read_optional(config, "selected_skill") or None)
+    execution_id = _read_optional(config, "execution_id")
+
+    from sqlalchemy import select
 
     from src.database import get_db_session
     from src.database.models.capability import Capability
     from src.services.execution_service import ExecutionService
     from src.services.workspace_skill_labels import get_workspace_type
-    from sqlalchemy import select
 
     async with get_db_session() as db:
         # Validate the capability exists for this workspace's type.
@@ -140,26 +152,77 @@ async def launch_feature_tool(
                 "context": advisory.context or {},
             }
 
+        execution_params = build_execution_launch_params(
+            feature_id=feature_id,
+            params=params or {},
+            workspace_id=workspace_id,
+        )
+
         try:
-            execution = await execution_service.create_execution(
-                workspace_id=workspace_id,
-                thread_id=thread_id,
-                user_id=user_id,
-                execution_type="feature",
-                feature_id=feature_id,
-                display_name=getattr(cap, "display_name", None),
-                workspace_type=workspace_type,
-                params={
-                    "brief": {
-                        "capability_id": feature_id,
-                        "brief": dict(params or {}),
-                        "raw_message": str(params.get("query") or params.get("topic") or feature_id),
-                        "decisions": {},
-                        "workspace_id": workspace_id,
-                    },
-                },
-                commit=False,
-            )
+            execution = None
+            if execution_id:
+                existing_execution = await execution_service.get_by_id(execution_id)
+                existing_feature_id = (
+                    str(existing_execution.feature_id or "").strip()
+                    if existing_execution is not None
+                    else ""
+                )
+                owns_execution = (
+                    existing_execution is not None
+                    and str(getattr(existing_execution, "workspace_id", "") or "") == workspace_id
+                    and str(getattr(existing_execution, "user_id", "") or "") == user_id
+                )
+                feature_matches = (
+                    existing_execution is not None
+                    and (not existing_feature_id or existing_feature_id == feature_id)
+                )
+                if not owns_execution or not feature_matches:
+                    return {
+                        "status": "error",
+                        "code": "unknown_execution",
+                        "feature_id": feature_id,
+                        "execution_id": execution_id,
+                        "detail": "请求恢复的执行不存在，或不属于当前工作区。",
+                    }
+                execution = await execution_service.update_execution(
+                    execution_id,
+                    status="pending",
+                    thread_id=thread_id,
+                    entry_skill_id=entry_skill_id,
+                    workspace_type=workspace_type,
+                    display_name=getattr(cap, "display_name", None),
+                    params=execution_params,
+                    result=None,
+                    error=None,
+                    result_summary=None,
+                    graph_structure=None,
+                    runtime_state=None,
+                    progress=0,
+                    message=None,
+                    artifact_ids=[],
+                    next_actions=[],
+                    advisory_code=None,
+                    last_error=None,
+                    dispatch_mode=None,
+                    worker_task_id=None,
+                    started_at=None,
+                    completed_at=None,
+                    commit=False,
+                )
+
+            if execution is None:
+                execution = await execution_service.create_execution(
+                    workspace_id=workspace_id,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    execution_type="feature",
+                    feature_id=feature_id,
+                    entry_skill_id=entry_skill_id,
+                    display_name=getattr(cap, "display_name", None),
+                    workspace_type=workspace_type,
+                    params=execution_params,
+                    commit=False,
+                )
         except IntegrityError:
             await db.rollback()
             return {
