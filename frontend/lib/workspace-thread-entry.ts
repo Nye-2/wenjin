@@ -12,6 +12,19 @@ export interface WorkspaceThreadEntrySeed {
   params: Record<string, unknown>;
 }
 
+function readStringParam(
+  params: Record<string, unknown>,
+  ...keys: string[]
+): string {
+  for (const key of keys) {
+    const value = params[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
 /**
  * Return the optional skill id encoded in the URL seed.  The legacy resolver
  * that mapped featureId → default skill via the in-process registry is gone;
@@ -42,8 +55,12 @@ function coerceScalarParamValue(value: string): string | number | boolean {
 }
 
 export function parseWorkspaceThreadEntrySeed(
-  searchParams: SearchParamsLike
+  searchParams: SearchParamsLike | null | undefined
 ): WorkspaceThreadEntrySeed | null {
+  if (!searchParams) {
+    return null;
+  }
+
   const featureId = searchParams.get("feature")?.trim();
   if (!featureId) {
     return null;
@@ -109,5 +126,45 @@ export function buildWorkspaceThreadEntryPrompt(options: {
     }
     return `请继续「${featureLabel}」的执行。`;
   }
-  return `请帮我开始「${featureLabel}」。`;
+
+  const promptParts = [`请帮我开始「${featureLabel}」。`];
+  const paperTitle = readStringParam(seed.params, "paper_title", "title");
+  const paperAbstract = readStringParam(seed.params, "paper_abstract", "abstract");
+  const topic = readStringParam(seed.params, "topic", "query");
+
+  if (paperTitle) {
+    promptParts.push(`论文标题：${paperTitle}。`);
+  }
+  if (paperAbstract) {
+    promptParts.push(`摘要：${paperAbstract}。`);
+  }
+  if (topic) {
+    promptParts.push(`研究主题：${topic}。`);
+  }
+
+  return promptParts.join(" ");
+}
+
+export function buildWorkspaceThreadEntryMetadata(options: {
+  seed: WorkspaceThreadEntrySeed;
+}): Record<string, unknown> {
+  const { seed } = options;
+  const params = { ...seed.params };
+
+  return {
+    entry_seed: {
+      feature_id: seed.featureId,
+      skill_id: seed.skillId,
+      params,
+    },
+    orchestration: {
+      feature_id: seed.featureId,
+      source: "workspace_entry",
+      entry:
+        typeof params.entry === "string" && params.entry.trim()
+          ? params.entry.trim()
+          : "open",
+      params,
+    },
+  };
 }

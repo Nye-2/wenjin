@@ -1,10 +1,17 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockAuthorizedFetch = vi.fn();
+
+vi.mock("@/lib/api/client", () => ({
+  authorizedFetch: (...args: unknown[]) => mockAuthorizedFetch(...args),
+}));
 
 import { useChatStoreV2 } from "@/stores/chat-store";
 
 // Reset store between tests
 beforeEach(() => {
   useChatStoreV2.getState().reset();
+  mockAuthorizedFetch.mockReset();
 });
 
 describe("chat store", () => {
@@ -180,5 +187,84 @@ describe("chat store", () => {
 
     expect(useChatStoreV2.getState().messages).toEqual([]);
     expect(useChatStoreV2.getState().currentAssistantId).toBeNull();
+  });
+
+  it("forwards seeded skill and orchestration metadata to thread creation and run launch", async () => {
+    const encoder = new TextEncoder();
+    mockAuthorizedFetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "thread-1", messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode("event: end\ndata: null\n\n"));
+              controller.close();
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          },
+        ),
+      );
+
+    await useChatStoreV2.getState().sendMessage(
+      "ws-1",
+      "请帮我开始「论文分析」。论文标题：联邦学习+大模型",
+      [],
+      {
+        skill: "paper-analyst",
+        metadata: {
+          orchestration: {
+            feature_id: "paper_analysis",
+            params: {
+              paper_title: "联邦学习+大模型",
+            },
+          },
+        },
+      },
+    );
+
+    expect(mockAuthorizedFetch).toHaveBeenCalledTimes(2);
+    expect(mockAuthorizedFetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/workspaces/ws-1/thread",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skill: "paper-analyst" }),
+      }),
+    );
+
+    expect(mockAuthorizedFetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/threads/thread-1/runs/stream",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const runRequest = mockAuthorizedFetch.mock.calls[1]?.[1] as
+      | RequestInit
+      | undefined;
+    expect(runRequest).toBeDefined();
+    const runBody = JSON.parse(String(runRequest?.body ?? "{}")) as Record<
+      string,
+      unknown
+    >;
+    expect(runBody.skill).toBe("paper-analyst");
+    expect(runBody.metadata).toEqual({
+      orchestration: {
+        feature_id: "paper_analysis",
+        params: {
+          paper_title: "联邦学习+大模型",
+        },
+      },
+    });
   });
 });

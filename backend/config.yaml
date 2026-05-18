@@ -26,7 +26,7 @@ models:
 
   - name: deepseek-v3
     display_name: DeepSeek V3
-    use: langchain_deepseek:ChatDeepSeek
+    use: langchain_openai:ChatOpenAI
     model: deepseek-chat
     api_key: $DEEPSEEK_API_KEY
     max_tokens: 4096
@@ -50,7 +50,7 @@ tools:
     group: interaction
   - use: src.tools.builtins.artifacts:present_files_tool
     group: output
-  - use: src.academic.tools.semantic_scholar:semantic_scholar_search_tool
+  - use: src.tools.builtins.references:search_reference_text_units_tool
     group: academic
 
 tool_groups:

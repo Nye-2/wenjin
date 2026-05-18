@@ -1,4 +1,5 @@
 import { authorizedFetch } from "@/lib/api/client";
+import { readItemsArray } from "@/lib/api/v2/list-response";
 
 const BASE = "/api/workspaces";
 
@@ -20,18 +21,23 @@ export async function listLibraryItems(
 ): Promise<LibraryItem[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  const res = await authorizedFetch(`${BASE}/${workspaceId}/library${params.toString() ? `?${params}` : ""}`);
+  const res = await authorizedFetch(
+    `${BASE}/${workspaceId}/library${params.toString() ? `?${params}` : ""}`,
+  );
   if (!res.ok) throw new Error("Failed to list library items");
   const json = await res.json();
-  return json.items ?? json;
+  return readItemsArray<LibraryItem>(json, "library items");
 }
 
 export async function deleteLibraryItem(
   workspaceId: string,
   itemId: string,
 ): Promise<void> {
-  const res = await authorizedFetch(`${BASE}/${workspaceId}/library/${itemId}`, {
-    method: "DELETE",
-  });
+  const res = await authorizedFetch(
+    `${BASE}/${workspaceId}/library/${itemId}`,
+    {
+      method: "DELETE",
+    },
+  );
   if (!res.ok) throw new Error("Failed to delete library item");
 }

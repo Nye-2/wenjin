@@ -150,7 +150,7 @@ async def test_capability_load_resolve_invalidate(db_session, tmp_path):
 
     # Trigger cache invalidation event
     handler = bus._handlers["capability.invalidated"][0]
-    await handler({"capability_id": "deep_research", "workspace_type": "thesis"})
+    await handler({"id": "deep_research", "workspace_type": "thesis"})
     assert ("deep_research", "thesis") not in resolver._cache
 
     # Re-resolve after invalidation still succeeds (re-queries DB)

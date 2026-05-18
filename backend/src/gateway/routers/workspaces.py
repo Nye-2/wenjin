@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import User, get_db_session
+from src.database.models.capability import Capability
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_dashboard_service,
@@ -18,8 +19,8 @@ from src.gateway.deps import (
 )
 from src.gateway.routers.workspaces_contracts import (
     CreateWorkspaceRequest,
-    ResolveFeatureActionRequest,
-    ResolveFeatureActionResponse,
+    ResolveCapabilityActionRequest,
+    ResolveCapabilityActionResponse,
     UpdateWorkspaceRequest,
     WorkspaceActivityResponse,
     WorkspaceExecutionsResponse,
@@ -43,7 +44,6 @@ from src.services.feature_action_resolution_service import resolve_feature_actio
 from src.services.workspace_activity_service import WorkspaceActivityService
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 from src.services.workspace_summary_service import WorkspaceSummaryService
-from src.database.models.capability import Capability
 from src.workspace_events import stream_workspace_events
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
@@ -264,18 +264,18 @@ async def get_workspace_dashboard(
 
 
 @router.post(
-    "/{workspace_id}/features/{feature_id}/resolve-action",
-    response_model=ResolveFeatureActionResponse,
+    "/{workspace_id}/capabilities/{capability_id}/resolve-action",
+    response_model=ResolveCapabilityActionResponse,
 )
-async def resolve_workspace_feature_action(
+async def resolve_workspace_capability_action(
     workspace_id: str,
-    feature_id: str,
-    request: ResolveFeatureActionRequest,
+    capability_id: str,
+    request: ResolveCapabilityActionRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     db: Any = Depends(get_db),
-) -> ResolveFeatureActionResponse:
-    """Resolve canonical follow-up / rerun action state for a feature card."""
+) -> ResolveCapabilityActionResponse:
+    """Resolve canonical follow-up / rerun action state for a capability card."""
     workspace = await get_owned_workspace(
         workspace_id=workspace_id,
         current_user=current_user,
@@ -289,7 +289,7 @@ async def resolve_workspace_feature_action(
     async with get_db_session() as cap_db:
         cap_result = await cap_db.execute(
             select(Capability).where(
-                Capability.id == feature_id,
+                Capability.id == capability_id,
                 Capability.workspace_type == workspace_type,
             )
         )
@@ -297,7 +297,7 @@ async def resolve_workspace_feature_action(
     if capability is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Feature '{feature_id}' not found for workspace type '{workspace_type}'",
+            detail=f"Capability '{capability_id}' not found for workspace type '{workspace_type}'",
         )
 
     from src.academic.services.artifact_service import ArtifactService
@@ -308,14 +308,14 @@ async def resolve_workspace_feature_action(
         offset=0,
     )
     payload = resolve_feature_action_state(
-        feature_id=feature_id,
+        feature_id=capability_id,
         workspace=workspace,
         artifacts=artifacts,
         orchestration_params=request.orchestration_params,
         explicit_source_artifact_id=request.source_artifact_id,
         follow_up_prompt=(capability.ui_meta or {}).get("follow_up_prompt") or "",
     )
-    return ResolveFeatureActionResponse(**payload)
+    return ResolveCapabilityActionResponse(**payload)
 
 
 @router.get("/{workspace_id}/summary", response_model=WorkspaceSummaryResponse)

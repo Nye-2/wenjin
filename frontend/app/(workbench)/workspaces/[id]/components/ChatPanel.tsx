@@ -1,15 +1,24 @@
 "use client";
 
-import { useRef, useEffect, useState, memo } from "react";
+import { useRef, useEffect, useMemo, useState, memo } from "react";
+import { useSearchParams } from "next/navigation";
+import type { WorkspaceCapability } from "@/lib/api";
 import { useChatStoreV2, type Message } from "@/stores/chat-store";
 import { MessageBlock } from "./MessageBlock";
 import { FileAttachButton } from "./FileAttachButton";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
+import {
+  buildWorkspaceThreadEntryMetadata,
+  buildWorkspaceThreadEntryPrompt,
+  parseWorkspaceThreadEntrySeed,
+  resolveWorkspaceThreadEntrySkill,
+} from "@/lib/workspace-thread-entry";
 
 interface ChatPanelProps {
   workspaceId: string;
   workspaceName?: string;
   typeConfig?: WorkspaceTypeConfig;
+  features?: WorkspaceCapability[];
   className?: string;
   "data-testid"?: string;
 }
@@ -18,17 +27,31 @@ export function ChatPanel({
   workspaceId,
   workspaceName,
   typeConfig,
+  features,
   className,
   "data-testid": testId,
 }: ChatPanelProps) {
+  const searchParams = useSearchParams();
   const messages = useChatStoreV2((s) => s.messages);
   const isSending = useChatStoreV2((s) => s.isSending);
   const sendMessage = useChatStoreV2((s) => s.sendMessage);
   const [inputValue, setInputValue] = useState("");
   const [attachments, setAttachments] = useState<Array<{ name: string; path: string }>>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [historyHydrated, setHistoryHydrated] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const autoLaunchedSeedRef = useRef<string | null>(null);
+  const entrySeed = useMemo(
+    () => parseWorkspaceThreadEntrySeed(searchParams),
+    [searchParams],
+  );
+  const entryFeature = useMemo(() => {
+    if (!entrySeed) {
+      return null;
+    }
+    return features?.find((candidate) => candidate.id === entrySeed.featureId) ?? null;
+  }, [entrySeed, features]);
 
   const showThinking = isSending && messages.length > 0 && messages[messages.length - 1].role === "user";
 
@@ -51,12 +74,69 @@ export function ChatPanel({
   // Load message history on mount
   useEffect(() => {
     const store = useChatStoreV2.getState();
+    let cancelled = false;
+    setHistoryHydrated(false);
     if (store.messages.length === 0) {
       void store.loadHistory(workspaceId).then((tid) => {
+        if (cancelled) return;
         if (tid) setThreadId(tid);
+        setHistoryHydrated(true);
       });
+      return () => {
+        cancelled = true;
+      };
     }
+    setHistoryHydrated(true);
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId]);
+
+  useEffect(() => {
+    if (!historyHydrated || !entrySeed || isSending || messages.length > 0) {
+      return;
+    }
+
+    const entryMode =
+      typeof entrySeed.params.entry === "string"
+        ? entrySeed.params.entry.trim().toLowerCase()
+        : "";
+    if (entryMode === "resume") {
+      return;
+    }
+
+    const seedSignature = JSON.stringify({
+      workspaceId,
+      featureId: entrySeed.featureId,
+      skillId: entrySeed.skillId,
+      params: entrySeed.params,
+    });
+    if (autoLaunchedSeedRef.current === seedSignature) {
+      return;
+    }
+
+    autoLaunchedSeedRef.current = seedSignature;
+    void sendMessage(
+      workspaceId,
+      buildWorkspaceThreadEntryPrompt({
+        seed: entrySeed,
+        feature: entryFeature,
+      }),
+      [],
+      {
+        skill: resolveWorkspaceThreadEntrySkill({ seed: entrySeed }),
+        metadata: buildWorkspaceThreadEntryMetadata({ seed: entrySeed }),
+      },
+    );
+  }, [
+    entryFeature,
+    entrySeed,
+    historyHydrated,
+    isSending,
+    messages.length,
+    sendMessage,
+    workspaceId,
+  ]);
 
   function handleSubmit() {
     const trimmed = inputValue.trim();

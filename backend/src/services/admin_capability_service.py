@@ -51,6 +51,8 @@ def _yaml_to_orm_kwargs(model: CapabilityYamlModel) -> dict[str, Any]:
         "brief_schema": model.brief_schema,
         "graph_template": model.graph_template.model_dump(),
         "ui_meta": model.ui_meta.model_dump(),
+        "runtime": model.runtime.model_dump(),
+        "dashboard_meta": model.dashboard_meta.model_dump(),
         "notes": model.notes,
     }
 
@@ -68,6 +70,8 @@ def _orm_to_yaml_dict(cap: Capability) -> dict[str, Any]:
         "brief_schema": cap.brief_schema,
         "graph_template": cap.graph_template,
         "ui_meta": cap.ui_meta,
+        "runtime": cap.runtime,
+        "dashboard_meta": cap.dashboard_meta,
         "notes": cap.notes,
     }
 

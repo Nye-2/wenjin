@@ -9,19 +9,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from sqlalchemy import case, distinct, func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import (
     CreditTransaction,
     CreditTransactionType,
     ExecutionRecord,
-    TaskRecord,
     User,
     Workspace,
-    WorkspaceType,
 )
-
 
 Granularity = Literal["day", "week"]
 
@@ -45,14 +42,15 @@ class AdminAnalyticsService:
         now = datetime.now(UTC)
         since = now - timedelta(days=range_days)
 
+        bucket_col = _date_trunc(granularity, User.created_at).label("bucket")
         signups_stmt = (
             select(
-                _date_trunc(granularity, User.created_at).label("bucket"),
+                bucket_col,
                 func.count().label("signups"),
             )
             .where(User.created_at >= since)
-            .group_by("bucket")
-            .order_by("bucket")
+            .group_by(bucket_col)
+            .order_by(bucket_col)
         )
         signups_rows = (await self.db.execute(signups_stmt)).all()
 
@@ -109,16 +107,19 @@ class AdminAnalyticsService:
         since = now - timedelta(days=range_days)
 
         # Time series: executions by workspace_type and status
+        bucket_col = _date_trunc(granularity, ExecutionRecord.created_at).label("bucket")
+        ws_type_col = ExecutionRecord.workspace_type
+        status_col = ExecutionRecord.status
         stmt = (
             select(
-                _date_trunc(granularity, ExecutionRecord.created_at).label("bucket"),
-                ExecutionRecord.workspace_type.label("workspace_type"),
-                ExecutionRecord.status.label("status"),
+                bucket_col,
+                ws_type_col.label("workspace_type"),
+                status_col.label("status"),
                 func.count().label("count"),
             )
             .where(ExecutionRecord.created_at >= since)
-            .group_by("bucket", "workspace_type", "status")
-            .order_by("bucket")
+            .group_by(bucket_col, ws_type_col, status_col)
+            .order_by(bucket_col)
         )
         rows = (await self.db.execute(stmt)).all()
 
@@ -199,17 +200,19 @@ class AdminAnalyticsService:
             CreditTransactionType.REFUND,
         }
 
+        bucket_col = _date_trunc(granularity, CreditTransaction.created_at).label(
+            "bucket"
+        )
+        ttype_col = CreditTransaction.transaction_type
         stmt = (
             select(
-                _date_trunc(granularity, CreditTransaction.created_at).label(
-                    "bucket"
-                ),
-                CreditTransaction.transaction_type.label("ttype"),
+                bucket_col,
+                ttype_col.label("ttype"),
                 func.sum(CreditTransaction.amount).label("total"),
             )
             .where(CreditTransaction.created_at >= since)
-            .group_by("bucket", "ttype")
-            .order_by("bucket")
+            .group_by(bucket_col, ttype_col)
+            .order_by(bucket_col)
         )
         rows = (await self.db.execute(stmt)).all()
 

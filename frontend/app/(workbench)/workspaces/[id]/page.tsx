@@ -96,6 +96,7 @@ export default function V2Page({
           workspaceId={id}
           workspaceName={workspace?.name}
           typeConfig={typeConfig ?? undefined}
+          features={features}
           className="w-[42%] border-r"
           data-testid="chat-panel"
         />

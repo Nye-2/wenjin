@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * V2 Deep Research Flow E2E tests.
+ * Workspace Deep Research Flow E2E tests.
  *
  * Tests the v2 workspace layout rendering and basic interactions
  * using Playwright page mocks to simulate API responses (no real backend needed).
@@ -12,7 +12,7 @@ const AUTH_COOKIE = JSON.stringify({
   state: { isAuthenticated: true },
 });
 
-test.describe("V2 Deep Research Flow", () => {
+test.describe("Workspace Deep Research Flow", () => {
   test.beforeEach(async ({ page, context }) => {
     // Set auth cookie so the proxy middleware lets us through
     await context.addCookies([
@@ -24,71 +24,79 @@ test.describe("V2 Deep Research Flow", () => {
       },
     ]);
 
-    // Mock all workspace-related API calls made by the layout's useEffect.
-    // The layout calls loadWorkspace, fetchFeatures, fetchSkills, fetchArtifacts,
-    // fetchActivity, hydrateCompute — all go through the apiClient at localhost:8001/api.
-
-    // Mock workspace GET
-    await page.route("**/api/workspaces/ws-1", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          id: "ws-1",
-          name: "Test Workspace",
-          type: "thesis",
-          created_at: "2025-01-01T00:00:00Z",
-        }),
-      });
-    });
-
-    // Mock workspace features
-    await page.route("**/api/workspaces/ws-1/features*/**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ features: [] }),
-      });
-    });
-
-    // Mock workspace skills
-    await page.route("**/api/workspaces/ws-1/skills*/**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ skills: [] }),
-      });
-    });
-
-    // Mock workspace artifacts
-    await page.route("**/api/workspaces/ws-1/artifacts*/**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ artifacts: [] }),
-      });
-    });
-
-    // Mock workspace activity
-    await page.route("**/api/workspaces/ws-1/activity*/**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ activity: [] }),
-      });
-    });
-
-    // Mock compute sessions
-    await page.route("**/api/workspaces/ws-1/compute*/**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ sessions: [] }),
-      });
-    });
-
-    // Catch-all for other API calls to avoid unhandled route errors
+    // Mock the workspace shell APIs in one handler so specific room responses
+    // are not shadowed by the generic catch-all route.
     await page.route("**/api/**", async (route) => {
+      const { pathname } = new URL(route.request().url());
+
+      if (pathname === "/api/workspaces/ws-1") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: "ws-1",
+            name: "Test Workspace",
+            type: "thesis",
+            created_at: "2025-01-01T00:00:00Z",
+          }),
+        });
+        return;
+      }
+
+      if (pathname === "/api/workspaces/ws-1/library") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ items: [], count: 0 }),
+        });
+        return;
+      }
+
+      if (pathname.startsWith("/api/workspaces/ws-1/features")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ features: [] }),
+        });
+        return;
+      }
+
+      if (pathname.startsWith("/api/workspaces/ws-1/skills")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ skills: [] }),
+        });
+        return;
+      }
+
+      if (pathname.startsWith("/api/workspaces/ws-1/artifacts")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ artifacts: [] }),
+        });
+        return;
+      }
+
+      if (pathname.startsWith("/api/workspaces/ws-1/activity")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ activity: [] }),
+        });
+        return;
+      }
+
+      if (pathname.startsWith("/api/workspaces/ws-1/compute")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ sessions: [] }),
+        });
+        return;
+      }
+
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -96,21 +104,23 @@ test.describe("V2 Deep Research Flow", () => {
       });
     });
 
-    // Navigate to v2 workspace
-    await page.goto("/workspaces/ws-1/v2");
+    // Navigate to the canonical workspace route
+    await page.goto("/workspaces/ws-1");
     await page.waitForLoadState("networkidle");
   });
 
-  test("renders v2 workspace layout", async ({ page }) => {
-    // Verify the 3 primary zones of the v2 layout
+  test("renders workspace layout", async ({ page }) => {
+    // Verify the 3 primary zones of the workspace layout
     await expect(page.getByTestId("chat-panel")).toBeVisible();
     await expect(page.getByTestId("workflow-panel")).toBeVisible();
     await expect(page.getByTestId("rooms-topbar")).toBeVisible();
   });
 
   test("shows empty state when no execution", async ({ page }) => {
-    // Without any execution data, the workflow panel shows empty state
-    await expect(page.getByText("No active execution")).toBeVisible();
+    await expect(
+      page.getByText("当前还没有进行中的工作面。先在对话里描述任务，问津会创建并打开对应工作面。"),
+    ).toBeVisible();
+    await expect(page.getByText("等待新的工作")).toBeVisible();
   });
 
   test("renders chat input placeholder", async ({ page }) => {
@@ -124,16 +134,15 @@ test.describe("V2 Deep Research Flow", () => {
   });
 
   test("topbar room buttons are clickable", async ({ page }) => {
-    // Click Library button (first) — should not crash
+    // Click Library button (first) — should open the drawer without crashing
     await page.locator('[data-testid="rooms-topbar"] button').first().click();
-    // Verify layout remains intact after interaction
-    await expect(page.getByTestId("chat-panel")).toBeVisible();
-    await expect(page.getByTestId("workflow-panel")).toBeVisible();
+    await expect(page.getByTestId("library-drawer")).toBeVisible();
+    await expect(page.getByTestId("drawer-empty")).toBeVisible();
   });
 
-  test("chat input is disabled in current state", async ({ page }) => {
+  test("chat input is enabled in current state", async ({ page }) => {
     const input = page.getByPlaceholder("输入消息...");
-    await expect(input).toBeDisabled();
+    await expect(input).toBeEnabled();
   });
 
   test("topbar displays workspace label", async ({ page }) => {

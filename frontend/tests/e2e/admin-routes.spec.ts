@@ -1,6 +1,11 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("admin routes", () => {
+  test.skip(
+    !process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD,
+    "requires ADMIN_EMAIL and ADMIN_PASSWORD",
+  );
+
   test("sidebar navigates between admin pages", async ({ page, baseURL }) => {
     await page.goto(`${baseURL}/login`);
     await page.fill('input[name="email"]', process.env.ADMIN_EMAIL!);

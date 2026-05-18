@@ -479,14 +479,14 @@ export interface FeatureActionResolutionResponse {
 
 export async function resolveFeatureAction(
   workspaceId: string,
-  featureId: string,
+  capabilityId: string,
   data: {
     orchestration_params?: Record<string, unknown> | null;
     source_artifact_id?: string | null;
   }
 ): Promise<FeatureActionResolutionResponse> {
   const response = await apiClient.post(
-    `/workspaces/${workspaceId}/features/${featureId}/resolve-action`,
+    `/workspaces/${workspaceId}/capabilities/${capabilityId}/resolve-action`,
     data
   );
   return response.data;

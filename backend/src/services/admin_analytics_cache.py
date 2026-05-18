@@ -24,7 +24,7 @@ async def cached(
 ) -> dict[str, Any]:
     from src.academic.cache.redis_client import redis_client
 
-    if redis_client._client is None:
+    if not redis_client.is_connected:
         try:
             await redis_client.connect()
         except Exception:

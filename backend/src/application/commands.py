@@ -9,7 +9,7 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class FeatureLaunchCommand:
-    """Input command for feature launch/resume through FeatureIngressService."""
+    """Input command for feature launch/resume."""
 
     workspace_id: str
     feature_id: str | None = None

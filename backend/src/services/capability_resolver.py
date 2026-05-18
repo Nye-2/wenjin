@@ -7,7 +7,6 @@ import re
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database.models.capability import Capability
 
@@ -60,7 +59,7 @@ class CapabilityResolver:
         model: The ORM model class to use (defaults to production Capability).
     """
 
-    def __init__(self, session_factory, event_bus: "EventBus", model=None) -> None:
+    def __init__(self, session_factory, event_bus: EventBus, model=None) -> None:
         self.session_factory = session_factory
         self.event_bus = event_bus
         if model is None:
@@ -109,7 +108,7 @@ class CapabilityResolver:
 
     async def _on_invalidate(self, event: dict) -> None:
         """Handle cache invalidation from EventBus."""
-        key = (event["capability_id"], event["workspace_type"])
+        key = (event["id"], event["workspace_type"])
         self._cache.pop(key, None)
         logger.debug("Cache invalidated for %s", key)
 

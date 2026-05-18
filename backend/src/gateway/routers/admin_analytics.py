@@ -22,9 +22,14 @@ def _get_service(db=Depends(get_db)) -> AdminAnalyticsService:
 
 
 def _parse_range(range_str: str) -> int:
-    if range_str.endswith("d"):
-        return int(range_str[:-1])
-    return int(range_str)
+    try:
+        if range_str.endswith("d"):
+            days = int(range_str[:-1])
+        else:
+            days = int(range_str)
+    except ValueError:
+        return 30
+    return max(1, min(days, 365))
 
 
 @router.get("/dashboard/admin/analytics/user-growth")

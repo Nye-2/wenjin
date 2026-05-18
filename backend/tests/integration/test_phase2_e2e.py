@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -30,8 +30,7 @@ from src.agents.contracts.task_report import (
     TaskReport,
 )
 from src.services.capability_loader import CapabilityLoader
-from tests.database.conftest import _Base, DbCapability
-
+from tests.database.conftest import DbCapability, _Base
 
 # ---------------------------------------------------------------------------
 # Local SQLite session fixture (bypasses integration/conftest.py schema,
@@ -267,9 +266,6 @@ async def test_commit_after_e2e_writes_rooms():
     run_history = MagicMock()
     run_history.record = AsyncMock(return_value=SimpleNamespace(id="run-1"))
 
-    bus = MagicMock()
-    bus.publish = AsyncMock(return_value=1)
-
     commit_service = ExecutionCommitService(
         execution_service=execution_service,
         library_service=library,
@@ -278,10 +274,10 @@ async def test_commit_after_e2e_writes_rooms():
         memory_service=memory,
         workspace_tasks_service=tasks,
         run_history_service=run_history,
-        event_bus=bus,
     )
 
-    result = await commit_service.commit_outputs("e-1", accept_all=True)
+    with patch("src.services.execution_commit_service.publish_workspace_event", new=AsyncMock()) as publish_refresh:
+        result = await commit_service.commit_outputs("e-1", accept_all=True)
 
     # 1 library item committed
     assert result["committed"]["library"] == 1
@@ -291,7 +287,15 @@ async def test_commit_after_e2e_writes_rooms():
     run_history.record.assert_awaited_once()
 
     # workspace.refresh event published
-    bus.publish.assert_awaited_once_with(
+    publish_refresh.assert_awaited_once_with(
+        "ws-1",
         "workspace.refresh",
-        {"workspace_id": "ws-1"},
+        {
+            "refresh_targets": [
+                "activity",
+                "artifacts",
+                "dashboard",
+                "references",
+            ]
+        },
     )

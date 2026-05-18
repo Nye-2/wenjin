@@ -52,7 +52,7 @@
 
 - 左面板：Chat / result card / orchestration 入口
 - 右面板：Execution / Compute / rooms / Prism review
-- 工作区 route：`/workspaces/{workspace_id}/v2`
+- 工作区 route：`/workspaces/{workspace_id}`
 
 ### 2.2 后端主分层
 

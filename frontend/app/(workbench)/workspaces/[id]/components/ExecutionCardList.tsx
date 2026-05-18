@@ -23,7 +23,11 @@ export function ExecutionCardList({ workspaceId }: ExecutionCardListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const currentExecutionId = useExecutionStore((s) => s.currentExecutionId);
-  const executionRecords = useExecutionStore((s) => Array.from(s.executions.values()));
+  const executions = useExecutionStore((s) => s.executions);
+  const executionRecords = useMemo(
+    () => Array.from(executions.values()),
+    [executions],
+  );
 
   const cards = useMemo<Array<{
     key: string;

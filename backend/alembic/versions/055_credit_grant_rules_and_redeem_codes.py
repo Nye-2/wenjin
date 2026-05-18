@@ -1,7 +1,7 @@
 """Credit grant rules + redeem codes + redemptions + referrals.
 
-Revision ID: 054_credit_grant_rules_and_redeem_codes
-Revises: 053_capability_add_runtime_and_dashboard_meta
+Revision ID: 055_credit_grant_rules_and_redeem_codes
+Revises: 054_analytics_indexes
 Create Date: 2026-05-16
 """
 
@@ -13,8 +13,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision: str = "054_credit_grant_rules_and_redeem_codes"
-down_revision: str | None = "053_capability_add_runtime_and_dashboard_meta"
+revision: str = "055_credit_grant_rules_and_redeem_codes"
+down_revision: str | None = "054_analytics_indexes"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

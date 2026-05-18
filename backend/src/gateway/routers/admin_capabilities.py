@@ -32,7 +32,15 @@ def _to_dict(cap) -> dict[str, Any]:
         "enabled": cap.enabled,
         "display_name": cap.display_name,
         "description": cap.description,
+        "intent_description": cap.intent_description,
+        "trigger_phrases": cap.trigger_phrases,
+        "required_decisions": cap.required_decisions,
+        "brief_schema": cap.brief_schema,
+        "graph_template": cap.graph_template,
         "ui_meta": cap.ui_meta,
+        "runtime": cap.runtime,
+        "dashboard_meta": cap.dashboard_meta,
+        "notes": cap.notes,
     }
 
 
@@ -161,7 +169,7 @@ async def import_from_seed(
     service: AdminCapabilityService = Depends(_service),
     admin: User = Depends(get_current_admin),
 ) -> dict[str, Any]:
-    from src.services.capability_loader import CapabilityLoader, DEFAULT_SEED_DIR
+    from src.services.capability_loader import DEFAULT_SEED_DIR, CapabilityLoader
 
     async with get_db_session() as db:
         loader = CapabilityLoader(session=db, seed_dir=DEFAULT_SEED_DIR)

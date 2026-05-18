@@ -1,10 +1,17 @@
-import { render, screen } from "@testing-library/react";
-import { describe, it, expect, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/components/ChatPanel";
 import { useChatStoreV2 } from "@/stores/chat-store";
 
+const mockUseSearchParams = vi.fn(() => new URLSearchParams());
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => mockUseSearchParams(),
+}));
+
 beforeEach(() => {
   useChatStoreV2.getState().reset();
+  mockUseSearchParams.mockReturnValue(new URLSearchParams());
 });
 
 describe("ChatPanel v2", () => {
@@ -165,5 +172,49 @@ describe("ChatPanel v2", () => {
     expect(screen.getByText("思考过程")).toBeInTheDocument();
     expect(screen.getByText("Here is my answer")).toBeInTheDocument();
     expect(screen.getByText(/search/)).toBeInTheDocument();
+  });
+
+  it("auto-launches a seeded workspace entry once history is confirmed empty", async () => {
+    const loadHistory = vi.fn().mockResolvedValue(null);
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      loadHistory,
+      sendMessage,
+      messages: [],
+      isSending: false,
+    });
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams({
+        feature: "paper_analysis",
+        skill: "paper-analyst",
+        entry: "open",
+        paper_title: "联邦学习+大模型",
+        paper_abstract: "研究联邦场景下的大模型协同训练。",
+      }),
+    );
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledWith("ws-1"));
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-1",
+        expect.stringContaining("联邦学习+大模型"),
+        [],
+        {
+          skill: "paper-analyst",
+          metadata: expect.objectContaining({
+            orchestration: expect.objectContaining({
+              feature_id: "paper_analysis",
+              params: expect.objectContaining({
+                paper_title: "联邦学习+大模型",
+                paper_abstract: "研究联邦场景下的大模型协同训练。",
+                entry: "open",
+              }),
+            }),
+          }),
+        },
+      ),
+    );
   });
 });

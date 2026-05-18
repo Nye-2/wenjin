@@ -8,9 +8,13 @@ This module provides REST endpoints for:
 - Email verification code
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from src.database import User
 from src.gateway.auth_dependencies import (
@@ -197,9 +201,12 @@ async def register(
         )
 
         # Grant registration bonus with ledger record (rule-based)
-        from src.services.credit_grant_rule_service import CreditGrantRuleService
-        rule_svc = CreditGrantRuleService(db)
-        await rule_svc.apply_registration_bonus(str(user.id))
+        try:
+            from src.services.credit_grant_rule_service import CreditGrantRuleService
+            rule_svc = CreditGrantRuleService(db)
+            await rule_svc.apply_registration_bonus(str(user.id))
+        except Exception:
+            logger.exception("registration bonus failed for user %s", user.id)
 
         # Handle referral invite code if provided
         if request.invite_code:

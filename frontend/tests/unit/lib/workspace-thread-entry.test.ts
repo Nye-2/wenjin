@@ -7,6 +7,10 @@ import {
 } from "@/lib/workspace-thread-entry";
 
 describe("workspace-thread-entry", () => {
+  it("returns null when search params are unavailable", () => {
+    expect(parseWorkspaceThreadEntrySeed(null)).toBeNull();
+  });
+
   it("returns null when feature param is missing", () => {
     const params = new URLSearchParams("skill=outline");
     expect(parseWorkspaceThreadEntrySeed(params)).toBeNull();
@@ -72,6 +76,24 @@ describe("workspace-thread-entry", () => {
 
     expect(onboardingPrompt).toContain("刚创建了这个工作区");
     expect(featurePrompt).toBe("请帮我开始「开题撰写」。");
+  });
+
+  it("includes seeded paper context in the launch prompt", () => {
+    const featurePrompt = buildWorkspaceThreadEntryPrompt({
+      seed: {
+        featureId: "paper_analysis",
+        skillId: "paper-analyst",
+        params: {
+          paper_title: "联邦学习+大模型",
+          paper_abstract: "研究联邦场景下的大模型协同训练。",
+        },
+      },
+      feature: { name: "论文分析", description: "..." },
+    });
+
+    expect(featurePrompt).toContain("请帮我开始「论文分析」");
+    expect(featurePrompt).toContain("联邦学习+大模型");
+    expect(featurePrompt).toContain("研究联邦场景下的大模型协同训练");
   });
 
   // Lock down the URL → params contract that the chat page's entrySeed

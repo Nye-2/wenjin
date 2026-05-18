@@ -12,7 +12,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------------------------------------------------------------------------
 # Existing models (used by other modules)
 # ---------------------------------------------------------------------------
@@ -109,6 +108,8 @@ class CapabilityYamlModel(BaseModel):
     brief_schema: dict[str, Any]
     graph_template: GraphTemplateModel
     ui_meta: UIMetaModel
+    runtime: RuntimeProfileModel = Field(default_factory=RuntimeProfileModel)
+    dashboard_meta: DashboardMetaModel = Field(default_factory=DashboardMetaModel)
     notes: str | None = None
 
 
@@ -181,6 +182,7 @@ class CrossRefValidator:
     @staticmethod
     async def _existing_skill_ids(db, ids: set[str]) -> set[str]:
         from sqlalchemy import select
+
         from src.database.models.capability_skill import CapabilitySkill
 
         result = await db.execute(

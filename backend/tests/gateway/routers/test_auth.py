@@ -9,6 +9,7 @@ This module tests the auth endpoints including:
 
 from collections.abc import AsyncGenerator
 from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from src.database.models.credit import CreditTransaction
 from src.database.models.user import User
 from src.gateway.routers.auth import get_db, router
+from src.services import credit_grant_rule_service as _cgr_module
 from src.services.auth import create_tokens
 from src.services.user_service import UserService
 
@@ -59,8 +61,14 @@ async def db_session(async_engine):
 
 
 @pytest.fixture
-def app(db_session):
+def app(db_session, monkeypatch):
     """Create FastAPI app with auth router."""
+    monkeypatch.setattr(
+        _cgr_module.CreditGrantRuleService,
+        "apply_registration_bonus",
+        AsyncMock(),
+    )
+
     app = FastAPI()
 
     # Override the db dependency

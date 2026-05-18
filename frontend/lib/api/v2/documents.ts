@@ -1,4 +1,5 @@
 import { authorizedFetch } from "@/lib/api/client";
+import { readItemsArray } from "@/lib/api/v2/list-response";
 
 const BASE = "/api/workspaces";
 
@@ -18,18 +19,23 @@ export async function listDocuments(
 ): Promise<Document[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  const res = await authorizedFetch(`${BASE}/${workspaceId}/documents${params.toString() ? `?${params}` : ""}`);
+  const res = await authorizedFetch(
+    `${BASE}/${workspaceId}/documents${params.toString() ? `?${params}` : ""}`,
+  );
   if (!res.ok) throw new Error("Failed to list documents");
   const json = await res.json();
-  return json.items ?? json;
+  return readItemsArray<Document>(json, "documents");
 }
 
 export async function deleteDocument(
   workspaceId: string,
   docId: string,
 ): Promise<void> {
-  const res = await authorizedFetch(`${BASE}/${workspaceId}/documents/${docId}`, {
-    method: "DELETE",
-  });
+  const res = await authorizedFetch(
+    `${BASE}/${workspaceId}/documents/${docId}`,
+    {
+      method: "DELETE",
+    },
+  );
   if (!res.ok) throw new Error("Failed to delete document");
 }

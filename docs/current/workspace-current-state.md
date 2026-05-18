@@ -8,7 +8,7 @@
 
 ## 1. 用户入口
 
-1. canonical workspace route：`/workspaces/{workspace_id}/v2`
+1. canonical workspace route：`/workspaces/{workspace_id}`
 2. capability 入口：通过 chat 面板对话触发，lead-agent 识别意图后调用 `launch_feature`
 3. 旧 `/chat` 语义已收敛到当前 workspace chat / execution 体系，不再作为独立 feature 流程事实源
 

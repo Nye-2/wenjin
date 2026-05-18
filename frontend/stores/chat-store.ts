@@ -58,6 +58,11 @@ export type Message = {
   metadata?: Record<string, unknown>;
 };
 
+export type SendMessageOptions = {
+  skill?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
 // ── Event type (discriminated union) ────────────────────────────────────────
 
 type ChatEvent =
@@ -97,7 +102,12 @@ interface ChatState {
   finalizedMessageIds: Set<string>;
   handleEvent(event: ChatEvent): void;
   loadHistory(workspaceId: string): Promise<string | null>;
-  sendMessage(workspaceId: string, content: string, attachments?: Array<{ name: string; path: string }>): Promise<void>;
+  sendMessage(
+    workspaceId: string,
+    content: string,
+    attachments?: Array<{ name: string; path: string }>,
+    options?: SendMessageOptions,
+  ): Promise<void>;
   reset(): void;
 }
 
@@ -428,7 +438,12 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     }
   },
 
-  async sendMessage(workspaceId: string, content: string, attachments: Array<{ name: string; path: string }> = []) {
+  async sendMessage(
+    workspaceId: string,
+    content: string,
+    attachments: Array<{ name: string; path: string }> = [],
+    options: SendMessageOptions = {},
+  ) {
     const { isSending } = get();
     if (isSending || !content.trim()) return;
     set({ isSending: true });
@@ -436,14 +451,28 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     const userMsgId = crypto.randomUUID();
     get().handleEvent({
       type: "chat.user.message",
-      data: { id: userMsgId, content, timestamp: new Date().toISOString() },
+      data: {
+        id: userMsgId,
+        content,
+        timestamp: new Date().toISOString(),
+        metadata: options.metadata ?? undefined,
+      },
     });
 
     try {
+      const threadRequestBody =
+        typeof options.skill === "string" && options.skill.trim()
+          ? JSON.stringify({ skill: options.skill.trim() })
+          : undefined;
+
       // Ensure thread exists
       const threadRes = await authorizedFetch(
         `/api/workspaces/${workspaceId}/thread`,
-        { method: "POST", headers: { "Content-Type": "application/json" } },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: threadRequestBody,
+        },
       );
       if (!threadRes.ok) throw new Error("Failed to create thread");
       const thread = await threadRes.json();
@@ -471,21 +500,29 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
         data: { message_id: assistantMsgId },
       });
 
+      const runPayload: Record<string, unknown> = {
+        message: content,
+        workspace_id: workspaceId,
+        attachments: attachments.map((a) => ({
+          name: a.name,
+          path: a.path,
+          kind: "transient",
+        })),
+      };
+      if (typeof options.skill === "string" && options.skill.trim()) {
+        runPayload.skill = options.skill.trim();
+      }
+      if (options.metadata && typeof options.metadata === "object") {
+        runPayload.metadata = options.metadata;
+      }
+
       // Stream run response — backend expects RunCreateRequest { message, ... }
       const res = await authorizedFetch(
         `/api/threads/${threadId}/runs/stream`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: content,
-            workspace_id: workspaceId,
-            attachments: attachments.map((a) => ({
-              name: a.name,
-              path: a.path,
-              kind: "transient",
-            })),
-          }),
+          body: JSON.stringify(runPayload),
         },
       );
 

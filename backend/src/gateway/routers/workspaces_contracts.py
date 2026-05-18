@@ -131,15 +131,15 @@ class WorkspaceExecutionsResponse(BaseModel):
     count: int
 
 
-class ResolveFeatureActionRequest(BaseModel):
-    """Resolve canonical follow-up / rerun routing for a workspace feature."""
+class ResolveCapabilityActionRequest(BaseModel):
+    """Resolve canonical follow-up / rerun routing for a workspace capability."""
 
     orchestration_params: dict[str, Any] | None = None
     source_artifact_id: str | None = None
 
 
-class ResolveFeatureActionResponse(BaseModel):
-    """Resolved feature action state returned to the frontend."""
+class ResolveCapabilityActionResponse(BaseModel):
+    """Resolved capability action state returned to the frontend."""
 
     source_artifact_id: str | None = None
     follow_up_prompt: str

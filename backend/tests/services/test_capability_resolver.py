@@ -127,7 +127,7 @@ async def test_invalidate_clears_cache(test_session):
     # Simulate invalidation event
     invalidate_handler = bus._handlers["capability.invalidated"][0]
     await invalidate_handler({
-        "capability_id": "deep_research",
+        "id": "deep_research",
         "workspace_type": "thesis",
     })
 

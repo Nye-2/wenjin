@@ -11,6 +11,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import socket
@@ -19,7 +20,6 @@ import sys
 import ast
 import re
 from dataclasses import dataclass
-from importlib import import_module
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -73,6 +73,14 @@ def _run(cmd: list[str]) -> str | None:
         return (result.stdout or result.stderr).strip()
     except Exception:
         return None
+
+
+def _backend_python(backend_dir: Path) -> Path:
+    """Prefer the repo's backend virtualenv interpreter when it exists."""
+    candidate = backend_dir / ".venv" / "bin" / "python"
+    if candidate.exists():
+        return candidate
+    return Path(sys.executable)
 
 
 def _parse_major(version_text: str) -> int | None:
@@ -265,35 +273,126 @@ def check_config_loadable(project_root: Path, config_path: Path) -> CheckResult:
     )
 
 
-def check_models(config_data: dict[str, Any]) -> list[CheckResult]:
-    models = config_data.get("models")
-    if not isinstance(models, list) or not models:
-        return [
-            CheckResult(
-                "models configured",
-                "fail",
-                fix="Add at least one model in backend/config.yaml",
-            )
-        ]
+def _validate_model_entries(raw: str) -> tuple[list[dict[str, Any]] | None, str | None]:
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return None, f"invalid JSON ({exc.msg})"
 
-    names = {
-        str(model.get("name")).strip()
-        for model in models
-        if isinstance(model, dict) and str(model.get("name", "")).strip()
-    }
-    default_model = str(config_data.get("default_model", "")).strip()
-    results = [CheckResult("models configured", "ok", f"{len(names)} model(s)")]
-    if default_model and default_model in names:
-        results.append(CheckResult("default_model valid", "ok", default_model))
+    if not isinstance(parsed, list):
+        return None, "must be a JSON array"
+    if not parsed:
+        return None, "must contain at least one model"
+
+    required = {"id", "model", "api_key", "base_url"}
+    validated: list[dict[str, Any]] = []
+    for idx, item in enumerate(parsed, start=1):
+        if not isinstance(item, dict):
+            return None, f"entry {idx} must be an object"
+        missing = sorted(field for field in required if not str(item.get(field, "")).strip())
+        if missing:
+            return None, f"entry {idx} missing required fields: {', '.join(missing)}"
+        validated.append(item)
+    return validated, None
+
+
+def check_runtime_env(env_files: list[Path]) -> list[CheckResult]:
+    """Validate the backend runtime env shape that production code actually uses."""
+    results: list[CheckResult] = []
+
+    for env_name in ("DATABASE_URL", "REDIS_URL"):
+        if _value_from_env_sources(env_name, env_files):
+            results.append(CheckResult(f"{env_name} set", "ok"))
+        else:
+            results.append(
+                CheckResult(
+                    f"{env_name} set",
+                    "fail",
+                    fix=f"Add {env_name}=... to backend/.env or export in shell",
+                )
+            )
+
+    jwt_secret = _value_from_env_sources("JWT_SECRET_KEY", env_files)
+    if not jwt_secret:
+        results.append(
+            CheckResult(
+                "JWT_SECRET_KEY set",
+                "fail",
+                fix="Add JWT_SECRET_KEY=... to backend/.env or export in shell",
+            )
+        )
+    elif jwt_secret in {
+        "change-me-in-production",
+        "your-super-secret-key-change-in-production",
+    }:
+        results.append(
+            CheckResult(
+                "JWT_SECRET_KEY set",
+                "warn",
+                "default development secret",
+                fix="Replace JWT_SECRET_KEY before any shared or production deployment",
+            )
+        )
+    else:
+        results.append(CheckResult("JWT_SECRET_KEY set", "ok"))
+
+    llm_models_raw = _value_from_env_sources("LLM_MODELS", env_files)
+    if not llm_models_raw:
+        results.append(
+            CheckResult(
+                "LLM_MODELS set",
+                "fail",
+                fix="Add LLM_MODELS=[...] JSON to backend/.env",
+            )
+        )
+        return results
+
+    llm_models, llm_error = _validate_model_entries(llm_models_raw)
+    if llm_error:
+        results.append(CheckResult("LLM_MODELS valid", "fail", llm_error))
+        return results
+
+    assert llm_models is not None
+    ids = [str(model["id"]).strip() for model in llm_models]
+    results.append(CheckResult("LLM_MODELS valid", "ok", f"{len(ids)} model(s)"))
+
+    default_model = _value_from_env_sources("LLM_DEFAULT_MODEL", env_files)
+    if not default_model:
+        results.append(
+            CheckResult(
+                "LLM_DEFAULT_MODEL valid",
+                "fail",
+                fix="Set LLM_DEFAULT_MODEL to one of the ids declared in LLM_MODELS",
+            )
+        )
+    elif default_model in ids:
+        results.append(CheckResult("LLM_DEFAULT_MODEL valid", "ok", default_model))
     else:
         results.append(
             CheckResult(
-                "default_model valid",
+                "LLM_DEFAULT_MODEL valid",
                 "fail",
-                default_model or "unset",
-                fix="Set backend/config.yaml default_model to an existing model name",
+                default_model,
+                fix=f"Choose one of: {', '.join(ids)}",
             )
         )
+
+    image_models_raw = _value_from_env_sources("LLM_IMAGE_MODELS", env_files)
+    if image_models_raw:
+        _, image_error = _validate_model_entries(image_models_raw)
+        if image_error:
+            results.append(CheckResult("LLM_IMAGE_MODELS valid", "warn", image_error))
+        else:
+            results.append(CheckResult("LLM_IMAGE_MODELS valid", "ok"))
+    else:
+        results.append(
+            CheckResult(
+                "LLM_IMAGE_MODELS set",
+                "skip",
+                "optional",
+            )
+        )
+
     return results
 
 
@@ -334,13 +433,41 @@ def _check_src_attr_without_import(module_name: str, attr_name: str, backend_dir
     return False, f"attribute {attr_name} not found in {module_file}"
 
 
-def check_config_use_paths(config_data: dict[str, Any], backend_dir: Path) -> list[CheckResult]:
+def _check_external_attr_with_python(
+    module_name: str,
+    attr_name: str,
+    python_executable: Path,
+) -> tuple[bool, str]:
+    code = (
+        "import importlib\n"
+        f"module = importlib.import_module({module_name!r})\n"
+        f"getattr(module, {attr_name!r})\n"
+    )
+    try:
+        result = subprocess.run(
+            [str(python_executable), "-c", code],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        return False, str(exc)
+
+    if result.returncode == 0:
+        return True, ""
+
+    detail = (result.stderr or result.stdout).strip().splitlines()
+    return False, detail[-1] if detail else "unknown import error"
+
+
+def check_config_use_paths(
+    config_data: dict[str, Any],
+    backend_dir: Path,
+    python_executable: Path,
+) -> list[CheckResult]:
     results: list[CheckResult] = []
     checks: list[tuple[str, str]] = []
 
-    for idx, model in enumerate(config_data.get("models", []), start=1):
-        if isinstance(model, dict):
-            checks.append((f"model[{idx}] use path", str(model.get("use", "")).strip()))
     for idx, tool in enumerate(config_data.get("tools", []), start=1):
         if isinstance(tool, dict):
             checks.append((f"tool[{idx}] use path", str(tool.get("use", "")).strip()))
@@ -378,8 +505,13 @@ def check_config_use_paths(config_data: dict[str, Any], backend_dir: Path) -> li
             continue
 
         try:
-            module = import_module(module_name)
-            getattr(module, attr_name)
+            ok, detail = _check_external_attr_with_python(
+                module_name,
+                attr_name,
+                python_executable,
+            )
+            if not ok:
+                raise ImportError(detail)
             results.append(CheckResult(label, "ok"))
         except Exception as exc:
             results.append(
@@ -388,42 +520,6 @@ def check_config_use_paths(config_data: dict[str, Any], backend_dir: Path) -> li
                     "fail",
                     f"{use_path} ({exc})",
                     fix="Install missing dependency or fix the use path",
-                )
-            )
-    return results
-
-
-def check_env_placeholders(config_data: dict[str, Any], env_files: list[Path]) -> list[CheckResult]:
-    required_vars: set[str] = set()
-
-    def collect(value: object) -> None:
-        if isinstance(value, str) and value.startswith("$"):
-            var_name = value[1:].strip()
-            if var_name:
-                required_vars.add(var_name)
-            return
-        if isinstance(value, dict):
-            for child in value.values():
-                collect(child)
-            return
-        if isinstance(value, list):
-            for child in value:
-                collect(child)
-
-    collect(config_data)
-    if not required_vars:
-        return [CheckResult("config placeholders", "skip", "none")]
-
-    results: list[CheckResult] = []
-    for var in sorted(required_vars):
-        if _value_from_env_sources(var, env_files):
-            results.append(CheckResult(f"{var} set", "ok"))
-        else:
-            results.append(
-                CheckResult(
-                    f"{var} set",
-                    "fail",
-                    fix=f"Add {var}=... to backend/.env or export in shell",
                 )
             )
     return results
@@ -470,9 +566,10 @@ def main() -> int:
     project_root = Path(__file__).resolve().parents[1]
     backend_dir = project_root / "backend"
     frontend_dir = project_root / "frontend"
+    backend_python = _backend_python(backend_dir)
     config_path = backend_dir / "config.yaml"
     backend_env = backend_dir / ".env"
-    frontend_env = frontend_dir / ".env"
+    frontend_env = frontend_dir / ".env.local"
     root_env = project_root / ".env"
 
     print()
@@ -511,9 +608,9 @@ def main() -> int:
         ),
         check_file_exists(
             frontend_env,
-            "frontend/.env found",
+            "frontend/.env.local found",
             required=False,
-            fix="Copy frontend/.env.example to frontend/.env",
+            fix="Copy frontend/.env.example to frontend/.env.local when you need a frontend API override",
         ),
         check_file_exists(
             root_env,
@@ -537,14 +634,12 @@ def main() -> int:
 
     if config_data is not None:
         env_files = [backend_env, root_env]
-        sections.append(("Models", check_models(config_data)))
-        sections.append(("Use Paths", check_config_use_paths(config_data, backend_dir)))
-        sections.append(("Env Placeholders", check_env_placeholders(config_data, env_files)))
+        sections.append(("Runtime Env", check_runtime_env(env_files)))
+        sections.append(("Use Paths", check_config_use_paths(config_data, backend_dir, backend_python)))
         sections.append(("Runtime Connectivity", check_backend_runtime_urls(env_files)))
     else:
-        sections.append(("Models", [CheckResult("models checks", "skip", "config unavailable")]))
+        sections.append(("Runtime Env", [CheckResult("runtime env checks", "skip", "config unavailable")]))
         sections.append(("Use Paths", [CheckResult("use path checks", "skip", "config unavailable")]))
-        sections.append(("Env Placeholders", [CheckResult("placeholder checks", "skip", "config unavailable")]))
         sections.append(("Runtime Connectivity", [CheckResult("runtime connectivity", "skip", "config unavailable")]))
 
     total_fail = 0

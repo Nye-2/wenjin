@@ -1,4 +1,5 @@
 import { authorizedFetch } from "@/lib/api/client";
+import { readItemsArray } from "@/lib/api/v2/list-response";
 
 const BASE = "/api/workspaces";
 
@@ -21,7 +22,7 @@ export async function listMemoryFacts(
   );
   if (!res.ok) throw new Error("Failed to list memory facts");
   const json = await res.json();
-  return json.items ?? json;
+  return readItemsArray<MemoryFact>(json, "memory facts");
 }
 
 export async function deleteMemoryFact(

@@ -22,9 +22,8 @@
 | `DATABASE_URL` | PostgreSQL async 连接串 | `postgresql+asyncpg://postgres:postgres@localhost:5432/wenjin` |
 | `REDIS_URL` | Redis 连接串 | `redis://localhost:6379/0` |
 | `JWT_SECRET_KEY` | JWT 签名密钥 | `change-me-...` |
-| `LLM_GEN_MODELS` | 文本生成模型列表(JSON) | `[ {...} ]` |
-| `LLM_TOOL_MODELS` | 工具调用模型列表(JSON) | `[ {...} ]` |
-| `LLM_UTILITY_MODELS` | 轻量模型列表(JSON) | `[ {...} ]` |
+| `LLM_MODELS` | 文本/Agent 模型列表(JSON) | `[ {...} ]` |
+| `LLM_DEFAULT_MODEL` | 默认文本模型 id | `gpt-4o` |
 
 ### 1.2 常用可选
 
@@ -86,3 +85,4 @@
 3. SMTP 联调时优先验证服务端连通性，再验证前端交互。
 4. 若部署在反向代理后，确认真实客户端 IP 会正确透传；否则限流会退化为按代理 IP 计数。
 5. `docker compose` 部署前必须在仓库根 `.env` 或 shell 环境中显式提供 `ADMIN_PASSWORD` 和 `GRAFANA_PASSWORD`。
+6. 当前运行时模型发现以 `backend/.env` 中的 `LLM_MODELS` / `LLM_IMAGE_MODELS` 为准，不再依赖 `backend/config.yaml` 中的模型 provider 声明。

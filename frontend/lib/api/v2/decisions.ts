@@ -1,4 +1,8 @@
 import { authorizedFetch } from "@/lib/api/client";
+import {
+  readItemsArray,
+  readOptionalActiveItem,
+} from "@/lib/api/v2/list-response";
 
 const BASE = "/api/workspaces";
 
@@ -22,7 +26,7 @@ export async function listDecisions(
   );
   if (!res.ok) throw new Error("Failed to list decisions");
   const json = await res.json();
-  // Backend returns { active: Decision | null } for GET, wrap as array
-  if (json.active !== undefined) return json.active ? [json.active] : [];
-  return json.items ?? json;
+  const activeDecision = readOptionalActiveItem<Decision>(json);
+  if (activeDecision) return activeDecision;
+  return readItemsArray<Decision>(json, "decisions");
 }

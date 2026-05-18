@@ -8,15 +8,18 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import (
-    AdminLog, CreditRedeemCode, CreditRedemption, CreditTransaction,
-    CreditTransactionType, User,
+    AdminLog,
+    CreditRedeemCode,
+    CreditRedemption,
+    CreditTransaction,
+    CreditTransactionType,
+    User,
 )
 from src.services.redeem_code_generator import generate_code
 
@@ -51,7 +54,7 @@ class CreditRedeemService:
         created: list[CreditRedeemCode] = []
 
         for _ in range(count):
-            for attempt in range(5):
+            for _attempt in range(5):
                 code = generate_code()
                 obj = CreditRedeemCode(
                     code=code, amount=amount, max_uses=max_uses,
@@ -60,12 +63,12 @@ class CreditRedeemService:
                     batch_id=batch_id, description=description,
                     created_by_admin_id=admin_id,
                 )
-                self.db.add(obj)
-                try:
-                    await self.db.flush()
-                except IntegrityError:
-                    await self.db.rollback()  # unique collision; retry
-                    continue
+                async with self.db.begin_nested():
+                    self.db.add(obj)
+                    try:
+                        await self.db.flush()
+                    except IntegrityError:
+                        continue  # savepoint auto-rolled-back; retry with new code
                 created.append(obj)
                 break
             else:

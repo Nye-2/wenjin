@@ -238,7 +238,7 @@ def test_workspace_executions_returns_items():
     assert payload["items"][0]["result"] is None
 
 
-def test_workspace_feature_action_resolution_returns_backend_state():
+def test_workspace_capability_action_resolution_returns_backend_state():
     workspace_service = AsyncMock()
     workspace_service.get = AsyncMock(return_value=_mock_workspace())
 
@@ -268,7 +268,7 @@ def test_workspace_feature_action_resolution_returns_backend_state():
         },
     ):
         response = client.post(
-            "/workspaces/ws-1/features/deep_research/resolve-action",
+            "/workspaces/ws-1/capabilities/deep_research/resolve-action",
             json={
                 "orchestration_params": {
                     "topic": "LLM planning",
@@ -285,7 +285,7 @@ def test_workspace_feature_action_resolution_returns_backend_state():
     assert isinstance(payload["follow_up_prompt"], str)
 
 
-def test_workspace_feature_action_resolution_returns_404_for_unknown_feature():
+def test_workspace_capability_action_resolution_returns_404_for_unknown_capability():
     workspace_service = AsyncMock()
     workspace_service.get = AsyncMock(return_value=_mock_workspace())
 
@@ -293,7 +293,7 @@ def test_workspace_feature_action_resolution_returns_404_for_unknown_feature():
     client = _create_client(_mock_user(), workspace_service, activity_service, patch_db_session=True, db_capabilities=[])
 
     response = client.post(
-        "/workspaces/ws-1/features/unknown_feature/resolve-action",
+        "/workspaces/ws-1/capabilities/unknown_capability/resolve-action",
         json={},
     )
 

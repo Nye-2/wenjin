@@ -26,10 +26,11 @@ from src.agents.chat_agent.blocks import AgentMessage
 from src.database import User
 from src.gateway.deps.academic import get_workspace_service
 from src.gateway.deps.core import get_db
+from src.services.auth import hash_password
 
 router = APIRouter(prefix="/__test__", tags=["dev"])
 
-_E2E_USER_EMAIL = "e2e-test@wenjin.local"
+_E2E_USER_EMAIL = "e2e-test@example.com"
 _queue: deque[AgentMessage] = deque()
 
 
@@ -72,7 +73,12 @@ async def _ensure_e2e_user(db: AsyncSession) -> User:
     user = result.scalar_one_or_none()
     if user is not None:
         return user
-    user = User(email=_E2E_USER_EMAIL, name="E2E Test", is_active=True)
+    user = User(
+        email=_E2E_USER_EMAIL,
+        name="E2E Test",
+        hashed_password=hash_password("wenjin-e2e-password"),
+        is_active=True,
+    )
     db.add(user)
     await db.commit()
     await db.refresh(user)

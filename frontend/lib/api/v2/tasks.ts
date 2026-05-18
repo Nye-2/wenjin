@@ -1,4 +1,5 @@
 import { authorizedFetch } from "@/lib/api/client";
+import { readItemsArray } from "@/lib/api/v2/list-response";
 
 const BASE = "/api/workspaces";
 
@@ -17,10 +18,12 @@ export async function listTasks(
 ): Promise<WorkspaceTask[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  const res = await authorizedFetch(`${BASE}/${workspaceId}/tasks${params.toString() ? `?${params}` : ""}`);
+  const res = await authorizedFetch(
+    `${BASE}/${workspaceId}/tasks${params.toString() ? `?${params}` : ""}`,
+  );
   if (!res.ok) throw new Error("Failed to list tasks");
   const json = await res.json();
-  return json.items ?? json;
+  return readItemsArray<WorkspaceTask>(json, "tasks");
 }
 
 export async function createTask(

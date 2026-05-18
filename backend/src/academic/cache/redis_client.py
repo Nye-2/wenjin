@@ -25,6 +25,10 @@ class RedisClient:
         self._stream_client: Any | None = None
         self._owner_pid = os.getpid()
 
+    @property
+    def is_connected(self) -> bool:
+        return self._client is not None
+
     def _build_client(self) -> Any:
         """Build a fresh Redis client for the current process."""
         return cast(Any, redis.from_url)(

@@ -32,6 +32,8 @@ OPTIONAL_DEFAULTS = {
     "description": "",
     "trigger_phrases": [],
     "required_decisions": [],
+    "runtime": {},
+    "dashboard_meta": {},
     "notes": None,
 }
 
@@ -71,6 +73,22 @@ class CapabilityLoader:
         if existing:
             return 0
         return await self._load_all()
+
+    async def load_all(self, overwrite: bool = False) -> list:
+        """Load all YAML seeds, optionally overwriting existing rows.
+
+        Args:
+            overwrite: If True, delete existing capabilities before loading.
+
+        Returns:
+            List of loaded ORM instances.
+        """
+        if overwrite:
+            from sqlalchemy import delete as sa_delete
+            await self.session.execute(sa_delete(self._model))
+        await self._load_all()
+        result = await self.session.execute(select(self._model))
+        return list(result.scalars().all())
 
     async def _load_all(self) -> int:
         """Scan seed_dir/*/*.yaml, validate, and insert into DB.
