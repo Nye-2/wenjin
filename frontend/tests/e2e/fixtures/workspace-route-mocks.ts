@@ -28,6 +28,14 @@ type MockOptions = {
   workspaceName?: string;
   workspaceType?: string;
   capabilities?: Array<Record<string, unknown>>;
+  prismReview?: {
+    projectId?: string;
+    logicalKey?: string;
+    path?: string;
+    reason?: string;
+    initialContent?: string;
+    pendingContent?: string;
+  };
   thread?: {
     id: string;
     messages: WorkspaceMessage[];
@@ -79,6 +87,77 @@ export async function installWorkspaceRouteMocks(
     },
   ];
   const thread = options.thread ?? { id: "thread-1", messages: [] };
+  const prismReview = options.prismReview;
+  const prismProjectId = prismReview?.projectId ?? "latex-1";
+  const prismLogicalKey = prismReview?.logicalKey ?? "section:introduction";
+  const prismPath = prismReview?.path ?? "main.tex";
+  const prismReason = prismReview?.reason ?? "feature_proposal";
+  const prismInitialContent =
+    prismReview?.initialContent ??
+    "\\documentclass{article}\\begin{document}Workspace manuscript\\end{document}";
+  const prismPendingContent =
+    prismReview?.pendingContent ??
+    "\\documentclass{article}\\begin{document}Generated workspace manuscript\\end{document}";
+  let prismContent = prismInitialContent;
+  let prismApplied = false;
+
+  function prismFileChanges() {
+    if (!prismReview || prismApplied) {
+      return [];
+    }
+    return [
+      {
+        logical_key: prismLogicalKey,
+        path: prismPath,
+        reason: prismReason,
+        pending_content: prismPendingContent,
+        current_hash: "current-hash",
+        pending_hash: "pending-hash",
+      },
+    ];
+  }
+
+  function prismAppliedFileChanges() {
+    if (!prismReview || !prismApplied) {
+      return {};
+    }
+    return {
+      [prismLogicalKey]: {
+        logical_key: prismLogicalKey,
+        path: prismPath,
+        previous_hash: "current-hash",
+        applied_hash: "pending-hash",
+        revert_signature: "b".repeat(64),
+      },
+    };
+  }
+
+  function latexProjectPayload() {
+    return {
+      id: prismProjectId,
+      user_id: "user-1",
+      name: "Workspace Manuscript",
+      template_id: null,
+      main_file: "main.tex",
+      tags: [],
+      archived: false,
+      trashed: false,
+      trashed_at: null,
+      file_order: {},
+      workspace_id: workspaceId,
+      surface_role: "primary_manuscript",
+      llm_config: {
+        workspace_id: workspaceId,
+        bridge: "workspace_latex_project",
+        metadata: {
+          file_changes: prismFileChanges(),
+          applied_file_changes: prismAppliedFileChanges(),
+        },
+      },
+      created_at: "2026-05-18T00:00:00Z",
+      updated_at: "2026-05-18T00:00:00Z",
+    };
+  }
 
   await context.addCookies([
     {
@@ -161,14 +240,15 @@ export async function installWorkspaceRouteMocks(
       await route.fulfill(
         json({
           workspace_id: workspaceId,
-          latex_project_id: "latex-1",
+          latex_project_id: prismProjectId,
           surface_role: "primary_manuscript",
           url: `/workspaces/${workspaceId}/prism`,
           main_file: "main.tex",
           compile_status: null,
-          has_pending_changes: true,
-          file_changes: [],
-          applied_file_changes: [],
+          has_pending_changes: prismFileChanges().length > 0,
+          target_files: ["main.tex"],
+          file_changes: prismFileChanges(),
+          applied_file_changes: Object.values(prismAppliedFileChanges()),
         }),
       );
       return;
@@ -218,48 +298,111 @@ export async function installWorkspaceRouteMocks(
       return;
     }
 
-    if (pathname === "/api/latex/projects/latex-1") {
-      await route.fulfill(
-        json({
-          id: "latex-1",
-          user_id: "user-1",
-          name: "Workspace Manuscript",
-          template_id: null,
-          main_file: "main.tex",
-          tags: [],
-          archived: false,
-          trashed: false,
-          trashed_at: null,
-          file_order: {},
-          llm_config: null,
-          created_at: "2026-05-18T00:00:00Z",
-          updated_at: "2026-05-18T00:00:00Z",
-        }),
-      );
+    if (pathname === `/api/latex/projects/${prismProjectId}`) {
+      await route.fulfill(json(latexProjectPayload()));
       return;
     }
 
-    if (pathname === "/api/latex/projects/latex-1/tree") {
+    if (pathname === `/api/latex/projects/${prismProjectId}/tree`) {
       await route.fulfill(
         json({
-          items: [{ path: "main.tex", type: "file" }],
+          items: [{ path: prismPath, type: "file" }],
           file_order: {},
         }),
       );
       return;
     }
 
-    if (pathname === "/api/latex/projects/latex-1/file") {
+    if (pathname === `/api/latex/projects/${prismProjectId}/file`) {
       await route.fulfill(
         json({
-          content: "\\documentclass{article}\\begin{document}Workspace manuscript\\end{document}",
+          content: prismContent,
         }),
       );
       return;
     }
 
-    if (pathname === "/api/latex/projects/latex-1/feedback") {
+    if (pathname === `/api/latex/projects/${prismProjectId}/feedback`) {
       await route.fulfill(json({ items: [] }));
+      return;
+    }
+
+    if (
+      pathname === `/api/latex/projects/${prismProjectId}/file-changes/preview` &&
+      request.method() === "POST"
+    ) {
+      await route.fulfill(
+        json({
+          ok: true,
+          logical_key: prismLogicalKey,
+          path: prismPath,
+          reason: prismReason,
+          current_hash: "current-hash",
+          pending_hash: "pending-hash",
+          change_signature: "a".repeat(64),
+          diff: {
+            hunks: [
+              {
+                old_start: 0,
+                old_end: prismInitialContent.length,
+                new_start: 0,
+                new_end: prismPendingContent.length,
+                ops: [
+                  {
+                    op: "replace",
+                    old_text: prismInitialContent,
+                    new_text: prismPendingContent,
+                    old_start: 0,
+                    old_end: prismInitialContent.length,
+                    new_start: 0,
+                    new_end: prismPendingContent.length,
+                    token_kind: "text",
+                  },
+                ],
+              },
+            ],
+            stats: {
+              chars_added: Math.max(
+                prismPendingContent.length - prismInitialContent.length,
+                0,
+              ),
+              chars_deleted: Math.max(
+                prismInitialContent.length - prismPendingContent.length,
+                0,
+              ),
+              tokens_changed: 1,
+              citation_changed: 0,
+              label_changed: 0,
+            },
+            risk_flags: [],
+          },
+        }),
+      );
+      return;
+    }
+
+    if (
+      pathname === `/api/latex/projects/${prismProjectId}/file-changes/apply` &&
+      request.method() === "POST"
+    ) {
+      prismContent = prismPendingContent;
+      prismApplied = true;
+      await route.fulfill(
+        json({
+          ok: true,
+          applied: true,
+          logical_key: prismLogicalKey,
+          path: prismPath,
+          file_hash: "pending-hash",
+          undo: {
+            logical_key: prismLogicalKey,
+            path: prismPath,
+            previous_hash: "current-hash",
+            applied_hash: "pending-hash",
+            revert_signature: "b".repeat(64),
+          },
+        }),
+      );
       return;
     }
 

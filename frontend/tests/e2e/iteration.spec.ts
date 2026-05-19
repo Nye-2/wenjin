@@ -83,6 +83,120 @@ test("result cards can commit all staged outputs in one click", async ({
     .toEqual({ accept_all: true });
 });
 
+test("Prism review links open the workspace surface before committing room outputs", async ({
+  page,
+  context,
+}) => {
+  let commitPayload: Record<string, unknown> | null = null;
+  const workbenchUrl =
+    "/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x";
+
+  await installWorkspaceRouteMocks(page, context, {
+    prismReview: {
+      projectId: "latex-1",
+      logicalKey: "section:introduction",
+      path: "main.tex",
+      reason: "feature_proposal",
+      initialContent:
+        "\\documentclass{article}\\begin{document}Workspace manuscript\\end{document}",
+      pendingContent:
+        "\\documentclass{article}\\begin{document}Generated workspace manuscript\\end{document}",
+    },
+    commitResponse: {
+      committed: { documents: 1 },
+      room_targets: {
+        documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+        library: [],
+      },
+    },
+    onCommit: (payload) => {
+      commitPayload = payload;
+    },
+    runStreamBody: buildEventStreamBody([
+      {
+        event: "block",
+        data: {
+          block: {
+            kind: "result_card",
+            run_id: "run-prism",
+            title: "主稿写入待确认",
+            tldr: "章节写作已进入 Prism 待确认区。",
+            findings: [],
+            recommend: null,
+            links: [
+              {
+                icon: "sparkles",
+                label: "预览待确认修改",
+                href: "/workspaces/ws-1/prism?focus=file_changes",
+              },
+            ],
+            feedback: {
+              question: "是否继续？",
+              pills: [],
+              allow_free_input: true,
+            },
+            stats: { duration_ms: 1200, subagents: 1, tokens: 320 },
+          },
+        },
+      },
+      {
+        event: "block",
+        data: {
+          block: {
+            kind: "result_card",
+            data: {
+              execution_id: "ex-1",
+              capability_name: "章节写作",
+              status: "completed",
+              narrative: "已生成可保存到工作区的章节摘要。",
+              outputs: [
+                {
+                  id: "doc-1",
+                  kind: "document",
+                  preview: "章节摘要",
+                  default_checked: true,
+                  data: {
+                    name: "chapter-summary.md",
+                    mime_type: "text/markdown",
+                    storage_path: "/tmp/chapter-summary.md",
+                    size_bytes: 128,
+                    doc_kind: "draft",
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]),
+  });
+
+  await page.goto(workbenchUrl);
+
+  await expect(page.getByRole("link", { name: "预览待确认修改" })).toBeVisible();
+  await page.getByRole("link", { name: "预览待确认修改" }).click();
+
+  await expect(page).toHaveURL(/\/workspaces\/ws-1\/prism\?focus=file_changes/);
+  await expect(page.getByText("Prism 待确认写入")).toBeVisible();
+  await expect(page.getByText("main.tex").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "应用到 Prism" }).click();
+
+  await expect(page.getByText("Prism 已写入变更")).toBeVisible();
+  await expect(page.locator("textarea").last()).toHaveValue(
+    /Generated workspace manuscript/,
+  );
+
+  await page.goto(workbenchUrl);
+  await page.getByRole("button", { name: "查看结果" }).click();
+  await page.getByRole("button", { name: "保存到工作区" }).click();
+
+  await expect(page.getByText("已保存到工作区")).toBeVisible();
+  await expect
+    .poll(() => commitPayload)
+    .toEqual({ accept_all: true });
+});
+
 test("saved result links open the document drawer without resetting the chat state", async ({
   page,
   context,
