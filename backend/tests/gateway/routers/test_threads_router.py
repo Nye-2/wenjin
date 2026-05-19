@@ -630,6 +630,34 @@ class TestChatRuntimeConfig:
         assert "intent=retry_run" in user_content
         assert "source=result_card" in user_content
 
+    def test_build_langchain_messages_restores_assistant_reasoning_content(self):
+        thread = FakeThread(
+            id="thread-4",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 4",
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": "你好！我是 Wenjin 研究助手。",
+                    "metadata": {
+                        "reasoning": {
+                            "text": "用户打了招呼，所以我先问研究方向。"
+                        }
+                    },
+                }
+            ],
+        )
+
+        messages = _build_langchain_messages(thread)
+
+        assert len(messages) == 1
+        assistant_message = messages[0]
+        assert assistant_message.content == "你好！我是 Wenjin 研究助手。"
+        assert assistant_message.additional_kwargs["reasoning"] == "用户打了招呼，所以我先问研究方向。"
+        assert assistant_message.additional_kwargs["reasoning_content"] == "用户打了招呼，所以我先问研究方向。"
+
 
 class TestThreadMessages:
     """Chat message flow tests."""

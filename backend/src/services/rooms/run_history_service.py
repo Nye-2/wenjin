@@ -5,6 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.run_history import RunHistory
@@ -36,6 +37,23 @@ class RunHistoryService:
         artifact_count: int = 0,
     ) -> RunHistory:
         """Record a completed execution run."""
+        existing = await self._get_by_execution_id(execution_id)
+        if existing is not None:
+            self._apply_record_fields(
+                existing,
+                workspace_id=workspace_id,
+                capability_id=capability_id,
+                title=title,
+                summary=summary,
+                status=status,
+                duration_seconds=duration_seconds,
+                token_usage=token_usage,
+                artifact_count=artifact_count,
+            )
+            await self.db.commit()
+            await self.db.refresh(existing)
+            return existing
+
         row = self._model(
             id=str(uuid4()),
             workspace_id=workspace_id,
@@ -49,9 +67,58 @@ class RunHistoryService:
             artifact_count=artifact_count,
         )
         self.db.add(row)
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            await self.db.rollback()
+            existing = await self._get_by_execution_id(execution_id)
+            if existing is None:
+                raise
+            self._apply_record_fields(
+                existing,
+                workspace_id=workspace_id,
+                capability_id=capability_id,
+                title=title,
+                summary=summary,
+                status=status,
+                duration_seconds=duration_seconds,
+                token_usage=token_usage,
+                artifact_count=artifact_count,
+            )
+            await self.db.commit()
+            await self.db.refresh(existing)
+            return existing
+
         await self.db.refresh(row)
         return row
+
+    async def _get_by_execution_id(self, execution_id: str) -> RunHistory | None:
+        result = await self.db.execute(
+            select(self._model).where(self._model.execution_id == execution_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    def _apply_record_fields(
+        row: RunHistory,
+        *,
+        workspace_id: str,
+        capability_id: str,
+        title: str,
+        summary: str,
+        status: str,
+        duration_seconds: int,
+        token_usage: dict[str, Any] | None,
+        artifact_count: int,
+    ) -> None:
+        row.workspace_id = workspace_id
+        row.capability_id = capability_id
+        row.title = title
+        row.summary = summary
+        row.status = status
+        row.duration_seconds = duration_seconds
+        row.token_usage = token_usage
+        row.artifact_count = artifact_count
 
     async def list(
         self, workspace_id: str, limit: int = 50

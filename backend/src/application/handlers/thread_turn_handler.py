@@ -205,8 +205,16 @@ def _build_langchain_messages(thread: Thread) -> list[BaseMessage]:
                 HumanMessage(content=_stringify_persisted_message_content(msg))
             )
         elif msg["role"] == "assistant":
+            additional_kwargs: dict[str, Any] = {}
+            reasoning_text = _extract_reasoning_text(msg)
+            if reasoning_text:
+                additional_kwargs["reasoning"] = reasoning_text
+                additional_kwargs["reasoning_content"] = reasoning_text
             messages.append(
-                AIMessage(content=_stringify_persisted_message_content(msg))
+                AIMessage(
+                    content=_stringify_persisted_message_content(msg),
+                    additional_kwargs=additional_kwargs,
+                )
             )
         elif msg["role"] == "system":
             messages.append(SystemMessage(content=str(msg.get("content") or "")))
@@ -477,6 +485,16 @@ def _extract_reasoning_text(message: Any) -> str:
         )
         if reasoning_details_text:
             return reasoning_details_text
+        metadata = message.get("metadata")
+        if isinstance(metadata, Mapping):
+            reasoning_text = _extract_reasoning_text_from_payload(metadata.get("reasoning"))
+            if reasoning_text:
+                return reasoning_text
+            reasoning_details_text = _extract_reasoning_text_from_payload(
+                metadata.get("reasoning_details")
+            )
+            if reasoning_details_text:
+                return reasoning_details_text
 
     return ""
 

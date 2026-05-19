@@ -194,6 +194,29 @@ class ReasoningChatOpenAI(ChatOpenAI):
                     msg.additional_kwargs["reasoning"] += reasoning
         return generation_chunk
 
+    def _get_request_payload(
+        self,
+        input_: Any,
+        *,
+        stop: list[str] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        messages = self._convert_input(input_).to_messages()
+        for original_message, payload_message in zip(messages, payload.get("messages", []), strict=False):
+            if not isinstance(original_message, AIMessage):
+                continue
+            reasoning_content = original_message.additional_kwargs.get("reasoning_content")
+            if not isinstance(reasoning_content, str) or not reasoning_content.strip():
+                reasoning = original_message.additional_kwargs.get("reasoning")
+                if isinstance(reasoning, str) and reasoning.strip():
+                    reasoning_content = reasoning
+                else:
+                    reasoning_content = None
+            if reasoning_content:
+                payload_message["reasoning_content"] = reasoning_content
+        return payload
+
 
 def _create_openai_compatible_model(
     model_string: str,

@@ -442,6 +442,30 @@ class TestTimeoutAndRetrySettings:
         assert gen_chunk is not None
         assert gen_chunk.message.additional_kwargs.get("reasoning") == "Thinking..."
 
+    def test_reasoning_content_forwarded_back_in_request_payload(self) -> None:
+        """ReasoningChatOpenAI should pass prior reasoning_content back to compatible APIs."""
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        from src.models.factory import ReasoningChatOpenAI
+
+        model = ReasoningChatOpenAI(
+            model="mimo-v2.5-pro",
+            api_key="sk-test",
+            base_url="https://token-plan-cn.xiaomimimo.com/v1",
+        )
+
+        payload = model._get_request_payload(
+            [
+                AIMessage(
+                    content="你好！我是 Wenjin 研究助手。",
+                    additional_kwargs={"reasoning_content": "先问研究方向。"},
+                ),
+                HumanMessage(content="帮我做联邦学习+大模型的综述"),
+            ]
+        )
+
+        assert payload["messages"][0]["reasoning_content"] == "先问研究方向。"
+
     def test_custom_llm_settings_are_propagated(self, openai_config: str) -> None:
         """When LLMSettings values are changed, models should reflect the new values."""
         original_timeout = LLMSettings.TIMEOUT

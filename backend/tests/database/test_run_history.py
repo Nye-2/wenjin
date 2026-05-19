@@ -3,10 +3,11 @@
 import pytest
 from sqlalchemy import select
 
+from src.services.rooms.run_history_service import RunHistoryService
 from tests.database.conftest import (
+    DbRunHistory,
     DbUser,
     DbWorkspace,
-    DbRunHistory,
 )
 
 
@@ -106,3 +107,47 @@ async def test_list_returns_descending_order(test_session):
     assert runs[0].title == "Third run"
     assert runs[1].title == "Second run"
     assert runs[2].title == "First run"
+
+
+@pytest.mark.asyncio
+async def test_record_updates_existing_execution_instead_of_inserting_duplicate(test_session):
+    """Recording the same execution twice should update the existing row instead of failing."""
+    _seed_workspace(test_session)
+    await test_session.commit()
+
+    service = RunHistoryService(test_session)
+    first = await service.record(
+        workspace_id="ws-run",
+        execution_id="exec-dup-1",
+        capability_id="literature_search",
+        title="First title",
+        summary="First summary",
+        status="completed",
+        duration_seconds=30,
+        artifact_count=1,
+    )
+
+    second = await service.record(
+        workspace_id="ws-run",
+        execution_id="exec-dup-1",
+        capability_id="framework_outline",
+        title="Updated title",
+        summary="Updated summary",
+        status="failed_partial",
+        duration_seconds=45,
+        artifact_count=2,
+    )
+
+    assert second.id == first.id
+    assert second.capability_id == "framework_outline"
+    assert second.title == "Updated title"
+    assert second.summary == "Updated summary"
+    assert second.status == "failed_partial"
+    assert second.duration_seconds == 45
+    assert second.artifact_count == 2
+
+    result = await test_session.execute(
+        select(DbRunHistory).where(DbRunHistory.execution_id == "exec-dup-1")
+    )
+    rows = result.scalars().all()
+    assert len(rows) == 1
