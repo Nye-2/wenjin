@@ -1,89 +1,22 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { authorizedFetch } from "@/lib/api/client";
+import { useEffect, useMemo, useState } from "react";
+
+import {
+  buildCommittedRoomLinks,
+  commitExecutionOutputs,
+  type CommittedRoomLink,
+} from "@/lib/execution-commit";
+import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 import type { ResultCardData } from "@/stores/chat-store";
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-type ResultOutput =
-  | {
-      id: string;
-      kind: "library_item";
-      preview: string;
-      default_checked: boolean;
-      data: {
-        title: string;
-        authors: string[];
-        year?: number;
-        doi?: string;
-        url?: string;
-        abstract?: string;
-        metadata?: Record<string, unknown>;
-      };
-    }
-  | {
-      id: string;
-      kind: "document";
-      preview: string;
-      default_checked: boolean;
-      data: {
-        name: string;
-        mime_type: string;
-        storage_path: string;
-        size_bytes: number;
-        parent_id?: string;
-        doc_kind: "draft" | "outline" | "figure" | "export";
-      };
-    }
-  | {
-      id: string;
-      kind: "memory_fact";
-      preview: string;
-      default_checked: boolean;
-      data: { content: string; category: string; confidence: number };
-    }
-  | {
-      id: string;
-      kind: "decision";
-      preview: string;
-      default_checked: boolean;
-      data: { key: string; value: string; confidence: number };
-    }
-  | {
-      id: string;
-      kind: "task";
-      preview: string;
-      default_checked: boolean;
-      data: { title: string; description?: string; priority?: number };
-    };
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-const KIND_LABELS: Record<ResultOutput["kind"], string> = {
-  library_item: "Library Items",
-  document: "Documents",
-  memory_fact: "Memory Facts",
-  decision: "Decisions",
-  task: "Tasks",
-};
-
-function groupByKind(outputs: ResultOutput[]): Map<string, ResultOutput[]> {
-  const map = new Map<string, ResultOutput[]>();
-  for (const output of outputs) {
-    const group = map.get(output.kind) ?? [];
-    group.push(output);
-    map.set(output.kind, group);
-  }
-  return map;
-}
+import { CommitActionBar } from "./result-preview/CommitActionBar";
+import { ResultPreviewDetail } from "./result-preview/ResultPreviewDetail";
+import { WorkspaceActionLink } from "./WorkspaceActionLink";
 
 function generateUUID(): string {
-  // crypto.randomUUID is available in modern browsers and jsdom 20+
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
   }
-  // Fallback
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === "x" ? r : (r & 0x3) | 0x8;
@@ -91,47 +24,60 @@ function generateUUID(): string {
   });
 }
 
-// ── Component ───────────────────────────────────────────────────────────────
-
 interface ResultCardProps {
   data: ResultCardData;
+  workspaceId?: string;
 }
 
-export function ResultCard({ data }: ResultCardProps) {
+export function ResultCard({ data, workspaceId }: ResultCardProps) {
   const {
     execution_id,
     capability_name,
     status,
     duration_seconds,
     narrative,
-    outputs: rawOutputs,
+    outputs,
   } = data;
 
-  const outputs: ResultOutput[] = Array.isArray(rawOutputs) ? rawOutputs as ResultOutput[] : [];
-
-  // Idempotency key: generated once per mount
+  const previews = useMemo(
+    () => buildWorkspaceResultPreviewsFromOutputs(outputs),
+    [outputs],
+  );
+  const [expanded, setExpanded] = useState(false);
+  const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
   const [idempotencyKey] = useState(() => generateUUID());
-
-  // Checkbox state: initialize from default_checked
   const [checkedIds, setCheckedIds] = useState<Set<string>>(() => {
     const ids = new Set<string>();
-    for (const output of outputs) {
-      if (output.default_checked) {
-        ids.add(output.id);
+    for (const preview of previews) {
+      if (preview.defaultChecked) {
+        ids.add(preview.id);
       }
     }
     return ids;
   });
-
-  // Commit state
   const [committed, setCommitted] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [commitLinks, setCommitLinks] = useState<CommittedRoomLink[]>([]);
+  const [commitError, setCommitError] = useState<string | null>(null);
 
-  // Group outputs by kind (memoized)
-  const grouped = useMemo(() => groupByKind(outputs), [outputs]);
+  useEffect(() => {
+    if (previews.length === 0) {
+      setSelectedPreviewId(null);
+      return;
+    }
+    setSelectedPreviewId((current) =>
+      current && previews.some((preview) => preview.id === current)
+        ? current
+        : previews[0].id,
+    );
+  }, [previews]);
 
-  // Toggle a single checkbox
-  function toggle(id: string) {
+  const selectedPreview =
+    previews.find((preview) => preview.id === selectedPreviewId) ??
+    previews[0] ??
+    null;
+
+  function toggleChecked(id: string) {
     setCheckedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -143,20 +89,32 @@ export function ResultCard({ data }: ResultCardProps) {
     });
   }
 
-  // Commit handler
   async function commit(body: object) {
-    if (committed || committing) return;
+    if (committed || committing) {
+      return;
+    }
+    setCommitError(null);
     setCommitting(true);
     try {
-      await authorizedFetch(`/api/executions/${execution_id}/commit`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": idempotencyKey,
-        },
-        body: JSON.stringify(body),
+      const response = await commitExecutionOutputs({
+        executionId: execution_id,
+        idempotencyKey,
+        body: body as Record<string, unknown>,
       });
+      setCommitLinks(
+        buildCommittedRoomLinks({
+          workspaceId,
+          previews,
+          roomTargets: response.room_targets,
+        }),
+      );
       setCommitted(true);
+    } catch (error) {
+      setCommitLinks([]);
+      setCommitted(false);
+      setCommitError(
+        error instanceof Error ? error.message : "Failed to save outputs",
+      );
     } finally {
       setCommitting(false);
     }
@@ -167,7 +125,6 @@ export function ResultCard({ data }: ResultCardProps) {
 
   return (
     <div style={styles.card}>
-      {/* Header */}
       <div style={styles.header}>
         <span style={styles.statusIcon}>
           {status === "completed" ? "✓" : status === "failed_partial" ? "!" : "×"}
@@ -175,70 +132,115 @@ export function ResultCard({ data }: ResultCardProps) {
         <span style={styles.headerTitle}>
           {capability_name ?? "Execution"} {statusLabel}
         </span>
-        {duration_seconds != null && (
+        {duration_seconds != null ? (
           <span style={styles.duration}>{duration_seconds}s</span>
-        )}
+        ) : null}
       </div>
 
-      {/* Narrative */}
-      {narrative && <div style={styles.narrative}>{narrative}</div>}
+      {narrative ? <div style={styles.narrative}>{narrative}</div> : null}
 
-      {/* Grouped outputs */}
-      {Array.from(grouped.entries()).map(([kind, items]) => (
-        <div key={kind} style={styles.group}>
-          <div style={styles.groupHeader}>
-            {KIND_LABELS[kind as ResultOutput["kind"]] ?? kind} ({items.length})
-          </div>
-          {items.map((output) => (
-            <label key={output.id} style={styles.outputRow}>
-              <input
-                type="checkbox"
-                checked={checkedIds.has(output.id)}
-                onChange={() => toggle(output.id)}
-                disabled={committed}
-                style={styles.checkbox}
-              />
-              <span style={styles.previewText}>{output.preview}</span>
-            </label>
-          ))}
+      <div style={styles.receiptRow}>
+        <div style={styles.receiptMeta}>
+          <span>{previews.length} 项结果待处理</span>
         </div>
-      ))}
-
-      {/* Actions */}
-      <div style={styles.actions}>
-        {committed ? (
-          <span style={styles.confirmed}>已保存</span>
-        ) : (
-          <>
-            <button
-              style={styles.btnAcceptAll}
-              onClick={() => commit({ accept_all: true })}
-              disabled={committing}
-            >
-              全部接受
-            </button>
-            <button
-              style={styles.btnAcceptSelected}
-              onClick={() => commit({ accepted_ids: Array.from(checkedIds) })}
-              disabled={committing}
-            >
-              仅勾选项
-            </button>
-            <button
-              style={styles.btnDiscard}
-              onClick={() => commit({ accepted_ids: [] })}
-              disabled={committing}
-            >
-              全弃
-            </button>
-          </>
-        )}
+        {previews.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            style={styles.toggleButton}
+          >
+            {expanded ? "收起结果" : "查看结果"}
+          </button>
+        ) : null}
       </div>
+
+      {expanded ? (
+        <div style={styles.expandedShell}>
+          <div style={styles.previewList}>
+            {previews.map((preview) => {
+              const isSelected = preview.id === selectedPreview?.id;
+              return (
+                <label
+                  key={preview.id}
+                  style={{
+                    ...styles.previewRow,
+                    ...(isSelected ? styles.previewRowSelected : {}),
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checkedIds.has(preview.id)}
+                    onChange={() => toggleChecked(preview.id)}
+                    onClick={(event) => event.stopPropagation()}
+                    disabled={committed}
+                    style={styles.checkbox}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPreviewId(preview.id)}
+                    style={styles.previewSelectButton}
+                  >
+                    <div style={styles.previewTitle}>{preview.title}</div>
+                    {preview.subtitle ? (
+                      <div style={styles.previewSubtitle}>{preview.subtitle}</div>
+                    ) : null}
+                    {preview.previewText ? (
+                      <div style={styles.previewSnippet}>
+                        {summarize(preview.previewText)}
+                      </div>
+                    ) : null}
+                  </button>
+                </label>
+              );
+            })}
+          </div>
+
+          <ResultPreviewDetail preview={selectedPreview} />
+
+          <div style={styles.commitBar}>
+            <CommitActionBar
+              committed={committed}
+              committing={committing}
+              onAcceptAll={() => commit({ accept_all: true })}
+              onAcceptSelected={() =>
+                commit({ accepted_ids: Array.from(checkedIds) })
+              }
+              onDiscard={() => commit({ accepted_ids: [] })}
+              acceptAllLabel="保存到工作区"
+              acceptSelectedLabel="仅保存勾选项"
+              discardLabel="暂不保存"
+              committedLabel="已保存到工作区"
+            />
+          </div>
+          {commitError ? (
+            <div style={styles.commitError}>{commitError}</div>
+          ) : null}
+          {commitLinks.length > 0 ? (
+            <div style={styles.savedLinks}>
+              {commitLinks.map((link) => (
+                <WorkspaceActionLink
+                  key={link.key}
+                  href={link.href}
+                  style={styles.savedLink}
+                >
+                  {link.label}
+                </WorkspaceActionLink>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-// ── Styles ──────────────────────────────────────────────────────────────────
+function summarize(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 92) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 89)}...`;
+}
 
 const styles: Record<string, React.CSSProperties> = {
   card: {
@@ -280,81 +282,105 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: "var(--v2-space-3)",
     lineHeight: 1.5,
   },
-  group: {
-    marginTop: "var(--v2-space-3)",
-  },
-  groupHeader: {
-    fontSize: 12,
-    textTransform: "uppercase",
-    color: "var(--v2-text-tertiary)",
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  outputRow: {
+  receiptRow: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
-    padding: "5px 6px",
-    borderRadius: "var(--v2-radius-sm)",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  receiptMeta: {
+    fontSize: 12,
+    color: "var(--v2-text-tertiary)",
+  },
+  toggleButton: {
+    border: "1px solid rgba(124, 58, 237, 0.18)",
+    background: "rgba(124, 58, 237, 0.08)",
+    color: "var(--v2-accent-purple-700)",
+    borderRadius: "var(--v2-radius-pill)",
+    padding: "6px 12px",
+    fontSize: 12.5,
+    fontWeight: 600,
     cursor: "pointer",
-    transition: "background var(--v2-duration-fast) var(--v2-ease-standard)",
+  },
+  expandedShell: {
+    marginTop: "var(--v2-space-4)",
+    display: "grid",
+    gap: 12,
+  },
+  previewList: {
+    display: "grid",
+    gap: 8,
+  },
+  previewRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: "10px 12px",
+    borderRadius: "var(--v2-radius-md)",
+    border: "1px solid rgba(20, 20, 30, 0.08)",
+    background: "rgba(255, 255, 255, 0.72)",
+  },
+  previewRowSelected: {
+    border: "1px solid rgba(124, 58, 237, 0.24)",
+    background: "rgba(124, 58, 237, 0.06)",
+    boxShadow: "0 0 0 3px rgba(124, 58, 237, 0.08)",
   },
   checkbox: {
+    marginTop: 3,
     accentColor: "var(--v2-accent-purple-700)",
     cursor: "pointer",
-    margin: 0,
   },
-  previewText: {
+  previewSelectButton: {
+    flex: 1,
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    textAlign: "left",
+    cursor: "pointer",
+  },
+  previewTitle: {
     fontSize: 13,
+    fontWeight: 600,
     color: "var(--v2-text-primary)",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    marginBottom: 4,
   },
-  actions: {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--v2-space-2)",
-    marginTop: "var(--v2-space-4)",
-    paddingTop: "var(--v2-space-3)",
-    borderTop: "1px solid var(--v2-border-soft)",
-  },
-  confirmed: {
-    fontSize: 13,
-    color: "var(--v2-status-success-deep)",
-    fontWeight: 500,
-  },
-  btnAcceptAll: {
-    padding: "6px 14px",
-    borderRadius: "var(--v2-radius-sm)",
-    border: "none",
-    background: "var(--v2-accent-purple-700)",
-    color: "#FFFFFF",
-    fontSize: 12.5,
-    fontWeight: 500,
-    cursor: "pointer",
-    fontFamily: "var(--v2-font-sans)",
-  },
-  btnAcceptSelected: {
-    padding: "6px 14px",
-    borderRadius: "var(--v2-radius-sm)",
-    border: "1px solid var(--v2-accent-purple-700)",
-    background: "transparent",
-    color: "var(--v2-accent-purple-700)",
-    fontSize: 12.5,
-    fontWeight: 500,
-    cursor: "pointer",
-    fontFamily: "var(--v2-font-sans)",
-  },
-  btnDiscard: {
-    padding: "6px 14px",
-    borderRadius: "var(--v2-radius-sm)",
-    border: "none",
-    background: "transparent",
+  previewSubtitle: {
+    fontSize: 12,
     color: "var(--v2-text-tertiary)",
+    marginBottom: 4,
+  },
+  previewSnippet: {
+    fontSize: 12.5,
+    lineHeight: 1.5,
+    color: "var(--v2-text-secondary)",
+  },
+  commitBar: {
+    paddingTop: 2,
+  },
+  commitError: {
+    padding: "8px 10px",
+    borderRadius: "var(--v2-radius-md)",
+    background: "rgba(220, 38, 38, 0.06)",
+    border: "1px solid rgba(220, 38, 38, 0.12)",
+    color: "var(--v2-status-error)",
+    fontSize: 11.5,
+    lineHeight: 1.45,
+  },
+  savedLinks: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  savedLink: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "6px 12px",
+    borderRadius: "var(--v2-radius-pill)",
+    background: "rgba(59, 130, 246, 0.08)",
+    border: "1px solid rgba(59, 130, 246, 0.16)",
+    color: "var(--v2-accent-blue-700)",
     fontSize: 12.5,
     fontWeight: 500,
-    cursor: "pointer",
-    fontFamily: "var(--v2-font-sans)",
+    textDecoration: "none",
   },
 };

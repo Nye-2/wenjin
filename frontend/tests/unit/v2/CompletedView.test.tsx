@@ -1,9 +1,27 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CompletedView } from "@/app/(workbench)/workspaces/[id]/components/CompletedView";
 
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
+
 describe("CompletedView", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          committed: { documents: 1, library: 0 },
+          room_targets: {
+            documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            library: [],
+          },
+        }),
+    });
+  });
+
   it("renders TaskReport payloads from execution.completed", () => {
     render(
       <CompletedView
@@ -30,11 +48,11 @@ describe("CompletedView", () => {
     expect(
       screen.getByText("Found useful papers, with one source unavailable."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Smith et al. 2024")).toBeInTheDocument();
+    expect(screen.getAllByText("Smith et al. 2024")).toHaveLength(2);
     expect(screen.getByText("429")).toBeInTheDocument();
   });
 
-  it("renders nested task_report payloads from fetched execution records", () => {
+  it("renders nested task_report payloads as preview-first detail", () => {
     render(
       <CompletedView
         result={{
@@ -50,7 +68,12 @@ describe("CompletedView", () => {
                 kind: "document",
                 preview: "Thesis outline",
                 default_checked: true,
-                data: { name: "outline.md" },
+                data: {
+                  name: "outline.md",
+                  mime_type: "text/markdown",
+                  doc_kind: "outline",
+                  content: "# Chapter 1\n- Background",
+                },
               },
             ],
             errors: [],
@@ -60,10 +83,12 @@ describe("CompletedView", () => {
     );
 
     expect(screen.getByText("Outline completed.")).toBeInTheDocument();
-    expect(screen.getByText("Thesis outline")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("View full result"));
-    expect(screen.getByText(/"task_report"/)).toBeInTheDocument();
+    expect(screen.getAllByText("Thesis outline")).toHaveLength(2);
+    expect(screen.getByText("Chapter 1")).toBeInTheDocument();
+    expect(screen.getByText("Background")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "View full result" }),
+    ).not.toBeInTheDocument();
   });
 
   it("builds resume links for supported execution next actions", () => {
@@ -129,5 +154,93 @@ describe("CompletedView", () => {
     expect(url.searchParams.get("artifact_id")).toBe("doc-7");
     expect(url.searchParams.get("item_id")).toBe("doc-1");
     expect(url.searchParams.get("query")).toBe("Research Paper Draft");
+  });
+
+  it("commits staged previews from the execution panel and exposes saved room links", async () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: {
+            execution_id: "exec-1",
+            capability_id: "outline",
+            status: "completed",
+            narrative: "Outline completed.",
+            outputs: [
+              {
+                id: "doc-1",
+                kind: "document",
+                preview: "Thesis outline",
+                default_checked: true,
+                data: {
+                  name: "outline.md",
+                  mime_type: "text/markdown",
+                  doc_kind: "outline",
+                  content: "# Chapter 1\n- Background",
+                },
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/executions/exec-1/commit",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ accept_all: true }),
+      }),
+    );
+
+    const savedLink = await screen.findByRole("link", { name: "打开已保存的 Thesis outline" });
+    const url = new URL(savedLink.getAttribute("href")!, "https://example.test");
+    expect(url.pathname).toBe("/workspaces/ws-1");
+    expect(url.searchParams.get("room")).toBe("documents");
+    expect(url.searchParams.get("item_id")).toBe("saved-doc-1");
+    expect(url.searchParams.get("query")).toBe("Thesis outline");
+  });
+
+  it("shows a save error inline when execution commit fails", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: () => Promise.resolve({ detail: "Commit failed" }),
+    });
+
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: {
+            execution_id: "exec-1",
+            capability_id: "outline",
+            status: "completed",
+            narrative: "Outline completed.",
+            outputs: [
+              {
+                id: "doc-1",
+                kind: "document",
+                preview: "Thesis outline",
+                default_checked: true,
+                data: {
+                  name: "outline.md",
+                  mime_type: "text/markdown",
+                  doc_kind: "outline",
+                  content: "# Chapter 1\n- Background",
+                },
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+    expect(await screen.findByText("Commit failed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区" })).toBeInTheDocument();
   });
 });

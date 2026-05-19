@@ -10,16 +10,27 @@ Rooms covered (spec §5.3):
 from __future__ import annotations
 
 import logging
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_db, get_workspace_service
+
+if TYPE_CHECKING:
+    from src.services.rooms.decisions_service import DecisionsService
+    from src.services.rooms.documents_service import DocumentsService
+    from src.services.rooms.library_service import LibraryService
+    from src.services.rooms.memory_service import MemoryService
+    from src.services.rooms.run_history_service import RunHistoryService
+    from src.services.rooms.settings_service import WorkspaceSettingsService
+    from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 
 logger = logging.getLogger(__name__)
 
@@ -55,43 +66,43 @@ async def _assert_workspace_owner(
 # ---------------------------------------------------------------------------
 
 
-def _library_service(db: AsyncSession) -> "LibraryService":
+def _library_service(db: AsyncSession) -> LibraryService:
     from src.services.rooms.library_service import LibraryService
 
     return LibraryService(db)
 
 
-def _documents_service(db: AsyncSession) -> "DocumentsService":
+def _documents_service(db: AsyncSession) -> DocumentsService:
     from src.services.rooms.documents_service import DocumentsService
 
     return DocumentsService(db)
 
 
-def _decisions_service(db: AsyncSession) -> "DecisionsService":
+def _decisions_service(db: AsyncSession) -> DecisionsService:
     from src.services.rooms.decisions_service import DecisionsService
 
     return DecisionsService(db)
 
 
-def _memory_service(db: AsyncSession) -> "MemoryService":
+def _memory_service(db: AsyncSession) -> MemoryService:
     from src.services.rooms.memory_service import MemoryService
 
     return MemoryService(db)
 
 
-def _run_history_service(db: AsyncSession) -> "RunHistoryService":
+def _run_history_service(db: AsyncSession) -> RunHistoryService:
     from src.services.rooms.run_history_service import RunHistoryService
 
     return RunHistoryService(db)
 
 
-def _workspace_tasks_service(db: AsyncSession) -> "WorkspaceTasksService":
+def _workspace_tasks_service(db: AsyncSession) -> WorkspaceTasksService:
     from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 
     return WorkspaceTasksService(db)
 
 
-def _settings_service(db: AsyncSession) -> "WorkspaceSettingsService":
+def _settings_service(db: AsyncSession) -> WorkspaceSettingsService:
     from src.services.rooms.settings_service import WorkspaceSettingsService
 
     return WorkspaceSettingsService(db)
@@ -256,6 +267,24 @@ async def create_library_item(
     return _row_to_dict(item)
 
 
+@router.get("/{ws_id}/library/{item_id}")
+async def get_library_item(
+    ws_id: str,
+    item_id: str,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _assert_workspace_owner(ws_id, current_user, workspace_service)
+    item = await _library_service(db).get(ws_id, item_id)
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Library item not found",
+        )
+    return _row_to_dict(item)
+
+
 @router.delete("/{ws_id}/library/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_library_item(
     ws_id: str,
@@ -298,6 +327,24 @@ async def create_document(
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
     doc = await _documents_service(db).add(ws_id, body.model_dump())
+    return _row_to_dict(doc)
+
+
+@router.get("/{ws_id}/documents/{doc_id}")
+async def get_document(
+    ws_id: str,
+    doc_id: str,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _assert_workspace_owner(ws_id, current_user, workspace_service)
+    doc = await _documents_service(db).get(ws_id, doc_id)
+    if doc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
     return _row_to_dict(doc)
 
 
@@ -447,8 +494,6 @@ async def delete_memory_fact(
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
     from src.database.models.memory_fact import MemoryFact
-    from datetime import datetime, timezone
-    from sqlalchemy import select
 
     result = await db.execute(
         select(MemoryFact).where(
@@ -459,7 +504,7 @@ async def delete_memory_fact(
     fact = result.scalar_one_or_none()
     if fact is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory fact not found")
-    fact.deleted_at = datetime.now(timezone.utc)
+    fact.deleted_at = datetime.now(UTC)
     await db.commit()
 
 

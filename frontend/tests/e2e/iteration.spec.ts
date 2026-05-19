@@ -12,6 +12,13 @@ test("result cards can commit all staged outputs in one click", async ({
   let commitPayload: Record<string, unknown> | null = null;
 
   await installWorkspaceRouteMocks(page, context, {
+    commitResponse: {
+      committed: { documents: 1, tasks: 1 },
+      room_targets: {
+        documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+        library: [],
+      },
+    },
     onCommit: (payload) => {
       commitPayload = payload;
     },
@@ -61,11 +68,199 @@ test("result cards can commit all staged outputs in one click", async ({
     "/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x",
   );
 
-  await expect(page.getByText(/论文分析报告/)).toBeVisible();
-  await page.getByRole("button", { name: "全部接受" }).click();
+  await page.getByRole("button", { name: "查看结果" }).click();
+  await expect(
+    page.getByRole("button", { name: /论文分析报告/ }).first(),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "保存到工作区" }).click();
 
-  await expect(page.getByText("已保存")).toBeVisible();
+  await expect(page.getByText("已保存到工作区")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "打开已保存的 论文分析报告" }),
+  ).toBeVisible();
   await expect
     .poll(() => commitPayload)
     .toEqual({ accept_all: true });
+});
+
+test("saved result links open the document drawer without resetting the chat state", async ({
+  page,
+  context,
+}) => {
+  await installWorkspaceRouteMocks(page, context, {
+    commitResponse: {
+      committed: { documents: 1 },
+      room_targets: {
+        documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+        library: [],
+      },
+    },
+    runStreamBody: buildEventStreamBody([
+      {
+        event: "block",
+        data: {
+          block: {
+            kind: "result_card",
+            data: {
+              execution_id: "ex-1",
+              capability_name: "论文分析",
+              status: "completed",
+              narrative: "已生成可提交的分析产物。",
+              outputs: [
+                {
+                  id: "doc-1",
+                  kind: "document",
+                  preview: "论文分析报告",
+                  default_checked: true,
+                  data: {
+                    name: "analysis.md",
+                    mime_type: "text/markdown",
+                    storage_path: "/tmp/analysis.md",
+                    size_bytes: 128,
+                    doc_kind: "draft",
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]),
+  });
+
+  await page.route("**/api/workspaces/ws-1/documents", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "saved-doc-1",
+          name: "论文分析报告",
+          mime_type: "text/markdown",
+          doc_kind: "draft",
+          size_bytes: 128,
+          created_at: "2026-05-19T00:00:00Z",
+          updated_at: "2026-05-19T00:00:00Z",
+        },
+      ]),
+    });
+  });
+
+  await page.route("**/api/workspaces/ws-1/documents/saved-doc-1", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "saved-doc-1",
+        name: "论文分析报告",
+        mime_type: "text/markdown",
+        doc_kind: "draft",
+        size_bytes: 128,
+        created_at: "2026-05-19T00:00:00Z",
+        updated_at: "2026-05-19T00:00:00Z",
+        metadata_json: {
+          content: "# 论文分析报告\n\n## 研究方法\n- 对比实验",
+        },
+      }),
+    });
+  });
+
+  await page.goto(
+    "/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x",
+  );
+
+  await page.getByRole("button", { name: "查看结果" }).click();
+  await page.getByRole("button", { name: "保存到工作区" }).click();
+  await page.getByRole("link", { name: "打开已保存的 论文分析报告" }).click();
+
+  await expect(page.getByTestId("documents-drawer")).toBeVisible();
+  await expect(page.getByText("研究方法")).toBeVisible();
+  await expect(page.getByText("对比实验")).toBeVisible();
+  await expect(page.getByText("已生成可提交的分析产物。")).toBeVisible();
+});
+
+test("markdown links inside result previews open workspace rooms without resetting the current thread", async ({
+  page,
+  context,
+}) => {
+  await installWorkspaceRouteMocks(page, context, {
+    runStreamBody: buildEventStreamBody([
+      {
+        event: "block",
+        data: {
+          block: {
+            kind: "result_card",
+            data: {
+              execution_id: "ex-1",
+              capability_name: "论文分析",
+              status: "completed",
+              narrative: "我把后续阅读路线也串进结果预览里了。",
+              outputs: [
+                {
+                  id: "doc-1",
+                  kind: "document",
+                  preview: "论文分析报告",
+                  default_checked: true,
+                  data: {
+                    name: "analysis.md",
+                    mime_type: "text/markdown",
+                    size_bytes: 128,
+                    doc_kind: "draft",
+                    content:
+                      "# 论文分析报告\n\n接下来建议先看[核心参考文献](/workspaces/ws-1?room=library&item_id=lib-1&query=Deep%20Learning)。",
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]),
+  });
+
+  await page.route("**/api/workspaces/ws-1/library", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "lib-1",
+          title: "Deep Learning",
+          authors: ["Smith"],
+          year: 2024,
+          source: "search_result",
+          added_by: "assistant",
+          created_at: "2026-05-19T00:00:00Z",
+        },
+      ]),
+    });
+  });
+
+  await page.route("**/api/workspaces/ws-1/library/lib-1", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "lib-1",
+        title: "Deep Learning",
+        authors: ["Smith"],
+        year: 2024,
+        abstract: "A compact survey of deep learning systems.",
+        source: "search_result",
+        created_at: "2026-05-19T00:00:00Z",
+      }),
+    });
+  });
+
+  await page.goto(
+    "/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x",
+  );
+
+  await page.getByRole("button", { name: "查看结果" }).click();
+  await expect(page.getByRole("link", { name: "核心参考文献" })).toBeVisible();
+  await page.getByRole("link", { name: "核心参考文献" }).click();
+
+  await expect(page.getByTestId("library-drawer")).toBeVisible();
+  await expect(page.getByText("A compact survey of deep learning systems.")).toBeVisible();
+  await expect(page.getByText("我把后续阅读路线也串进结果预览里了。")).toBeVisible();
 });

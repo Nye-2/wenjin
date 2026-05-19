@@ -1,7 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { resolveExecutionNextActionPresentation } from "@/lib/block-actions";
+import {
+  buildCommittedRoomLinks,
+  commitExecutionOutputs,
+  type CommittedRoomLink,
+} from "@/lib/execution-commit";
+import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
+import { CommitActionBar } from "./result-preview/CommitActionBar";
+import { ResultPreviewDetail } from "./result-preview/ResultPreviewDetail";
+import { ResultPreviewList } from "./result-preview/ResultPreviewList";
+import { WorkspaceActionLink } from "./WorkspaceActionLink";
 
 type TaskReportLike = {
   narrative?: unknown;
@@ -29,6 +39,7 @@ export function CompletedView({
   nextActions = [],
 }: CompletedViewProps) {
   const [showFullResult, setShowFullResult] = useState(false);
+  const [idempotencyKey] = useState(() => generateUUID());
 
   const taskReport = getTaskReport(result);
   const summary =
@@ -37,7 +48,44 @@ export function CompletedView({
     readString(taskReport?.narrative) ||
     "Execution completed.";
   const taskOutputs = taskReport?.outputs;
-  const outputItems = Array.isArray(taskOutputs) ? taskOutputs.slice(0, 5) : [];
+  const previews = useMemo(
+    () => buildWorkspaceResultPreviewsFromOutputs(taskOutputs),
+    [taskOutputs],
+  );
+  const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
+  useEffect(() => {
+    if (previews.length === 0) {
+      setSelectedPreviewId(null);
+      return;
+    }
+    setSelectedPreviewId((current) =>
+      current && previews.some((preview) => preview.id === current)
+        ? current
+        : previews[0].id,
+    );
+  }, [previews]);
+  const selectedPreview =
+    previews.find((preview) => preview.id === selectedPreviewId) ??
+    previews[0] ??
+    null;
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [committed, setCommitted] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [commitLinks, setCommitLinks] = useState<CommittedRoomLink[]>([]);
+  const [commitError, setCommitError] = useState<string | null>(null);
+  useEffect(() => {
+    setCheckedIds(
+      new Set(
+        previews
+          .filter((preview) => preview.defaultChecked)
+          .map((preview) => preview.id),
+      ),
+    );
+    setCommitted(false);
+    setCommitting(false);
+    setCommitLinks([]);
+    setCommitError(null);
+  }, [previews]);
   const taskErrors = taskReport?.errors;
   const errorItems = Array.isArray(taskErrors) ? taskErrors.slice(0, 3) : [];
   const actionContext = getCompletedActionContext({
@@ -48,6 +96,37 @@ export function CompletedView({
     taskReport,
     nextActions,
   });
+
+  async function commit(body: Record<string, unknown>) {
+    if (!executionId || committed || committing) {
+      return;
+    }
+    setCommitError(null);
+    setCommitting(true);
+    try {
+      const response = await commitExecutionOutputs({
+        executionId,
+        idempotencyKey,
+        body,
+      });
+      setCommitLinks(
+        buildCommittedRoomLinks({
+          workspaceId,
+          previews,
+          roomTargets: response.room_targets,
+        }),
+      );
+      setCommitted(true);
+    } catch (error) {
+      setCommitLinks([]);
+      setCommitted(false);
+      setCommitError(
+        error instanceof Error ? error.message : "Failed to save outputs",
+      );
+    } finally {
+      setCommitting(false);
+    }
+  }
 
   return (
     <div
@@ -62,51 +141,188 @@ export function CompletedView({
           fontSize: 13,
           lineHeight: 1.5,
           color: "var(--v2-text-secondary)",
-          marginBottom: outputItems.length > 0 ? 12 : 8,
+          marginBottom: previews.length > 0 ? 12 : 8,
         }}
       >
         {summary}
       </div>
 
-      {/* Output pills */}
-      {outputItems.length > 0 && (
+      {previews.length > 0 && (
         <div
           style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 6,
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 240px) minmax(0, 1fr)",
+            gap: 12,
             marginBottom: 12,
           }}
         >
-          {outputItems.map((output, i) => {
-            const item = output as Record<string, unknown>;
-            const label =
-              readString(item.preview) ||
-              readString(item.title) ||
-              readString(item.name) ||
-              readString((item.data as Record<string, unknown> | undefined)?.title) ||
-              readString((item.data as Record<string, unknown> | undefined)?.name) ||
-              readString(item.id) ||
-              `Output ${i + 1}`;
-            return (
-              <span
-                key={i}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  padding: "3px 10px",
-                  borderRadius: "var(--v2-radius-pill)",
-                  background: "var(--v2-accent-purple-100)",
-                  color: "var(--v2-accent-purple-700)",
-                  fontSize: 11,
-                  fontWeight: 500,
-                  lineHeight: "18px",
-                }}
-              >
-                {label}
-              </span>
-            );
-          })}
+          <ResultPreviewList
+            previews={previews}
+            selectedId={selectedPreview?.id ?? null}
+            onSelect={setSelectedPreviewId}
+            checkedIds={executionId ? checkedIds : undefined}
+            onToggleChecked={
+              executionId
+                ? (id) =>
+                    setCheckedIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(id)) {
+                        next.delete(id);
+                      } else {
+                        next.add(id);
+                      }
+                      return next;
+                    })
+                : undefined
+            }
+            disabled={committed}
+          />
+          <ResultPreviewDetail
+            preview={selectedPreview}
+            footer={
+              executionId ||
+              actionContext.actions.length > 0 ||
+              actionContext.fileChanges.length > 0 ? (
+                <div
+                  style={{
+                    paddingTop: 12,
+                    borderTop: "1px solid rgba(20, 20, 30, 0.08)",
+                  }}
+                >
+                  {executionId ? (
+                    <div style={{ marginBottom: 12 }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: "var(--v2-text-primary)",
+                          marginBottom: 8,
+                        }}
+                      >
+                        保存到工作区
+                      </div>
+                      <CommitActionBar
+                        committed={committed}
+                        committing={committing}
+                        onAcceptAll={() => commit({ accept_all: true })}
+                        onAcceptSelected={() =>
+                          commit({ accepted_ids: Array.from(checkedIds) })
+                        }
+                        onDiscard={() => commit({ accepted_ids: [] })}
+                        acceptAllLabel="保存到工作区"
+                        acceptSelectedLabel="仅保存勾选项"
+                        discardLabel="暂不保存"
+                        committedLabel="已保存到工作区"
+                      />
+                      {commitError ? (
+                        <div style={styles.commitError}>{commitError}</div>
+                      ) : null}
+                      {commitLinks.length > 0 ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 8,
+                            marginTop: 10,
+                          }}
+                        >
+                          {commitLinks.map((link) => (
+                            <WorkspaceActionLink
+                              key={link.key}
+                              href={link.href}
+                              style={styles.reviewActionLink}
+                            >
+                              {link.label}
+                            </WorkspaceActionLink>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {(actionContext.fileChanges.length > 0 ||
+                    actionContext.actions.length > 0) && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "var(--v2-text-primary)",
+                        marginBottom: actionContext.fileChanges.length > 0 ? 8 : 6,
+                      }}
+                    >
+                      {actionContext.fileChanges.length > 0
+                        ? "待确认修改"
+                        : "下一步操作"}
+                    </div>
+                  )}
+
+                  {actionContext.fileChanges.length > 0 && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                        marginBottom: actionContext.actions.length > 0 ? 10 : 0,
+                      }}
+                    >
+                      {actionContext.fileChanges.map((change) => (
+                        <div
+                          key={change.key}
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            alignItems: "center",
+                            gap: 6,
+                            fontSize: 11.5,
+                            lineHeight: 1.45,
+                            color: "var(--v2-text-secondary)",
+                          }}
+                        >
+                          <span style={{ color: "var(--v2-text-primary)", fontWeight: 500 }}>
+                            {change.path}
+                          </span>
+                          {change.reason ? (
+                            <span style={{ color: "var(--v2-text-tertiary)" }}>
+                              {change.reason}
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {actionContext.actions.length > 0 && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 8,
+                      }}
+                    >
+                      {actionContext.actions.map((action) =>
+                        action.href ? (
+                          <WorkspaceActionLink
+                            key={action.key}
+                            href={action.href}
+                            style={styles.reviewActionLink}
+                          >
+                            {action.label}
+                          </WorkspaceActionLink>
+                        ) : (
+                          <span
+                            key={action.key}
+                            style={styles.reviewActionBadge}
+                          >
+                            {action.label}
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : null
+            }
+          />
         </div>
       )}
 
@@ -145,7 +361,8 @@ export function CompletedView({
         </div>
       )}
 
-      {(actionContext.actions.length > 0 || actionContext.fileChanges.length > 0) && (
+      {previews.length === 0 &&
+        (actionContext.actions.length > 0 || actionContext.fileChanges.length > 0) && (
         <div
           style={{
             marginBottom: 12,
@@ -211,13 +428,13 @@ export function CompletedView({
             >
               {actionContext.actions.map((action) =>
                 action.href ? (
-                  <a
+                  <WorkspaceActionLink
                     key={action.key}
                     href={action.href}
                     style={styles.reviewActionLink}
                   >
                     {action.label}
-                  </a>
+                  </WorkspaceActionLink>
                 ) : (
                   <span
                     key={action.key}
@@ -233,7 +450,7 @@ export function CompletedView({
       )}
 
       {/* View full result toggle */}
-      {result && (
+      {result && previews.length === 0 && (
         <>
           <button
             onClick={() => setShowFullResult((prev) => !prev)}
@@ -277,6 +494,17 @@ export function CompletedView({
       )}
     </div>
   );
+}
+
+function generateUUID(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 function readString(value: unknown): string | null {
@@ -388,6 +616,16 @@ function readObject(value: unknown): Record<string, unknown> | null {
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  commitError: {
+    marginTop: 10,
+    padding: "8px 10px",
+    borderRadius: "var(--v2-radius-md)",
+    background: "rgba(220, 38, 38, 0.06)",
+    border: "1px solid rgba(220, 38, 38, 0.12)",
+    color: "var(--v2-status-error)",
+    fontSize: 11.5,
+    lineHeight: 1.45,
+  },
   reviewActionLink: {
     display: "inline-flex",
     alignItems: "center",

@@ -13,6 +13,11 @@ export type Document = {
   updated_at: string;
 };
 
+export type DocumentDetail = Document & {
+  metadata_json?: Record<string, unknown>;
+  storage_path?: string | null;
+};
+
 export async function listDocuments(
   workspaceId: string,
   query?: string,
@@ -38,4 +43,15 @@ export async function deleteDocument(
     },
   );
   if (!res.ok) throw new Error("Failed to delete document");
+}
+
+export async function getDocument(
+  workspaceId: string,
+  docId: string,
+): Promise<DocumentDetail> {
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/documents/${docId}`);
+  if (!res.ok) {
+    throw new Error("Failed to load document");
+  }
+  return (await res.json()) as DocumentDetail;
 }

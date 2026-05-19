@@ -85,8 +85,12 @@ test("paper analysis auto-entry renders the current chat completion chain", asyn
   await expect(page.getByText(/phase 1 完成/)).toBeVisible();
   await expect(page.getByText(/phase 2 完成/)).toBeVisible();
   await expect(page.getByText(/3 个角度可切/)).toBeVisible();
-  await expect(page.getByText(/异构客户端缺口/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "全部接受" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "查看结果" })).toBeVisible();
+  await page.getByRole("button", { name: "查看结果" }).click();
+  await expect(
+    page.getByRole("button", { name: /异构客户端缺口/ }).first(),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存到工作区" })).toBeVisible();
 
   for (const banned of [
     "message_feature_proposal",
@@ -95,4 +99,165 @@ test("paper analysis auto-entry renders the current chat completion chain", asyn
   ]) {
     await expect(page.getByText(banned)).toHaveCount(0);
   }
+});
+
+test("canonical result card links open workspace rooms without resetting the current thread", async ({
+  page,
+  context,
+}) => {
+  await installWorkspaceRouteMocks(page, context, {
+    runStreamBody: buildEventStreamBody([
+      {
+        event: "block",
+        data: {
+          block: {
+            kind: "result_card",
+            run_id: "run-1",
+            title: "论文框架已整理",
+            tldr: "我先给你收成了一个可继续迭代的大纲。",
+            findings: [
+              { id: "1", text: "研究问题和实验设计已经拆开。" },
+            ],
+            links: [
+              {
+                icon: "file-text",
+                label: "查看已保存大纲",
+                href: "/workspaces/ws-1?room=documents&item_id=saved-doc-1&query=论文框架大纲",
+              },
+            ],
+            feedback: {
+              question: "接下来要继续补文献综述，还是先压方法章节？",
+              pills: [],
+              allow_free_input: true,
+            },
+            stats: {
+              duration_ms: 1420,
+              subagents: 2,
+              tokens: 1840,
+            },
+          },
+        },
+      },
+    ]),
+  });
+
+  await page.route("**/api/workspaces/ws-1/documents", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "saved-doc-1",
+          name: "论文框架大纲",
+          mime_type: "text/markdown",
+          doc_kind: "outline",
+          size_bytes: 256,
+          created_at: "2026-05-19T00:00:00Z",
+          updated_at: "2026-05-19T00:00:00Z",
+        },
+      ]),
+    });
+  });
+
+  await page.route("**/api/workspaces/ws-1/documents/saved-doc-1", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "saved-doc-1",
+        name: "论文框架大纲",
+        mime_type: "text/markdown",
+        doc_kind: "outline",
+        size_bytes: 256,
+        created_at: "2026-05-19T00:00:00Z",
+        updated_at: "2026-05-19T00:00:00Z",
+        metadata_json: {
+          content: "# 论文框架大纲\n\n## 方法\n- 系统设计",
+        },
+      }),
+    });
+  });
+
+  await page.goto(
+    `/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=${encodeURIComponent(
+      "联邦学习+大模型",
+    )}`,
+  );
+
+  await expect(page.getByText("论文框架已整理")).toBeVisible();
+  await page.getByRole("link", { name: "查看已保存大纲" }).click();
+
+  await expect(page.getByTestId("documents-drawer")).toBeVisible();
+  await expect(page.getByText("系统设计")).toBeVisible();
+  await expect(page.getByText("论文框架已整理")).toBeVisible();
+});
+
+test("markdown links in assistant text open workspace rooms without resetting the current thread", async ({
+  page,
+  context,
+}) => {
+  await installWorkspaceRouteMocks(page, context, {
+    runStreamBody: buildEventStreamBody([
+      {
+        event: "block",
+        data: {
+          block: {
+            kind: "text",
+            content:
+              "我已经把结构大纲放进工作区了，[打开文档](/workspaces/ws-1?room=documents&item_id=saved-doc-2&query=结构大纲)。",
+          },
+        },
+      },
+    ]),
+  });
+
+  await page.route("**/api/workspaces/ws-1/documents", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "saved-doc-2",
+          name: "结构大纲",
+          mime_type: "text/markdown",
+          doc_kind: "outline",
+          size_bytes: 192,
+          created_at: "2026-05-19T00:00:00Z",
+          updated_at: "2026-05-19T00:00:00Z",
+        },
+      ]),
+    });
+  });
+
+  await page.route("**/api/workspaces/ws-1/documents/saved-doc-2", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "saved-doc-2",
+        name: "结构大纲",
+        mime_type: "text/markdown",
+        doc_kind: "outline",
+        size_bytes: 192,
+        created_at: "2026-05-19T00:00:00Z",
+        updated_at: "2026-05-19T00:00:00Z",
+        metadata_json: {
+          content: "# 结构大纲\n\n## 实验设计\n- 变量控制",
+        },
+      }),
+    });
+  });
+
+  await page.goto(
+    `/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=${encodeURIComponent(
+      "联邦学习+大模型",
+    )}`,
+  );
+
+  await expect(page.getByText("我已经把结构大纲放进工作区了")).toBeVisible();
+  await page.getByRole("link", { name: "打开文档" }).click();
+
+  await expect(page.getByTestId("documents-drawer")).toBeVisible();
+  await expect(page.getByText("变量控制")).toBeVisible();
+  await expect(page.getByText("我已经把结构大纲放进工作区了")).toBeVisible();
 });

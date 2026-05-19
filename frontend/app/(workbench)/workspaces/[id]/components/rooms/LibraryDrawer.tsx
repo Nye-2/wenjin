@@ -4,8 +4,12 @@ import { useEffect, useState, useCallback } from "react";
 import {
   listLibraryItems,
   deleteLibraryItem,
+  getLibraryItem,
   type LibraryItem,
+  type LibraryItemDetail,
 } from "@/lib/api/v2/library";
+import { buildLibraryRoomPreview } from "@/lib/workspace-result-preview";
+import { ResultPreviewDetail } from "../result-preview/ResultPreviewDetail";
 
 interface LibraryDrawerProps {
   workspaceId: string;
@@ -27,6 +31,11 @@ export function LibraryDrawer({
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [visible, setVisible] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(focusItemId);
+  const [hasLoadedList, setHasLoadedList] = useState(false);
+  const [detail, setDetail] = useState<LibraryItemDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setVisible(true);
@@ -37,11 +46,13 @@ export function LibraryDrawer({
       return;
     }
     setSearch(initialQuery ?? "");
-  }, [initialQuery, open]);
+    setSelectedId(focusItemId ?? null);
+  }, [focusItemId, initialQuery, open]);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setHasLoadedList(false);
     try {
       const data = await listLibraryItems(workspaceId);
       setItems(data);
@@ -49,6 +60,7 @@ export function LibraryDrawer({
       setError(err instanceof Error ? err.message : "Failed to load library");
     } finally {
       setLoading(false);
+      setHasLoadedList(true);
     }
   }, [workspaceId]);
 
@@ -80,6 +92,58 @@ export function LibraryDrawer({
       )
     : items;
 
+  useEffect(() => {
+    if (!open || !hasLoadedList) {
+      return;
+    }
+    if (filtered.length === 0) {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId((current) => {
+      if (current && filtered.some((item) => item.id === current)) {
+        return current;
+      }
+      if (focusItemId && filtered.some((item) => item.id === focusItemId)) {
+        return focusItemId;
+      }
+      return filtered[0].id;
+    });
+  }, [filtered, focusItemId, hasLoadedList, open]);
+
+  useEffect(() => {
+    if (!open || !selectedId) {
+      setDetail(null);
+      setDetailError(null);
+      return;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    void getLibraryItem(workspaceId, selectedId)
+      .then((value) => {
+        if (!cancelled) {
+          setDetail(value);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setDetailError(
+            err instanceof Error ? err.message : "Failed to load library item",
+          );
+          setDetail(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDetailLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedId, workspaceId]);
+
   if (!open) return null;
 
   return (
@@ -89,7 +153,7 @@ export function LibraryDrawer({
         right: 0,
         top: 0,
         bottom: 0,
-        width: 400,
+        width: 760,
         background: "rgba(255, 255, 255, 0.92)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
@@ -169,70 +233,76 @@ export function LibraryDrawer({
       <div
         style={{
           flex: 1,
-          overflowY: "auto",
+          display: "grid",
+          gridTemplateColumns: "280px minmax(0, 1fr)",
+          gap: 12,
           padding: "0 16px 16px",
+          minHeight: 0,
         }}
       >
-        {loading && (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "40px 0",
-              color: "var(--v2-text-tertiary)",
-            }}
-            data-testid="drawer-loading"
-          >
-            Loading library...
-          </div>
-        )}
+        <div style={{ minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+          {loading && (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "40px 0",
+                color: "var(--v2-text-tertiary)",
+              }}
+              data-testid="drawer-loading"
+            >
+              Loading library...
+            </div>
+          )}
 
-        {error && (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "16px",
-              color: "var(--v2-status-error)",
-            }}
-            data-testid="drawer-error"
-          >
-            {error}
-          </div>
-        )}
+          {error && (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "16px",
+                color: "var(--v2-status-error)",
+              }}
+              data-testid="drawer-error"
+            >
+              {error}
+            </div>
+          )}
 
-        {!loading && !error && filtered.length === 0 && (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "40px 0",
-              color: "var(--v2-text-tertiary)",
-            }}
-            data-testid="drawer-empty"
-          >
-            No library items found
-          </div>
-        )}
+          {!loading && !error && filtered.length === 0 && (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "40px 0",
+                color: "var(--v2-text-tertiary)",
+              }}
+              data-testid="drawer-empty"
+            >
+              No library items found
+            </div>
+          )}
 
-        {!loading &&
-          !error &&
-          filtered.map((item) => (
+          {!loading &&
+            !error &&
+            filtered.map((item) => (
             <div
               key={item.id}
+              onClick={() => setSelectedId(item.id)}
               data-testid="library-item"
               data-item-id={item.id}
-              data-focused={item.id === focusItemId ? "true" : "false"}
+              data-focused={item.id === selectedId ? "true" : "false"}
               style={{
                 background: "var(--v2-glass-bg)",
                 borderRadius: "var(--v2-radius-md)",
                 border:
-                  item.id === focusItemId
+                  item.id === selectedId
                     ? "1px solid var(--v2-accent-purple-300)"
                     : "1px solid rgba(20, 20, 30, 0.06)",
                 boxShadow:
-                  item.id === focusItemId
+                  item.id === selectedId
                     ? "0 0 0 3px rgba(124, 58, 237, 0.08)"
                     : "none",
                 padding: 12,
                 marginBottom: 8,
+                cursor: "pointer",
               }}
             >
               <div
@@ -295,7 +365,43 @@ export function LibraryDrawer({
                 </button>
               </div>
             </div>
-          ))}
+            ))}
+        </div>
+
+        <div style={{ minHeight: 0, overflowY: "auto" }}>
+          {detailLoading ? (
+            <div
+              style={{
+                padding: 16,
+                color: "var(--v2-text-tertiary)",
+              }}
+            >
+              Loading preview...
+            </div>
+          ) : detailError ? (
+            <div
+              style={{
+                padding: 16,
+                color: "var(--v2-status-error)",
+              }}
+            >
+              {detailError}
+            </div>
+          ) : detail ? (
+            <ResultPreviewDetail
+              preview={buildLibraryRoomPreview(detail as Record<string, unknown>)}
+            />
+          ) : (
+            <div
+              style={{
+                padding: 16,
+                color: "var(--v2-text-tertiary)",
+              }}
+            >
+              Select a reference to preview it here.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

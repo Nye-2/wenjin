@@ -312,6 +312,7 @@ export function ChatPanel({
             <MessageRow
               key={msg.id}
               message={msg}
+              workspaceId={workspaceId}
               onIntent={handleBlockIntent}
               intentDisabled={isSending}
             />
@@ -496,10 +497,12 @@ export function ChatPanel({
 
 const MessageRow = memo(function MessageRow({
   message,
+  workspaceId,
   onIntent,
   intentDisabled,
 }: {
   message: Message;
+  workspaceId: string;
   onIntent?: (
     intent: string,
     options?: {
@@ -535,6 +538,7 @@ const MessageRow = memo(function MessageRow({
           <MessageBlock
             key={i}
             block={block}
+            workspaceId={workspaceId}
             onIntent={
               onIntent
                 ? (intent, sourceBlockKind) =>

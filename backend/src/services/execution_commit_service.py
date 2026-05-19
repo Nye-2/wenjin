@@ -12,12 +12,12 @@ from typing import Any
 
 from src.agents.contracts.task_report import TaskReport
 from src.services.execution_service import ExecutionService
-from src.services.rooms.library_service import LibraryService
-from src.services.rooms.documents_service import DocumentsService
 from src.services.rooms.decisions_service import DecisionsService
-from src.services.rooms.memory_service import MemoryService, FactCreate
-from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
+from src.services.rooms.documents_service import DocumentsService
+from src.services.rooms.library_service import LibraryService
+from src.services.rooms.memory_service import FactCreate, MemoryService
 from src.services.rooms.run_history_service import RunHistoryService
+from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
@@ -114,6 +114,10 @@ class ExecutionCommitService:
             "decisions": 0,
             "tasks": 0,
         }
+        room_targets: dict[str, list[dict[str, str]]] = {
+            "documents": [],
+            "library": [],
+        }
 
         # 4. Write to rooms
         for output in selected:
@@ -121,7 +125,7 @@ class ExecutionCommitService:
             data = output.data.model_dump() if hasattr(output.data, "model_dump") else dict(output.data)
 
             if kind == "library_item":
-                await self.library.add(
+                item = await self.library.add(
                     execution.workspace_id,
                     {
                         "item_type": "paper",
@@ -136,6 +140,9 @@ class ExecutionCommitService:
                     },
                 )
                 counts["library"] += 1
+                room_targets["library"].append(
+                    {"output_id": output.id, "item_id": item.id}
+                )
 
             elif kind == "document":
                 # Agent-generated documents carry their content inline; we
@@ -174,8 +181,11 @@ class ExecutionCommitService:
                 }
                 if metadata_extra:
                     payload["metadata_json"] = metadata_extra
-                await self.documents.add(execution.workspace_id, payload)
+                doc = await self.documents.add(execution.workspace_id, payload)
                 counts["documents"] += 1
+                room_targets["documents"].append(
+                    {"output_id": output.id, "item_id": doc.id}
+                )
 
             elif kind == "memory_fact":
                 await self.memory.add_facts(
@@ -227,7 +237,10 @@ class ExecutionCommitService:
             artifact_count=len(selected),
         )
 
-        result: dict[str, Any] = {"committed": counts}
+        result: dict[str, Any] = {
+            "committed": counts,
+            "room_targets": room_targets,
+        }
 
         # 6. Cache idempotent result
         if idempotency_key and self.redis:

@@ -203,6 +203,112 @@ describe("LibraryDrawer", () => {
     expect(focusedItem).toHaveAttribute("data-focused", "true");
   });
 
+  it("shows the selected library item in a detail pane", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/library/lib-2")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: "lib-2",
+              title: "BERT: Pre-training of Deep Bidirectional Transformers",
+              authors: ["Devlin, J."],
+              year: 2019,
+              url: "https://arxiv.org/abs/1810.04805",
+              abstract: "A foundational pre-training paper.",
+              source: "search_result",
+              created_at: "2026-01-16T10:00:00Z",
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(MOCK_ITEMS),
+      });
+    });
+
+    render(
+      <LibraryDrawer
+        workspaceId="ws-1"
+        open={true}
+        onClose={vi.fn()}
+        focusItemId="lib-2"
+      />,
+    );
+
+    await screen.findByText("A foundational pre-training paper.");
+    expect(
+      screen.getAllByText(
+        "BERT: Pre-training of Deep Bidirectional Transformers",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("updates the focused library item when the room seed changes while open", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/library/lib-1")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: "lib-1",
+              title: "Attention Is All You Need",
+              authors: ["Vaswani, A.", "Shazeer, N."],
+              year: 2017,
+              abstract: "The transformer paper.",
+              source: "user_upload",
+              created_at: "2026-01-15T10:00:00Z",
+            }),
+        });
+      }
+      if (url.includes("/library/lib-2")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: "lib-2",
+              title: "BERT: Pre-training of Deep Bidirectional Transformers",
+              authors: ["Devlin, J."],
+              year: 2019,
+              abstract: "A foundational pre-training paper.",
+              source: "search_result",
+              created_at: "2026-01-16T10:00:00Z",
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(MOCK_ITEMS),
+      });
+    });
+
+    const { rerender } = render(
+      <LibraryDrawer
+        workspaceId="ws-1"
+        open={true}
+        onClose={vi.fn()}
+        focusItemId="lib-1"
+      />,
+    );
+
+    await screen.findByText("The transformer paper.");
+
+    rerender(
+      <LibraryDrawer
+        workspaceId="ws-1"
+        open={true}
+        onClose={vi.fn()}
+        focusItemId="lib-2"
+      />,
+    );
+
+    await screen.findByText("A foundational pre-training paper.");
+    const focusedItem = screen
+      .getAllByTestId("library-item")
+      .find((item) => item.getAttribute("data-item-id") === "lib-2");
+    expect(focusedItem).toHaveAttribute("data-focused", "true");
+  });
+
   it("calls onClose when close button clicked", async () => {
     const onClose = vi.fn();
     global.fetch = vi.fn().mockResolvedValue({

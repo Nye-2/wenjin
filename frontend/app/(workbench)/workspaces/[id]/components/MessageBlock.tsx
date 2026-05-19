@@ -10,11 +10,39 @@ import type { Block, ResultCardData } from "@/stores/chat-store";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { StatusLineBlock } from "./StatusLineBlock";
 import { ResultCard } from "./ResultCard";
+import { WorkspaceActionLink } from "./WorkspaceActionLink";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+const markdownComponents = {
+  a: ({
+    href,
+    children,
+  }: {
+    href?: string;
+    children?: React.ReactNode;
+  }) => {
+    if (!href) {
+      return <span>{children}</span>;
+    }
+    return (
+      <WorkspaceActionLink
+        href={href}
+        style={{
+          color: "var(--v2-accent-blue-700)",
+          textDecoration: "underline",
+          textUnderlineOffset: 2,
+        }}
+      >
+        {children}
+      </WorkspaceActionLink>
+    );
+  },
+};
+
 interface MessageBlockProps {
   block: Block;
+  workspaceId?: string;
   onIntent?: (
     intent: string,
     sourceBlockKind: "question_card" | "result_card",
@@ -253,7 +281,7 @@ function AgentResultCard({
           }}
         >
           {block.links.map((link) => (
-            <a
+            <WorkspaceActionLink
               key={`${link.href}:${link.label}`}
               href={link.href}
               style={{
@@ -264,7 +292,7 @@ function AgentResultCard({
               }}
             >
               {link.label}
-            </a>
+            </WorkspaceActionLink>
           ))}
         </div>
       )}
@@ -310,6 +338,7 @@ function AgentResultCard({
 
 export const MessageBlock = memo(function MessageBlock({
   block,
+  workspaceId,
   onIntent,
   intentDisabled = false,
 }: MessageBlockProps) {
@@ -317,7 +346,10 @@ export const MessageBlock = memo(function MessageBlock({
     case "text":
       return (
         <div className="prose-chat">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={markdownComponents}
+          >
             {block.content}
           </ReactMarkdown>
         </div>
@@ -364,7 +396,7 @@ export const MessageBlock = memo(function MessageBlock({
       );
     case "result_card":
       if (isAsyncResultCard(block)) {
-        return <ResultCard data={block.data} />;
+        return <ResultCard data={block.data} workspaceId={workspaceId} />;
       }
       if (isAgentResultCard(block)) {
         return (

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -22,7 +21,6 @@ from src.agents.contracts.task_report import (
     TaskReport,
 )
 from src.services.execution_commit_service import ExecutionCommitService
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -202,6 +200,25 @@ async def test_commit_some_only():
     mocks["tasks"].add.assert_not_called()
     # run_history must still be called
     mocks["run_history"].record.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_commit_returns_room_targets_for_committed_items():
+    """Committed document/library outputs return room focus metadata."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    result = await svc.commit_outputs(
+        EXECUTION_ID,
+        accepted_ids=["out-lib", "out-doc"],
+    )
+
+    assert result["room_targets"] == {
+        "documents": [{"output_id": "out-doc", "item_id": "doc-1"}],
+        "library": [{"output_id": "out-lib", "item_id": "lib-1"}],
+    }
 
 
 @pytest.mark.asyncio

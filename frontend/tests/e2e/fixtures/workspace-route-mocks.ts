@@ -3,6 +3,17 @@ import type { BrowserContext, Page, Route } from "@playwright/test";
 const AUTH_COOKIE = JSON.stringify({
   state: { isAuthenticated: true },
 });
+const AUTH_STORAGE_VALUE = JSON.stringify({
+  state: {
+    user: null,
+    accessToken: null,
+    refreshToken: null,
+    isAuthenticated: true,
+    isLoading: false,
+    error: null,
+  },
+  version: 0,
+});
 
 type WorkspaceMessage = {
   id: string;
@@ -24,6 +35,7 @@ type MockOptions = {
   runStreamBody?: string;
   onRunStream?: (payload: Record<string, unknown>) => void;
   onCommit?: (payload: Record<string, unknown>) => void;
+  commitResponse?: unknown;
 };
 
 function json(body: unknown) {
@@ -76,6 +88,15 @@ export async function installWorkspaceRouteMocks(
       path: "/",
     },
   ]);
+  await page.addInitScript(
+    ({ storageKey, storageValue }) => {
+      window.localStorage.setItem(storageKey, storageValue);
+    },
+    {
+      storageKey: "auth-storage",
+      storageValue: AUTH_STORAGE_VALUE,
+    },
+  );
 
   await page.route("**/api/**", async (route: Route) => {
     const request = route.request();
@@ -189,7 +210,7 @@ export async function installWorkspaceRouteMocks(
           JSON.parse(request.postData() || "{}") as Record<string, unknown>,
         );
       }
-      await route.fulfill(json({ ok: true }));
+      await route.fulfill(json(options.commitResponse ?? { ok: true }));
       return;
     }
 

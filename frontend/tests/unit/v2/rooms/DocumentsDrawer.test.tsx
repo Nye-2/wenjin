@@ -180,6 +180,101 @@ describe("DocumentsDrawer", () => {
     expect(focusedItem).toHaveAttribute("data-focused", "true");
   });
 
+  it("shows the selected document in a detail pane", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/documents/doc-2")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: "doc-2",
+              name: "Literature Review Outline",
+              mime_type: "text/markdown",
+              doc_kind: "outline",
+              metadata_json: { content: "# Outline\n- Background" },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(MOCK_ITEMS),
+      });
+    });
+
+    render(
+      <DocumentsDrawer
+        workspaceId="ws-1"
+        open={true}
+        onClose={vi.fn()}
+        focusItemId="doc-2"
+      />,
+    );
+
+    await screen.findByText("Background");
+    expect(screen.getAllByText("Literature Review Outline")).toHaveLength(2);
+  });
+
+  it("updates the focused document when the room seed changes while open", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/documents/doc-1")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: "doc-1",
+              name: "Research Paper Draft",
+              mime_type: "text/markdown",
+              doc_kind: "draft",
+              metadata_json: { content: "# Draft\n- Intro" },
+            }),
+        });
+      }
+      if (url.includes("/documents/doc-2")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: "doc-2",
+              name: "Literature Review Outline",
+              mime_type: "text/markdown",
+              doc_kind: "outline",
+              metadata_json: { content: "# Outline\n- Background" },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(MOCK_ITEMS),
+      });
+    });
+
+    const { rerender } = render(
+      <DocumentsDrawer
+        workspaceId="ws-1"
+        open={true}
+        onClose={vi.fn()}
+        focusItemId="doc-1"
+      />,
+    );
+
+    await screen.findByText("Intro");
+
+    rerender(
+      <DocumentsDrawer
+        workspaceId="ws-1"
+        open={true}
+        onClose={vi.fn()}
+        focusItemId="doc-2"
+      />,
+    );
+
+    await screen.findByText("Background");
+    const focusedItem = screen
+      .getAllByTestId("document-item")
+      .find((item) => item.getAttribute("data-item-id") === "doc-2");
+    expect(focusedItem).toHaveAttribute("data-focused", "true");
+  });
+
   it("calls onClose when close button clicked", async () => {
     const onClose = vi.fn();
     global.fetch = vi.fn().mockResolvedValue({

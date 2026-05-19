@@ -17,7 +17,6 @@ from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_workspace_service
 from src.gateway.routers import workspace_rooms
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
@@ -105,6 +104,25 @@ class TestLibraryRoom:
         assert resp.status_code == 201
         assert resp.json()["id"] == "lib-2"
 
+    def test_get_library_item_happy(self) -> None:
+        app, client = _make_app()
+        fake_item = _fake_row(
+            id="lib-3",
+            workspace_id=WS_ID,
+            title="Paper C",
+            abstract="Structured summary",
+        )
+
+        with pytest.MonkeyPatch.context() as mp:
+            mock_svc = MagicMock()
+            mock_svc.get = AsyncMock(return_value=fake_item)
+            mp.setattr(workspace_rooms, "_library_service", lambda db: mock_svc)
+            resp = client.get(f"/workspaces/{WS_ID}/library/lib-3")
+
+        assert resp.status_code == 200
+        assert resp.json()["id"] == "lib-3"
+        assert resp.json()["abstract"] == "Structured summary"
+
     def test_delete_library_not_found(self) -> None:
         app, client = _make_app()
 
@@ -152,6 +170,26 @@ class TestDocumentsRoom:
 
         assert resp.status_code == 201
         assert resp.json()["id"] == "doc-2"
+
+    def test_get_document_happy(self) -> None:
+        app, client = _make_app()
+        fake_doc = _fake_row(
+            id="doc-3",
+            workspace_id=WS_ID,
+            name="Outline",
+            kind="outline",
+            metadata_json={"content": "# Intro"},
+        )
+
+        with pytest.MonkeyPatch.context() as mp:
+            mock_svc = MagicMock()
+            mock_svc.get = AsyncMock(return_value=fake_doc)
+            mp.setattr(workspace_rooms, "_documents_service", lambda db: mock_svc)
+            resp = client.get(f"/workspaces/{WS_ID}/documents/doc-3")
+
+        assert resp.status_code == 200
+        assert resp.json()["id"] == "doc-3"
+        assert resp.json()["metadata_json"]["content"] == "# Intro"
 
     def test_get_doc_not_found_on_delete(self) -> None:
         app, client = _make_app()

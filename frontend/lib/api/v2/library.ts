@@ -15,6 +15,12 @@ export type LibraryItem = {
   created_at: string;
 };
 
+export type LibraryItemDetail = LibraryItem & {
+  venue?: string;
+  abstract?: string;
+  source?: string;
+};
+
 export async function listLibraryItems(
   workspaceId: string,
   query?: string,
@@ -40,4 +46,15 @@ export async function deleteLibraryItem(
     },
   );
   if (!res.ok) throw new Error("Failed to delete library item");
+}
+
+export async function getLibraryItem(
+  workspaceId: string,
+  itemId: string,
+): Promise<LibraryItemDetail> {
+  const res = await authorizedFetch(`${BASE}/${workspaceId}/library/${itemId}`);
+  if (!res.ok) {
+    throw new Error("Failed to load library item");
+  }
+  return (await res.json()) as LibraryItemDetail;
 }
