@@ -40,3 +40,17 @@ def test_workspace_owned_project_redirects_to_workspace_prism():
 
     assert response.status_code in {302, 307}
     assert response.headers["location"] == "/workspaces/ws-1/prism"
+
+
+def test_non_workspace_project_does_not_redirect():
+    client = _create_client()
+
+    with patch(
+        "src.gateway.routers.latex.WorkspacePrismService.resolve_workspace_from_project",
+        new=AsyncMock(return_value=(None, SimpleNamespace(id="latex-1"))),
+        create=True,
+    ):
+        response = client.get("/latex/latex-1", follow_redirects=False)
+
+    assert response.status_code == 404
+    assert "location" not in response.headers

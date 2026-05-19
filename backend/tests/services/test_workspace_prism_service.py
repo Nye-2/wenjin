@@ -183,3 +183,76 @@ async def test_workspace_latex_project_service_finds_explicit_binding_without_le
     project = await service.ensure_workspace_project(workspace_id=workspace.id)
 
     assert str(project.id) == "latex-explicit"
+
+
+@pytest.mark.asyncio
+async def test_binding_integrity_report_flags_missing_and_duplicate_primary_projects(
+    db: AsyncSession,
+    user: SimpleNamespace,
+) -> None:
+    from src.services.workspace_prism_service import WorkspacePrismService
+
+    db.add_all(
+        [
+            DbWorkspace(
+                id="ws-missing",
+                user_id=user.id,
+                name="Missing Prism",
+                type="thesis",
+                thread_id=None,
+            ),
+            DbWorkspace(
+                id="ws-ok",
+                user_id=user.id,
+                name="Healthy Prism",
+                type="thesis",
+                thread_id=None,
+            ),
+            DbWorkspace(
+                id="ws-duplicate",
+                user_id=user.id,
+                name="Duplicate Prism",
+                type="thesis",
+                thread_id=None,
+            ),
+        ]
+    )
+    db.add_all(
+        [
+            LatexProject(
+                id="latex-ok",
+                user_id=user.id,
+                name="Healthy Manuscript",
+                workspace_id="ws-ok",
+                surface_role="primary_manuscript",
+            ),
+            LatexProject(
+                id="latex-duplicate-1",
+                user_id=user.id,
+                name="Duplicate Manuscript 1",
+                workspace_id="ws-duplicate",
+                surface_role="primary_manuscript",
+            ),
+            LatexProject(
+                id="latex-duplicate-2",
+                user_id=user.id,
+                name="Duplicate Manuscript 2",
+                workspace_id="ws-duplicate",
+                surface_role="primary_manuscript",
+            ),
+        ]
+    )
+    await db.commit()
+
+    report = await WorkspacePrismService(db).get_binding_integrity_report(
+        user_id=user.id,
+    )
+
+    missing_ids = {item["workspace_id"] for item in report["missing_primary"]}
+    duplicate_counts = {
+        item["workspace_id"]: item["primary_count"]
+        for item in report["duplicate_primary"]
+    }
+    assert "ws-missing" in missing_ids
+    assert "ws-ok" not in missing_ids
+    assert duplicate_counts == {"ws-duplicate": 2}

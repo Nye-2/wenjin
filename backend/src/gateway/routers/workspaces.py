@@ -176,10 +176,16 @@ async def get_workspace_prism_surface(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    projection = await WorkspacePrismService(db).get_surface_projection(
-        workspace_id,
-        user_id=str(current_user.id),
-    )
+    try:
+        projection = await WorkspacePrismService(db).get_surface_projection(
+            workspace_id,
+            user_id=str(current_user.id),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace Prism surface not found",
+        ) from exc
     return WorkspacePrismSurfaceResponse(**projection)
 
 

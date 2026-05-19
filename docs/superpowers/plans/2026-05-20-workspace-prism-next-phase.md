@@ -6,17 +6,29 @@ Turn the newly canonical workspace Prism surface into a production-ready manuscr
 
 ## Phase 1: Migration And Data Integrity
 
-- [ ] Run `alembic upgrade head` against a staging-like database snapshot.
-- [ ] Verify legacy `llm_config.workspace_id` Prism projects are backfilled to `workspace_id` and `surface_role = primary_manuscript`.
-- [ ] Add an integrity query/report for workspaces with zero or multiple primary manuscript projects.
-- [ ] Decide whether `(workspace_id, surface_role)` should become a partial unique index for `primary_manuscript` after duplicates are cleaned.
+- [x] Run `alembic upgrade head` against the local development database.
+- [x] Verify legacy `llm_config.workspace_id` Prism projects are backfilled to `workspace_id` and `surface_role = primary_manuscript` in the local database.
+- [x] Add an integrity query/report for workspaces with zero or multiple primary manuscript projects.
+- [x] Decide whether `(workspace_id, surface_role)` should become a partial unique index for `primary_manuscript` after duplicates are cleaned.
+
+Decision: keep the current non-unique `(workspace_id, surface_role)` index for this phase. Add a partial unique index only after production/staging integrity reports show no duplicate primary manuscripts. Local report on 2026-05-20 found no duplicates and multiple E2E/debug workspaces with zero primary manuscripts.
+
+Verification:
+
+```bash
+cd backend && .venv/bin/python -m alembic upgrade head
+cd backend && .venv/bin/python -m alembic current
+cd backend && .venv/bin/python -m scripts.workspace_prism_integrity_report --json --no-fail
+```
 
 ## Phase 2: API Contract Hardening
 
-- [ ] Add OpenAPI/examples for `WorkspacePrismSurfaceResponse`.
-- [ ] Add route coverage for missing Prism project, non-owner access, and legacy `/latex/:projectId` non-workspace behavior.
-- [ ] Confirm `LatexProjectResponse.workspace_id/surface_role` does not expose cross-user information.
+- [x] Add OpenAPI/examples for `WorkspacePrismSurfaceResponse`.
+- [x] Add route coverage for missing Prism project, non-owner access, and legacy `/latex/:projectId` non-workspace behavior.
+- [x] Confirm `LatexProjectResponse.workspace_id/surface_role` does not expose cross-user information.
 - [ ] Normalize frontend and backend field names around `latex_project_id` versus `project_id`.
+
+Note: `LatexProjectResponse` is still returned through `LatexProjectService.get_owned`, so workspace binding fields remain owner-scoped.
 
 ## Phase 3: Review And Commit Flow
 

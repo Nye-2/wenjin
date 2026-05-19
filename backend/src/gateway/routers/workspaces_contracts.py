@@ -159,6 +159,28 @@ class WorkspacePrismEnsureResponse(BaseModel):
 class WorkspacePrismSurfaceResponse(BaseModel):
     """Workspace-owned Prism surface projection."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "workspace_id": "ws-1",
+                "latex_project_id": "latex-1",
+                "surface_role": "primary_manuscript",
+                "url": "/workspaces/ws-1/prism",
+                "main_file": "main.tex",
+                "compile_status": None,
+                "has_pending_changes": True,
+                "target_files": ["main.tex", "sections/introduction.tex"],
+                "file_changes": [
+                    {
+                        "path": "sections/introduction.tex",
+                        "status": "pending",
+                    }
+                ],
+                "applied_file_changes": [],
+            }
+        }
+    )
+
     workspace_id: str
     latex_project_id: str
     surface_role: str
@@ -166,6 +188,9 @@ class WorkspacePrismSurfaceResponse(BaseModel):
     main_file: str | None = None
     compile_status: str | None = None
     has_pending_changes: bool = False
+    target_files: list[str] = Field(default_factory=list)
+    file_changes: list[dict[str, Any]] = Field(default_factory=list)
+    applied_file_changes: list[dict[str, Any]] = Field(default_factory=list)
 
 
 CreateWorkspaceRequest = CreateWorkspaceValidator

@@ -61,6 +61,11 @@ def upgrade() -> None:
         where llm_config is not null
           and llm_config->>'bridge' = 'workspace_latex_project'
           and coalesce(llm_config->>'workspace_id', '') <> ''
+          and exists (
+              select 1
+              from workspaces
+              where workspaces.id = llm_config->>'workspace_id'
+          )
         """
     )
 

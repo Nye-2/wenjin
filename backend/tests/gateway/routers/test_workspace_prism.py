@@ -87,6 +87,25 @@ def test_workspace_prism_surface_returns_linked_project_metadata():
     assert response.json()["url"] == "/workspaces/ws-1/prism"
 
 
+def test_workspace_prism_surface_returns_404_when_project_missing():
+    client = _create_client(user_id="user-1", workspace_owner_id="user-1")
+
+    with patch(
+        "src.gateway.routers.workspaces.WorkspacePrismService.get_surface_projection",
+        new=AsyncMock(side_effect=ValueError("missing")),
+    ):
+        response = client.get("/workspaces/ws-1/prism")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Workspace Prism surface not found"
+
+
+def test_workspace_prism_surface_rejects_non_owner():
+    client = _create_client(user_id="user-2", workspace_owner_id="owner-1")
+    response = client.get("/workspaces/ws-1/prism")
+    assert response.status_code == 403
+
+
 def test_prism_ensure_rejects_non_owner():
     client = _create_client(user_id="user-2", workspace_owner_id="owner-1")
     response = client.post("/workspaces/ws-1/prism/ensure")

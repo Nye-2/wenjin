@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.latex_project import LatexProject
@@ -159,3 +159,55 @@ class WorkspacePrismService:
             if workspace_id:
                 return workspace_id, project
         return None, project
+
+    async def get_binding_integrity_report(
+        self,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Report workspaces with missing or duplicate primary Prism projects."""
+
+        params: dict[str, Any] = {"surface_role": PRIMARY_MANUSCRIPT_ROLE}
+        user_filter = ""
+        if user_id is not None:
+            params["user_id"] = user_id
+            user_filter = "where w.user_id = :user_id"
+
+        result = await self.db.execute(
+            text(
+                f"""
+                select
+                    w.id as workspace_id,
+                    w.user_id as user_id,
+                    w.name as workspace_name,
+                    count(lp.id) as primary_count
+                from workspaces w
+                left join latex_projects lp
+                  on lp.workspace_id = w.id
+                 and lp.surface_role = :surface_role
+                {user_filter}
+                group by w.id, w.user_id, w.name
+                having count(lp.id) = 0 or count(lp.id) > 1
+                order by w.id
+                """
+            ),
+            params,
+        )
+        missing_primary: list[dict[str, Any]] = []
+        duplicate_primary: list[dict[str, Any]] = []
+        for row in result.mappings():
+            item = {
+                "workspace_id": str(row["workspace_id"]),
+                "user_id": str(row["user_id"]),
+                "workspace_name": str(row["workspace_name"] or ""),
+                "primary_count": int(row["primary_count"] or 0),
+            }
+            if item["primary_count"] == 0:
+                missing_primary.append(item)
+            else:
+                duplicate_primary.append(item)
+
+        return {
+            "missing_primary": missing_primary,
+            "duplicate_primary": duplicate_primary,
+        }
