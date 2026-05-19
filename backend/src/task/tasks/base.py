@@ -87,12 +87,14 @@ async def _append_task_thread_message(
                 tokens_total=int(payload.get("tokens_total") or 0),
             )
         else:
+            completion_payload = dict(payload)
+            completion_payload.setdefault("workspace_id", getattr(thread, "workspace_id", None))
             reply = build_completion_result_card(
                 feature_id=feature_id,
                 task_id=task_id,
                 run_id=str(payload.get("run_id") or task_id),
                 execution_id=str(payload.get("execution_id") or "") or None,
-                payload=payload,
+                payload=completion_payload,
                 result=result or {},
                 duration_ms=int(payload.get("duration_ms") or 0),
                 subagents_count=int(payload.get("subagents_count") or 0),

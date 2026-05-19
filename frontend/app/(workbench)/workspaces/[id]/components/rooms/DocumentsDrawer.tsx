@@ -10,6 +10,8 @@ import {
 interface DocumentsDrawerProps {
   workspaceId: string;
   open: boolean;
+  initialQuery?: string | null;
+  focusItemId?: string | null;
   onClose: () => void;
 }
 
@@ -46,6 +48,8 @@ function formatDate(iso: string): string {
 export function DocumentsDrawer({
   workspaceId,
   open,
+  initialQuery = null,
+  focusItemId = null,
   onClose,
 }: DocumentsDrawerProps) {
   const [items, setItems] = useState<Document[]>([]);
@@ -57,6 +61,13 @@ export function DocumentsDrawer({
   useEffect(() => {
     if (open) setVisible(true);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setSearch(initialQuery ?? "");
+  }, [initialQuery, open]);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -233,10 +244,19 @@ export function DocumentsDrawer({
             <div
               key={item.id}
               data-testid="document-item"
+              data-item-id={item.id}
+              data-focused={item.id === focusItemId ? "true" : "false"}
               style={{
                 background: "var(--v2-glass-bg)",
                 borderRadius: "var(--v2-radius-md)",
-                border: "1px solid rgba(20, 20, 30, 0.06)",
+                border:
+                  item.id === focusItemId
+                    ? "1px solid var(--v2-accent-purple-300)"
+                    : "1px solid rgba(20, 20, 30, 0.06)",
+                boxShadow:
+                  item.id === focusItemId
+                    ? "0 0 0 3px rgba(124, 58, 237, 0.08)"
+                    : "none",
                 padding: 12,
                 marginBottom: 8,
               }}

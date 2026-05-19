@@ -79,14 +79,32 @@ def _truncate_text(text: str, max_chars: int) -> str:
     return f"{truncated}…"
 
 
+def _extract_launch_feature_params_from_metadata(
+    metadata: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(metadata, Mapping):
+        return {}
+    orchestration = metadata.get("orchestration")
+    if not isinstance(orchestration, Mapping):
+        return {}
+    params = orchestration.get("params")
+    if not isinstance(params, Mapping):
+        return {}
+
+    reserved_keys = {"entry", "execution_id", "follow_up_prompt"}
+    normalized: dict[str, Any] = {}
+    for key, value in params.items():
+        if not isinstance(key, str) or key in reserved_keys:
+            continue
+        normalized[key] = value
+    return normalized
+
+
 def _stringify_persisted_message_content(message: Mapping[str, Any]) -> str:
     role = str(message.get("role") or "").strip()
     content = str(message.get("content") or "").strip()
 
-    if role == "user":
-        return content
-
-    if role != "assistant":
+    if role not in {"user", "assistant"}:
         return content
 
     additions: list[str] = []
@@ -95,47 +113,80 @@ def _stringify_persisted_message_content(message: Mapping[str, Any]) -> str:
         orchestration = metadata.get("orchestration")
         if isinstance(orchestration, Mapping):
             feature_id = orchestration.get("feature_id")
-            status = orchestration.get("status")
-            task_id = orchestration.get("task_id")
-            fields = [
-                f"feature={feature_id}" if feature_id else None,
-                f"status={status}" if status else None,
-                f"task_id={task_id}" if task_id else None,
-            ]
-            summary = ", ".join(field for field in fields if field)
-            if summary:
-                additions.append(f"[orchestration: {summary}]")
+            execution_id = orchestration.get("execution_id")
 
-    blocks = message.get("blocks")
-    if isinstance(blocks, list):
-        for block in blocks:
-            if not isinstance(block, Mapping):
-                continue
-            block_type = str(block.get("type") or "").strip().lower()
-            data = block.get("data")
-            if block_type == "task" and isinstance(data, Mapping):
-                title = str(block.get("title") or "task").strip()
-                task_id = data.get("task_id")
-                status = data.get("status")
-                note = ", ".join(
-                    part
-                    for part in [
-                        f"title={title}" if title else None,
-                        f"task_id={task_id}" if task_id else None,
-                        f"status={status}" if status else None,
-                    ]
-                    if part
+            if role == "assistant":
+                status = orchestration.get("status")
+                task_id = orchestration.get("task_id")
+                fields = [
+                    f"feature={feature_id}" if feature_id else None,
+                    f"status={status}" if status else None,
+                    f"task_id={task_id}" if task_id else None,
+                    f"execution_id={execution_id}" if execution_id else None,
+                ]
+                summary = ", ".join(field for field in fields if field)
+                if summary:
+                    additions.append(f"[orchestration: {summary}]")
+            else:
+                block_action = metadata.get("block_action")
+                should_surface_orchestration = bool(execution_id) or isinstance(
+                    block_action, Mapping
                 )
-                if note:
-                    additions.append(f"[task: {note}]")
-            elif block_type == "result" and isinstance(data, Mapping):
-                result_summary = data.get("summary")
-                if isinstance(result_summary, str) and result_summary.strip():
-                    additions.append(f"[result: {result_summary.strip()}]")
-            elif block_type == "warning" and isinstance(data, Mapping):
-                detail = data.get("detail")
-                if isinstance(detail, str) and detail.strip():
-                    additions.append(f"[warning: {detail.strip()}]")
+                if should_surface_orchestration:
+                    fields = [
+                        f"feature={feature_id}" if feature_id else None,
+                        f"execution_id={execution_id}" if execution_id else None,
+                    ]
+                    summary = ", ".join(field for field in fields if field)
+                    if summary:
+                        additions.append(f"[orchestration: {summary}]")
+
+        if role == "user":
+            block_action = metadata.get("block_action")
+            if isinstance(block_action, Mapping):
+                action = block_action.get("action")
+                intent = block_action.get("intent")
+                source_block_kind = block_action.get("source_block_kind")
+                fields = [
+                    f"action={action}" if action else None,
+                    f"intent={intent}" if intent else None,
+                    f"source={source_block_kind}" if source_block_kind else None,
+                ]
+                summary = ", ".join(field for field in fields if field)
+                if summary:
+                    additions.append(f"[thread_action: {summary}]")
+
+    if role == "assistant":
+        blocks = message.get("blocks")
+        if isinstance(blocks, list):
+            for block in blocks:
+                if not isinstance(block, Mapping):
+                    continue
+                block_type = str(block.get("type") or "").strip().lower()
+                data = block.get("data")
+                if block_type == "task" and isinstance(data, Mapping):
+                    title = str(block.get("title") or "task").strip()
+                    task_id = data.get("task_id")
+                    status = data.get("status")
+                    note = ", ".join(
+                        part
+                        for part in [
+                            f"title={title}" if title else None,
+                            f"task_id={task_id}" if task_id else None,
+                            f"status={status}" if status else None,
+                        ]
+                        if part
+                    )
+                    if note:
+                        additions.append(f"[task: {note}]")
+                elif block_type == "result" and isinstance(data, Mapping):
+                    result_summary = data.get("summary")
+                    if isinstance(result_summary, str) and result_summary.strip():
+                        additions.append(f"[result: {result_summary.strip()}]")
+                elif block_type == "warning" and isinstance(data, Mapping):
+                    detail = data.get("detail")
+                    if isinstance(detail, str) and detail.strip():
+                        additions.append(f"[warning: {detail.strip()}]")
 
     if not additions:
         return content
@@ -151,7 +202,7 @@ def _build_langchain_messages(thread: Thread) -> list[BaseMessage]:
     for msg in list(thread.messages or []):
         if msg["role"] == "user":
             messages.append(
-                HumanMessage(content=str(msg.get("content") or ""))
+                HumanMessage(content=_stringify_persisted_message_content(msg))
             )
         elif msg["role"] == "assistant":
             messages.append(
@@ -182,6 +233,9 @@ def build_thread_runtime_config(
         "thinking_enabled": request.thinking_enabled,
         "reasoning_effort": request.reasoning_effort,
     }
+    launch_feature_params = _extract_launch_feature_params_from_metadata(request.metadata)
+    if launch_feature_params:
+        configurable["launch_feature_params"] = launch_feature_params
     if execution_id is not None:
         configurable["execution_id"] = execution_id
     return {"configurable": configurable}
@@ -476,18 +530,46 @@ def _attach_usage_metadata(
     return reply
 
 
+def _extract_forward_safe_orchestration_metadata(
+    metadata: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(metadata, Mapping):
+        return {}
+
+    orchestration = metadata.get("orchestration")
+    if not isinstance(orchestration, Mapping):
+        return {}
+
+    forwarded: dict[str, Any] = {}
+    feature_id = orchestration.get("feature_id")
+    if isinstance(feature_id, str) and feature_id.strip():
+        forwarded["feature_id"] = feature_id.strip()
+
+    params = orchestration.get("params")
+    if isinstance(params, Mapping) and params:
+        forwarded["params"] = dict(params)
+
+    return forwarded
+
+
 def _normalize_reply_orchestration_metadata(
     reply: GeneratedThreadReply,
     *,
+    request_metadata: Mapping[str, Any] | None = None,
     execution_id: str | None = None,
 ) -> GeneratedThreadReply:
     """Ensure assistant replies persist canonical execution linkage."""
-    if not execution_id:
+    forwarded = _extract_forward_safe_orchestration_metadata(request_metadata)
+    if not execution_id and not forwarded:
         return reply
 
     reply.metadata = dict(reply.metadata or {})
     existing = reply.metadata.get("orchestration")
     orchestration = dict(existing) if isinstance(existing, Mapping) else {}
+    if not orchestration.get("feature_id") and forwarded.get("feature_id"):
+        orchestration["feature_id"] = forwarded["feature_id"]
+    if not orchestration.get("params") and forwarded.get("params"):
+        orchestration["params"] = forwarded["params"]
     if not orchestration.get("execution_id"):
         orchestration["execution_id"] = execution_id
     if orchestration:
@@ -1305,6 +1387,7 @@ async def generate_thread_response(
     )
     return _normalize_reply_orchestration_metadata(
         reply,
+        request_metadata=request.metadata,
         execution_id=execution_id,
     )
 
@@ -1374,6 +1457,7 @@ def stream_thread_response(
                 )
                 reply = _normalize_reply_orchestration_metadata(
                     reply,
+                    request_metadata=request.metadata,
                     execution_id=execution_id,
                 )
                 reasoning_text = _reply_reasoning_text(reply)
@@ -1435,6 +1519,7 @@ def stream_thread_response(
             )
             reply = _normalize_reply_orchestration_metadata(
                 reply,
+                request_metadata=request.metadata,
                 execution_id=execution_id,
             )
             if not reply_future.done():

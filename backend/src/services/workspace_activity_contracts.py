@@ -116,6 +116,188 @@ def _params_with_result_artifact_seed(
     return normalized
 
 
+def build_task_result_next_actions(
+    *,
+    payload: dict[str, Any] | None,
+    result: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Build canonical follow-up actions from a completed task result."""
+    actions = _normalize_existing_actions(result)
+
+    open_artifact_action = _build_open_artifact_action(result)
+    if open_artifact_action is not None:
+        _append_unique_action(actions, open_artifact_action)
+
+    rerun_action = _build_rerun_from_artifact_action(payload, result)
+    if rerun_action is not None:
+        _append_unique_action(actions, rerun_action)
+
+    return actions
+
+
+def _normalize_existing_actions(result: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(result, dict):
+        return []
+
+    raw_next_actions = result.get("next_actions")
+    if not isinstance(raw_next_actions, list):
+        return []
+
+    return [dict(item) for item in raw_next_actions if isinstance(item, dict)]
+
+
+def _append_unique_action(
+    actions: list[dict[str, Any]],
+    candidate: dict[str, Any],
+) -> None:
+    signature = _action_signature(candidate)
+    for existing in actions:
+        if _action_signature(existing) == signature:
+            return
+    actions.append(candidate)
+
+
+def _action_signature(action: dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(action.get("action") or action.get("kind") or "").strip(),
+        str(action.get("feature_id") or "").strip(),
+        str(action.get("artifact_id") or "").strip(),
+        str(action.get("url") or action.get("href") or "").strip(),
+    )
+
+
+def _build_open_artifact_action(
+    result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+
+    artifact_id: str | None = None
+    title: str | None = None
+    artifact_kind: str | None = None
+    artifact_url: str | None = None
+
+    raw_artifacts = result.get("artifacts")
+    if isinstance(raw_artifacts, list):
+        for item in raw_artifacts:
+            if not isinstance(item, dict):
+                continue
+            artifact_id = _read_string(item.get("id")) or artifact_id
+            title = _read_string(item.get("title")) or title
+            artifact_kind = (
+                _read_string(item.get("artifact_kind"))
+                or _read_string(item.get("kind"))
+                or _read_string(item.get("type"))
+                or artifact_kind
+            )
+            artifact_url = (
+                _read_string(item.get("url"))
+                or _read_string(item.get("href"))
+                or artifact_url
+            )
+            if artifact_id or title or artifact_url:
+                break
+
+    output_descriptor = _first_room_output_descriptor(result)
+    if output_descriptor is not None:
+        artifact_kind = output_descriptor.get("artifact_kind") or artifact_kind
+        title = output_descriptor.get("title") or title
+
+    action: dict[str, Any] = {
+        "action": "open_artifact",
+        "label": "查看产物",
+    }
+    if artifact_id:
+        action["artifact_id"] = artifact_id
+    if title:
+        action["title"] = title
+    if artifact_kind:
+        action["artifact_kind"] = artifact_kind
+    if artifact_url:
+        action["url"] = artifact_url
+
+    return action if len(action) > 2 else None
+
+
+def _build_rerun_from_artifact_action(
+    payload: dict[str, Any] | None,
+    result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+
+    feature_id = _read_string(payload.get("feature_id"))
+    if not feature_id:
+        return None
+
+    artifact_ids = _normalize_result_artifact_ids(result)
+    if not artifact_ids:
+        return None
+
+    params = payload.get("params")
+    seeded_params = _params_with_result_artifact_seed(
+        params if isinstance(params, dict) else None,
+        artifact_ids,
+    )
+    if not seeded_params:
+        return None
+
+    action: dict[str, Any] = {
+        "action": "rerun_from_artifact",
+        "label": "基于当前产物继续",
+        "feature_id": feature_id,
+        **seeded_params,
+    }
+
+    skill_id = _read_string(payload.get("skill_id"))
+    if skill_id:
+        action["skill_id"] = skill_id
+
+    return action
+
+
+def _first_room_output_descriptor(
+    result: dict[str, Any] | None,
+) -> dict[str, str] | None:
+    if not isinstance(result, dict):
+        return None
+
+    task_report = result.get("task_report")
+    if isinstance(task_report, dict):
+        outputs = task_report.get("outputs")
+    else:
+        outputs = result.get("outputs")
+
+    if not isinstance(outputs, list):
+        return None
+
+    for item in outputs:
+        if not isinstance(item, dict):
+            continue
+        kind = _read_string(item.get("kind"))
+        if kind not in {"document", "library_item"}:
+            continue
+        data = item.get("data")
+        title = _read_string(item.get("preview"))
+        if not title and isinstance(data, dict):
+            title = _read_string(data.get("title")) or _read_string(data.get("name"))
+        if not title:
+            continue
+        return {
+            "artifact_kind": kind,
+            "title": title,
+        }
+
+    return None
+
+
+def _read_string(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    return trimmed or None
+
+
 def serialize_activity_item(item: dict[str, Any]) -> dict[str, Any]:
     """Convert an activity item into an event/API-safe payload."""
     occurred_at = item.get("occurred_at")
@@ -233,6 +415,10 @@ def build_task_activity_item(
         result_artifact_ids,
     )
     normalized_usage = _normalize_token_usage(token_usage)
+    next_actions = build_task_result_next_actions(
+        payload=payload if isinstance(payload, dict) else None,
+        result=result if isinstance(result, dict) else None,
+    )
     return {
         "id": f"task:{task_id}",
         "kind": "feature_task",
@@ -263,6 +449,7 @@ def build_task_activity_item(
             "action": params.get("action") if isinstance(params, dict) else None,
             "params": retry_params,
             "result_artifact_ids": result_artifact_ids,
+            "next_actions": next_actions,
             "created_at": _serialize_timestamp(created_at),
             "started_at": _serialize_timestamp(started_at),
             "completed_at": _serialize_timestamp(completed_at),

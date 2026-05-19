@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ChatPanel } from "./components/ChatPanel";
 import { LiveWorkflowPanel } from "./components/LiveWorkflowPanel";
 import { RoomsTopbar, type RoomKey } from "./components/RoomsTopbar";
@@ -30,6 +31,8 @@ export default function V2Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const searchParams = useSearchParams();
+  const roomSeed = readRoomRouteSeed(searchParams);
   const [activeRoom, setActiveRoom] = useState<RoomKey | null>(null);
   const [compactToastVisible, setCompactToastVisible] = useState(false);
   const [workspace, setWorkspace] = useState<{
@@ -72,6 +75,10 @@ export default function V2Page({
     };
   }, [id]);
 
+  useEffect(() => {
+    setActiveRoom(roomSeed.room);
+  }, [roomSeed.room]);
+
   const typeConfig = workspace
     ? WORKSPACE_TYPE_CONFIG[workspace.type as keyof typeof WORKSPACE_TYPE_CONFIG]
     : null;
@@ -112,11 +119,15 @@ export default function V2Page({
         <LibraryDrawer
           workspaceId={id}
           open={activeRoom === "library"}
+          initialQuery={activeRoom === "library" ? roomSeed.query : null}
+          focusItemId={activeRoom === "library" ? roomSeed.itemId : null}
           onClose={() => setActiveRoom(null)}
         />
         <DocumentsDrawer
           workspaceId={id}
           open={activeRoom === "documents"}
+          initialQuery={activeRoom === "documents" ? roomSeed.query : null}
+          focusItemId={activeRoom === "documents" ? roomSeed.itemId : null}
           onClose={() => setActiveRoom(null)}
         />
         <RunsDrawer
@@ -147,4 +158,45 @@ export default function V2Page({
       />
     </div>
   );
+}
+
+function readRequestedRoom(
+  searchParams: ReturnType<typeof useSearchParams>,
+): RoomKey | null {
+  const value = searchParams?.get("room")?.trim().toLowerCase();
+  if (
+    value === "library" ||
+    value === "documents" ||
+    value === "decisions" ||
+    value === "memory" ||
+    value === "runs" ||
+    value === "tasks" ||
+    value === "sandbox" ||
+    value === "settings"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function readRoomRouteSeed(
+  searchParams: ReturnType<typeof useSearchParams>,
+): { room: RoomKey | null; itemId: string | null; query: string | null } {
+  return {
+    room: readRequestedRoom(searchParams),
+    itemId: readTrimmedParam(searchParams, "item_id") ?? readTrimmedParam(searchParams, "artifact_id"),
+    query: readTrimmedParam(searchParams, "query"),
+  };
+}
+
+function readTrimmedParam(
+  searchParams: ReturnType<typeof useSearchParams>,
+  key: string,
+): string | null {
+  const value = searchParams?.get(key);
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed || null;
 }

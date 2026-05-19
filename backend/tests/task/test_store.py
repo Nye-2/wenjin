@@ -289,6 +289,95 @@ class TestTaskStorePostgres:
         assert second_payload["refresh_targets"] == ["dashboard", "artifacts"]
 
     @pytest.mark.asyncio
+    async def test_mark_task_completed_derives_artifact_followup_next_actions(
+        self,
+        task_store,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        publish_workspace_event = AsyncMock()
+        transition_kwargs: dict[str, object] = {}
+        compute_touch = AsyncMock()
+
+        class _FakeExecutionService:
+            def __init__(self, db) -> None:
+                self.db = db
+
+            async def apply_task_transition(self, execution_id: str, **kwargs):
+                transition_kwargs["execution_id"] = execution_id
+                transition_kwargs.update(kwargs)
+                return None
+
+        class _FakeComputeSessionService:
+            def __init__(self, db) -> None:
+                self.db = db
+
+            async def touch_session_by_execution(self, execution_id: str):
+                await compute_touch(execution_id)
+
+        monkeypatch.setattr("src.task.store.publish_workspace_event", publish_workspace_event)
+        monkeypatch.setattr("src.task.store.ExecutionService", _FakeExecutionService)
+        monkeypatch.setattr(
+            "src.compute.session_service.ComputeSessionService",
+            _FakeComputeSessionService,
+        )
+
+        await task_store.create_task_record(
+            task_id="test-task-followup-actions",
+            user_id="user-1",
+            task_type="execution",
+            priority=5,
+            payload={
+                "workspace_id": "ws-1",
+                "feature_id": "framework_outline",
+                "execution_id": "exec-1",
+                "skill_id": "framework-designer",
+                "params": {"topic": "LLM planning"},
+            },
+        )
+
+        await task_store.mark_task_completed(
+            "test-task-followup-actions",
+            success=True,
+            result={
+                "artifact_ids": ["artifact-current"],
+                "artifacts": [{"id": "artifact-current", "title": "LLM Framework"}],
+            },
+        )
+
+        next_actions = transition_kwargs["next_actions"]
+        assert transition_kwargs["execution_id"] == "exec-1"
+        assert isinstance(next_actions, list)
+        assert {
+            (item.get("action"), item.get("artifact_id"), item.get("title"))
+            for item in next_actions
+            if isinstance(item, dict)
+        } >= {
+            ("open_artifact", "artifact-current", "LLM Framework"),
+        }
+        assert {
+            (
+                item.get("action"),
+                item.get("feature_id"),
+                item.get("source_artifact_id"),
+                tuple(item.get("context_artifact_ids") or []),
+                item.get("topic"),
+                item.get("skill_id"),
+            )
+            for item in next_actions
+            if isinstance(item, dict)
+        } >= {
+            (
+                "rerun_from_artifact",
+                "framework_outline",
+                "artifact-current",
+                ("artifact-current",),
+                "LLM planning",
+                "framework-designer",
+            ),
+        }
+        compute_touch.assert_awaited_once_with("exec-1")
+
+    @pytest.mark.asyncio
     async def test_mark_task_started_publishes_running_activity(
         self,
         task_store,

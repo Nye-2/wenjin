@@ -247,6 +247,22 @@ def test_task_activity_promotes_result_artifact_as_retry_seed() -> None:
     assert item["metadata"]["params"]["source_artifact_id"] == "artifact-current"
     assert item["metadata"]["params"]["context_artifact_ids"] == ["artifact-current"]
     assert item["metadata"]["result_artifact_ids"] == ["artifact-current"]
+    assert item["metadata"]["next_actions"] == [
+        {
+            "action": "open_artifact",
+            "label": "查看产物",
+            "artifact_id": "artifact-current",
+            "title": "LLM Framework",
+        },
+        {
+            "action": "rerun_from_artifact",
+            "label": "基于当前产物继续",
+            "feature_id": "framework_outline",
+            "topic": "LLM planning",
+            "source_artifact_id": "artifact-current",
+            "context_artifact_ids": ["artifact-current"],
+        },
+    ]
 
 
 def test_task_record_to_activity_includes_token_usage_metadata() -> None:

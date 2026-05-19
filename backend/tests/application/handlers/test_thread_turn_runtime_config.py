@@ -45,6 +45,45 @@ def test_build_thread_runtime_config_does_not_propagate_feature_orchestration() 
     assert "orchestration_params" not in configurable
 
 
+def test_build_thread_runtime_config_surfaces_sanitized_launch_feature_params() -> None:
+    request = ThreadTurnRequest(
+        message="继续基于这篇论文写作",
+        metadata={
+            "orchestration": {
+                "feature_id": "writing",
+                "params": {
+                    "entry": "open",
+                    "execution_id": "exec-1",
+                    "paper_title": "Agent Paper",
+                    "source_artifact_id": "artifact-2",
+                    "context_artifact_ids": ["artifact-2", "artifact-3"],
+                },
+            }
+        },
+    )
+    thread = SimpleNamespace(id="thread-1", workspace_id="ws-1")
+
+    runtime = build_thread_runtime_config(
+        request=request,
+        thread=thread,
+        actor_id="user-1",
+        workspace_id="ws-1",
+        effective_skill="section-writer",
+        effective_model="gpt-5.2",
+        execution_id="exec-1",
+    )
+
+    configurable = runtime["configurable"]
+    assert configurable["launch_feature_params"] == {
+        "paper_title": "Agent Paper",
+        "source_artifact_id": "artifact-2",
+        "context_artifact_ids": ["artifact-2", "artifact-3"],
+    }
+    assert configurable["execution_id"] == "exec-1"
+    assert "entry" not in configurable["launch_feature_params"]
+    assert "execution_id" not in configurable["launch_feature_params"]
+
+
 def test_build_thread_initial_state_includes_thread_and_user_ids() -> None:
     thread = SimpleNamespace(id="thread-1", messages=[], workspace_id="ws-1")
 

@@ -25,7 +25,9 @@ test("paper analysis auto-entry renders the current chat completion chain", asyn
         data: {
           block: {
             kind: "status_line",
-            content: "phase 1 完成 · 12 篇高相关 → 启动 phase 2",
+            label: "phase 1 完成 · 12 篇高相关 → 启动 phase 2",
+            run_id: "run-1",
+            tone: "info",
           },
         },
       },
@@ -34,7 +36,9 @@ test("paper analysis auto-entry renders the current chat completion chain", asyn
         data: {
           block: {
             kind: "status_line",
-            content: "phase 2 完成 → 启动 phase 3 · 提炼",
+            label: "phase 2 完成 → 启动 phase 3 · 提炼",
+            run_id: "run-1",
+            tone: "info",
           },
         },
       },

@@ -97,6 +97,22 @@ describe("workspace-thread-entry", () => {
     expect(featurePrompt).toContain("研究联邦场景下的大模型协同训练");
   });
 
+  it("prefers a seeded follow_up_prompt for artifact follow-up launches", () => {
+    const featurePrompt = buildWorkspaceThreadEntryPrompt({
+      seed: {
+        featureId: "framework_outline",
+        skillId: "framework-designer",
+        params: {
+          follow_up_prompt: "请基于当前框架继续深化方法设计。",
+          paper_title: "会被 follow_up_prompt 覆盖",
+        },
+      },
+      feature: { name: "框架与摘要", description: "..." },
+    });
+
+    expect(featurePrompt).toBe("请基于当前框架继续深化方法设计。");
+  });
+
   // Lock down the URL → params contract that the chat page's entrySeed
   // flow uses to deliver context to lead_agent (via the seed prompt + skill).
   it("captures source_artifact_id, paper_title, paper_abstract into params", () => {

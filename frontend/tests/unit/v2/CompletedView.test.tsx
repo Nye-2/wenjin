@@ -65,4 +65,69 @@ describe("CompletedView", () => {
     fireEvent.click(screen.getByText("View full result"));
     expect(screen.getByText(/"task_report"/)).toBeInTheDocument();
   });
+
+  it("builds resume links for supported execution next actions", () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        featureId="framework_outline"
+        executionId="exec-42"
+        nextActions={[
+          {
+            action: "resume_execution",
+            label: "继续执行",
+          },
+        ]}
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "继续执行" });
+    const url = new URL(link.getAttribute("href")!, "https://example.test");
+    expect(url.pathname).toBe("/workspaces/ws-1");
+    expect(url.searchParams.get("feature")).toBe("framework_outline");
+    expect(url.searchParams.get("entry")).toBe("resume");
+    expect(url.searchParams.get("execution_id")).toBe("exec-42");
+  });
+
+  it("keeps supported non-link actions visible as explicit badges", () => {
+    render(
+      <CompletedView
+        nextActions={[
+          {
+            action: "continue_thread",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("继续在对话中处理")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "继续在对话中处理" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("routes open artifact actions into workspace rooms when no explicit url exists", () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        nextActions={[
+          {
+            action: "open_artifact",
+            artifact_kind: "document",
+            artifact_id: "doc-7",
+            item_id: "doc-1",
+            title: "Research Paper Draft",
+          },
+        ]}
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "查看产物" });
+    const url = new URL(link.getAttribute("href")!, "https://example.test");
+    expect(url.pathname).toBe("/workspaces/ws-1");
+    expect(url.searchParams.get("room")).toBe("documents");
+    expect(url.searchParams.get("artifact_id")).toBe("doc-7");
+    expect(url.searchParams.get("item_id")).toBe("doc-1");
+    expect(url.searchParams.get("query")).toBe("Research Paper Draft");
+  });
 });

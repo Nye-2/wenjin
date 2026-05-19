@@ -82,6 +82,15 @@ async def test_append_task_thread_message_writes_completion_card(
     assert block["kind"] == "result_card"
     assert block["title"].startswith("框架大纲")
     assert "已完成" in block["title"]
+    assert {
+        (link.get("label"), link.get("href"))
+        for link in block["links"]
+    } >= {
+        (
+            "基于当前产物继续",
+            "/workspaces/ws-1?feature=framework_outline&topic=LLM+planning&source_artifact_id=artifact-1&context_artifact_ids=artifact-1",
+        ),
+    }
     publish_thread_updated.assert_awaited_once_with(thread)
 
 

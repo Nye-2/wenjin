@@ -49,6 +49,16 @@ def _read_optional(config: RunnableConfig | None, key: str) -> str | None:
     return value or None
 
 
+def _read_optional_mapping(config: RunnableConfig | None, key: str) -> dict[str, Any]:
+    configurable = (config or {}).get("configurable") if isinstance(config, Mapping) else None
+    if not isinstance(configurable, Mapping):
+        return {}
+    value = configurable.get(key)
+    if not isinstance(value, Mapping):
+        return {}
+    return {str(param_key): param_value for param_key, param_value in value.items() if isinstance(param_key, str)}
+
+
 @tool("launch_feature", args_schema=LaunchFeatureInput)
 async def launch_feature_tool(
     feature_id: str,
@@ -66,6 +76,9 @@ async def launch_feature_tool(
     user_id = _read_required(config, "user_id")
     entry_skill_id = (skill_id or _read_optional(config, "selected_skill") or None)
     execution_id = _read_optional(config, "execution_id")
+    runtime_launch_params = _read_optional_mapping(config, "launch_feature_params")
+    merged_params = dict(runtime_launch_params)
+    merged_params.update(params or {})
 
     from sqlalchemy import select
 
@@ -136,7 +149,7 @@ async def launch_feature_tool(
 
         missing_fields = resolve_missing_context_fields(
             feature_id=feature_id,
-            params=params or {},
+            params=merged_params,
             launch_source="tool",
         )
         if missing_fields:
@@ -154,7 +167,7 @@ async def launch_feature_tool(
 
         execution_params = build_execution_launch_params(
             feature_id=feature_id,
-            params=params or {},
+            params=merged_params,
             workspace_id=workspace_id,
         )
 

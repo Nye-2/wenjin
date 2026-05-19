@@ -127,6 +127,11 @@ export function buildWorkspaceThreadEntryPrompt(options: {
     return `请继续「${featureLabel}」的执行。`;
   }
 
+  const followUpPrompt = readStringParam(seed.params, "follow_up_prompt");
+  if (followUpPrompt) {
+    return followUpPrompt;
+  }
+
   const promptParts = [`请帮我开始「${featureLabel}」。`];
   const paperTitle = readStringParam(seed.params, "paper_title", "title");
   const paperAbstract = readStringParam(seed.params, "paper_abstract", "abstract");

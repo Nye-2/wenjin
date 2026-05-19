@@ -44,7 +44,7 @@ describe("workspace-feature-action-context", () => {
         source_artifact_id: "artifact-2",
         context_artifact_ids: ["artifact-2"],
       },
-      followUpPrompt: "",
+      followUpPrompt: "请基于当前框架继续深化方法设计。",
       rerunParams: {
         topic: "proposal topic",
         context_artifact_ids: ["artifact-2"],
@@ -63,8 +63,15 @@ describe("workspace-feature-action-context", () => {
       artifacts: [],
     });
 
-    expect(context.route).toBe(
-      "/workspaces/workspace-1?feature=framework_outline&skill=framework-designer&topic=proposal+topic&source_artifact_id=artifact-2&context_artifact_ids=artifact-2"
+    const url = new URL(`https://example.test${context.route}`);
+    expect(url.pathname).toBe("/workspaces/workspace-1");
+    expect(url.searchParams.get("feature")).toBe("framework_outline");
+    expect(url.searchParams.get("skill")).toBe("framework-designer");
+    expect(url.searchParams.get("topic")).toBe("proposal topic");
+    expect(url.searchParams.get("source_artifact_id")).toBe("artifact-2");
+    expect(url.searchParams.getAll("context_artifact_ids")).toEqual(["artifact-2"]);
+    expect(url.searchParams.get("follow_up_prompt")).toBe(
+      "请基于当前框架继续深化方法设计。"
     );
     expect(context.routeParams).toEqual({
       topic: "proposal topic",

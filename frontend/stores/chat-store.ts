@@ -5,14 +5,14 @@
 
 import { create } from "zustand";
 import { authorizedFetch } from "@/lib/api/client";
+import type {
+  QuestionCardBlock,
+  ResultCardBlock,
+  StatusLineBlock,
+  TextBlock,
+} from "@/lib/api/blocks";
 
 // ── Data types ──────────────────────────────────────────────────────────────
-
-type QuestionCardData = {
-  question: string;
-  options?: string[];
-  context?: string;
-};
 
 export type ResultCardData = {
   execution_id: string;
@@ -42,10 +42,11 @@ type ToolResultData = {
 };
 
 export type Block =
-  | { kind: "text"; content: string }
+  | TextBlock
   | { kind: "thinking"; content: string }
-  | { kind: "status_line"; content: string }
-  | { kind: "question_card"; data: QuestionCardData }
+  | StatusLineBlock
+  | QuestionCardBlock
+  | ResultCardBlock
   | { kind: "result_card"; data: ResultCardData }
   | { kind: "tool_invocation"; data: ToolInvocationData }
   | { kind: "tool_result"; data: ToolResultData };
@@ -583,7 +584,9 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
                 type: "chat.assistant.block",
                 block: {
                   kind: "status_line",
-                  content: data.error ?? "Unknown error",
+                  label: data.error ?? "Unknown error",
+                  run_id: "stream-error",
+                  tone: "error",
                 },
               });
               break;

@@ -152,6 +152,34 @@ describe("DocumentsDrawer", () => {
     });
   });
 
+  it("applies initial query and highlights the focused document", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOCK_ITEMS),
+    });
+    render(
+      <DocumentsDrawer
+        workspaceId="ws-1"
+        open={true}
+        onClose={vi.fn()}
+        initialQuery="outline"
+        focusItemId="doc-2"
+      />,
+    );
+
+    await screen.findByText("Literature Review Outline");
+    expect(
+      (screen.getByTestId("drawer-search") as HTMLInputElement).value,
+    ).toBe("outline");
+    expect(
+      screen.queryByText("Research Paper Draft"),
+    ).not.toBeInTheDocument();
+    const focusedItem = screen
+      .getAllByTestId("document-item")
+      .find((item) => item.getAttribute("data-item-id") === "doc-2");
+    expect(focusedItem).toHaveAttribute("data-focused", "true");
+  });
+
   it("calls onClose when close button clicked", async () => {
     const onClose = vi.fn();
     global.fetch = vi.fn().mockResolvedValue({

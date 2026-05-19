@@ -583,6 +583,53 @@ class TestChatRuntimeConfig:
         assert messages[0].content == "请帮我开始「框架与摘要」。"
         assert messages[-1].content == "这个方法为什么有效？"
 
+    def test_build_langchain_messages_surfaces_continue_thread_action_context(self):
+        thread = FakeThread(
+            id="thread-3",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 3",
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": "这是上一轮结果。",
+                    "metadata": {
+                        "orchestration": {
+                            "feature_id": "writing",
+                            "execution_id": "exec-9",
+                        }
+                    },
+                },
+                {
+                    "role": "user",
+                    "content": "retry_run",
+                    "metadata": {
+                        "orchestration": {
+                            "feature_id": "writing",
+                            "execution_id": "exec-9",
+                        },
+                        "block_action": {
+                            "action": "continue_thread",
+                            "intent": "retry_run",
+                            "source_block_kind": "result_card",
+                        },
+                    },
+                },
+            ],
+        )
+
+        messages = _build_langchain_messages(thread)
+
+        user_content = messages[-1].content
+        assert isinstance(user_content, str)
+        assert "retry_run" in user_content
+        assert "feature=writing" in user_content
+        assert "execution_id=exec-9" in user_content
+        assert "action=continue_thread" in user_content
+        assert "intent=retry_run" in user_content
+        assert "source=result_card" in user_content
+
 
 class TestThreadMessages:
     """Chat message flow tests."""
@@ -696,6 +743,72 @@ class TestThreadMessages:
         assert reply.metadata["orchestration"]["execution_id"] == "exec-1"
         assert reply.metadata["usage"]["total_tokens"] == 150
         assert reply.metadata["usage"]["source"] == "thread_agent"
+
+    @pytest.mark.asyncio
+    async def test_generate_thread_response_carries_forward_safe_orchestration_seed(self):
+        """Assistant replies should retain canonical launch context for follow-up turns."""
+        request = ThreadTurnRequest(
+            message="继续这轮写作",
+            workspace_id="ws-1",
+            attachments=(),
+            metadata={
+                "orchestration": {
+                    "intent": "launch",
+                    "feature_id": "writing",
+                    "params": {
+                        "source_artifact_id": "artifact-1",
+                        "context_artifact_ids": ["artifact-1", "artifact-2"],
+                    },
+                }
+            },
+        )
+        thread = FakeThread(
+            id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            title="Thread 1",
+            model="gpt-4o",
+            skill="section-writer",
+        )
+        fake_agent = MagicMock()
+        fake_agent.ainvoke = AsyncMock(
+            return_value={
+                "messages": [MagicMock(content="好的，我继续写。")],
+                "response_metadata": {
+                    "orchestration": {"task_id": "task-2"}
+                },
+            }
+        )
+
+        with patch(
+            "src.application.handlers.thread_turn_handler.ensure_thread_turn_budget",
+            AsyncMock(return_value=None),
+        ), patch(
+            "src.application.handlers.thread_turn_handler.route_chat_model",
+            return_value="gpt-4o",
+        ), patch(
+            "src.agents.chat_agent.agent.build_pipeline",
+            return_value=[],
+        ), patch(
+            "src.agents.chat_agent.agent.make_chat_agent",
+            return_value=fake_agent,
+        ):
+            reply = await generate_thread_response(
+                request,
+                thread,
+                actor_id="user-1",
+                execution_id="exec-2",
+            )
+
+        assert reply.metadata["orchestration"] == {
+            "task_id": "task-2",
+            "feature_id": "writing",
+            "params": {
+                "source_artifact_id": "artifact-1",
+                "context_artifact_ids": ["artifact-1", "artifact-2"],
+            },
+            "execution_id": "exec-2",
+        }
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_builds_artifact_block_from_agent_state(self):

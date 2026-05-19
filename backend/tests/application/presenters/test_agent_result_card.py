@@ -32,6 +32,7 @@ def test_completion_card_emits_result_card_block_only():
     assert isinstance(block["tldr"], str) and block["tldr"]
     assert isinstance(block["findings"], list)
     assert isinstance(block["links"], list)
+    assert block["links"] == []
     assert block["stats"] == {"duration_ms": 15234, "subagents": 4, "tokens": 8500}
     feedback = block["feedback"]
     assert feedback["question"]
@@ -39,13 +40,17 @@ def test_completion_card_emits_result_card_block_only():
     assert feedback["allow_free_input"] is True
 
 
-def test_completion_card_includes_artifact_link():
+def test_completion_card_includes_workspace_followup_link():
     reply = build_completion_result_card(
         feature_id="literature_search",
         task_id="task-2",
         run_id="run-2",
         execution_id=None,
-        payload={"params": {"query": "fed learning"}},
+        payload={
+            "workspace_id": "ws-1",
+            "skill_id": "deep-research",
+            "params": {"query": "fed learning"},
+        },
         result={
             "data": {"summary": "找到 12 篇候选"},
             "artifacts": [{"id": "art-1", "title": "Literature Search Results"}],
@@ -57,7 +62,15 @@ def test_completion_card_includes_artifact_link():
 
     block = reply.blocks[0]
     links = block["links"]
-    assert any(link.get("href", "").startswith("/artifacts/") for link in links)
+    assert {
+        (link.get("label"), link.get("href"))
+        for link in links
+    } >= {
+        (
+            "基于当前产物继续",
+            "/workspaces/ws-1?feature=literature_search&skill=deep-research&query=fed+learning&source_artifact_id=art-1&context_artifact_ids=art-1",
+        ),
+    }
 
 
 def test_failure_card_emits_result_card_block_with_error_tldr():

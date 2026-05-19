@@ -89,7 +89,12 @@ describe("ChatPanel v2", () => {
     });
     handleEvent({
       type: "chat.assistant.block",
-      block: { kind: "status_line", content: "Searching literature..." },
+      block: {
+        kind: "status_line",
+        label: "Searching literature...",
+        run_id: "run-1",
+        tone: "info",
+      },
     });
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
@@ -121,12 +126,263 @@ describe("ChatPanel v2", () => {
       type: "chat.assistant.block",
       block: {
         kind: "question_card",
-        data: { question: "Which approach?" },
+        label: "需要你拍一下",
+        question: "Which approach?",
+        pills: [],
       },
     });
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
     expect(screen.getByText(/Which approach/)).toBeInTheDocument();
+  });
+
+  it("switches the placeholder when a blocking question card is present", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.block",
+      block: {
+        kind: "question_card",
+        label: "需要你拍一下",
+        question: "Which approach?",
+        pills: [],
+      },
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    expect(screen.getByPlaceholderText("直接说想法...")).toBeInTheDocument();
+  });
+
+  it("sends the canonical question card pill intent when clicked", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      sendMessage,
+      isSending: false,
+    });
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.block",
+      block: {
+        kind: "question_card",
+        label: "需要你拍一下",
+        question: "继续跳过这篇文献吗？",
+        pills: [
+          { label: "跳过", intent: "skip_this_paper" },
+          { label: "我来上传 PDF", intent: "upload_pdf" },
+        ],
+      },
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "跳过" }));
+
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-1",
+        "skip_this_paper",
+        [],
+        {
+          metadata: {
+            block_action: {
+              action: "continue_thread",
+              intent: "skip_this_paper",
+              source_block_kind: "question_card",
+            },
+          },
+        },
+      ),
+    );
+  });
+
+  it("preserves execution orchestration metadata when a question card pill continues the current run", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          createdAt: "2026-01-01",
+          metadata: {
+            orchestration: {
+              execution_id: "exec-123",
+            },
+          },
+          blocks: [
+            {
+              kind: "question_card",
+              label: "需要你拍一下",
+              question: "继续跳过这篇文献吗？",
+              pills: [{ label: "跳过", intent: "skip_this_paper" }],
+            },
+          ],
+        },
+      ],
+      sendMessage,
+      isSending: false,
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "跳过" }));
+
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-1",
+        "skip_this_paper",
+        [],
+        {
+          metadata: {
+            block_action: {
+              action: "continue_thread",
+              intent: "skip_this_paper",
+              source_block_kind: "question_card",
+            },
+            orchestration: {
+              execution_id: "exec-123",
+            },
+          },
+        },
+      ),
+    );
+  });
+
+  it("renders canonical result cards and forwards feedback pill intents", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      sendMessage,
+      isSending: false,
+    });
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: {
+        kind: "result_card",
+        run_id: "run-1",
+        title: "论文分析 已完成",
+        tldr: "已经总结出三条主要贡献。",
+        findings: [
+          { id: "①", text: "提出了新的聚合策略" },
+          { id: "②", text: "验证了跨域泛化能力" },
+        ],
+        links: [{ icon: "file", label: "阅读摘要", href: "/artifacts/art-1" }],
+        feedback: {
+          question: "接下来怎么做？",
+          pills: [{ kind: "primary", label: "深入展开 ①", intent: "expand_finding_1" }],
+          allow_free_input: true,
+        },
+        stats: {
+          duration_ms: 12000,
+          subagents: 2,
+          tokens: 1800,
+        },
+      },
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    expect(screen.getByText("论文分析 已完成")).toBeInTheDocument();
+    expect(screen.getByText("已经总结出三条主要贡献。")).toBeInTheDocument();
+    expect(screen.getByText("提出了新的聚合策略")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "阅读摘要" })).toHaveAttribute(
+      "href",
+      "/artifacts/art-1",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "深入展开 ①" }));
+
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-1",
+        "expand_finding_1",
+        [],
+        {
+          metadata: {
+            block_action: {
+              action: "continue_thread",
+              intent: "expand_finding_1",
+              source_block_kind: "result_card",
+            },
+          },
+        },
+      ),
+    );
+  });
+
+  it("preserves execution orchestration metadata when a result card feedback pill iterates the same run", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          createdAt: "2026-01-01",
+          metadata: {
+            orchestration: {
+              execution_id: "exec-456",
+            },
+          },
+          blocks: [
+            {
+              kind: "result_card",
+              run_id: "run-1",
+              title: "论文分析 已完成",
+              tldr: "已经总结出三条主要贡献。",
+              findings: [{ id: "①", text: "提出了新的聚合策略" }],
+              links: [],
+              feedback: {
+                question: "接下来怎么做？",
+                pills: [{ kind: "primary", label: "深入展开 ①", intent: "expand_finding_1" }],
+                allow_free_input: true,
+              },
+              stats: {
+                duration_ms: 12000,
+                subagents: 2,
+                tokens: 1800,
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage,
+      isSending: false,
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "深入展开 ①" }));
+
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-1",
+        "expand_finding_1",
+        [],
+        {
+          metadata: {
+            block_action: {
+              action: "continue_thread",
+              intent: "expand_finding_1",
+              source_block_kind: "result_card",
+            },
+            orchestration: {
+              execution_id: "exec-456",
+            },
+          },
+        },
+      ),
+    );
   });
 
   it("renders result card blocks", () => {
@@ -147,6 +403,29 @@ describe("ChatPanel v2", () => {
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
     expect(screen.getByText(/literature_search/)).toBeInTheDocument();
+  });
+
+  it("switches the placeholder when a result card is ready for feedback", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "execution.completed",
+      data: {
+        execution_id: "ex1",
+        capability_name: "literature_search",
+        status: "completed",
+        outputs: [],
+      },
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    expect(
+      screen.getByPlaceholderText("或对结果反馈、推翻、迭代"),
+    ).toBeInTheDocument();
   });
 
   it("renders mixed block types in arrival order", () => {

@@ -117,6 +117,51 @@ async def test_launch_feature_uses_selected_skill_from_runtime_config_when_tool_
 
 
 @pytest.mark.asyncio
+async def test_launch_feature_merges_runtime_launch_params_when_tool_args_are_partial():
+    """Workspace entry seeds should survive even if the model omits them."""
+    fake_execution = _StubExecution(id="exec-3")
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock(return_value=fake_execution)
+    fake_celery = MagicMock()
+    fake_celery.enabled = True
+    fake_task = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.tasks.execution.execute_execution", fake_task):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "paper_analysis",
+                "params": {"paper_title": "联邦学习结合大模型微调"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                    "selected_skill": "paper-analyst",
+                    "launch_feature_params": {
+                        "source_artifact_id": "artifact-2",
+                        "context_artifact_ids": ["artifact-2", "artifact-3"],
+                        "paper_title": "会被显式参数覆盖的旧标题",
+                    },
+                }
+            },
+        )
+
+    assert result["status"] == "launched"
+    fake_service.create_execution.assert_awaited_once()
+    create_kwargs = fake_service.create_execution.await_args.kwargs
+    assert create_kwargs["params"]["brief"]["brief"] == {
+        "paper_title": "联邦学习结合大模型微调",
+        "source_artifact_id": "artifact-2",
+        "context_artifact_ids": ["artifact-2", "artifact-3"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume():
     """Resume flows should dispatch the existing execution instead of creating a new one."""
     fake_execution = _StubExecution(id="exec-9")

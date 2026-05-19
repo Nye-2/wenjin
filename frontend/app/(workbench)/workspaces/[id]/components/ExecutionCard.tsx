@@ -254,8 +254,12 @@ export function ExecutionCard({
         >
           {isTerminalStatus(record.status) ? (
             <CompletedView
+              workspaceId={record.workspace_id}
+              featureId={record.feature_id}
+              executionId={record.id}
               resultSummary={record.result_summary}
               result={record.result}
+              nextActions={record.next_actions}
             />
           ) : (
             <InProgressView

@@ -1,8 +1,12 @@
 "use client";
 
-import { useRef, useEffect, useMemo, useState, memo } from "react";
+import { useRef, useEffect, useMemo, useState, memo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import type { WorkspaceCapability } from "@/lib/api";
+import {
+  buildContinueThreadBlockAction,
+  type ContinueThreadBlockAction,
+} from "@/lib/block-actions";
 import { useChatStoreV2, type Message } from "@/stores/chat-store";
 import { MessageBlock } from "./MessageBlock";
 import { FileAttachButton } from "./FileAttachButton";
@@ -21,6 +25,42 @@ interface ChatPanelProps {
   features?: WorkspaceCapability[];
   className?: string;
   "data-testid"?: string;
+}
+
+function buildBlockIntentForwardingOptions(
+  metadata: Record<string, unknown> | undefined,
+  blockAction: ContinueThreadBlockAction | undefined,
+):
+  | {
+      metadata: {
+        orchestration?: Record<string, unknown>;
+        block_action?: ContinueThreadBlockAction;
+      };
+    }
+  | undefined {
+  const payload: {
+    orchestration?: Record<string, unknown>;
+    block_action?: {
+      action: "continue_thread";
+      intent: string;
+      source_block_kind: "question_card" | "result_card";
+    };
+  } = {};
+  if (metadata && typeof metadata === "object") {
+    const orchestration = metadata.orchestration;
+    if (orchestration && typeof orchestration === "object") {
+      payload.orchestration = { ...(orchestration as Record<string, unknown>) };
+    }
+  }
+  if (blockAction) {
+    payload.block_action = blockAction;
+  }
+  if (!payload.orchestration && !payload.block_action) {
+    return undefined;
+  }
+  return {
+    metadata: payload,
+  };
 }
 
 export function ChatPanel({
@@ -63,8 +103,40 @@ export function ChatPanel({
     }
     return features?.find((candidate) => candidate.id === entrySeed.featureId) ?? null;
   }, [entrySeed, features]);
+  const inputPlaceholder = useMemo(() => {
+    if (isSending) {
+      return "等待回复中...";
+    }
+    const lastAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    if (lastAssistantMessage?.blocks.some((block) => block.kind === "question_card")) {
+      return "直接说想法...";
+    }
+    if (lastAssistantMessage?.blocks.some((block) => block.kind === "result_card")) {
+      return "或对结果反馈、推翻、迭代";
+    }
+    return "输入消息... Shift+Enter 换行";
+  }, [isSending, messages]);
 
   const showThinking = isSending && messages.length > 0 && messages[messages.length - 1].role === "user";
+  const handleBlockIntent = useCallback(
+    (
+      intent: string,
+      options?: {
+        metadata: {
+          orchestration?: Record<string, unknown>;
+          block_action?: ContinueThreadBlockAction;
+        };
+      },
+    ) => {
+      if (!intent.trim() || isSending) {
+        return;
+      }
+      void sendMessage(workspaceId, intent.trim(), [], options);
+    },
+    [isSending, sendMessage, workspaceId],
+  );
 
   // Auto-scroll to bottom on new messages or thinking state change
   useEffect(() => {
@@ -236,7 +308,14 @@ export function ChatPanel({
             </div>
           </div>
         ) : (
-          messages.map((msg) => <MessageRow key={msg.id} message={msg} />)
+          messages.map((msg) => (
+            <MessageRow
+              key={msg.id}
+              message={msg}
+              onIntent={handleBlockIntent}
+              intentDisabled={isSending}
+            />
+          ))
         )}
         {showThinking && (
           <div
@@ -364,7 +443,7 @@ export function ChatPanel({
           />
           <textarea
             ref={textareaRef}
-            placeholder={isSending ? "等待回复中..." : "输入消息... Shift+Enter 换行"}
+            placeholder={inputPlaceholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -415,7 +494,23 @@ export function ChatPanel({
   );
 }
 
-const MessageRow = memo(function MessageRow({ message }: { message: Message }) {
+const MessageRow = memo(function MessageRow({
+  message,
+  onIntent,
+  intentDisabled,
+}: {
+  message: Message;
+  onIntent?: (
+    intent: string,
+    options?: {
+      metadata: {
+        orchestration?: Record<string, unknown>;
+        block_action?: ContinueThreadBlockAction;
+      };
+    },
+  ) => void;
+  intentDisabled?: boolean;
+}) {
   const isUser = message.role === "user";
   return (
     <div
@@ -437,7 +532,23 @@ const MessageRow = memo(function MessageRow({ message }: { message: Message }) {
         }}
       >
         {message.blocks.map((block, i) => (
-          <MessageBlock key={i} block={block} />
+          <MessageBlock
+            key={i}
+            block={block}
+            onIntent={
+              onIntent
+                ? (intent, sourceBlockKind) =>
+                    onIntent(
+                      intent,
+                      buildBlockIntentForwardingOptions(
+                        message.metadata,
+                        buildContinueThreadBlockAction(intent, sourceBlockKind),
+                      ),
+                    )
+                : undefined
+            }
+            intentDisabled={intentDisabled}
+          />
         ))}
       </div>
     </div>

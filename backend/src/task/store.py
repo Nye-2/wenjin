@@ -16,6 +16,7 @@ from src.runtime.serialization import dumps_json
 from src.services.execution_service import ExecutionService
 from src.services.workspace_activity_contracts import (
     build_task_activity_item,
+    build_task_result_next_actions,
     serialize_activity_item,
 )
 from src.task.registry import TaskStatus
@@ -451,14 +452,15 @@ class TaskStore:
         # Derive result_summary, artifact_ids, next_actions before the tx
         result_summary = final_message if isinstance(final_message, str) and final_message else None
         artifact_ids: list[str] = []
-        next_actions: list[dict[str, Any]] = []
+        payload = record.payload if isinstance(record.payload, dict) else {}
+        next_actions = build_task_result_next_actions(
+            payload=payload,
+            result=result if isinstance(result, dict) else None,
+        )
         if isinstance(result, dict):
             raw_artifact_ids = result.get("artifact_ids")
             if isinstance(raw_artifact_ids, list):
                 artifact_ids = [str(item) for item in raw_artifact_ids if str(item).strip()]
-            raw_next_actions = result.get("next_actions")
-            if isinstance(raw_next_actions, list):
-                next_actions = [item for item in raw_next_actions if isinstance(item, dict)]
             if result_summary is None:
                 raw_summary = result.get("summary")
                 if isinstance(raw_summary, str) and raw_summary.strip():
@@ -518,7 +520,6 @@ class TaskStore:
                 record.execution_id
             )
 
-        payload = record.payload if isinstance(record.payload, dict) else {}
         workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
         if workspace_id:
             await publish_workspace_event(

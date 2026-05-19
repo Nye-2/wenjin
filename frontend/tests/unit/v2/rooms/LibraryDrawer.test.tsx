@@ -175,6 +175,34 @@ describe("LibraryDrawer", () => {
     });
   });
 
+  it("applies initial query and highlights the focused library item", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOCK_ITEMS),
+    });
+    render(
+      <LibraryDrawer
+        workspaceId="ws-1"
+        open={true}
+        onClose={vi.fn()}
+        initialQuery="bert"
+        focusItemId="lib-2"
+      />,
+    );
+
+    await screen.findByText(/BERT/);
+    expect(
+      (screen.getByTestId("drawer-search") as HTMLInputElement).value,
+    ).toBe("bert");
+    expect(
+      screen.queryByText("Attention Is All You Need"),
+    ).not.toBeInTheDocument();
+    const focusedItem = screen
+      .getAllByTestId("library-item")
+      .find((item) => item.getAttribute("data-item-id") === "lib-2");
+    expect(focusedItem).toHaveAttribute("data-focused", "true");
+  });
+
   it("calls onClose when close button clicked", async () => {
     const onClose = vi.fn();
     global.fetch = vi.fn().mockResolvedValue({

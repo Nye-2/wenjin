@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import type { ExecutionRecord } from "@/lib/api/types";
 import { groupExecutionPhases } from "@/lib/execution-phases";
@@ -22,11 +23,9 @@ function isTerminalStatus(status: string): boolean {
 export function ExecutionCardList({ workspaceId }: ExecutionCardListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const currentExecutionId = useExecutionStore((s) => s.currentExecutionId);
-  const executions = useExecutionStore((s) => s.executions);
-  const executionRecords = useMemo(
-    () => Array.from(executions.values()),
-    [executions],
+  const currentExecutionId = useExecutionStore((state) => state.currentExecutionId);
+  const executionRecords = useExecutionStore(
+    useShallow((state) => Array.from(state.executions.values())),
   );
 
   const cards = useMemo<Array<{

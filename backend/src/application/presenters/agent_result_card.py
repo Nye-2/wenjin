@@ -7,8 +7,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlencode
 
 from src.application.results import GeneratedThreadReply
+from src.services.workspace_activity_contracts import build_task_result_next_actions
 
 _FEATURE_DISPLAY = {
     "paper_analysis": "论文分析",
@@ -68,18 +70,115 @@ def _links_from_artifacts(artifacts: list[Mapping[str, Any]]) -> list[dict[str, 
     for art in artifacts[:6]:
         if not isinstance(art, Mapping):
             continue
-        artifact_id = str(art.get("id") or "").strip()
         title = str(art.get("title") or "").strip()
-        if not artifact_id or not title:
+        href = str(art.get("url") or art.get("href") or "").strip()
+        if not href or not title:
             continue
         links.append(
             {
                 "icon": "file",
                 "label": title,
-                "href": f"/artifacts/{artifact_id}",
+                "href": href,
             }
         )
     return links
+
+
+def _links_from_next_actions(
+    *,
+    feature_id: str,
+    payload: Mapping[str, Any] | None,
+    result: Mapping[str, Any] | None,
+) -> list[dict[str, str]]:
+    if not isinstance(payload, Mapping):
+        payload_dict: dict[str, Any] = {}
+    else:
+        payload_dict = dict(payload)
+
+    payload_dict.setdefault("feature_id", feature_id)
+    actions = build_task_result_next_actions(
+        payload=payload_dict,
+        result=dict(result) if isinstance(result, Mapping) else None,
+    )
+    links: list[dict[str, str]] = []
+    for action in actions:
+        href = _action_href(action, payload_dict)
+        label = str(action.get("label") or "").strip()
+        if not href or not label:
+            continue
+        links.append(
+            {
+                "icon": "file" if action.get("action") == "open_artifact" else "sparkles",
+                "label": label,
+                "href": href,
+            }
+        )
+    return links
+
+
+def _action_href(action: Mapping[str, Any], payload: Mapping[str, Any]) -> str | None:
+    action_name = str(action.get("action") or action.get("kind") or "").strip()
+    explicit_href = str(action.get("url") or action.get("href") or "").strip()
+    if explicit_href:
+        return explicit_href
+
+    workspace_id = str(payload.get("workspace_id") or "").strip()
+    if not workspace_id:
+        return None
+
+    if action_name == "rerun_from_artifact":
+        feature_id = str(action.get("feature_id") or payload.get("feature_id") or "").strip()
+        if not feature_id:
+            return None
+        query: list[tuple[str, str]] = [("feature", feature_id)]
+        skill_id = str(action.get("skill_id") or "").strip()
+        if skill_id:
+            query.append(("skill", skill_id))
+        for key, value in action.items():
+            if key in {"action", "kind", "label", "feature_id", "skill_id"}:
+                continue
+            query.extend(_query_pairs(key, value))
+        suffix = urlencode(query, doseq=True)
+        return f"/workspaces/{workspace_id}?{suffix}" if suffix else f"/workspaces/{workspace_id}"
+
+    if action_name == "open_artifact":
+        room = _artifact_room(str(action.get("artifact_kind") or "").strip())
+        title = str(action.get("title") or "").strip()
+        artifact_id = str(action.get("artifact_id") or "").strip()
+        if not room:
+            return None
+        query: list[tuple[str, str]] = [("room", room)]
+        if artifact_id:
+            query.append(("artifact_id", artifact_id))
+        if title:
+            query.append(("query", title))
+        return f"/workspaces/{workspace_id}?{urlencode(query, doseq=True)}"
+
+    return None
+
+
+def _artifact_room(artifact_kind: str) -> str | None:
+    if artifact_kind == "document":
+        return "documents"
+    if artifact_kind == "library_item":
+        return "library"
+    return None
+
+
+def _query_pairs(key: str, value: Any) -> list[tuple[str, str]]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        pairs: list[tuple[str, str]] = []
+        for item in value:
+            if item is None:
+                continue
+            normalized = str(item).strip()
+            if normalized:
+                pairs.append((key, normalized))
+        return pairs
+    text = str(value).strip()
+    return [(key, text)] if text else []
 
 
 def build_completion_result_card(
@@ -105,7 +204,13 @@ def build_completion_result_card(
     full_summary = raw_summary if len(raw_summary) > 280 else None
     title = f"{_feature_title(feature_id)} 已完成"
     findings = _findings_from_data(data)
-    links = _links_from_artifacts(artifacts)
+    links = _links_from_next_actions(
+        feature_id=feature_id,
+        payload=payload,
+        result=result,
+    )
+    if not links:
+        links = _links_from_artifacts(artifacts)
 
     block = {
         "kind": "result_card",

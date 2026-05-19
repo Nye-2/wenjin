@@ -57,6 +57,9 @@ export async function resolveWorkspaceFeatureActionContext(options: {
       workspaceId,
       featureId,
       {
+        ...(actionState.followUpPrompt
+          ? { follow_up_prompt: actionState.followUpPrompt }
+          : {}),
         ...(feature?.defaultSkillId ? { skill: feature.defaultSkillId } : {}),
         ...(actionState.routeParams ?? {}),
       }
