@@ -22,6 +22,8 @@ export interface LatexProject {
   trashed_at?: string | null;
   file_order: Record<string, string[]>;
   llm_config?: Record<string, unknown> | null;
+  workspace_id?: string | null;
+  surface_role?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -892,6 +894,18 @@ export interface WorkspacePrismEnsureResponse {
   latex_project_id: string;
   url: string;
   sync_status: string;
+}
+
+export interface WorkspacePrismSurfaceResponse {
+  workspace_id: string;
+  latex_project_id: string;
+  surface_role: string;
+  url: string;
+  main_file?: string | null;
+  compile_status?: string | null;
+  has_pending_changes: boolean;
+  file_changes?: LatexFileChange[];
+  applied_file_changes?: LatexAppliedFileChange[];
 }
 
 export interface TaskStatus {

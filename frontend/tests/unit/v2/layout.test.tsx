@@ -29,6 +29,25 @@ describe("V2 Workspace page", () => {
     expect(screen.getByTestId("rooms-topbar")).toBeInTheDocument();
   });
 
+  it("renders the surface switch for workspace-owned Prism navigation", async () => {
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <V2Page params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>
+      );
+    });
+
+    expect(screen.getByRole("tab", { name: "Workbench" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: "Prism" })).toHaveAttribute(
+      "href",
+      "/workspaces/ws-1/prism",
+    );
+  });
+
   it("opens the requested room from the URL seed", async () => {
     mockUseSearchParams.mockReturnValue(new URLSearchParams("room=documents"));
 

@@ -502,6 +502,45 @@ def _build_prism_projection(
     }
 
 
+def _build_prism_projection_from_surface(
+    surface: dict[str, Any],
+) -> dict[str, Any]:
+    project_id = _read_text(surface.get("latex_project_id"))
+    file_changes = _normalize_prism_file_changes(surface.get("file_changes"))
+    applied_file_changes = _normalize_applied_prism_file_changes(
+        surface.get("applied_file_changes")
+    )
+    target_files: list[str] = []
+    for path in surface.get("target_files", []):
+        _append_unique_text(target_files, path)
+    if not target_files:
+        _append_unique_text(target_files, surface.get("main_file"))
+        for change in file_changes:
+            _append_unique_text(target_files, change.get("path"))
+        for change in applied_file_changes:
+            _append_unique_text(target_files, change.get("path"))
+
+    compile_status = _read_text(surface.get("compile_status"))
+    status = "ready"
+    if compile_status == "failed":
+        status = "compile_failed"
+    elif bool(surface.get("has_pending_changes")) or file_changes:
+        status = "pending_changes"
+
+    return {
+        "status": status,
+        "project_id": project_id,
+        "url": _read_text(surface.get("url"))
+        or (f"/latex/{project_id}" if project_id else None),
+        "main_file": _read_text(surface.get("main_file")),
+        "target_files": target_files,
+        "file_changes": file_changes,
+        "applied_file_changes": applied_file_changes,
+        "compile": {"status": compile_status} if compile_status else {},
+        "items": [],
+    }
+
+
 def _append_prism_files(files: list[dict[str, Any]], prism: dict[str, Any]) -> None:
     project_id = _read_text(prism.get("project_id"))
     if project_id is None:
@@ -883,11 +922,31 @@ class ComputeProjectionService:
             execution=execution,
             tasks=tasks,
         )
+        authoritative_prism = None
+        if execution.workspace_id:
+            from src.services.workspace_prism_service import WorkspacePrismService
+
+            try:
+                authoritative_prism = await WorkspacePrismService(
+                    self.db
+                ).get_surface_projection(
+                    str(execution.workspace_id),
+                    user_id=str(execution.user_id),
+                )
+            except ValueError:
+                authoritative_prism = None
+            if authoritative_prism is not None:
+                prism = _build_prism_projection_from_surface(authoritative_prism)
         from src.services.latex.prism_status_resolver import LatexPrismStatusResolver
 
         prism = await LatexPrismStatusResolver(self.db).refresh(
             prism,
             user_id=user_id,
+            workspace_id=(
+                str(execution.workspace_id)
+                if authoritative_prism is not None and execution.workspace_id
+                else None
+            ),
         )
         _append_prism_files(files, prism)
         logs = _collect_logs(

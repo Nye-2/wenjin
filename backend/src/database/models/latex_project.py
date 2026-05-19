@@ -66,6 +66,17 @@ class LatexProject(Base, UUIDMixin, TimestampMixin):
         JSONB,
         nullable=True,
     )
+    workspace_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    surface_role: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
 
     compile_history: Mapped[list[LatexCompileHistory]] = relationship(
         "LatexCompileHistory",

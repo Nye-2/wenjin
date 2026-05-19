@@ -11,6 +11,7 @@ import { DocumentsDrawer } from "./components/rooms/DocumentsDrawer";
 import { RunsDrawer } from "./components/rooms/RunsDrawer";
 import { TasksDrawer } from "./components/rooms/TasksDrawer";
 import { SettingsPage } from "./components/rooms/SettingsPage";
+import { SurfaceSwitch } from "./components/SurfaceSwitch";
 import { getWorkspace } from "@/lib/api/workspace";
 import { authorizedFetch } from "@/lib/api/client";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
@@ -91,7 +92,8 @@ export default function V2Page({
       : "memory";
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex h-full min-h-0 flex-col">
+      <SurfaceSwitch workspaceId={id} active="workbench" />
       <RoomsTopbar
         workspaceId={id}
         data-testid="rooms-topbar"

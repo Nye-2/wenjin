@@ -557,7 +557,9 @@ function getCompletedActionContext(options: {
   const resultProjectId =
     readString(data?.latex_project_id) ?? readString(data?.project_id);
   const resultPrismUrl = readString(data?.prism_url);
-  const prismHref = resultPrismUrl || (resultProjectId ? `/latex/${resultProjectId}` : null);
+  const prismHref = workspaceId
+    ? `/workspaces/${workspaceId}/prism`
+    : resultPrismUrl || (resultProjectId ? `/latex/${resultProjectId}` : null);
 
   const rawFileChanges = Array.isArray(data?.file_changes) ? data.file_changes : [];
   const fileChanges = rawFileChanges

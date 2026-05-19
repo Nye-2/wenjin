@@ -218,6 +218,8 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             _Result(scalar=execution),
             _Result(scalars=[task]),
             _Result(scalars=[subagent]),
+            _Result(scalar=None),
+            _Result(scalar=None),
             _Result(scalar=latex_project),
             _Result(
                 scalar={
@@ -346,6 +348,8 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
             _Result(scalar=execution),
             _Result(scalars=[]),
             _Result(scalars=[]),
+            _Result(scalar=None),
+            _Result(scalar=None),
             _Result(
                 scalar={
                     "mode": "compute_workflow",
@@ -411,6 +415,8 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
             _Result(scalar=execution),
             _Result(scalars=[]),
             _Result(scalars=[]),
+            _Result(scalar=None),
+            _Result(scalar=None),
             _Result(
                 scalar={
                     "mode": "compute_agentic",
@@ -528,6 +534,8 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_pro
             _Result(scalar=execution),
             _Result(scalars=[task]),
             _Result(scalars=[]),
+            _Result(scalar=None),
+            _Result(scalar=None),
             _Result(scalar=latex_project),
             _Result(
                 scalar={
@@ -557,3 +565,75 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_pro
             "revert_signature": "signature",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_projection_prefers_workspace_owned_authoritative_prism_over_runtime_payload() -> None:
+    now = datetime.now(UTC)
+    compute_session = SimpleNamespace(
+        id="compute-authoritative",
+        execution_id="exec-authoritative",
+        workspace_id="ws-1",
+        user_id="user-1",
+        sandbox_session_id=None,
+        active_view="overview",
+        ui_state={},
+        created_at=now,
+        updated_at=now,
+    )
+    execution = _execution_namespace(
+        id="exec-authoritative",
+        user_id="user-1",
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        workspace_type="sci",
+        feature_id="writing",
+        runtime_state={
+            "latex_project_id": "latex-stale",
+            "file_changes": [{"path": "sections/stale.tex"}],
+        },
+        created_at=now,
+        updated_at=now,
+    )
+    authoritative_project = SimpleNamespace(
+        id="latex-authoritative",
+        user_id="user-1",
+        workspace_id="ws-1",
+        surface_role="primary_manuscript",
+        main_file="main.tex",
+        llm_config={
+            "metadata": {
+                "file_changes": [{"path": "sections/current.tex"}],
+            }
+        },
+    )
+    db = _FakeDb(
+        [
+            _Result(scalar=compute_session),
+            _Result(scalar=execution),
+            _Result(scalars=[]),
+            _Result(scalars=[]),
+            _Result(scalar=authoritative_project),
+            _Result(scalar=authoritative_project),
+            _Result(
+                scalar={
+                    "mode": "compute_workflow",
+                    "requires_sandbox": False,
+                    "review_gate": {},
+                    "allowed_paths": [],
+                }
+            ),
+        ]
+    )
+
+    projection = await ComputeProjectionService(db).get_projection(
+        compute_session_id="compute-authoritative",
+        user_id="user-1",
+    )
+
+    assert projection is not None
+    assert projection["prism"]["project_id"] == "latex-authoritative"
+    assert projection["prism"]["url"] == "/workspaces/ws-1/prism"
+    assert projection["prism"]["status"] == "pending_changes"
+    assert projection["prism"]["target_files"] == ["main.tex", "sections/current.tex"]
+    assert projection["prism"]["file_changes"][0]["path"] == "sections/current.tex"

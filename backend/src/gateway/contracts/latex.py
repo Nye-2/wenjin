@@ -54,6 +54,8 @@ class LatexProjectResponse(BaseModel):
     trashed_at: datetime | None
     file_order: dict[str, list[str]]
     llm_config: dict[str, Any] | None
+    workspace_id: str | None = None
+    surface_role: str | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -25,6 +25,7 @@ from src.gateway.routers.workspaces_contracts import (
     WorkspaceActivityResponse,
     WorkspaceExecutionsResponse,
     WorkspacePrismEnsureResponse,
+    WorkspacePrismSurfaceResponse,
     WorkspaceResponse,
     WorkspacesListResponse,
     WorkspaceSummaryResponse,
@@ -42,7 +43,7 @@ from src.services.dashboard_service import DashboardService
 from src.services.execution_service import ExecutionService
 from src.services.feature_action_resolution_service import resolve_feature_action_state
 from src.services.workspace_activity_service import WorkspaceActivityService
-from src.services.workspace_latex_projects import WorkspaceLatexProjectService
+from src.services.workspace_prism_service import WorkspacePrismService
 from src.services.workspace_summary_service import WorkspaceSummaryService
 from src.workspace_events import stream_workspace_events
 
@@ -146,17 +147,40 @@ async def ensure_workspace_prism_project(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    bridge_service = WorkspaceLatexProjectService(db)
-    linked_project = await bridge_service.ensure_workspace_project(
+    linked_project = await WorkspacePrismService(db).ensure_primary_project(
         workspace_id=workspace_id,
+        user_id=str(current_user.id),
         project_name=str(workspace.name or ""),
     )
     latex_project_id = str(linked_project.id)
     return WorkspacePrismEnsureResponse(
         latex_project_id=latex_project_id,
-        url=f"/latex/{latex_project_id}",
+        url=f"/workspaces/{workspace_id}/prism",
         sync_status="ready",
     )
+
+
+@router.get(
+    "/{workspace_id}/prism",
+    response_model=WorkspacePrismSurfaceResponse,
+)
+async def get_workspace_prism_surface(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    db: Any = Depends(get_db),
+) -> WorkspacePrismSurfaceResponse:
+    """Return the workspace-owned WenjinPrism surface projection."""
+    await get_owned_workspace(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+    projection = await WorkspacePrismService(db).get_surface_projection(
+        workspace_id,
+        user_id=str(current_user.id),
+    )
+    return WorkspacePrismSurfaceResponse(**projection)
 
 
 @router.put("/{workspace_id}", response_model=WorkspaceResponse)

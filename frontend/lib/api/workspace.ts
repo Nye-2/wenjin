@@ -18,6 +18,7 @@ import type {
   WorkspaceCreate,
   ExecutionRecord,
   WorkspacePrismEnsureResponse,
+  WorkspacePrismSurfaceResponse,
   WorkspaceExecutionsResponse,
   WorkspaceSummaryData,
   WorkspaceTemplate,
@@ -37,6 +38,13 @@ export async function ensureWorkspacePrismProject(
   workspaceId: string
 ): Promise<WorkspacePrismEnsureResponse> {
   const response = await apiClient.post(`/workspaces/${workspaceId}/prism/ensure`);
+  return response.data;
+}
+
+export async function getWorkspacePrismSurface(
+  workspaceId: string
+): Promise<WorkspacePrismSurfaceResponse> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/prism`);
   return response.data;
 }
 

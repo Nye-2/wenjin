@@ -156,5 +156,17 @@ class WorkspacePrismEnsureResponse(BaseModel):
     sync_status: str
 
 
+class WorkspacePrismSurfaceResponse(BaseModel):
+    """Workspace-owned Prism surface projection."""
+
+    workspace_id: str
+    latex_project_id: str
+    surface_role: str
+    url: str
+    main_file: str | None = None
+    compile_status: str | None = None
+    has_pending_changes: bool = False
+
+
 CreateWorkspaceRequest = CreateWorkspaceValidator
 UpdateWorkspaceRequest = UpdateWorkspaceValidator

@@ -370,7 +370,7 @@ class WorkspaceLatexProjectService:
         result = await self.db.execute(
             text(
                 """
-                select id, user_id, name, description, type
+                select id, user_id, name, type
                 from workspaces
                 where id = :workspace_id
                 limit 1
@@ -402,6 +402,27 @@ class WorkspaceLatexProjectService:
                 f"""
                 select id
                 from latex_projects
+                where user_id = :owner_user_id
+                  and workspace_id = :workspace_id
+                  and surface_role = 'primary_manuscript'
+                  {template_clause}
+                order by updated_at desc
+                limit 1
+                """
+            ),
+            params,
+        )
+        row = result.mappings().first()
+        if row is not None:
+            project = await self.db.get(LatexProject, str(row["id"]))
+            if project is not None:
+                return project
+
+        result = await self.db.execute(
+            text(
+                f"""
+                select id
+                from latex_projects
                 where llm_config is not null
                   and user_id = :owner_user_id
                   and llm_config->>'workspace_id' = :workspace_id
@@ -416,6 +437,10 @@ class WorkspaceLatexProjectService:
         if row is not None:
             project = await self.db.get(LatexProject, str(row["id"]))
             if project is not None:
+                project.workspace_id = workspace_id
+                project.surface_role = "primary_manuscript"
+                await self.db.commit()
+                await self.db.refresh(project)
                 return project
         return None
 

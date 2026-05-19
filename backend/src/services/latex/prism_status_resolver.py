@@ -54,24 +54,36 @@ class LatexPrismStatusResolver:
         prism: dict[str, Any],
         *,
         user_id: str,
+        workspace_id: str | None = None,
     ) -> dict[str, Any]:
         """Query LatexProject for current file changes and recompute prism status.
 
         Returns the mutated *prism* dict for convenience.
         """
         project_id = _read_text(prism.get("project_id"))
-        if project_id is None:
-            return prism
+        project = None
+        if workspace_id:
+            from src.services.workspace_prism_service import WorkspacePrismService
 
-        result = await self.db.execute(
-            select(LatexProject).where(
-                LatexProject.id == project_id,
-                LatexProject.user_id == user_id,
+            project = await WorkspacePrismService(self.db).get_primary_project(
+                workspace_id,
+                user_id=user_id,
             )
-        )
-        project = result.scalar_one_or_none()
+
+        if project is None and project_id is not None:
+            result = await self.db.execute(
+                select(LatexProject).where(
+                    LatexProject.id == project_id,
+                    LatexProject.user_id == user_id,
+                )
+            )
+            project = result.scalar_one_or_none()
+
         if project is None:
             return prism
+
+        project_id = str(project.id)
+        prism["project_id"] = project_id
 
         llm_config = (
             project.llm_config if isinstance(project.llm_config, dict) else {}

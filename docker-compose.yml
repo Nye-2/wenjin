@@ -26,12 +26,13 @@ x-frontend-build: &frontend_build
     NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     NPM_FALLBACK_REGISTRY: ${NPM_FALLBACK_REGISTRY:-https://registry.npmjs.org}
 
-x-texlive-build: &texlive_build
-  context: ./backend/docker/images/texlive
-  dockerfile: Dockerfile
-  args:
-    BASE_IMAGE: ${TEXLIVE_BASE_IMAGE:-ubuntu:22.04}
-    APT_MIRROR: ${TEXLIVE_APT_MIRROR:-}
+# TeXLive image build config (manual build only: docker build -t wenjin/texlive:2024 backend/docker/images/texlive)
+# x-texlive-build: &texlive_build
+#   context: ./backend/docker/images/texlive
+#   dockerfile: Dockerfile
+#   args:
+#     BASE_IMAGE: ${TEXLIVE_BASE_IMAGE:-ubuntu:22.04}
+#     APT_MIRROR: ${TEXLIVE_APT_MIRROR:-}
 
 services:
   # PostgreSQL 16 with pgvector extension
@@ -72,9 +73,10 @@ services:
       - wenjin-network
 
   # One-shot TeXLive image bootstrap for LaTeX compilation runtime.
+  # Build manually: docker build -t wenjin/texlive:2024 backend/docker/images/texlive
+  # Or pull from Docker Hub: docker pull <username>/wenjin-texlive:2024
   texlive:
     image: ${TEXLIVE_IMAGE_NAME:-wenjin/texlive:2024}
-    build: *texlive_build
     container_name: wenjin-texlive
     restart: "no"
     command:
@@ -144,7 +146,6 @@ services:
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - GATEWAY_HOST=0.0.0.0
       - GATEWAY_PORT=8001
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
@@ -189,7 +190,6 @@ services:
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
       - PROMETHEUS_WORKER_PORT=${PROMETHEUS_WORKER_PORT:-9153}
       - PROMETHEUS_MULTIPROC_DIR=/tmp/wenjin-prometheus-worker
@@ -239,7 +239,6 @@ services:
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - LANGGRAPH_HOST=0.0.0.0
       - LANGGRAPH_PORT=2024
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects

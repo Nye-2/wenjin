@@ -157,6 +157,23 @@ export async function installWorkspaceRouteMocks(
       return;
     }
 
+    if (pathname === `/api/workspaces/${workspaceId}/prism`) {
+      await route.fulfill(
+        json({
+          workspace_id: workspaceId,
+          latex_project_id: "latex-1",
+          surface_role: "primary_manuscript",
+          url: `/workspaces/${workspaceId}/prism`,
+          main_file: "main.tex",
+          compile_status: null,
+          has_pending_changes: true,
+          file_changes: [],
+          applied_file_changes: [],
+        }),
+      );
+      return;
+    }
+
     if (pathname === `/api/workspaces/${workspaceId}/events`) {
       await route.fulfill({
         status: 200,
@@ -198,6 +215,51 @@ export async function installWorkspaceRouteMocks(
         contentType: "text/event-stream",
         body: options.runStreamBody ?? buildEventStreamBody([]),
       });
+      return;
+    }
+
+    if (pathname === "/api/latex/projects/latex-1") {
+      await route.fulfill(
+        json({
+          id: "latex-1",
+          user_id: "user-1",
+          name: "Workspace Manuscript",
+          template_id: null,
+          main_file: "main.tex",
+          tags: [],
+          archived: false,
+          trashed: false,
+          trashed_at: null,
+          file_order: {},
+          llm_config: null,
+          created_at: "2026-05-18T00:00:00Z",
+          updated_at: "2026-05-18T00:00:00Z",
+        }),
+      );
+      return;
+    }
+
+    if (pathname === "/api/latex/projects/latex-1/tree") {
+      await route.fulfill(
+        json({
+          items: [{ path: "main.tex", type: "file" }],
+          file_order: {},
+        }),
+      );
+      return;
+    }
+
+    if (pathname === "/api/latex/projects/latex-1/file") {
+      await route.fulfill(
+        json({
+          content: "\\documentclass{article}\\begin{document}Workspace manuscript\\end{document}",
+        }),
+      );
+      return;
+    }
+
+    if (pathname === "/api/latex/projects/latex-1/feedback") {
+      await route.fulfill(json({ items: [] }));
       return;
     }
 

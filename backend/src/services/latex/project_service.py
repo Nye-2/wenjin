@@ -134,6 +134,14 @@ class LatexProjectService:
             project.trashed_at = datetime.now(tz=UTC) if next_trashed else None
         if "llm_config" in kwargs:
             project.llm_config = kwargs["llm_config"]
+            llm_config = kwargs["llm_config"]
+            if (
+                isinstance(llm_config, dict)
+                and llm_config.get("bridge") == "workspace_latex_project"
+                and llm_config.get("workspace_id")
+            ):
+                project.workspace_id = str(llm_config["workspace_id"])
+                project.surface_role = "primary_manuscript"
         if "file_order" in kwargs and kwargs["file_order"] is not None:
             project.file_order = dict(kwargs["file_order"])
 

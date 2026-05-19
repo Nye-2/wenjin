@@ -109,16 +109,20 @@ export function resolveExecutionNextActionPresentation(options: {
 
   const label = readString(actionRecord.label) ?? DEFAULT_ACTION_LABELS[actionName];
   const explicitHref = readString(actionRecord.url) ?? readString(actionRecord.href);
-  if (explicitHref) {
-    return { action: actionName, href: explicitHref, label };
-  }
 
   if (actionName === "preview_prism_changes" || actionName === "open_prism") {
     return {
       action: actionName,
-      href: prismHref ?? null,
+      href: buildWorkspacePrismHref(
+        workspaceId ?? null,
+        explicitHref ?? prismHref ?? null,
+      ),
       label,
     };
+  }
+
+  if (explicitHref) {
+    return { action: actionName, href: explicitHref, label };
   }
 
   if (actionName === "open_artifact") {
@@ -245,6 +249,16 @@ function buildWorkspaceRoomHref(
   }
 
   return `/workspaces/${workspaceId}?${query.toString()}`;
+}
+
+function buildWorkspacePrismHref(
+  workspaceId: string | null,
+  prismHref: string | null,
+): string | null {
+  if (workspaceId) {
+    return `/workspaces/${workspaceId}/prism`;
+  }
+  return prismHref;
 }
 
 function inferArtifactRoom(

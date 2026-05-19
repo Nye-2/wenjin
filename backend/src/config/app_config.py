@@ -259,6 +259,13 @@ class AppConfig(BaseSettings):
     anthropic_api_key: str | None = None
     deepseek_api_key: str | None = None
     semantic_scholar_api_key: str | None = None
+    semantic_scholar_rate_limit_delay: float = Field(
+        default=1.0,
+        alias="SEMANTIC_SCHOLAR_RATE_LIMIT_DELAY",
+        ge=0.0,
+        le=60.0,
+        description="Minimum delay between Semantic Scholar API requests in seconds",
+    )
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:password@localhost:5432/wenjin"

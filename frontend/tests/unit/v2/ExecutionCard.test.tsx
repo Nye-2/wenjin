@@ -72,11 +72,39 @@ describe("ExecutionCard", () => {
     expect(screen.getByText("写作结果已进入 Prism 待确认区")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "预览待确认修改" }),
-    ).toHaveAttribute("href", "/latex/latex-1");
+    ).toHaveAttribute("href", "/workspaces/ws-1/prism");
     expect(
       screen.getByRole("link", { name: "在 WenjinPrism 中继续编辑" }),
-    ).toHaveAttribute("href", "/latex/latex-1");
+    ).toHaveAttribute("href", "/workspaces/ws-1/prism");
     expect(screen.getByText("sections/introduction.tex")).toBeInTheDocument();
+  });
+
+  it("routes Prism review actions through the workspace Prism surface", () => {
+    render(
+      <ExecutionCard
+        record={makeRecord({
+          result_summary: "写作结果已进入 Prism 待确认区",
+          result: {
+            data: { latex_project_id: "latex-1" },
+          },
+          next_actions: [
+            {
+              action: "open_prism",
+              label: "在 WenjinPrism 中继续编辑",
+            },
+          ],
+        })}
+        phases={[]}
+        isExpanded
+        onToggle={() => {}}
+        selectedNodeId={null}
+        selectNode={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByRole("link", { name: "在 WenjinPrism 中继续编辑" }),
+    ).toHaveAttribute("href", "/workspaces/ws-1/prism");
   });
 
   it("filters unsupported next actions instead of rendering unlabeled workflow escapes", () => {

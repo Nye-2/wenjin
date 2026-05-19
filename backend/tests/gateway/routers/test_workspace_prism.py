@@ -1,4 +1,4 @@
-"""Tests for workspace Prism linkage endpoint."""
+"""Tests for workspace Prism routing endpoints."""
 
 from __future__ import annotations
 
@@ -47,11 +47,11 @@ def _create_client(*, user_id: str, workspace_owner_id: str) -> TestClient:
     return TestClient(app)
 
 
-def test_prism_ensure_returns_linked_project():
+def test_prism_ensure_returns_workspace_prism_route():
     client = _create_client(user_id="user-1", workspace_owner_id="user-1")
 
     with patch(
-        "src.gateway.routers.workspaces.WorkspaceLatexProjectService.ensure_workspace_project",
+        "src.gateway.routers.workspaces.WorkspacePrismService.ensure_primary_project",
         new=AsyncMock(return_value=SimpleNamespace(id="latex-1")),
     ) as ensure_project:
         response = client.post("/workspaces/ws-1/prism/ensure")
@@ -60,10 +60,31 @@ def test_prism_ensure_returns_linked_project():
     payload = response.json()
     assert payload == {
         "latex_project_id": "latex-1",
-        "url": "/latex/latex-1",
+        "url": "/workspaces/ws-1/prism",
         "sync_status": "ready",
     }
     ensure_project.assert_awaited_once()
+
+
+def test_workspace_prism_surface_returns_linked_project_metadata():
+    client = _create_client(user_id="user-1", workspace_owner_id="user-1")
+
+    with patch(
+        "src.gateway.routers.workspaces.WorkspacePrismService.get_surface_projection",
+        new=AsyncMock(
+            return_value={
+                "workspace_id": "ws-1",
+                "latex_project_id": "latex-1",
+                "surface_role": "primary_manuscript",
+                "url": "/workspaces/ws-1/prism",
+            }
+        ),
+    ):
+        response = client.get("/workspaces/ws-1/prism")
+
+    assert response.status_code == 200
+    assert response.json()["latex_project_id"] == "latex-1"
+    assert response.json()["url"] == "/workspaces/ws-1/prism"
 
 
 def test_prism_ensure_rejects_non_owner():
