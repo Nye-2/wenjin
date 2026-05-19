@@ -217,7 +217,7 @@ export function AppShellSidebar({
   }
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-r border-[var(--border-default)] bg-[rgba(251,248,242,0.94)]">
+    <aside className="hidden w-72 shrink-0 flex-col border-r border-[var(--border-default)] bg-[rgba(251,248,242,0.94)] md:flex">
       {/* Workspace info — compact */}
       <div className="border-b border-[var(--border-default)] px-4 py-3">
         <div className="flex items-start justify-between gap-2">

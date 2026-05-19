@@ -20,6 +20,18 @@
     "logout": "退出登录",
     "productTagline": "研究工作流 AI 工作台"
   },
+  "workspaceSurfaces": {
+    "ariaLabel": "工作空间表面",
+    "workbench": "Workbench",
+    "prism": "Prism",
+    "prismLoadingTitle": "正在打开 Prism 主稿台",
+    "prismLoadingDescription": "正在载入工作区绑定的主稿项目与待确认写入状态。",
+    "prismErrorTitle": "无法打开 Prism 主稿台",
+    "prismEmptyTitle": "这个工作区还没有绑定 Prism 主稿",
+    "prismEmptyDescription": "从 Workbench 发起主稿写作任务后，会自动创建并绑定主稿项目。",
+    "legacyRedirectTitle": "正在打开工作区 Prism",
+    "legacyRedirectDescription": "这份主稿已经归属到工作区，正在切换到 workspace-owned surface。"
+  },
   "brand": {
     "cn": "问津",
     "en": "Wenjin",

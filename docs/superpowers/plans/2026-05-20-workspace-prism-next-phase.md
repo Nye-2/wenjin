@@ -43,10 +43,12 @@ E2E closure on 2026-05-20: `frontend/tests/e2e/iteration.spec.ts` now covers res
 
 ## Phase 4: Frontend Surface Polish
 
-- [ ] Replace temporary Prism loading/error state with the shared v2 empty/error pattern.
-- [ ] Add mobile checks for the Workbench / Prism switch and LaTeX editor shell.
-- [ ] Confirm the shared workspace shell does not double-subscribe to streams or reload unrelated rooms during Prism editing.
-- [ ] Add copy/i18n pass for `Workbench`, `Prism`, and legacy redirect status text.
+- [x] Replace temporary Prism loading/error state with the shared v2 empty/error pattern.
+- [x] Add mobile checks for the Workbench / Prism switch and LaTeX editor shell.
+- [x] Confirm the shared workspace shell does not double-subscribe to streams or reload unrelated rooms during Prism editing.
+- [x] Add copy/i18n pass for `Workbench`, `Prism`, and legacy redirect status text.
+
+Progress on 2026-05-20: Prism loading, error, and empty states now use the shared v2 surface-state component. Surface switch and legacy `/latex/:projectId` redirect copy use workspace-surface i18n keys with test fallbacks. A mobile Playwright check covers `/workspaces/:id/prism`, verifies the Workbench / Prism switch and LaTeX editor remain visible, confirms the workspace event stream is present, and ensures Prism editing does not request room drawer endpoints. Existing `useWorkspaceEventStream` unit coverage remains the single-owner guard for workspace SSE.
 
 ## Phase 5: Operational Rollout
 

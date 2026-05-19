@@ -20,6 +20,18 @@
     "logout": "Logout",
     "productTagline": "Research Workflow AI Workspace"
   },
+  "workspaceSurfaces": {
+    "ariaLabel": "Workspace surfaces",
+    "workbench": "Workbench",
+    "prism": "Prism",
+    "prismLoadingTitle": "Opening Prism manuscript surface",
+    "prismLoadingDescription": "Loading the workspace manuscript project and pending writes.",
+    "prismErrorTitle": "Unable to open Prism manuscript surface",
+    "prismEmptyTitle": "No Prism manuscript is bound yet",
+    "prismEmptyDescription": "Start a manuscript-writing task from Workbench to create the primary project.",
+    "legacyRedirectTitle": "Opening workspace Prism",
+    "legacyRedirectDescription": "This manuscript now belongs to a workspace. Taking you to the workspace-owned surface."
+  },
   "brand": {
     "cn": "问津",
     "en": "Wenjin",

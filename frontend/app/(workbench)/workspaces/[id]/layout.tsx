@@ -79,7 +79,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   ]);
 
   return (
-    <div className="h-screen flex bg-[var(--bg-base)]">
+    <div className="flex h-screen bg-[var(--bg-base)]">
       <AppShellSidebar
         workspaceId={workspaceId}
         collapsed={sidebarCollapsed}
