@@ -265,6 +265,43 @@ def test_task_activity_promotes_result_artifact_as_retry_seed() -> None:
     ]
 
 
+def test_task_activity_derives_prism_review_action_for_pending_file_changes() -> None:
+    item = build_task_activity_item(
+        task_id="task-prism",
+        workspace_id="ws-1",
+        task_type="workspace_feature",
+        payload={
+            "feature_id": "thesis_writing",
+            "thread_id": "thread-1",
+            "params": {"topic": "chapter 1"},
+        },
+        status="success",
+        progress=100,
+        message="done",
+        error=None,
+        result={
+            "data": {
+                "latex_project_id": "latex-1",
+                "file_changes": [
+                    {
+                        "logical_key": "section:introduction",
+                        "path": "sections/introduction.tex",
+                    }
+                ],
+            }
+        },
+        occurred_at="2026-03-25T00:00:00Z",
+        completed_at="2026-03-25T00:00:00Z",
+    )
+
+    assert {
+        (action.get("action"), action.get("label"), action.get("project_id"))
+        for action in item["metadata"]["next_actions"]
+    } >= {
+        ("preview_prism_changes", "预览待确认修改", "latex-1"),
+    }
+
+
 def test_task_record_to_activity_includes_token_usage_metadata() -> None:
     db = AsyncMock()
     service = WorkspaceActivityService(db)

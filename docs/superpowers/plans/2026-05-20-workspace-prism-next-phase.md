@@ -32,10 +32,12 @@ Note: `LatexProjectResponse` is still returned through `LatexProjectService.get_
 
 ## Phase 3: Review And Commit Flow
 
-- [ ] Audit all result_card producers for `prism_url` and Prism action payloads.
-- [ ] Ensure all Prism review/apply/revert actions can operate from `/workspaces/:id/prism` without relying on raw `/latex/:projectId` navigation.
+- [x] Audit all result_card producers for `prism_url` and Prism action payloads.
+- [x] Ensure all Prism review/apply/revert actions can operate from `/workspaces/:id/prism` without relying on raw `/latex/:projectId` navigation.
 - [ ] Add an end-to-end test for staged file changes: generated result_card -> Prism surface -> apply selected changes -> commit to rooms.
-- [ ] Validate that pending/applied file changes remain authoritative after page reload and execution refresh.
+- [x] Validate that pending/applied file changes remain authoritative after page reload and execution refresh.
+
+Progress on 2026-05-20: result card producers now derive Prism actions from `latex_project_id` and pending `file_changes`; workspace-scoped Prism actions override legacy `/latex/:projectId` URLs. Frontend `preview_prism_changes` routes to `/workspaces/:id/prism?focus=file_changes`, reusing the editor's pending-write focus behavior. Backend projection tests continue to cover pending/applied metadata refresh after apply/revert.
 
 ## Phase 4: Frontend Surface Polish
 

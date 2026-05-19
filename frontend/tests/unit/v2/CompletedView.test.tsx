@@ -156,6 +156,40 @@ describe("CompletedView", () => {
     expect(url.searchParams.get("query")).toBe("Research Paper Draft");
   });
 
+  it("routes Prism preview actions to the workspace Prism file-change focus", () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        result={{
+          data: {
+            latex_project_id: "latex-1",
+            prism_url: "/latex/latex-1",
+            file_changes: [
+              {
+                logical_key: "section:introduction",
+                path: "sections/introduction.tex",
+              },
+            ],
+          },
+        }}
+        nextActions={[
+          {
+            action: "preview_prism_changes",
+            label: "预览待确认修改",
+            url: "/latex/latex-1",
+          },
+        ]}
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "预览待确认修改" });
+    expect(link).toHaveAttribute(
+      "href",
+      "/workspaces/ws-1/prism?focus=file_changes",
+    );
+    expect(screen.getByText("sections/introduction.tex")).toBeInTheDocument();
+  });
+
   it("commits staged previews from the execution panel and exposes saved room links", async () => {
     render(
       <CompletedView

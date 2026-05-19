@@ -118,11 +118,17 @@ def _links_from_next_actions(
 
 def _action_href(action: Mapping[str, Any], payload: Mapping[str, Any]) -> str | None:
     action_name = str(action.get("action") or action.get("kind") or "").strip()
+    workspace_id = str(payload.get("workspace_id") or "").strip()
+
+    if workspace_id and action_name in {"open_prism", "preview_prism_changes"}:
+        if action_name == "preview_prism_changes":
+            return f"/workspaces/{workspace_id}/prism?focus=file_changes"
+        return f"/workspaces/{workspace_id}/prism"
+
     explicit_href = str(action.get("url") or action.get("href") or "").strip()
     if explicit_href:
         return explicit_href
 
-    workspace_id = str(payload.get("workspace_id") or "").strip()
     if not workspace_id:
         return None
 

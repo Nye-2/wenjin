@@ -128,6 +128,10 @@ def build_task_result_next_actions(
     if open_artifact_action is not None:
         _append_unique_action(actions, open_artifact_action)
 
+    prism_action = _build_prism_review_action(result)
+    if prism_action is not None:
+        _append_unique_action(actions, prism_action)
+
     rerun_action = _build_rerun_from_artifact_action(payload, result)
     if rerun_action is not None:
         _append_unique_action(actions, rerun_action)
@@ -254,6 +258,44 @@ def _build_rerun_from_artifact_action(
         action["skill_id"] = skill_id
 
     return action
+
+
+def _build_prism_review_action(
+    result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+
+    data = result.get("data")
+    if not isinstance(data, dict):
+        task_report = result.get("task_report")
+        if isinstance(task_report, dict):
+            nested_data = task_report.get("data")
+            data = nested_data if isinstance(nested_data, dict) else None
+    if not isinstance(data, dict):
+        return None
+
+    latex_project_id = _read_string(data.get("latex_project_id")) or _read_string(
+        data.get("project_id")
+    )
+    if not latex_project_id:
+        return None
+
+    file_changes = data.get("file_changes")
+    has_pending_changes = isinstance(file_changes, list) and any(
+        isinstance(item, dict) for item in file_changes
+    )
+    if has_pending_changes:
+        return {
+            "action": "preview_prism_changes",
+            "label": "预览待确认修改",
+            "project_id": latex_project_id,
+        }
+    return {
+        "action": "open_prism",
+        "label": "在 WenjinPrism 中继续编辑",
+        "project_id": latex_project_id,
+    }
 
 
 def _first_room_output_descriptor(

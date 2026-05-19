@@ -73,6 +73,50 @@ def test_completion_card_includes_workspace_followup_link():
     }
 
 
+def test_completion_card_routes_prism_review_links_to_workspace_surface():
+    reply = build_completion_result_card(
+        feature_id="writing",
+        task_id="task-prism",
+        run_id="run-prism",
+        execution_id="exec-prism",
+        payload={
+            "workspace_id": "ws-1",
+            "params": {"topic": "chapter 1"},
+        },
+        result={
+            "data": {
+                "summary": "写作结果已进入 Prism 待确认区",
+                "latex_project_id": "latex-1",
+                "prism_url": "/latex/latex-1",
+                "file_changes": [
+                    {
+                        "logical_key": "section:introduction",
+                        "path": "sections/introduction.tex",
+                    }
+                ],
+            },
+            "next_actions": [
+                {
+                    "action": "preview_prism_changes",
+                    "label": "预览待确认修改",
+                    "url": "/latex/latex-1",
+                }
+            ],
+        },
+        duration_ms=9000,
+        subagents_count=1,
+        tokens_total=900,
+    )
+
+    links = reply.blocks[0]["links"]
+    assert {
+        (link.get("label"), link.get("href"))
+        for link in links
+    } >= {
+        ("预览待确认修改", "/workspaces/ws-1/prism?focus=file_changes"),
+    }
+
+
 def test_failure_card_emits_result_card_block_with_error_tldr():
     reply = build_failure_result_card(
         feature_id="writing",

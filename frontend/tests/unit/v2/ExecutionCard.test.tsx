@@ -72,7 +72,7 @@ describe("ExecutionCard", () => {
     expect(screen.getByText("写作结果已进入 Prism 待确认区")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "预览待确认修改" }),
-    ).toHaveAttribute("href", "/workspaces/ws-1/prism");
+    ).toHaveAttribute("href", "/workspaces/ws-1/prism?focus=file_changes");
     expect(
       screen.getByRole("link", { name: "在 WenjinPrism 中继续编辑" }),
     ).toHaveAttribute("href", "/workspaces/ws-1/prism");
@@ -141,7 +141,7 @@ describe("ExecutionCard", () => {
 
     expect(
       screen.getByRole("link", { name: "预览待确认修改" }),
-    ).toBeInTheDocument();
+    ).toHaveAttribute("href", "/workspaces/ws-1/prism?focus=file_changes");
     expect(
       screen.queryByRole("link", { name: "跳转到神秘编辑器" }),
     ).not.toBeInTheDocument();

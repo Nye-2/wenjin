@@ -116,6 +116,7 @@ export function resolveExecutionNextActionPresentation(options: {
       href: buildWorkspacePrismHref(
         workspaceId ?? null,
         explicitHref ?? prismHref ?? null,
+        actionName === "preview_prism_changes",
       ),
       label,
     };
@@ -254,9 +255,11 @@ function buildWorkspaceRoomHref(
 function buildWorkspacePrismHref(
   workspaceId: string | null,
   prismHref: string | null,
+  focusFileChanges = false,
 ): string | null {
   if (workspaceId) {
-    return `/workspaces/${workspaceId}/prism`;
+    const suffix = focusFileChanges ? "?focus=file_changes" : "";
+    return `/workspaces/${workspaceId}/prism${suffix}`;
   }
   return prismHref;
 }
