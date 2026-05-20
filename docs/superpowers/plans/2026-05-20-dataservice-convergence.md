@@ -827,12 +827,20 @@ Implementation status:
 
 Steps:
 
-- [ ] Create `sandbox_environments`, `sandbox_job_records`, and `sandbox_artifacts`.
-- [ ] Migrate `sandboxes` into `sandbox_environments`.
-- [ ] Enforce Python-only sandbox job contract.
-- [ ] Ensure sandbox artifact creation also creates a pending review batch/item.
-- [ ] Ensure sandbox policy blocks host/container/server control while allowing approved data/API/web workflows.
+- [x] Create `sandbox_environments`, `sandbox_job_records`, and `sandbox_artifacts`.
+- [x] Migrate `sandboxes` into `sandbox_environments`.
+- [x] Enforce Python-only sandbox job contract.
+- [x] Ensure sandbox artifact creation also creates a pending review batch/item.
+- [x] Ensure sandbox policy blocks host/container/server control while allowing approved data/API/web workflows.
 - [ ] Commit `feat: add sandbox environment aggregate`.
+
+Implementation status:
+
+- 2026-05-21: Sandbox aggregate foundation is implemented in DataService with canonical environment/job/artifact tables, domain contracts, repository, projection, service, policy validator, review handler factory, internal routes, typed client contracts, public in-process API, and migration `068_dataservice_sandbox_runtime.py`.
+- Migration copies legacy `sandboxes` rows into `sandbox_environments` with a policy snapshot that allows Python/data/API/web workflows while blocking Docker socket, privileged mode, host network, host-path mounts, sibling-container access, and server-level control.
+- Sandbox job records are Python-only at both Pydantic contract and database check-constraint layers. DataService records reproducibility metadata and artifacts; container execution remains outside DataService.
+- `register_artifact` creates a `sandbox_artifacts` row and a pending `review_batches` / `review_items` entry in the same transaction boundary so sandbox outputs do not materialize directly into Prism or rooms.
+- Verification: Sandbox domain tests, DataService domain tests, and architecture boundary tests pass with 44 targeted tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1910 tests.
 
 ### Task 12: Move Workspace Rooms Aggregate Into DataService
 

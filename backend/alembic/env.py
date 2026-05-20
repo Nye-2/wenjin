@@ -76,6 +76,11 @@ from src.dataservice.domains.review.models import (  # noqa: F401
     ReviewBatchRecord,
     ReviewItemRecord,
 )
+from src.dataservice.domains.sandbox.models import (  # noqa: F401
+    SandboxArtifactRecord,
+    SandboxEnvironmentRecord,
+    SandboxJobRecord,
+)
 from src.dataservice.domains.source.models import (  # noqa: F401
     SourceAssetRecord,
     SourceBibtexSnapshotRecord,

@@ -49,6 +49,16 @@ from src.dataservice_client.contracts.review import (
     ReviewItemPayload,
     ReviewItemTransitionPayload,
 )
+from src.dataservice_client.contracts.sandbox import (
+    SandboxArtifactCreatePayload,
+    SandboxArtifactPayload,
+    SandboxEnvironmentCreatePayload,
+    SandboxEnvironmentPayload,
+    SandboxEnvironmentUpdatePayload,
+    SandboxJobCreatePayload,
+    SandboxJobPayload,
+    SandboxJobUpdatePayload,
+)
 from src.dataservice_client.contracts.source import SourceCreatePayload, SourcePayload
 from src.dataservice_client.contracts.workspace import (
     WorkspaceCreatePayload,
@@ -469,6 +479,135 @@ class AsyncDataServiceClient:
             },
         )
         return [ProvenanceLinkPayload.model_validate(item) for item in payload["data"]]
+
+    async def create_sandbox_environment(
+        self,
+        command: SandboxEnvironmentCreatePayload,
+    ) -> SandboxEnvironmentPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sandbox/environments",
+            json=command.model_dump(mode="json"),
+        )
+        return SandboxEnvironmentPayload.model_validate(payload["data"])
+
+    async def get_or_create_sandbox_environment(
+        self,
+        workspace_id: str,
+        command: SandboxEnvironmentCreatePayload,
+    ) -> SandboxEnvironmentPayload:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/sandbox/workspaces/{workspace_id}/environment",
+            json=command.model_dump(mode="json"),
+        )
+        return SandboxEnvironmentPayload.model_validate(payload["data"])
+
+    async def list_sandbox_environments(
+        self,
+        *,
+        workspace_id: str,
+        state: str | None = None,
+        limit: int = 50,
+    ) -> list[SandboxEnvironmentPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/sandbox/environments",
+            params={"workspace_id": workspace_id, "state": state, "limit": limit},
+        )
+        return [SandboxEnvironmentPayload.model_validate(item) for item in payload["data"]]
+
+    async def get_sandbox_environment(self, environment_id: str) -> SandboxEnvironmentPayload | None:
+        payload = await self._request("GET", f"/internal/v1/sandbox/environments/{environment_id}")
+        data = payload.get("data")
+        return SandboxEnvironmentPayload.model_validate(data) if data is not None else None
+
+    async def update_sandbox_environment(
+        self,
+        environment_id: str,
+        command: SandboxEnvironmentUpdatePayload,
+    ) -> SandboxEnvironmentPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/sandbox/environments/{environment_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return SandboxEnvironmentPayload.model_validate(data) if data is not None else None
+
+    async def create_sandbox_job(self, command: SandboxJobCreatePayload) -> SandboxJobPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sandbox/jobs",
+            json=command.model_dump(mode="json"),
+        )
+        return SandboxJobPayload.model_validate(payload["data"])
+
+    async def update_sandbox_job(
+        self,
+        job_id: str,
+        command: SandboxJobUpdatePayload,
+    ) -> SandboxJobPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/sandbox/jobs/{job_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return SandboxJobPayload.model_validate(data) if data is not None else None
+
+    async def list_sandbox_jobs(
+        self,
+        *,
+        workspace_id: str,
+        sandbox_environment_id: str | None = None,
+        execution_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[SandboxJobPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/sandbox/jobs",
+            params={
+                "workspace_id": workspace_id,
+                "sandbox_environment_id": sandbox_environment_id,
+                "execution_id": execution_id,
+                "status": status,
+                "limit": limit,
+            },
+        )
+        return [SandboxJobPayload.model_validate(item) for item in payload["data"]]
+
+    async def register_sandbox_artifact(
+        self,
+        command: SandboxArtifactCreatePayload,
+    ) -> SandboxArtifactPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sandbox/artifacts",
+            json=command.model_dump(mode="json"),
+        )
+        return SandboxArtifactPayload.model_validate(payload["data"])
+
+    async def list_sandbox_artifacts(
+        self,
+        *,
+        workspace_id: str,
+        sandbox_job_id: str | None = None,
+        materialization_status: str | None = None,
+        limit: int = 50,
+    ) -> list[SandboxArtifactPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/sandbox/artifacts",
+            params={
+                "workspace_id": workspace_id,
+                "sandbox_job_id": sandbox_job_id,
+                "materialization_status": materialization_status,
+                "limit": limit,
+            },
+        )
+        return [SandboxArtifactPayload.model_validate(item) for item in payload["data"]]
 
     async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
         payload = await self._request(

@@ -1042,7 +1042,7 @@ Implementation status as of 2026-05-21:
 - `064_dataservice_review_queue.py` creates `review_batches`, `review_items`, and `review_action_logs`.
 - `backend/src/dataservice/domains/review/` owns review contracts, repository, projections, state-machine service, and target handler registry. `dataservice_app` exposes internal review routes and `dataservice_client` has typed review methods.
 - Review item statuses are enforced as `pending`, `accepted`, `rejected`, `applied`, `reverted`, and `failed`; batch statuses are recomputed as `pending`, `partially_applied`, `applied`, `rejected`, or `failed`.
-- Target apply handlers are registered by `target_domain` / `target_kind` and run inside the review transition transaction boundary. Concrete Prism/rooms/assets/sandbox handlers will land with their target-domain slices.
+- Target apply handlers are registered by `target_domain` / `target_kind` and run inside the review transition transaction boundary. Prism, asset, source, and sandbox handler factories now exist; rooms and cross-domain provenance materialization remain in the next convergence slices.
 - Workspace asset aggregate foundation is implemented.
 - `065_dataservice_workspace_assets.py` creates `workspace_assets` and migrates file-like `documents_v2`, file-backed `artifacts`, and file-like `generation_records` into canonical asset metadata rows.
 - `backend/src/dataservice/domains/asset/` owns asset contracts, model, repository, projection, service, and review handler factory. `dataservice_app` exposes internal asset routes and `dataservice_client` has typed asset methods.
@@ -1054,6 +1054,11 @@ Implementation status as of 2026-05-21:
 - Source and Provenance aggregate foundation is implemented.
 - `067_dataservice_sources_provenance.py` creates canonical source library tables, source anchors, and provenance links, then migrates `workspace_references*`, `library_items`, `reference_assets`, `reference_usage_events`, `reference_bibtex_snapshots`, and resolvable `prism_source_links`.
 - `backend/src/dataservice/domains/source/` and `backend/src/dataservice/domains/provenance/` own source/provenance contracts, models, repositories, projections, services, and source review handler factory. `dataservice_app` exposes internal source/provenance routes and `dataservice_client` has typed methods.
+- Sandbox aggregate foundation is implemented.
+- `068_dataservice_sandbox_runtime.py` creates canonical `sandbox_environments`, `sandbox_job_records`, and `sandbox_artifacts`, then migrates legacy `sandboxes` into environment rows with explicit policy/resource snapshots.
+- `backend/src/dataservice/domains/sandbox/` owns sandbox contracts, models, repository, projection, service, Python-only policy validation, and sandbox artifact review handler factory. `dataservice_app` exposes internal sandbox routes and `dataservice_client` has typed environment/job/artifact methods.
+- Sandbox artifacts are now review-gated metadata rows linked to `workspace_assets`; DataService records reproducibility and policy state but does not execute containers.
+- Verification for the current DataService slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1910 backend tests.
 
 ### Phase 4: Review Materialization
 
