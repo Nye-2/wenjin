@@ -7,6 +7,12 @@ from typing import Any
 import httpx
 
 from src.config import dataservice_settings
+from src.dataservice_client.contracts.asset import (
+    WorkspaceAssetCreatePayload,
+    WorkspaceAssetDownloadPayload,
+    WorkspaceAssetPayload,
+    WorkspaceAssetUpdatePayload,
+)
 from src.dataservice_client.contracts.catalog import (
     CapabilityDefinitionPayload,
     CapabilitySkillPayload,
@@ -281,6 +287,75 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return ReviewItemPayload.model_validate(data) if data is not None else None
+
+    async def register_asset(self, command: WorkspaceAssetCreatePayload) -> WorkspaceAssetPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/assets",
+            json=command.model_dump(mode="json"),
+        )
+        return WorkspaceAssetPayload.model_validate(payload["data"])
+
+    async def list_assets(
+        self,
+        *,
+        workspace_id: str,
+        asset_kind: str | None = None,
+        source_kind: str | None = None,
+        source_id: str | None = None,
+        include_deleted: bool = False,
+        limit: int = 50,
+    ) -> list[WorkspaceAssetPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/assets",
+            params={
+                "workspace_id": workspace_id,
+                "asset_kind": asset_kind,
+                "source_kind": source_kind,
+                "source_id": source_id,
+                "include_deleted": include_deleted,
+                "limit": limit,
+            },
+        )
+        return [WorkspaceAssetPayload.model_validate(item) for item in payload["data"]]
+
+    async def get_asset(
+        self,
+        asset_id: str,
+        *,
+        include_deleted: bool = False,
+    ) -> WorkspaceAssetPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/assets/{asset_id}",
+            params={"include_deleted": include_deleted},
+        )
+        data = payload.get("data")
+        return WorkspaceAssetPayload.model_validate(data) if data is not None else None
+
+    async def update_asset(
+        self,
+        asset_id: str,
+        command: WorkspaceAssetUpdatePayload,
+    ) -> WorkspaceAssetPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/assets/{asset_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return WorkspaceAssetPayload.model_validate(data) if data is not None else None
+
+    async def delete_asset(self, asset_id: str) -> WorkspaceAssetPayload | None:
+        payload = await self._request("DELETE", f"/internal/v1/assets/{asset_id}")
+        data = payload.get("data")
+        return WorkspaceAssetPayload.model_validate(data) if data is not None else None
+
+    async def resolve_asset_download(self, asset_id: str) -> WorkspaceAssetDownloadPayload | None:
+        payload = await self._request("GET", f"/internal/v1/assets/{asset_id}/download")
+        data = payload.get("data")
+        return WorkspaceAssetDownloadPayload.model_validate(data) if data is not None else None
 
     async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
         payload = await self._request(

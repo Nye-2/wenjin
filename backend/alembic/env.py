@@ -42,6 +42,7 @@ from src.database.models import (  # noqa: F401
     WorkspaceSettings,
     WorkspaceTask,
 )
+from src.dataservice.domains.asset.models import WorkspaceAssetRecord  # noqa: F401
 from src.dataservice.domains.catalog.models import (  # noqa: F401
     CapabilityDefinition,
     CapabilitySeedRevision,

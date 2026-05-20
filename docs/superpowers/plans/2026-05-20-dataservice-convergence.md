@@ -725,12 +725,19 @@ Implementation status:
 
 Steps:
 
-- [ ] Create `workspace_assets`.
-- [ ] Migrate file-like `documents_v2` rows into `workspace_assets`.
-- [ ] Migrate binary/large `artifacts` and file-like `generation_records` into `workspace_assets`.
-- [ ] Enforce large content storage through managed storage, not business JSON blobs.
-- [ ] Run asset repository and migration validation tests.
-- [ ] Commit `feat: add workspace asset aggregate`.
+- [x] Create `workspace_assets`.
+- [x] Migrate file-like `documents_v2` rows into `workspace_assets`.
+- [x] Migrate binary/large `artifacts` and file-like `generation_records` into `workspace_assets`.
+- [x] Enforce large content storage through managed storage, not business JSON blobs.
+- [x] Run asset repository and migration validation tests.
+- [x] Commit `feat: add workspace asset aggregate`.
+
+Implementation status:
+
+- 2026-05-21: Workspace asset aggregate foundation is implemented in DataService with domain model, migration `065_dataservice_workspace_assets.py`, public in-process API, internal HTTP routes, typed client contracts, and review handler factory.
+- Forward writes require `storage_path`; DataService records metadata, storage pointer, hash, size, source linkage, soft-delete state, and derivative parent pointer.
+- Migration seeds assets from file-like `documents_v2`, file-backed `artifacts`, and file-like `generation_records` while preserving legacy source ids in metadata instead of copying large payloads into business JSON.
+- Verification: targeted asset/review/boundary tests pass with 11 tests, and `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1899 tests.
 
 ### Task 9: Add Prism Project Aggregate
 

@@ -1043,6 +1043,10 @@ Implementation status as of 2026-05-21:
 - `backend/src/dataservice/domains/review/` owns review contracts, repository, projections, state-machine service, and target handler registry. `dataservice_app` exposes internal review routes and `dataservice_client` has typed review methods.
 - Review item statuses are enforced as `pending`, `accepted`, `rejected`, `applied`, `reverted`, and `failed`; batch statuses are recomputed as `pending`, `partially_applied`, `applied`, `rejected`, or `failed`.
 - Target apply handlers are registered by `target_domain` / `target_kind` and run inside the review transition transaction boundary. Concrete Prism/rooms/assets/sandbox handlers will land with their target-domain slices.
+- Workspace asset aggregate foundation is implemented.
+- `065_dataservice_workspace_assets.py` creates `workspace_assets` and migrates file-like `documents_v2`, file-backed `artifacts`, and file-like `generation_records` into canonical asset metadata rows.
+- `backend/src/dataservice/domains/asset/` owns asset contracts, model, repository, projection, service, and review handler factory. `dataservice_app` exposes internal asset routes and `dataservice_client` has typed asset methods.
+- New asset writes must provide a managed storage pointer; large content is not stored in DataService payload JSON.
 
 ### Phase 4: Review Materialization
 
