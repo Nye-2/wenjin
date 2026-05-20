@@ -337,7 +337,8 @@ Implementation checkpoint, 2026-05-21:
 - `ExecutionDataService` is the public in-process boundary for this slice.
 - `dataservice_app` exposes internal execution create/get/list/update, node list, event append, and event list routes; `dataservice_client` has typed execution methods.
 - `ExecutionEngineV2` records canonical status events and the Celery execution task records canonical node lifecycle events.
-- Remaining work is to move existing `ExecutionService` CRUD/lifecycle internals behind `ExecutionDataService`, demote `subagent_task_records`, and rebuild Run History / Compute surfaces from execution projections.
+- Existing `ExecutionService` create/read/list/update/cancel/node-state write paths now run through `ExecutionDataService`.
+- Remaining work is to demote `subagent_task_records` and rebuild Run History / Compute surfaces from execution projections.
 
 ### 6.4 Review Domain
 

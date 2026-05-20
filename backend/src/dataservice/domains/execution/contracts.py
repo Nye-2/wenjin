@@ -95,6 +95,34 @@ class ExecutionRecordProjection(BaseModel):
     completed_at: datetime | None = None
     updated_at: datetime | None = None
 
+    @property
+    def feature_id(self) -> str | None:
+        return self.capability_id
+
+    @property
+    def params(self) -> dict[str, Any]:
+        return self.task_brief_json
+
+    @property
+    def result(self) -> dict[str, Any] | None:
+        return self.result_json
+
+    @property
+    def error(self) -> str | None:
+        return self.error_text
+
+    @property
+    def graph_structure(self) -> dict[str, Any] | None:
+        return self.graph_json
+
+    @property
+    def node_states(self) -> dict[str, Any]:
+        return self.node_states_json
+
+    @property
+    def runtime_state(self) -> dict[str, Any] | None:
+        return self.runtime_state_json
+
 
 class ExecutionNodeProjection(BaseModel):
     """Canonical execution node projection."""

@@ -669,6 +669,7 @@ Steps:
 - [x] Create `execution_events` with ordered per-execution `sequence_index`.
 - [x] Add DataService execution routes/client contracts and event append/list projection.
 - [x] Record status events from `ExecutionEngineV2` and node lifecycle events from the Celery execution callback.
+- [x] Cut `ExecutionService` create/read/list/update/cancel/node-state writes through `ExecutionDataService` while preserving caller-facing compatibility attributes.
 - [ ] Move `subagent_task_records` semantics into `execution_nodes` and `execution_events`.
 - [ ] Remove product-state reads from `task_records`.
 - [ ] Replace `workspace_run`, `run_history`, and `compute_sessions` product reads with DataService projections or rebuildable cache reads.

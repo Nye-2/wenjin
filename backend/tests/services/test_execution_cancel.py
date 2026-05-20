@@ -43,6 +43,15 @@ def _make_service(record, *, redis=None, publish_event=None):
     db = _make_db_with_record(record)
     svc = ExecutionService(db, redis=redis, publish_event=publish_event)
     svc.get_by_id = AsyncMock(return_value=record)
+
+    async def _update_execution(_execution_id: str, **kwargs):
+        if "status" in kwargs:
+            record.status = kwargs["status"]
+        if kwargs.get("commit", True):
+            await db.commit()
+        return record
+
+    svc.update_execution = AsyncMock(side_effect=_update_execution)
     return svc
 
 
@@ -170,6 +179,11 @@ async def test_cancel_flow_eventually_persists_cancelled_status():
 
     execution_svc = ExecutionService(db, redis=redis_mock, publish_event=publish_event)
     execution_svc.get_by_id = AsyncMock(side_effect=[execution_record, execution_record])
+    async def _update_cancel_flow(_execution_id: str, **kwargs):
+        execution_record.status = kwargs["status"]
+        return execution_record
+
+    execution_svc.update_execution = AsyncMock(side_effect=_update_cancel_flow)
     execution_svc.start_execution = AsyncMock()
     execution_svc.complete_execution = AsyncMock()
 

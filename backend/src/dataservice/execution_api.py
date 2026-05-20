@@ -27,6 +27,35 @@ class ExecutionDataService:
     async def create_execution(self, command: ExecutionCreateCommand) -> ExecutionRecordProjection:
         return await self._domain.create_execution(command)
 
+    async def create_record(
+        self,
+        *,
+        execution_type: str,
+        user_id: str,
+        workspace_id: str | None = None,
+        thread_id: str | None = None,
+        capability_id: str | None = None,
+        entry_skill_id: str | None = None,
+        workspace_type: str | None = None,
+        display_name: str | None = None,
+        task_brief_json: dict[str, Any] | None = None,
+        parent_execution_id: str | None = None,
+    ) -> ExecutionRecordProjection:
+        return await self._domain.create_execution(
+            ExecutionCreateCommand(
+                execution_type=execution_type,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                thread_id=thread_id,
+                capability_id=capability_id,
+                entry_skill_id=entry_skill_id,
+                workspace_type=workspace_type,
+                display_name=display_name,
+                task_brief_json=dict(task_brief_json or {}),
+                parent_execution_id=parent_execution_id,
+            )
+        )
+
     async def get_execution(self, execution_id: str) -> ExecutionRecordProjection | None:
         return await self._domain.get_execution(execution_id)
 
@@ -55,6 +84,16 @@ class ExecutionDataService:
         command: ExecutionUpdateCommand,
     ) -> ExecutionRecordProjection | None:
         return await self._domain.update_execution(execution_id, command)
+
+    async def update_record(
+        self,
+        execution_id: str,
+        **fields: Any,
+    ) -> ExecutionRecordProjection | None:
+        return await self._domain.update_execution(
+            execution_id,
+            ExecutionUpdateCommand(**fields),
+        )
 
     async def list_nodes(self, execution_id: str) -> list[ExecutionNodeProjection]:
         return await self._domain.list_nodes(execution_id)

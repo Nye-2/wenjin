@@ -549,7 +549,8 @@ Implementation checkpoint, 2026-05-21:
 - DataService execution contracts expose v2 names: `capability_id`, `task_brief_json`, `graph_json`, `node_states_json`, `runtime_state_json`, and `result_json`.
 - DataService internal execution routes and typed client contracts exist for create/get/list/update, node list, event append, and event list.
 - `ExecutionService.append_execution_event()` records ordered events through `ExecutionDataService`; `ExecutionEngineV2` records execution status events, and the Celery node callback records node lifecycle events.
-- Remaining execution work is to cut the existing public `ExecutionService` CRUD methods fully through the DataService execution boundary, move subagent task semantics into nodes/events, and replace Run History / Compute projection product reads with DataService projections.
+- The existing public `ExecutionService` create/read/list/update/cancel/node-state write paths now delegate to `ExecutionDataService` and return DataService projections with temporary compatibility attributes for existing callers.
+- Remaining execution work is to move subagent task semantics into nodes/events, remove product-state reads from queue/task tables, and replace Run History / Compute projection product reads with DataService projections.
 - `payload_json.schema_version` required for new event types.
 
 ### 6.4 Review Queue

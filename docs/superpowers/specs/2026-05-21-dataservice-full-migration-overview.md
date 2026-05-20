@@ -1034,7 +1034,8 @@ Implementation status as of 2026-05-21:
 - `063_dataservice_execution_graph.py` adds `execution_events`; `backend/src/dataservice/domains/execution/` owns execution contracts, repository, projection, service, and the event model while adopting existing `executions` / `execution_nodes` as the product run SSOT.
 - DataService execution contracts expose `capability_id`, `task_brief_json`, `graph_json`, `node_states_json`, `runtime_state_json`, and `result_json`; internal execution routes and typed client methods exist.
 - `ExecutionService.append_execution_event()` records ordered DataService events; `ExecutionEngineV2` writes status events and the Celery node callback writes node lifecycle events.
-- Remaining Phase 3 work is consumer cutover: public `ExecutionService` CRUD through DataService, subagent task demotion, product-state removal from queue/task tables, and run-history/compute projection convergence.
+- Public `ExecutionService` create/read/list/update/cancel/node-state write paths now delegate to `ExecutionDataService` while preserving compatibility attributes for existing callers.
+- Remaining Phase 3 work is subagent task demotion, product-state removal from queue/task tables, and run-history/compute projection convergence.
 
 ### Phase 4: Review Materialization
 

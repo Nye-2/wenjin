@@ -104,40 +104,25 @@ class ExecutionService:
         params: dict[str, Any] | None = None,
         parent_execution_id: str | None = None,
         commit: bool = True,
-    ) -> ExecutionRecord:
-        now = datetime.now(UTC)
-        record = ExecutionRecord(
-            id=generate_uuid(),
+    ):
+        return await ExecutionDataService(self.db, autocommit=commit).create_record(
+            execution_type=execution_type,
             user_id=user_id,
             workspace_id=workspace_id,
             thread_id=thread_id,
-            execution_type=execution_type,
-            feature_id=feature_id,
+            capability_id=feature_id,
             entry_skill_id=entry_skill_id,
             workspace_type=workspace_type,
             display_name=display_name,
-            status="pending",
-            params=dict(params or {}),
+            task_brief_json=dict(params or {}),
             parent_execution_id=parent_execution_id,
-            created_at=now,
-            updated_at=now,
         )
-        self.db.add(record)
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(record)
-        else:
-            await self.db.flush()
-        return record
 
     # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------
-    async def get_by_id(self, execution_id: str) -> ExecutionRecord | None:
-        result = await self.db.execute(
-            select(ExecutionRecord).where(ExecutionRecord.id == execution_id)
-        )
-        return result.scalar_one_or_none()
+    async def get_by_id(self, execution_id: str):
+        return await ExecutionDataService(self.db, autocommit=False).get_execution(execution_id)
 
     async def list_executions(
         self,
@@ -148,22 +133,15 @@ class ExecutionService:
         execution_type: str | None = None,
         status: list[str] | None = None,
         limit: int = 50,
-    ) -> list[ExecutionRecord]:
-        stmt = select(ExecutionRecord).order_by(ExecutionRecord.created_at.desc()).limit(limit)
-
-        if user_id is not None:
-            stmt = stmt.where(ExecutionRecord.user_id == user_id)
-        if workspace_id is not None:
-            stmt = stmt.where(ExecutionRecord.workspace_id == workspace_id)
-        if thread_id is not None:
-            stmt = stmt.where(ExecutionRecord.thread_id == thread_id)
-        if execution_type is not None:
-            stmt = stmt.where(ExecutionRecord.execution_type == execution_type)
-        if status is not None:
-            stmt = stmt.where(ExecutionRecord.status.in_(status))
-
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+    ) -> list:
+        return await ExecutionDataService(self.db, autocommit=False).list_executions(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            execution_type=execution_type,
+            status=status,
+            limit=limit,
+        )
 
     async def reconcile_interrupted_executions(self) -> int:
         """Mark stale in-flight executions terminal after process restart.
@@ -256,89 +234,55 @@ class ExecutionService:
         completed_at: datetime | None | object = _UNSET,
     ) -> ExecutionRecord | None:
         """Update business-state fields on an execution record."""
-        record = await self.get_by_id(execution_id)
-        if record is None:
-            return None
-
-        changed = False
-        if status is not None and record.status != status:
-            record.status = status
-            changed = True
-        if thread_id is not None and record.thread_id != thread_id:
-            record.thread_id = thread_id
-            changed = True
-        if entry_skill_id is not None and record.entry_skill_id != entry_skill_id:
-            record.entry_skill_id = entry_skill_id
-            changed = True
-        if workspace_type is not None and record.workspace_type != workspace_type:
-            record.workspace_type = workspace_type
-            changed = True
-        if display_name is not None and record.display_name != display_name:
-            record.display_name = display_name
-            changed = True
+        fields: dict[str, Any] = {}
+        if status is not None:
+            fields["status"] = status
+        if thread_id is not None:
+            fields["thread_id"] = thread_id
+        if entry_skill_id is not None:
+            fields["entry_skill_id"] = entry_skill_id
+        if workspace_type is not None:
+            fields["workspace_type"] = workspace_type
+        if display_name is not None:
+            fields["display_name"] = display_name
         if params is not None:
-            normalized_params = dict(params)
-            if record.params != normalized_params:
-                record.params = normalized_params
-                changed = True
-        if result is not _UNSET and record.result != result:
-            record.result = result
-            changed = True
-        if error is not _UNSET and record.error != error:
-            record.error = error
-            changed = True
-        if result_summary is not _UNSET and record.result_summary != result_summary:
-            record.result_summary = result_summary
-            changed = True
-        if graph_structure is not _UNSET and record.graph_structure != graph_structure:
-            record.graph_structure = graph_structure
-            changed = True
-        if runtime_state is not _UNSET and record.runtime_state != runtime_state:
-            record.runtime_state = runtime_state
-            changed = True
-        if progress is not None and record.progress != progress:
-            record.progress = progress
-            changed = True
-        if message is not _UNSET and record.message != message:
-            record.message = message
-            changed = True
+            fields["task_brief_json"] = dict(params)
+        if result is not _UNSET:
+            fields["result_json"] = result
+        if error is not _UNSET:
+            fields["error_text"] = error
+        if result_summary is not _UNSET:
+            fields["result_summary"] = result_summary
+        if graph_structure is not _UNSET:
+            fields["graph_json"] = graph_structure
+        if runtime_state is not _UNSET:
+            fields["runtime_state_json"] = runtime_state
+        if progress is not None:
+            fields["progress"] = progress
+        if message is not _UNSET:
+            fields["message"] = message
         if artifact_ids is not None:
-            normalized_artifact_ids = _normalize_str_list(artifact_ids)
-            if normalized_artifact_ids != list(record.artifact_ids or []):
-                record.artifact_ids = normalized_artifact_ids
-                changed = True
+            fields["artifact_ids"] = _normalize_str_list(artifact_ids)
         if next_actions is not None:
-            normalized_actions = _normalize_action_list(next_actions)
-            if normalized_actions != list(record.next_actions or []):
-                record.next_actions = normalized_actions
-                changed = True
-        if advisory_code is not _UNSET and record.advisory_code != advisory_code:
-            record.advisory_code = advisory_code
-            changed = True
-        if last_error is not _UNSET and record.last_error != last_error:
-            record.last_error = last_error
-            changed = True
-        if dispatch_mode is not _UNSET and record.dispatch_mode != dispatch_mode:
-            record.dispatch_mode = dispatch_mode
-            changed = True
-        if worker_task_id is not _UNSET and record.worker_task_id != worker_task_id:
-            record.worker_task_id = worker_task_id
-            changed = True
-        if started_at is not _UNSET and record.started_at != started_at:
-            record.started_at = started_at
-            changed = True
-        if completed_at is not _UNSET and record.completed_at != completed_at:
-            record.completed_at = completed_at
-            changed = True
-
-        if not changed:
-            return record
-
-        record.updated_at = datetime.now(UTC)
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(record)
-        return record
+            fields["next_actions"] = _normalize_action_list(next_actions)
+        if advisory_code is not _UNSET:
+            fields["advisory_code"] = advisory_code
+        if last_error is not _UNSET:
+            fields["last_error"] = last_error
+        if dispatch_mode is not _UNSET:
+            fields["dispatch_mode"] = dispatch_mode
+        if worker_task_id is not _UNSET:
+            fields["worker_task_id"] = worker_task_id
+        if started_at is not _UNSET:
+            fields["started_at"] = started_at
+        if completed_at is not _UNSET:
+            fields["completed_at"] = completed_at
+        if not fields:
+            return await self.get_by_id(execution_id)
+        return await ExecutionDataService(self.db, autocommit=commit).update_record(
+            execution_id,
+            **fields,
+        )
 
     async def apply_task_transition(
         self,
@@ -451,13 +395,10 @@ class ExecutionService:
             node_state["completed_at"] = completed_at.isoformat()
 
         node_states[node_id] = node_state
-        record.node_states = node_states
-        record.updated_at = datetime.now(UTC)
-
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(record)
-        return record
+        return await ExecutionDataService(self.db, autocommit=commit).update_record(
+            execution_id,
+            node_states_json=node_states,
+        )
 
     async def complete_execution(
         self,
@@ -485,10 +426,7 @@ class ExecutionService:
         graph_structure: dict[str, Any],
     ) -> None:
         """Persist the computed graph_structure onto the ExecutionRecord."""
-        record = await self.get_by_id(execution_id)
-        if record is not None:
-            record.graph_structure = graph_structure
-            await self.db.commit()
+        await self.update_execution(execution_id, graph_structure=graph_structure)
 
     async def append_artifact_id(
         self,
@@ -506,13 +444,11 @@ class ExecutionService:
         normalized_artifact_id = str(artifact_id).strip()
         if normalized_artifact_id and normalized_artifact_id not in artifact_ids:
             artifact_ids.append(normalized_artifact_id)
-            record.artifact_ids = artifact_ids
-            record.updated_at = datetime.now(UTC)
-
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(record)
-        return record
+        return await self.update_execution(
+            execution_id,
+            artifact_ids=artifact_ids,
+            commit=commit,
+        )
 
     async def cancel_execution(
         self,
@@ -525,11 +461,11 @@ class ExecutionService:
             return None
         if record.status not in ("pending", "running"):
             return record
-        record.status = "cancelling"
-        record.updated_at = datetime.now(UTC)
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(record)
+        updated = await self.update_execution(
+            execution_id,
+            status="cancelling",
+            commit=commit,
+        )
         # Write Redis abort signal so the runtime can detect cancellation
         if self.redis is not None:
             try:
@@ -546,7 +482,7 @@ class ExecutionService:
                 )
             except Exception:
                 pass
-        return record
+        return updated
 
     # ------------------------------------------------------------------
     # ExecutionNodeRecord (optional granular persistence)
