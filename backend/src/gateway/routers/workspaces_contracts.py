@@ -177,6 +177,22 @@ class WorkspacePrismSurfaceResponse(BaseModel):
                     }
                 ],
                 "applied_file_changes": [],
+                "source_links": [],
+                "protected_sections": [],
+                "decisions": [],
+                "memory_preferences": [],
+                "recent_activity": [],
+                "review_summary": {
+                    "pending_count": 1,
+                    "applied_count": 0,
+                    "source_link_count": 0,
+                    "protected_section_count": 0,
+                },
+                "context_summary": {
+                    "decision_count": 0,
+                    "memory_preference_count": 0,
+                    "recent_activity_count": 0,
+                },
             }
         }
     )
@@ -191,6 +207,13 @@ class WorkspacePrismSurfaceResponse(BaseModel):
     target_files: list[str] = Field(default_factory=list)
     file_changes: list[dict[str, Any]] = Field(default_factory=list)
     applied_file_changes: list[dict[str, Any]] = Field(default_factory=list)
+    source_links: list[dict[str, Any]] = Field(default_factory=list)
+    protected_sections: list[dict[str, Any]] = Field(default_factory=list)
+    decisions: list[dict[str, Any]] = Field(default_factory=list)
+    memory_preferences: list[dict[str, Any]] = Field(default_factory=list)
+    recent_activity: list[dict[str, Any]] = Field(default_factory=list)
+    review_summary: dict[str, int] = Field(default_factory=dict)
+    context_summary: dict[str, int] = Field(default_factory=dict)
 
 
 CreateWorkspaceRequest = CreateWorkspaceValidator

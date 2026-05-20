@@ -149,10 +149,7 @@ export async function installWorkspaceRouteMocks(
       llm_config: {
         workspace_id: workspaceId,
         bridge: "workspace_latex_project",
-        metadata: {
-          file_changes: prismFileChanges(),
-          applied_file_changes: prismAppliedFileChanges(),
-        },
+        metadata: {},
       },
       created_at: "2026-05-18T00:00:00Z",
       updated_at: "2026-05-18T00:00:00Z",
@@ -249,6 +246,22 @@ export async function installWorkspaceRouteMocks(
           target_files: ["main.tex"],
           file_changes: prismFileChanges(),
           applied_file_changes: Object.values(prismAppliedFileChanges()),
+          source_links: [],
+          protected_sections: [],
+          decisions: [],
+          memory_preferences: [],
+          recent_activity: [],
+          review_summary: {
+            pending_count: prismFileChanges().length,
+            applied_count: Object.values(prismAppliedFileChanges()).length,
+            source_link_count: 0,
+            protected_section_count: 0,
+          },
+          context_summary: {
+            decision_count: 0,
+            memory_preference_count: 0,
+            recent_activity_count: 0,
+          },
         }),
       );
       return;

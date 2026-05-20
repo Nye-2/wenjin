@@ -295,6 +295,11 @@ async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]
             _Result(scalar=project),
             _Result(scalars=pending_items),
             _Result(scalars=applied_items),
+            _Result(scalars=[]),
+            _Result(scalars=[]),
+            _Result(scalars=[]),
+            _Result(scalars=[]),
+            _Result(scalars=[]),
             _Result(
                 scalar={
                     "mode": "compute_workflow",

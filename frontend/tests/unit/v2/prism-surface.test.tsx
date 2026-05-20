@@ -4,18 +4,23 @@ import { act, render, screen } from "@testing-library/react";
 
 import PrismPage from "@/app/(workbench)/workspaces/[id]/prism/page";
 
-const mockEnsureWorkspacePrismProject = vi.hoisted(() => vi.fn());
 const mockGetWorkspacePrismSurface = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/latex/LatexEditorShell", () => ({
-  LatexEditorShell: ({ projectId }: { projectId: string }) => (
-    <div data-testid="latex-editor-shell">{projectId}</div>
+  LatexEditorShell: ({
+    projectId,
+    initialFileChanges = [],
+  }: {
+    projectId: string;
+    initialFileChanges?: Array<unknown>;
+  }) => (
+    <div data-testid="latex-editor-shell">
+      {projectId}:{initialFileChanges.length}
+    </div>
   ),
 }));
 
 vi.mock("@/lib/api/workspace", () => ({
-  ensureWorkspacePrismProject: (...args: unknown[]) =>
-    mockEnsureWorkspacePrismProject(...args),
   getWorkspacePrismSurface: (...args: unknown[]) =>
     mockGetWorkspacePrismSurface(...args),
 }));
@@ -31,16 +36,26 @@ const prismSurface = {
   target_files: ["main.tex"],
   file_changes: [],
   applied_file_changes: [],
+  source_links: [],
+  protected_sections: [],
+  decisions: [],
+  memory_preferences: [],
+  recent_activity: [],
+  review_summary: {
+    pending_count: 0,
+    applied_count: 0,
+    source_link_count: 0,
+    protected_section_count: 0,
+  },
+  context_summary: {
+    decision_count: 0,
+    memory_preference_count: 0,
+    recent_activity_count: 0,
+  },
 };
 
 describe("workspace prism surface", () => {
   beforeEach(() => {
-    mockEnsureWorkspacePrismProject.mockReset();
-    mockEnsureWorkspacePrismProject.mockResolvedValue({
-      latex_project_id: "latex-1",
-      url: "/workspaces/ws-1/prism",
-      sync_status: "ready",
-    });
     mockGetWorkspacePrismSurface.mockReset();
     mockGetWorkspacePrismSurface.mockResolvedValue(prismSurface);
   });
@@ -63,17 +78,15 @@ describe("workspace prism surface", () => {
       "/workspaces/ws-1",
     );
     expect(await screen.findByTestId("latex-editor-shell")).toHaveTextContent(
-      "latex-1",
+      "latex-1:0",
     );
   });
 
-  it("repairs a missing workspace Prism binding before opening the editor", async () => {
+  it("does not create a workspace Prism binding from the surface route", async () => {
     const notFound = Object.assign(new Error("Workspace Prism surface not found"), {
       response: { status: 404 },
     });
-    mockGetWorkspacePrismSurface
-      .mockRejectedValueOnce(notFound)
-      .mockResolvedValueOnce(prismSurface);
+    mockGetWorkspacePrismSurface.mockRejectedValue(notFound);
 
     await act(async () => {
       render(
@@ -83,11 +96,11 @@ describe("workspace prism surface", () => {
       );
     });
 
-    expect(mockEnsureWorkspacePrismProject).toHaveBeenCalledWith("ws-1");
-    expect(mockGetWorkspacePrismSurface).toHaveBeenCalledTimes(2);
-    expect(await screen.findByTestId("latex-editor-shell")).toHaveTextContent(
-      "latex-1",
-    );
+    expect(mockGetWorkspacePrismSurface).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText("Unable to open Prism manuscript surface"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Workspace Prism surface not found")).toBeInTheDocument();
   });
 
   it("uses the shared surface state while loading", async () => {
@@ -140,5 +153,107 @@ describe("workspace prism surface", () => {
     expect(
       await screen.findByText("No Prism manuscript is bound yet"),
     ).toBeInTheDocument();
+  });
+
+  it("renders workspace manuscript context from the Prism surface projection", async () => {
+    mockGetWorkspacePrismSurface.mockResolvedValue({
+      ...prismSurface,
+      has_pending_changes: true,
+      file_changes: [
+        {
+          logical_key: "section:introduction",
+          path: "sections/introduction.tex",
+          reason: "feature_proposal",
+        },
+      ],
+      source_links: [
+        {
+          id: "source-1",
+          workspace_id: "ws-1",
+          latex_project_id: "latex-1",
+          review_item_id: "review-1",
+          source_type: "library",
+          source_id: "lib-1",
+          file_path: "sections/introduction.tex",
+          section_key: "section:introduction",
+          quote: "important source excerpt",
+          citation_key: "doe2026",
+          usage: "citation",
+        },
+      ],
+      protected_sections: [
+        {
+          id: "protected-1",
+          workspace_id: "ws-1",
+          latex_project_id: "latex-1",
+          file_path: "sections/introduction.tex",
+          section_key: "section:introduction",
+          scope: "section",
+          reason: "user_protected",
+          source: "review_reject",
+        },
+      ],
+      decisions: [
+        {
+          id: "decision-1",
+          workspace_id: "ws-1",
+          key: "citation_style",
+          value: "APA 7",
+          confidence: 1,
+          extracted_by: "user",
+        },
+      ],
+      memory_preferences: [
+        {
+          id: "memory-1",
+          workspace_id: "ws-1",
+          category: "writing_style",
+          content: "Prefer concise topic sentences",
+          confidence: 0.9,
+          reference_count: 3,
+        },
+      ],
+      recent_activity: [
+        {
+          id: "run-1",
+          workspace_id: "ws-1",
+          execution_id: "exec-1",
+          capability_id: "writing",
+          title: "Intro drafting",
+          summary: "Generated manuscript update",
+          status: "completed",
+          artifact_count: 1,
+          duration_seconds: 12,
+        },
+      ],
+      review_summary: {
+        pending_count: 1,
+        applied_count: 0,
+        source_link_count: 1,
+        protected_section_count: 1,
+      },
+      context_summary: {
+        decision_count: 1,
+        memory_preference_count: 1,
+        recent_activity_count: 1,
+      },
+    });
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <PrismPage params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>,
+      );
+    });
+
+    expect(await screen.findByText("doe2026")).toBeInTheDocument();
+    expect(screen.getByTestId("latex-editor-shell")).toHaveTextContent("latex-1:1");
+    expect(screen.getByText("important source excerpt")).toBeInTheDocument();
+    expect(screen.getByText("user_protected")).toBeInTheDocument();
+    expect(screen.getByText("citation_style")).toBeInTheDocument();
+    expect(screen.getByText("APA 7")).toBeInTheDocument();
+    expect(screen.getByText("Prefer concise topic sentences")).toBeInTheDocument();
+    expect(screen.getByText("Intro drafting")).toBeInTheDocument();
   });
 });

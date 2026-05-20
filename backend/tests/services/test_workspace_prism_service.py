@@ -51,7 +51,7 @@ async def db(test_session: AsyncSession) -> AsyncSession:
                 workspace_id varchar(36) not null,
                 latex_project_id varchar(36) not null,
                 file_path varchar(1024) not null,
-                section_key varchar(255),
+                section_key varchar(255) not null default '',
                 scope varchar(32) not null,
                 reason varchar(1000),
                 source varchar(64) not null,
@@ -73,7 +73,7 @@ async def db(test_session: AsyncSession) -> AsyncSession:
                 source_type varchar(64) not null,
                 source_id varchar(255) not null,
                 file_path varchar(1024) not null,
-                section_key varchar(255),
+                section_key varchar(255) not null default '',
                 quote varchar(4000),
                 citation_key varchar(255),
                 usage varchar(64) not null,
@@ -251,6 +251,145 @@ async def test_workspace_latex_project_service_finds_explicit_binding_without_le
     project = await service.ensure_workspace_project(workspace_id=workspace.id)
 
     assert str(project.id) == "latex-explicit"
+
+
+@pytest.mark.asyncio
+async def test_surface_projection_includes_review_provenance_and_protection(
+    db: AsyncSession,
+    user: SimpleNamespace,
+    workspace: SimpleNamespace,
+) -> None:
+    from src.services.workspace_prism_service import WorkspacePrismService
+
+    project = LatexProject(
+        id="latex-prism",
+        user_id=user.id,
+        name="Prism Manuscript",
+        workspace_id=workspace.id,
+        surface_role="primary_manuscript",
+        main_file="main.tex",
+        llm_config={"metadata": {"section_map": {"intro": "sections/intro.tex"}}},
+    )
+    db.add(project)
+    await db.flush()
+    await db.execute(
+        text(
+            """
+            insert into prism_review_items (
+                id, workspace_id, latex_project_id, logical_key, source_type,
+                source_execution_id, source_task_id, target_kind, target_file_path,
+                title, summary, status, preview_payload
+            )
+            values (
+                'review-1', :workspace_id, 'latex-prism', 'section:intro', 'execution',
+                'exec-1', 'task-1', 'prism_file_change', 'sections/intro.tex',
+                'Intro rewrite', 'feature_proposal', 'pending',
+                '{"pending_content":"Generated intro"}'
+            )
+            """
+        ),
+        {"workspace_id": workspace.id},
+    )
+    await db.execute(
+        text(
+            """
+            insert into prism_source_links (
+                id, workspace_id, latex_project_id, review_item_id, source_type,
+                source_id, file_path, section_key, quote, citation_key, usage
+            )
+            values (
+                'source-1', :workspace_id, 'latex-prism', 'review-1', 'library',
+                'lib-1', 'sections/intro.tex', 'section:intro', 'key excerpt',
+                'doe2026', 'citation'
+            )
+            """
+        ),
+        {"workspace_id": workspace.id},
+    )
+    await db.execute(
+        text(
+            """
+            insert into prism_protected_sections (
+                id, workspace_id, latex_project_id, file_path, section_key,
+                scope, reason, source
+            )
+            values (
+                'protected-1', :workspace_id, 'latex-prism', 'sections/intro.tex',
+                'section:intro', 'section', 'user_protected', 'review_reject'
+            )
+            """
+        ),
+        {"workspace_id": workspace.id},
+    )
+    await db.execute(
+        text(
+            """
+            insert into decisions (
+                id, workspace_id, key, value, confidence, extracted_by
+            )
+            values (
+                'decision-1', :workspace_id, 'citation_style', 'APA 7', 1.0, 'user'
+            )
+            """
+        ),
+        {"workspace_id": workspace.id},
+    )
+    await db.execute(
+        text(
+            """
+            insert into memory_facts (
+                id, workspace_id, category, content, confidence, reference_count
+            )
+            values (
+                'memory-1', :workspace_id, 'writing_style',
+                'Prefer concise topic sentences', 0.9, 3
+            )
+            """
+        ),
+        {"workspace_id": workspace.id},
+    )
+    await db.execute(
+        text(
+            """
+            insert into run_history (
+                id, workspace_id, execution_id, capability_id, title, summary,
+                status, artifact_count, duration_seconds
+            )
+            values (
+                'run-1', :workspace_id, 'exec-1', 'writing', 'Intro drafting',
+                'Generated manuscript update', 'completed', 1, 12
+            )
+            """
+        ),
+        {"workspace_id": workspace.id},
+    )
+    await db.commit()
+
+    projection = await WorkspacePrismService(db).get_surface_projection(
+        workspace.id,
+        user_id=user.id,
+    )
+
+    assert projection["review_summary"] == {
+        "pending_count": 1,
+        "applied_count": 0,
+        "source_link_count": 1,
+        "protected_section_count": 1,
+    }
+    assert projection["file_changes"][0]["source_execution_id"] == "exec-1"
+    assert projection["file_changes"][0]["pending_content"] == "Generated intro"
+    assert projection["source_links"][0]["citation_key"] == "doe2026"
+    assert projection["protected_sections"][0]["reason"] == "user_protected"
+    assert projection["decisions"][0]["key"] == "citation_style"
+    assert projection["memory_preferences"][0]["content"] == (
+        "Prefer concise topic sentences"
+    )
+    assert projection["recent_activity"][0]["title"] == "Intro drafting"
+    assert projection["context_summary"] == {
+        "decision_count": 1,
+        "memory_preference_count": 1,
+        "recent_activity_count": 1,
+    }
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,10 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.database.models.decision import Decision
 from src.database.models.latex_project import LatexProject
+from src.database.models.memory_fact import MemoryFact
+from src.database.models.run_history import RunHistory
 from src.services.prism_review_service import PrismReviewService
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 
@@ -18,6 +21,54 @@ def _metadata_from_project(project: LatexProject) -> dict[str, Any]:
     llm_config = project.llm_config if isinstance(project.llm_config, dict) else {}
     metadata = llm_config.get("metadata")
     return dict(metadata) if isinstance(metadata, dict) else {}
+
+
+def _isoformat(value: Any) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return str(value.isoformat())
+    return str(value)
+
+
+def _decision_payload(item: Decision) -> dict[str, Any]:
+    return {
+        "id": str(item.id),
+        "workspace_id": str(item.workspace_id),
+        "key": str(item.key),
+        "value": str(item.value),
+        "confidence": float(item.confidence or 0),
+        "extracted_by": str(item.extracted_by),
+        "created_at": _isoformat(item.created_at),
+    }
+
+
+def _memory_payload(item: MemoryFact) -> dict[str, Any]:
+    return {
+        "id": str(item.id),
+        "workspace_id": str(item.workspace_id),
+        "category": str(item.category),
+        "content": str(item.content),
+        "confidence": float(item.confidence or 0),
+        "reference_count": int(item.reference_count or 0),
+        "last_referenced_at": _isoformat(item.last_referenced_at),
+        "created_at": _isoformat(item.created_at),
+    }
+
+
+def _run_history_payload(item: RunHistory) -> dict[str, Any]:
+    return {
+        "id": str(item.id),
+        "workspace_id": str(item.workspace_id),
+        "execution_id": str(item.execution_id),
+        "capability_id": str(item.capability_id),
+        "title": str(item.title),
+        "summary": str(item.summary),
+        "status": str(item.status),
+        "artifact_count": int(item.artifact_count or 0),
+        "duration_seconds": int(item.duration_seconds or 0),
+        "created_at": _isoformat(item.created_at),
+    }
 
 
 class WorkspacePrismService:
@@ -82,6 +133,11 @@ class WorkspacePrismService:
         review_service = PrismReviewService(self.db)
         file_changes = await review_service.list_project_file_changes(project)
         applied_file_changes = await review_service.list_applied_file_changes(project)
+        source_links = await review_service.list_project_source_links(project)
+        protected_sections = await review_service.list_project_protected_sections(project)
+        decisions = await self._list_decisions(workspace_id)
+        memory_preferences = await self._list_memory_preferences(workspace_id)
+        recent_activity = await self._list_recent_activity(workspace_id)
         main_file = str(project.main_file or "main.tex")
         target_files: list[str] = [main_file]
         raw_section_map = metadata.get("section_map")
@@ -109,7 +165,64 @@ class WorkspacePrismService:
             "target_files": target_files,
             "file_changes": file_changes,
             "applied_file_changes": applied_file_changes,
+            "source_links": source_links,
+            "protected_sections": protected_sections,
+            "decisions": decisions,
+            "memory_preferences": memory_preferences,
+            "recent_activity": recent_activity,
+            "review_summary": {
+                "pending_count": len(file_changes),
+                "applied_count": len(applied_file_changes),
+                "source_link_count": len(source_links),
+                "protected_section_count": len(protected_sections),
+            },
+            "context_summary": {
+                "decision_count": len(decisions),
+                "memory_preference_count": len(memory_preferences),
+                "recent_activity_count": len(recent_activity),
+            },
         }
+
+    async def _list_decisions(self, workspace_id: str) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(Decision)
+            .where(
+                Decision.workspace_id == workspace_id,
+                Decision.deleted_at.is_(None),
+                Decision.superseded_by.is_(None),
+            )
+            .order_by(Decision.created_at.desc())
+            .limit(5)
+        )
+        return [_decision_payload(item) for item in result.scalars().all()]
+
+    async def _list_memory_preferences(self, workspace_id: str) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(MemoryFact)
+            .where(
+                MemoryFact.workspace_id == workspace_id,
+                MemoryFact.deleted_at.is_(None),
+            )
+            .order_by(
+                MemoryFact.reference_count.desc(),
+                MemoryFact.confidence.desc(),
+                MemoryFact.created_at.desc(),
+            )
+            .limit(5)
+        )
+        return [_memory_payload(item) for item in result.scalars().all()]
+
+    async def _list_recent_activity(self, workspace_id: str) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(RunHistory)
+            .where(
+                RunHistory.workspace_id == workspace_id,
+                RunHistory.deleted_at.is_(None),
+            )
+            .order_by(RunHistory.created_at.desc())
+            .limit(5)
+        )
+        return [_run_history_payload(item) for item in result.scalars().all()]
 
     async def get_binding_integrity_report(
         self,

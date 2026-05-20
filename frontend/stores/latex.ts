@@ -58,6 +58,10 @@ interface LatexState {
   fetchTemplates: () => Promise<void>;
   createProject: (payload: { name: string; template_id?: string | null }) => Promise<LatexProject>;
   loadProject: (projectId: string) => Promise<void>;
+  setReviewState: (
+    fileChanges: LatexFileChange[],
+    appliedFileChanges: LatexAppliedFileChange[],
+  ) => void;
   openFile: (path: string) => Promise<void>;
   setActiveFileContent: (content: string) => void;
   saveActiveFile: () => Promise<void>;
@@ -109,48 +113,6 @@ function pickDefaultFile(
     return mainTex.path;
   }
   return files[0].path;
-}
-
-function readProjectFileChanges(project: LatexProject | null): LatexFileChange[] {
-  if (
-    project?.llm_config &&
-    typeof project.llm_config === "object" &&
-    "metadata" in project.llm_config
-  ) {
-    const metadata = (project.llm_config as Record<string, unknown>).metadata;
-    if (
-      metadata &&
-      typeof metadata === "object" &&
-      Array.isArray((metadata as Record<string, unknown>).file_changes)
-    ) {
-      return (metadata as Record<string, unknown>).file_changes as LatexFileChange[];
-    }
-  }
-  return [];
-}
-
-function readProjectAppliedFileChanges(project: LatexProject | null): LatexAppliedFileChange[] {
-  if (
-    !project?.llm_config ||
-    typeof project.llm_config !== "object" ||
-    !("metadata" in project.llm_config)
-  ) {
-    return [];
-  }
-  const metadata = (project.llm_config as Record<string, unknown>).metadata;
-  if (!metadata || typeof metadata !== "object") {
-    return [];
-  }
-  const raw = (metadata as Record<string, unknown>).applied_file_changes;
-  const values = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === "object"
-      ? Object.values(raw)
-      : [];
-  return values.filter(
-    (item): item is LatexAppliedFileChange =>
-      Boolean(item) && typeof item === "object" && !Array.isArray(item),
-  );
 }
 
 export const useLatexStore = create<LatexState>((set, get) => ({
@@ -227,8 +189,8 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project,
         tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(project),
-        appliedFileChanges: readProjectAppliedFileChanges(project),
+        fileChanges: [],
+        appliedFileChanges: [],
         activeFilePath: defaultFile,
         isProjectLoading: false,
       });
@@ -238,6 +200,13 @@ export const useLatexStore = create<LatexState>((set, get) => ({
     } catch (error) {
       set({ error: (error as Error).message, isProjectLoading: false });
     }
+  },
+
+  setReviewState: (fileChanges, appliedFileChanges) => {
+    set({
+      fileChanges: [...fileChanges],
+      appliedFileChanges: [...appliedFileChanges],
+    });
   },
 
   openFile: async (path) => {
@@ -334,8 +303,6 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(nextProject),
-        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
       await get().openFile(path);
@@ -377,8 +344,6 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(nextProject),
-        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
       if (activeFilePath === fromPath || activeFilePath?.startsWith(`${fromPath}/`)) {
@@ -409,8 +374,6 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(nextProject),
-        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
       if (activeFilePath === path || activeFilePath?.startsWith(`${path}/`)) {
@@ -445,8 +408,6 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(nextProject),
-        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
       });
     } catch (error) {
       set({ error: (error as Error).message });
@@ -470,8 +431,6 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(nextProject),
-        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
     } catch (error) {
@@ -496,8 +455,6 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(nextProject),
-        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
     } catch (error) {
@@ -520,8 +477,6 @@ export const useLatexStore = create<LatexState>((set, get) => ({
       set({
         project: nextProject,
         tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(nextProject),
-        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
         isSaving: false,
       });
     } catch (error) {
@@ -552,18 +507,44 @@ export const useLatexStore = create<LatexState>((set, get) => ({
           ? readLatexFile(project.id, applied.path)
           : Promise.resolve(null),
       ]);
-      set({
-        project: nextProject,
-        tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(nextProject),
-        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
-        ...(activeFileResponse
-          ? {
-              activeFileContent: activeFileResponse.content,
-              activeFileSavedContent: activeFileResponse.content,
-            }
-          : {}),
-        isSaving: false,
+      set((state) => {
+        const pendingChange = state.fileChanges.find(
+          (item) => item.logical_key === logicalKey,
+        );
+        return {
+          project: nextProject,
+          tree: treeResponse.items,
+          fileChanges: state.fileChanges.filter(
+            (item) => item.logical_key !== logicalKey,
+          ),
+          appliedFileChanges: [
+            {
+              id: pendingChange?.id ?? null,
+              logical_key: applied.undo.logical_key,
+              path: applied.undo.path,
+              reason: pendingChange?.reason ?? null,
+              status: "applied",
+              title: pendingChange?.title ?? pendingChange?.path ?? null,
+              source_type: pendingChange?.source_type ?? null,
+              source_execution_id: pendingChange?.source_execution_id ?? null,
+              source_task_id: pendingChange?.source_task_id ?? null,
+              previous_hash: applied.undo.previous_hash,
+              applied_hash: applied.undo.applied_hash,
+              revert_signature: applied.undo.revert_signature,
+              applied_at: new Date().toISOString(),
+            },
+            ...state.appliedFileChanges.filter(
+              (item) => item.logical_key !== logicalKey,
+            ),
+          ],
+          ...(activeFileResponse
+            ? {
+                activeFileContent: activeFileResponse.content,
+                activeFileSavedContent: activeFileResponse.content,
+              }
+            : {}),
+          isSaving: false,
+        };
       });
     } catch (error) {
       set({ error: (error as Error).message, isSaving: false });
@@ -584,13 +565,14 @@ export const useLatexStore = create<LatexState>((set, get) => ({
         getLatexProject(project.id),
         getLatexProjectTree(project.id),
       ]);
-      set({
+      set((state) => ({
         project: nextProject,
         tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(nextProject),
-        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
+        fileChanges: state.fileChanges.filter(
+          (item) => item.logical_key !== logicalKey,
+        ),
         isSaving: false,
-      });
+      }));
     } catch (error) {
       set({ error: (error as Error).message, isSaving: false });
     }
@@ -616,11 +598,12 @@ export const useLatexStore = create<LatexState>((set, get) => ({
           ? readLatexFile(project.id, reverted.path)
           : Promise.resolve(null),
       ]);
-      set({
+      set((state) => ({
         project: nextProject,
         tree: treeResponse.items,
-        fileChanges: readProjectFileChanges(nextProject),
-        appliedFileChanges: readProjectAppliedFileChanges(nextProject),
+        appliedFileChanges: state.appliedFileChanges.filter(
+          (item) => item.logical_key !== logicalKey,
+        ),
         isSaving: false,
         ...(activeFileResponse
           ? {
@@ -628,7 +611,7 @@ export const useLatexStore = create<LatexState>((set, get) => ({
               activeFileSavedContent: activeFileResponse.content,
             }
           : {}),
-      });
+      }));
     } catch (error) {
       set({ error: (error as Error).message, isSaving: false });
     }

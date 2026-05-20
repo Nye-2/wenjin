@@ -12,6 +12,7 @@ import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import type {
   LatexCompileEngine,
+  LatexAppliedFileChange,
   LatexFeedbackAnchor,
   LatexFeedbackItem,
   LatexPdfAnchor,
@@ -42,6 +43,8 @@ import { useLatexStore } from "@/stores/latex";
 interface LatexEditorShellProps {
   projectId: string;
   workspaceId?: string;
+  initialFileChanges?: LatexFileChange[];
+  initialAppliedFileChanges?: LatexAppliedFileChange[];
 }
 
 interface PdfDraftSelection {
@@ -533,7 +536,12 @@ function shiftFeedbacksAfterRewrite(
   });
 }
 
-export function LatexEditorShell({ projectId, workspaceId }: LatexEditorShellProps) {
+export function LatexEditorShell({
+  projectId,
+  workspaceId,
+  initialFileChanges,
+  initialAppliedFileChanges,
+}: LatexEditorShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fileChangesRef = useRef<HTMLDivElement | null>(null);
@@ -558,6 +566,7 @@ export function LatexEditorShell({ projectId, workspaceId }: LatexEditorShellPro
     isCompiling,
     error,
     loadProject,
+    setReviewState,
     openFile,
     setActiveFileContent,
     saveActiveFile,
@@ -615,8 +624,18 @@ export function LatexEditorShell({ projectId, workspaceId }: LatexEditorShellPro
   }, [authLoading, isAuthenticated, router]);
 
   useEffect(() => {
-    void loadProject(projectId);
-  }, [loadProject, projectId]);
+    void loadProject(projectId).then(() => {
+      if (initialFileChanges || initialAppliedFileChanges) {
+        setReviewState(initialFileChanges ?? [], initialAppliedFileChanges ?? []);
+      }
+    });
+  }, [
+    initialAppliedFileChanges,
+    initialFileChanges,
+    loadProject,
+    projectId,
+    setReviewState,
+  ]);
 
   useEffect(() => {
     setFileChangePreviews({});

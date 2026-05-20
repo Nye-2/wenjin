@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -31,16 +32,21 @@ def _project_id(project: LatexProject) -> str:
 
 
 def _review_item_payload(item: PrismReviewItem) -> dict[str, Any]:
-    preview_payload = (
-        dict(item.preview_payload) if isinstance(item.preview_payload, dict) else {}
-    )
+    preview_payload = _json_object(item.preview_payload)
     path = str(item.target_file_path or preview_payload.get("path") or "").strip()
+    applied_at = getattr(item, "applied_at", None)
     payload = {
         "id": str(item.id),
         "logical_key": str(item.logical_key),
+        "source_type": str(getattr(item, "source_type", "") or ""),
+        "source_execution_id": getattr(item, "source_execution_id", None),
+        "source_task_id": getattr(item, "source_task_id", None),
+        "target_kind": str(getattr(item, "target_kind", "") or ""),
         "path": path,
+        "title": str(getattr(item, "title", None) or path or item.logical_key),
         "reason": str(item.summary or preview_payload.get("reason") or ""),
         "status": str(item.status),
+        "applied_at": applied_at.isoformat() if applied_at else None,
     }
     for key in (
         "pending_content",
@@ -56,6 +62,49 @@ def _review_item_payload(item: PrismReviewItem) -> dict[str, Any]:
         if key in preview_payload:
             payload[key] = preview_payload[key]
     return payload
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _source_link_payload(item: PrismSourceLink) -> dict[str, Any]:
+    return {
+        "id": str(item.id),
+        "workspace_id": str(item.workspace_id),
+        "latex_project_id": str(item.latex_project_id),
+        "review_item_id": item.review_item_id,
+        "source_type": str(item.source_type),
+        "source_id": str(item.source_id),
+        "file_path": str(item.file_path),
+        "section_key": str(item.section_key or ""),
+        "quote": item.quote,
+        "citation_key": item.citation_key,
+        "usage": str(item.usage),
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+    }
+
+
+def _protected_section_payload(item: PrismProtectedSection) -> dict[str, Any]:
+    return {
+        "id": str(item.id),
+        "workspace_id": str(item.workspace_id),
+        "latex_project_id": str(item.latex_project_id),
+        "file_path": str(item.file_path),
+        "section_key": str(item.section_key or ""),
+        "scope": str(item.scope),
+        "reason": item.reason,
+        "source": str(item.source),
+        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+    }
 
 
 class PrismReviewService:
@@ -95,6 +144,34 @@ class PrismReviewService:
     ) -> list[dict[str, Any]]:
         items = await self.list_project_review_items(project, statuses=APPLIED_STATUSES)
         return [_review_item_payload(item) for item in items if item.status != "reverted"]
+
+    async def list_project_source_links(
+        self,
+        project: LatexProject,
+    ) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(PrismSourceLink)
+            .where(
+                PrismSourceLink.workspace_id == _project_workspace_id(project),
+                PrismSourceLink.latex_project_id == _project_id(project),
+            )
+            .order_by(PrismSourceLink.created_at.desc())
+        )
+        return [_source_link_payload(item) for item in result.scalars().all()]
+
+    async def list_project_protected_sections(
+        self,
+        project: LatexProject,
+    ) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(PrismProtectedSection)
+            .where(
+                PrismProtectedSection.workspace_id == _project_workspace_id(project),
+                PrismProtectedSection.latex_project_id == _project_id(project),
+            )
+            .order_by(PrismProtectedSection.updated_at.desc())
+        )
+        return [_protected_section_payload(item) for item in result.scalars().all()]
 
     async def get_review_item(
         self,

@@ -5,11 +5,9 @@ import { use, useEffect, useState } from "react";
 import { useOptionalI18n } from "@/components/i18n-provider";
 import { LatexEditorShell } from "@/components/latex/LatexEditorShell";
 import { WorkspaceSurfaceState } from "@/components/workspace/WorkspaceSurfaceState";
-import {
-  ensureWorkspacePrismProject,
-  getWorkspacePrismSurface,
-} from "@/lib/api/workspace";
+import { getWorkspacePrismSurface } from "@/lib/api/workspace";
 import type { WorkspacePrismSurfaceResponse } from "@/lib/api/types";
+import { PrismContextRail } from "./PrismContextRail";
 import { SurfaceSwitch } from "../components/SurfaceSwitch";
 
 type PrismSurfaceLoadState = {
@@ -17,28 +15,6 @@ type PrismSurfaceLoadState = {
   surface: WorkspacePrismSurfaceResponse | null;
   error: string | null;
 };
-
-function readHttpStatus(error: unknown): number | null {
-  if (!error || typeof error !== "object") {
-    return null;
-  }
-  const response = (error as { response?: { status?: unknown } }).response;
-  return typeof response?.status === "number" ? response.status : null;
-}
-
-async function loadWorkspacePrismSurface(
-  workspaceId: string,
-): Promise<WorkspacePrismSurfaceResponse> {
-  try {
-    return await getWorkspacePrismSurface(workspaceId);
-  } catch (error) {
-    if (readHttpStatus(error) !== 404) {
-      throw error;
-    }
-    await ensureWorkspacePrismProject(workspaceId);
-    return await getWorkspacePrismSurface(workspaceId);
-  }
-}
 
 export default function WorkspacePrismPage({
   params,
@@ -60,7 +36,7 @@ export default function WorkspacePrismPage({
   useEffect(() => {
     let cancelled = false;
 
-    loadWorkspacePrismSurface(id)
+    getWorkspacePrismSurface(id)
       .then((nextSurface) => {
         if (!cancelled) {
           setLoadState({
@@ -91,9 +67,19 @@ export default function WorkspacePrismPage({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <SurfaceSwitch workspaceId={id} active="prism" />
-      <div className="min-h-0 flex-1">
+      <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_320px]">
         {surface?.latex_project_id ? (
-          <LatexEditorShell projectId={surface.latex_project_id} workspaceId={id} />
+          <>
+            <div className="min-w-0">
+              <LatexEditorShell
+                projectId={surface.latex_project_id}
+                workspaceId={id}
+                initialFileChanges={surface.file_changes ?? []}
+                initialAppliedFileChanges={surface.applied_file_changes ?? []}
+              />
+            </div>
+            <PrismContextRail surface={surface} />
+          </>
         ) : error ? (
           <WorkspaceSurfaceState
             tone="error"

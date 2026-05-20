@@ -69,20 +69,110 @@ export interface LatexCompileResult {
 }
 
 export interface LatexFileChange {
+  id?: string | null;
   logical_key: string;
   path: string;
   reason: string;
+  status?: string | null;
+  title?: string | null;
+  source_type?: string | null;
+  source_execution_id?: string | null;
+  source_task_id?: string | null;
+  target_kind?: string | null;
+  applied_at?: string | null;
   pending_content?: string | null;
   current_hash?: string | null;
   pending_hash?: string | null;
 }
 
 export interface LatexAppliedFileChange {
+  id?: string | null;
   logical_key: string;
   path: string;
+  reason?: string | null;
+  status?: string | null;
+  title?: string | null;
+  source_type?: string | null;
+  source_execution_id?: string | null;
+  source_task_id?: string | null;
   previous_hash: string;
   applied_hash: string;
   revert_signature: string;
+  applied_at?: string | null;
+}
+
+export interface WorkspacePrismSourceLink {
+  id: string;
+  workspace_id: string;
+  latex_project_id: string;
+  review_item_id?: string | null;
+  source_type: string;
+  source_id: string;
+  file_path: string;
+  section_key: string;
+  quote?: string | null;
+  citation_key?: string | null;
+  usage: string;
+  created_at?: string | null;
+}
+
+export interface WorkspacePrismProtectedSection {
+  id: string;
+  workspace_id: string;
+  latex_project_id: string;
+  file_path: string;
+  section_key: string;
+  scope: string;
+  reason?: string | null;
+  source: string;
+  updated_at?: string | null;
+}
+
+export interface WorkspacePrismReviewSummary {
+  pending_count?: number;
+  applied_count?: number;
+  source_link_count?: number;
+  protected_section_count?: number;
+}
+
+export interface WorkspacePrismDecision {
+  id: string;
+  workspace_id: string;
+  key: string;
+  value: string;
+  confidence?: number | null;
+  extracted_by?: string | null;
+  created_at?: string | null;
+}
+
+export interface WorkspacePrismMemoryPreference {
+  id: string;
+  workspace_id: string;
+  category: string;
+  content: string;
+  confidence?: number | null;
+  reference_count?: number | null;
+  last_referenced_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface WorkspacePrismRecentActivity {
+  id: string;
+  workspace_id: string;
+  execution_id: string;
+  capability_id: string;
+  title: string;
+  summary?: string | null;
+  status: string;
+  artifact_count?: number | null;
+  duration_seconds?: number | null;
+  created_at?: string | null;
+}
+
+export interface WorkspacePrismContextSummary {
+  decision_count?: number;
+  memory_preference_count?: number;
+  recent_activity_count?: number;
 }
 
 export interface LatexFeedbackAnchor {
@@ -907,6 +997,13 @@ export interface WorkspacePrismSurfaceResponse {
   target_files: string[];
   file_changes?: LatexFileChange[];
   applied_file_changes?: LatexAppliedFileChange[];
+  source_links?: WorkspacePrismSourceLink[];
+  protected_sections?: WorkspacePrismProtectedSection[];
+  decisions?: WorkspacePrismDecision[];
+  memory_preferences?: WorkspacePrismMemoryPreference[];
+  recent_activity?: WorkspacePrismRecentActivity[];
+  review_summary?: WorkspacePrismReviewSummary;
+  context_summary?: WorkspacePrismContextSummary;
 }
 
 export interface TaskStatus {
