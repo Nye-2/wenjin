@@ -5,7 +5,10 @@ import { use, useEffect, useState } from "react";
 import { useOptionalI18n } from "@/components/i18n-provider";
 import { LatexEditorShell } from "@/components/latex/LatexEditorShell";
 import { WorkspaceSurfaceState } from "@/components/workspace/WorkspaceSurfaceState";
-import { getWorkspacePrismSurface } from "@/lib/api/workspace";
+import {
+  ensureWorkspacePrismProject,
+  getWorkspacePrismSurface,
+} from "@/lib/api/workspace";
 import type { WorkspacePrismSurfaceResponse } from "@/lib/api/types";
 import { SurfaceSwitch } from "../components/SurfaceSwitch";
 
@@ -14,6 +17,28 @@ type PrismSurfaceLoadState = {
   surface: WorkspacePrismSurfaceResponse | null;
   error: string | null;
 };
+
+function readHttpStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const response = (error as { response?: { status?: unknown } }).response;
+  return typeof response?.status === "number" ? response.status : null;
+}
+
+async function loadWorkspacePrismSurface(
+  workspaceId: string,
+): Promise<WorkspacePrismSurfaceResponse> {
+  try {
+    return await getWorkspacePrismSurface(workspaceId);
+  } catch (error) {
+    if (readHttpStatus(error) !== 404) {
+      throw error;
+    }
+    await ensureWorkspacePrismProject(workspaceId);
+    return await getWorkspacePrismSurface(workspaceId);
+  }
+}
 
 export default function WorkspacePrismPage({
   params,
@@ -35,7 +60,7 @@ export default function WorkspacePrismPage({
   useEffect(() => {
     let cancelled = false;
 
-    getWorkspacePrismSurface(id)
+    loadWorkspacePrismSurface(id)
       .then((nextSurface) => {
         if (!cancelled) {
           setLoadState({

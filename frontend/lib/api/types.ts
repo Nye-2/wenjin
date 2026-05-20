@@ -904,6 +904,7 @@ export interface WorkspacePrismSurfaceResponse {
   main_file?: string | null;
   compile_status?: string | null;
   has_pending_changes: boolean;
+  target_files: string[];
   file_changes?: LatexFileChange[];
   applied_file_changes?: LatexAppliedFileChange[];
 }

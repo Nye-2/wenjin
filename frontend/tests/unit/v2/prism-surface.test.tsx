@@ -4,6 +4,7 @@ import { act, render, screen } from "@testing-library/react";
 
 import PrismPage from "@/app/(workbench)/workspaces/[id]/prism/page";
 
+const mockEnsureWorkspacePrismProject = vi.hoisted(() => vi.fn());
 const mockGetWorkspacePrismSurface = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/latex/LatexEditorShell", () => ({
@@ -13,6 +14,8 @@ vi.mock("@/components/latex/LatexEditorShell", () => ({
 }));
 
 vi.mock("@/lib/api/workspace", () => ({
+  ensureWorkspacePrismProject: (...args: unknown[]) =>
+    mockEnsureWorkspacePrismProject(...args),
   getWorkspacePrismSurface: (...args: unknown[]) =>
     mockGetWorkspacePrismSurface(...args),
 }));
@@ -25,12 +28,19 @@ const prismSurface = {
   main_file: "main.tex",
   compile_status: null,
   has_pending_changes: false,
+  target_files: ["main.tex"],
   file_changes: [],
   applied_file_changes: [],
 };
 
 describe("workspace prism surface", () => {
   beforeEach(() => {
+    mockEnsureWorkspacePrismProject.mockReset();
+    mockEnsureWorkspacePrismProject.mockResolvedValue({
+      latex_project_id: "latex-1",
+      url: "/workspaces/ws-1/prism",
+      sync_status: "ready",
+    });
     mockGetWorkspacePrismSurface.mockReset();
     mockGetWorkspacePrismSurface.mockResolvedValue(prismSurface);
   });
@@ -52,6 +62,29 @@ describe("workspace prism surface", () => {
       "href",
       "/workspaces/ws-1",
     );
+    expect(await screen.findByTestId("latex-editor-shell")).toHaveTextContent(
+      "latex-1",
+    );
+  });
+
+  it("repairs a missing workspace Prism binding before opening the editor", async () => {
+    const notFound = Object.assign(new Error("Workspace Prism surface not found"), {
+      response: { status: 404 },
+    });
+    mockGetWorkspacePrismSurface
+      .mockRejectedValueOnce(notFound)
+      .mockResolvedValueOnce(prismSurface);
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <PrismPage params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>,
+      );
+    });
+
+    expect(mockEnsureWorkspacePrismProject).toHaveBeenCalledWith("ws-1");
+    expect(mockGetWorkspacePrismSurface).toHaveBeenCalledTimes(2);
     expect(await screen.findByTestId("latex-editor-shell")).toHaveTextContent(
       "latex-1",
     );

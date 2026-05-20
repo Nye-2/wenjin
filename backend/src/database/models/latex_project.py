@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -86,3 +86,12 @@ class LatexProject(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<LatexProject(id={self.id}, name={self.name})>"
+
+
+Index(
+    "uq_latex_projects_workspace_primary_manuscript",
+    LatexProject.workspace_id,
+    unique=True,
+    postgresql_where=LatexProject.surface_role == "primary_manuscript",
+    sqlite_where=LatexProject.surface_role == "primary_manuscript",
+)
