@@ -1,6 +1,6 @@
 # Workspace Capability Entry Catalog
 
-更新时间: 2026-05-14
+更新时间: 2026-05-20
 状态: Current
 Capability 数据源: `backend/seed/capabilities/` + `capabilities` table
 Capability skill 数据源: `backend/seed/skills/` + `capability_skills` table
@@ -24,7 +24,7 @@ Capability skill 数据源: `backend/seed/skills/` + `capability_skills` table
 
 总计: 5 个 workspace 类型，23 个 capability 入口。
 附加说明: 当前共有 24 个 chat skills。
-补充: `compile_export` 已移除，编译/导出统一走 WenjinPrism（`/latex`）。
+补充: `compile_export` 已移除，编译/导出统一走 workspace Prism（`/workspaces/{workspace_id}/prism`）。
 
 ## 2. Capability Entry Matrix
 

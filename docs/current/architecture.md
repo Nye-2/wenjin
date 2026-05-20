@@ -1,6 +1,6 @@
 # Wenjin Architecture
 
-更新时间：2026-05-14
+更新时间：2026-05-20
 状态：Current
 
 本文件是 Wenjin 当前架构的唯一总览事实源。
@@ -53,6 +53,8 @@
 - 左面板：Chat / result card / orchestration 入口
 - 右面板：Execution / Compute / rooms / Prism review
 - 工作区 route：`/workspaces/{workspace_id}`
+- 工作区主稿 route：`/workspaces/{workspace_id}/prism`
+- historical workspace-owned `/latex/{project_id}` UI/page route 已移除，不作为兼容入口
 
 ### 2.2 后端主分层
 
@@ -66,6 +68,7 @@
 | Capability Domain | `backend/seed/capabilities/` `backend/src/database/models/capability.py` `backend/src/services/capability_resolver.py` | capability schema、graph_template、brief_schema、trigger_phrases、缓存失效 |
 | Capability Skill Domain | `backend/seed/skills/` `backend/src/database/models/capability_skill.py` `backend/src/agents/middlewares/capability_skill_preload.py` | reusable subagent instruction packs、skill preload、subagent prompt/runtime config |
 | Agent Runtime | `backend/src/agents/lead_agent/` | graph compile、subagent orchestration、TaskReport |
+| Prism Manuscript Domain | `backend/src/database/models/prism.py` `backend/src/services/prism_review_service.py` `backend/src/services/workspace_prism_service.py` | workspace-owned manuscript review、source links、protected sections、surface projection |
 
 ### 2.3 前端主分层
 
@@ -87,6 +90,7 @@
 5. execution payload 优先复用 canonical serializer
 6. 前端 execution 状态不能再维护第二套并行运行态
 7. workspace event hook 必须继续是 execution 发现与订阅单入口
+8. workspace-owned Prism 只通过 `/workspaces/{workspace_id}/prism` 进入；review/provenance/protected-section facts 只读写 canonical Prism tables
 
 ## 3. Execution-First Main Chain
 
@@ -104,7 +108,7 @@ User action
   -> LeadAgentRuntime
   -> TaskReport / execution stream
   -> execution store / compute projection / ResultCard
-  -> commit to rooms / Prism review / refresh
+  -> commit to rooms / Prism review/apply / activity refresh
 ```
 
 ### 3.1 Launch
@@ -154,13 +158,15 @@ User action
 
 - `TaskReport` 是结构化执行结果
 - `ResultOutput` 经用户确认后 commit 到 rooms
-- Prism 文件改动必须走 preview/apply/discard/revert
+- Prism 文件改动必须走 DB-backed review item → preview/apply/reject/defer/revert
+- Prism apply/reject/defer/revert 和 protected-section 操作写入 workspace activity / Prism projection
 
 #### Commit 代码入口
 
 - commit router：`backend/src/gateway/routers/execution_commit.py`
 - commit service：`backend/src/services/execution_commit_service.py`
 - room services：对应 `backend/src/services/rooms/` 或相关 room service
+- Prism review service：`backend/src/services/prism_review_service.py`
 
 ## 4. Frontend Contract
 
@@ -232,19 +238,31 @@ User action
 - `/api/compute/sessions/{compute_session_id}`
 - `/api/compute/sessions/{compute_session_id}/projection`
 
-### 5.4 读取与写入面区分
+### 5.4 Workspace Prism
+
+- `GET /api/workspaces/{workspace_id}/prism`
+- `POST /api/workspaces/{workspace_id}/prism/ensure`
+- `POST /api/latex/projects/{project_id}/file-changes/preview`
+- `POST /api/latex/projects/{project_id}/file-changes/apply`
+- `POST /api/latex/projects/{project_id}/file-changes/discard`
+- `POST /api/latex/projects/{project_id}/file-changes/defer`
+- `POST /api/latex/projects/{project_id}/file-changes/revert`
+- `POST /api/latex/projects/{project_id}/protected-sections`
+
+### 5.5 读取与写入面区分
 
 读取面：
 
 - executions 查询
 - compute projection
 - workspace activity / summary / artifacts / references
+- workspace Prism surface projection
 
 写入面：
 
 - `launch_feature`
 - execution commit
-- Prism preview/apply/discard/revert
+- Prism preview/apply/reject/defer/revert/protect
 
 新功能优先扩写入面或读取面中的一个，不要把读取接口偷偷变成写入接口。
 
@@ -291,7 +309,16 @@ User action
 - Tasks
 - Settings
 
-### 6.3 Task Runtime
+### 6.3 Prism Manuscript Domain
+
+- `LatexProject.workspace_id + surface_role=primary_manuscript` 是 workspace 与主稿的绑定事实
+- `prism_review_items` 是 Prism review state 的事实源
+- `prism_source_links` 是稿件变更 provenance 的事实源
+- `prism_protected_sections` 是用户保护稿件范围的事实源
+- `WorkspacePrismService` 聚合 editor state、review items、source links、protected sections、activity 和 compile status
+- `TaskBrief.manuscript_context` 只接收 lightweight manuscript projection，不接收完整正文或 PDF
+
+### 6.4 Task Runtime
 
 - Celery + Redis + PostgreSQL
 - Redis 提供 live runtime state / SSE responsiveness
@@ -364,20 +391,22 @@ User action
 2. execution completed payload
 3. 前端 result card mapping
 4. commit router / commit service / room service
+5. Prism review service / workspace Prism projection（如涉及稿件变更）
 
 不要做：
 
 - 让未确认产物直接落 room
 - 绕过 commit service 直接写 room
+
 ## 8. Documentation Policy
 
-### 7.1 Current vs Historical
+### 8.1 Current vs Historical
 
 - 本文件是唯一架构总览事实源
 - 历史设计稿、重构计划、专项 spec 不得再被当成 current architecture
 - 历史材料如需保留，只能作为背景记录或 Git 历史参考
 
-### 7.2 Future Changes
+### 8.2 Future Changes
 
 未来如发生下列变化，必须优先更新本文件：
 
@@ -385,6 +414,7 @@ User action
 2. launch / runtime / commit 主链变化
 3. public execution payload contract 变化
 4. canonical route 或 canonical store 变化
+5. workspace-owned Prism projection、review contract、source/protected-section contract 变化
 
 ## 9. Summary
 

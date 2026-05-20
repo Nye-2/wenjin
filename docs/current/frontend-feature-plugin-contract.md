@@ -1,6 +1,6 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-05-14
+更新时间: 2026-05-20
 
 本文档定义 workspace capability 入口兼容层的前后端契约，避免前端硬编码 capability 目录与执行入口逻辑。
 
@@ -77,6 +77,8 @@
 - `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx`
 - `frontend/app/(workbench)/workspaces/[id]/components/ResultCard.tsx`
 - `frontend/app/(workbench)/workspaces/[id]/components/CompletedView.tsx`
+- `frontend/app/(workbench)/workspaces/[id]/prism/page.tsx`
+- `frontend/components/prism/PrismReviewList.tsx`
 
 ## 3. Workspace Workbench Entry Contract
 
@@ -109,6 +111,7 @@
 3. 前端不再单独维护 task/panel 两套运行态；长任务详情统一进入 LiveWorkflowPanel / compute projection UI。
 4. workspace SSE 以 `execution.* / task.updated / subagent.updated / compute.updated` 驱动 execution/compute store 增量更新。
 5. capability 入口卡片、artifact follow-up、activity retry 必须统一落到 `/workspaces/{workspace_id}?feature=...` query seed，并保留 `source_artifact_id/context_artifact_ids` 等 seed；不得重新引入中间 feature slug 页面。
+6. Prism writing result action 必须统一落到 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`，不得落到 standalone `/latex/{project_id}` 页面。
 
 ## 5. Refresh Targets Contract
 
@@ -122,8 +125,9 @@
 
 ## 6. Compute Runtime Notes
 
-- 执行态 UI 以 Compute projection 为主展示面；`ExecutionRecord`、task、subagent、runtime blocks、sandbox files、logs、artifacts 和 Prism metadata 是 projection 的事实来源。
+- 执行态 UI 以 Compute projection 为主展示面；`ExecutionRecord`、task、subagent、runtime blocks、sandbox files、logs、artifacts 和 canonical Prism review items 是 projection 的事实来源。
 - Thread message 只承载发起、追问、完成摘要和 pointer metadata，不用于恢复当前执行状态。
 - Thread message 的 `metadata.orchestration.execution_id` 只用作归属锚点，不替代 `ExecutionRecord` 的实时状态。
 - LiveWorkflowPanel 必须能从 `/api/workspaces/{workspace_id}/compute/sessions` 和 `/api/compute/sessions/{compute_session_id}/projection` 恢复任务状态。
-- WenjinPrism file changes 必须走 `preview -> apply -> discard/revert`；前端不得直接把 capability 生成内容写入 Prism 文件。
+- WenjinPrism file changes 必须走 DB-backed review item 与 `preview -> apply/reject/defer/revert`；前端不得直接把 capability 生成内容写入 Prism 文件。
+- Prism protected sections 与 source links 由后端 canonical tables 投影；前端只做展示、聚焦导航和用户动作触发。

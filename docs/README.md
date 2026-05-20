@@ -1,6 +1,6 @@
 # Wenjin Docs
 
-更新时间：2026-05-14
+更新时间：2026-05-20
 状态：Current
 
 `docs/` 现在只保留两类内容：
@@ -14,6 +14,7 @@
 - `current/architecture.md`：唯一当前架构总览
 - `current/workspace-current-state.md`：workspace / thread / execution / compute 当前行为
 - `current/frontend-feature-plugin-contract.md`：前后端 feature / thread / execution 契约
+- `current/workspace-prism-surface-release-notes.md`：workspace-owned Prism 当前发布说明
 - `current/troubleshooting.md`：运行与联调查错入口
 
 ## 阅读建议
@@ -22,7 +23,8 @@
 2. `docs/current/documentation-map.md`
 3. `docs/current/architecture.md`
 4. `docs/current/workspace-current-state.md`
-5. 需要时再看 `docs/current/` 下对应专题
+5. 涉及主稿/Prism 时看 `docs/current/workspace-prism-surface-release-notes.md`
+6. 需要时再看 `docs/current/` 下对应专题
 
 ## 治理规则
 
