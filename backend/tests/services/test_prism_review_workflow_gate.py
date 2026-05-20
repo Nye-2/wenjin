@@ -270,6 +270,64 @@ def _capability_record(runtime: dict[str, object]) -> SimpleNamespace:
     )
 
 
+def _prism_project_from_latex(project: SimpleNamespace) -> SimpleNamespace:
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        id=f"prism-{project.id}",
+        workspace_id=project.workspace_id,
+        role="primary_manuscript",
+        title=getattr(project, "name", "Prism Manuscript"),
+        adapter_kind="latex",
+        adapter_ref_id=project.id,
+        status="active",
+        settings_json={},
+        adapter_metadata_json={
+            "latex_project_id": project.id,
+            "main_file": project.main_file,
+        },
+        trashed_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _prism_document_from_latex(project: SimpleNamespace) -> SimpleNamespace:
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        id=f"doc-{project.id}",
+        workspace_id=project.workspace_id,
+        project_id=f"prism-{project.id}",
+        document_kind="manuscript",
+        title=getattr(project, "name", "Prism Manuscript"),
+        adapter_kind="latex",
+        status="active",
+        root_file_id=f"file-{project.id}-main",
+        metadata_json={"main_file": project.main_file},
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _prism_file_from_latex(project: SimpleNamespace, path: str | None = None) -> SimpleNamespace:
+    now = datetime.now(UTC)
+    file_path = path or project.main_file
+    return SimpleNamespace(
+        id=f"file-{project.id}-{file_path}",
+        workspace_id=project.workspace_id,
+        document_id=f"doc-{project.id}",
+        path=file_path,
+        file_role="main" if file_path == project.main_file else "generated",
+        mime_type="text/x-tex",
+        current_version_id=None,
+        content_hash=None,
+        sort_order=0,
+        metadata_json={},
+        deleted_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+
 def _task(now: datetime) -> SimpleNamespace:
     return SimpleNamespace(
         id="task-1",
@@ -316,6 +374,14 @@ async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]
             _Result(scalar=_compute_session(now)),
             _Result(scalar=execution),
             _Result(scalars=[]),
+            _Result(scalar=_prism_project_from_latex(project)),
+            _Result(scalars=[_prism_document_from_latex(project)]),
+            _Result(
+                scalars=[
+                    _prism_file_from_latex(project),
+                    _prism_file_from_latex(project, "sections/introduction.tex"),
+                ]
+            ),
             _Result(scalar=project),
             _Result(scalars=pending_items),
             _Result(scalars=applied_items),

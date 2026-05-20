@@ -110,6 +110,87 @@ async def db(test_session: AsyncSession) -> AsyncSession:
     await test_session.execute(
         text(
             """
+            create table prism_projects (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                role varchar(64) not null,
+                title varchar(255) not null,
+                adapter_kind varchar(50) not null default 'latex',
+                adapter_ref_id varchar(100),
+                status varchar(32) not null default 'active',
+                settings_json json not null default '{}',
+                adapter_metadata_json json not null default '{}',
+                trashed_at datetime,
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
+            create table prism_documents (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                project_id varchar(36) not null,
+                document_kind varchar(50) not null,
+                title varchar(255) not null,
+                adapter_kind varchar(50) not null default 'latex',
+                status varchar(32) not null default 'active',
+                root_file_id varchar(36),
+                metadata_json json not null default '{}',
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
+            create table prism_files (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                document_id varchar(36) not null,
+                path varchar(1024) not null,
+                file_role varchar(50) not null,
+                mime_type varchar(100),
+                current_version_id varchar(36),
+                content_hash varchar(128),
+                sort_order integer not null default 0,
+                metadata_json json not null default '{}',
+                deleted_at datetime,
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp,
+                unique (document_id, path)
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
+            create table prism_file_versions (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                file_id varchar(36) not null,
+                version_no integer not null,
+                review_item_id varchar(36),
+                content_inline text,
+                content_asset_id varchar(36),
+                content_hash varchar(128) not null,
+                created_by varchar(100) not null,
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp,
+                unique (file_id, version_no)
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
             create table workspace_references (
                 id varchar(36) primary key,
                 workspace_id varchar(36) not null,
@@ -155,6 +236,7 @@ async def test_get_primary_project_prefers_explicit_workspace_binding(
     db: AsyncSession,
     user: SimpleNamespace,
 ) -> None:
+    from src.dataservice.prism_api import PrismDataService
     from src.services.workspace_prism_service import WorkspacePrismService
 
     explicit = LatexProject(
@@ -172,6 +254,13 @@ async def test_get_primary_project_prefers_explicit_workspace_binding(
         llm_config={"workspace_id": "ws-1", "bridge": "workspace_latex_project"},
     )
     db.add_all([explicit, legacy])
+    await db.flush()
+    await PrismDataService(db, autocommit=False).ensure_latex_primary_project(
+        workspace_id="ws-1",
+        title="Explicit Manuscript",
+        latex_project_id="latex-explicit",
+        main_file="main.tex",
+    )
     await db.commit()
 
     project = await WorkspacePrismService(db).get_primary_project(
@@ -391,6 +480,7 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     workspace: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from src.dataservice.prism_api import PrismDataService
     from src.services.workspace_prism_service import WorkspacePrismService
 
     class _FakeExecutionDataService:
@@ -428,6 +518,17 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     )
     db.add(project)
     await db.flush()
+    await PrismDataService(db, autocommit=False).ensure_latex_primary_project(
+        workspace_id=workspace.id,
+        title="Prism Manuscript",
+        latex_project_id="latex-prism",
+        main_file="main.tex",
+        adapter_metadata_json={
+            "latex_project_id": "latex-prism",
+            "main_file": "main.tex",
+            "legacy_metadata": {"section_map": {"intro": "sections/intro.tex"}},
+        },
+    )
     await db.execute(
         text(
             """

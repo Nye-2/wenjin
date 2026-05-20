@@ -758,12 +758,19 @@ Implementation status:
 
 Steps:
 
-- [ ] Create `prism_projects`, `prism_documents`, `prism_files`, `prism_file_versions`, `prism_renders`, `prism_protected_scopes`.
-- [ ] Copy workspace-owned `latex_projects` into `prism_projects`.
-- [ ] Store LaTeX-specific metadata under adapter metadata.
-- [ ] Route workspace Prism projection through DataService.
-- [ ] Stop using `LatexProject.workspace_id` as the canonical workspace binding.
-- [ ] Commit `feat: add prism project aggregate`.
+- [x] Create `prism_projects`, `prism_documents`, `prism_files`, `prism_file_versions`, `prism_renders`, `prism_protected_scopes`.
+- [x] Copy workspace-owned `latex_projects` into `prism_projects`.
+- [x] Store LaTeX-specific metadata under adapter metadata.
+- [x] Route workspace Prism projection through DataService.
+- [x] Stop using `LatexProject.workspace_id` as the canonical workspace binding.
+- [x] Commit `feat: add prism project aggregate`.
+
+Implementation status:
+
+- 2026-05-21: Prism project aggregate foundation is implemented in DataService with canonical project/document/file/version/render/protected-scope models, migration `066_dataservice_prism_documents.py`, public in-process API, internal HTTP routes, typed client contracts, LaTeX adapter metadata helper, and Prism review handler factory.
+- Workspace-owned `latex_projects` with `surface_role = 'primary_manuscript'` migrate into `prism_projects`; adapter-specific fields are stored in `adapter_metadata_json` with `adapter_ref_id` pointing at the LaTeX adapter project.
+- `WorkspacePrismService` now resolves the canonical Prism surface via `PrismDataService` and only then loads the LaTeX adapter project; `LatexProject.workspace_id` is no longer the lookup SSOT.
+- Verification: Prism domain/service tests, workspace Prism service tests, DataService domain tests, and architecture boundary tests pass with 45 targeted tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1903 tests.
 
 ### Task 10: Add Source And Provenance Aggregates
 

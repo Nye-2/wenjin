@@ -136,6 +136,64 @@ def _capability_record(runtime: dict) -> SimpleNamespace:
     )
 
 
+def _prism_project_from_latex(project: SimpleNamespace) -> SimpleNamespace:
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        id=f"prism-{project.id}",
+        workspace_id=project.workspace_id,
+        role="primary_manuscript",
+        title=getattr(project, "name", "Prism Manuscript"),
+        adapter_kind="latex",
+        adapter_ref_id=project.id,
+        status="active",
+        settings_json={},
+        adapter_metadata_json={
+            "latex_project_id": project.id,
+            "main_file": project.main_file,
+        },
+        trashed_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _prism_document_from_latex(project: SimpleNamespace) -> SimpleNamespace:
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        id=f"doc-{project.id}",
+        workspace_id=project.workspace_id,
+        project_id=f"prism-{project.id}",
+        document_kind="manuscript",
+        title=getattr(project, "name", "Prism Manuscript"),
+        adapter_kind="latex",
+        status="active",
+        root_file_id=f"file-{project.id}-main",
+        metadata_json={"main_file": project.main_file},
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _prism_file_from_latex(project: SimpleNamespace, path: str | None = None) -> SimpleNamespace:
+    now = datetime.now(UTC)
+    file_path = path or project.main_file
+    return SimpleNamespace(
+        id=f"file-{project.id}-{file_path}",
+        workspace_id=project.workspace_id,
+        document_id=f"doc-{project.id}",
+        path=file_path,
+        file_role="main" if file_path == project.main_file else "generated",
+        mime_type="text/x-tex",
+        current_version_id=None,
+        content_hash=None,
+        sort_order=0,
+        metadata_json={},
+        deleted_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+
 @pytest.mark.asyncio
 async def test_compute_projection_aggregates_execution_task_and_subagents() -> None:
     now = datetime.now(UTC)
@@ -250,7 +308,10 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             _Result(scalar=compute_session),
             _Result(scalar=execution),
             _Result(scalars=[subagent_node]),
-            _Result(scalar=latex_project),
+                _Result(scalar=_prism_project_from_latex(latex_project)),
+                _Result(scalars=[_prism_document_from_latex(latex_project)]),
+                _Result(scalars=[_prism_file_from_latex(latex_project)]),
+                _Result(scalar=latex_project),
             _Result(
                 scalars=[
                     _review_item(
@@ -562,7 +623,10 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
             _Result(scalar=compute_session),
             _Result(scalar=execution),
             _Result(scalars=[]),
-            _Result(scalar=latex_project),
+                _Result(scalar=_prism_project_from_latex(latex_project)),
+                _Result(scalars=[_prism_document_from_latex(latex_project)]),
+                _Result(scalars=[_prism_file_from_latex(latex_project)]),
+                _Result(scalar=latex_project),
             _Result(scalars=[]),
             _Result(
                 scalars=[
@@ -650,7 +714,15 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
             _Result(scalar=compute_session),
             _Result(scalar=execution),
             _Result(scalars=[]),
-            _Result(scalar=authoritative_project),
+                _Result(scalar=_prism_project_from_latex(authoritative_project)),
+                _Result(scalars=[_prism_document_from_latex(authoritative_project)]),
+                _Result(
+                    scalars=[
+                        _prism_file_from_latex(authoritative_project),
+                        _prism_file_from_latex(authoritative_project, "sections/current.tex"),
+                    ]
+                ),
+                _Result(scalar=authoritative_project),
             _Result(
                 scalars=[
                     _review_item(

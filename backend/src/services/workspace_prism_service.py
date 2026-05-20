@@ -15,6 +15,7 @@ from src.dataservice.execution_api import (
     ExecutionDataService,
     ExecutionRunHistoryProjection,
 )
+from src.dataservice.prism_api import PrismDataService, build_latex_adapter_metadata
 from src.services.prism_review_service import (
     APPLIED_STATUSES,
     PENDING_STATUSES,
@@ -197,21 +198,16 @@ class WorkspacePrismService:
         *,
         user_id: str,
     ) -> LatexProject | None:
-        explicit_result = await self.db.execute(
-            select(LatexProject)
-            .where(
-                LatexProject.user_id == user_id,
-                LatexProject.workspace_id == workspace_id,
-                LatexProject.surface_role == PRIMARY_MANUSCRIPT_ROLE,
-            )
-            .order_by(LatexProject.updated_at.desc())
-            .limit(1)
-        )
-        explicit = explicit_result.scalar_one_or_none()
-        if explicit is not None:
-            return explicit
-
-        return None
+        project = await PrismDataService(
+            self.db,
+            autocommit=False,
+        ).get_primary_project(workspace_id)
+        if project is None or project.adapter_kind != "latex" or not project.adapter_ref_id:
+            return None
+        latex_project = await self._get_latex_adapter_project(project.adapter_ref_id)
+        if latex_project is None or str(latex_project.user_id) != str(user_id):
+            return None
+        return latex_project
 
     async def ensure_primary_project(
         self,
@@ -228,6 +224,10 @@ class WorkspacePrismService:
             )
         project.workspace_id = workspace_id
         project.surface_role = PRIMARY_MANUSCRIPT_ROLE
+        await self._ensure_prism_surface_for_latex_project(
+            workspace_id=workspace_id,
+            project=project,
+        )
         await self.db.commit()
         await self.db.refresh(project)
         return project
@@ -238,9 +238,17 @@ class WorkspacePrismService:
         *,
         user_id: str,
     ) -> dict[str, Any]:
-        project = await self.get_primary_project(workspace_id, user_id=user_id)
-        if project is None:
+        surface = await PrismDataService(
+            self.db,
+            autocommit=False,
+        ).get_surface(workspace_id)
+        if surface is None:
             raise ValueError(f"Workspace Prism not found: {workspace_id}")
+        if surface.project.adapter_kind != "latex" or not surface.project.adapter_ref_id:
+            raise ValueError(f"Workspace Prism adapter not available: {workspace_id}")
+        project = await self._get_latex_adapter_project(surface.project.adapter_ref_id)
+        if project is None or str(project.user_id) != str(user_id):
+            raise ValueError(f"Workspace Prism adapter project not found: {workspace_id}")
 
         metadata = _metadata_from_project(project)
         review_service = PrismReviewService(self.db)
@@ -265,7 +273,13 @@ class WorkspacePrismService:
         memory_preferences = await self._list_memory_preferences(workspace_id)
         recent_activity = await self._list_recent_activity(workspace_id)
         main_file = str(project.main_file or "main.tex")
-        target_files: list[str] = [main_file]
+        target_files: list[str] = []
+        for prism_file in surface.files:
+            path = str(prism_file.path or "").strip()
+            if path and path not in target_files:
+                target_files.append(path)
+        if main_file not in target_files:
+            target_files.insert(0, main_file)
         raw_section_map = metadata.get("section_map")
         section_paths = (
             raw_section_map.values() if isinstance(raw_section_map, dict) else []
@@ -281,6 +295,9 @@ class WorkspacePrismService:
 
         return {
             "workspace_id": workspace_id,
+            "prism_project_id": surface.project.id,
+            "prism_document_id": surface.documents[0].id if surface.documents else None,
+            "prism_files": [file.model_dump(mode="json") for file in surface.files],
             "latex_project_id": str(project.id),
             "surface_role": getattr(project, "surface_role", None)
             or PRIMARY_MANUSCRIPT_ROLE,
@@ -309,6 +326,35 @@ class WorkspacePrismService:
                 "recent_activity_count": len(recent_activity),
             },
         }
+
+    async def _ensure_prism_surface_for_latex_project(
+        self,
+        *,
+        workspace_id: str,
+        project: LatexProject,
+    ) -> None:
+        await PrismDataService(
+            self.db,
+            autocommit=False,
+        ).ensure_latex_primary_project(
+            workspace_id=workspace_id,
+            title=str(project.name or "Workspace Manuscript"),
+            latex_project_id=str(project.id),
+            main_file=str(project.main_file or "main.tex"),
+            adapter_metadata_json=build_latex_adapter_metadata(
+                latex_project_id=str(project.id),
+                main_file=str(project.main_file or "main.tex"),
+                file_order=project.file_order if isinstance(project.file_order, dict) else {},
+                llm_config=project.llm_config if isinstance(project.llm_config, dict) else {},
+                template_id=project.template_id,
+            ),
+        )
+
+    async def _get_latex_adapter_project(self, project_id: str) -> LatexProject | None:
+        result = await self.db.execute(
+            select(LatexProject).where(LatexProject.id == project_id).limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def get_launch_context_projection(
         self,

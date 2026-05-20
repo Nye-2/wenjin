@@ -1047,6 +1047,10 @@ Implementation status as of 2026-05-21:
 - `065_dataservice_workspace_assets.py` creates `workspace_assets` and migrates file-like `documents_v2`, file-backed `artifacts`, and file-like `generation_records` into canonical asset metadata rows.
 - `backend/src/dataservice/domains/asset/` owns asset contracts, model, repository, projection, service, and review handler factory. `dataservice_app` exposes internal asset routes and `dataservice_client` has typed asset methods.
 - New asset writes must provide a managed storage pointer; large content is not stored in DataService payload JSON.
+- Prism project aggregate foundation is implemented.
+- `066_dataservice_prism_documents.py` creates canonical `prism_projects`, `prism_documents`, `prism_files`, `prism_file_versions`, `prism_renders`, and `prism_protected_scopes`, then copies workspace-owned primary LaTeX projects into the Prism aggregate with LaTeX-specific fields under adapter metadata.
+- `backend/src/dataservice/domains/prism/` owns Prism contracts, model, repository, projections, service, LaTeX adapter metadata helper, and review handler factory. `dataservice_app` exposes internal Prism routes and `dataservice_client` has typed Prism methods.
+- Workspace Prism projection now starts from `PrismDataService`; LaTeX project rows are adapter records, not the workspace-binding SSOT.
 
 ### Phase 4: Review Materialization
 

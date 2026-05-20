@@ -59,6 +59,14 @@ from src.dataservice.domains.operations.models import (  # noqa: F401
     DataServiceMigrationReport,
     DataServiceOutboxEvent,
 )
+from src.dataservice.domains.prism.models import (  # noqa: F401
+    PrismDocumentRecord,
+    PrismFileRecord,
+    PrismFileVersionRecord,
+    PrismProjectRecord,
+    PrismProtectedScopeRecord,
+    PrismRenderRecord,
+)
 from src.dataservice.domains.review.models import (  # noqa: F401
     ReviewActionLogRecord,
     ReviewBatchRecord,

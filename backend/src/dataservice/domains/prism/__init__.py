@@ -1,0 +1,1 @@
+"""Prism document domain."""

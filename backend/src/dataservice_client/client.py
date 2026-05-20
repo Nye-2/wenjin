@@ -30,6 +30,13 @@ from src.dataservice_client.contracts.execution import (
     ExecutionPayload,
     ExecutionUpdatePayload,
 )
+from src.dataservice_client.contracts.prism import (
+    PrismFileVersionCreatePayload,
+    PrismFileVersionPayload,
+    PrismPrimaryProjectPayload,
+    PrismProjectPayload,
+    PrismSurfacePayload,
+)
 from src.dataservice_client.contracts.review import (
     ReviewBatchCreatePayload,
     ReviewBatchDetailPayload,
@@ -356,6 +363,41 @@ class AsyncDataServiceClient:
         payload = await self._request("GET", f"/internal/v1/assets/{asset_id}/download")
         data = payload.get("data")
         return WorkspaceAssetDownloadPayload.model_validate(data) if data is not None else None
+
+    async def ensure_prism_primary_project(
+        self,
+        workspace_id: str,
+        command: PrismPrimaryProjectPayload,
+    ) -> PrismSurfacePayload:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/prism/workspaces/{workspace_id}/primary",
+            json=command.model_dump(mode="json"),
+        )
+        return PrismSurfacePayload.model_validate(payload["data"])
+
+    async def get_prism_primary_project(self, workspace_id: str) -> PrismProjectPayload | None:
+        payload = await self._request("GET", f"/internal/v1/prism/workspaces/{workspace_id}/primary")
+        data = payload.get("data")
+        return PrismProjectPayload.model_validate(data) if data is not None else None
+
+    async def get_prism_surface(self, workspace_id: str) -> PrismSurfacePayload | None:
+        payload = await self._request("GET", f"/internal/v1/prism/workspaces/{workspace_id}/surface")
+        data = payload.get("data")
+        return PrismSurfacePayload.model_validate(data) if data is not None else None
+
+    async def append_prism_file_version(
+        self,
+        file_id: str,
+        command: PrismFileVersionCreatePayload,
+    ) -> PrismFileVersionPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/prism/files/{file_id}/versions",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return PrismFileVersionPayload.model_validate(data) if data is not None else None
 
     async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
         payload = await self._request(
