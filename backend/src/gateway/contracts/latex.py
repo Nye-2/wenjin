@@ -329,6 +329,26 @@ class LatexFileChangeRevertRequest(BaseModel):
     revert_signature: str = Field(min_length=64, max_length=64)
 
 
+class LatexProtectedSectionRequest(BaseModel):
+    """Protect a workspace-owned Prism file or section from direct agent overwrite."""
+
+    path: str = Field(min_length=1)
+    section_key: str | None = None
+    scope: Literal["file", "section"] = "file"
+    reason: str | None = None
+
+
+class LatexProtectedSectionResponse(BaseModel):
+    """Protection write response."""
+
+    ok: bool = True
+    protected: bool = True
+    path: str
+    section_key: str
+    scope: Literal["file", "section"]
+    reason: str | None = None
+
+
 class LatexFileChangePreviewResponse(BaseModel):
     """Structured preview for a pending Prism file change."""
 

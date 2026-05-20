@@ -14,6 +14,7 @@ import {
   applyLatexFileChange,
   discardLatexFileChange,
   previewLatexFileChange,
+  protectLatexSection,
   revertLatexFileChange,
 } from "@/lib/api/latex";
 
@@ -86,6 +87,27 @@ describe("prism review file-change api wrappers", () => {
       {
         logical_key: "section:introduction",
         revert_signature: "b".repeat(64),
+      }
+    );
+  });
+
+  it("protects a workspace-owned Prism file through the canonical endpoint", async () => {
+    mockPost.mockResolvedValueOnce({
+      data: { protected: true },
+    });
+
+    await protectLatexSection("latex-1", {
+      path: "sections/introduction.tex",
+      scope: "file",
+      reason: "user_manual_protect",
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      "/latex/projects/latex-1/protected-sections",
+      {
+        path: "sections/introduction.tex",
+        scope: "file",
+        reason: "user_manual_protect",
       }
     );
   });

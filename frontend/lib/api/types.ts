@@ -335,6 +335,15 @@ export interface LatexFileChangeRevertResponse {
   file_hash: string;
 }
 
+export interface LatexProtectedSectionResponse {
+  ok: boolean;
+  protected: boolean;
+  path: string;
+  section_key: string;
+  scope: "file" | "section";
+  reason?: string | null;
+}
+
 export interface LatexFeedbackRewriteCandidate {
   candidate_id: string;
   candidate_signature: string;

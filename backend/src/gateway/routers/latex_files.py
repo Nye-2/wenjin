@@ -25,6 +25,8 @@ from src.gateway.contracts.latex import (
     LatexFileContentResponse,
     LatexFileItem,
     LatexFileOrderRequest,
+    LatexProtectedSectionRequest,
+    LatexProtectedSectionResponse,
     LatexRenamePathRequest,
     LatexTreeResponse,
     LatexWriteFileRequest,
@@ -448,6 +450,58 @@ async def revert_project_file_change(
         logical_key=request.logical_key,
         path=path,
         file_hash=previous_hash,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/protected-sections",
+    response_model=LatexProtectedSectionResponse,
+)
+async def protect_project_section(
+    project_id: str,
+    request: LatexProtectedSectionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LatexProtectedSectionResponse:
+    service = LatexProjectService(db)
+    project = await service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    workspace_id = str(getattr(project, "workspace_id", "") or "").strip()
+    if not workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Protected sections require a workspace-owned Prism project",
+        )
+
+    try:
+        service.read_text_file(project, request.path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    section_key = str(request.section_key or "").strip()
+    reason = request.reason or "user_manual_protect"
+    review_service = PrismReviewService(db)
+    await review_service.upsert_protected_section(
+        workspace_id=workspace_id,
+        latex_project_id=str(project.id),
+        file_path=request.path,
+        section_key=section_key,
+        scope=request.scope,
+        reason=reason,
+        source="manual_edit",
+    )
+    await db.commit()
+    return LatexProtectedSectionResponse(
+        ok=True,
+        protected=True,
+        path=request.path,
+        section_key=section_key,
+        scope=request.scope,
+        reason=reason,
     )
 
 

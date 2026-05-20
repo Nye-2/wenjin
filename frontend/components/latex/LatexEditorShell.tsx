@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Eye, FileImage, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Eye,
+  FileImage,
+  Loader2,
+  RotateCcw,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 
 import { LatexFileChangeDiffPreview } from "@/components/latex/LatexFileChangeDiffPreview";
 import { LatexFileTree } from "@/components/latex/LatexFileTree";
@@ -31,6 +40,7 @@ import {
   mapLatexFeedbackSelection,
   previewLatexFileChange,
   previewLatexFeedbackRewrite,
+  protectLatexSection,
   revertLatexFeedbackRewrite,
   saveLatexProjectFeedback,
 } from "@/lib/api";
@@ -615,6 +625,9 @@ export function LatexEditorShell({
   const [fileChangePreviews, setFileChangePreviews] = useState<Record<string, LatexFileChangePreviewResponse>>({});
   const [busyFileChangeKey, setBusyFileChangeKey] = useState<string | null>(null);
   const [fileChangeError, setFileChangeError] = useState("");
+  const [isProtectingActiveFile, setIsProtectingActiveFile] = useState(false);
+  const [protectionStatus, setProtectionStatus] = useState("");
+  const [protectionError, setProtectionError] = useState("");
   const [pdfDraftSelection, setPdfDraftSelection] = useState<PdfDraftSelection | null>(null);
   const [transientPdfAnchor, setTransientPdfAnchor] = useState<LatexPdfAnchor | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1569,6 +1582,27 @@ export function LatexEditorShell({
     }
   }, [revertFileChange]);
 
+  const protectActiveFile = useCallback(async () => {
+    if (!project || !activeFilePath || activeFileKind !== "text") {
+      return;
+    }
+    setIsProtectingActiveFile(true);
+    setProtectionStatus("");
+    setProtectionError("");
+    try {
+      await protectLatexSection(project.id, {
+        path: activeFilePath,
+        scope: "file",
+        reason: "user_manual_protect",
+      });
+      setProtectionStatus("当前文件已保护，后续 agent 会以建议形式处理改写。");
+    } catch (err) {
+      setProtectionError(`保护当前文件失败: ${readClientErrorMessage(err)}`);
+    } finally {
+      setIsProtectingActiveFile(false);
+    }
+  }, [activeFileKind, activeFilePath, project]);
+
   return (
     <main className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
       <Header />
@@ -1774,10 +1808,35 @@ export function LatexEditorShell({
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
                   划词点评与改写
                 </p>
-                <div className="text-xs text-[var(--text-muted)]">
-                  选中主稿文本后可直接点评
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className="text-xs text-[var(--text-muted)]">
+                    选中主稿文本后可直接点评
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void protectActiveFile()}
+                    disabled={
+                      isProtectingActiveFile ||
+                      !activeFilePath ||
+                      activeFileKind !== "text"
+                    }
+                  >
+                    <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
+                    {isProtectingActiveFile ? "保护中..." : "保护当前文件"}
+                  </Button>
                 </div>
               </div>
+              {protectionStatus ? (
+                <div className="mt-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700">
+                  {protectionStatus}
+                </div>
+              ) : null}
+              {protectionError ? (
+                <div className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
+                  {protectionError}
+                </div>
+              ) : null}
               <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
                 <textarea
                   value={feedbackDraftComment}

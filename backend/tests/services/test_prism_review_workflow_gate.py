@@ -13,10 +13,12 @@ from src.gateway.contracts.latex import (
     LatexFileChangeActionRequest,
     LatexFileChangeApplyRequest,
     LatexFileChangeRevertRequest,
+    LatexProtectedSectionRequest,
 )
 from src.gateway.routers.latex_files import (
     apply_project_file_change,
     discard_project_file_change,
+    protect_project_section,
     preview_project_file_change,
     revert_project_file_change,
 )
@@ -53,6 +55,13 @@ class _FakeDb:
     async def execute(self, query):
         self.execute_calls.append(query)
         return self._results.pop(0)
+
+
+class _FakeCommitDb:
+    committed = False
+
+    async def commit(self) -> None:
+        self.committed = True
 
 
 class _FakeLatexRouterService:
@@ -150,6 +159,9 @@ class _FakePrismReviewService:
     async def mark_reverted(self, item: SimpleNamespace) -> SimpleNamespace:
         item.status = "reverted"
         return item
+
+    async def upsert_protected_section(self, **kwargs: object) -> None:
+        self.protected.append(dict(kwargs))
 
 
 class _FakeReferenceUsageService:
@@ -451,3 +463,42 @@ async def test_prism_review_discard_protects_user_content_and_clears_pending_pro
     projection = await _projection_for_project(_FakeLatexRouterService.project)
     assert projection["prism"]["status"] == "ready"
     assert projection["prism"]["file_changes"] == []
+
+
+@pytest.mark.asyncio
+async def test_manual_prism_protection_uses_canonical_protected_section() -> None:
+    _reset_router_state()
+    user = SimpleNamespace(id="user-1")
+    db = _FakeCommitDb()
+
+    with patch(
+        "src.gateway.routers.latex_files.LatexProjectService",
+        _FakeLatexRouterService,
+    ), patch(
+        "src.gateway.routers.latex_files.PrismReviewService",
+        _FakePrismReviewService,
+    ):
+        response = await protect_project_section(
+            "latex-1",
+            LatexProtectedSectionRequest(
+                path="sections/introduction.tex",
+                scope="file",
+                reason="user_manual_protect",
+            ),
+            current_user=user,
+            db=db,  # type: ignore[arg-type]
+        )
+
+    assert response.protected is True
+    assert db.committed is True
+    assert _FakePrismReviewService.protected == [
+        {
+            "workspace_id": "ws-1",
+            "latex_project_id": "latex-1",
+            "file_path": "sections/introduction.tex",
+            "section_key": "",
+            "scope": "file",
+            "reason": "user_manual_protect",
+            "source": "manual_edit",
+        }
+    ]

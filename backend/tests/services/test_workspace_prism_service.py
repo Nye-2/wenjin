@@ -348,6 +348,42 @@ async def test_pending_file_change_records_canonical_source_links_from_citations
 
 
 @pytest.mark.asyncio
+async def test_manual_protect_records_canonical_protected_section(
+    db: AsyncSession,
+    workspace: SimpleNamespace,
+) -> None:
+    from src.services.prism_review_service import PrismReviewService
+
+    await PrismReviewService(db).upsert_protected_section(
+        workspace_id=workspace.id,
+        latex_project_id="latex-manual-protect",
+        file_path="sections/introduction.tex",
+        section_key="",
+        scope="file",
+        reason="user_manual_protect",
+        source="manual_edit",
+    )
+    await db.commit()
+
+    result = await db.execute(
+        text(
+            """
+            select file_path, section_key, scope, reason, source
+            from prism_protected_sections
+            where latex_project_id = 'latex-manual-protect'
+            """
+        )
+    )
+    assert dict(result.mappings().one()) == {
+        "file_path": "sections/introduction.tex",
+        "section_key": "",
+        "scope": "file",
+        "reason": "user_manual_protect",
+        "source": "manual_edit",
+    }
+
+
+@pytest.mark.asyncio
 async def test_surface_projection_includes_review_provenance_and_protection(
     db: AsyncSession,
     user: SimpleNamespace,

@@ -7,6 +7,7 @@ import type {
   LatexFileChangeDiscardResponse,
   LatexFileChangePreviewResponse,
   LatexFileChangeRevertResponse,
+  LatexProtectedSectionResponse,
   LatexFeedbackItem,
   LatexFeedbackRewriteApplyResponse,
   LatexFeedbackRewritePreviewResponse,
@@ -373,6 +374,22 @@ export async function revertLatexFileChange(
 ): Promise<LatexFileChangeRevertResponse> {
   const response = await apiClient.post(
     `/latex/projects/${projectId}/file-changes/revert`,
+    payload,
+  );
+  return response.data;
+}
+
+export async function protectLatexSection(
+  projectId: string,
+  payload: {
+    path: string;
+    section_key?: string | null;
+    scope: "file" | "section";
+    reason?: string | null;
+  },
+): Promise<LatexProtectedSectionResponse> {
+  const response = await apiClient.post(
+    `/latex/projects/${projectId}/protected-sections`,
     payload,
   );
   return response.data;
