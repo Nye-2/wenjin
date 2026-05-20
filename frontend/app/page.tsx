@@ -305,7 +305,7 @@ export default function HomePage() {
 
               <div className="mt-10 flex flex-wrap items-center gap-4">
                 <SmartRouteButton label={t("home.getStarted")} path="/workspaces" />
-                <SmartRouteButton label={t("home.openPrism")} path="/latex" variant="secondary" />
+                <SmartRouteButton label={t("home.openPrism")} path="/workspaces" variant="secondary" />
               </div>
             </motion.div>
 
@@ -542,7 +542,7 @@ export default function HomePage() {
                     </p>
                   </div>
                   <div className="shrink-0">
-                    <SmartRouteButton label={t("home.openPrism")} path="/latex" variant="secondary" />
+                    <SmartRouteButton label={t("home.openPrism")} path="/workspaces" variant="secondary" />
                   </div>
                 </div>
               </div>
