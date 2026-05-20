@@ -102,6 +102,29 @@ def _execution_namespace(**overrides):
     )
 
 
+def _node_namespace(**overrides):
+    now = overrides.get("created_at") or datetime.now(UTC)
+    return SimpleNamespace(
+        id=overrides.get("id", "node-row-1"),
+        execution_id=overrides.get("execution_id", "exec-1"),
+        parent_node_id=overrides.get("parent_node_id"),
+        node_id=overrides.get("node_id", "phase__task"),
+        node_type=overrides.get("node_type", "react"),
+        label=overrides.get("label", "Agent node"),
+        status=overrides.get("status", "completed"),
+        input_data=overrides.get("input_data"),
+        output_data=overrides.get("output_data"),
+        thinking=overrides.get("thinking"),
+        tool_calls=overrides.get("tool_calls"),
+        token_usage=overrides.get("token_usage"),
+        node_metadata=overrides.get("node_metadata"),
+        created_at=overrides.get("created_at", now),
+        updated_at=overrides.get("updated_at", now),
+        started_at=overrides.get("started_at"),
+        completed_at=overrides.get("completed_at"),
+    )
+
+
 def _capability_record(runtime: dict) -> SimpleNamespace:
     return SimpleNamespace(
         id="test_capability",
@@ -127,6 +150,36 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
         created_at=now,
         updated_at=now,
     )
+    execution_result = {
+        "sandbox_path": "/mnt/user-data/execution/python_plot/run-1/output/plot.png",
+        "render_data": {
+            "file_url": "/api/threads/thread-1/artifacts/mnt/user-data/execution/python_plot/run-1/output/plot.png",
+        },
+        "data": {
+            "latex_project_id": "latex-project-1",
+            "main_file": "main.tex",
+            "section_file": "sections/introduction.tex",
+            "section_map": {"introduction": "sections/introduction.tex"},
+            "compile_status": "success",
+            "pdf_endpoint": "/api/latex/projects/latex-project-1/compile/history-1/pdf",
+            "page_count": 8,
+            "file_changes": [
+                {
+                    "logical_key": "project:main",
+                    "path": "main.tex",
+                    "reason": "user_modified",
+                }
+            ],
+            "next_actions": [
+                {
+                    "action": "open_prism",
+                    "label": "在 WenjinPrism 中继续编辑",
+                }
+            ],
+        },
+        "logs": "rendered plot",
+        "compile_logs": "warning only",
+    }
     execution = _execution_namespace(
         id="exec-1",
         user_id="user-1",
@@ -137,7 +190,8 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
         entry_skill_id="framework-designer",
         status="pending",
         params={"topic": "agents"},
-        message=None,
+        message="生成中",
+        result=execution_result,
         runtime_state={
             "blocks": [
                 {"id": "phase-1", "type": "phase"},
@@ -165,65 +219,16 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
         started_at=None,
         completed_at=None,
     )
-    task = SimpleNamespace(
-        id="task-1",
+    subagent_node = _node_namespace(
+        id="subagent-node-1",
         execution_id="exec-1",
-        task_type="workspace_feature",
-        workspace_id="ws-1",
-        feature_id="framework_outline",
-        thread_id="thread-1",
-        action=None,
-        status="running",
-        progress=40,
-        message="生成中",
-        result={
-            "sandbox_path": "/mnt/user-data/execution/python_plot/run-1/output/plot.png",
-            "render_data": {
-                "file_url": "/api/threads/thread-1/artifacts/mnt/user-data/execution/python_plot/run-1/output/plot.png",
-            },
-            "data": {
-                "latex_project_id": "latex-project-1",
-                "main_file": "main.tex",
-                "section_file": "sections/introduction.tex",
-                "section_map": {"introduction": "sections/introduction.tex"},
-                "compile_status": "success",
-                "pdf_endpoint": "/api/latex/projects/latex-project-1/compile/history-1/pdf",
-                "page_count": 8,
-                "file_changes": [
-                    {
-                        "logical_key": "project:main",
-                        "path": "main.tex",
-                        "reason": "user_modified",
-                    }
-                ],
-                "next_actions": [
-                    {
-                        "action": "open_prism",
-                        "label": "在 WenjinPrism 中继续编辑",
-                    }
-                ],
-            },
-            "logs": "rendered plot",
-            "compile_logs": "warning only",
-        },
-        error=None,
-        runtime_state={"current_phase": "drafting"},
-        created_at=now,
-        started_at=now,
-        completed_at=None,
-    )
-    subagent = SimpleNamespace(
-        id="subagent-1",
-        workspace_id="ws-1",
-        thread_id="thread-1",
-        execution_id="exec-1",
-        user_id="user-1",
-        subagent_type="scout",
+        node_id="discovery__search",
+        node_type="scout",
+        label="Search",
         status="completed",
-        prompt="search",
-        output_preview="done",
-        error=None,
-        task_metadata={"workflow_phase": "discovery"},
+        input_data={"prompt": "search"},
+        output_data={"summary": "done"},
+        node_metadata={"workflow_phase": "discovery"},
         created_at=now,
         updated_at=now,
         completed_at=now,
@@ -244,8 +249,7 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
         [
             _Result(scalar=compute_session),
             _Result(scalar=execution),
-            _Result(scalars=[task]),
-            _Result(scalars=[subagent]),
+            _Result(scalars=[subagent_node]),
             _Result(scalar=latex_project),
             _Result(
                 scalars=[
@@ -283,9 +287,10 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
     assert projection is not None
     assert projection["compute_session"]["id"] == "compute-1"
     assert projection["execution"]["id"] == "exec-1"
-    assert projection["primary_task"]["task_id"] == "task-1"
+    assert projection["primary_task"]["task_id"] == "exec-1"
     assert projection["runtime_blocks"][0] == {"id": "phase-1", "type": "phase"}
-    assert projection["subagents"][0]["task_id"] == "subagent-1"
+    assert projection["subagents"][0]["task_id"] == "subagent-node-1"
+    assert projection["subagents"][0]["node_id"] == "discovery__search"
     assert projection["artifacts"]["ids"] == ["artifact-1"]
     assert projection["artifacts"]["count"] == 1
     assert projection["runtime_profile"]["runtime_mode"] == "compute_workflow"
@@ -385,7 +390,6 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
             _Result(scalar=compute_session),
             _Result(scalar=execution),
             _Result(scalars=[]),
-            _Result(scalars=[]),
             _Result(scalar=None),
             _Result(
                 scalar=_capability_record({
@@ -450,7 +454,6 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
         [
             _Result(scalar=compute_session),
             _Result(scalar=execution),
-            _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalar=None),
             _Result(
@@ -545,6 +548,7 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
         started_at=now,
         completed_at=now,
     )
+    execution.result = task.result
     latex_project = SimpleNamespace(
         id="latex-project-3",
         user_id="user-1",
@@ -557,7 +561,6 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
         [
             _Result(scalar=compute_session),
             _Result(scalar=execution),
-            _Result(scalars=[task]),
             _Result(scalars=[]),
             _Result(scalar=latex_project),
             _Result(scalars=[]),
@@ -646,7 +649,6 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
         [
             _Result(scalar=compute_session),
             _Result(scalar=execution),
-            _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalar=authoritative_project),
             _Result(

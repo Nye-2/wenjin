@@ -550,7 +550,9 @@ Implementation checkpoint, 2026-05-21:
 - DataService internal execution routes and typed client contracts exist for create/get/list/update, node list, event append, and event list.
 - `ExecutionService.append_execution_event()` records ordered events through `ExecutionDataService`; `ExecutionEngineV2` records execution status events, and the Celery node callback records node lifecycle events.
 - The existing public `ExecutionService` create/read/list/update/cancel/node-state write paths now delegate to `ExecutionDataService` and return DataService projections with temporary compatibility attributes for existing callers.
-- Remaining execution work is to move subagent task semantics into nodes/events, remove product-state reads from queue/task tables, and replace Run History / Compute projection product reads with DataService projections.
+- Subagent task semantics now move through `execution_nodes` and ordered `execution_events`; `subagent_task_records` is no longer read by product projections.
+- Compute projection, Workspace Activity, User Dashboard, and Admin Dashboard no longer read product state from `task_records`; task rows are queue infrastructure only.
+- Run History is now an `ExecutionRunHistoryProjection` derived from `executions`; `workspace_run` is not used by active runtime routes, and `compute_sessions` is limited to rebuildable UI shell/cache state.
 - `payload_json.schema_version` required for new event types.
 
 ### 6.4 Review Queue

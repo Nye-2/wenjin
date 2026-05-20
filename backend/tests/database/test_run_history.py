@@ -1,8 +1,11 @@
 """Round-trip tests for run_history table."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 from sqlalchemy import select
 
+from src.dataservice.domains.execution.contracts import ExecutionRunHistoryProjection
 from src.services.rooms.run_history_service import RunHistoryService
 from tests.database.conftest import (
     DbRunHistory,
@@ -111,11 +114,37 @@ async def test_list_returns_descending_order(test_session):
 
 @pytest.mark.asyncio
 async def test_record_updates_existing_execution_instead_of_inserting_duplicate(test_session):
-    """Recording the same execution twice should update the existing row instead of failing."""
-    _seed_workspace(test_session)
-    await test_session.commit()
+    """Recording run history appends an execution event and returns projection state."""
 
     service = RunHistoryService(test_session)
+    service._execution.get_run_history_item = AsyncMock(
+        side_effect=[
+            ExecutionRunHistoryProjection(
+                id="exec-dup-1",
+                workspace_id="ws-run",
+                execution_id="exec-dup-1",
+                capability_id="literature_search",
+                title="First title",
+                summary="First summary",
+                status="completed",
+                duration_seconds=30,
+                artifact_count=1,
+            ),
+            ExecutionRunHistoryProjection(
+                id="exec-dup-1",
+                workspace_id="ws-run",
+                execution_id="exec-dup-1",
+                capability_id="framework_outline",
+                title="Updated title",
+                summary="Updated summary",
+                status="failed_partial",
+                duration_seconds=45,
+                artifact_count=2,
+            ),
+        ]
+    )
+    service._execution.record_event = AsyncMock()
+
     first = await service.record(
         workspace_id="ws-run",
         execution_id="exec-dup-1",
@@ -146,8 +175,4 @@ async def test_record_updates_existing_execution_instead_of_inserting_duplicate(
     assert second.duration_seconds == 45
     assert second.artifact_count == 2
 
-    result = await test_session.execute(
-        select(DbRunHistory).where(DbRunHistory.execution_id == "exec-dup-1")
-    )
-    rows = result.scalars().all()
-    assert len(rows) == 1
+    assert service._execution.record_event.await_count == 2

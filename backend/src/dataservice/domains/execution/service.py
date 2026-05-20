@@ -12,12 +12,15 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionEventCreateCommand,
     ExecutionEventProjection,
     ExecutionNodeProjection,
+    ExecutionNodeUpsertCommand,
     ExecutionRecordProjection,
+    ExecutionRunHistoryProjection,
     ExecutionUpdateCommand,
 )
 from src.dataservice.domains.execution.projection import (
     event_to_projection,
     execution_to_projection,
+    execution_to_run_history_projection,
     node_to_projection,
 )
 from src.dataservice.domains.execution.repository import ExecutionRepository
@@ -84,6 +87,57 @@ class DataServiceExecutionService:
             )
         ]
 
+    async def count_executions(
+        self,
+        *,
+        user_id: str | None = None,
+        status: list[str] | None = None,
+        created_since: datetime | None = None,
+    ) -> int:
+        return await self.repository.count_executions(
+            user_id=user_id,
+            status=status,
+            created_since=created_since,
+        )
+
+    async def count_executions_by_status(
+        self,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, int]:
+        return await self.repository.count_executions_by_status(user_id=user_id)
+
+    async def count_executions_by_user_ids(
+        self,
+        user_ids: list[str],
+    ) -> dict[str, int]:
+        return await self.repository.count_executions_by_user_ids(user_ids)
+
+    async def list_run_history(
+        self,
+        *,
+        workspace_id: str,
+        limit: int = 50,
+    ) -> list[ExecutionRunHistoryProjection]:
+        return [
+            execution_to_run_history_projection(record)
+            for record in await self.repository.list_executions(
+                workspace_id=workspace_id,
+                limit=limit,
+            )
+        ]
+
+    async def get_run_history_item(
+        self,
+        *,
+        workspace_id: str,
+        run_id: str,
+    ) -> ExecutionRunHistoryProjection | None:
+        record = await self.repository.get_execution(run_id)
+        if record is None or record.workspace_id != workspace_id:
+            return None
+        return execution_to_run_history_projection(record)
+
     async def update_execution(
         self,
         execution_id: str,
@@ -103,6 +157,52 @@ class DataServiceExecutionService:
             node_to_projection(record)
             for record in await self.repository.list_nodes(execution_id)
         ]
+
+    async def list_nodes_by_execution_ids(
+        self,
+        execution_ids: list[str],
+    ) -> list[ExecutionNodeProjection]:
+        return [
+            node_to_projection(record)
+            for record in await self.repository.list_nodes_by_execution_ids(execution_ids)
+        ]
+
+    async def upsert_node(
+        self,
+        execution_id: str,
+        command: ExecutionNodeUpsertCommand,
+    ) -> ExecutionNodeProjection:
+        record = await self.repository.get_node_by_node_id(
+            execution_id=execution_id,
+            node_id=command.node_id,
+        )
+        now = datetime.now(UTC)
+        if record is None:
+            record = self.repository.create_node(
+                {
+                    "execution_id": execution_id,
+                    "parent_node_id": command.parent_node_id,
+                    "node_id": command.node_id,
+                    "node_type": command.node_type,
+                    "label": command.label,
+                    "status": command.status,
+                    "input_data": command.input_data,
+                    "output_data": command.output_data,
+                    "thinking": command.thinking,
+                    "tool_calls": command.tool_calls,
+                    "token_usage": command.token_usage,
+                    "node_metadata": command.node_metadata,
+                    "started_at": command.started_at,
+                    "completed_at": command.completed_at,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+        else:
+            self._apply_node_upsert(record, command)
+            record.updated_at = now
+        await self._finish()
+        return node_to_projection(record)
 
     async def append_event(
         self,
@@ -162,6 +262,31 @@ class DataServiceExecutionService:
                 setattr(record, record_key, value)
                 changed = True
         return changed
+
+    @staticmethod
+    def _apply_node_upsert(record: Any, command: ExecutionNodeUpsertCommand) -> None:
+        record.node_type = command.node_type
+        if command.label is not None:
+            record.label = command.label
+        if command.parent_node_id is not None:
+            record.parent_node_id = command.parent_node_id
+        record.status = command.status
+        if command.input_data is not None:
+            record.input_data = command.input_data
+        if command.output_data is not None:
+            record.output_data = command.output_data
+        if command.thinking is not None:
+            record.thinking = command.thinking
+        if command.tool_calls is not None:
+            record.tool_calls = command.tool_calls
+        if command.token_usage is not None:
+            record.token_usage = command.token_usage
+        if command.node_metadata is not None:
+            record.node_metadata = command.node_metadata
+        if command.started_at is not None and record.started_at is None:
+            record.started_at = command.started_at
+        if command.completed_at is not None:
+            record.completed_at = command.completed_at
 
     async def _finish(self) -> None:
         if self.autocommit:

@@ -6,7 +6,8 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import SubagentTaskRecord, TaskRecord, User, Workspace
+from src.database import User, Workspace
+from src.dataservice.execution_api import ExecutionDataService, ExecutionNodeProjection
 from src.services.credit_service import CreditService
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
@@ -16,6 +17,7 @@ class UserDashboardService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        self._execution = ExecutionDataService(db, autocommit=False)
 
     async def get_dashboard(self, user_id: str) -> dict[str, Any]:
         """Build user dashboard payload."""
@@ -86,35 +88,28 @@ class UserDashboardService:
         }
 
     async def _get_task_stats(self, user_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        stats_rows = await self.db.execute(
-            select(TaskRecord.status, func.count())
-            .where(TaskRecord.user_id == user_id)
-            .group_by(TaskRecord.status)
-        )
-        counts = {status: int(count) for status, count in stats_rows.all()}
+        counts = await self._execution.count_executions_by_status(user_id=user_id)
         total = sum(counts.values())
-        success = int(counts.get("success", 0))
+        success = int(counts.get("success", 0)) + int(counts.get("completed", 0))
         # Only count terminal tasks (success + failed + cancelled) for completion rate
         terminal = success + int(counts.get("failed", 0)) + int(counts.get("cancelled", 0))
         completion_rate = float(round(success / terminal, 4)) if terminal else 0.0
 
-        recent_result = await self.db.execute(
-            select(TaskRecord)
-            .where(TaskRecord.user_id == user_id)
-            .order_by(TaskRecord.created_at.desc())
-            .limit(10)
+        recent_executions = await self._execution.list_executions(
+            user_id=user_id,
+            limit=10,
         )
         recent_tasks = [
             {
-                "id": task.id,
-                "task_type": task.task_type,
-                "status": task.status,
-                "progress": int(task.progress),
-                "message": task.message,
-                "created_at": task.created_at.isoformat() if task.created_at else None,
-                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                "id": execution.id,
+                "task_type": execution.execution_type,
+                "status": execution.status,
+                "progress": int(execution.progress),
+                "message": execution.message,
+                "created_at": execution.created_at.isoformat() if execution.created_at else None,
+                "completed_at": execution.completed_at.isoformat() if execution.completed_at else None,
             }
-            for task in recent_result.scalars().all()
+            for execution in recent_executions
         ]
 
         return (
@@ -164,32 +159,26 @@ class UserDashboardService:
         thread_credit_status: dict[str, Any],
     ) -> dict[str, Any]:
         """Build token usage aggregates for thread, feature tasks, and subagents."""
-        feature_rows = await self.db.execute(
-            select(TaskRecord.result).where(TaskRecord.user_id == user_id)
+        executions = await self._execution.list_executions(
+            user_id=user_id,
+            limit=10000,
         )
         feature_usages = []
-        feature_total_records = 0
-        for (result,) in feature_rows.all():
-            feature_total_records += 1
+        for execution in executions:
             usage = None
+            result = execution.result_json
             if isinstance(result, dict):
                 usage = normalize_token_usage(result.get("token_usage"))
             if usage is not None:
                 feature_usages.append(usage)
         feature_usage_total = combine_token_usage(feature_usages)
 
-        subagent_rows = await self.db.execute(
-            select(SubagentTaskRecord.task_metadata).where(
-                SubagentTaskRecord.user_id == user_id
-            )
+        nodes = await self._execution.list_nodes_by_execution_ids(
+            [execution.id for execution in executions]
         )
         subagent_usages = []
-        subagent_total_records = 0
-        for (task_metadata,) in subagent_rows.all():
-            subagent_total_records += 1
-            usage = None
-            if isinstance(task_metadata, dict):
-                usage = normalize_token_usage(task_metadata.get("token_usage"))
+        for node in nodes:
+            usage = self._node_token_usage(node)
             if usage is not None:
                 subagent_usages.append(usage)
         subagent_usage_total = combine_token_usage(subagent_usages)
@@ -223,7 +212,7 @@ class UserDashboardService:
                 "total_tokens": (
                     feature_usage_total.total_tokens if feature_usage_total is not None else 0
                 ),
-                "records": feature_total_records,
+                "records": len(executions),
                 "records_with_usage": len(feature_usages),
             },
             "subagents": {
@@ -236,7 +225,19 @@ class UserDashboardService:
                 "total_tokens": (
                     subagent_usage_total.total_tokens if subagent_usage_total is not None else 0
                 ),
-                "records": subagent_total_records,
+                "records": len(nodes),
                 "records_with_usage": len(subagent_usages),
             },
         }
+
+    @staticmethod
+    def _node_token_usage(record: ExecutionNodeProjection) -> Any | None:
+        usage = normalize_token_usage(record.token_usage)
+        if usage is not None:
+            return usage
+        metadata = record.node_metadata if isinstance(record.node_metadata, dict) else {}
+        usage = normalize_token_usage(metadata.get("token_usage"))
+        if usage is not None:
+            return usage
+        output_data = record.output_data if isinstance(record.output_data, dict) else {}
+        return normalize_token_usage(output_data.get("token_usage"))

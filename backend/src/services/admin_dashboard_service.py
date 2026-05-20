@@ -13,11 +13,10 @@ from src.database import (
     Artifact,
     CreditTransaction,
     CreditTransactionType,
-    SubagentTaskRecord,
-    TaskRecord,
     User,
     Workspace,
 )
+from src.dataservice.execution_api import ExecutionDataService, ExecutionNodeProjection
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
 
@@ -26,6 +25,7 @@ class AdminDashboardService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        self._execution = ExecutionDataService(db, autocommit=False)
 
     async def get_dashboard(self) -> dict[str, Any]:
         """Aggregate admin dashboard payload."""
@@ -62,24 +62,13 @@ class AdminDashboardService:
             for workspace_type, count in workspace_rows.all()
         }
 
-        task_total = int((await self.db.execute(select(func.count()).select_from(TaskRecord))).scalar() or 0)
-        task_running = int(
-            (
-                await self.db.execute(
-                    select(func.count()).where(TaskRecord.status == "running")
-                )
-            ).scalar()
-            or 0
+        task_total = await self._execution.count_executions()
+        task_running = await self._execution.count_executions(
+            status=["running"],
         )
-        task_failed_24h = int(
-            (
-                await self.db.execute(
-                    select(func.count())
-                    .where(TaskRecord.status == "failed")
-                    .where(TaskRecord.created_at >= since_24h)
-                )
-            ).scalar()
-            or 0
+        task_failed_24h = await self._execution.count_executions(
+            status=["failed"],
+            created_since=since_24h,
         )
 
         artifact_total = int((await self.db.execute(select(func.count()).select_from(Artifact))).scalar() or 0)
@@ -217,11 +206,10 @@ class AdminDashboardService:
             thread_tx_count += 1
             thread_user_ids.add(str(user_id))
 
-        feature_rows = await self.db.execute(select(TaskRecord.result))
+        executions = await self._execution.list_executions(limit=100000)
         feature_usages = []
-        feature_records = 0
-        for (result,) in feature_rows.all():
-            feature_records += 1
+        for execution in executions:
+            result = execution.result_json
             usage = normalize_token_usage(
                 result.get("token_usage") if isinstance(result, dict) else None
             )
@@ -229,16 +217,12 @@ class AdminDashboardService:
                 feature_usages.append(usage)
         feature_total = combine_token_usage(feature_usages)
 
-        subagent_rows = await self.db.execute(select(SubagentTaskRecord.task_metadata))
+        subagent_nodes = await self._execution.list_nodes_by_execution_ids(
+            [execution.id for execution in executions]
+        )
         subagent_usages = []
-        subagent_records = 0
-        for (task_metadata,) in subagent_rows.all():
-            subagent_records += 1
-            usage = normalize_token_usage(
-                task_metadata.get("token_usage")
-                if isinstance(task_metadata, dict)
-                else None
-            )
+        for node in subagent_nodes:
+            usage = self._node_token_usage(node)
             if usage is not None:
                 subagent_usages.append(usage)
         subagent_total = combine_token_usage(subagent_usages)
@@ -253,14 +237,14 @@ class AdminDashboardService:
                 "input_tokens": feature_total.input_tokens if feature_total is not None else 0,
                 "output_tokens": feature_total.output_tokens if feature_total is not None else 0,
                 "total_tokens": feature_total.total_tokens if feature_total is not None else 0,
-                "records": feature_records,
+                "records": len(executions),
                 "records_with_usage": len(feature_usages),
             },
             "subagents": {
                 "input_tokens": subagent_total.input_tokens if subagent_total is not None else 0,
                 "output_tokens": subagent_total.output_tokens if subagent_total is not None else 0,
                 "total_tokens": subagent_total.total_tokens if subagent_total is not None else 0,
-                "records": subagent_records,
+                "records": len(subagent_nodes),
                 "records_with_usage": len(subagent_usages),
             },
         }
@@ -320,15 +304,7 @@ class AdminDashboardService:
                 for user_id, count in workspace_rows.all()
             }
 
-            task_rows = await self.db.execute(
-                select(TaskRecord.user_id, func.count())
-                .where(TaskRecord.user_id.in_(user_ids))
-                .group_by(TaskRecord.user_id)
-            )
-            task_counts = {
-                str(user_id): int(count)
-                for user_id, count in task_rows.all()
-            }
+            task_counts = await self._execution.count_executions_by_user_ids(user_ids)
 
         return [
             self._user_to_dict(
@@ -351,6 +327,18 @@ class AdminDashboardService:
             ).scalar()
             or 0
         )
+
+    @staticmethod
+    def _node_token_usage(record: ExecutionNodeProjection) -> Any | None:
+        usage = normalize_token_usage(record.token_usage)
+        if usage is not None:
+            return usage
+        metadata = record.node_metadata if isinstance(record.node_metadata, dict) else {}
+        usage = normalize_token_usage(metadata.get("token_usage"))
+        if usage is not None:
+            return usage
+        output_data = record.output_data if isinstance(record.output_data, dict) else {}
+        return normalize_token_usage(output_data.get("token_usage"))
 
     async def update_user_status(self, *, user_id: str, is_active: bool) -> dict[str, Any]:
         """Enable or disable user account."""

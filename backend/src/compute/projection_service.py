@@ -9,10 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.compute.events import serialize_compute_session
 from src.database.models.compute_session import ComputeSessionRecord
-from src.database.models.execution import ExecutionRecord
-from src.database.models.subagent_task import SubagentTaskRecord
-from src.database.models.task import TaskRecord
 from src.dataservice.catalog_api import CatalogDataService
+from src.dataservice.execution_api import (
+    ExecutionDataService,
+    ExecutionNodeProjection,
+    ExecutionRecordProjection,
+)
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.services.execution_service import serialize_execution_record
 
@@ -65,15 +67,15 @@ _PRISM_OPTIONAL_ACTIONS = {
 }
 
 
-def _task_payload(record: TaskRecord) -> dict[str, Any]:
+def _execution_task_payload(record: ExecutionRecordProjection) -> dict[str, Any]:
     return {
         "task_id": record.id,
-        "execution_id": record.execution_id,
-        "task_type": record.task_type,
+        "execution_id": record.id,
+        "task_type": record.execution_type,
         "workspace_id": record.workspace_id,
         "feature_id": record.feature_id,
         "thread_id": record.thread_id,
-        "action": record.action,
+        "action": record.params.get("action") if isinstance(record.params, dict) else None,
         "status": record.status,
         "progress": record.progress,
         "message": record.message,
@@ -86,25 +88,46 @@ def _task_payload(record: TaskRecord) -> dict[str, Any]:
     }
 
 
-def _subagent_payload(record: SubagentTaskRecord) -> dict[str, Any]:
+def _node_payload(
+    record: ExecutionNodeProjection,
+    *,
+    execution: ExecutionRecordProjection,
+) -> dict[str, Any]:
+    output_data = record.output_data if isinstance(record.output_data, dict) else {}
+    input_data = record.input_data if isinstance(record.input_data, dict) else {}
+    error = output_data.get("error")
+    input_prompt = input_data.get("prompt") or input_data.get("input_prompt")
+    output_preview = (
+        output_data.get("output_preview")
+        or output_data.get("summary")
+        or output_data.get("message")
+        or error
+    )
     return {
         "task_id": record.id,
-        "workspace_id": record.workspace_id,
-        "thread_id": record.thread_id,
+        "node_id": record.node_id,
+        "workspace_id": execution.workspace_id,
+        "thread_id": execution.thread_id,
         "execution_id": record.execution_id,
-        "subagent_type": record.subagent_type,
+        "subagent_type": record.node_type,
+        "label": record.label,
         "status": record.status,
-        "input_prompt": record.prompt,
-        "output_preview": record.output_preview,
-        "error": record.error,
-        "metadata": record.task_metadata or {},
+        "input_prompt": str(input_prompt) if input_prompt is not None else None,
+        "output_preview": str(output_preview) if output_preview is not None else None,
+        "error": str(error) if error is not None else None,
+        "metadata": record.node_metadata or {},
+        "input": record.input_data,
+        "output": record.output_data,
+        "thinking": record.thinking,
+        "tool_calls": record.tool_calls or [],
+        "token_usage": record.token_usage or {},
         "created_at": record.created_at.isoformat() if record.created_at else None,
         "updated_at": record.updated_at.isoformat() if record.updated_at else None,
         "completed_at": record.completed_at.isoformat() if record.completed_at else None,
     }
 
 
-def _runtime_blocks(execution: ExecutionRecord) -> list[dict[str, Any]]:
+def _runtime_blocks(execution: ExecutionRecordProjection) -> list[dict[str, Any]]:
     snapshot = execution.runtime_state if isinstance(execution.runtime_state, dict) else {}
     blocks = snapshot.get("blocks")
     if not isinstance(blocks, list):
@@ -269,8 +292,8 @@ def _extract_files_from_value(
 
 def _collect_files(
     *,
-    execution: ExecutionRecord,
-    tasks: list[TaskRecord],
+    execution: ExecutionRecordProjection,
+    nodes: list[ExecutionNodeProjection],
     runtime_blocks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     files: list[dict[str, Any]] = []
@@ -305,19 +328,26 @@ def _collect_files(
             files=files,
             seen=seen,
         )
-    for task in tasks:
-        task_source = f"task:{task.id}"
+    _extract_files_from_value(
+        execution.result,
+        source="execution",
+        thread_id=thread_id,
+        files=files,
+        seen=seen,
+    )
+    for node in nodes:
+        node_source = f"node:{node.node_id}"
         _extract_files_from_value(
-            task.result,
-            source=task_source,
-            thread_id=task.thread_id or thread_id,
+            node.input_data,
+            source=node_source,
+            thread_id=thread_id,
             files=files,
             seen=seen,
         )
         _extract_files_from_value(
-            task.runtime_state,
-            source=task_source,
-            thread_id=task.thread_id or thread_id,
+            node.output_data,
+            source=node_source,
+            thread_id=thread_id,
             files=files,
             seen=seen,
         )
@@ -532,8 +562,8 @@ def _collect_runtime_activity_logs(
 
 def _collect_logs(
     *,
-    execution: ExecutionRecord,
-    tasks: list[TaskRecord],
+    execution: ExecutionRecordProjection,
+    nodes: list[ExecutionNodeProjection],
     runtime_blocks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     logs: list[dict[str, Any]] = []
@@ -549,32 +579,53 @@ def _collect_logs(
             message=execution.last_error,
             timestamp=execution.updated_at.isoformat() if execution.updated_at else None,
         )
-    for task in tasks:
-        task_source = f"task:{task.id}"
-        if task.message:
+    if execution.message:
+        _append_log(
+            logs,
+            seen,
+            source="execution",
+            level="info",
+            title="Execution message",
+            message=execution.message,
+            timestamp=(
+                execution.completed_at.isoformat()
+                if execution.completed_at
+                else execution.started_at.isoformat()
+                if execution.started_at
+                else None
+            ),
+            metadata={"status": execution.status},
+        )
+    if execution.error:
+        _append_log(
+            logs,
+            seen,
+            source="execution",
+            level="error",
+            title="Execution error",
+            message=execution.error,
+            timestamp=execution.completed_at.isoformat() if execution.completed_at else None,
+            metadata={"status": execution.status},
+        )
+    _collect_log_fields(execution.result, source="execution", logs=logs, seen=seen)
+    _collect_log_fields(execution.runtime_state, source="runtime", logs=logs, seen=seen)
+    for node in nodes:
+        node_source = f"node:{node.node_id}"
+        output_data = node.output_data if isinstance(node.output_data, dict) else {}
+        error = _read_text(output_data.get("error"))
+        if error is not None:
             _append_log(
                 logs,
                 seen,
-                source=task_source,
-                level="info",
-                title="Task message",
-                message=task.message,
-                timestamp=task.completed_at.isoformat() if task.completed_at else task.started_at.isoformat() if task.started_at else None,
-                metadata={"status": task.status},
-            )
-        if task.error:
-            _append_log(
-                logs,
-                seen,
-                source=task_source,
+                source=node_source,
                 level="error",
-                title="Task error",
-                message=task.error,
-                timestamp=task.completed_at.isoformat() if task.completed_at else None,
-                metadata={"status": task.status},
+                title=node.label or node.node_id,
+                message=error,
+                timestamp=node.completed_at.isoformat() if node.completed_at else None,
+                metadata={"status": node.status, "node_type": node.node_type},
             )
-        _collect_log_fields(task.result, source=task_source, logs=logs, seen=seen)
-        _collect_log_fields(task.runtime_state, source=task_source, logs=logs, seen=seen)
+        _collect_log_fields(node.input_data, source=node_source, logs=logs, seen=seen)
+        _collect_log_fields(node.output_data, source=node_source, logs=logs, seen=seen)
     return logs
 
 
@@ -599,7 +650,7 @@ def _review_item_required(item: dict[str, Any]) -> bool:
 
 
 def _build_review_gate(
-    execution: ExecutionRecord,
+    execution: ExecutionRecordProjection,
     runtime_profile: dict[str, Any],
 ) -> dict[str, Any]:
     next_actions = [dict(item) for item in execution.next_actions or [] if isinstance(item, dict)]
@@ -634,7 +685,7 @@ def _build_review_gate(
 
 async def _build_runtime_profile_projection(
     db: AsyncSession,
-    execution: ExecutionRecord,
+    execution: ExecutionRecordProjection,
 ) -> dict[str, Any]:
     workspace_type = str(execution.workspace_type or "").strip()
     feature_id = str(execution.feature_id or "").strip()
@@ -723,53 +774,17 @@ class ComputeProjectionService:
         if compute_session is None:
             return None
 
-        execution_result = await self.db.execute(
-            select(ExecutionRecord).where(
-                ExecutionRecord.id == compute_session.execution_id,
-                ExecutionRecord.user_id == user_id,
-            )
-        )
-        execution = execution_result.scalar_one_or_none()
-        if execution is None:
+        execution_api = ExecutionDataService(self.db, autocommit=False)
+        execution = await execution_api.get_execution(str(compute_session.execution_id))
+        if execution is None or str(execution.user_id) != str(user_id):
             return None
 
-        task_ids = {
-            str(task_id).strip()
-            for task_id in [
-                execution.id,
-            ]
-            if str(task_id or "").strip()
-        }
-        tasks: list[TaskRecord] = []
-        if task_ids:
-            task_result = await self.db.execute(
-                select(TaskRecord)
-                .where(
-                    TaskRecord.id.in_(sorted(task_ids)),
-                    TaskRecord.user_id == user_id,
-                )
-                .order_by(TaskRecord.created_at.desc())
-            )
-            tasks = list(task_result.scalars().all())
-
-        subagent_result = await self.db.execute(
-            select(SubagentTaskRecord)
-            .where(
-                SubagentTaskRecord.execution_id == execution.id,
-                SubagentTaskRecord.user_id == user_id,
-            )
-            .order_by(SubagentTaskRecord.created_at.desc())
-        )
-        subagents = list(subagent_result.scalars().all())
-
-        primary_task = next(
-            (task for task in tasks if task.execution_id == execution.id),
-            tasks[0] if tasks else None,
-        )
+        nodes = await execution_api.list_nodes(execution.id)
+        primary_task = _execution_task_payload(execution)
         runtime_blocks = _runtime_blocks(execution)
         files = _collect_files(
             execution=execution,
-            tasks=tasks,
+            nodes=nodes,
             runtime_blocks=runtime_blocks,
         )
         prism = _empty_prism_projection()
@@ -790,7 +805,7 @@ class ComputeProjectionService:
         _append_prism_files(files, prism)
         logs = _collect_logs(
             execution=execution,
-            tasks=tasks,
+            nodes=nodes,
             runtime_blocks=runtime_blocks,
         )
         runtime_profile = await _build_runtime_profile_projection(self.db, execution)
@@ -799,10 +814,12 @@ class ComputeProjectionService:
             "compute_session": serialize_compute_session(compute_session),
             "execution": serialize_execution_record(execution),
             "runtime_profile": runtime_profile,
-            "primary_task": _task_payload(primary_task) if primary_task is not None else None,
-            "tasks": [_task_payload(task) for task in tasks],
+            "primary_task": primary_task,
+            "tasks": [primary_task],
             "runtime_blocks": runtime_blocks,
-            "subagents": [_subagent_payload(record) for record in subagents],
+            "subagents": [
+                _node_payload(record, execution=execution) for record in nodes
+            ],
             "artifacts": {
                 "ids": list(execution.artifact_ids or []),
                 "count": len(execution.artifact_ids or []),

@@ -90,6 +90,20 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
             # the executions row, not the ``execution_nodes`` table.)
             # Best-effort: a DB hiccup must not abort the run.
             try:
+                await execution_service.upsert_node_event(
+                    execution_id=kw["execution_id"],
+                    node_id=kw["node_id"],
+                    node_type=kw.get("node_type") or "subagent",
+                    label=kw.get("label"),
+                    status=kw.get("status") or "running",
+                    input_data=kw.get("input_data"),
+                    output_data=kw.get("output_data"),
+                    thinking=kw.get("thinking"),
+                    tool_calls=kw.get("tool_calls"),
+                    token_usage=kw.get("token_usage"),
+                    started_at=kw.get("started_at"),
+                    completed_at=kw.get("completed_at"),
+                )
                 await execution_service.update_node_state(
                     execution_id=kw["execution_id"],
                     node_id=kw["node_id"],
@@ -108,6 +122,8 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
                     workspace_id=workspace_id,
                     node_id=kw.get("node_id"),
                     payload_json={
+                        "node_type": kw.get("node_type"),
+                        "label": kw.get("label"),
                         "status": kw.get("status"),
                         "input": kw.get("input_data"),
                         "output": kw.get("output_data"),

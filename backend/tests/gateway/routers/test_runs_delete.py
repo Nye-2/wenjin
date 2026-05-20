@@ -1,4 +1,4 @@
-"""Spec §6.2 B3 — DELETE /runs/{id} soft-deletes a workspace_run row."""
+"""DELETE /runs/{id} removes canonical runtime run records."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.gateway.routers import runs
+from src.runtime.runs import DisconnectMode, RunRecord, RunStatus
 
 
 @pytest.fixture
@@ -19,48 +20,46 @@ def client():
     return TestClient(app)
 
 
-def test_delete_run_calls_service(client, monkeypatch):
-    """DELETE /runs/{id} should call WorkspaceRunService.delete_run with the run id."""
-    called = AsyncMock()
-    monkeypatch.setattr(
-        "src.services.workspace_run_service.WorkspaceRunService.delete_run",
-        called,
+def _run_record(run_id: str) -> RunRecord:
+    return RunRecord(
+        run_id=run_id,
+        thread_id="thread-1",
+        assistant_id=None,
+        status=RunStatus.running,
+        on_disconnect=DisconnectMode.continue_,
+        metadata={"_owner_id": "user-1"},
     )
 
-    # Patch get_db_session to a no-op async context manager that returns a mock session.
-    class _FakeSession:
-        async def __aenter__(self):
-            return MagicMock()
 
-        async def __aexit__(self, *a):
-            return False
-
-    monkeypatch.setattr("src.database.session.get_db_session", lambda: _FakeSession())
+def test_delete_run_calls_run_manager_cleanup(client):
+    """DELETE /runs/{id} should remove the run manager record."""
+    manager = MagicMock()
+    manager.get_or_load = AsyncMock(return_value=_run_record("run-x"))
+    manager.cleanup = AsyncMock()
+    thread_service = MagicMock()
+    client.app.dependency_overrides[runs.get_run_manager] = lambda: manager
+    client.app.dependency_overrides[runs.get_thread_service] = lambda: thread_service
 
     r = client.delete("/runs/run-x")
     assert r.status_code == 204
-    called.assert_called_once_with("run-x")
-
-
-def test_delete_run_returns_204_for_unknown_id(client, monkeypatch):
-    """Deleting an unknown run is a silent no-op per WorkspaceRunService contract."""
-    # Service silently returns None for missing rows — HTTP layer must still 204.
-    monkeypatch.setattr(
-        "src.services.workspace_run_service.WorkspaceRunService.delete_run",
-        AsyncMock(return_value=None),
+    manager.cleanup.assert_awaited_once_with(
+        "run-x",
+        delay=0,
+        remove_persistent=True,
     )
 
-    class _FakeSession:
-        async def __aenter__(self):
-            return MagicMock()
 
-        async def __aexit__(self, *a):
-            return False
-
-    monkeypatch.setattr("src.database.session.get_db_session", lambda: _FakeSession())
+def test_delete_run_returns_404_for_unknown_id(client):
+    """Deleting an unknown run now follows canonical run-manager ownership semantics."""
+    manager = MagicMock()
+    manager.get_or_load = AsyncMock(return_value=None)
+    manager.cleanup = AsyncMock()
+    client.app.dependency_overrides[runs.get_run_manager] = lambda: manager
+    client.app.dependency_overrides[runs.get_thread_service] = lambda: MagicMock()
 
     r = client.delete("/runs/never-existed")
-    assert r.status_code == 204
+    assert r.status_code == 404
+    manager.cleanup.assert_not_awaited()
 
 
 def test_delete_run_requires_auth():

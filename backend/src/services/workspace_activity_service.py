@@ -6,13 +6,19 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Artifact, SubagentTaskRecord, TaskRecord, Thread
+from src.database import Artifact, Thread
 from src.database.models.prism import PrismReviewItem
 from src.dataservice.conversation_api import ConversationDataService
+from src.dataservice.execution_api import (
+    ExecutionDataService,
+    ExecutionNodeProjection,
+    ExecutionRecordProjection,
+)
 from src.services.thread_billing import (
     combine_token_usage,
     extract_persisted_message_usage,
     extract_persisted_metadata_usage,
+    normalize_token_usage,
     summarize_persisted_messages_usage,
 )
 from src.services.workspace_activity_contracts import (
@@ -35,6 +41,7 @@ class WorkspaceActivityService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self._conversation = ConversationDataService(db, autocommit=False)
+        self._execution = ExecutionDataService(db, autocommit=False)
 
     async def get_activity(
         self,
@@ -89,24 +96,14 @@ class WorkspaceActivityService:
         *,
         limit: int,
     ) -> list[dict[str, Any]]:
-        result = await self.db.execute(
-            select(TaskRecord)
-            .where(TaskRecord.workspace_id == workspace_id)
-            .order_by(
-                func.coalesce(
-                    TaskRecord.completed_at,
-                    TaskRecord.started_at,
-                    TaskRecord.created_at,
-                ).desc()
-            )
-            .limit(limit)
+        records = await self._execution.list_executions(
+            workspace_id=workspace_id,
+            limit=limit,
         )
-        records = list(result.scalars().all())
         execution_ids = {
-            str(record.execution_id).strip()
+            str(record.id).strip()
             for record in records
-            if getattr(record, "execution_id", None)
-            and str(record.execution_id).strip()
+            if str(record.id or "").strip()
         }
         task_usage_by_execution, subagent_count_by_execution = (
             await self._load_subagent_usage_by_execution(execution_ids)
@@ -116,15 +113,11 @@ class WorkspaceActivityService:
                 record,
                 workspace_id,
                 token_usage=task_usage_by_execution.get(
-                    str(record.execution_id).strip()
-                )
-                if getattr(record, "execution_id", None)
-                else None,
+                    str(record.id).strip()
+                ),
                 subagent_count=subagent_count_by_execution.get(
-                    str(record.execution_id).strip(),
-                )
-                if getattr(record, "execution_id", None)
-                else None,
+                    str(record.id).strip(),
+                ),
             )
             for record in records
         ]
@@ -185,12 +178,9 @@ class WorkspaceActivityService:
         if not execution_ids:
             return {}, {}
 
-        result = await self.db.execute(
-            select(SubagentTaskRecord).where(
-                SubagentTaskRecord.execution_id.in_(sorted(execution_ids))
-            )
+        records = await self._execution.list_nodes_by_execution_ids(
+            sorted(execution_ids)
         )
-        records = list(result.scalars().all())
         usage_buckets: dict[str, list[Any]] = {}
         subagent_count_by_execution: dict[str, int] = {}
         for record in records:
@@ -200,10 +190,7 @@ class WorkspaceActivityService:
             subagent_count_by_execution[execution_id] = (
                 subagent_count_by_execution.get(execution_id, 0) + 1
             )
-            metadata = (
-                record.task_metadata if isinstance(record.task_metadata, dict) else {}
-            )
-            usage = extract_persisted_metadata_usage(metadata)
+            usage = self._node_token_usage(record)
             if usage is not None:
                 usage_buckets.setdefault(execution_id, []).append(usage)
 
@@ -217,19 +204,24 @@ class WorkspaceActivityService:
 
     def _task_record_to_activity(
         self,
-        record: TaskRecord,
+        record: ExecutionRecordProjection,
         workspace_id: str,
         *,
         token_usage: dict[str, int] | None = None,
         subagent_count: int | None = None,
     ) -> dict[str, Any]:
-        payload = record.payload or {}
+        payload: dict[str, Any] = {
+            "feature_id": record.capability_id,
+            "thread_id": record.thread_id,
+            "skill_id": record.entry_skill_id,
+            "params": dict(record.task_brief_json or {}),
+        }
         occurred_at = record.completed_at or record.started_at or record.created_at
         return build_task_activity_item(
             task_id=str(record.id),
             workspace_id=workspace_id,
-            task_type=record.task_type,
-            payload=payload if isinstance(payload, dict) else None,
+            task_type=record.execution_type,
+            payload=payload,
             status=record.status,
             progress=record.progress,
             message=record.message,
@@ -351,36 +343,51 @@ class WorkspaceActivityService:
         *,
         limit: int,
     ) -> list[dict[str, Any]]:
-        result = await self.db.execute(
-            select(SubagentTaskRecord)
-            .where(SubagentTaskRecord.workspace_id == workspace_id)
-            .order_by(
-                func.coalesce(
-                    SubagentTaskRecord.completed_at,
-                    SubagentTaskRecord.updated_at,
-                    SubagentTaskRecord.created_at,
-                ).desc()
-            )
-            .limit(limit)
+        executions = await self._execution.list_executions(
+            workspace_id=workspace_id,
+            limit=max(limit, 20),
         )
-        records = list(result.scalars().all())
-        return [self._subagent_record_to_activity(record) for record in records]
+        execution_by_id = {record.id: record for record in executions}
+        records = await self._execution.list_nodes_by_execution_ids(
+            list(execution_by_id)
+        )
+        records.sort(
+            key=lambda record: record.completed_at or record.updated_at or record.created_at,
+            reverse=True,
+        )
+        return [
+            self._subagent_record_to_activity(record, execution_by_id.get(record.execution_id))
+            for record in records[:limit]
+        ]
 
-    def _subagent_record_to_activity(self, record: SubagentTaskRecord) -> dict[str, Any]:
+    def _subagent_record_to_activity(
+        self,
+        record: ExecutionNodeProjection,
+        execution: ExecutionRecordProjection | None = None,
+    ) -> dict[str, Any]:
         occurred_at = record.completed_at or record.updated_at or record.created_at
-        raw_metadata = getattr(record, "task_metadata", None)
+        raw_metadata = getattr(record, "node_metadata", None)
         metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
-        usage = extract_persisted_metadata_usage(metadata)
-        model_name = metadata.get("model_name")
+        usage = self._node_token_usage(record)
+        output_data = record.output_data if isinstance(record.output_data, dict) else {}
+        input_data = record.input_data if isinstance(record.input_data, dict) else {}
+        model_name = metadata.get("model_name") or output_data.get("model_name")
+        prompt = input_data.get("prompt") or input_data.get("input_prompt")
+        output_preview = (
+            output_data.get("output_preview")
+            or output_data.get("summary")
+            or output_data.get("message")
+        )
+        error = output_data.get("error")
         return build_subagent_activity_item(
-            workspace_id=record.workspace_id,
+            workspace_id=execution.workspace_id if execution else "",
             task_id=str(record.id),
-            thread_id=str(record.thread_id),
+            thread_id=str(execution.thread_id) if execution and execution.thread_id else None,
             status=record.status,
-            subagent_type=record.subagent_type,
-            prompt=record.prompt,
-            output_preview=record.output_preview,
-            error=record.error,
+            subagent_type=record.node_type,
+            prompt=str(prompt) if prompt is not None else None,
+            output_preview=str(output_preview) if output_preview is not None else None,
+            error=str(error) if error is not None else None,
             token_usage=usage.as_dict() if usage is not None else None,
             model_name=(
                 str(model_name).strip()
@@ -391,3 +398,15 @@ class WorkspaceActivityService:
             created_at=record.created_at,
             completed_at=record.completed_at,
         )
+
+    @staticmethod
+    def _node_token_usage(record: ExecutionNodeProjection) -> Any | None:
+        usage = normalize_token_usage(record.token_usage)
+        if usage is not None:
+            return usage
+        metadata = record.node_metadata if isinstance(record.node_metadata, dict) else {}
+        usage = extract_persisted_metadata_usage(metadata)
+        if usage is not None:
+            return usage
+        output_data = record.output_data if isinstance(record.output_data, dict) else {}
+        return normalize_token_usage(output_data.get("token_usage"))

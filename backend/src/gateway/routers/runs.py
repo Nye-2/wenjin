@@ -193,14 +193,17 @@ async def cancel_run(
 async def delete_run(
     run_id: str,
     current_user: User = Depends(get_current_user),
+    thread_service: ThreadService = Depends(get_thread_service),
+    run_manager: RunManager = Depends(get_run_manager),
 ) -> Response:
-    """Spec §6.2 B3 — soft-delete a workspace_run row. User-initiated."""
-    from src.database.session import get_db_session
-    from src.services.workspace_run_service import WorkspaceRunService
-
-    async with get_db_session() as db:
-        svc = WorkspaceRunService(db)
-        await svc.delete_run(run_id)
+    """Delete a runtime run record from the canonical run manager."""
+    record = await get_run_or_404(run_manager, run_id)
+    await _require_owned_run(
+        record=record,
+        actor_id=str(current_user.id),
+        thread_service=thread_service,
+    )
+    await run_manager.cleanup(run_id, delay=0, remove_persistent=True)
     return Response(status_code=204)
 
 

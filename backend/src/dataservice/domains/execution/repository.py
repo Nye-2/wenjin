@@ -55,6 +55,47 @@ class ExecutionRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
+    async def count_executions(
+        self,
+        *,
+        user_id: str | None = None,
+        status: list[str] | None = None,
+        created_since: datetime | None = None,
+    ) -> int:
+        query = select(func.count()).select_from(ExecutionRecord)
+        if user_id is not None:
+            query = query.where(ExecutionRecord.user_id == user_id)
+        if status is not None:
+            query = query.where(ExecutionRecord.status.in_(status))
+        if created_since is not None:
+            query = query.where(ExecutionRecord.created_at >= created_since)
+        result = await self.session.execute(query)
+        return int(result.scalar() or 0)
+
+    async def count_executions_by_status(
+        self,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, int]:
+        query = select(ExecutionRecord.status, func.count()).group_by(ExecutionRecord.status)
+        if user_id is not None:
+            query = query.where(ExecutionRecord.user_id == user_id)
+        result = await self.session.execute(query)
+        return {str(status): int(count) for status, count in result.all()}
+
+    async def count_executions_by_user_ids(
+        self,
+        user_ids: list[str],
+    ) -> dict[str, int]:
+        if not user_ids:
+            return {}
+        result = await self.session.execute(
+            select(ExecutionRecord.user_id, func.count())
+            .where(ExecutionRecord.user_id.in_(user_ids))
+            .group_by(ExecutionRecord.user_id)
+        )
+        return {str(user_id): int(count) for user_id, count in result.all()}
+
     async def list_nodes(self, execution_id: str) -> list[ExecutionNodeRecord]:
         result = await self.session.execute(
             select(ExecutionNodeRecord)
@@ -62,6 +103,38 @@ class ExecutionRepository:
             .order_by(ExecutionNodeRecord.created_at.asc())
         )
         return list(result.scalars().all())
+
+    async def list_nodes_by_execution_ids(
+        self,
+        execution_ids: list[str],
+    ) -> list[ExecutionNodeRecord]:
+        if not execution_ids:
+            return []
+        result = await self.session.execute(
+            select(ExecutionNodeRecord)
+            .where(ExecutionNodeRecord.execution_id.in_(execution_ids))
+            .order_by(ExecutionNodeRecord.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_node_by_node_id(
+        self,
+        *,
+        execution_id: str,
+        node_id: str,
+    ) -> ExecutionNodeRecord | None:
+        result = await self.session.execute(
+            select(ExecutionNodeRecord).where(
+                ExecutionNodeRecord.execution_id == execution_id,
+                ExecutionNodeRecord.node_id == node_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    def create_node(self, values: dict[str, Any]) -> ExecutionNodeRecord:
+        record = ExecutionNodeRecord(id=generate_uuid(), **values)
+        self.session.add(record)
+        return record
 
     async def list_events(self, execution_id: str) -> list[ExecutionEventRecord]:
         result = await self.session.execute(

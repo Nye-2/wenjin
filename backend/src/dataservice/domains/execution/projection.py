@@ -8,6 +8,7 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionEventProjection,
     ExecutionNodeProjection,
     ExecutionRecordProjection,
+    ExecutionRunHistoryProjection,
 )
 from src.dataservice.domains.execution.models import ExecutionEventRecord
 
@@ -81,5 +82,49 @@ def event_to_projection(record: ExecutionEventRecord) -> ExecutionEventProjectio
         payload_json=dict(record.payload_json or {}),
         occurred_at=record.occurred_at,
         created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def execution_to_run_history_projection(
+    record: ExecutionRecord,
+) -> ExecutionRunHistoryProjection:
+    result = record.result if isinstance(record.result, dict) else {}
+    task_report = result.get("task_report") if isinstance(result, dict) else None
+    task_report = task_report if isinstance(task_report, dict) else {}
+    token_usage = task_report.get("token_usage")
+    outputs = task_report.get("outputs")
+    duration = 0
+    if record.started_at is not None and record.completed_at is not None:
+        duration = max(int((record.completed_at - record.started_at).total_seconds()), 0)
+    raw_summary = (
+        record.result_summary
+        or task_report.get("narrative")
+        or record.message
+        or record.error
+    )
+    summary = str(raw_summary) if raw_summary is not None else None
+    title = (
+        record.display_name
+        or (summary[:200] if summary else None)
+        or record.feature_id
+        or record.execution_type
+        or "Execution"
+    )
+    artifact_count = len(record.artifact_ids or [])
+    if artifact_count == 0 and isinstance(outputs, list):
+        artifact_count = len(outputs)
+    return ExecutionRunHistoryProjection(
+        id=str(record.id),
+        workspace_id=record.workspace_id,
+        execution_id=str(record.id),
+        capability_id=record.feature_id,
+        title=str(title),
+        summary=summary,
+        status=record.status,
+        duration_seconds=duration,
+        token_usage=token_usage if isinstance(token_usage, dict) else None,
+        artifact_count=artifact_count,
+        created_at=record.completed_at or record.created_at,
         updated_at=record.updated_at,
     )

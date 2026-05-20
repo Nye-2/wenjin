@@ -12,7 +12,9 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionEventCreateCommand,
     ExecutionEventProjection,
     ExecutionNodeProjection,
+    ExecutionNodeUpsertCommand,
     ExecutionRecordProjection,
+    ExecutionRunHistoryProjection,
     ExecutionUpdateCommand,
 )
 from src.dataservice.domains.execution.service import DataServiceExecutionService
@@ -78,6 +80,54 @@ class ExecutionDataService:
             limit=limit,
         )
 
+    async def count_executions(
+        self,
+        *,
+        user_id: str | None = None,
+        status: list[str] | None = None,
+        created_since: datetime | None = None,
+    ) -> int:
+        return await self._domain.count_executions(
+            user_id=user_id,
+            status=status,
+            created_since=created_since,
+        )
+
+    async def count_executions_by_status(
+        self,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, int]:
+        return await self._domain.count_executions_by_status(user_id=user_id)
+
+    async def count_executions_by_user_ids(
+        self,
+        user_ids: list[str],
+    ) -> dict[str, int]:
+        return await self._domain.count_executions_by_user_ids(user_ids)
+
+    async def list_run_history(
+        self,
+        *,
+        workspace_id: str,
+        limit: int = 50,
+    ) -> list[ExecutionRunHistoryProjection]:
+        return await self._domain.list_run_history(
+            workspace_id=workspace_id,
+            limit=limit,
+        )
+
+    async def get_run_history_item(
+        self,
+        *,
+        workspace_id: str,
+        run_id: str,
+    ) -> ExecutionRunHistoryProjection | None:
+        return await self._domain.get_run_history_item(
+            workspace_id=workspace_id,
+            run_id=run_id,
+        )
+
     async def update_execution(
         self,
         execution_id: str,
@@ -97,6 +147,29 @@ class ExecutionDataService:
 
     async def list_nodes(self, execution_id: str) -> list[ExecutionNodeProjection]:
         return await self._domain.list_nodes(execution_id)
+
+    async def list_nodes_by_execution_ids(
+        self,
+        execution_ids: list[str],
+    ) -> list[ExecutionNodeProjection]:
+        return await self._domain.list_nodes_by_execution_ids(execution_ids)
+
+    async def upsert_node(
+        self,
+        execution_id: str,
+        command: ExecutionNodeUpsertCommand,
+    ) -> ExecutionNodeProjection:
+        return await self._domain.upsert_node(execution_id, command)
+
+    async def upsert_node_record(
+        self,
+        execution_id: str,
+        **fields: Any,
+    ) -> ExecutionNodeProjection:
+        return await self._domain.upsert_node(
+            execution_id,
+            ExecutionNodeUpsertCommand(**fields),
+        )
 
     async def append_event(
         self,

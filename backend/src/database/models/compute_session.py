@@ -14,8 +14,8 @@ class ComputeSessionRecord(Base):
     """Persistent UI/work-plane binding for an execution.
 
     This record is intentionally not a business-state source of truth. Feature
-    lifecycle lives in ExecutionRecord and TaskRecord; compute_sessions
-    stores the user-facing workbench shell state needed to restore the stage.
+    lifecycle lives in ExecutionRecord; compute_sessions stores rebuildable
+    workbench shell state needed to restore the stage.
     """
 
     __tablename__ = "compute_sessions"

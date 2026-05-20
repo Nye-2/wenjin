@@ -338,7 +338,9 @@ Implementation checkpoint, 2026-05-21:
 - `dataservice_app` exposes internal execution create/get/list/update, node list, event append, and event list routes; `dataservice_client` has typed execution methods.
 - `ExecutionEngineV2` records canonical status events and the Celery execution task records canonical node lifecycle events.
 - Existing `ExecutionService` create/read/list/update/cancel/node-state write paths now run through `ExecutionDataService`.
-- Remaining work is to demote `subagent_task_records` and rebuild Run History / Compute surfaces from execution projections.
+- Subagent lifecycle is now represented through `execution_nodes` plus ordered `execution_events`; `subagent_task_records` is no longer read by user-facing projections.
+- Compute projection, workspace activity, user dashboard, and admin dashboard read execution/node projections instead of `task_records` and `subagent_task_records`.
+- Run History reads are derived from `executions` through `ExecutionRunHistoryProjection`; `compute_sessions` remains a rebuildable UI shell/cache and not a business lifecycle source.
 
 ### 6.4 Review Domain
 

@@ -6,6 +6,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.dataservice.domains.execution.contracts import (
+    ExecutionNodeProjection,
+    ExecutionRecordProjection,
+)
 from src.services.workspace_activity_contracts import (
     build_prism_review_activity_item,
     build_subagent_activity_item,
@@ -14,6 +18,66 @@ from src.services.workspace_activity_contracts import (
     serialize_activity_item,
 )
 from src.services.workspace_activity_service import WorkspaceActivityService
+
+
+def _execution_projection(**overrides) -> ExecutionRecordProjection:
+    now = overrides.get("created_at") or datetime.now(UTC)
+    return ExecutionRecordProjection(
+        id=overrides.get("id", "exec-1"),
+        user_id=overrides.get("user_id", "user-1"),
+        workspace_id=overrides.get("workspace_id", "ws-1"),
+        thread_id=overrides.get("thread_id", "thread-1"),
+        execution_type=overrides.get("execution_type", "workspace_feature"),
+        capability_id=overrides.get("capability_id", "deep_research"),
+        entry_skill_id=overrides.get("entry_skill_id"),
+        workspace_type=overrides.get("workspace_type", "thesis"),
+        display_name=overrides.get("display_name"),
+        status=overrides.get("status", "completed"),
+        task_brief_json=overrides.get("task_brief_json", {"topic": "LLM"}),
+        result_json=overrides.get("result_json", {"summary": "ok"}),
+        error_text=overrides.get("error_text"),
+        result_summary=overrides.get("result_summary"),
+        graph_json=overrides.get("graph_json"),
+        node_states_json=overrides.get("node_states_json", {}),
+        runtime_state_json=overrides.get("runtime_state_json"),
+        progress=overrides.get("progress", 100),
+        message=overrides.get("message", "done"),
+        artifact_ids=overrides.get("artifact_ids", []),
+        next_actions=overrides.get("next_actions", []),
+        advisory_code=overrides.get("advisory_code"),
+        last_error=overrides.get("last_error"),
+        parent_execution_id=overrides.get("parent_execution_id"),
+        child_execution_ids=overrides.get("child_execution_ids", []),
+        dispatch_mode=overrides.get("dispatch_mode"),
+        worker_task_id=overrides.get("worker_task_id"),
+        created_at=now,
+        started_at=overrides.get("started_at"),
+        completed_at=overrides.get("completed_at"),
+        updated_at=overrides.get("updated_at", now),
+    )
+
+
+def _node_projection(**overrides) -> ExecutionNodeProjection:
+    now = overrides.get("created_at") or datetime.now(UTC)
+    return ExecutionNodeProjection(
+        id=overrides.get("id", "node-1"),
+        execution_id=overrides.get("execution_id", "exec-1"),
+        parent_node_id=overrides.get("parent_node_id"),
+        node_id=overrides.get("node_id", "phase__task"),
+        node_type=overrides.get("node_type", "paper_critic"),
+        label=overrides.get("label", "Paper Critic"),
+        status=overrides.get("status", "completed"),
+        input_data=overrides.get("input_data"),
+        output_data=overrides.get("output_data"),
+        thinking=overrides.get("thinking"),
+        tool_calls=overrides.get("tool_calls"),
+        token_usage=overrides.get("token_usage"),
+        node_metadata=overrides.get("node_metadata"),
+        started_at=overrides.get("started_at"),
+        completed_at=overrides.get("completed_at"),
+        created_at=now,
+        updated_at=overrides.get("updated_at", now),
+    )
 
 
 @pytest.mark.asyncio
@@ -391,15 +455,16 @@ def test_task_activity_derives_prism_review_action_for_pending_file_changes() ->
 def test_task_record_to_activity_includes_token_usage_metadata() -> None:
     db = AsyncMock()
     service = WorkspaceActivityService(db)
-    record = SimpleNamespace(
+    record = _execution_projection(
         id="task-usage",
-        task_type="workspace_feature",
-        payload={"feature_id": "deep_research", "params": {"topic": "LLM"}},
+        execution_type="workspace_feature",
+        capability_id="deep_research",
+        task_brief_json={"topic": "LLM"},
         status="completed",
         progress=100,
         message="done",
-        error=None,
-        result={"summary": "ok"},
+        error_text=None,
+        result_json={"summary": "ok"},
         created_at=datetime(2026, 4, 13, tzinfo=UTC),
         started_at=datetime(2026, 4, 13, 0, 1, tzinfo=UTC),
         completed_at=datetime(2026, 4, 13, 0, 2, tzinfo=UTC),
@@ -458,16 +523,14 @@ def test_subagent_record_to_activity_includes_token_usage_metadata() -> None:
     db = AsyncMock()
     service = WorkspaceActivityService(db)
     now = datetime.now(UTC)
-    record = SimpleNamespace(
+    execution = _execution_projection(thread_id="thread-1")
+    record = _node_projection(
         id="sub-usage",
-        workspace_id="ws-1",
-        thread_id="thread-1",
         status="completed",
-        subagent_type="scout",
-        prompt="Find papers",
-        output_preview="Found 5 papers",
-        error=None,
-        task_metadata={
+        node_type="scout",
+        input_data={"prompt": "Find papers"},
+        output_data={"output_preview": "Found 5 papers"},
+        node_metadata={
             "token_usage": {
                 "input_tokens": 80,
                 "output_tokens": 20,
@@ -480,7 +543,7 @@ def test_subagent_record_to_activity_includes_token_usage_metadata() -> None:
         completed_at=now,
     )
 
-    item = service._subagent_record_to_activity(record)
+    item = service._subagent_record_to_activity(record, execution)
 
     assert item["metadata"]["token_usage"]["total_tokens"] == 100
     assert item["metadata"]["model_name"] == "gpt-4.1-mini"
@@ -536,22 +599,20 @@ async def test_get_subagent_activity_reads_persisted_records() -> None:
     service = WorkspaceActivityService(db)
     now = datetime.now(UTC)
     created_at = now - timedelta(minutes=5)
-    record = SimpleNamespace(
+    execution = _execution_projection(id="exec-1", thread_id="thread-1")
+    record = _node_projection(
         id="sub-1",
-        workspace_id="ws-1",
-        thread_id="thread-1",
+        execution_id="exec-1",
         status="completed",
-        subagent_type="paper_critic",
-        prompt="Review this paper",
-        output_preview="Found three issues",
-        error=None,
+        node_type="paper_critic",
+        input_data={"prompt": "Review this paper"},
+        output_data={"output_preview": "Found three issues"},
         created_at=created_at,
         updated_at=now - timedelta(minutes=1),
         completed_at=now,
     )
-    db.execute.return_value = MagicMock(
-        scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[record])))
-    )
+    service._execution.list_executions = AsyncMock(return_value=[execution])
+    service._execution.list_nodes_by_execution_ids = AsyncMock(return_value=[record])
 
     items = await service._get_subagent_activity("ws-1", limit=10)
 

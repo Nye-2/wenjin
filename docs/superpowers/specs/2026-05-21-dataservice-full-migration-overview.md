@@ -1035,7 +1035,9 @@ Implementation status as of 2026-05-21:
 - DataService execution contracts expose `capability_id`, `task_brief_json`, `graph_json`, `node_states_json`, `runtime_state_json`, and `result_json`; internal execution routes and typed client methods exist.
 - `ExecutionService.append_execution_event()` records ordered DataService events; `ExecutionEngineV2` writes status events and the Celery node callback writes node lifecycle events.
 - Public `ExecutionService` create/read/list/update/cancel/node-state write paths now delegate to `ExecutionDataService` while preserving compatibility attributes for existing callers.
-- Remaining Phase 3 work is subagent task demotion, product-state removal from queue/task tables, and run-history/compute projection convergence.
+- Subagent task semantics now land in `execution_nodes` and `execution_events`; `subagent_task_records` is no longer a product projection input.
+- Compute projection, Workspace Activity, User Dashboard, and Admin Dashboard now build from DataService execution/node projections rather than `task_records` / `subagent_task_records`.
+- Run History room and Prism recent activity now use `ExecutionRunHistoryProjection` derived from `executions`; `workspace_run` has been removed from active runtime routes, and `compute_sessions` is treated only as a rebuildable UI shell/cache around canonical executions.
 
 ### Phase 4: Review Materialization
 

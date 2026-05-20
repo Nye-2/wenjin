@@ -289,6 +289,8 @@ class ExecutionService:
         execution_id: str,
         *,
         status: str,
+        result: dict[str, Any] | None | object = _UNSET,
+        error: str | None | object = _UNSET,
         runtime_state: dict[str, Any] | None | object = _UNSET,
         result_summary: str | None | object = _UNSET,
         artifact_ids: list[str] | None = None,
@@ -305,6 +307,8 @@ class ExecutionService:
         return await self.update_execution(
             execution_id,
             status=status,
+            result=result,
+            error=error,
             runtime_state=runtime_state,
             result_summary=result_summary,
             artifact_ids=artifact_ids,
@@ -585,50 +589,23 @@ class ExecutionService:
         token_usage: dict[str, Any] | None = None,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
-    ) -> ExecutionNodeRecord:
+    ):
         """Upsert an ExecutionNodeRecord for one lifecycle event.
 
         Used by ``LeadAgentRuntime``'s runner to record running/completed/failed
         transitions so the FE node-detail endpoint returns real state.
         """
-        existing = await self.find_node_by_node_id(execution_id, node_id)
-        if existing is None:
-            record = ExecutionNodeRecord(
-                id=generate_uuid(),
-                execution_id=execution_id,
-                node_id=node_id,
-                node_type=node_type,
-                label=label,
-                input_data=input_data,
-                status=status,
-                output_data=output_data,
-                thinking=thinking,
-                tool_calls=tool_calls,
-                token_usage=token_usage,
-                started_at=started_at,
-                completed_at=completed_at,
-            )
-            self.db.add(record)
-            await self.db.commit()
-            await self.db.refresh(record)
-            return record
-
-        if status:
-            existing.status = status
-        if input_data is not None:
-            existing.input_data = input_data
-        if output_data is not None:
-            existing.output_data = output_data
-        if thinking is not None:
-            existing.thinking = thinking
-        if tool_calls is not None:
-            existing.tool_calls = tool_calls
-        if token_usage is not None:
-            existing.token_usage = token_usage
-        if started_at is not None and existing.started_at is None:
-            existing.started_at = started_at
-        if completed_at is not None:
-            existing.completed_at = completed_at
-        await self.db.commit()
-        await self.db.refresh(existing)
-        return existing
+        return await ExecutionDataService(self.db, autocommit=True).upsert_node_record(
+            execution_id,
+            node_id=node_id,
+            node_type=node_type,
+            label=label,
+            status=status,
+            input_data=input_data,
+            output_data=output_data,
+            thinking=thinking,
+            tool_calls=tool_calls,
+            token_usage=token_usage,
+            started_at=started_at,
+            completed_at=completed_at,
+        )

@@ -309,11 +309,12 @@ async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]
     item = _FakePrismReviewService.review_item
     pending_items = [item] if item is not None and item.status in {"pending", "deferred"} else []
     applied_items = [item] if item is not None and item.status == "applied" else []
+    execution = _execution(now)
+    execution.result = _task(now).result
     db = _FakeDb(
         [
             _Result(scalar=_compute_session(now)),
-            _Result(scalar=_execution(now)),
-            _Result(scalars=[_task(now)]),
+            _Result(scalar=execution),
             _Result(scalars=[]),
             _Result(scalar=project),
             _Result(scalars=pending_items),

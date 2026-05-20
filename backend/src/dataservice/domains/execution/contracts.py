@@ -60,6 +60,24 @@ class ExecutionEventCreateCommand(BaseModel):
     occurred_at: datetime | None = None
 
 
+class ExecutionNodeUpsertCommand(BaseModel):
+    """Create or update one execution node lifecycle snapshot."""
+
+    node_id: str = Field(min_length=1, max_length=100)
+    node_type: str = Field(min_length=1, max_length=20)
+    label: str | None = Field(default=None, max_length=200)
+    parent_node_id: str | None = Field(default=None, max_length=36)
+    status: str = Field(min_length=1, max_length=20)
+    input_data: dict[str, Any] | None = None
+    output_data: dict[str, Any] | None = None
+    thinking: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    token_usage: dict[str, Any] | None = None
+    node_metadata: dict[str, Any] | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
 class ExecutionRecordProjection(BaseModel):
     """Canonical execution projection with v2 field names."""
 
@@ -157,5 +175,22 @@ class ExecutionEventProjection(BaseModel):
     sequence_index: int
     payload_json: dict[str, Any] = Field(default_factory=dict)
     occurred_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ExecutionRunHistoryProjection(BaseModel):
+    """Run-history projection derived from the execution aggregate."""
+
+    id: str
+    workspace_id: str | None = None
+    execution_id: str
+    capability_id: str | None = None
+    title: str
+    summary: str | None = None
+    status: str
+    duration_seconds: int = 0
+    token_usage: dict[str, Any] | None = None
+    artifact_count: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None

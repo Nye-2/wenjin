@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.database import CreditTransactionType
+from src.dataservice.domains.execution.contracts import (
+    ExecutionNodeProjection,
+    ExecutionRecordProjection,
+)
 from src.services.admin_dashboard_service import AdminDashboardService
 
 
@@ -26,6 +30,33 @@ class _RowsResult:
         return self._rows
 
 
+def _execution_projection(**overrides) -> ExecutionRecordProjection:
+    return ExecutionRecordProjection(
+        id=overrides.get("id", "exec-1"),
+        user_id=overrides.get("user_id", "user-1"),
+        execution_type=overrides.get("execution_type", "feature"),
+        status=overrides.get("status", "completed"),
+        task_brief_json={},
+        result_json=overrides.get("result_json"),
+        node_states_json={},
+        progress=100,
+        artifact_ids=[],
+        next_actions=[],
+        child_execution_ids=[],
+    )
+
+
+def _node_projection(**overrides) -> ExecutionNodeProjection:
+    return ExecutionNodeProjection(
+        id=overrides.get("id", "node-1"),
+        execution_id=overrides.get("execution_id", "exec-1"),
+        node_id=overrides.get("node_id", "phase__task"),
+        node_type=overrides.get("node_type", "react"),
+        status=overrides.get("status", "completed"),
+        token_usage=overrides.get("token_usage"),
+    )
+
+
 @pytest.mark.asyncio
 async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() -> None:
     db = AsyncMock()
@@ -36,9 +67,6 @@ async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() ->
             _ScalarResult(1),
             _ScalarResult(4),
             _RowsResult([("thesis", 3), ("sci", 1)]),
-            _ScalarResult(12),
-            _ScalarResult(2),
-            _ScalarResult(1),
             _ScalarResult(8),
             _ScalarResult(260),
             _ScalarResult(180),
@@ -69,38 +97,42 @@ async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() ->
                     ),
                 ]
             ),
-            _RowsResult(
-                [
-                    (
-                        {
-                            "token_usage": {
-                                "input_tokens": 100,
-                                "output_tokens": 40,
-                                "total_tokens": 140,
-                            }
-                        },
-                    ),
-                    ({},),
-                ]
-            ),
-            _RowsResult(
-                [
-                    (
-                        {
-                            "token_usage": {
-                                "input_tokens": 70,
-                                "output_tokens": 10,
-                                "total_tokens": 80,
-                            }
-                        },
-                    ),
-                    ({},),
-                ]
-            ),
         ]
     )
 
-    payload = await AdminDashboardService(db).get_dashboard()
+    service = AdminDashboardService(db)
+    service._execution.count_executions = AsyncMock(side_effect=[12, 2, 1])
+    service._execution.list_executions = AsyncMock(
+        return_value=[
+            _execution_projection(
+                id="exec-1",
+                result_json={
+                    "token_usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 40,
+                        "total_tokens": 140,
+                    }
+                },
+            ),
+            _execution_projection(id="exec-2", result_json={}),
+        ]
+    )
+    service._execution.list_nodes_by_execution_ids = AsyncMock(
+        return_value=[
+            _node_projection(
+                id="node-1",
+                execution_id="exec-1",
+                token_usage={
+                    "input_tokens": 70,
+                    "output_tokens": 10,
+                    "total_tokens": 80,
+                },
+            ),
+            _node_projection(id="node-2", execution_id="exec-2"),
+        ]
+    )
+
+    payload = await service.get_dashboard()
 
     assert payload["summary"]["credits"] == {
         "total_issued": 260,

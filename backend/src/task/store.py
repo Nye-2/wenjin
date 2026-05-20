@@ -487,6 +487,8 @@ class TaskStore:
                 record.execution_id,
                 commit=False,
                 status=(TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value),
+                result=result if isinstance(result, dict) else None,
+                error=error,
                 runtime_state=runtime_snapshot,
                 result_summary=result_summary,
                 artifact_ids=artifact_ids,

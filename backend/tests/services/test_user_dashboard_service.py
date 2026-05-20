@@ -8,6 +8,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from src.dataservice.domains.execution.contracts import (
+    ExecutionNodeProjection,
+    ExecutionRecordProjection,
+)
 from src.services.user_dashboard_service import UserDashboardService
 
 
@@ -17,6 +21,42 @@ class _RowsResult:
 
     def all(self):
         return self._rows
+
+
+def _execution_projection(**overrides) -> ExecutionRecordProjection:
+    now = overrides.get("created_at") or datetime.now(UTC)
+    return ExecutionRecordProjection(
+        id=overrides.get("id", "exec-1"),
+        user_id=overrides.get("user_id", "user-1"),
+        workspace_id=overrides.get("workspace_id", "ws-1"),
+        thread_id=overrides.get("thread_id"),
+        execution_type=overrides.get("execution_type", "feature"),
+        capability_id=overrides.get("capability_id"),
+        status=overrides.get("status", "completed"),
+        task_brief_json=overrides.get("task_brief_json", {}),
+        result_json=overrides.get("result_json"),
+        node_states_json={},
+        progress=overrides.get("progress", 100),
+        artifact_ids=[],
+        next_actions=[],
+        child_execution_ids=[],
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _node_projection(**overrides) -> ExecutionNodeProjection:
+    now = overrides.get("created_at") or datetime.now(UTC)
+    return ExecutionNodeProjection(
+        id=overrides.get("id", "node-1"),
+        execution_id=overrides.get("execution_id", "exec-1"),
+        node_id=overrides.get("node_id", "phase__task"),
+        node_type=overrides.get("node_type", "react"),
+        status=overrides.get("status", "completed"),
+        token_usage=overrides.get("token_usage"),
+        created_at=now,
+        updated_at=now,
+    )
 
 
 @pytest.mark.asyncio
@@ -106,40 +146,36 @@ async def test_get_dashboard_includes_thread_credit_status() -> None:
 @pytest.mark.asyncio
 async def test_get_token_usage_stats_aggregates_feature_and_subagent_usage() -> None:
     db = AsyncMock()
-    db.execute = AsyncMock(
-        side_effect=[
-            _RowsResult(
-                [
-                    (
-                        {
-                            "token_usage": {
-                                "input_tokens": 100,
-                                "output_tokens": 20,
-                                "total_tokens": 120,
-                            }
-                        },
-                    ),
-                    ({},),
-                ]
+    service = UserDashboardService(db)
+    service._execution.list_executions = AsyncMock(
+        return_value=[
+            _execution_projection(
+                id="exec-1",
+                result_json={
+                    "token_usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 20,
+                        "total_tokens": 120,
+                    }
+                },
             ),
-            _RowsResult(
-                [
-                    (
-                        {
-                            "token_usage": {
-                                "input_tokens": 30,
-                                "output_tokens": 10,
-                                "total_tokens": 40,
-                            }
-                        },
-                    ),
-                    ({},),
-                ]
-            ),
+            _execution_projection(id="exec-2", result_json={}),
         ]
     )
-
-    service = UserDashboardService(db)
+    service._execution.list_nodes_by_execution_ids = AsyncMock(
+        return_value=[
+            _node_projection(
+                id="node-1",
+                execution_id="exec-1",
+                token_usage={
+                    "input_tokens": 30,
+                    "output_tokens": 10,
+                    "total_tokens": 40,
+                },
+            ),
+            _node_projection(id="node-2", execution_id="exec-2"),
+        ]
+    )
     stats = await service._get_token_usage_stats(
         user_id="user-1",
         thread_credit_status={

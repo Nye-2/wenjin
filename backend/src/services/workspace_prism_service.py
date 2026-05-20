@@ -11,7 +11,10 @@ from src.database.models.decision import Decision
 from src.database.models.latex_project import LatexProject
 from src.database.models.memory_fact import MemoryFact
 from src.database.models.prism import PrismReviewItem
-from src.database.models.run_history import RunHistory
+from src.dataservice.execution_api import (
+    ExecutionDataService,
+    ExecutionRunHistoryProjection,
+)
 from src.services.prism_review_service import (
     APPLIED_STATUSES,
     PENDING_STATUSES,
@@ -65,14 +68,14 @@ def _memory_payload(item: MemoryFact) -> dict[str, Any]:
     }
 
 
-def _run_history_payload(item: RunHistory) -> dict[str, Any]:
+def _run_history_payload(item: ExecutionRunHistoryProjection) -> dict[str, Any]:
     return {
         "id": str(item.id),
-        "workspace_id": str(item.workspace_id),
+        "workspace_id": str(item.workspace_id or ""),
         "execution_id": str(item.execution_id),
-        "capability_id": str(item.capability_id),
+        "capability_id": str(item.capability_id or ""),
         "title": str(item.title),
-        "summary": str(item.summary),
+        "summary": str(item.summary or ""),
         "status": str(item.status),
         "artifact_count": int(item.artifact_count or 0),
         "duration_seconds": int(item.duration_seconds or 0),
@@ -346,14 +349,12 @@ class WorkspacePrismService:
         return [_memory_payload(item) for item in result.scalars().all()]
 
     async def _list_recent_activity(self, workspace_id: str) -> list[dict[str, Any]]:
-        run_history_result = await self.db.execute(
-            select(RunHistory)
-            .where(
-                RunHistory.workspace_id == workspace_id,
-                RunHistory.deleted_at.is_(None),
-            )
-            .order_by(RunHistory.created_at.desc())
-            .limit(5)
+        run_history = await ExecutionDataService(
+            self.db,
+            autocommit=False,
+        ).list_run_history(
+            workspace_id=workspace_id,
+            limit=5,
         )
         review_result = await self.db.execute(
             select(PrismReviewItem)
@@ -367,9 +368,7 @@ class WorkspacePrismService:
             )
             .limit(5)
         )
-        run_history_items = [
-            _run_history_payload(item) for item in run_history_result.scalars().all()
-        ]
+        run_history_items = [_run_history_payload(item) for item in run_history]
         review_items = [
             _prism_review_activity_payload(item)
             for item in review_result.scalars().all()

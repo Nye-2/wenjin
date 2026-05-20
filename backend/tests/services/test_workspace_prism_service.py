@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.latex_project import LatexProject
+from src.dataservice.domains.execution.contracts import ExecutionRunHistoryProjection
 from tests.database.conftest import DbUser, DbWorkspace
 
 
@@ -388,8 +389,33 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     db: AsyncSession,
     user: SimpleNamespace,
     workspace: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from src.services.workspace_prism_service import WorkspacePrismService
+
+    class _FakeExecutionDataService:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        async def list_run_history(self, *, workspace_id: str, limit: int = 5):
+            return [
+                ExecutionRunHistoryProjection(
+                    id="exec-1",
+                    workspace_id=workspace_id,
+                    execution_id="exec-1",
+                    capability_id="writing",
+                    title="Intro drafting",
+                    summary="Generated manuscript update",
+                    status="completed",
+                    artifact_count=1,
+                    duration_seconds=12,
+                )
+            ]
+
+    monkeypatch.setattr(
+        "src.services.workspace_prism_service.ExecutionDataService",
+        _FakeExecutionDataService,
+    )
 
     project = LatexProject(
         id="latex-prism",
