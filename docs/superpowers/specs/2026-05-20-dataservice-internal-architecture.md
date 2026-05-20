@@ -56,6 +56,13 @@ backend/src/dataservice/
       service.py
       projection.py
       policies.py
+    conversation/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+      projection.py
+      block_protocol.py
     catalog/
       models.py
       contracts.py
@@ -73,20 +80,23 @@ backend/src/dataservice/
       contracts.py
       repository.py
       service.py
-      target_handlers.py
+      registry.py
     asset/
       models.py
       contracts.py
       repository.py
       service.py
+      review_handler.py
     prism/
       models.py
       contracts.py
       repository.py
       service.py
       projection.py
+      review_handler.py
       adapters/
         latex.py
+        markdown.py
     source/
       models.py
       contracts.py
@@ -95,6 +105,7 @@ backend/src/dataservice/
       projection.py
       importers.py
       preprocess.py
+      review_handler.py
     sandbox/
       models.py
       contracts.py
@@ -102,6 +113,7 @@ backend/src/dataservice/
       service.py
       projection.py
       policy.py
+      review_handler.py
     provenance/
       models.py
       contracts.py
@@ -113,6 +125,7 @@ backend/src/dataservice/
       repository.py
       service.py
       projection.py
+      review_handler.py
     operations/
       models.py
       repository.py
@@ -125,6 +138,7 @@ backend/src/dataservice_app/
   routers/
     health.py
     workspace.py
+    conversation.py
     catalog.py
     execution.py
     review.py
@@ -180,10 +194,11 @@ Canonical workspace model amendment:
 
 | Domain | Aggregate root | Owns | Does not own |
 | --- | --- | --- | --- |
-| Workspace | `WorkspaceAggregate` | workspace identity, membership, settings, active thread pointer | thread messages, executions, assets |
+| Workspace | `WorkspaceAggregate` | workspace identity, membership, settings, active thread pointer | message blocks, executions, assets |
+| Conversation | `ConversationAggregate` | threads, messages, block protocol arrival order, tool invocation/result linkage | execution graph, review apply |
 | Catalog | `CapabilityCatalogAggregate` | capability definitions, skills, seed revisions | execution state |
 | Execution | `ExecutionAggregate` | execution, nodes, events, run status | worker queue internals, review apply |
-| Review | `ReviewBatchAggregate` | review batches, review items, action logs, target apply state | target tables directly, except through handlers |
+| Review | `ReviewBatchAggregate` | review batches, review items, action logs, state transitions, apply orchestration | target table internals |
 | Asset | `WorkspaceAssetAggregate` | file/blob metadata, derivative links, deletion state | source semantics, Prism editable file semantics |
 | Prism | `PrismProjectAggregate` | Prism project/doc/file/version/render/protected scope | source library, binary storage, execution running |
 | Source | `SourceAggregate` | source metadata, external ids, source assets, outline, text units, BibTeX snapshots | workspace assets binary storage, Prism files |
@@ -221,6 +236,35 @@ Invariants:
 - Active thread must belong to the same workspace.
 - Settings row is 1:1 with workspace.
 - Workspace type is immutable after creation unless an admin migration command changes it.
+
+### 6.1.1 Conversation Domain
+
+Current scattered logic:
+
+- `thread_service.py`
+- JSON `threads.messages`
+- block protocol payloads in agent/runtime/frontend flow
+- tool invocation/result metadata embedded in message blocks
+
+Target commands:
+
+| Command | Behavior |
+| --- | --- |
+| `create_thread` | Create workspace-scoped or standalone thread with actor context. |
+| `append_message` | Append user/assistant/system message metadata. |
+| `append_block` | Append one of the canonical 7 block types in arrival order. |
+| `append_tool_invocation` | Persist tool call metadata and link to message/execution node when available. |
+| `append_tool_result` | Persist tool result metadata and link to invocation. |
+| `compact_thread_context` | Write compaction metadata without rewriting historical block order. |
+| `get_conversation_projection` | Return thread/message/block read model for workbench chat. |
+
+Invariants:
+
+- The 7 block types are canonical: `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, `tool_result`.
+- Block arrival order is append-only.
+- Thinking blocks are stored in arrival order, never prepended.
+- `threads.messages_json` can be a migration bridge, not the final block protocol SSOT.
+- Tool invocation and result records can link to execution nodes when produced by Lead Agent runs.
 
 ### 6.2 Catalog Domain
 
@@ -301,22 +345,21 @@ Target commands:
 | `apply_item` | Apply one accepted item through the matching handler. |
 | `revert_item` | Revert supported targets and log action. |
 
-Target handlers:
+Target handler registry:
 
-| Target kind | Handler writes |
-| --- | --- |
-| `prism_file_change` | `prism_file_versions`, `provenance_links` |
-| `source_candidate` | `sources`, `source_assets`, optional `workspace_assets` |
-| `workspace_asset` | `workspace_assets`, optional provenance |
-| `decision_candidate` | `decisions`, provenance |
-| `memory_candidate` | `memory_facts`, provenance |
-| `workspace_task` | `workspace_tasks`, provenance |
-| `sandbox_artifact` | `sandbox_artifacts`, `workspace_assets`, provenance |
+| Target kind | Handler location | Target owner |
+| --- | --- | --- |
+| `prism_file_change` | `domains/prism/review_handler.py` | Prism |
+| `source_candidate` | `domains/source/review_handler.py` | Source |
+| `workspace_asset` | `domains/asset/review_handler.py` | Asset |
+| `room_decision`, `room_memory`, `room_task`, `room_document` | `domains/rooms/review_handler.py` | Rooms |
+| `sandbox_artifact` | `domains/sandbox/review_handler.py` | Sandbox |
 
 Invariants:
 
 - Agent output cannot mutate Prism/rooms/assets directly.
 - Apply action and target write are one transaction.
+- Review owns state transitions and orchestration; target domains own target business writes.
 - Review item status transitions are controlled by domain service.
 
 ### 6.5 Asset Domain
@@ -519,6 +562,10 @@ API rules:
 - Commands accept typed request contracts and return typed result contracts.
 - Query endpoints return projections and never expose ORM-shaped payloads.
 - Internal token authenticates service caller; actor context authorizes business access.
+- All endpoints use a standard response envelope: `ok`, `data`, `error`, `request_id`, and optional `revision`.
+- Error codes are stable contract values: `UNAUTHENTICATED_INTERNAL_CALL`, `FORBIDDEN_WORKSPACE_ACCESS`, `NOT_FOUND`, `VALIDATION_ERROR`, `IDEMPOTENCY_CONFLICT`, `CONFLICT`, `TARGET_HANDLER_NOT_FOUND`, `TARGET_APPLY_FAILED`, `MIGRATION_VALIDATION_FAILED`, `INTERNAL_ERROR`.
+- Idempotency uniqueness is scoped by `source_service`, `command_name`, optional `workspace_id`, optional `actor_user_id`, and `idempotency_key`.
+- Reusing the same idempotency key with a different normalized request hash returns `IDEMPOTENCY_CONFLICT`.
 
 ---
 
@@ -580,4 +627,3 @@ These amendments should be applied to the SSOT model before implementation:
 9. Remove old runtime paths and legacy tables only after architecture guard proves no readers.
 
 No business domain implementation should start until steps 1-2 are complete and reviewed.
-

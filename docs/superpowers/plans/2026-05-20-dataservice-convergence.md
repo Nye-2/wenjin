@@ -14,6 +14,7 @@
 
 - `/Users/ze/wenjin/docs/superpowers/specs/2026-05-20-super-agent-capability-system-design.md`
 - `/Users/ze/wenjin/docs/superpowers/specs/2026-05-20-wenjin-native-prism-integration-overview.md`
+- `/Users/ze/wenjin/docs/superpowers/specs/2026-05-21-dataservice-full-migration-overview.md`
 - `/Users/ze/wenjin/docs/superpowers/specs/2026-05-20-dataservice-internal-architecture.md`
 - `/Users/ze/wenjin/AGENTS.md`
 
@@ -89,15 +90,16 @@ backend/src/dataservice/
     unit_of_work.py
   domains/
     workspace/{models.py,contracts.py,repository.py,service.py,projection.py,policies.py}
+    conversation/{models.py,contracts.py,repository.py,service.py,projection.py,block_protocol.py}
     catalog/{models.py,contracts.py,repository.py,service.py,seed_loader.py}
     execution/{models.py,contracts.py,repository.py,service.py,projection.py}
-    review/{models.py,contracts.py,repository.py,service.py,target_handlers.py}
-    asset/{models.py,contracts.py,repository.py,service.py}
-    prism/{models.py,contracts.py,repository.py,service.py,projection.py}
-    source/{models.py,contracts.py,repository.py,service.py,projection.py}
-    sandbox/{models.py,contracts.py,repository.py,service.py,projection.py}
+    review/{models.py,contracts.py,repository.py,service.py,registry.py}
+    asset/{models.py,contracts.py,repository.py,service.py,review_handler.py}
+    prism/{models.py,contracts.py,repository.py,service.py,projection.py,review_handler.py}
+    source/{models.py,contracts.py,repository.py,service.py,projection.py,review_handler.py}
+    sandbox/{models.py,contracts.py,repository.py,service.py,projection.py,review_handler.py}
     provenance/{models.py,contracts.py,repository.py,service.py}
-    rooms/{models.py,contracts.py,repository.py,service.py,projection.py}
+    rooms/{models.py,contracts.py,repository.py,service.py,projection.py,review_handler.py}
     operations/{models.py,repository.py,outbox.py}
 backend/src/dataservice_app/
   __init__.py
@@ -583,7 +585,31 @@ Steps:
 - [ ] Run workspace/thread/settings tests plus architecture guard.
 - [ ] Commit `feat: move workspace aggregate into dataservice`.
 
-### Task 4: Move Capability Catalog Aggregate To DataService
+### Task 4: Move Conversation And Block Protocol To DataService
+
+**Files:**
+
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/conversation/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/conversation/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/conversation/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/conversation/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/conversation/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/conversation/block_protocol.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/conversation.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/conversation.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/061_dataservice_conversation_blocks.py`
+- Modify: `/Users/ze/wenjin/backend/src/services/thread_service.py`
+
+Steps:
+
+- [ ] Add `thread_messages`, `message_blocks`, `tool_invocation_records`, and `tool_result_records`.
+- [ ] Preserve the canonical 7 block types and arrival-order append semantics.
+- [ ] Keep `threads.messages_json` only as bridge data until consumers cut over.
+- [ ] Migrate existing thread JSON blocks into message/block rows.
+- [ ] Run thread/block protocol tests plus architecture guard.
+- [ ] Commit `feat: move conversation blocks into dataservice`.
+
+### Task 5: Move Capability Catalog Aggregate To DataService
 
 **Files:**
 
@@ -594,7 +620,7 @@ Steps:
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/seed_loader.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/catalog.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/catalog.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/061_dataservice_capability_catalog.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/062_dataservice_capability_catalog.py`
 - Modify capability seed loader and admin capability/skill services.
 
 Steps:
@@ -606,7 +632,7 @@ Steps:
 - [ ] Run seed load tests and admin capability service tests.
 - [ ] Commit `feat: move capability catalog aggregate into dataservice`.
 
-### Task 5: Move Execution Aggregate To DataService
+### Task 6: Move Execution Aggregate To DataService
 
 **Files:**
 
@@ -617,7 +643,7 @@ Steps:
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/projection.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/execution.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/execution.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/062_dataservice_execution_graph.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/063_dataservice_execution_graph.py`
 - Modify: `/Users/ze/wenjin/backend/src/agents/lead_agent/v2/runtime.py`
 - Modify: `/Users/ze/wenjin/backend/src/execution/engine.py`
 
@@ -631,7 +657,7 @@ Steps:
 - [ ] Run lead runtime, execution service, compute projection, and architecture guard tests.
 - [ ] Commit `feat: converge execution aggregate ssot`.
 
-### Task 6: Add Review Batch Aggregate
+### Task 7: Add Review Batch Aggregate
 
 **Files:**
 
@@ -639,10 +665,10 @@ Steps:
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/contracts.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/repository.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/service.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/target_handlers.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/registry.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/review.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/review.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/063_dataservice_review_queue.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/064_dataservice_review_queue.py`
 - Create: `/Users/ze/wenjin/backend/tests/dataservice/test_review_batch_service.py`
 
 Steps:
@@ -651,11 +677,11 @@ Steps:
 - [ ] Migrate `prism_review_items` and transient result-card outputs into batch/item rows.
 - [ ] Add state transition tests for batch statuses `pending`, `partially_applied`, `applied`, `rejected`, and `failed`.
 - [ ] Add state transition tests for item statuses `pending`, `accepted`, `rejected`, `applied`, `reverted`, and `failed`.
-- [ ] Ensure apply action requires target handler and one transaction for target write, item transition, batch transition, action log, and provenance links.
+- [ ] Ensure apply action uses target-domain review handlers and one transaction for target write, item transition, batch transition, action log, and provenance links.
 - [ ] Remove Prism-specific review status reads from new code paths.
 - [ ] Commit `feat: add review batch aggregate`.
 
-### Task 7: Add Workspace Asset Aggregate
+### Task 8: Add Workspace Asset Aggregate
 
 **Files:**
 
@@ -663,9 +689,10 @@ Steps:
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/contracts.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/repository.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/review_handler.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/asset.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/asset.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/064_dataservice_workspace_assets.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/065_dataservice_workspace_assets.py`
 
 Steps:
 
@@ -676,7 +703,7 @@ Steps:
 - [ ] Run asset repository and migration validation tests.
 - [ ] Commit `feat: add workspace asset aggregate`.
 
-### Task 8: Add Prism Project Aggregate
+### Task 9: Add Prism Project Aggregate
 
 **Files:**
 
@@ -685,10 +712,11 @@ Steps:
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/repository.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/service.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/review_handler.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/adapters/latex.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/prism.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/prism.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/065_dataservice_prism_documents.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/066_dataservice_prism_documents.py`
 - Modify: `/Users/ze/wenjin/backend/src/services/workspace_prism_service.py`
 - Test: `/Users/ze/wenjin/backend/tests/dataservice/test_prism_project_service.py`
 
@@ -701,7 +729,7 @@ Steps:
 - [ ] Stop using `LatexProject.workspace_id` as the canonical workspace binding.
 - [ ] Commit `feat: add prism project aggregate`.
 
-### Task 9: Add Source And Provenance Aggregates
+### Task 10: Add Source And Provenance Aggregates
 
 **Files:**
 
@@ -712,6 +740,7 @@ Steps:
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/projection.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/importers.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/preprocess.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/review_handler.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/models.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/contracts.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/repository.py`
@@ -719,7 +748,7 @@ Steps:
 - Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/source.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/source.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/provenance.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/066_dataservice_sources_provenance.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/067_dataservice_sources_provenance.py`
 
 Steps:
 
@@ -731,7 +760,7 @@ Steps:
 - [ ] Ensure source-backed Prism edits have provenance links.
 - [ ] Commit `feat: add source and provenance aggregates`.
 
-### Task 10: Add Sandbox Environment Aggregate
+### Task 11: Add Sandbox Environment Aggregate
 
 **Files:**
 
@@ -741,9 +770,10 @@ Steps:
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/service.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/projection.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/policy.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/review_handler.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/sandbox.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/sandbox.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/067_dataservice_sandbox_runtime.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/068_dataservice_sandbox_runtime.py`
 
 Steps:
 
@@ -754,7 +784,7 @@ Steps:
 - [ ] Ensure sandbox policy blocks host/container/server control while allowing approved data/API/web workflows.
 - [ ] Commit `feat: add sandbox environment aggregate`.
 
-### Task 11: Move Workspace Rooms Aggregate Into DataService
+### Task 12: Move Workspace Rooms Aggregate Into DataService
 
 **Files:**
 
@@ -763,9 +793,10 @@ Steps:
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/repository.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/service.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/review_handler.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/rooms.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/rooms.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/068_dataservice_rooms_hooks.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/069_dataservice_rooms_hooks.py`
 - Modify: `/Users/ze/wenjin/backend/src/services/execution_commit_service.py`
 
 Steps:
@@ -777,7 +808,7 @@ Steps:
 - [ ] Replace `ExecutionCommitService` room writes with `ReviewBatchService.apply_many()`.
 - [ ] Commit `refactor: move workspace rooms aggregate into dataservice`.
 
-### Task 12: Rebuild Cross-Domain Projections And Delete Legacy Runtime Paths
+### Task 13: Rebuild Cross-Domain Projections And Delete Legacy Runtime Paths
 
 **Files:**
 
@@ -787,7 +818,7 @@ Steps:
 - Modify: `/Users/ze/wenjin/backend/src/dataservice/domains/source/projection.py`
 - Modify: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/projection.py`
 - Modify: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/projection.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/069_dataservice_projection_cleanup.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/070_dataservice_projection_cleanup.py`
 - Modify routers, agents, Compute, Prism, commit services, and capability catalog consumers.
 - Modify `/Users/ze/wenjin/backend/tests/architecture/test_dataservice_boundaries.py`.
 
@@ -799,7 +830,7 @@ Steps:
 - [ ] Run `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/dataservice tests/architecture tests/compute tests/services tests/gateway/routers -q`.
 - [ ] Commit `refactor: cut consumers over to dataservice`.
 
-### Task 13: Final Drop/Archive Gate
+### Task 14: Final Drop/Archive Gate
 
 Steps:
 
