@@ -39,6 +39,16 @@ class MemoryFact(Base, UUIDMixin):
     reference_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0,
     )
+    source_review_batch_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("review_batches.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_review_item_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("review_items.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default="now()", nullable=False,
     )

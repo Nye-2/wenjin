@@ -144,3 +144,21 @@ class ReviewDataService:
                 payload_json=dict(payload_json or {}),
             ),
         )
+
+    async def apply_many(
+        self,
+        item_ids: list[str],
+        *,
+        actor_id: str | None = None,
+        result_json: dict[str, Any] | None = None,
+        payload_json: dict[str, Any] | None = None,
+    ) -> list[ReviewItemProjection]:
+        return await self._domain.apply_many(
+            item_ids,
+            ReviewItemTransitionCommand(
+                status="applied",
+                actor_id=actor_id,
+                result_json=result_json,
+                payload_json=dict(payload_json or {}),
+            ),
+        )

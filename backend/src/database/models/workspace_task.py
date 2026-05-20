@@ -42,6 +42,16 @@ class WorkspaceTask(Base, UUIDMixin, TimestampMixin):
         JSONB, nullable=False, default=list,
     )
     created_by: Mapped[str] = mapped_column(String(60), nullable=False)
+    source_review_batch_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("review_batches.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_review_item_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("review_items.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )

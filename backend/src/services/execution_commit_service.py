@@ -12,11 +12,12 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.agents.contracts.task_report import TaskReport
+from src.dataservice.rooms_api import RoomCandidateCommand, RoomsDataService
 from src.services.execution_service import ExecutionService
 from src.services.rooms.decisions_service import DecisionsService
 from src.services.rooms.documents_service import DocumentsService
 from src.services.rooms.library_service import LibraryService
-from src.services.rooms.memory_service import FactCreate, MemoryService
+from src.services.rooms.memory_service import MemoryService
 from src.services.rooms.run_history_service import RunHistoryService
 from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 from src.workspace_events import publish_workspace_event
@@ -48,6 +49,7 @@ class ExecutionCommitService:
         memory_service: MemoryService,
         workspace_tasks_service: WorkspaceTasksService,
         run_history_service: RunHistoryService,
+        rooms_data_service: RoomsDataService | None = None,
         audit_service: Any | None = None,
         redis: Any = None,  # for idempotency cache; if None, no idempotency
         referral_first_task_callback: Callable[[str], Awaitable[None]] | None = None,
@@ -59,6 +61,7 @@ class ExecutionCommitService:
         self.memory = memory_service
         self.tasks = workspace_tasks_service
         self.run_history = run_history_service
+        self.rooms_data = rooms_data_service
         self.audit = audit_service
         self.redis = redis
         self._referral_first_task_callback = referral_first_task_callback
@@ -121,6 +124,7 @@ class ExecutionCommitService:
             "documents": [],
             "library": [],
         }
+        room_candidates: list[RoomCandidateCommand] = []
 
         # 4. Write to rooms
         for output in selected:
@@ -191,40 +195,71 @@ class ExecutionCommitService:
                 )
 
             elif kind == "memory_fact":
-                await self.memory.add_facts(
-                    execution.workspace_id,
-                    [
-                        FactCreate(
-                            category=data["category"],
-                            content=data["content"],
-                            confidence=data.get("confidence", 1.0),
-                        )
-                    ],
+                room_candidates.append(
+                    RoomCandidateCommand(
+                        source_item_id=output.id,
+                        target_kind="memory_fact",
+                        title=f"Memory fact: {data['category']}",
+                        summary=data["content"],
+                        payload_json={
+                            "category": data["category"],
+                            "content": data["content"],
+                            "confidence": data.get("confidence", 1.0),
+                        },
+                        preview_json={"content": data["content"]},
+                        provenance_json={"execution_id": execution_id, "output_id": output.id},
+                    )
                 )
-                counts["memory"] += 1
 
             elif kind == "decision":
-                await self.decisions.set(
-                    execution.workspace_id,
-                    key=data["key"],
-                    value=data["value"],
-                    extracted_by=f"execution:{execution_id}",
-                    confidence=data.get("confidence", 1.0),
+                room_candidates.append(
+                    RoomCandidateCommand(
+                        source_item_id=output.id,
+                        target_kind="decision",
+                        title=f"Decision: {data['key']}",
+                        summary=data["value"],
+                        payload_json={
+                            "key": data["key"],
+                            "value": data["value"],
+                            "confidence": data.get("confidence", 1.0),
+                            "extracted_by": f"execution:{execution_id}",
+                        },
+                        preview_json={"key": data["key"], "value": data["value"]},
+                        provenance_json={"execution_id": execution_id, "output_id": output.id},
+                    )
                 )
-                counts["decisions"] += 1
 
             elif kind == "task":
-                await self.tasks.add(
-                    execution.workspace_id,
-                    {
-                        "title": data["title"],
-                        "description": data.get("description"),
-                        "priority": data["priority"] if isinstance(data.get("priority"), int) else 0,
-                        "related_execution_ids": [execution_id],
-                        "created_by": f"execution:{execution_id}",
-                    },
+                room_candidates.append(
+                    RoomCandidateCommand(
+                        source_item_id=output.id,
+                        target_kind="workspace_task",
+                        title=f"Task: {data['title']}",
+                        summary=data.get("description"),
+                        payload_json={
+                            "title": data["title"],
+                            "description": data.get("description"),
+                            "priority": data["priority"] if isinstance(data.get("priority"), int) else 0,
+                            "related_execution_ids": [execution_id],
+                            "created_by": f"execution:{execution_id}",
+                        },
+                        preview_json={"title": data["title"]},
+                        provenance_json={"execution_id": execution_id, "output_id": output.id},
+                    )
                 )
-                counts["tasks"] += 1
+
+        room_review_result = None
+        if room_candidates:
+            rooms_data = self._resolve_rooms_data_service()
+            room_review_result = await rooms_data.stage_and_apply_candidates(
+                workspace_id=execution.workspace_id,
+                execution_id=execution_id,
+                candidates=room_candidates,
+                actor_id=f"execution:{execution_id}",
+            )
+            for key, value in room_review_result.counts.items():
+                if key in counts:
+                    counts[key] += value
 
         # 5. Always write run_history
         capability_id = execution.feature_id or report.capability_id
@@ -244,6 +279,9 @@ class ExecutionCommitService:
             "committed": counts,
             "room_targets": room_targets,
         }
+        if room_review_result is not None:
+            result["review_batch_id"] = room_review_result.review_batch_id
+            result["room_review_results"] = room_review_result.item_results
 
         # 6. Cache idempotent result
         if idempotency_key and self.redis:
@@ -294,6 +332,15 @@ class ExecutionCommitService:
             )
 
         return result
+
+    def _resolve_rooms_data_service(self) -> RoomsDataService:
+        if self.rooms_data is not None:
+            return self.rooms_data
+        db = getattr(self.execution, "db", None)
+        if db is None:
+            raise RuntimeError("ExecutionCommitService requires RoomsDataService for room candidate apply")
+        self.rooms_data = RoomsDataService(db)
+        return self.rooms_data
 
     async def _fire_referral_first_task(self, user_id: str) -> None:
         if self._referral_first_task_callback is not None:

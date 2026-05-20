@@ -49,6 +49,17 @@ from src.dataservice_client.contracts.review import (
     ReviewItemPayload,
     ReviewItemTransitionPayload,
 )
+from src.dataservice_client.contracts.rooms import (
+    DecisionPayload,
+    DecisionSetPayload,
+    MemoryFactCreatePayload,
+    MemoryFactPayload,
+    RoomCandidateApplyPayload,
+    RoomCandidatePayload,
+    WorkspaceTaskCreatePayload,
+    WorkspaceTaskPayload,
+    WorkspaceTaskUpdatePayload,
+)
 from src.dataservice_client.contracts.sandbox import (
     SandboxArtifactCreatePayload,
     SandboxArtifactPayload,
@@ -608,6 +619,109 @@ class AsyncDataServiceClient:
             },
         )
         return [SandboxArtifactPayload.model_validate(item) for item in payload["data"]]
+
+    async def list_room_decisions(self, workspace_id: str) -> dict[str, str]:
+        payload = await self._request("GET", f"/internal/v1/rooms/workspaces/{workspace_id}/decisions")
+        return dict(payload["data"])
+
+    async def set_room_decision(self, command: DecisionSetPayload) -> DecisionPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/rooms/decisions",
+            json=command.model_dump(mode="json"),
+        )
+        return DecisionPayload.model_validate(payload["data"])
+
+    async def delete_room_decision(self, decision_id: str) -> bool:
+        payload = await self._request("DELETE", f"/internal/v1/rooms/decisions/{decision_id}")
+        data = payload.get("data")
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def list_room_memory_facts(
+        self,
+        *,
+        workspace_id: str,
+        limit: int = 15,
+        category: str | None = None,
+    ) -> list[MemoryFactPayload]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/rooms/workspaces/{workspace_id}/memory",
+            params={"limit": limit, "category": category},
+        )
+        return [MemoryFactPayload.model_validate(item) for item in payload["data"]]
+
+    async def add_room_memory_facts(
+        self,
+        commands: list[MemoryFactCreatePayload],
+    ) -> list[MemoryFactPayload]:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/rooms/memory",
+            json=[command.model_dump(mode="json") for command in commands],
+        )
+        return [MemoryFactPayload.model_validate(item) for item in payload["data"]]
+
+    async def delete_room_memory_fact(self, *, workspace_id: str, fact_id: str) -> bool:
+        payload = await self._request("DELETE", f"/internal/v1/rooms/workspaces/{workspace_id}/memory/{fact_id}")
+        data = payload.get("data")
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def list_room_tasks(
+        self,
+        *,
+        workspace_id: str,
+        status: str | None = None,
+    ) -> list[WorkspaceTaskPayload]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/rooms/workspaces/{workspace_id}/tasks",
+            params={"status": status},
+        )
+        return [WorkspaceTaskPayload.model_validate(item) for item in payload["data"]]
+
+    async def create_room_task(self, command: WorkspaceTaskCreatePayload) -> WorkspaceTaskPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/rooms/tasks",
+            json=command.model_dump(mode="json"),
+        )
+        return WorkspaceTaskPayload.model_validate(payload["data"])
+
+    async def update_room_task(
+        self,
+        *,
+        workspace_id: str,
+        task_id: str,
+        command: WorkspaceTaskUpdatePayload,
+    ) -> WorkspaceTaskPayload | None:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/rooms/workspaces/{workspace_id}/tasks/{task_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return WorkspaceTaskPayload.model_validate(data) if data is not None else None
+
+    async def delete_room_task(self, *, workspace_id: str, task_id: str) -> bool:
+        payload = await self._request("DELETE", f"/internal/v1/rooms/workspaces/{workspace_id}/tasks/{task_id}")
+        data = payload.get("data")
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def stage_and_apply_room_candidates(
+        self,
+        *,
+        workspace_id: str,
+        execution_id: str,
+        candidates: list[RoomCandidatePayload],
+    ) -> RoomCandidateApplyPayload:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/rooms/workspaces/{workspace_id}/candidate-apply",
+            params={"execution_id": execution_id},
+            json=[candidate.model_dump(mode="json") for candidate in candidates],
+        )
+        return RoomCandidateApplyPayload.model_validate(payload["data"])
 
     async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
         payload = await self._request(

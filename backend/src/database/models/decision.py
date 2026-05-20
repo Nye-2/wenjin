@@ -37,10 +37,20 @@ class Decision(Base, UUIDMixin):
     source_message_id: Mapped[str | None] = mapped_column(
         String(36), nullable=True,
     )
-    extracted_by: Mapped[str] = mapped_column(String(20), nullable=False)
+    extracted_by: Mapped[str] = mapped_column(String(100), nullable=False)
     superseded_by: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("decisions.id"),
+        nullable=True,
+    )
+    source_review_batch_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("review_batches.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_review_item_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("review_items.id", ondelete="SET NULL"),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(

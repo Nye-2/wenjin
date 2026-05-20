@@ -859,12 +859,21 @@ Implementation status:
 
 Steps:
 
-- [ ] Keep `decisions`, `memory_facts`, and `workspace_tasks` as canonical room tables if field audit passes.
-- [ ] Add `source_review_batch_id` and `source_review_item_id` hooks where materialized room records need traceability.
-- [ ] Move all room query/write code into DataService room repository/service.
-- [ ] Make candidate room writes go through `review_batches` / `review_items`.
-- [ ] Replace `ExecutionCommitService` room writes with `ReviewBatchService.apply_many()`.
+- [x] Keep `decisions`, `memory_facts`, and `workspace_tasks` as canonical room tables if field audit passes.
+- [x] Add `source_review_batch_id` and `source_review_item_id` hooks where materialized room records need traceability.
+- [x] Move all room query/write code into DataService room repository/service.
+- [x] Make candidate room writes go through `review_batches` / `review_items`.
+- [x] Replace `ExecutionCommitService` room writes with `ReviewBatchService.apply_many()`.
 - [ ] Commit `refactor: move workspace rooms aggregate into dataservice`.
+
+Implementation status:
+
+- 2026-05-21: Rooms aggregate foundation is implemented in DataService while keeping `decisions`, `memory_facts`, and `workspace_tasks` as canonical physical tables.
+- Migration `069_dataservice_rooms_hooks.py` adds `source_review_batch_id` and `source_review_item_id` trace hooks to all three room tables and widens `decisions.extracted_by` for execution/review actors.
+- `backend/src/dataservice/domains/rooms/` owns room contracts, repository, projections, service, and review handler factory. `dataservice_app` exposes internal rooms routes and `dataservice_client` has typed room methods.
+- Legacy room services for decisions, memory, and workspace tasks now delegate to `RoomsDataService`; workspace room routes therefore call DataService-owned room business logic.
+- `ExecutionCommitService` no longer writes memory/decision/task outputs directly. It creates room review candidates, stages them in `review_batches` / `review_items`, and applies accepted items through review handlers via `apply_many()`.
+- Verification: Rooms domain tests, DataService domain tests, architecture boundary tests, execution commit tests, and workspace room router tests pass with 83 targeted tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1914 tests.
 
 ### Task 13: Rebuild Cross-Domain Projections And Delete Legacy Runtime Paths
 

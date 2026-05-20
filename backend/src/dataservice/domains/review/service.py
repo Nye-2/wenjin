@@ -205,6 +205,20 @@ class DataServiceReviewService:
         await self._finish()
         return item_to_projection(item)
 
+    async def apply_many(
+        self,
+        item_ids: list[str],
+        command: ReviewItemTransitionCommand,
+    ) -> list[ReviewItemProjection]:
+        """Apply multiple review items using the registered target handlers."""
+
+        applied: list[ReviewItemProjection] = []
+        for item_id in item_ids:
+            item = await self.apply_item(item_id, command)
+            if item is not None:
+                applied.append(item)
+        return applied
+
     async def _refresh_batch(self, batch_id: str):
         batch = await self.repository.get_batch(batch_id)
         if batch is None:

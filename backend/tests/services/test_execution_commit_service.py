@@ -76,6 +76,19 @@ def _make_service(
     tasks_svc = MagicMock()
     tasks_svc.add = AsyncMock(return_value=SimpleNamespace(id="task-1"))
 
+    rooms_data_svc = MagicMock()
+    rooms_data_svc.stage_and_apply_candidates = AsyncMock(
+        return_value=SimpleNamespace(
+            review_batch_id="review-batch-1",
+            counts={"memory": 1, "decisions": 1, "tasks": 1},
+            item_results=[
+                {"room": "memory", "record_id": "fact-1"},
+                {"room": "decisions", "record_id": "dec-1"},
+                {"room": "tasks", "record_id": "task-1"},
+            ],
+        )
+    )
+
     run_history_svc = MagicMock()
     run_history_svc.record = AsyncMock(return_value=SimpleNamespace(id="run-1"))
 
@@ -87,6 +100,7 @@ def _make_service(
         memory_service=memory_svc,
         workspace_tasks_service=tasks_svc,
         run_history_service=run_history_svc,
+        rooms_data_service=rooms_data_svc,
         redis=redis,
         referral_first_task_callback=AsyncMock(),
     )
@@ -98,6 +112,7 @@ def _make_service(
         "decisions": decisions_svc,
         "memory": memory_svc,
         "tasks": tasks_svc,
+        "rooms_data": rooms_data_svc,
         "run_history": run_history_svc,
     }
     return svc, mocks
@@ -166,9 +181,10 @@ async def test_commit_all_writes_all_kinds():
 
     mocks["library"].add.assert_called_once()
     mocks["documents"].add.assert_called_once()
-    mocks["memory"].add_facts.assert_called_once()
-    mocks["decisions"].set.assert_called_once()
-    mocks["tasks"].add.assert_called_once()
+    mocks["rooms_data"].stage_and_apply_candidates.assert_called_once()
+    mocks["memory"].add_facts.assert_not_called()
+    mocks["decisions"].set.assert_not_called()
+    mocks["tasks"].add.assert_not_called()
     mocks["run_history"].record.assert_called_once()
 
 
@@ -196,6 +212,7 @@ async def test_commit_some_only():
     mocks["memory"].add_facts.assert_not_called()
     mocks["decisions"].set.assert_not_called()
     mocks["tasks"].add.assert_not_called()
+    mocks["rooms_data"].stage_and_apply_candidates.assert_not_called()
     # run_history must still be called
     mocks["run_history"].record.assert_called_once()
 
@@ -235,6 +252,7 @@ async def test_commit_empty_still_writes_run_history():
     mocks["memory"].add_facts.assert_not_called()
     mocks["decisions"].set.assert_not_called()
     mocks["tasks"].add.assert_not_called()
+    mocks["rooms_data"].stage_and_apply_candidates.assert_not_called()
     mocks["run_history"].record.assert_called_once()
 
 

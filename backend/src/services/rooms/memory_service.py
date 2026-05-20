@@ -1,15 +1,10 @@
-"""Service layer for workspace memory facts."""
+"""Workspace memory service facade backed by DataService rooms."""
 
-import logging
-from datetime import UTC, datetime
-from uuid import uuid4
+from __future__ import annotations
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.memory_fact import MemoryFact
-
-logger = logging.getLogger(__name__)
+from src.dataservice.rooms_api import MemoryFactCreateCommand, RoomsDataService
 
 
 class FactCreate:
@@ -27,106 +22,44 @@ class FactCreate:
 
 
 class MemoryService:
-    """CRUD and ranking for memory_facts."""
+    """Compatibility facade whose business logic lives in DataService."""
 
-    def __init__(
-        self,
-        db: AsyncSession,
-        model: type[MemoryFact] = MemoryFact,
-    ) -> None:
+    def __init__(self, db: AsyncSession, model: object | None = None) -> None:
         self.db = db
         self._model = model
+        self._rooms = RoomsDataService(db)
 
-    async def add_facts(
-        self, workspace_id: str, facts: list[FactCreate]
-    ) -> list[MemoryFact]:
+    async def add_facts(self, workspace_id: str, facts: list[FactCreate]):
         """Bulk-insert memory facts."""
-        rows = []
-        for fact in facts:
-            row = self._model(
-                id=str(uuid4()),
-                workspace_id=workspace_id,
-                category=fact.category,
-                content=fact.content,
-                confidence=fact.confidence,
-            )
-            self.db.add(row)
-            rows.append(row)
-        await self.db.commit()
-        for row in rows:
-            await self.db.refresh(row)
-        return rows
 
-    async def top(
-        self, workspace_id: str, k: int = 15, category: str | None = None
-    ) -> list[MemoryFact]:
+        return await self._rooms.add_memory_facts(
+            [
+                MemoryFactCreateCommand(
+                    workspace_id=workspace_id,
+                    category=fact.category,
+                    content=fact.content,
+                    confidence=fact.confidence,
+                )
+                for fact in facts
+            ]
+        )
+
+    async def top(self, workspace_id: str, k: int = 15, category: str | None = None):
         """Get top-k facts ordered by reference_count DESC, confidence DESC."""
-        stmt = (
-            select(self._model)
-            .where(
-                self._model.workspace_id == workspace_id,
-                self._model.deleted_at.is_(None),
-            )
-            .order_by(self._model.reference_count.desc(), self._model.confidence.desc())
-            .limit(k)
-        )
-        if category is not None:
-            stmt = stmt.where(self._model.category == category)
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
 
-    async def mark_referenced(self, fact_id: str) -> MemoryFact | None:
+        return await self._rooms.list_memory_facts(workspace_id=workspace_id, limit=k, category=category)
+
+    async def mark_referenced(self, fact_id: str):
         """Increment reference_count and update last_referenced_at."""
-        result = await self.db.execute(
-            select(self._model).where(self._model.id == fact_id)
-        )
-        row = result.scalar_one_or_none()
-        if row is None:
-            return None
-        row.reference_count = (row.reference_count or 0) + 1
-        row.last_referenced_at = datetime.now(UTC)
-        await self.db.commit()
-        await self.db.refresh(row)
-        return row
+
+        return await self._rooms.mark_memory_fact_referenced(fact_id)
 
     async def evict_excess(self, workspace_id: str, max_count: int = 100) -> int:
-        """Delete lowest-priority facts until count <= max_count.
+        """Delete lowest-priority facts until count <= max_count."""
 
-        Priority: reference_count ASC, created_at ASC (oldest, least-referenced first).
-        Returns number of facts evicted.
-        """
-        # Count current non-deleted facts
-        count_result = await self.db.execute(
-            select(func.count()).select_from(self._model).where(
-                self._model.workspace_id == workspace_id,
-                self._model.deleted_at.is_(None),
-            )
-        )
-        current_count = count_result.scalar_one()
+        return await self._rooms.evict_excess_memory_facts(workspace_id, max_count=max_count)
 
-        if current_count <= max_count:
-            return 0
+    async def delete(self, workspace_id: str, fact_id: str) -> bool:
+        """Soft-delete a memory fact."""
 
-        to_evict = current_count - max_count
-
-        # Find lowest-priority facts
-        result = await self.db.execute(
-            select(self._model)
-            .where(
-                self._model.workspace_id == workspace_id,
-                self._model.deleted_at.is_(None),
-            )
-            .order_by(
-                self._model.reference_count.asc(),
-                self._model.created_at.asc(),
-            )
-            .limit(to_evict)
-        )
-        victims = result.scalars().all()
-
-        now = datetime.now(UTC)
-        for v in victims:
-            v.deleted_at = now
-
-        await self.db.commit()
-        return len(victims)
+        return await self._rooms.soft_delete_memory_fact(workspace_id=workspace_id, fact_id=fact_id)

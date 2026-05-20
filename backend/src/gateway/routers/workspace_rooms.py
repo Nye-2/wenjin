@@ -10,12 +10,10 @@ Rooms covered (spec §5.3):
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
@@ -496,19 +494,9 @@ async def delete_memory_fact(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    from src.database.models.memory_fact import MemoryFact
-
-    result = await db.execute(
-        select(MemoryFact).where(
-            MemoryFact.id == fact_id,
-            MemoryFact.workspace_id == ws_id,
-        )
-    )
-    fact = result.scalar_one_or_none()
-    if fact is None:
+    found = await _memory_service(db).delete(ws_id, fact_id)
+    if not found:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory fact not found")
-    fact.deleted_at = datetime.now(UTC)
-    await db.commit()
 
 
 # ===========================================================================

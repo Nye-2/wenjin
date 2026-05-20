@@ -1,99 +1,50 @@
-"""Service layer for workspace tasks."""
+"""Workspace task service facade backed by DataService rooms."""
 
-import logging
-from datetime import UTC, datetime
+from __future__ import annotations
+
 from typing import Any
-from uuid import uuid4
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.workspace_task import WorkspaceTask
-
-logger = logging.getLogger(__name__)
+from src.dataservice.rooms_api import RoomsDataService, WorkspaceTaskCreateCommand, WorkspaceTaskUpdateCommand
 
 
 class WorkspaceTasksService:
-    """CRUD for workspace_tasks."""
+    """Compatibility facade whose business logic lives in DataService."""
 
-    def __init__(
-        self,
-        db: AsyncSession,
-        model: type[WorkspaceTask] = WorkspaceTask,
-    ) -> None:
+    def __init__(self, db: AsyncSession, model: object | None = None) -> None:
         self.db = db
         self._model = model
+        self._rooms = RoomsDataService(db)
 
-    async def add(
-        self, workspace_id: str, data: dict[str, Any]
-    ) -> WorkspaceTask:
+    async def add(self, workspace_id: str, data: dict[str, Any]):
         """Add a new workspace task."""
-        row = self._model(
-            id=str(uuid4()),
-            workspace_id=workspace_id,
-            **data,
-        )
-        self.db.add(row)
-        await self.db.commit()
-        await self.db.refresh(row)
-        return row
 
-    async def list(
-        self, workspace_id: str, status: str | None = None
-    ) -> list[WorkspaceTask]:
+        return await self._rooms.create_workspace_task(
+            WorkspaceTaskCreateCommand(workspace_id=workspace_id, **data)
+        )
+
+    async def list(self, workspace_id: str, status: str | None = None):
         """List non-deleted workspace tasks, optionally filtered by status."""
-        stmt = (
-            select(self._model)
-            .where(
-                self._model.workspace_id == workspace_id,
-                self._model.deleted_at.is_(None),
-            )
-        )
-        if status is not None:
-            stmt = stmt.where(self._model.status == status)
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
 
-    async def get(
-        self, workspace_id: str, task_id: str
-    ) -> WorkspaceTask | None:
+        return await self._rooms.list_workspace_tasks(workspace_id=workspace_id, status=status)
+
+    async def get(self, workspace_id: str, task_id: str):
         """Get a single workspace task."""
-        result = await self.db.execute(
-            select(self._model).where(
-                self._model.id == task_id,
-                self._model.workspace_id == workspace_id,
-                self._model.deleted_at.is_(None),
-            )
+
+        tasks = await self._rooms.list_workspace_tasks(workspace_id=workspace_id)
+        return next((task for task in tasks if task.id == task_id), None)
+
+    async def update(self, workspace_id: str, task_id: str, **kwargs: Any):
+        """Update a workspace task."""
+
+        return await self._rooms.update_workspace_task(
+            workspace_id=workspace_id,
+            task_id=task_id,
+            command=WorkspaceTaskUpdateCommand(**kwargs),
         )
-        return result.scalar_one_or_none()
-
-    async def update(
-        self, workspace_id: str, task_id: str, **kwargs: Any
-    ) -> WorkspaceTask | None:
-        """Update a workspace task.
-
-        If status changes to 'done', automatically sets completed_at.
-        """
-        task = await self.get(workspace_id, task_id)
-        if task is None:
-            return None
-
-        for key, value in kwargs.items():
-            if hasattr(task, key):
-                setattr(task, key, value)
-
-        if kwargs.get("status") == "done" and task.completed_at is None:
-            task.completed_at = datetime.now(UTC)
-
-        await self.db.commit()
-        await self.db.refresh(task)
-        return task
 
     async def delete(self, workspace_id: str, task_id: str) -> bool:
         """Soft-delete a workspace task. Returns True if found."""
-        task = await self.get(workspace_id, task_id)
-        if task is None:
-            return False
-        task.deleted_at = datetime.now(UTC)
-        await self.db.commit()
-        return True
+
+        return await self._rooms.soft_delete_workspace_task(workspace_id=workspace_id, task_id=task_id)

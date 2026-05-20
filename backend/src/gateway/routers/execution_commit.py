@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.dataservice.rooms_api import RoomsDataService
 from src.gateway.deps import get_db
 from src.services.execution_commit_service import ExecutionCommitService
 from src.services.execution_service import ExecutionService
@@ -52,6 +53,7 @@ def _get_commit_service(db: AsyncSession = Depends(get_db)) -> ExecutionCommitSe
         memory_service=MemoryService(db),
         workspace_tasks_service=WorkspaceTasksService(db),
         run_history_service=RunHistoryService(db),
+        rooms_data_service=RoomsDataService(db),
         redis=_redis,
     )
 

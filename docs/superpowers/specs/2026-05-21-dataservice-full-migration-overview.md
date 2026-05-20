@@ -1058,7 +1058,12 @@ Implementation status as of 2026-05-21:
 - `068_dataservice_sandbox_runtime.py` creates canonical `sandbox_environments`, `sandbox_job_records`, and `sandbox_artifacts`, then migrates legacy `sandboxes` into environment rows with explicit policy/resource snapshots.
 - `backend/src/dataservice/domains/sandbox/` owns sandbox contracts, models, repository, projection, service, Python-only policy validation, and sandbox artifact review handler factory. `dataservice_app` exposes internal sandbox routes and `dataservice_client` has typed environment/job/artifact methods.
 - Sandbox artifacts are now review-gated metadata rows linked to `workspace_assets`; DataService records reproducibility and policy state but does not execute containers.
-- Verification for the current DataService slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1910 backend tests.
+- Verification through the Sandbox slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1910 backend tests.
+- Rooms aggregate foundation is implemented.
+- `069_dataservice_rooms_hooks.py` adds review trace hooks to `decisions`, `memory_facts`, and `workspace_tasks` while keeping those three tables as the canonical physical room tables.
+- `backend/src/dataservice/domains/rooms/` owns room contracts, repository, projections, service, and review handler factory. Legacy room service facades delegate to `RoomsDataService` for decisions, memory, and workspace tasks.
+- Execution commit now stages memory/decision/task outputs into `review_batches` / `review_items` and applies them through room review handlers; direct room table writes from `ExecutionCommitService` are removed for those target kinds.
+- Verification through the Rooms slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1914 backend tests.
 
 ### Phase 4: Review Materialization
 
