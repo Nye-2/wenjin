@@ -75,6 +75,78 @@ def _run_history_payload(item: RunHistory) -> dict[str, Any]:
     }
 
 
+def _review_item_launch_payload(item: dict[str, Any]) -> dict[str, Any]:
+    target = item.get("target") if isinstance(item.get("target"), dict) else {}
+    source = item.get("source") if isinstance(item.get("source"), dict) else {}
+    return {
+        "id": str(item.get("id") or ""),
+        "logical_key": str(item.get("logical_key") or ""),
+        "status": str(item.get("status") or ""),
+        "title": str(item.get("title") or ""),
+        "summary": item.get("summary"),
+        "target_file_path": target.get("file_path"),
+        "source_execution_id": source.get("execution_id"),
+        "source_task_id": source.get("task_id"),
+    }
+
+
+def _source_link_launch_payload(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(item.get("id") or ""),
+        "review_item_id": item.get("review_item_id"),
+        "source_type": str(item.get("source_type") or ""),
+        "source_id": str(item.get("source_id") or ""),
+        "file_path": str(item.get("file_path") or ""),
+        "section_key": item.get("section_key"),
+        "citation_key": item.get("citation_key"),
+        "usage": str(item.get("usage") or ""),
+    }
+
+
+def _protected_section_launch_payload(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(item.get("id") or ""),
+        "file_path": str(item.get("file_path") or ""),
+        "section_key": item.get("section_key"),
+        "scope": str(item.get("scope") or ""),
+        "reason": item.get("reason"),
+    }
+
+
+def _build_launch_context(surface: dict[str, Any]) -> dict[str, Any]:
+    review_items = [
+        item
+        for item in surface.get("review_items", [])
+        if isinstance(item, dict) and item.get("status") in PENDING_STATUSES
+    ]
+    source_links = [
+        item for item in surface.get("source_links", []) if isinstance(item, dict)
+    ]
+    protected_sections = [
+        item
+        for item in surface.get("protected_sections", [])
+        if isinstance(item, dict)
+    ]
+    return {
+        "workspace_id": str(surface.get("workspace_id") or ""),
+        "latex_project_id": str(surface.get("latex_project_id") or ""),
+        "url": str(surface.get("url") or ""),
+        "main_file": surface.get("main_file"),
+        "target_files": list(surface.get("target_files", []))[:20],
+        "pending_review_items": [
+            _review_item_launch_payload(item) for item in review_items[:20]
+        ],
+        "protected_sections": [
+            _protected_section_launch_payload(item) for item in protected_sections[:20]
+        ],
+        "source_links": [
+            _source_link_launch_payload(item) for item in source_links[:40]
+        ],
+        "review_summary": dict(surface.get("review_summary") or {}),
+        "context_summary": dict(surface.get("context_summary") or {}),
+    }
+
+
 class WorkspacePrismService:
     """Resolve the canonical Prism manuscript bound to a workspace."""
 
@@ -200,6 +272,15 @@ class WorkspacePrismService:
                 "recent_activity_count": len(recent_activity),
             },
         }
+
+    async def get_launch_context_projection(
+        self,
+        workspace_id: str,
+        *,
+        user_id: str,
+    ) -> dict[str, Any]:
+        surface = await self.get_surface_projection(workspace_id, user_id=user_id)
+        return _build_launch_context(surface)
 
     async def _list_decisions(self, workspace_id: str) -> list[dict[str, Any]]:
         result = await self.db.execute(

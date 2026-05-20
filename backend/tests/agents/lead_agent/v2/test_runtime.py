@@ -161,6 +161,31 @@ async def test_run_session_returns_task_report():
     assert report.narrative  # non-empty string
 
 
+def test_distribute_brief_includes_manuscript_context():
+    cap = _make_fake_capability()
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+    brief = TaskBrief(
+        capability_id="test_cap",
+        raw_message="write an outline",
+        workspace_id="ws-001",
+        brief={"topic": "quantum computing"},
+        manuscript_context={
+            "main_file": "main.tex",
+            "pending_review_items": [{"id": "review-1"}],
+        },
+    )
+
+    distributed = runtime._distribute_brief(brief, cap)
+
+    assert distributed["make_outline"]["topic"] == "quantum computing"
+    assert distributed["make_outline"]["manuscript_context"]["main_file"] == (
+        "main.tex"
+    )
+
+
 # ---------------------------------------------------------------------------
 # test_run_session_handles_unknown_subagent_capability
 # ---------------------------------------------------------------------------

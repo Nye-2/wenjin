@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.contracts.task_report import TaskReport
 from src.execution.engine import ExecutionEngineV2
@@ -33,10 +34,12 @@ def _make_execution_record(
     execution_id: str = "exec-001",
     workspace_id: str = "ws-001",
     feature_id: str | None = "test_cap",
+    user_id: str = "user-001",
 ) -> SimpleNamespace:
     """Minimal stand-in for an ExecutionRecord ORM object."""
     return SimpleNamespace(
         id=execution_id,
+        user_id=user_id,
         workspace_id=workspace_id,
         feature_id=feature_id,
         params={
@@ -121,6 +124,46 @@ async def test_engine_runs_lead_agent_and_marks_complete():
     assert positional[2] == "test_cap"     # capability_id (from feature_id)
     assert positional[5] == "completed"    # status
     assert positional[6] == 2              # duration_seconds
+
+
+@pytest.mark.asyncio
+async def test_engine_injects_lightweight_manuscript_context(monkeypatch: pytest.MonkeyPatch):
+    """Runtime TaskBrief receives current Prism launch context when available."""
+    record = _make_execution_record(user_id="user-1", workspace_id="ws-1")
+    report = _make_task_report()
+    execution_svc = _make_execution_service(record=record)
+    execution_svc.db = object.__new__(AsyncSession)
+    history_svc = _make_run_history_service()
+    runtime = _make_runtime(report=report)
+    prism_service = MagicMock()
+    prism_service.get_launch_context_projection = AsyncMock(
+        return_value={
+            "main_file": "main.tex",
+            "target_files": ["main.tex", "sections/intro.tex"],
+            "pending_review_items": [
+                {
+                    "id": "review-1",
+                    "target_file_path": "sections/intro.tex",
+                }
+            ],
+        }
+    )
+    monkeypatch.setattr(
+        "src.execution.engine.WorkspacePrismService",
+        MagicMock(return_value=prism_service),
+    )
+
+    engine = ExecutionEngineV2(
+        runtime=runtime,
+        execution_service=execution_svc,
+        run_history_service=history_svc,
+    )
+
+    await engine.run("exec-001")
+
+    brief = runtime.run_session.call_args.kwargs["brief"]
+    assert brief.manuscript_context["main_file"] == "main.tex"
+    assert brief.manuscript_context["pending_review_items"][0]["id"] == "review-1"
 
 
 # ---------------------------------------------------------------------------

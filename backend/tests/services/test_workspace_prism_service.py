@@ -402,6 +402,18 @@ async def test_surface_projection_includes_review_provenance_and_protection(
         "recent_activity_count": 1,
     }
 
+    launch_context = await WorkspacePrismService(db).get_launch_context_projection(
+        workspace.id,
+        user_id=user.id,
+    )
+    assert launch_context["main_file"] == "main.tex"
+    assert launch_context["pending_review_items"][0]["id"] == "review-1"
+    assert launch_context["pending_review_items"][0]["target_file_path"] == (
+        "sections/intro.tex"
+    )
+    assert launch_context["source_links"][0]["citation_key"] == "doe2026"
+    assert "pending_content" not in launch_context["pending_review_items"][0]
+
 
 @pytest.mark.asyncio
 async def test_binding_integrity_report_flags_missing_and_duplicate_primary_projects(

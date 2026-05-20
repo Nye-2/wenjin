@@ -1,5 +1,7 @@
 """TaskBrief contract — describes a unit of work dispatched to a subagent."""
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -12,6 +14,7 @@ class TaskBrief(BaseModel):
         raw_message: The original user message that triggered this task.
         decisions: Prior decisions to carry forward (key → value).
         workspace_id: Identifier of the workspace this task belongs to.
+        manuscript_context: Lightweight workspace-owned Prism context.
     """
 
     capability_id: str = Field(..., min_length=1)
@@ -19,3 +22,4 @@ class TaskBrief(BaseModel):
     raw_message: str = Field(..., min_length=1)
     decisions: dict[str, str] = Field(default_factory=dict)
     workspace_id: str = Field(default="")
+    manuscript_context: dict[str, Any] | None = None

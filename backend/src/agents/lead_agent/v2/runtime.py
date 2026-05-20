@@ -472,7 +472,10 @@ class LeadAgentRuntime:
         result: dict[str, dict] = {}
         for phase in cap.graph_template["phases"]:
             for task in phase["tasks"]:
-                result[task["name"]] = dict(brief.brief)
+                task_inputs = dict(brief.brief)
+                if brief.manuscript_context:
+                    task_inputs["manuscript_context"] = brief.manuscript_context
+                result[task["name"]] = task_inputs
         return result
 
     def _collect_node_errors(self, state: dict, cap: Any) -> list[ResultError]:

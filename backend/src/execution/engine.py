@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.services.workspace_prism_service import WorkspacePrismService
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +78,7 @@ class ExecutionEngineV2:
 
         try:
             brief = TaskBrief.model_validate(execution.params["brief"])
+            brief = await self._attach_manuscript_context(brief, execution)
             report = await self.runtime.run_session(
                 execution_id=execution_id,
                 brief=brief,
@@ -103,6 +107,32 @@ class ExecutionEngineV2:
 
     async def _mark_running(self, execution_id: str) -> None:
         await self.execution_service.start_execution(execution_id)
+
+    async def _attach_manuscript_context(
+        self,
+        brief: TaskBrief,
+        execution,
+    ) -> TaskBrief:
+        if brief.manuscript_context:
+            return brief
+
+        db = getattr(self.execution_service, "db", None)
+        workspace_id = str(brief.workspace_id or getattr(execution, "workspace_id", "") or "")
+        user_id = str(getattr(execution, "user_id", "") or "")
+        if not isinstance(db, AsyncSession) or not workspace_id or not user_id:
+            return brief
+
+        try:
+            manuscript_context = await WorkspacePrismService(
+                db
+            ).get_launch_context_projection(
+                workspace_id,
+                user_id=user_id,
+            )
+        except ValueError:
+            return brief
+
+        return brief.model_copy(update={"manuscript_context": manuscript_context})
 
     async def _mark_complete(self, execution_id: str, report: TaskReport) -> None:
         # complete_execution signature: (execution_id, *, status, result, error, result_summary, commit)
