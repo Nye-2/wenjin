@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowUpRight,
   Brain,
   CircleCheckBig,
   FileCheck2,
@@ -9,7 +10,10 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import type { WorkspacePrismSurfaceResponse } from "@/lib/api/types";
+import type {
+  WorkspacePrismSourceLink,
+  WorkspacePrismSurfaceResponse,
+} from "@/lib/api/types";
 
 function count(value: number | null | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -18,6 +22,26 @@ function count(value: number | null | undefined): number {
 function displayText(value: string | null | undefined, fallback: string): string {
   const text = value?.trim();
   return text ? text : fallback;
+}
+
+function sourceLinkRoom(sourceType: string | null | undefined): string | null {
+  const normalized = sourceType?.trim();
+  if (normalized === "library" || normalized === "library_item") return "library";
+  if (normalized === "document" || normalized === "documents") return "documents";
+  return null;
+}
+
+function sourceLinkHref(
+  workspaceId: string,
+  link: WorkspacePrismSourceLink,
+): string | null {
+  const room = sourceLinkRoom(link.source_type);
+  if (!room || !link.source_id) return null;
+  const params = new URLSearchParams({
+    room,
+    item_id: link.source_id,
+  });
+  return `/workspaces/${workspaceId}?${params.toString()}`;
 }
 
 export function PrismContextRail({
@@ -186,29 +210,41 @@ export function PrismContextRail({
           </div>
           {sourceLinks.length > 0 ? (
             <div className="mt-3 space-y-2">
-              {sourceLinks.slice(0, 5).map((link) => (
-                <div
-                  key={link.id}
-                  className="rounded-lg border border-white/45 bg-white/70 px-3 py-2"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="truncate text-xs font-medium text-[var(--v2-text-primary)]">
-                      {displayText(link.citation_key, link.source_id)}
+              {sourceLinks.slice(0, 5).map((link) => {
+                const href = sourceLinkHref(surface.workspace_id, link);
+                const body = (
+                  <>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-xs font-medium text-[var(--v2-text-primary)]">
+                        {displayText(link.citation_key, link.source_id)}
+                      </p>
+                      <span className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--v2-accent-purple-100)] px-2 py-0.5 text-[10px] text-[var(--v2-accent-blue-700)]">
+                        {link.source_type}
+                        {href ? <ArrowUpRight className="h-3 w-3" /> : null}
+                      </span>
+                    </div>
+                    <p className="mt-1 truncate text-[11px] text-[var(--v2-text-secondary)]">
+                      {link.file_path}
                     </p>
-                    <span className="shrink-0 rounded-full bg-[var(--v2-accent-purple-100)] px-2 py-0.5 text-[10px] text-[var(--v2-accent-blue-700)]">
-                      {link.source_type}
-                    </span>
+                    {link.quote ? (
+                      <p className="mt-2 line-clamp-2 text-[11px] leading-5 text-[var(--v2-text-secondary)]">
+                        {link.quote}
+                      </p>
+                    ) : null}
+                  </>
+                );
+                const className =
+                  "block rounded-lg border border-white/45 bg-white/70 px-3 py-2 transition hover:border-[var(--v2-accent-purple-200)] hover:bg-white/85";
+                return href ? (
+                  <a key={link.id} href={href} className={className}>
+                    {body}
+                  </a>
+                ) : (
+                  <div key={link.id} className={className}>
+                    {body}
                   </div>
-                  <p className="mt-1 truncate text-[11px] text-[var(--v2-text-secondary)]">
-                    {link.file_path}
-                  </p>
-                  {link.quote ? (
-                    <p className="mt-2 line-clamp-2 text-[11px] leading-5 text-[var(--v2-text-secondary)]">
-                      {link.quote}
-                    </p>
-                  ) : null}
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <p className="mt-3 text-xs leading-5 text-[var(--v2-text-secondary)]">

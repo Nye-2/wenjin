@@ -188,7 +188,7 @@ describe("workspace prism surface", () => {
           workspace_id: "ws-1",
           latex_project_id: "latex-1",
           review_item_id: "review-1",
-          source_type: "library",
+          source_type: "library_item",
           source_id: "lib-1",
           file_path: "sections/introduction.tex",
           section_key: "section:introduction",
@@ -264,6 +264,11 @@ describe("workspace prism surface", () => {
     });
 
     expect(await screen.findByText("doe2026")).toBeInTheDocument();
+    const sourceLink = screen.getByRole("link", { name: /doe2026/ });
+    expect(sourceLink).toHaveAttribute(
+      "href",
+      "/workspaces/ws-1?room=library&item_id=lib-1",
+    );
     expect(screen.getByTestId("latex-editor-shell")).toHaveTextContent("latex-1:1");
     expect(screen.getByText("important source excerpt")).toBeInTheDocument();
     expect(screen.getByText("user_protected")).toBeInTheDocument();
