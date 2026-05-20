@@ -795,13 +795,20 @@ Implementation status:
 
 Steps:
 
-- [ ] Create `sources`, `source_external_ids`, `source_assets`, `source_outline_nodes`, `source_text_units`, `source_bibtex_snapshots`.
-- [ ] Create `source_anchors` and `provenance_links`.
-- [ ] Migrate `workspace_references*` into source tables.
-- [ ] Migrate `library_items` into sources/assets.
-- [ ] Migrate `reference_usage_events` and `prism_source_links` into provenance.
+- [x] Create `sources`, `source_external_ids`, `source_assets`, `source_outline_nodes`, `source_text_units`, `source_bibtex_snapshots`.
+- [x] Create `source_anchors` and `provenance_links`.
+- [x] Migrate `workspace_references*` into source tables.
+- [x] Migrate `library_items` into sources/assets.
+- [x] Migrate `reference_usage_events` and `prism_source_links` into provenance.
 - [ ] Ensure source-backed Prism edits have provenance links.
-- [ ] Commit `feat: add source and provenance aggregates`.
+- [x] Commit `feat: add source and provenance aggregates`.
+
+Implementation status:
+
+- 2026-05-21: Source and Provenance aggregate foundation is implemented in DataService with canonical source/source-asset/source-text/BibTeX snapshot tables, source anchors, provenance links, domain services, internal routes, typed client contracts, review handler factory, and migration `067_dataservice_sources_provenance.py`.
+- Migration copies `workspace_references*`, `library_items`, `reference_assets`, `reference_usage_events`, `reference_bibtex_snapshots`, and `prism_source_links` into canonical source/provenance structures where source ids can be resolved.
+- Forward runtime creation of source-backed Prism provenance during review apply remains for the cross-domain review/provenance materialization phase.
+- Verification: Source/Provenance domain tests, DataService domain tests, and architecture boundary tests pass with 40 targeted tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1906 tests.
 
 ### Task 11: Add Sandbox Environment Aggregate
 

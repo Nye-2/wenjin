@@ -37,6 +37,10 @@ from src.dataservice_client.contracts.prism import (
     PrismProjectPayload,
     PrismSurfacePayload,
 )
+from src.dataservice_client.contracts.provenance import (
+    ProvenanceLinkCreatePayload,
+    ProvenanceLinkPayload,
+)
 from src.dataservice_client.contracts.review import (
     ReviewBatchCreatePayload,
     ReviewBatchDetailPayload,
@@ -45,6 +49,7 @@ from src.dataservice_client.contracts.review import (
     ReviewItemPayload,
     ReviewItemTransitionPayload,
 )
+from src.dataservice_client.contracts.source import SourceCreatePayload, SourcePayload
 from src.dataservice_client.contracts.workspace import (
     WorkspaceCreatePayload,
     WorkspacePayload,
@@ -398,6 +403,72 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return PrismFileVersionPayload.model_validate(data) if data is not None else None
+
+    async def create_source(self, command: SourceCreatePayload) -> SourcePayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sources",
+            json=command.model_dump(mode="json"),
+        )
+        return SourcePayload.model_validate(payload["data"])
+
+    async def list_sources(
+        self,
+        *,
+        workspace_id: str,
+        library_status: str | None = None,
+        include_deleted: bool = False,
+        limit: int = 50,
+    ) -> list[SourcePayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/sources",
+            params={
+                "workspace_id": workspace_id,
+                "library_status": library_status,
+                "include_deleted": include_deleted,
+                "limit": limit,
+            },
+        )
+        return [SourcePayload.model_validate(item) for item in payload["data"]]
+
+    async def get_source(self, source_id: str) -> SourcePayload | None:
+        payload = await self._request("GET", f"/internal/v1/sources/{source_id}")
+        data = payload.get("data")
+        return SourcePayload.model_validate(data) if data is not None else None
+
+    async def create_provenance_link(
+        self,
+        command: ProvenanceLinkCreatePayload,
+    ) -> ProvenanceLinkPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/provenance/links",
+            json=command.model_dump(mode="json"),
+        )
+        return ProvenanceLinkPayload.model_validate(payload["data"])
+
+    async def list_provenance_links(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str | None = None,
+        target_domain: str | None = None,
+        target_id: str | None = None,
+        limit: int = 50,
+    ) -> list[ProvenanceLinkPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/provenance/links",
+            params={
+                "workspace_id": workspace_id,
+                "source_id": source_id,
+                "target_domain": target_domain,
+                "target_id": target_id,
+                "limit": limit,
+            },
+        )
+        return [ProvenanceLinkPayload.model_validate(item) for item in payload["data"]]
 
     async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
         payload = await self._request(

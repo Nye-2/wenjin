@@ -1051,6 +1051,9 @@ Implementation status as of 2026-05-21:
 - `066_dataservice_prism_documents.py` creates canonical `prism_projects`, `prism_documents`, `prism_files`, `prism_file_versions`, `prism_renders`, and `prism_protected_scopes`, then copies workspace-owned primary LaTeX projects into the Prism aggregate with LaTeX-specific fields under adapter metadata.
 - `backend/src/dataservice/domains/prism/` owns Prism contracts, model, repository, projections, service, LaTeX adapter metadata helper, and review handler factory. `dataservice_app` exposes internal Prism routes and `dataservice_client` has typed Prism methods.
 - Workspace Prism projection now starts from `PrismDataService`; LaTeX project rows are adapter records, not the workspace-binding SSOT.
+- Source and Provenance aggregate foundation is implemented.
+- `067_dataservice_sources_provenance.py` creates canonical source library tables, source anchors, and provenance links, then migrates `workspace_references*`, `library_items`, `reference_assets`, `reference_usage_events`, `reference_bibtex_snapshots`, and resolvable `prism_source_links`.
+- `backend/src/dataservice/domains/source/` and `backend/src/dataservice/domains/provenance/` own source/provenance contracts, models, repositories, projections, services, and source review handler factory. `dataservice_app` exposes internal source/provenance routes and `dataservice_client` has typed methods.
 
 ### Phase 4: Review Materialization
 

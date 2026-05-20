@@ -67,10 +67,22 @@ from src.dataservice.domains.prism.models import (  # noqa: F401
     PrismProtectedScopeRecord,
     PrismRenderRecord,
 )
+from src.dataservice.domains.provenance.models import (  # noqa: F401
+    ProvenanceLinkRecord,
+    SourceAnchorRecord,
+)
 from src.dataservice.domains.review.models import (  # noqa: F401
     ReviewActionLogRecord,
     ReviewBatchRecord,
     ReviewItemRecord,
+)
+from src.dataservice.domains.source.models import (  # noqa: F401
+    SourceAssetRecord,
+    SourceBibtexSnapshotRecord,
+    SourceExternalIdRecord,
+    SourceOutlineNodeRecord,
+    SourceRecord,
+    SourceTextUnitRecord,
 )
 from src.dataservice.domains.workspace.models import WorkspaceMembership  # noqa: F401
 
