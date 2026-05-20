@@ -575,7 +575,7 @@ class TestChatRuntimeConfig:
             ],
         )
 
-        messages = _build_langchain_messages(thread)
+        messages = _build_langchain_messages(thread.messages)
 
         assert len(messages) == 2
         user_content = messages[0].content
@@ -610,7 +610,7 @@ class TestChatRuntimeConfig:
             ],
         )
 
-        messages = _build_langchain_messages(thread)
+        messages = _build_langchain_messages(thread.messages)
 
         assert messages[0].content == "请帮我开始「框架与摘要」。"
         assert messages[-1].content == "这个方法为什么有效？"
@@ -651,7 +651,7 @@ class TestChatRuntimeConfig:
             ],
         )
 
-        messages = _build_langchain_messages(thread)
+        messages = _build_langchain_messages(thread.messages)
 
         user_content = messages[-1].content
         assert isinstance(user_content, str)
@@ -682,7 +682,7 @@ class TestChatRuntimeConfig:
             ],
         )
 
-        messages = _build_langchain_messages(thread)
+        messages = _build_langchain_messages(thread.messages)
 
         assert len(messages) == 1
         assistant_message = messages[0]

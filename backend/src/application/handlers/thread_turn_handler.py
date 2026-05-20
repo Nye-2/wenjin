@@ -197,14 +197,15 @@ def _stringify_persisted_message_content(message: Mapping[str, Any]) -> str:
     return structured_context
 
 
-def _build_langchain_messages(thread: Thread) -> list[BaseMessage]:
+def _build_langchain_messages(persisted_messages: list[Mapping[str, Any]]) -> list[BaseMessage]:
     messages: list[BaseMessage] = []
-    for msg in list(thread.messages or []):
-        if msg["role"] == "user":
+    for msg in persisted_messages:
+        role = str(msg.get("role") or "").strip()
+        if role == "user":
             messages.append(
                 HumanMessage(content=_stringify_persisted_message_content(msg))
             )
-        elif msg["role"] == "assistant":
+        elif role == "assistant":
             additional_kwargs: dict[str, Any] = {}
             reasoning_text = _extract_reasoning_text(msg)
             if reasoning_text:
@@ -216,7 +217,7 @@ def _build_langchain_messages(thread: Thread) -> list[BaseMessage]:
                     additional_kwargs=additional_kwargs,
                 )
             )
-        elif msg["role"] == "system":
+        elif role == "system":
             messages.append(SystemMessage(content=str(msg.get("content") or "")))
     return messages
 
@@ -348,9 +349,10 @@ def build_thread_initial_state(
     workspace_id: str | None,
     effective_skill: str | None,
     attachments: tuple[ThreadTurnAttachment, ...],
+    conversation_messages: list[dict[str, Any]] | None = None,
 ) -> dict[str, object]:
     initial_state: dict[str, object] = {
-        "messages": _build_langchain_messages(thread),
+        "messages": _build_langchain_messages(list(conversation_messages or [])),
         "thread_id": str(thread.id),
         "user_id": actor_id,
         "workspace_id": workspace_id,
@@ -880,7 +882,8 @@ class ThreadTurnHandler:
             return
 
         keep_messages = summary_settings.keep_messages
-        messages = _build_langchain_messages(thread)
+        conversation_messages = await self.thread_service.list_thread_messages(thread)
+        messages = _build_langchain_messages(conversation_messages)
         if len(messages) <= keep_messages:
             return
 
@@ -899,6 +902,7 @@ class ThreadTurnHandler:
             thread,
             summary=summary,
             keep_messages=keep_messages,
+            source_messages=conversation_messages,
         )
 
     async def complete_turn(
@@ -965,6 +969,7 @@ class ThreadTurnHandler:
             reply_stream = None
             try:
                 await self._maybe_compact_thread_history(prepared.thread)
+                conversation_messages = await self.thread_service.list_thread_messages(prepared.thread)
                 reply_stream = self._stream_thread_response(
                     prepared.request,
                     prepared.thread,
@@ -972,6 +977,7 @@ class ThreadTurnHandler:
                     execution_id=prepared.request.metadata.get("orchestration", {}).get("execution_id")
                     if isinstance(prepared.request.metadata, dict)
                     else None,
+                    conversation_messages=conversation_messages,
                 )
                 async for delta in reply_stream:
                     if delta.text:
@@ -1198,9 +1204,11 @@ class ThreadTurnHandler:
         thread = prepared.thread
         if rollback:
             try:
+                conversation_messages = await self.thread_service.list_thread_messages(thread)
                 rolled_back = await self.thread_service.rollback_last_user_message(
                     thread,
                     expected_content=prepared.request.message,
+                    source_messages=conversation_messages,
                 )
             except Exception:
                 logger.warning(
@@ -1245,6 +1253,7 @@ class ThreadTurnHandler:
         execution_id: str | None = None,
     ) -> GeneratedThreadReply:
         await self._maybe_compact_thread_history(thread)
+        conversation_messages = await self.thread_service.list_thread_messages(thread)
         return await generate_thread_response(
             request,
             thread,
@@ -1254,6 +1263,7 @@ class ThreadTurnHandler:
             index_service=self.index_service,
             artifact_service=self.artifact_service,
             reference_service=self.reference_service,
+            conversation_messages=conversation_messages,
             budget_checked=True,
         )
 
@@ -1264,6 +1274,7 @@ class ThreadTurnHandler:
         *,
         actor_id: str,
         execution_id: str | None = None,
+        conversation_messages: list[dict[str, Any]] | None = None,
     ) -> _ReplyStreamRun:
         return stream_thread_response(
             request,
@@ -1274,6 +1285,7 @@ class ThreadTurnHandler:
             index_service=self.index_service,
             artifact_service=self.artifact_service,
             reference_service=self.reference_service,
+            conversation_messages=conversation_messages,
             budget_checked=True,
         )
 
@@ -1302,6 +1314,7 @@ def _build_thread_agent_runtime(
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
     reference_service: Any | None = None,
+    conversation_messages: list[dict[str, Any]] | None = None,
 ) -> _ThreadAgentRuntime:
     from src.agents.chat_agent.agent import build_pipeline
 
@@ -1327,6 +1340,7 @@ def _build_thread_agent_runtime(
         workspace_id=workspace_id,
         effective_skill=effective_skill,
         attachments=request.attachments,
+        conversation_messages=conversation_messages,
     )
     middlewares = build_pipeline(
         config,
@@ -1356,6 +1370,7 @@ async def generate_thread_response(
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
     reference_service: Any | None = None,
+    conversation_messages: list[dict[str, Any]] | None = None,
     budget_checked: bool = False,
 ) -> GeneratedThreadReply:
     """Generate a thread response through the unified lead-agent pipeline."""
@@ -1374,6 +1389,7 @@ async def generate_thread_response(
         index_service=index_service,
         artifact_service=artifact_service,
         reference_service=reference_service,
+        conversation_messages=conversation_messages,
     )
 
     agent = cast(Any, make_chat_agent(runtime.config, middlewares=runtime.middlewares))
@@ -1420,6 +1436,7 @@ def stream_thread_response(
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
     reference_service: Any | None = None,
+    conversation_messages: list[dict[str, Any]] | None = None,
     budget_checked: bool = False,
 ) -> _ReplyStreamRun:
     """Stream a thread response while still returning the final structured reply."""
@@ -1441,6 +1458,7 @@ def stream_thread_response(
                 index_service=index_service,
                 artifact_service=artifact_service,
                 reference_service=reference_service,
+                conversation_messages=conversation_messages,
             )
             agent = cast(
                 Any,

@@ -48,7 +48,7 @@ async def test_get_activity_merges_sources_and_sorts_descending(
             }
         ]
     )
-    service._build_thread_activity = MagicMock(
+    service._build_thread_activity = AsyncMock(
         return_value=[
             {
                 "id": "thread:1",
@@ -178,13 +178,16 @@ async def test_build_thread_activity_uses_latest_message_preview_and_skill():
         title="Literature review thread",
         skill="deep-research",
         updated_at=datetime.now(UTC),
-        messages=[
+        messages=[{"role": "user", "content": "raw bridge"}],
+    )
+    service._conversation.list_bridge_messages = AsyncMock(
+        return_value=[
             {"role": "user", "content": "Please review these papers."},
             {"role": "assistant", "content": "I found three themes across the literature."},
-        ],
+        ]
     )
 
-    items = service._build_thread_activity([thread], workspace_type="thesis")
+    items = await service._build_thread_activity([thread], workspace_type="thesis")
 
     assert len(items) == 1
     assert items[0]["title"] == "Literature review thread"
@@ -193,6 +196,7 @@ async def test_build_thread_activity_uses_latest_message_preview_and_skill():
     assert items[0]["skill_name"] is None
     assert items[0]["metadata"]["skill"] == "deep-research"
     assert items[0]["metadata"]["skill_name"] is None
+    service._conversation.list_bridge_messages.assert_awaited_once_with("thread-1")
 
 
 @pytest.mark.asyncio
@@ -205,7 +209,10 @@ async def test_build_thread_activity_includes_token_usage_metadata():
         title="Usage thread",
         skill="deep-research",
         updated_at=datetime.now(UTC),
-        messages=[
+        messages=[],
+    )
+    service._conversation.list_bridge_messages = AsyncMock(
+        return_value=[
             {"role": "user", "content": "hello"},
             {
                 "role": "assistant",
@@ -218,10 +225,10 @@ async def test_build_thread_activity_includes_token_usage_metadata():
                     }
                 },
             },
-        ],
+        ]
     )
 
-    items = service._build_thread_activity([thread], workspace_type="thesis")
+    items = await service._build_thread_activity([thread], workspace_type="thesis")
 
     assert len(items) == 1
     assert items[0]["metadata"]["last_message_token_usage"]["total_tokens"] == 16

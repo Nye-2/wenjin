@@ -360,6 +360,9 @@ class TestThreadTurnHandlerCancellation:
     @pytest.mark.asyncio
     async def test_handle_run_interruption_rolls_back_user_message(self):
         thread_service = MagicMock()
+        thread_service.list_thread_messages = AsyncMock(
+            return_value=[{"role": "user", "content": "继续"}]
+        )
         thread_service.rollback_last_user_message = AsyncMock(return_value=True)
         handler = ThreadTurnHandler(thread_service=thread_service)
 
@@ -380,6 +383,7 @@ class TestThreadTurnHandlerCancellation:
         thread_service.rollback_last_user_message.assert_awaited_once_with(
             prepared.thread,
             expected_content="继续",
+            source_messages=[{"role": "user", "content": "继续"}],
         )
         publish_thread_updated.assert_awaited_once_with(prepared.thread)
 
@@ -590,6 +594,60 @@ class TestThreadTurnHandlerCancellation:
             assert reply.blocks[0]["type"] == "reasoning"
             assert "step 1" in reply.blocks[0]["data"]["text"]
 
+    @pytest.mark.asyncio
+    async def test_generate_thread_response_uses_conversation_projection_messages(self):
+        """Runtime context should come from DataService projection messages."""
+        fake_agent = MagicMock()
+        fake_agent.ainvoke = AsyncMock(
+            return_value={"messages": [SimpleNamespace(content="projected answer")]}
+        )
+
+        with (
+            patch(
+                "src.agents.chat_agent.agent.make_chat_agent",
+                return_value=fake_agent,
+            ),
+            patch(
+                "src.agents.chat_agent.agent.build_pipeline",
+                return_value=[],
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.route_chat_model",
+                return_value="test-model",
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.extract_usage_from_agent_result",
+                return_value=None,
+            ),
+        ):
+            from src.application.handlers.thread_turn_handler import generate_thread_response
+
+            mock_request = MagicMock()
+            mock_request.model = "test-model"
+            mock_request.message = "hello"
+            mock_request.attachments = ()
+            mock_request.metadata = None
+            mock_request.thinking_enabled = False
+            mock_request.reasoning_effort = None
+
+            mock_thread = SimpleNamespace(
+                id="thread-1",
+                skill=None,
+                model=None,
+                workspace_id="ws-1",
+                messages=[{"role": "user", "content": "raw bridge"}],
+            )
+
+            await generate_thread_response(
+                mock_request,
+                mock_thread,
+                actor_id="user-1",
+                conversation_messages=[{"role": "user", "content": "canonical projection"}],
+                budget_checked=True,
+            )
+
+        initial_state = fake_agent.ainvoke.await_args.args[0]
+        assert initial_state["messages"][0].content == "canonical projection"
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_skips_pre_bridge_for_freeform_chat(self):

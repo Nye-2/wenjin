@@ -23,9 +23,11 @@ from src.task.tasks.run import _build_turn_request
 class _FakeThreadService:
     def __init__(self) -> None:
         self._threads: dict[str, tuple[SimpleNamespace, str]] = {}
+        self._canonical_messages: dict[str, list[dict[str, Any]]] = {}
 
     def upsert(self, thread: SimpleNamespace, *, owner_id: str) -> None:
         self._threads[str(thread.id)] = (thread, str(owner_id))
+        self._canonical_messages[str(thread.id)] = list(thread.messages or [])
 
     async def get_thread(self, thread_id: str, user_id: str):
         resolved = self._threads.get(str(thread_id))
@@ -33,6 +35,9 @@ class _FakeThreadService:
             return None
         thread, owner_id = resolved
         return thread if owner_id == str(user_id) else None
+
+    async def list_thread_messages(self, thread: SimpleNamespace) -> list[dict[str, Any]]:
+        return list(self._canonical_messages.get(str(thread.id), []))
 
 
 @dataclass

@@ -282,6 +282,7 @@ class ThreadService:
         progress: int | None = None,
         current_step: str | None = None,
         error: str | None = None,
+        source_messages: list[dict[str, Any]] | None = None,
     ) -> bool:
         """Update extraction metadata for attachment(s) associated with a task."""
         resolved_task_id = task_id.strip()
@@ -289,7 +290,8 @@ class ThreadService:
             return False
 
         await self._lock_thread_row(str(thread.id))
-        messages = copy.deepcopy(list(thread.messages or []))
+        source = source_messages if source_messages is not None else await self.list_thread_messages(thread)
+        messages = copy.deepcopy(list(source))
         changed = False
 
         for message_item in messages:
@@ -351,6 +353,7 @@ class ThreadService:
         progress: int | None = None,
         current_step: str | None = None,
         error: str | None = None,
+        source_messages: list[dict[str, Any]] | None = None,
     ) -> bool:
         """Update preprocess metadata for attachment(s) associated with a task."""
         resolved_task_id = task_id.strip()
@@ -358,7 +361,8 @@ class ThreadService:
             return False
 
         await self._lock_thread_row(str(thread.id))
-        messages = copy.deepcopy(list(thread.messages or []))
+        source = source_messages if source_messages is not None else await self.list_thread_messages(thread)
+        messages = copy.deepcopy(list(source))
         changed = False
 
         for message_item in messages:
@@ -429,6 +433,7 @@ class ThreadService:
         summary: str,
         keep_messages: int,
         timestamp: datetime | None = None,
+        source_messages: list[dict[str, Any]] | None = None,
     ) -> bool:
         """Persist a durable conversation summary plus the recent message tail."""
         normalized_summary = str(summary or "").strip()
@@ -436,7 +441,8 @@ class ThreadService:
             return False
 
         await self._lock_thread_row(str(thread.id))
-        messages = list(thread.messages or [])
+        source = source_messages if source_messages is not None else await self.list_thread_messages(thread)
+        messages = list(source)
         keep_count = max(int(keep_messages or 0), 1)
         if len(messages) <= keep_count:
             return False
@@ -474,7 +480,7 @@ class ThreadService:
 
     async def set_title_if_empty(self, thread: Thread, first_message: str) -> None:
         """Derive the thread title from the opening user message."""
-        if thread.title or len(thread.messages or []) > 2:
+        if thread.title or int(thread.message_count or 0) > 2:
             return
 
         thread.title = first_message[:50] + ("..." if len(first_message) > 50 else "")
@@ -487,10 +493,12 @@ class ThreadService:
         thread: Thread,
         *,
         expected_content: str | None = None,
+        source_messages: list[dict[str, Any]] | None = None,
     ) -> bool:
         """Rollback the trailing user message when it matches expected content."""
         await self._lock_thread_row(str(thread.id))
-        messages = list(thread.messages or [])
+        source = source_messages if source_messages is not None else await self.list_thread_messages(thread)
+        messages = list(source)
         if not messages:
             return False
 

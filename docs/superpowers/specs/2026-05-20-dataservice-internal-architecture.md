@@ -267,7 +267,7 @@ Invariants:
 - The 7 block types are canonical: `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, `tool_result`.
 - Block arrival order is append-only.
 - Thinking blocks are stored in arrival order, never prepended.
-- `threads.messages` can be a migration bridge, not the final block protocol SSOT; thread detail/state/history already read DataService conversation projections.
+- `threads.messages` can be a migration bridge, not the final block protocol SSOT; API readers, run wait views, workspace activity, Chat Agent context, compaction, rollback, and attachment-status mutation sources already read DataService conversation projections.
 - Tool invocation and result records can link to execution nodes when produced by Lead Agent runs.
 
 ### 6.2 Catalog Domain

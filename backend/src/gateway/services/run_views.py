@@ -44,6 +44,7 @@ async def build_wait_payload(
     if thread is None:
         return payload
 
+    messages = await thread_service.list_thread_messages(thread)
     payload["values"] = serialize_channel_values(
         {
             "thread_id": thread.id,
@@ -52,7 +53,7 @@ async def build_wait_payload(
             "model": thread.model,
             "skill": thread.skill,
             "skill_name": None,
-            "messages": thread.messages or [],
+            "messages": messages,
         }
     )
     return payload

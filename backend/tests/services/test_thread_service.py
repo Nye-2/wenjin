@@ -306,6 +306,7 @@ class TestThreadService:
             message="Paper extraction completed",
             progress=100,
             current_step="complete",
+            source_messages=thread.messages,
         )
 
         assert updated is True
@@ -317,6 +318,50 @@ class TestThreadService:
         assert thread.updated_at is not None
         mock_db_session.commit.assert_awaited_once()
         mock_db_session.refresh.assert_awaited_once_with(thread)
+
+    @pytest.mark.asyncio
+    async def test_update_attachment_extraction_state_reads_projection_by_default(
+        self,
+        service,
+    ):
+        """Attachment state updates should use DataService projection messages by default."""
+        thread = _make_thread()
+        thread.messages = [{"role": "user", "content": "raw bridge"}]
+        service._conversation.list_bridge_messages = AsyncMock(  # noqa: SLF001
+            return_value=[
+                {
+                    "role": "user",
+                    "content": "canonical message",
+                    "metadata": {
+                        "attachments": [
+                            {
+                                "name": "paper.pdf",
+                                "metadata": {
+                                    "extraction": {
+                                        "task_id": "task-paper-1",
+                                        "status": "scheduled",
+                                    }
+                                },
+                            }
+                        ]
+                    },
+                }
+            ]
+        )
+
+        updated = await service.update_attachment_extraction_state(
+            thread,
+            task_id="task-paper-1",
+            status="success",
+        )
+
+        assert updated is True
+        assert thread.messages[0]["content"] == "canonical message"
+        assert (
+            thread.messages[0]["metadata"]["attachments"][0]["metadata"]["extraction"]["status"]
+            == "success"
+        )
+        service._conversation.list_bridge_messages.assert_awaited_once_with("thread-1")  # noqa: SLF001
 
     @pytest.mark.asyncio
     async def test_update_attachment_preprocess_state_updates_matching_attachment(
@@ -360,6 +405,7 @@ class TestThreadService:
             message="Document preprocessing completed",
             progress=100,
             current_step="complete",
+            source_messages=thread.messages,
         )
 
         assert updated is True
@@ -407,6 +453,7 @@ class TestThreadService:
             task_id="task-paper-1",
             status="failed",
             error="boom",
+            source_messages=thread.messages,
         )
 
         assert updated is False
@@ -433,6 +480,7 @@ class TestThreadService:
             summary="old exchange summary",
             keep_messages=2,
             timestamp=datetime(2026, 4, 14, tzinfo=UTC),
+            source_messages=thread.messages,
         )
 
         assert compacted is True
@@ -478,6 +526,7 @@ class TestThreadService:
         rolled_back = await service.rollback_last_user_message(
             thread,
             expected_content="new question",
+            source_messages=thread.messages,
         )
 
         assert rolled_back is True
@@ -511,6 +560,7 @@ class TestThreadService:
         rolled_back = await service.rollback_last_user_message(
             thread,
             expected_content="new question",
+            source_messages=thread.messages,
         )
 
         assert rolled_back is False

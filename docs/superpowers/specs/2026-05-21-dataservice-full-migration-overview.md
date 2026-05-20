@@ -1004,7 +1004,8 @@ Implementation status as of 2026-05-21:
 - DataService conversation contracts preserve the canonical 7 block types: `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, and `tool_result`.
 - `ThreadService` now writes message appends and bridge rebuilds through the DataService conversation boundary while preserving `threads.messages` as the temporary response bridge.
 - Thread detail/state/history now read through the DataService conversation projection boundary instead of directly reading `threads.messages`.
-- The next conversation step is runtime-context cutover: Chat Agent message building, context compaction, and title/summary helpers should consume DataService conversation projections. After that, `threads.messages` can stop being runtime SSOT.
+- Chat Agent message building, context compaction, interruption rollback, attachment status updates, run wait payloads, and workspace activity feed now consume DataService conversation projections rather than `threads.messages`.
+- The remaining conversation step is bridge removal: `threads.messages` is still maintained only as a temporary JSON compatibility bridge for older response shapes and should be deleted after those compatibility consumers are removed.
 
 ### Phase 3: Catalog And Execution Skeleton
 

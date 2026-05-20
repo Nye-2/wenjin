@@ -616,7 +616,8 @@ Steps:
 - [x] Add DataService conversation internal routes and typed client contracts.
 - [x] Route `ThreadService.add_message` / bridge rebuild paths through the DataService conversation boundary.
 - [x] Cut thread detail/state/history readers from `threads.messages` to DataService message projections.
-- [ ] Remove `threads.messages` as runtime SSOT after all readers consume `thread_messages` / `message_blocks`.
+- [x] Cut Chat Agent runtime context, run wait views, workspace activity, compaction, rollback, and attachment status updates to DataService message projections.
+- [ ] Remove `threads.messages` bridge writes after message append, attachment metadata, compaction, and rollback consumers no longer require JSON response compatibility.
 - [x] Run thread/block protocol tests plus architecture guard.
 - [x] Commit `feat: add dataservice conversation blocks`.
 - [ ] Commit `feat: read threads from dataservice conversation projection`.

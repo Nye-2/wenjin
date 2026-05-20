@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Artifact, SubagentTaskRecord, TaskRecord, Thread
 from src.database.models.prism import PrismReviewItem
+from src.dataservice.conversation_api import ConversationDataService
 from src.services.thread_billing import (
     combine_token_usage,
     extract_persisted_message_usage,
@@ -33,6 +34,7 @@ class WorkspaceActivityService:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self._conversation = ConversationDataService(db, autocommit=False)
 
     async def get_activity(
         self,
@@ -52,7 +54,7 @@ class WorkspaceActivityService:
                 workspace_id,
                 limit=per_source_limit,
             ),
-            *self._build_thread_activity(threads, workspace_type=workspace_type),
+            *await self._build_thread_activity(threads, workspace_type=workspace_type),
             *await self._get_artifact_activity(
                 workspace_id,
                 workspace_type=workspace_type,
@@ -244,7 +246,7 @@ class WorkspaceActivityService:
     def _task_payload_summary(self, payload: dict[str, Any]) -> str | None:
         return summarize_task_payload(payload)
 
-    def _build_thread_activity(
+    async def _build_thread_activity(
         self,
         threads: Sequence[Thread],
         *,
@@ -252,7 +254,7 @@ class WorkspaceActivityService:
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for thread in threads:
-            messages = thread.messages or []
+            messages = await self._conversation.list_bridge_messages(str(thread.id))
             last_message = messages[-1] if messages else {}
             last_message_content = (
                 last_message.get("content") if isinstance(last_message, dict) else None

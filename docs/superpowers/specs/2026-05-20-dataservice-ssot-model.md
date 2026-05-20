@@ -1465,7 +1465,7 @@ Projection modules cannot call repository write methods.
 **Acceptance:**
 
 - The canonical 7 block types are stored as append-only `message_blocks`.
-- `threads.messages` is only bridge data after cutover; thread detail/state/history read DataService conversation projections.
+- `threads.messages` is only bridge data after cutover; thread detail/state/history, run wait payloads, workspace activity, Chat Agent context, compaction, rollback, and attachment-status mutation sources read DataService conversation projections.
 - Thinking blocks preserve arrival order.
 - Tool invocation/result records can link to execution nodes.
 
