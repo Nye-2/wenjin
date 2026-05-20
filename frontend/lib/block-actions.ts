@@ -93,14 +93,12 @@ export function resolveExecutionNextActionPresentation(options: {
   workspaceId?: string | null;
   defaultFeatureId?: string | null;
   defaultExecutionId?: string | null;
-  prismHref?: string | null;
 }): ExecutionNextActionPresentation | null {
   const {
     actionRecord,
     workspaceId,
     defaultFeatureId,
     defaultExecutionId,
-    prismHref,
   } = options;
   const actionName = readString(actionRecord.action) ?? readString(actionRecord.kind);
   if (!isSupportedBlockAction(actionName)) {
@@ -115,7 +113,6 @@ export function resolveExecutionNextActionPresentation(options: {
       action: actionName,
       href: buildWorkspacePrismHref(
         workspaceId ?? null,
-        explicitHref ?? prismHref ?? null,
         actionName === "preview_prism_changes",
       ),
       label,
@@ -254,14 +251,13 @@ function buildWorkspaceRoomHref(
 
 function buildWorkspacePrismHref(
   workspaceId: string | null,
-  prismHref: string | null,
   focusFileChanges = false,
 ): string | null {
   if (workspaceId) {
     const suffix = focusFileChanges ? "?focus=file_changes" : "";
     return `/workspaces/${workspaceId}/prism${suffix}`;
   }
-  return prismHref;
+  return null;
 }
 
 function inferArtifactRoom(

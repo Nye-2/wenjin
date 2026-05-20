@@ -163,7 +163,6 @@ describe("CompletedView", () => {
         result={{
           data: {
             latex_project_id: "latex-1",
-            prism_url: "/latex/latex-1",
             file_changes: [
               {
                 logical_key: "section:introduction",
@@ -176,7 +175,6 @@ describe("CompletedView", () => {
           {
             action: "preview_prism_changes",
             label: "预览待确认修改",
-            url: "/latex/latex-1",
           },
         ]}
       />,

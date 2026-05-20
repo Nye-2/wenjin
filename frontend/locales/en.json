@@ -28,9 +28,7 @@
     "prismLoadingDescription": "Loading the workspace manuscript project and pending writes.",
     "prismErrorTitle": "Unable to open Prism manuscript surface",
     "prismEmptyTitle": "No Prism manuscript is bound yet",
-    "prismEmptyDescription": "Start a manuscript-writing task from Workbench to create the primary project.",
-    "legacyRedirectTitle": "Opening workspace Prism",
-    "legacyRedirectDescription": "This manuscript now belongs to a workspace. Taking you to the workspace-owned surface."
+    "prismEmptyDescription": "Start a manuscript-writing task from Workbench to create the primary project."
   },
   "brand": {
     "cn": "问津",

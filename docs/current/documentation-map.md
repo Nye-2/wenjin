@@ -30,6 +30,7 @@
 | --- | --- |
 | `strategy-seed.md` | 长期方向种子；不是当前实现契约 |
 | `execution-review-history.md` | 统一执行架构历史 review 摘要；只保留追溯价值 |
+| `../superpowers/specs/2026-05-20-wenjin-native-prism-integration-overview.md` | Prism 与 Wenjin workspace 深度适配的产品级 overview；定义当前 canonical Prism integration 的产品边界 |
 
 ## 4. 推荐阅读顺序
 

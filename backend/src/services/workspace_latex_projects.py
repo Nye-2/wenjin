@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.latex_project import LatexProject
 from src.services.latex import LatexProjectService
+from src.services.prism_review_service import PrismReviewService
 
 _SCI_SECTION_SPECS: tuple[tuple[str, str, str], ...] = (
     ("abstract", "Abstract", "sections/00_abstract.tex"),
@@ -72,69 +73,36 @@ class WorkspaceLatexProjectService:
     ) -> dict[str, Any]:
         metadata = cls._project_bridge_metadata(project)
         metadata.setdefault("managed_files", {})
-        metadata.setdefault("file_changes", [])
         metadata.update(updates)
         if not isinstance(metadata.get("managed_files"), dict):
             metadata["managed_files"] = {}
-        if not isinstance(metadata.get("file_changes"), list):
-            metadata["file_changes"] = []
+        metadata.pop("file_changes", None)
+        metadata.pop("applied_file_changes", None)
         return metadata
 
     @staticmethod
     def _clear_file_changes(metadata: dict[str, Any]) -> None:
-        metadata["file_changes"] = []
-
-    @staticmethod
-    def _remove_file_change(metadata: dict[str, Any], logical_key: str) -> None:
-        file_changes = metadata.setdefault("file_changes", [])
-        if not isinstance(file_changes, list):
-            metadata["file_changes"] = []
-            return
-        file_changes[:] = [
-            item
-            for item in file_changes
-            if not (
-                isinstance(item, dict)
-                and str(item.get("logical_key") or "") == logical_key
-            )
-        ]
+        metadata.pop("file_changes", None)
+        metadata.pop("applied_file_changes", None)
 
     @staticmethod
     def _content_hash(content: str) -> str:
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _record_file_change(
-        metadata: dict[str, Any],
+    def _file_change_hashes(
         *,
-        logical_key: str,
-        relative_path: str,
-        reason: str,
         pending_content: str,
         current_content: str | None,
-    ) -> None:
-        file_changes = metadata.setdefault("file_changes", [])
-        if not isinstance(file_changes, list):
-            file_changes = []
-            metadata["file_changes"] = file_changes
-        file_changes[:] = [
-            item
-            for item in file_changes
-            if not (
-                isinstance(item, dict)
-                and str(item.get("logical_key") or "") == logical_key
-            )
-        ]
-        entry = {
-            "logical_key": logical_key,
-            "path": relative_path,
-            "reason": reason,
-            "pending_content": pending_content,
+    ) -> dict[str, str | None]:
+        hashes: dict[str, str | None] = {
             "pending_hash": WorkspaceLatexProjectService._content_hash(pending_content),
         }
         if current_content is not None:
-            entry["current_hash"] = WorkspaceLatexProjectService._content_hash(current_content)
-        file_changes.append(entry)
+            hashes["current_hash"] = WorkspaceLatexProjectService._content_hash(
+                current_content
+            )
+        return hashes
 
     @staticmethod
     def _proposal_reason(record: Any, *, current_matches_record: bool) -> str:
@@ -175,6 +143,7 @@ class WorkspaceLatexProjectService:
         self,
         project: LatexProject,
         *,
+        workspace_id: str,
         relative_path: str,
         content: str,
         logical_key: str,
@@ -186,6 +155,10 @@ class WorkspaceLatexProjectService:
             managed_files = {}
             metadata["managed_files"] = managed_files
         record = managed_files.get(logical_key)
+        if not project.workspace_id:
+            project.workspace_id = workspace_id
+            project.surface_role = "primary_manuscript"
+            await self.db.flush()
 
         try:
             current_content = self.project_service.read_text_file(project, relative_path)
@@ -193,7 +166,10 @@ class WorkspaceLatexProjectService:
             current_content = None
 
         if current_content == content:
-            self._remove_file_change(metadata, logical_key)
+            await PrismReviewService(self.db).clear_review_item(
+                project,
+                logical_key=logical_key,
+            )
             managed_files[logical_key] = {
                 "path": relative_path,
                 "content_hash": self._content_hash(content),
@@ -207,7 +183,10 @@ class WorkspaceLatexProjectService:
 
         if current_content is None or allow_existing_write:
             await self.project_service.write_text_file(project, relative_path, content)
-            self._remove_file_change(metadata, logical_key)
+            await PrismReviewService(self.db).clear_review_item(
+                project,
+                logical_key=logical_key,
+            )
             managed_files[logical_key] = {
                 "path": relative_path,
                 "content_hash": self._content_hash(content),
@@ -224,16 +203,23 @@ class WorkspaceLatexProjectService:
                 and recorded_hash == self._content_hash(current_content)
             )
 
-        self._record_file_change(
-            metadata,
+        hashes = self._file_change_hashes(
+            pending_content=content,
+            current_content=current_content,
+        )
+        await PrismReviewService(self.db).upsert_pending_file_change(
+            project,
             logical_key=logical_key,
-            relative_path=relative_path,
+            path=relative_path,
             reason=self._proposal_reason(
                 record,
                 current_matches_record=current_matches_record,
             ),
             pending_content=content,
-            current_content=current_content,
+            pending_hash=str(hashes["pending_hash"]),
+            current_hash=(
+                str(hashes["current_hash"]) if hashes.get("current_hash") else None
+            ),
         )
 
     async def sync_project(
@@ -276,6 +262,7 @@ class WorkspaceLatexProjectService:
                 continue
             await self._safe_bridge_write(
                 linked_project,
+                workspace_id=workspace_id,
                 relative_path=relative_path,
                 content=content,
                 logical_key=f"project:asset:{relative_path}",
@@ -284,6 +271,7 @@ class WorkspaceLatexProjectService:
             )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path=main_file,
             content=main_tex,
             logical_key="project:main",
@@ -292,6 +280,7 @@ class WorkspaceLatexProjectService:
         )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path="references.bib",
             content=bib_tex,
             logical_key="project:references",
@@ -301,6 +290,7 @@ class WorkspaceLatexProjectService:
         if bib_tex.strip():
             await self._safe_bridge_write(
                 linked_project,
+                workspace_id=workspace_id,
                 relative_path="refs.bib",
                 content=bib_tex,
                 logical_key="project:refs_alias",
@@ -418,30 +408,6 @@ class WorkspaceLatexProjectService:
             if project is not None:
                 return project
 
-        result = await self.db.execute(
-            text(
-                f"""
-                select id
-                from latex_projects
-                where llm_config is not null
-                  and user_id = :owner_user_id
-                  and llm_config->>'workspace_id' = :workspace_id
-                  {template_clause}
-                order by updated_at desc
-                limit 1
-                """
-            ),
-            params,
-        )
-        row = result.mappings().first()
-        if row is not None:
-            project = await self.db.get(LatexProject, str(row["id"]))
-            if project is not None:
-                project.workspace_id = workspace_id
-                project.surface_role = "primary_manuscript"
-                await self.db.commit()
-                await self.db.refresh(project)
-                return project
         return None
 
     async def sync_sci_outline_project(
@@ -500,6 +466,7 @@ class WorkspaceLatexProjectService:
 
             await self._safe_bridge_write(
                 linked_project,
+                workspace_id=workspace_id,
                 relative_path=filename,
                 content=content,
                 logical_key=f"section:{key}",
@@ -514,6 +481,7 @@ class WorkspaceLatexProjectService:
         )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path="main.tex",
             content=main_tex,
             logical_key="project:main",
@@ -569,6 +537,7 @@ class WorkspaceLatexProjectService:
             file_content = f"% {section_title}\n{body}\n"
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path=section_file,
             content=file_content,
             logical_key=f"section:{section_type}",
@@ -583,6 +552,7 @@ class WorkspaceLatexProjectService:
         )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path="main.tex",
             content=main_tex,
             logical_key="project:main",
@@ -732,6 +702,7 @@ class WorkspaceLatexProjectService:
                 rendered = f"% {section_title}\n待补充。\n"
             await self._safe_bridge_write(
                 linked_project,
+                workspace_id=workspace_id,
                 relative_path=section_file,
                 content=rendered,
                 logical_key=f"section:{section_id}",
@@ -746,6 +717,7 @@ class WorkspaceLatexProjectService:
         )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path="main.tex",
             content=main_tex,
             logical_key="project:main",
@@ -797,6 +769,7 @@ class WorkspaceLatexProjectService:
             project_metadata["section_map"] = section_map
             await self._safe_bridge_write(
                 linked_project,
+                workspace_id=workspace_id,
                 relative_path=section_file,
                 content=f"% {section_title}\n{section_content}\n",
                 logical_key=f"section:{section_id}",
@@ -811,6 +784,7 @@ class WorkspaceLatexProjectService:
         )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path="main.tex",
             content=main_tex,
             logical_key="project:main",
@@ -857,6 +831,7 @@ class WorkspaceLatexProjectService:
         content = self._render_proposal_experiment_design(payload)
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path=section_file,
             content=f"% Experiment Design\n{content}\n",
             logical_key=f"section:{section_id}",
@@ -870,6 +845,7 @@ class WorkspaceLatexProjectService:
         )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path="main.tex",
             content=main_tex,
             logical_key="project:main",
@@ -1005,6 +981,7 @@ class WorkspaceLatexProjectService:
             content = section_content_by_key.get(key) or f"待补充：{title}"
             await self._safe_bridge_write(
                 linked_project,
+                workspace_id=workspace_id,
                 relative_path=filename,
                 content=f"% {title}\n{content}\n",
                 logical_key=f"section:{key}",
@@ -1015,6 +992,7 @@ class WorkspaceLatexProjectService:
         claims_text = self._render_patent_claims(claims_draft)
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path=section_map["claims"],
             content=f"% Claims\n{claims_text}\n",
             logical_key="section:claims",
@@ -1028,6 +1006,7 @@ class WorkspaceLatexProjectService:
         )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path="main.tex",
             content=main_tex,
             logical_key="project:main",
@@ -1165,6 +1144,7 @@ class WorkspaceLatexProjectService:
             content = section_content or f"待补充：{title}"
             await self._safe_bridge_write(
                 linked_project,
+                workspace_id=workspace_id,
                 relative_path=filename,
                 content=f"% {title}\n{content}\n",
                 logical_key=f"section:{key}",
@@ -1178,6 +1158,7 @@ class WorkspaceLatexProjectService:
         )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path="main.tex",
             content=main_tex,
             logical_key="project:main",
@@ -1228,6 +1209,7 @@ class WorkspaceLatexProjectService:
         )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path=section_file,
             content=f"% 材料清单与核对\n{content}\n",
             logical_key="section:materials_checklist",
@@ -1239,6 +1221,7 @@ class WorkspaceLatexProjectService:
         )
         await self._safe_bridge_write(
             linked_project,
+            workspace_id=workspace_id,
             relative_path="main.tex",
             content=main_tex,
             logical_key="project:main",

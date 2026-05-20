@@ -41,6 +41,30 @@ class _FakeDb:
         return self._results.pop(0)
 
 
+def _review_item(
+    *,
+    logical_key: str,
+    path: str,
+    status: str = "pending",
+    reason: str = "feature_proposal",
+    payload: dict | None = None,
+) -> SimpleNamespace:
+    preview_payload = {
+        "logical_key": logical_key,
+        "path": path,
+        "reason": reason,
+        **(payload or {}),
+    }
+    return SimpleNamespace(
+        id=f"review-{logical_key}",
+        logical_key=logical_key,
+        target_file_path=path,
+        summary=reason,
+        status=status,
+        preview_payload=preview_payload,
+    )
+
+
 def _execution_namespace(**overrides):
     now = overrides.get("created_at") or datetime.now(UTC)
     return SimpleNamespace(
@@ -148,7 +172,6 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             },
             "data": {
                 "latex_project_id": "latex-project-1",
-                "prism_url": "/latex/latex-project-1",
                 "main_file": "main.tex",
                 "section_file": "sections/introduction.tex",
                 "section_map": {"introduction": "sections/introduction.tex"},
@@ -166,7 +189,6 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
                     {
                         "action": "open_prism",
                         "label": "在 WenjinPrism 中继续编辑",
-                        "url": "/latex/latex-project-1",
                     }
                 ],
             },
@@ -198,17 +220,12 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
     latex_project = SimpleNamespace(
         id="latex-project-1",
         user_id="user-1",
+        workspace_id="ws-1",
+        surface_role="primary_manuscript",
         main_file="main.tex",
         llm_config={
             "metadata": {
-                "file_changes": [
-                    {
-                        "logical_key": "project:main",
-                        "path": "main.tex",
-                        "reason": "user_modified",
-                        "pending_content": "\\section{Generated}",
-                    }
-                ]
+                "section_map": {"introduction": "sections/introduction.tex"},
             }
         },
     )
@@ -218,9 +235,18 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             _Result(scalar=execution),
             _Result(scalars=[task]),
             _Result(scalars=[subagent]),
-            _Result(scalar=None),
-            _Result(scalar=None),
             _Result(scalar=latex_project),
+            _Result(
+                scalars=[
+                    _review_item(
+                        logical_key="project:main",
+                        path="main.tex",
+                        reason="user_modified",
+                        payload={"pending_content": "\\section{Generated}"},
+                    )
+                ]
+            ),
+            _Result(scalars=[]),
             _Result(
                 scalar={
                     "mode": "compute_workflow",
@@ -255,19 +281,13 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
     assert projection["sandbox"]["log_count"] == len(projection["logs"])
     assert projection["prism"]["status"] == "pending_changes"
     assert projection["prism"]["project_id"] == "latex-project-1"
-    assert projection["prism"]["url"] == "/latex/latex-project-1"
+    assert projection["prism"]["url"] == "/workspaces/ws-1/prism"
     assert projection["prism"]["main_file"] == "main.tex"
     assert projection["prism"]["target_files"] == ["main.tex", "sections/introduction.tex"]
-    assert projection["prism"]["compile"]["status"] == "success"
-    assert projection["prism"]["compile"]["page_count"] == 8
-    assert projection["prism"]["file_changes"] == [
-        {
-            "logical_key": "project:main",
-            "path": "main.tex",
-            "reason": "user_modified",
-            "pending_content": "\\section{Generated}",
-        }
-    ]
+    assert projection["prism"]["compile"] == {}
+    assert projection["prism"]["file_changes"][0]["logical_key"] == "project:main"
+    assert projection["prism"]["file_changes"][0]["path"] == "main.tex"
+    assert projection["prism"]["file_changes"][0]["pending_content"] == "\\section{Generated}"
     assert projection["prism"]["applied_file_changes"] == []
     assert {
         (item["kind"], item.get("artifact_id"), item.get("path"), item.get("url"))
@@ -286,9 +306,9 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             None,
             "/api/threads/thread-1/artifacts/mnt/user-data/execution/python_plot/run-1/output/plot.png",
         ),
-        ("prism_file", None, "main.tex", "/latex/latex-project-1"),
-        ("prism_file", None, "sections/introduction.tex", "/latex/latex-project-1"),
-    }
+            ("prism_file", None, "main.tex", "/workspaces/ws-1/prism"),
+            ("prism_file", None, "sections/introduction.tex", "/workspaces/ws-1/prism"),
+        }
     assert any(item["title"] == "渲染图表" and item["level"] == "success" for item in projection["logs"])
     assert any(item["title"] == "logs" and item["message"] == "rendered plot" for item in projection["logs"])
     assert any(item["title"] == "compile_logs" and item["level"] == "warning" for item in projection["logs"])
@@ -332,7 +352,6 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
             {
                 "action": "open_prism",
                 "label": "在 WenjinPrism 中继续编辑",
-                "url": "/latex/latex-project-1",
             }
         ],
         advisory_code=None,
@@ -348,7 +367,6 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
             _Result(scalar=execution),
             _Result(scalars=[]),
             _Result(scalars=[]),
-            _Result(scalar=None),
             _Result(scalar=None),
             _Result(
                 scalar={
@@ -416,7 +434,6 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalar=None),
-            _Result(scalar=None),
             _Result(
                 scalar={
                     "mode": "compute_agentic",
@@ -444,7 +461,7 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
 
 
 @pytest.mark.asyncio
-async def test_compute_projection_refreshes_resolved_prism_file_changes_from_project_metadata() -> None:
+async def test_compute_projection_refreshes_resolved_prism_file_changes_from_review_db() -> None:
     now = datetime.now(UTC)
     compute_session = SimpleNamespace(
         id="compute-3",
@@ -512,21 +529,10 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_pro
     latex_project = SimpleNamespace(
         id="latex-project-3",
         user_id="user-1",
+        workspace_id="ws-1",
+        surface_role="primary_manuscript",
         main_file="main.tex",
-        llm_config={
-            "metadata": {
-                "file_changes": [],
-                "applied_file_changes": {
-                    "section:introduction": {
-                        "logical_key": "section:introduction",
-                        "path": "sections/introduction.tex",
-                        "previous_hash": "sha256:old",
-                        "applied_hash": "sha256:new",
-                        "revert_signature": "signature",
-                    }
-                },
-            }
-        },
+        llm_config={"metadata": {}},
     )
     db = _FakeDb(
         [
@@ -534,9 +540,22 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_pro
             _Result(scalar=execution),
             _Result(scalars=[task]),
             _Result(scalars=[]),
-            _Result(scalar=None),
-            _Result(scalar=None),
             _Result(scalar=latex_project),
+            _Result(scalars=[]),
+            _Result(
+                scalars=[
+                    _review_item(
+                        logical_key="section:introduction",
+                        path="sections/introduction.tex",
+                        status="applied",
+                        payload={
+                            "previous_hash": "sha256:old",
+                            "applied_hash": "sha256:new",
+                            "revert_signature": "signature",
+                        },
+                    )
+                ]
+            ),
             _Result(
                 scalar={
                     "mode": "compute_workflow",
@@ -556,15 +575,10 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_pro
     assert projection is not None
     assert projection["prism"]["status"] == "ready"
     assert projection["prism"]["file_changes"] == []
-    assert projection["prism"]["applied_file_changes"] == [
-        {
-            "logical_key": "section:introduction",
-            "path": "sections/introduction.tex",
-            "previous_hash": "sha256:old",
-            "applied_hash": "sha256:new",
-            "revert_signature": "signature",
-        }
-    ]
+    assert projection["prism"]["applied_file_changes"][0]["logical_key"] == "section:introduction"
+    assert projection["prism"]["applied_file_changes"][0]["path"] == "sections/introduction.tex"
+    assert projection["prism"]["applied_file_changes"][0]["previous_hash"] == "sha256:old"
+    assert projection["prism"]["applied_file_changes"][0]["applied_hash"] == "sha256:new"
 
 
 @pytest.mark.asyncio
@@ -601,11 +615,7 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
         workspace_id="ws-1",
         surface_role="primary_manuscript",
         main_file="main.tex",
-        llm_config={
-            "metadata": {
-                "file_changes": [{"path": "sections/current.tex"}],
-            }
-        },
+        llm_config={"metadata": {}},
     )
     db = _FakeDb(
         [
@@ -614,7 +624,15 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalar=authoritative_project),
-            _Result(scalar=authoritative_project),
+            _Result(
+                scalars=[
+                    _review_item(
+                        logical_key="section:current",
+                        path="sections/current.tex",
+                    )
+                ]
+            ),
+            _Result(scalars=[]),
             _Result(
                 scalar={
                     "mode": "compute_workflow",

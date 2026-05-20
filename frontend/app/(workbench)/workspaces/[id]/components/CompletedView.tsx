@@ -554,13 +554,6 @@ function getCompletedActionContext(options: {
     nextActions,
   } = options;
   const data = readObject(taskReport?.data) ?? readObject(result?.data);
-  const resultProjectId =
-    readString(data?.latex_project_id) ?? readString(data?.project_id);
-  const resultPrismUrl = readString(data?.prism_url);
-  const prismHref = workspaceId
-    ? `/workspaces/${workspaceId}/prism`
-    : resultPrismUrl || (resultProjectId ? `/latex/${resultProjectId}` : null);
-
   const rawFileChanges = Array.isArray(data?.file_changes) ? data.file_changes : [];
   const fileChanges = rawFileChanges
     .map((item, index) => {
@@ -594,7 +587,6 @@ function getCompletedActionContext(options: {
         workspaceId,
         defaultFeatureId: featureId,
         defaultExecutionId: executionId,
-        prismHref,
       });
       if (!presentation) {
         return null;

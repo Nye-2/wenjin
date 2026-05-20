@@ -120,7 +120,9 @@ def _action_href(action: Mapping[str, Any], payload: Mapping[str, Any]) -> str |
     action_name = str(action.get("action") or action.get("kind") or "").strip()
     workspace_id = str(payload.get("workspace_id") or "").strip()
 
-    if workspace_id and action_name in {"open_prism", "preview_prism_changes"}:
+    if action_name in {"open_prism", "preview_prism_changes"}:
+        if not workspace_id:
+            return None
         if action_name == "preview_prism_changes":
             return f"/workspaces/{workspace_id}/prism?focus=file_changes"
         return f"/workspaces/{workspace_id}/prism"

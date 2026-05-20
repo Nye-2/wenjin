@@ -19,6 +19,73 @@ async def db(test_session: AsyncSession) -> AsyncSession:
     await test_session.execute(
         text(
             """
+            create table prism_review_items (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                latex_project_id varchar(36) not null,
+                logical_key varchar(255) not null,
+                source_type varchar(64) not null,
+                source_execution_id varchar(36),
+                source_task_id varchar(36),
+                target_kind varchar(64) not null,
+                target_file_path varchar(1024),
+                target_room varchar(64),
+                target_item_id varchar(36),
+                title varchar(255) not null,
+                summary varchar(1000),
+                status varchar(32) not null default 'pending',
+                preview_payload json not null default '{}',
+                applied_at datetime,
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp,
+                unique (latex_project_id, logical_key)
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
+            create table prism_protected_sections (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                latex_project_id varchar(36) not null,
+                file_path varchar(1024) not null,
+                section_key varchar(255),
+                scope varchar(32) not null,
+                reason varchar(1000),
+                source varchar(64) not null,
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp,
+                unique (latex_project_id, file_path, section_key, scope)
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
+            create table prism_source_links (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                latex_project_id varchar(36) not null,
+                review_item_id varchar(36),
+                source_type varchar(64) not null,
+                source_id varchar(255) not null,
+                file_path varchar(1024) not null,
+                section_key varchar(255),
+                quote varchar(4000),
+                citation_key varchar(255),
+                usage varchar(64) not null,
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
             create table latex_projects (
                 id varchar(36) primary key,
                 user_id varchar(36) not null,
@@ -104,7 +171,7 @@ async def test_get_primary_project_prefers_explicit_workspace_binding(
 
 
 @pytest.mark.asyncio
-async def test_get_primary_project_falls_back_to_legacy_llm_config_binding(
+async def test_get_primary_project_ignores_legacy_llm_config_binding(
     db: AsyncSession,
     user: SimpleNamespace,
 ) -> None:
@@ -124,12 +191,11 @@ async def test_get_primary_project_falls_back_to_legacy_llm_config_binding(
         user_id=user.id,
     )
 
-    assert project is not None
-    assert str(project.id) == "latex-legacy"
+    assert project is None
 
 
 @pytest.mark.asyncio
-async def test_ensure_primary_project_promotes_legacy_binding(
+async def test_ensure_primary_project_creates_explicit_binding_without_promoting_legacy(
     db: AsyncSession,
     user: SimpleNamespace,
     workspace: SimpleNamespace,
@@ -153,9 +219,11 @@ async def test_ensure_primary_project_promotes_legacy_binding(
 
     await db.refresh(legacy)
 
-    assert str(project.id) == "latex-legacy"
-    assert legacy.workspace_id == workspace.id
-    assert legacy.surface_role == "primary_manuscript"
+    assert str(project.id) != "latex-legacy"
+    assert project.workspace_id == workspace.id
+    assert project.surface_role == "primary_manuscript"
+    assert legacy.workspace_id is None
+    assert legacy.surface_role is None
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ Date: 2026-05-20
 
 ## Summary
 
-Workspace-owned Prism is now the canonical manuscript surface for Wenjin workspaces. Writing results, pending file changes, review actions, and legacy LaTeX project links converge on `/workspaces/:workspaceId/prism`.
+Workspace-owned Prism is now the canonical manuscript surface for Wenjin workspaces. Writing results, pending file changes, and review actions converge on `/workspaces/:workspaceId/prism`.
 
 ## User-Facing Changes
 
@@ -13,23 +13,24 @@ Workspace-owned Prism is now the canonical manuscript surface for Wenjin workspa
 - Opening a workspace Prism route now repairs a missing primary binding once via the ensure endpoint before surfacing an error.
 - Result cards with Prism file changes route to `/workspaces/:id/prism?focus=file_changes`.
 - Pending file changes must be reviewed and applied in Prism before they change the manuscript.
-- Legacy workspace-owned `/latex/:projectId` links redirect to the workspace Prism surface.
-- Prism loading, empty, error, and legacy redirect states now use the v2 surface-state pattern and localized copy.
+- The legacy standalone `/latex/:projectId` page route is removed instead of redirected.
+- Prism loading, empty, and error states now use the v2 surface-state pattern and localized copy.
 
 ## Backend Contract Changes
 
 - `LatexProject` has explicit `workspace_id` and `surface_role` binding fields.
 - `GET /api/workspaces/{workspace_id}/prism` returns the workspace-owned Prism surface projection with `latex_project_id`, `target_files`, `file_changes`, and `applied_file_changes`.
 - `POST /api/workspaces/{workspace_id}/prism/ensure` creates or repairs the primary manuscript binding.
-- Legacy `llm_config.workspace_id` projects are still discoverable and normalized into explicit bindings.
+- Legacy `llm_config.metadata.file_changes` and `applied_file_changes` are migrated into canonical Prism review tables and stripped from project metadata.
 - The database now enforces one `primary_manuscript` Prism project per workspace through a partial unique index.
 - Workspace Prism integrity reporting is available through `python -m scripts.workspace_prism_integrity_report`.
 
 ## Verification
 
-- Backend: `cd backend && .venv/bin/python -m pytest tests/ -q` -> 1848 passed.
-- Frontend unit: `cd frontend && npx vitest run` -> 194 passed.
+- Backend: `cd backend && .venv/bin/python -m pytest tests/ -q` -> 1851 passed.
+- Frontend unit: `cd frontend && npx vitest run` -> 196 passed.
 - Frontend typecheck: `cd frontend && npm run typecheck` -> passed.
+- Frontend lint: `cd frontend && npm run lint` -> passed.
 - Frontend build: `cd frontend && npm run build` -> passed.
 - Playwright: `cd frontend && npx playwright test tests/e2e/prism-surface.spec.ts --project=chromium` -> 1 passed.
 - Docker compose config: `docker compose config --quiet` -> passed.
@@ -37,6 +38,6 @@ Workspace-owned Prism is now the canonical manuscript surface for Wenjin workspa
 ## Rollout Watchpoints
 
 - Watch 404s with `Workspace Prism surface not found` or `Workspace-owned Prism project not found`.
-- Watch unexpected traffic to legacy `/latex/:projectId` after the redirect rollout.
+- Watch unexpected traffic to legacy `/latex/:projectId`; it should now 404 rather than redirect.
 - Run the integrity report before deploying the unique-index migration in environments with pre-existing Prism data.
 - Monitor Prism file-change apply/revert errors for stale hashes or unexpected manual overwrite conflicts.

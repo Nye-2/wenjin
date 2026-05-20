@@ -93,7 +93,7 @@ export default function WorkspacePrismPage({
       <SurfaceSwitch workspaceId={id} active="prism" />
       <div className="min-h-0 flex-1">
         {surface?.latex_project_id ? (
-          <LatexEditorShell projectId={surface.latex_project_id} />
+          <LatexEditorShell projectId={surface.latex_project_id} workspaceId={id} />
         ) : error ? (
           <WorkspaceSurfaceState
             tone="error"

@@ -41,6 +41,7 @@ import { useLatexStore } from "@/stores/latex";
 
 interface LatexEditorShellProps {
   projectId: string;
+  workspaceId?: string;
 }
 
 interface PdfDraftSelection {
@@ -532,7 +533,7 @@ function shiftFeedbacksAfterRewrite(
   });
 }
 
-export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
+export function LatexEditorShell({ projectId, workspaceId }: LatexEditorShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fileChangesRef = useRef<HTMLDivElement | null>(null);
@@ -1480,9 +1481,12 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
       <section className="mx-auto max-w-[1500px] px-6 pb-10 pt-28">
         <div className="mb-5 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={() => router.push("/latex")}>
+            <Button
+              variant="outline"
+              onClick={() => router.push(workspaceId ? `/workspaces/${workspaceId}` : "/workspaces")}
+            >
               <ArrowLeft className="mr-2 h-4 w-4" />
-              返回项目列表
+              {workspaceId ? "返回 Workbench" : "返回工作区"}
             </Button>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-brass)]">
@@ -1514,7 +1518,7 @@ export function LatexEditorShell({ projectId }: LatexEditorShellProps) {
                 setIsDeletingProject(true);
                 try {
                   await deleteProject();
-                  router.push("/latex");
+                  router.push(workspaceId ? `/workspaces/${workspaceId}` : "/workspaces");
                 } finally {
                   setIsDeletingProject(false);
                 }

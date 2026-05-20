@@ -32,16 +32,15 @@ from src.gateway.deps.core import get_db
 from src.gateway.routers.latex_helpers import (
     _compute_file_change_revert_signature,
     _compute_file_change_signature,
-    _find_file_change,
     _not_found,
     _pending_content_from_change,
     _preview_file_change_payload,
     _read_project_metadata,
     _record_latex_reference_usage,
-    _remove_file_change,
 )
 from src.services.latex import LatexProjectService
 from src.services.latex.rewrite_diff import compute_content_hash
+from src.services.prism_review_service import PENDING_STATUSES, PrismReviewService
 
 router = APIRouter(prefix="/latex", tags=["latex"])
 
@@ -134,9 +133,15 @@ async def preview_project_file_change(
     if project is None:
         raise _not_found()
 
-    _llm_config, metadata = _read_project_metadata(project)
-    change = _find_file_change(metadata, request.logical_key)
-    path = str(change.get("path") or "").strip()
+    review_item = await PrismReviewService(db).get_review_item(
+        project,
+        logical_key=request.logical_key,
+        statuses=PENDING_STATUSES,
+    )
+    if review_item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File change not found")
+    change = dict(review_item.preview_payload or {})
+    path = str(review_item.target_file_path or change.get("path") or "").strip()
     if not path:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File change path missing")
     pending_content = _pending_content_from_change(change)
@@ -150,7 +155,7 @@ async def preview_project_file_change(
     return _preview_file_change_payload(
         logical_key=request.logical_key,
         path=path,
-        reason=str(change.get("reason") or "feature_proposal"),
+        reason=str(review_item.summary or change.get("reason") or "feature_proposal"),
         current_content=current_content,
         pending_content=pending_content,
     )
@@ -171,9 +176,16 @@ async def apply_project_file_change(
     if project is None:
         raise _not_found()
 
-    llm_config, metadata = _read_project_metadata(project)
-    change = _find_file_change(metadata, request.logical_key)
-    path = str(change.get("path") or "").strip()
+    review_service = PrismReviewService(db)
+    review_item = await review_service.get_review_item(
+        project,
+        logical_key=request.logical_key,
+        statuses=PENDING_STATUSES,
+    )
+    if review_item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File change not found")
+    change = dict(review_item.preview_payload or {})
+    path = str(review_item.target_file_path or change.get("path") or "").strip()
     if not path:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File change path missing")
     pending_content = _pending_content_from_change(change)
@@ -209,12 +221,12 @@ async def apply_project_file_change(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
     applied_hash = compute_content_hash(pending_content)
+    llm_config, metadata = _read_project_metadata(project)
     metadata["managed_files"][request.logical_key] = {
         "path": path,
         "content_hash": applied_hash,
         "protected": False,
     }
-    _remove_file_change(metadata, request.logical_key)
 
     previous_hash = compute_content_hash(current_content)
     revert_signature = _compute_file_change_revert_signature(
@@ -223,16 +235,15 @@ async def apply_project_file_change(
         previous_hash=previous_hash,
         applied_hash=applied_hash,
     )
-    metadata["applied_file_changes"][request.logical_key] = {
-        "logical_key": request.logical_key,
-        "path": path,
-        "previous_content": current_content,
-        "previous_hash": previous_hash,
-        "applied_hash": applied_hash,
-        "revert_signature": revert_signature,
-    }
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
+    await review_service.mark_applied(
+        review_item,
+        previous_content=current_content,
+        previous_hash=previous_hash,
+        applied_hash=applied_hash,
+        revert_signature=revert_signature,
+    )
     await _record_latex_reference_usage(
         db,
         workspace_id=str(llm_config.get("workspace_id") or ""),
@@ -273,9 +284,16 @@ async def discard_project_file_change(
     if project is None:
         raise _not_found()
 
-    llm_config, metadata = _read_project_metadata(project)
-    change = _find_file_change(metadata, request.logical_key)
-    path = str(change.get("path") or "").strip()
+    review_service = PrismReviewService(db)
+    review_item = await review_service.get_review_item(
+        project,
+        logical_key=request.logical_key,
+        statuses=PENDING_STATUSES,
+    )
+    if review_item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File change not found")
+    change = dict(review_item.preview_payload or {})
+    path = str(review_item.target_file_path or change.get("path") or "").strip()
     if not path:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File change path missing")
 
@@ -286,14 +304,19 @@ async def discard_project_file_change(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
+    llm_config, metadata = _read_project_metadata(project)
     metadata["managed_files"][request.logical_key] = {
         "path": path,
         "content_hash": compute_content_hash(current_content),
         "protected": True,
     }
-    _remove_file_change(metadata, request.logical_key)
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
+    await review_service.mark_rejected(
+        review_item,
+        protect_section=True,
+        reason="user_protected",
+    )
     return LatexFileChangeDiscardResponse(
         ok=True,
         discarded=True,
@@ -317,10 +340,15 @@ async def revert_project_file_change(
     if project is None:
         raise _not_found()
 
-    llm_config, metadata = _read_project_metadata(project)
-    applied = metadata["applied_file_changes"].get(request.logical_key)
-    if not isinstance(applied, dict):
+    review_service = PrismReviewService(db)
+    review_item = await review_service.get_review_item(
+        project,
+        logical_key=request.logical_key,
+        statuses=("applied",),
+    )
+    if review_item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Applied file change not found")
+    applied = dict(review_item.preview_payload or {})
 
     path = str(applied.get("path") or "").strip()
     previous_content = applied.get("previous_content")
@@ -367,14 +395,15 @@ async def revert_project_file_change(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
+    llm_config, metadata = _read_project_metadata(project)
     metadata["managed_files"][request.logical_key] = {
         "path": path,
         "content_hash": previous_hash,
         "protected": True,
     }
-    metadata["applied_file_changes"].pop(request.logical_key, None)
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
+    await review_service.mark_reverted(review_item)
     return LatexFileChangeRevertResponse(
         ok=True,
         reverted=True,

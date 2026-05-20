@@ -87,7 +87,6 @@ def test_completion_card_routes_prism_review_links_to_workspace_surface():
             "data": {
                 "summary": "写作结果已进入 Prism 待确认区",
                 "latex_project_id": "latex-1",
-                "prism_url": "/latex/latex-1",
                 "file_changes": [
                     {
                         "logical_key": "section:introduction",
@@ -99,7 +98,6 @@ def test_completion_card_routes_prism_review_links_to_workspace_surface():
                 {
                     "action": "preview_prism_changes",
                     "label": "预览待确认修改",
-                    "url": "/latex/latex-1",
                 }
             ],
         },
@@ -115,6 +113,34 @@ def test_completion_card_routes_prism_review_links_to_workspace_surface():
     } >= {
         ("预览待确认修改", "/workspaces/ws-1/prism?focus=file_changes"),
     }
+
+
+def test_completion_card_does_not_emit_legacy_prism_link_without_workspace():
+    reply = build_completion_result_card(
+        feature_id="writing",
+        task_id="task-prism",
+        run_id="run-prism",
+        execution_id="exec-prism",
+        payload={"params": {"topic": "chapter 1"}},
+        result={
+            "data": {
+                "summary": "写作结果已进入 Prism 待确认区",
+                "latex_project_id": "latex-1",
+            },
+            "next_actions": [
+                {
+                    "action": "open_prism",
+                    "label": "在 WenjinPrism 中继续编辑",
+                    "url": "/latex/legacy-project",
+                }
+            ],
+        },
+        duration_ms=9000,
+        subagents_count=1,
+        tokens_total=900,
+    )
+
+    assert reply.blocks[0]["links"] == []
 
 
 def test_failure_card_emits_result_card_block_with_error_tldr():

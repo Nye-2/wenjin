@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,7 +62,6 @@ _PRISM_REQUIRED_ACTIONS = {
 }
 _PRISM_OPTIONAL_ACTIONS = {
     "open_prism",
-    "open_latex",
 }
 
 
@@ -346,159 +345,17 @@ def _append_unique_text(values: list[str], value: Any) -> None:
     values.append(text)
 
 
-def _collect_section_map_files(section_map: Any, target_files: list[str]) -> None:
-    if not isinstance(section_map, dict):
-        return
-    for value in section_map.values():
-        _append_unique_text(target_files, value)
-
-
-def _prism_payload_from_dict(value: dict[str, Any], *, source: str) -> dict[str, Any] | None:
-    latex_project_id = _read_text(value.get("latex_project_id"))
-    if latex_project_id is None:
-        return None
-
-    target_files: list[str] = []
-    main_file = _read_text(value.get("main_file")) or "main.tex"
-    _append_unique_text(target_files, main_file)
-    _append_unique_text(target_files, value.get("section_file"))
-    _collect_section_map_files(value.get("section_map"), target_files)
-    for change in _normalize_prism_file_changes(value.get("file_changes")):
-        _append_unique_text(target_files, change.get("path"))
-    for change in _normalize_applied_prism_file_changes(value.get("applied_file_changes")):
-        _append_unique_text(target_files, change.get("path"))
-
-    compile_status = _read_text(value.get("compile_status"))
-    compile_error = _read_text(value.get("compile_error"))
-    compile = {
-        "status": compile_status,
-        "pdf_path": _read_text(value.get("pdf_path")),
-        "pdf_url": _read_text(value.get("pdf_url")) or _read_text(value.get("pdf_endpoint")),
-        "pdf_endpoint": _read_text(value.get("pdf_endpoint")),
-        "page_count": value.get("page_count") if isinstance(value.get("page_count"), int) else None,
-        "error": compile_error,
-    }
-    file_changes = _normalize_prism_file_changes(value.get("file_changes"))
-    applied_file_changes = _normalize_applied_prism_file_changes(value.get("applied_file_changes"))
-    status = "ready"
-    if compile_status == "failed" or compile_error:
-        status = "compile_failed"
-    elif file_changes:
-        status = "pending_changes"
-
+def _empty_prism_projection() -> dict[str, Any]:
     return {
-        "id": f"prism:{latex_project_id}:{source}",
-        "source": source,
-        "status": status,
-        "latex_project_id": latex_project_id,
-        "url": _read_text(value.get("prism_url")) or f"/latex/{latex_project_id}",
-        "main_file": main_file,
-        "section_file": _read_text(value.get("section_file")),
-        "target_files": target_files,
-        "section_map": dict(cast(dict[str, Any], value.get("section_map"))) if isinstance(value.get("section_map"), dict) else {},
-        "file_changes": file_changes,
-        "applied_file_changes": applied_file_changes,
-        "compile": compile,
-    }
-
-
-def _collect_prism_items_from_value(
-    value: Any,
-    *,
-    source: str,
-    items: list[dict[str, Any]],
-    seen: set[tuple[str, str, tuple[str, ...]]],
-) -> None:
-    if isinstance(value, dict):
-        candidate = _prism_payload_from_dict(value, source=source)
-        if candidate is not None:
-            key = (
-                str(candidate["latex_project_id"]),
-                str(candidate["source"]),
-                tuple(candidate["target_files"]),
-            )
-            if key not in seen:
-                seen.add(key)
-                items.append(candidate)
-        for nested in value.values():
-            _collect_prism_items_from_value(
-                nested,
-                source=source,
-                items=items,
-                seen=seen,
-            )
-        return
-
-    if isinstance(value, list):
-        for nested in value:
-            _collect_prism_items_from_value(
-                nested,
-                source=source,
-                items=items,
-                seen=seen,
-            )
-
-
-def _build_prism_projection(
-    *,
-    execution: ExecutionRecord,
-    tasks: list[TaskRecord],
-) -> dict[str, Any]:
-    items: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, tuple[str, ...]]] = set()
-    _collect_prism_items_from_value(
-        execution.runtime_state,
-        source="runtime",
-        items=items,
-        seen=seen,
-    )
-    for task in tasks:
-        source = f"task:{task.id}"
-        _collect_prism_items_from_value(
-            task.result,
-            source=source,
-            items=items,
-            seen=seen,
-        )
-        _collect_prism_items_from_value(
-            task.runtime_state,
-            source=source,
-            items=items,
-            seen=seen,
-        )
-
-    primary = items[0] if items else None
-    target_files: list[str] = []
-    file_changes: list[dict[str, Any]] = []
-    applied_file_changes: list[dict[str, Any]] = []
-    for item in items:
-        for path in item.get("target_files", []):
-            _append_unique_text(target_files, path)
-        for change in item.get("file_changes", []):
-            if isinstance(change, dict) and change not in file_changes:
-                file_changes.append(dict(change))
-        for change in item.get("applied_file_changes", []):
-            if isinstance(change, dict) and change not in applied_file_changes:
-                applied_file_changes.append(dict(change))
-
-    status = "unbound"
-    if primary is not None:
-        status = "ready"
-        if any(item.get("status") == "compile_failed" for item in items):
-            status = "compile_failed"
-        elif file_changes:
-            status = "pending_changes"
-
-    return {
-        "status": status,
-        "project_id": primary.get("latex_project_id") if primary is not None else None,
-        "url": primary.get("url") if primary is not None else None,
-        "main_file": primary.get("main_file") if primary is not None else None,
-        "target_files": target_files,
-        "file_changes": file_changes,
-        "applied_file_changes": applied_file_changes,
-        "compile": primary.get("compile") if primary is not None else {},
-        "items": items,
+        "status": "unbound",
+        "project_id": None,
+        "url": None,
+        "main_file": None,
+        "target_files": [],
+        "file_changes": [],
+        "applied_file_changes": [],
+        "compile": {},
+        "items": [],
     }
 
 
@@ -530,8 +387,7 @@ def _build_prism_projection_from_surface(
     return {
         "status": status,
         "project_id": project_id,
-        "url": _read_text(surface.get("url"))
-        or (f"/latex/{project_id}" if project_id else None),
+        "url": _read_text(surface.get("url")),
         "main_file": _read_text(surface.get("main_file")),
         "target_files": target_files,
         "file_changes": file_changes,
@@ -543,9 +399,9 @@ def _build_prism_projection_from_surface(
 
 def _append_prism_files(files: list[dict[str, Any]], prism: dict[str, Any]) -> None:
     project_id = _read_text(prism.get("project_id"))
-    if project_id is None:
+    url = _read_text(prism.get("url"))
+    if project_id is None or url is None:
         return
-    url = _read_text(prism.get("url")) or f"/latex/{project_id}"
     seen = {
         (
             str(item.get("kind") or ""),
@@ -918,36 +774,21 @@ class ComputeProjectionService:
             tasks=tasks,
             runtime_blocks=runtime_blocks,
         )
-        prism = _build_prism_projection(
-            execution=execution,
-            tasks=tasks,
-        )
-        authoritative_prism = None
+        prism = _empty_prism_projection()
         if execution.workspace_id:
             from src.services.workspace_prism_service import WorkspacePrismService
 
             try:
-                authoritative_prism = await WorkspacePrismService(
+                surface = await WorkspacePrismService(
                     self.db
                 ).get_surface_projection(
                     str(execution.workspace_id),
                     user_id=str(execution.user_id),
                 )
             except ValueError:
-                authoritative_prism = None
-            if authoritative_prism is not None:
-                prism = _build_prism_projection_from_surface(authoritative_prism)
-        from src.services.latex.prism_status_resolver import LatexPrismStatusResolver
-
-        prism = await LatexPrismStatusResolver(self.db).refresh(
-            prism,
-            user_id=user_id,
-            workspace_id=(
-                str(execution.workspace_id)
-                if authoritative_prism is not None and execution.workspace_id
-                else None
-            ),
-        )
+                prism = _empty_prism_projection()
+            else:
+                prism = _build_prism_projection_from_surface(surface)
         _append_prism_files(files, prism)
         logs = _collect_logs(
             execution=execution,

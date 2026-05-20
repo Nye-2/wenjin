@@ -84,19 +84,11 @@ class _FakeLatexRouterService:
     project = SimpleNamespace(
         id="project-1",
         user_id="user-1",
+        workspace_id="workspace-1",
         main_file="main.tex",
         llm_config={
             "metadata": {
                 "managed_files": {},
-                "file_changes": [
-                    {
-                        "logical_key": "project:main",
-                        "path": "main.tex",
-                        "reason": "feature_proposal",
-                        "pending_content": "\\section{Generated}\n",
-                    }
-                ],
-                "applied_file_changes": {},
             }
         },
     )
@@ -125,23 +117,116 @@ class _FakeLatexRouterService:
         return project
 
 
+class _FakePrismReviewService:
+    review_item: SimpleNamespace | None = None
+    pending_changes: list[dict[str, object]] = []
+    cleared: list[str] = []
+    protected: list[dict[str, object]] = []
+
+    def __init__(self, db: object) -> None:
+        _ = db
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.review_item = SimpleNamespace(
+            id="review-project-main",
+            logical_key="project:main",
+            target_file_path="main.tex",
+            summary="feature_proposal",
+            status="pending",
+            preview_payload={
+                "logical_key": "project:main",
+                "path": "main.tex",
+                "reason": "feature_proposal",
+                "pending_content": "\\section{Generated}\n",
+            },
+        )
+        cls.pending_changes = []
+        cls.cleared = []
+        cls.protected = []
+
+    async def get_review_item(
+        self,
+        project: object,
+        *,
+        logical_key: str,
+        statuses: tuple[str, ...] | None = None,
+    ) -> SimpleNamespace | None:
+        _ = project
+        item = self.review_item
+        if item is None or item.logical_key != logical_key:
+            return None
+        if statuses and item.status not in statuses:
+            return None
+        return item
+
+    async def upsert_pending_file_change(self, project: object, **kwargs: object) -> SimpleNamespace:
+        _ = project
+        kwargs.setdefault("source_execution_id", None)
+        kwargs.setdefault("source_task_id", None)
+        self.pending_changes.append(dict(kwargs))
+        self.review_item = SimpleNamespace(
+            id=f"review-{kwargs['logical_key']}",
+            logical_key=kwargs["logical_key"],
+            target_file_path=kwargs["path"],
+            summary=kwargs["reason"],
+            status="pending",
+            preview_payload={
+                "logical_key": kwargs["logical_key"],
+                "path": kwargs["path"],
+                "reason": kwargs["reason"],
+                "pending_content": kwargs["pending_content"],
+                "pending_hash": kwargs["pending_hash"],
+                "current_hash": kwargs["current_hash"],
+            },
+        )
+        return self.review_item
+
+    async def clear_review_item(self, project: object, *, logical_key: str) -> None:
+        _ = project
+        self.cleared.append(logical_key)
+        if self.review_item is not None and self.review_item.logical_key == logical_key:
+            self.review_item = None
+
+    async def mark_applied(self, item: SimpleNamespace, **kwargs: object) -> SimpleNamespace:
+        item.status = "applied"
+        item.preview_payload = {**item.preview_payload, **kwargs}
+        return item
+
+    async def mark_rejected(
+        self,
+        item: SimpleNamespace,
+        *,
+        protect_section: bool,
+        reason: str | None = None,
+    ) -> SimpleNamespace:
+        item.status = "rejected"
+        item.summary = reason or item.summary
+        if protect_section:
+            self.protected.append(
+                {
+                    "logical_key": item.logical_key,
+                    "path": item.target_file_path,
+                    "reason": item.summary,
+                }
+            )
+        return item
+
+    async def mark_reverted(self, item: SimpleNamespace) -> SimpleNamespace:
+        item.status = "reverted"
+        return item
+
+
 def _reset_fake_router_service() -> None:
+    _FakePrismReviewService.reset()
     _FakeLatexRouterService.project = SimpleNamespace(
         id="project-1",
         user_id="user-1",
+        workspace_id="workspace-1",
         main_file="main.tex",
         llm_config={
             "metadata": {
                 "managed_files": {},
-                "file_changes": [
-                    {
-                        "logical_key": "project:main",
-                        "path": "main.tex",
-                        "reason": "feature_proposal",
-                        "pending_content": "\\section{Generated}\n",
-                    }
-                ],
-                "applied_file_changes": {},
             }
         },
     )
@@ -471,8 +556,16 @@ async def test_find_existing_project_scopes_by_workspace_and_owner() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bridge_write_records_managed_change_as_feature_proposal() -> None:
+async def test_bridge_write_records_managed_change_as_feature_proposal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakePrismReviewService.reset()
+    monkeypatch.setattr(
+        "src.services.workspace_latex_projects.PrismReviewService",
+        _FakePrismReviewService,
+    )
     service = WorkspaceLatexProjectService(AsyncMock())
+    service.db.flush = AsyncMock()
     fake_files = _FakeLatexProjectFiles({"main.tex": "old"})
     service.project_service = fake_files  # type: ignore[assignment]
     metadata = {
@@ -483,11 +576,11 @@ async def test_bridge_write_records_managed_change_as_feature_proposal() -> None
                 "protected": False,
             }
         },
-        "file_changes": [],
     }
 
     await service._safe_bridge_write(
-        SimpleNamespace(id="project-1"),
+        SimpleNamespace(id="project-1", workspace_id="workspace-1", surface_role="primary_manuscript"),
+        workspace_id="workspace-1",
         relative_path="main.tex",
         content="new",
         logical_key="project:main",
@@ -496,7 +589,8 @@ async def test_bridge_write_records_managed_change_as_feature_proposal() -> None
 
     assert fake_files.writes == []
     assert fake_files.files["main.tex"] == "old"
-    assert metadata["file_changes"] == [
+    assert "file_changes" not in metadata
+    assert _FakePrismReviewService.pending_changes == [
         {
             "logical_key": "project:main",
             "path": "main.tex",
@@ -504,29 +598,32 @@ async def test_bridge_write_records_managed_change_as_feature_proposal() -> None
             "pending_content": "new",
             "pending_hash": WorkspaceLatexProjectService._content_hash("new"),
             "current_hash": WorkspaceLatexProjectService._content_hash("old"),
+            "source_execution_id": None,
+            "source_task_id": None,
         }
     ]
 
 
 @pytest.mark.asyncio
-async def test_bridge_write_seeds_missing_file_and_clears_stale_conflict() -> None:
+async def test_bridge_write_seeds_missing_file_and_clears_stale_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakePrismReviewService.reset()
+    monkeypatch.setattr(
+        "src.services.workspace_latex_projects.PrismReviewService",
+        _FakePrismReviewService,
+    )
     service = WorkspaceLatexProjectService(AsyncMock())
+    service.db.flush = AsyncMock()
     fake_files = _FakeLatexProjectFiles({})
     service.project_service = fake_files  # type: ignore[assignment]
     metadata = {
         "managed_files": {},
-        "file_changes": [
-            {
-                "logical_key": "section:introduction",
-                "path": "sections/introduction.tex",
-                "reason": "feature_proposal",
-                "pending_content": "stale",
-            }
-        ],
     }
 
     await service._safe_bridge_write(
-        SimpleNamespace(id="project-1"),
+        SimpleNamespace(id="project-1", workspace_id="workspace-1", surface_role="primary_manuscript"),
+        workspace_id="workspace-1",
         relative_path="sections/introduction.tex",
         content="fresh",
         logical_key="section:introduction",
@@ -534,7 +631,8 @@ async def test_bridge_write_seeds_missing_file_and_clears_stale_conflict() -> No
     )
 
     assert fake_files.writes == [("sections/introduction.tex", "fresh")]
-    assert metadata["file_changes"] == []
+    assert "file_changes" not in metadata
+    assert _FakePrismReviewService.cleared == ["section:introduction"]
     assert metadata["managed_files"]["section:introduction"] == {
         "path": "sections/introduction.tex",
         "content_hash": WorkspaceLatexProjectService._content_hash("fresh"),
@@ -550,6 +648,10 @@ async def test_file_change_preview_and_apply_use_signature_guard(
     monkeypatch.setattr(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
+    )
+    monkeypatch.setattr(
+        "src.gateway.routers.latex_files.PrismReviewService",
+        _FakePrismReviewService,
     )
     user = SimpleNamespace(id="user-1")
 
@@ -577,9 +679,11 @@ async def test_file_change_preview_and_apply_use_signature_guard(
     assert applied.path == "main.tex"
     assert _FakeLatexRouterService.files["main.tex"] == "\\section{Generated}\n"
     metadata = _FakeLatexRouterService.project.llm_config["metadata"]
-    assert metadata["file_changes"] == []
     assert metadata["managed_files"]["project:main"]["protected"] is False
-    assert metadata["applied_file_changes"]["project:main"]["previous_content"] == "\\section{Current}\n"
+    assert "file_changes" not in metadata
+    assert "applied_file_changes" not in metadata
+    assert _FakePrismReviewService.review_item.status == "applied"
+    assert _FakePrismReviewService.review_item.preview_payload["previous_content"] == "\\section{Current}\n"
 
 
 @pytest.mark.asyncio
@@ -590,6 +694,10 @@ async def test_file_change_apply_rejects_stale_preview_signature(
     monkeypatch.setattr(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
+    )
+    monkeypatch.setattr(
+        "src.gateway.routers.latex_files.PrismReviewService",
+        _FakePrismReviewService,
     )
     user = SimpleNamespace(id="user-1")
 
@@ -625,6 +733,10 @@ async def test_file_change_discard_protects_current_content(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
+    monkeypatch.setattr(
+        "src.gateway.routers.latex_files.PrismReviewService",
+        _FakePrismReviewService,
+    )
 
     response = await discard_project_file_change(
         "project-1",
@@ -635,8 +747,15 @@ async def test_file_change_discard_protects_current_content(
 
     metadata = _FakeLatexRouterService.project.llm_config["metadata"]
     assert response.discarded is True
-    assert metadata["file_changes"] == []
     assert metadata["managed_files"]["project:main"]["protected"] is True
+    assert _FakePrismReviewService.review_item.status == "rejected"
+    assert _FakePrismReviewService.protected == [
+        {
+            "logical_key": "project:main",
+            "path": "main.tex",
+            "reason": "user_protected",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -647,6 +766,10 @@ async def test_file_change_revert_restores_previous_content(
     monkeypatch.setattr(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
+    )
+    monkeypatch.setattr(
+        "src.gateway.routers.latex_files.PrismReviewService",
+        _FakePrismReviewService,
     )
     user = SimpleNamespace(id="user-1")
     preview = await preview_project_file_change(
@@ -679,7 +802,8 @@ async def test_file_change_revert_restores_previous_content(
     assert response.reverted is True
     assert _FakeLatexRouterService.files["main.tex"] == "\\section{Current}\n"
     assert metadata["managed_files"]["project:main"]["protected"] is True
-    assert "project:main" not in metadata["applied_file_changes"]
+    assert "applied_file_changes" not in metadata
+    assert _FakePrismReviewService.review_item.status == "reverted"
 
 
 def test_upload_path_normalization_avoids_duplicate_base_prefix() -> None:

@@ -347,10 +347,8 @@ def _read_project_metadata(project: Any) -> tuple[dict[str, Any], dict[str, Any]
     metadata = cast(dict[str, Any], deepcopy(llm_config.get("metadata"))) if isinstance(llm_config.get("metadata"), dict) else {}
     if not isinstance(metadata.get("managed_files"), dict):
         metadata["managed_files"] = {}
-    if not isinstance(metadata.get("file_changes"), list):
-        metadata["file_changes"] = []
-    if not isinstance(metadata.get("applied_file_changes"), dict):
-        metadata["applied_file_changes"] = {}
+    metadata.pop("file_changes", None)
+    metadata.pop("applied_file_changes", None)
     return llm_config, metadata
 
 
@@ -395,28 +393,6 @@ async def _record_latex_reference_usage(
             normalized_workspace_id,
             exc_info=True,
         )
-
-
-def _find_file_change(metadata: dict[str, Any], logical_key: str) -> dict[str, Any]:
-    changes = metadata.get("file_changes")
-    if not isinstance(changes, list):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File change not found")
-    for item in changes:
-        if isinstance(item, dict) and str(item.get("logical_key") or "") == logical_key:
-            return dict(item)
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File change not found")
-
-
-def _remove_file_change(metadata: dict[str, Any], logical_key: str) -> None:
-    changes = metadata.get("file_changes")
-    if not isinstance(changes, list):
-        metadata["file_changes"] = []
-        return
-    metadata["file_changes"] = [
-        item
-        for item in changes
-        if not (isinstance(item, dict) and str(item.get("logical_key") or "") == logical_key)
-    ]
 
 
 def _pending_content_from_change(change: dict[str, Any]) -> str:

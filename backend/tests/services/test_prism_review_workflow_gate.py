@@ -84,6 +84,74 @@ class _FakeLatexRouterService:
         return project
 
 
+class _FakePrismReviewService:
+    review_item: SimpleNamespace | None = None
+    protected: list[dict[str, object]] = []
+
+    def __init__(self, db: object) -> None:
+        _ = db
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.review_item = SimpleNamespace(
+            id="review-introduction",
+            logical_key="section:introduction",
+            target_file_path="sections/introduction.tex",
+            summary="feature_proposal",
+            status="pending",
+            preview_payload={
+                "logical_key": "section:introduction",
+                "path": "sections/introduction.tex",
+                "reason": "feature_proposal",
+                "pending_content": r"Generated claim \cite{lovelace2026}.",
+            },
+        )
+        cls.protected = []
+
+    async def get_review_item(
+        self,
+        project: object,
+        *,
+        logical_key: str,
+        statuses: tuple[str, ...] | None = None,
+    ) -> SimpleNamespace | None:
+        _ = project
+        item = self.review_item
+        if item is None or item.logical_key != logical_key:
+            return None
+        if statuses and item.status not in statuses:
+            return None
+        return item
+
+    async def mark_applied(self, item: SimpleNamespace, **kwargs: object) -> SimpleNamespace:
+        item.status = "applied"
+        item.preview_payload = {**item.preview_payload, **kwargs}
+        return item
+
+    async def mark_rejected(
+        self,
+        item: SimpleNamespace,
+        *,
+        protect_section: bool,
+        reason: str | None = None,
+    ) -> SimpleNamespace:
+        item.status = "rejected"
+        item.summary = reason or item.summary
+        if protect_section:
+            self.protected.append(
+                {
+                    "logical_key": item.logical_key,
+                    "path": item.target_file_path,
+                    "reason": item.summary,
+                }
+            )
+        return item
+
+    async def mark_reverted(self, item: SimpleNamespace) -> SimpleNamespace:
+        item.status = "reverted"
+        return item
+
+
 class _FakeReferenceUsageService:
     calls: list[dict[str, object]] = []
 
@@ -96,9 +164,12 @@ class _FakeReferenceUsageService:
 
 
 def _reset_router_state() -> None:
+    _FakePrismReviewService.reset()
     _FakeLatexRouterService.project = SimpleNamespace(
         id="latex-1",
         user_id="user-1",
+        workspace_id="ws-1",
+        surface_role="primary_manuscript",
         main_file="main.tex",
         llm_config={
             "workspace_id": "ws-1",
@@ -110,15 +181,6 @@ def _reset_router_state() -> None:
                         "protected": False,
                     }
                 },
-                "file_changes": [
-                    {
-                        "logical_key": "section:introduction",
-                        "path": "sections/introduction.tex",
-                        "reason": "feature_proposal",
-                        "pending_content": r"Generated claim \cite{lovelace2026}.",
-                    }
-                ],
-                "applied_file_changes": {},
             },
         },
     )
@@ -200,7 +262,6 @@ def _task(now: datetime) -> SimpleNamespace:
         result={
             "data": {
                 "latex_project_id": "latex-1",
-                "prism_url": "/latex/latex-1",
                 "main_file": "main.tex",
                 "section_file": "sections/introduction.tex",
                 "file_changes": [
@@ -222,6 +283,9 @@ def _task(now: datetime) -> SimpleNamespace:
 
 async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]:
     now = datetime.now(UTC)
+    item = _FakePrismReviewService.review_item
+    pending_items = [item] if item is not None and item.status in {"pending", "deferred"} else []
+    applied_items = [item] if item is not None and item.status == "applied" else []
     db = _FakeDb(
         [
             _Result(scalar=_compute_session(now)),
@@ -229,7 +293,8 @@ async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]
             _Result(scalars=[_task(now)]),
             _Result(scalars=[]),
             _Result(scalar=project),
-            _Result(scalar=project),
+            _Result(scalars=pending_items),
+            _Result(scalars=applied_items),
             _Result(
                 scalar={
                     "mode": "compute_workflow",
@@ -267,6 +332,10 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
             _FakeLatexRouterService,
         ),
         patch(
+            "src.gateway.routers.latex_files.PrismReviewService",
+            _FakePrismReviewService,
+        ),
+        patch(
             "src.gateway.routers.latex_helpers.ReferenceUsageService",
             _FakeReferenceUsageService,
         ),
@@ -292,8 +361,10 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
         r"Generated claim \cite{lovelace2026}."
     )
     metadata = _FakeLatexRouterService.project.llm_config["metadata"]
-    assert metadata["file_changes"] == []
-    assert metadata["applied_file_changes"]["section:introduction"]["revert_signature"] == (
+    assert "file_changes" not in metadata
+    assert "applied_file_changes" not in metadata
+    assert _FakePrismReviewService.review_item.status == "applied"
+    assert _FakePrismReviewService.review_item.preview_payload["revert_signature"] == (
         applied.undo.revert_signature
     )
     assert _FakeReferenceUsageService.calls == [
@@ -318,6 +389,9 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
     with patch(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
+    ), patch(
+        "src.gateway.routers.latex_files.PrismReviewService",
+        _FakePrismReviewService,
     ):
         reverted = await revert_project_file_change(
             "latex-1",
@@ -333,7 +407,8 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
     assert _FakeLatexRouterService.files["sections/introduction.tex"] == "Current introduction."
     reverted_metadata = _FakeLatexRouterService.project.llm_config["metadata"]
     assert reverted_metadata["managed_files"]["section:introduction"]["protected"] is True
-    assert reverted_metadata["applied_file_changes"] == {}
+    assert "applied_file_changes" not in reverted_metadata
+    assert _FakePrismReviewService.review_item.status == "reverted"
 
 
 @pytest.mark.asyncio
@@ -344,6 +419,9 @@ async def test_prism_review_discard_protects_user_content_and_clears_pending_pro
     with patch(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
+    ), patch(
+        "src.gateway.routers.latex_files.PrismReviewService",
+        _FakePrismReviewService,
     ):
         discarded = await discard_project_file_change(
             "latex-1",
@@ -354,8 +432,15 @@ async def test_prism_review_discard_protects_user_content_and_clears_pending_pro
 
     assert discarded.discarded is True
     metadata = _FakeLatexRouterService.project.llm_config["metadata"]
-    assert metadata["file_changes"] == []
     assert metadata["managed_files"]["section:introduction"]["protected"] is True
+    assert _FakePrismReviewService.review_item.status == "rejected"
+    assert _FakePrismReviewService.protected == [
+        {
+            "logical_key": "section:introduction",
+            "path": "sections/introduction.tex",
+            "reason": "user_protected",
+        }
+    ]
 
     projection = await _projection_for_project(_FakeLatexRouterService.project)
     assert projection["prism"]["status"] == "ready"

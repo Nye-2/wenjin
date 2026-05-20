@@ -38,7 +38,6 @@ describe("ExecutionCard", () => {
           result: {
             data: {
               latex_project_id: "latex-1",
-              prism_url: "/latex/latex-1",
               file_changes: [
                 {
                   logical_key: "section:introduction",
@@ -57,7 +56,6 @@ describe("ExecutionCard", () => {
             {
               action: "open_prism",
               label: "在 WenjinPrism 中继续编辑",
-              url: "/latex/latex-1",
             },
           ],
         })}
@@ -115,7 +113,6 @@ describe("ExecutionCard", () => {
           result: {
             data: {
               latex_project_id: "latex-1",
-              prism_url: "/latex/latex-1",
             },
           },
           next_actions: [
