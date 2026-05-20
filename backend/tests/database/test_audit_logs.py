@@ -1,7 +1,8 @@
 """Round-trip tests for audit_logs table and AuditService."""
 
-import pytest
 from contextlib import asynccontextmanager
+
+import pytest
 
 from tests.database.conftest import DbAuditLog
 

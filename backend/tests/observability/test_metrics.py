@@ -23,7 +23,6 @@ def client() -> TestClient:
 
         # Import metrics module so all new metric objects are registered
         import src.observability.metrics  # noqa: F401
-
         from src.observability.prometheus import setup_prometheus
 
         setup_prometheus(app)

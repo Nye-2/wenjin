@@ -12,7 +12,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from src.academic.cache.redis_client import redis_client
-
 from src.runtime.stream_bridge import RedisStreamBridge
 from src.workspace_events import publish_workspace_event
 

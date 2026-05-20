@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChatPanel } from "./components/ChatPanel";
 import { LiveWorkflowPanel } from "./components/LiveWorkflowPanel";
@@ -34,7 +34,24 @@ export default function V2Page({
   const { id } = use(params);
   const searchParams = useSearchParams();
   const roomSeed = readRoomRouteSeed(searchParams);
-  const [activeRoom, setActiveRoom] = useState<RoomKey | null>(null);
+  const [roomState, setRoomState] = useState<{
+    routeRoom: RoomKey | null;
+    activeRoom: RoomKey | null;
+  }>(() => ({
+    routeRoom: roomSeed.room,
+    activeRoom: roomSeed.room,
+  }));
+  const activeRoom =
+    roomState.routeRoom === roomSeed.room ? roomState.activeRoom : roomSeed.room;
+  const setActiveRoom = useCallback(
+    (room: RoomKey | null) => {
+      setRoomState({
+        routeRoom: roomSeed.room,
+        activeRoom: room,
+      });
+    },
+    [roomSeed.room],
+  );
   const [compactToastVisible, setCompactToastVisible] = useState(false);
   const [workspace, setWorkspace] = useState<{
     name: string;
@@ -75,10 +92,6 @@ export default function V2Page({
       cancelled = true;
     };
   }, [id]);
-
-  useEffect(() => {
-    setActiveRoom(roomSeed.room);
-  }, [roomSeed.room]);
 
   const typeConfig = workspace
     ? WORKSPACE_TYPE_CONFIG[workspace.type as keyof typeof WORKSPACE_TYPE_CONFIG]

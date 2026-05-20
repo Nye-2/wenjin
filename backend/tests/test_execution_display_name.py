@@ -1,6 +1,7 @@
 """Test that execution records store and return display_name."""
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from src.services.execution_service import ExecutionService
 

@@ -11,7 +11,6 @@ import pytest
 from src.agents.contracts.task_report import TaskReport
 from src.services.execution_completion_service import ExecutionCompletionService
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

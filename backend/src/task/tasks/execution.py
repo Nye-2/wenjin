@@ -8,7 +8,6 @@ from typing import Any, cast
 
 from celery import shared_task
 
-from src.config import settings
 from src.config.app_config import redis_settings
 
 logger = logging.getLogger(__name__)

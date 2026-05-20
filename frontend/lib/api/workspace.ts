@@ -16,7 +16,6 @@ import type {
   WorkspaceActivityResponse,
   WorkspaceCapability,
   WorkspaceCreate,
-  ExecutionRecord,
   WorkspacePrismEnsureResponse,
   WorkspacePrismSurfaceResponse,
   WorkspaceExecutionsResponse,

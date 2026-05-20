@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.services.capability_schema import CrossRefValidator, CapabilityYamlModel
+from src.services.capability_schema import CapabilityYamlModel, CrossRefValidator
 
 
 def _make_capability_yaml(
@@ -24,7 +24,9 @@ def _make_capability_yaml(
                     "name": "p",
                     "tasks": [
                         {"name": f"t{i}", "subagent_type": st, "skill_id": sid}
-                        for i, (st, sid) in enumerate(zip(subagent_types, skill_ids))
+                        for i, (st, sid) in enumerate(
+                            zip(subagent_types, skill_ids, strict=False)
+                        )
                     ],
                 }
             ],

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.config.config_loader import get_app_config
+
 BILLABLE_FEATURE_TASK_TYPES: frozenset[str] = frozenset({"execution"})
 
 

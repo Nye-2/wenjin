@@ -28,8 +28,12 @@ export default function AdminOverviewPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setIsLoading(true);
+        setError(null);
+      }
+    });
     getAdminDashboard()
       .then((data) => {
         if (!cancelled) setDashboard(data);

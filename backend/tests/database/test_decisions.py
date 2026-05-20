@@ -4,9 +4,9 @@ import pytest
 from sqlalchemy import select
 
 from tests.database.conftest import (
+    DbDecision,
     DbUser,
     DbWorkspace,
-    DbDecision,
 )
 
 

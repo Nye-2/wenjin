@@ -6,11 +6,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.gateway.routers.executions import router
-
 
 # ---------------------------------------------------------------------------
 # Test app factory — overrides DB session + auth so we don't need a real DB

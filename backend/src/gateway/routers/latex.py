@@ -42,7 +42,6 @@ from src.gateway.routers.latex_templates import router as templates_router
 from src.gateway.routers.latex_upload import router as upload_router
 from src.services.workspace_prism_service import WorkspacePrismService
 
-
 router = APIRouter()
 
 router.include_router(projects_router)

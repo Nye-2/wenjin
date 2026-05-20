@@ -1,5 +1,4 @@
 """Tests for OutputMappingResolver — template expression resolution."""
-import pytest
 
 from src.agents.lead_agent.v2.output_mapping import _dot_get, _resolve_value
 

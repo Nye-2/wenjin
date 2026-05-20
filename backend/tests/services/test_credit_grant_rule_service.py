@@ -4,13 +4,8 @@ import pytest
 
 from src.database import CreditGrantRuleType
 from src.services.credit_grant_rule_service import (
-    CreditGrantRuleService,
     _validated_config,
-    RegistrationConfig,
-    ReferralConfig,
-    PeriodicConfig,
 )
-
 
 # ============ Config validation tests (sync, no DB needed) ============
 

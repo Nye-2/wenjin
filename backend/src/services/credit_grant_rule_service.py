@@ -161,8 +161,9 @@ class CreditGrantRuleService:
         rule = await self.get_active_rule(CreditGrantRuleType.REGISTRATION_BONUS)
         if rule is None:
             return None
-        from src.database import CreditTransaction, CreditTransactionType, User
         from sqlalchemy import select
+
+        from src.database import CreditTransaction, CreditTransactionType, User
         result = await self.db.execute(select(User).where(User.id == user_id))
         user = result.scalars().first()
         if user is None:

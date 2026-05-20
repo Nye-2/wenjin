@@ -32,11 +32,33 @@ export function SettingsPage({
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab ?? "memory");
 
   useEffect(() => {
-    if (defaultTab) setActiveTab(defaultTab);
+    if (!defaultTab) {
+      return;
+    }
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setActiveTab(defaultTab);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [defaultTab]);
 
   useEffect(() => {
-    if (open) setVisible(true);
+    if (!open) {
+      return;
+    }
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setVisible(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   function handleClose() {

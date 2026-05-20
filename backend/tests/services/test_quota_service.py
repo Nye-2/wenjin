@@ -1,9 +1,11 @@
 """Tests for QuotaService using mocked Redis."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+from datetime import UTC
+from unittest.mock import AsyncMock
 
-from src.services.quota_service import QuotaExceeded, QuotaService, QuotaUsage
+import pytest
+
+from src.services.quota_service import QuotaExceeded, QuotaService
 
 
 def _make_redis() -> AsyncMock:
@@ -68,14 +70,10 @@ async def test_consume_raises_on_over_limit():
 @pytest.mark.asyncio
 async def test_check_over_limit():
     """check() returns False when usage would exceed the limit."""
-    redis = _make_redis()
-    svc = QuotaService(redis, daily_token_limit=100)
-
-    store: dict[str, int] = {}
     redis2 = AsyncMock()
 
-    from datetime import datetime, timezone
-    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    from datetime import datetime
+    day = datetime.now(UTC).strftime("%Y%m%d")
     raw_store = {f"quota:user-1:tokens_daily:{day}": "90"}
 
     async def get(key):

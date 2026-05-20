@@ -1,7 +1,7 @@
 """Service layer for workspace sandboxes."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -93,7 +93,7 @@ class SandboxService:
         row = result.scalar_one_or_none()
         if row is None:
             return None
-        row.last_active_at = datetime.now(timezone.utc)
+        row.last_active_at = datetime.now(UTC)
         await self.db.commit()
         await self.db.refresh(row)
         return row

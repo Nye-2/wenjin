@@ -16,7 +16,6 @@ from sqlalchemy import select
 from src.services.capability_loader import CapabilityLoader
 from tests.database.conftest import DbCapability
 
-
 # ---------------------------------------------------------------------------
 # Test 1: All 5 thesis seeds load + are queryable
 # ---------------------------------------------------------------------------

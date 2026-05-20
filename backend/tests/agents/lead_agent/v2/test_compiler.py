@@ -1,16 +1,13 @@
 """Tests for capability compiler (Task 2.4)."""
 
 from typing import TypedDict
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
 # Ensure subagent types are registered before importing compiler
 import src.subagents.v2.types  # noqa: F401
-
 from src.agents.lead_agent.v2.compiler import compile_graph
-from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
-from src.subagents.v2.registry import REGISTRY
+from src.subagents.v2.base import SubagentContext, SubagentResult
 
 
 class TestState(TypedDict, total=False):
@@ -147,7 +144,7 @@ async def test_compile_two_phases_serial():
         runner_factory=runner_factory,
     )
     initial = _make_state()
-    final_state = await graph.ainvoke(initial)
+    await graph.ainvoke(initial)
 
     # Both tasks must have run
     assert "search" in execution_order

@@ -15,6 +15,7 @@ export async function listSandboxExecutions(
   workspaceId: string,
 ): Promise<SandboxExecution[]> {
   // Backend has no list endpoint; return empty until added
+  void workspaceId;
   return [];
 }
 

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
-from typing import Any, Callable, TypedDict
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any, TypedDict
 
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import ResultError, ResultOutput, TaskReport
@@ -101,7 +102,7 @@ class LeadAgentRuntime:
         Returns:
             TaskReport with status, outputs, narrative, and optional errors.
         """
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
 
         ws_type = await self.get_workspace_type(brief.workspace_id)
         cap = await self.resolver.resolve(brief.capability_id, ws_type)
@@ -172,7 +173,7 @@ class LeadAgentRuntime:
                 status = "failed_partial"
 
         # Build report
-        duration = int((datetime.now(timezone.utc) - started_at).total_seconds())
+        duration = int((datetime.now(UTC) - started_at).total_seconds())
         outputs = self._collect_outputs(final_state, cap)
         narrative = self._build_narrative(cap, final_state)
         token_usage = self._aggregate_token_usage(final_state)
@@ -344,7 +345,7 @@ class LeadAgentRuntime:
                 except Exception:
                     rendered_inputs = dict(brief)
 
-                started_at = datetime.now(timezone.utc)
+                started_at = datetime.now(UTC)
                 try:
                     await recorder(
                         execution_id=execution_id,
@@ -366,7 +367,7 @@ class LeadAgentRuntime:
 
                 # Resolve the per-node payload from the latest node_results.
                 node_result = (result_state or {}).get("node_results", {}).get(task_name, {})
-                completed_at = datetime.now(timezone.utc)
+                completed_at = datetime.now(UTC)
                 try:
                     await _flush_delta(meta["node_id"])
                     if isinstance(node_result, dict) and "error" in node_result:

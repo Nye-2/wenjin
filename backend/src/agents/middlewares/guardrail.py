@@ -64,7 +64,7 @@ class GuardrailMiddleware(Middleware):
                             getattr(state, "thread_id", "unknown"),
                         )
                         raise GuardrailViolation(
-                            f"Content violates safety policy: blocked pattern detected."
+                            "Content violates safety policy: blocked pattern detected."
                         )
         return {}
 

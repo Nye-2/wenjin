@@ -152,8 +152,10 @@ class TestEndToEndCapabilityShape:
 # Integration: full compile_graph → run → templated inputs reach subagents
 # ---------------------------------------------------------------------------
 
-import pytest
 from typing import TypedDict
+
+import pytest
+
 from src.agents.lead_agent.v2.compiler import compile_graph
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
 from src.subagents.v2.registry import REGISTRY

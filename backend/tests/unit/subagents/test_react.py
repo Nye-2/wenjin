@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.subagents.v2.base import SubagentContext, SubagentResult
+from src.subagents.v2.base import SubagentContext
 from src.subagents.v2.registry import REGISTRY
 from src.subagents.v2.types.react import (
     ReactSubagent,
     _parse_output,
     _render_user_message,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

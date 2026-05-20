@@ -1,7 +1,6 @@
 """Workspace task model for workspace-level tasks."""
 
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB

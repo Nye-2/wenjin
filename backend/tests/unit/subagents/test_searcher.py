@@ -7,15 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.services.search.base import SearchResult
-from src.services.search.registry import SEARCH_SOURCES
-from src.subagents.v2.base import SubagentContext, SubagentResult
+from src.subagents.v2.base import SubagentContext
 from src.subagents.v2.registry import REGISTRY
 from src.subagents.v2.types.searcher import (
     SearcherSubagent,
     _deduplicate,
     _normalize_title,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

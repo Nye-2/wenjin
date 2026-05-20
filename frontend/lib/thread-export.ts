@@ -1,7 +1,7 @@
 import type { ThreadSummary } from "@/lib/api";
 import type { Message } from "@/stores/chat-store";
 
-interface ExportableThread extends Partial<ThreadSummary> {
+export interface ExportableThread extends Partial<ThreadSummary> {
   id: string;
 }
 

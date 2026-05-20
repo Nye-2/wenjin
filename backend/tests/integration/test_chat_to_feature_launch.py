@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Static contract (existence) checks — fast smoke
 # ---------------------------------------------------------------------------

@@ -150,8 +150,6 @@ export function ExecutionCard({
   phases,
   isExpanded,
   onToggle,
-  selectedNodeId,
-  selectNode,
 }: ExecutionCardProps) {
   const cardStatus = deriveCardStatus(record);
   const duration = computeDuration(record);

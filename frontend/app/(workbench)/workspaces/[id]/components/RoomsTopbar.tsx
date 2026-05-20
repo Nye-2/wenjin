@@ -22,7 +22,6 @@ const ROOMS = [
 export type RoomKey = (typeof ROOMS)[number]["key"];
 
 export function RoomsTopbar({
-  workspaceId,
   className,
   "data-testid": testId,
   activeRoom,

@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from src.services.capability_schema import (
-    CapabilityYamlModel,
     CapabilitySkillYamlModel,
+    CapabilityYamlModel,
     UIMetaModel,
 )
 

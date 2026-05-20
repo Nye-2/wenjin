@@ -1,7 +1,7 @@
 """Service layer for workspace tasks."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -83,7 +83,7 @@ class WorkspaceTasksService:
                 setattr(task, key, value)
 
         if kwargs.get("status") == "done" and task.completed_at is None:
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = datetime.now(UTC)
 
         await self.db.commit()
         await self.db.refresh(task)
@@ -94,6 +94,6 @@ class WorkspaceTasksService:
         task = await self.get(workspace_id, task_id)
         if task is None:
             return False
-        task.deleted_at = datetime.now(timezone.utc)
+        task.deleted_at = datetime.now(UTC)
         await self.db.commit()
         return True

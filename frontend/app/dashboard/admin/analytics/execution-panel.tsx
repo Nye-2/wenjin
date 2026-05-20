@@ -24,14 +24,6 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "#a1a1aa",
 };
 
-const WORKSPACE_LABELS: Record<string, string> = {
-  thesis: "论文",
-  sci: "科研",
-  proposal: "课题",
-  software_copyright: "软著",
-  patent: "专利",
-};
-
 export function ExecutionPanel({
   data,
   range,

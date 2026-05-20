@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 
 class QuotaExceeded(Exception):
@@ -60,7 +60,7 @@ class QuotaService:
 
     def _key(self, user_id: str, kind: str) -> str:
         if kind == "tokens_daily":
-            day = datetime.now(timezone.utc).strftime("%Y%m%d")
+            day = datetime.now(UTC).strftime("%Y%m%d")
             return f"quota:{user_id}:{kind}:{day}"
         return f"quota:{user_id}:{kind}"
 

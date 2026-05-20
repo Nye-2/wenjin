@@ -1,7 +1,7 @@
 """Service layer for documents v2."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -92,6 +92,6 @@ class DocumentsService:
         doc = await self.get(workspace_id, doc_id)
         if doc is None:
             return False
-        doc.deleted_at = datetime.now(timezone.utc)
+        doc.deleted_at = datetime.now(UTC)
         await self.db.commit()
         return True

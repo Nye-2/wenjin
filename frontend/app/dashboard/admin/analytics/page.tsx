@@ -38,8 +38,12 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setIsLoading(true);
+        setError(null);
+      }
+    });
 
     Promise.all([
       getUserGrowth({ range, granularity: "day" }),

@@ -11,12 +11,15 @@ Phase 2 concern.  An empty list / 404 is returned when the DB has no rows.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
+
+if TYPE_CHECKING:
+    from src.services.capability_resolver import CapabilityResolver
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +31,7 @@ router = APIRouter(prefix="/capabilities", tags=["capabilities"])
 # ---------------------------------------------------------------------------
 
 
-async def _get_resolver(request: Request) -> "CapabilityResolver":
+async def _get_resolver(request: Request) -> CapabilityResolver:
     """Return the per-app CapabilityResolver singleton.
 
     Created lazily on first call and cached on ``app.state``.
@@ -87,11 +90,9 @@ def _capability_to_dict(cap: Any) -> dict[str, Any]:
 async def list_capabilities(
     workspace_type: str = Query(..., description="Workspace type, e.g. thesis"),
     current_user: User = Depends(get_current_user),
-    resolver: "CapabilityResolver" = Depends(_get_resolver),
+    resolver: CapabilityResolver = Depends(_get_resolver),
 ) -> dict[str, Any]:
     """List all active capabilities for the given workspace type."""
-    from src.services.capability_resolver import CapabilityResolver  # noqa: F401
-
     caps = await resolver.list_for_workspace_type(workspace_type)
     return {"items": [_capability_to_dict(c) for c in caps], "count": len(caps)}
 
@@ -101,7 +102,7 @@ async def get_capability(
     capability_id: str,
     workspace_type: str = Query(..., description="Workspace type, e.g. thesis"),
     current_user: User = Depends(get_current_user),
-    resolver: "CapabilityResolver" = Depends(_get_resolver),
+    resolver: CapabilityResolver = Depends(_get_resolver),
 ) -> dict[str, Any]:
     """Return full detail for a single capability."""
     from src.services.capability_resolver import CapabilityNotFound

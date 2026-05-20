@@ -22,7 +22,11 @@ export default function SkillListPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setIsLoading(true);
+      }
+    });
     listAdminSkills()
       .then((res) => {
         if (!cancelled) setItems(res.items);

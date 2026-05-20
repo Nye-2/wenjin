@@ -1,7 +1,6 @@
 """Tests for SkillResolver — runtime DB lookup with cache invalidation."""
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.services.skill_resolver import SkillResolver

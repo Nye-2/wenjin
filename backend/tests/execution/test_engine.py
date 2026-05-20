@@ -1,13 +1,12 @@
 """Tests for ExecutionEngineV2 (Task 2.6)."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.agents.contracts.task_report import TaskReport
 from src.execution.engine import ExecutionEngineV2
-
 
 # ---------------------------------------------------------------------------
 # Helpers

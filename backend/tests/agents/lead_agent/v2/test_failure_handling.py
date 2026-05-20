@@ -10,13 +10,10 @@ import pytest
 
 # Ensure subagent types are registered before compiler
 import src.subagents.v2.types  # noqa: F401
-
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.lead_agent.v2.compiler import _default_runner_factory, compile_graph
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
-from src.subagents.v2.registry import REGISTRY
-
 
 # ---------------------------------------------------------------------------
 # Test state

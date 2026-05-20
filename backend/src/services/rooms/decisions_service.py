@@ -1,8 +1,7 @@
 """Service layer for workspace decisions."""
 
 import logging
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -101,6 +100,6 @@ class DecisionsService:
         row = result.scalar_one_or_none()
         if row is None:
             return False
-        row.deleted_at = datetime.now(timezone.utc)
+        row.deleted_at = datetime.now(UTC)
         await self.db.commit()
         return True

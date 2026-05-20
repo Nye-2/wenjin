@@ -8,7 +8,6 @@ import type { AgentBlock } from "@/lib/api/blocks";
 import type {
   ThreadMessage,
   RunRequest,
-  TaskProgressEvent,
   WorkspaceEvent,
 } from "@/lib/api/types";
 
@@ -335,4 +334,3 @@ export function subscribeWorkspaceEvents(
     onClosedMessage: "Workspace event stream closed",
   });
 }
-

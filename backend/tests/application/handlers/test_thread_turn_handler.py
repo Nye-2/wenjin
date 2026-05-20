@@ -15,8 +15,6 @@ from src.application.handlers.thread_turn_handler import (
     build_thread_initial_state,
 )
 from src.application.results import (
-    CompletedThreadTurn,
-    GeneratedThreadReply,
     PreparedThreadTurn,
     ThreadTurnAttachment,
     ThreadTurnRequest,

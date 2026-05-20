@@ -1,8 +1,9 @@
 """Tests for CapabilityResolver and validate_capability."""
 
-import pytest
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
+
+import pytest
 
 from tests.database.conftest import DbCapability
 

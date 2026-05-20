@@ -2,7 +2,8 @@
 
 import asyncio
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
@@ -10,10 +11,11 @@ from src.agents.lead_agent.v2.template import (
     build_task_render_context,
     render_template,
 )
-from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
-from src.subagents.v2.registry import REGISTRY
+
 # Importing types populates REGISTRY with all v2 subagent classes
 from src.subagents.v2 import types as _types  # noqa: F401
+from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
+from src.subagents.v2.registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +126,6 @@ def _default_runner_factory(
         emit_delta: Optional async callback ``(event_type, content)`` forwarded
             to SubagentContext for streaming thinking deltas.
     """
-    import asyncio
 
     _max_attempts = (task_spec.get("retry_on_failure") or 0) + 1
     _task_name = task_spec["name"]

@@ -9,10 +9,8 @@ import pytest
 
 # Ensure subagent types are registered
 import src.subagents.v2.types  # noqa: F401
-
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.lead_agent.v2.runtime import ExecutionAborted, LeadAgentRuntime
-
 
 # ---------------------------------------------------------------------------
 # Helpers

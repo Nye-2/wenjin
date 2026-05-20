@@ -5,7 +5,7 @@ The prometheus_client library deduplicates registrations, so it is safe to
 import this module multiple times.
 """
 
-from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import Counter, Histogram
 
 # SSE first-frame latency for execution streams
 execution_stream_latency = Histogram(

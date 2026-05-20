@@ -1,12 +1,12 @@
 """Round-trip tests for memory_facts table."""
 
 import pytest
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 
 from tests.database.conftest import (
+    DbMemoryFact,
     DbUser,
     DbWorkspace,
-    DbMemoryFact,
 )
 
 

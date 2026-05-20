@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import JSON, REAL, BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, REAL, BigInteger, Boolean, ForeignKey, Integer, String, Text, func
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
-
 
 # ---------------------------------------------------------------------------
 # Minimal SQLite-compatible schema (mirrors production columns under test)

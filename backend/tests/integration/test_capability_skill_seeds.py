@@ -1,6 +1,7 @@
 """Integration test: all capability seeds reference existing skills."""
 
 from pathlib import Path
+
 import yaml
 
 SEED_ROOT = Path(__file__).resolve().parent.parent.parent / "seed"

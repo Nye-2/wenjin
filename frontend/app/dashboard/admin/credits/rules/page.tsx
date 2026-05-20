@@ -25,10 +25,26 @@ export default function CreditRulesPage() {
   const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setLoading(true);
+      }
+    });
     listCreditRules()
-      .then((res) => setRules(res.items))
-      .finally(() => setLoading(false));
+      .then((res) => {
+        if (!cancelled) {
+          setRules(res.items);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [reloadNonce]);
 
   const handleToggle = async (rule: CreditGrantRule) => {

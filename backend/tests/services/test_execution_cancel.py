@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.agents.contracts.task_report import TaskReport
 from src.execution.engine import ExecutionEngineV2
 from src.services.execution_service import ExecutionService
-
 
 # ---------------------------------------------------------------------------
 # Helpers

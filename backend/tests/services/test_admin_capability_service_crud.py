@@ -4,9 +4,8 @@ Uses SQLite-compatible test models for Capability round-trip tests.
 AdminLog is monkeypatched to a lightweight mock model.
 """
 
-from unittest.mock import AsyncMock, MagicMock
-
 import uuid
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio

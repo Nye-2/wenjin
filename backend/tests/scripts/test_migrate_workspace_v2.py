@@ -18,8 +18,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
 
-from scripts.migrate_workspace_v2 import migrate, MigrationResult
-
+from scripts.migrate_workspace_v2 import MigrationResult, migrate
 
 # ---------------------------------------------------------------------------
 # SQLite-compatible mock models for migration tests

@@ -63,6 +63,7 @@ class _ScalarOneOrNoneResult:
 async def test_dashboard_status_builders_cover_capabilities(test_session) -> None:
     """Every capability with a dashboard_meta.status_kind must have a matching mixin method."""
     from sqlalchemy import select
+
     from src.database.models.capability import Capability
 
     service = DashboardService(AsyncMock())

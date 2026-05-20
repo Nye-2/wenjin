@@ -4,7 +4,6 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # Output data payloads
 # ---------------------------------------------------------------------------

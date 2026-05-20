@@ -1,8 +1,9 @@
 """Tests for ModelGateway using mocked LLM clients."""
 
-import pytest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
+
+import pytest
 
 from src.services.model_gateway import ModelGateway
 from src.services.quota_service import QuotaExceeded
@@ -102,9 +103,6 @@ async def test_raises_quota_exceeded():
 @pytest.mark.asyncio
 async def test_does_not_retry_on_quota_exceeded():
     """QuotaExceeded raised inside _call_anthropic propagates immediately without retry."""
-    import anthropic as anthropic_mod
-    import openai as openai_mod
-    from unittest.mock import call
 
     # quota.check passes (so we enter the retry loop), but consume raises QuotaExceeded
     anthropic_client = AsyncMock()

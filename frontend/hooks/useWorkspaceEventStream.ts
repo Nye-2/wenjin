@@ -11,14 +11,6 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useExecutionStream } from "@/hooks/useExecutionStream";
 
-function normalizePreview(value: string | null | undefined): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized ? normalized : null;
-}
-
 function refreshWorkspaceTargets(workspaceId: string, targets: string[]) {
   const workspaceStore = useWorkspaceStore.getState();
   const dashboardStore = useDashboardStore.getState();

@@ -15,12 +15,12 @@ from .models import (
     ArtifactType,
     # Credit
     ComputeSessionRecord,
-    CreditTransaction,
-    CreditTransactionType,
     CreditGrantRule,
     CreditGrantRuleType,
     CreditRedeemCode,
     CreditRedemption,
+    CreditTransaction,
+    CreditTransactionType,
     ExecutionRecord,
     # Generation
     GenerationRecord,
@@ -45,6 +45,8 @@ from .models import (
     ReferenceTextUnitType,
     ReferenceUsageEvent,
     ReferenceUsageType,
+    # Referral
+    Referral,
     SubagentTaskRecord,
     # Task
     TaskRecord,
@@ -53,8 +55,6 @@ from .models import (
     User,
     # Knowledge
     UserKnowledge,
-    # Referral
-    Referral,
     # Workspace
     Workspace,
     WorkspaceReference,

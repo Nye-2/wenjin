@@ -78,7 +78,15 @@ export function ChatPanel({
   const [inputValue, setInputValue] = useState("");
   const [attachments, setAttachments] = useState<Array<{ name: string; path: string }>>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
-  const [historyHydrated, setHistoryHydrated] = useState(false);
+  const [historyHydration, setHistoryHydration] = useState<{
+    workspaceId: string;
+    hydrated: boolean;
+  }>(() => ({
+    workspaceId,
+    hydrated: false,
+  }));
+  const historyHydrated =
+    historyHydration.workspaceId === workspaceId && historyHydration.hydrated;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoLaunchedSeedRef = useRef<string | null>(null);
@@ -158,18 +166,21 @@ export function ChatPanel({
   useEffect(() => {
     const store = useChatStoreV2.getState();
     let cancelled = false;
-    setHistoryHydrated(false);
     if (store.messages.length === 0) {
       void store.loadHistory(workspaceId).then((tid) => {
         if (cancelled) return;
         if (tid) setThreadId(tid);
-        setHistoryHydrated(true);
+        setHistoryHydration({ workspaceId, hydrated: true });
       });
       return () => {
         cancelled = true;
       };
     }
-    setHistoryHydrated(true);
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setHistoryHydration({ workspaceId, hydrated: true });
+      }
+    });
     return () => {
       cancelled = true;
     };

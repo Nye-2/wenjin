@@ -1,6 +1,7 @@
 """Service layer for library items."""
 
 import logging
+from datetime import UTC
 from typing import Any
 from uuid import uuid4
 
@@ -78,11 +79,11 @@ class LibraryService:
 
     async def delete(self, workspace_id: str, item_id: str) -> bool:
         """Soft-delete a library item. Returns True if found."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         item = await self.get(workspace_id, item_id)
         if item is None:
             return False
-        item.deleted_at = datetime.now(timezone.utc)
+        item.deleted_at = datetime.now(UTC)
         await self.db.commit()
         return True

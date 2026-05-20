@@ -1,11 +1,10 @@
 """Service layer for workspace memory facts."""
 
 import logging
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import select, func, asc
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.memory_fact import MemoryFact
@@ -85,7 +84,7 @@ class MemoryService:
         if row is None:
             return None
         row.reference_count = (row.reference_count or 0) + 1
-        row.last_referenced_at = datetime.now(timezone.utc)
+        row.last_referenced_at = datetime.now(UTC)
         await self.db.commit()
         await self.db.refresh(row)
         return row
@@ -125,7 +124,7 @@ class MemoryService:
         )
         victims = result.scalars().all()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for v in victims:
             v.deleted_at = now
 

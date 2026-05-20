@@ -11,7 +11,11 @@ import {
 } from "lucide-react";
 
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
-import { exportConversationAsJson, exportConversationAsMarkdown } from "@/lib/thread-export";
+import {
+  exportConversationAsJson,
+  exportConversationAsMarkdown,
+  type ExportableThread,
+} from "@/lib/thread-export";
 import { useChatStoreV2 } from "@/stores/chat-store";
 import { Input } from "@/components/ui/input";
 import {
@@ -45,6 +49,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const exportThread: ExportableThread = { id: workspaceId, workspace_id: workspaceId };
 
   const isMac =
     typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("mac");
@@ -81,7 +86,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
             description: "导出适合留档和评审阅读的对话记录。",
             section: "会话",
             keywords: ["export", "markdown", "conversation", "导出", "会话"],
-            perform: () => exportConversationAsMarkdown({ id: workspaceId } as any, messages),
+            perform: () => exportConversationAsMarkdown(exportThread, messages),
             icon: FileText,
           },
           {
@@ -90,7 +95,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
             description: "导出完整结构化会话数据。",
             section: "会话",
             keywords: ["export", "json", "conversation", "导出", "会话"],
-            perform: () => exportConversationAsJson({ id: workspaceId } as any, messages),
+            perform: () => exportConversationAsJson(exportThread, messages),
             icon: FileJson,
           },
         ]

@@ -1,17 +1,15 @@
 """Tests for LeadAgentRuntime (Task 2.5)."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 # Ensure subagent types are registered
 import src.subagents.v2.types  # noqa: F401
-
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -114,8 +112,6 @@ async def test_run_session_invokes_subagents_and_collects_results():
     resolver = _make_resolver(cap)
 
     results_seen: list[dict] = []
-
-    original_publish = AsyncMock()
 
     async def capturing_publish(execution_id, event_name, payload):
         if event_name == "execution.completed":

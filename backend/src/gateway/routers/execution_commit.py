@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
@@ -65,7 +65,7 @@ def _get_commit_service(db: AsyncSession = Depends(get_db)) -> ExecutionCommitSe
 async def commit_execution_outputs(
     execution_id: str,
     body: CommitRequest,
-    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     commit_service: ExecutionCommitService = Depends(_get_commit_service),
 ) -> dict[str, Any]:
     """Commit selected execution outputs to rooms.

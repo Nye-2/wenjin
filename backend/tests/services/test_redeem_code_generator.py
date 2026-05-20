@@ -2,7 +2,7 @@
 
 import re
 
-from src.services.redeem_code_generator import generate_code, ALPHABET
+from src.services.redeem_code_generator import ALPHABET, generate_code
 
 
 def test_format_is_four_groups_of_four():

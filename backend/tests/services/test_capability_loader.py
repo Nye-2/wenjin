@@ -1,7 +1,6 @@
 """Tests for CapabilityLoader — YAML seed loading."""
 
 import textwrap
-from pathlib import Path
 
 import pytest
 from sqlalchemy import select

@@ -188,9 +188,33 @@ async def readiness_check() -> Any:
     return report
 
 # Include routers (imported after app creation to avoid circular imports)
-from .routers import artifacts, auth, capabilities, compute, dashboard, execution_commit, executions, latex, mcp, memory, models, references, runs, templates, thread_runs, threads, uploads, workspace_rooms, workspaces  # noqa: E402
-from .routers import admin_analytics, admin_capabilities, admin_skills  # noqa: E402
-from .routers import admin_credit_rules, admin_redeem_codes, credits_redeem  # noqa: E402
+from .routers import (  # noqa: E402
+    admin_analytics,
+    admin_capabilities,
+    admin_credit_rules,
+    admin_redeem_codes,
+    admin_skills,
+    artifacts,
+    auth,
+    capabilities,
+    compute,
+    credits_redeem,
+    dashboard,
+    execution_commit,
+    executions,
+    latex,
+    mcp,
+    memory,
+    models,
+    references,
+    runs,
+    templates,
+    thread_runs,
+    threads,
+    uploads,
+    workspace_rooms,
+    workspaces,
+)
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(threads.router, prefix="/api", tags=["threads"])

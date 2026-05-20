@@ -32,7 +32,11 @@ export default function CapabilityListPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setIsLoading(true);
+      }
+    });
     listAdminCapabilities()
       .then((res) => {
         if (!cancelled) setGroups(res.groups);

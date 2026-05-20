@@ -21,11 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from tests.database.conftest import (
-    _Base,
     DbAuditLog,
     DbCapability,
+    _Base,
 )
-
 
 # ---------------------------------------------------------------------------
 # Local SQLite session fixture (bypasses integration/conftest.py's version,
@@ -251,14 +250,14 @@ async def test_event_bus_publish_subscribe_with_mock_redis():
 @pytest.mark.asyncio
 async def test_room_services_boot(db_session):
     """All 8 room services can be imported and instantiated without error."""
-    from src.services.rooms.library_service import LibraryService
-    from src.services.rooms.documents_service import DocumentsService
     from src.services.rooms.decisions_service import DecisionsService
+    from src.services.rooms.documents_service import DocumentsService
+    from src.services.rooms.library_service import LibraryService
     from src.services.rooms.memory_service import MemoryService
     from src.services.rooms.run_history_service import RunHistoryService
     from src.services.rooms.sandbox_service import SandboxService
-    from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
     from src.services.rooms.settings_service import WorkspaceSettingsService
+    from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 
     LibraryService(db_session)
     DocumentsService(db_session)

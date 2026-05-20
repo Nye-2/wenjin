@@ -26,13 +26,29 @@ export default function RedeemCodesPage() {
   const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setLoading(true);
+      }
+    });
     listRedeemCodes({
       batch_id: batchId || undefined, keyword: keyword || undefined,
       page, page_size: 50,
     })
-      .then((res) => setCodes(res.items))
-      .finally(() => setLoading(false));
+      .then((res) => {
+        if (!cancelled) {
+          setCodes(res.items);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [batchId, keyword, page, reloadNonce]);
 
   const handleDisable = async (code: RedeemCode) => {

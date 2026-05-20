@@ -8,13 +8,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.routers import capabilities
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers

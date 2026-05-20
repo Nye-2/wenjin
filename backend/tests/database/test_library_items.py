@@ -1,12 +1,12 @@
 """Round-trip tests for library_items table."""
 
 import pytest
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 
 from tests.database.conftest import (
+    DbLibraryItem,
     DbUser,
     DbWorkspace,
-    DbLibraryItem,
 )
 
 

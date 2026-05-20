@@ -17,7 +17,7 @@ def _all_extended_passed() -> dict[str, bool]:
 
 def test_release_gate_fails_when_core_check_missing():
     core_results = _all_core_passed()
-    removed = core_results.pop(CORE_GATE_CHECKS[0])
+    core_results.pop(CORE_GATE_CHECKS[0])
 
     report = evaluate_release_gate(core_results=core_results)
 
@@ -57,4 +57,3 @@ def test_release_gate_keeps_core_go_when_extended_gate_failed():
     assert report["extended_gate"]["status"] == "failed"
     assert report["extended_gate"]["failed"] == 1
     assert any("integration_http_client" in item for item in report["recommendations"])
-

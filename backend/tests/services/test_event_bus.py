@@ -1,8 +1,9 @@
 """Tests for EventBus using mocked Redis pub/sub."""
 
 import json
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from src.services.event_bus import EventBus
 

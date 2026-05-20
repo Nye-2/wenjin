@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { AdminPageHeader } from "../components/AdminPageHeader";
 import { Button } from "@/components/ui/button";
@@ -132,6 +132,8 @@ export default function AdminMcpPage() {
       <AdminPageHeader
         title="MCP 配置中心"
         description="管理外部 MCP server。编辑区只修改 mcp_servers，不会覆盖 skills 配置。"
+        onRefresh={() => setReloadNonce((v) => v + 1)}
+        isRefreshing={isLoading}
         actions={
           <>
             <Button

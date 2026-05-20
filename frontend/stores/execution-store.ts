@@ -62,7 +62,7 @@ function deepCloneExecution(record: ExecutionRecord): ExecutionRecord {
   };
 }
 
-export const useExecutionStore = create<ExecutionState>((set, get) => ({
+export const useExecutionStore = create<ExecutionState>((set) => ({
   executions: new Map(),
   currentExecutionId: null,
   pausedExecutionIds: new Set(),
