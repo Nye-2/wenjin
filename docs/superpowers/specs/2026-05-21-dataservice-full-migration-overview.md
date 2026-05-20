@@ -1065,8 +1065,9 @@ Implementation status as of 2026-05-21:
 - Execution commit now stages memory/decision/task outputs into `review_batches` / `review_items` and applies them through room review handlers; direct room table writes from `ExecutionCommitService` are removed for those target kinds.
 - Verification through the Rooms slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1914 backend tests.
 - Projection cleanup first slice is implemented.
-- Runtime code outside DataService/database ownership packages is guarded from importing migrated room/sandbox legacy models: `Decision`, `MemoryFact`, `WorkspaceTask`, and `Sandbox`.
+- Runtime code outside DataService/database ownership packages is guarded from importing migrated room/sandbox/source legacy models: `Decision`, `MemoryFact`, `WorkspaceTask`, `Sandbox`, and `LibraryItem`.
 - Workspace Prism context now reads decision/memory context through `RoomsDataService`; the sandbox room facade delegates environment state to `SandboxDataService`.
+- The library room facade delegates reference-library state to `SourceDataService`, so library room writes no longer create `library_items` rows.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
 - Verification through the projection cleanup first slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1915 backend tests.
 

@@ -18,6 +18,9 @@ class SourceDataService:
     async def get_source(self, source_id: str) -> SourceProjection | None:
         return await self._domain.get_source(source_id)
 
+    async def mark_deleted(self, source_id: str) -> SourceProjection | None:
+        return await self._domain.mark_deleted(source_id)
+
     async def list_sources(
         self,
         *,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.source.contracts import SourceCreateCommand, SourceProjection
@@ -29,6 +31,15 @@ class SourceDataDomainService:
     async def get_source(self, source_id: str) -> SourceProjection | None:
         record = await self.repository.get_source(source_id)
         return source_to_projection(record) if record else None
+
+    async def mark_deleted(self, source_id: str) -> SourceProjection | None:
+        record = await self.repository.get_source(source_id)
+        if record is None:
+            return None
+        record.is_deleted = True
+        record.updated_at = datetime.now(UTC)
+        await self._finish()
+        return source_to_projection(record)
 
     async def list_sources(
         self,

@@ -14,12 +14,14 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.memory_fact",
     "src.database.models.workspace_task",
     "src.database.models.sandbox",
+    "src.database.models.library_item",
 }
 MIGRATED_LEGACY_MODEL_NAMES = {
     "Decision",
     "MemoryFact",
     "WorkspaceTask",
     "Sandbox",
+    "LibraryItem",
 }
 MODEL_OWNER_PACKAGES = {
     "database",
