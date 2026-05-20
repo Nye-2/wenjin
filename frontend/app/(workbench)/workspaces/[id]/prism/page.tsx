@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 
 import { useOptionalI18n } from "@/components/i18n-provider";
 import { LatexEditorShell } from "@/components/latex/LatexEditorShell";
@@ -29,9 +29,14 @@ export default function WorkspacePrismPage({
     surface: null,
     error: null,
   });
+  const [surfaceRefreshToken, setSurfaceRefreshToken] = useState(0);
 
   const surface = loadState.workspaceId === id ? loadState.surface : null;
   const error = loadState.workspaceId === id ? loadState.error : null;
+
+  const refreshSurface = useCallback(() => {
+    setSurfaceRefreshToken((token) => token + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +67,7 @@ export default function WorkspacePrismPage({
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, surfaceRefreshToken]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -76,6 +81,7 @@ export default function WorkspacePrismPage({
                 workspaceId={id}
                 initialFileChanges={surface.file_changes ?? []}
                 initialAppliedFileChanges={surface.applied_file_changes ?? []}
+                onReviewStateChanged={refreshSurface}
               />
             </div>
             <PrismContextRail surface={surface} />

@@ -127,7 +127,7 @@ test("Prism review links open the workspace surface before committing room outpu
               {
                 icon: "sparkles",
                 label: "预览待确认修改",
-                href: "/workspaces/ws-1/prism?focus=file_changes",
+                href: "/workspaces/ws-1/prism?focus=file_changes&review_item_id=section%3Aintroduction&logical_key=section%3Aintroduction",
               },
             ],
             feedback: {
@@ -176,16 +176,24 @@ test("Prism review links open the workspace surface before committing room outpu
   await expect(page.getByRole("link", { name: "预览待确认修改" })).toBeVisible();
   await page.getByRole("link", { name: "预览待确认修改" }).click();
 
-  await expect(page).toHaveURL(/\/workspaces\/ws-1\/prism\?focus=file_changes/);
+  await expect(page).toHaveURL(
+    /\/workspaces\/ws-1\/prism\?focus=file_changes&review_item_id=section%3Aintroduction&logical_key=section%3Aintroduction/,
+  );
   await expect(page.getByText("Prism 待确认写入")).toBeVisible();
   await expect(page.getByText("main.tex").first()).toBeVisible();
+  await expect(page.getByText(/Generated workspace manuscript/).first()).toBeVisible();
 
   await page.getByRole("button", { name: "应用到 Prism" }).click();
 
   await expect(page.getByText("Prism 已写入变更")).toBeVisible();
+  await expect(page.getByText("已写入稿件修改: main.tex")).toBeVisible();
   await expect(page.locator("textarea").last()).toHaveValue(
     /Generated workspace manuscript/,
   );
+
+  await page.getByRole("button", { name: "保护当前文件" }).click();
+  await expect(page.getByText("当前文件已保护")).toBeVisible();
+  await expect(page.getByText("user_manual_protect").first()).toBeVisible();
 
   await page.goto(workbenchUrl);
   await page.getByRole("button", { name: "查看结果" }).click();

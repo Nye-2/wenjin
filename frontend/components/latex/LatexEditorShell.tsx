@@ -59,6 +59,7 @@ interface LatexEditorShellProps {
   workspaceId?: string;
   initialFileChanges?: LatexFileChange[];
   initialAppliedFileChanges?: LatexAppliedFileChange[];
+  onReviewStateChanged?: () => void;
 }
 
 interface PdfDraftSelection {
@@ -555,6 +556,7 @@ export function LatexEditorShell({
   workspaceId,
   initialFileChanges,
   initialAppliedFileChanges,
+  onReviewStateChanged,
 }: LatexEditorShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1524,6 +1526,7 @@ export function LatexEditorShell({
     setFileChangeError("");
     try {
       await applyFileChange(change.logical_key);
+      onReviewStateChanged?.();
       setFileChangePreviews((prev) => {
         const next = { ...prev };
         delete next[change.logical_key];
@@ -1532,13 +1535,14 @@ export function LatexEditorShell({
     } finally {
       setBusyFileChangeKey(null);
     }
-  }, [applyFileChange]);
+  }, [applyFileChange, onReviewStateChanged]);
 
   const discardPendingFileChange = useCallback(async (change: LatexFileChange) => {
     setBusyFileChangeKey(change.logical_key);
     setFileChangeError("");
     try {
       await discardFileChange(change.logical_key);
+      onReviewStateChanged?.();
       setFileChangePreviews((prev) => {
         const next = { ...prev };
         delete next[change.logical_key];
@@ -1547,13 +1551,14 @@ export function LatexEditorShell({
     } finally {
       setBusyFileChangeKey(null);
     }
-  }, [discardFileChange]);
+  }, [discardFileChange, onReviewStateChanged]);
 
   const deferPendingFileChange = useCallback(async (change: LatexFileChange) => {
     setBusyFileChangeKey(change.logical_key);
     setFileChangeError("");
     try {
       await deferFileChange(change.logical_key);
+      onReviewStateChanged?.();
       setFileChangePreviews((prev) => {
         const next = { ...prev };
         delete next[change.logical_key];
@@ -1562,7 +1567,7 @@ export function LatexEditorShell({
     } finally {
       setBusyFileChangeKey(null);
     }
-  }, [deferFileChange]);
+  }, [deferFileChange, onReviewStateChanged]);
 
   const revertAppliedFileChange = useCallback(async (change: {
     logical_key: string;
@@ -1572,6 +1577,7 @@ export function LatexEditorShell({
     setFileChangeError("");
     try {
       await revertFileChange(change.logical_key, change.revert_signature);
+      onReviewStateChanged?.();
       setFileChangePreviews((prev) => {
         const next = { ...prev };
         delete next[change.logical_key];
@@ -1580,7 +1586,7 @@ export function LatexEditorShell({
     } finally {
       setBusyFileChangeKey(null);
     }
-  }, [revertFileChange]);
+  }, [onReviewStateChanged, revertFileChange]);
 
   const protectActiveFile = useCallback(async () => {
     if (!project || !activeFilePath || activeFileKind !== "text") {
@@ -1595,13 +1601,14 @@ export function LatexEditorShell({
         scope: "file",
         reason: "user_manual_protect",
       });
+      onReviewStateChanged?.();
       setProtectionStatus("当前文件已保护，后续 agent 会以建议形式处理改写。");
     } catch (err) {
       setProtectionError(`保护当前文件失败: ${readClientErrorMessage(err)}`);
     } finally {
       setIsProtectingActiveFile(false);
     }
-  }, [activeFileKind, activeFilePath, project]);
+  }, [activeFileKind, activeFilePath, onReviewStateChanged, project]);
 
   return (
     <main className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">

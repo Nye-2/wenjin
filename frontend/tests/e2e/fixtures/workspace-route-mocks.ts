@@ -100,6 +100,7 @@ export async function installWorkspaceRouteMocks(
     "\\documentclass{article}\\begin{document}Generated workspace manuscript\\end{document}";
   let prismContent = prismInitialContent;
   let prismApplied = false;
+  let prismProtected = false;
 
   function prismFileChanges() {
     if (!prismReview || prismApplied) {
@@ -265,20 +266,71 @@ export async function installWorkspaceRouteMocks(
             ],
           })),
           source_links: [],
-          protected_sections: [],
+          protected_sections: prismProtected
+            ? [
+                {
+                  id: "protected-current-file",
+                  workspace_id: workspaceId,
+                  latex_project_id: prismProjectId,
+                  file_path: prismPath,
+                  section_key: "",
+                  scope: "file",
+                  reason: "user_manual_protect",
+                  source: "manual_edit",
+                  updated_at: "2026-05-18T00:04:00Z",
+                },
+              ]
+            : [],
           decisions: [],
           memory_preferences: [],
-          recent_activity: [],
+          recent_activity: [
+            ...(prismApplied
+              ? [
+                  {
+                    id: `prism_review:${prismLogicalKey}`,
+                    kind: "prism_review",
+                    workspace_id: workspaceId,
+                    title: `已写入稿件修改: ${prismPath}`,
+                    summary: prismReason,
+                    status: "applied",
+                    occurred_at: "2026-05-18T00:03:00Z",
+                    metadata: {
+                      latex_project_id: prismProjectId,
+                      review_item_id: prismLogicalKey,
+                      logical_key: prismLogicalKey,
+                      target_file_path: prismPath,
+                    },
+                  },
+                ]
+              : []),
+            ...(prismProtected
+              ? [
+                  {
+                    id: "prism_review:manual-protect",
+                    kind: "prism_review",
+                    workspace_id: workspaceId,
+                    title: `已保护稿件文件: ${prismPath}`,
+                    summary: "user_manual_protect",
+                    status: "protected",
+                    occurred_at: "2026-05-18T00:04:00Z",
+                    metadata: {
+                      latex_project_id: prismProjectId,
+                      target_file_path: prismPath,
+                    },
+                  },
+                ]
+              : []),
+          ],
           review_summary: {
             pending_count: prismFileChanges().length,
             applied_count: Object.values(prismAppliedFileChanges()).length,
             source_link_count: 0,
-            protected_section_count: 0,
+            protected_section_count: prismProtected ? 1 : 0,
           },
           context_summary: {
             decision_count: 0,
             memory_preference_count: 0,
-            recent_activity_count: 0,
+            recent_activity_count: (prismApplied ? 1 : 0) + (prismProtected ? 1 : 0),
           },
         }),
       );
@@ -432,6 +484,24 @@ export async function installWorkspaceRouteMocks(
             applied_hash: "pending-hash",
             revert_signature: "b".repeat(64),
           },
+        }),
+      );
+      return;
+    }
+
+    if (
+      pathname === `/api/latex/projects/${prismProjectId}/protected-sections` &&
+      request.method() === "POST"
+    ) {
+      prismProtected = true;
+      await route.fulfill(
+        json({
+          ok: true,
+          protected: true,
+          path: prismPath,
+          section_key: "",
+          scope: "file",
+          reason: "user_manual_protect",
         }),
       );
       return;
