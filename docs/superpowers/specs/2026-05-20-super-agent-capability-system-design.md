@@ -948,7 +948,7 @@ DataService 的职责：
 3. 提供 workspace-scoped repositories，统一读写 Library/Source、Documents/Assets、Decisions、Memory、Tasks、Run History projection、Prism、Sandbox。
 4. 提供 Prism universal document repository，不再让业务直接依赖 `LatexProject`；新增 `PrismProject` / `PrismDocument` / `PrismFile` / `PrismFileVersion` 作为主模型，现有 workspace-owned LaTeX 项目一次性迁移进去。
 5. 提供 ReviewItem v2 repository 和 state machine，使 Prism changes、room outputs、sandbox artifacts 共用一个 review/apply 状态源。
-6. 提供 SandboxArtifact repository，管理 artifact metadata、input hash、script hash、output path 和 preview metadata。
+6. 提供 Sandbox runtime repository，管理 workspace sandbox environment、job reproducibility、artifact metadata、input hash、script hash、output path 和 preview metadata。
 7. 提供 ProvenanceService，统一 source links、artifact links、execution links、document section links。
 8. 提供 projection builders，给 Chat Agent、Lead Agent、Prism context rail、Compute panel 读取轻量上下文。
 
@@ -987,9 +987,9 @@ DataService 的职责：
 | Execution / Compute | `Execution`, `ExecutionNode`, `ExecutionEvent` | `TaskRecord`, `SubagentTaskRecord`, `WorkspaceRun`, `RunHistory`, `ComputeSession` product state |
 | Review | `ReviewItem`, `ReviewActionLog` | `PrismReviewItem`, `TaskReport.outputs`, ResultCard transient state |
 | Prism Universal Document | `PrismProject`, `PrismDocument`, `PrismFile`, `PrismFileVersion`, `PrismRender`, `PrismProtectedScope` | workspace-owned `LatexProject`, `LatexProject.llm_config`, Prism-specific review tables |
-| Source Library | `Source`, `SourceAsset`, `SourceTextUnit`, `SourceExternalId`, `SourceBibtexSnapshot` | `WorkspaceReference*`, `LibraryItem` |
+| Source Library | `Source`, `SourceExternalId`, `SourceAsset`, `SourceOutlineNode`, `SourceTextUnit`, `SourceBibtexSnapshot` | `WorkspaceReference*`, `LibraryItem` |
 | Workspace Assets | `WorkspaceAsset` | `DocumentV2`, generic `Artifact`, file-like `GenerationRecord` |
-| Sandbox Artifacts | `SandboxJobRecord`, `SandboxArtifact` | `Sandbox`, execution payload artifact ids |
+| Sandbox Runtime | `SandboxEnvironment`, `SandboxJobRecord`, `SandboxArtifact` | `Sandbox`, execution payload artifact ids |
 | Provenance | `ProvenanceLink`, `SourceAnchor` | `PrismSourceLink`, `ReferenceUsageEvent`, source fields inside review payloads |
 | Rooms | `Decision`, `MemoryFact`, `WorkspaceTask` | candidate decisions/memory/tasks in task reports |
 
@@ -1029,7 +1029,7 @@ DataService 的事务策略：
 2. **Foundation**：新增 `dataservice` 包、`DataServiceUnitOfWork`、architecture guard、Alembic metadata import。
 3. **Review first**：用 `ReviewItem v2` 统一 `prism_review_items` 与 `TaskReport.outputs` 的可审阅产物。
 4. **Prism universal document**：新增 `PrismProject` / `PrismDocument` / `PrismFile` / `PrismFileVersion`，一次性迁移 workspace-owned `LatexProject` 绑定，不扩展 `LatexProject` 为通用模型。
-5. **Sources/assets/sandbox/provenance**：把 `WorkspaceReference`、`LibraryItem`、`DocumentV2`、`Artifact`、`GenerationRecord`、`PrismSourceLink`、`ReferenceUsageEvent` 收敛到 source / asset / sandbox / provenance。
+5. **Sources/assets/sandbox/provenance**：把 `WorkspaceReference`、`LibraryItem`、`DocumentV2`、`Artifact`、`GenerationRecord`、`Sandbox`、`PrismSourceLink`、`ReferenceUsageEvent` 收敛到 source / asset / sandbox / provenance。
 6. **Execution cleanup**：`Execution` / `ExecutionNode` 成为 product run SSOT；`TaskRecord` 只作为 queue infrastructure；Run History / Compute 读 projection。
 7. **Projection cleanup**：`WorkspacePrismService`、`workspace_summary_service`、`compute/projection_service` 改为读取 DataService projection。
 8. **Legacy deletion/archive**：每个领域切换后删除 runtime path，旧表只允许离线归档，不允许运行时 fallback。
@@ -1053,7 +1053,7 @@ DataService 的事务策略：
 - `dataservice/models/prism_document.py`
 - `dataservice/models/source.py`
 - `dataservice/models/asset.py`
-- `dataservice/models/sandbox_artifact.py`
+- `dataservice/models/sandbox.py`
 - `dataservice/models/provenance.py`
 - `dataservice/repositories/review_items.py`
 - `dataservice/repositories/prism_documents.py`
